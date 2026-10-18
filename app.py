@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.16"
+APP_VERSION = "v3.17"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -28,9 +28,16 @@ FACTORY_MCP_TOKEN = os.environ.get("FACTORY_MCP_TOKEN", "").strip()
 # but the base URL and model are configurable so FactoryOS is not coupled to one vendor.
 FACTORY_LLM_API_KEY = os.environ.get("FACTORY_LLM_API_KEY", "").strip()
 FACTORY_LLM_BASE_URL = os.environ.get("FACTORY_LLM_BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
-FACTORY_LLM_MODEL = os.environ.get("FACTORY_LLM_MODEL", "gpt-5-mini").strip()
-FACTORY_LLM_INPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_INPUT_USD_PER_1M", "0"))
-FACTORY_LLM_OUTPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_OUTPUT_USD_PER_1M", "0"))
+FACTORY_LLM_API_MODE = os.environ.get("FACTORY_LLM_API_MODE", "responses").strip().lower()
+FACTORY_LLM_MODEL = os.environ.get("FACTORY_LLM_MODEL", "gpt-5.6-terra").strip()
+_DEFAULT_LLM_PRICES={
+    "gpt-5.6-luna": (0.20, 1.20),
+    "gpt-5.6-terra": (2.00, 12.00),
+    "gpt-5.6-sol": (4.00, 20.00),
+}
+_default_input_price,_default_output_price=_DEFAULT_LLM_PRICES.get(FACTORY_LLM_MODEL,(0.0,0.0))
+FACTORY_LLM_INPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_INPUT_USD_PER_1M", str(_default_input_price)))
+FACTORY_LLM_OUTPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_OUTPUT_USD_PER_1M", str(_default_output_price)))
 LLM_LIVE_AGENTS = {
     "Scout","Researcher","Tech Verifier","Hook Writer","Scriptwriter",
     "Visual Director","QA Agent","Publisher","Analyst",
@@ -1282,9 +1289,13 @@ def agent_artifact_template(agent, job):
     return templates.get(agent,("text","Agent output",f"DEMO OUTPUT for {title}"))
 
 def _llm_endpoint():
-    if FACTORY_LLM_BASE_URL.endswith("/chat/completions"):
+    if FACTORY_LLM_API_MODE=="chat_completions":
+        if FACTORY_LLM_BASE_URL.endswith("/chat/completions"):
+            return FACTORY_LLM_BASE_URL
+        return FACTORY_LLM_BASE_URL + "/chat/completions"
+    if FACTORY_LLM_BASE_URL.endswith("/responses"):
         return FACTORY_LLM_BASE_URL
-    return FACTORY_LLM_BASE_URL + "/chat/completions"
+    return FACTORY_LLM_BASE_URL + "/responses"
 
 def _llm_artifact_identity(agent):
     identities={
@@ -1339,13 +1350,21 @@ def _call_live_llm(agent, job, input_pack):
         f"APPROVED WORKER MEMORY:\n{memory_text or '(none)'}\n\n"
         "Return a production-ready artifact for this worker stage."
     )
-    payload={
-        "model":FACTORY_LLM_MODEL,
-        "messages":[
-            {"role":"system","content":system},
-            {"role":"user","content":user},
-        ],
-    }
+    if FACTORY_LLM_API_MODE=="chat_completions":
+        payload={
+            "model":FACTORY_LLM_MODEL,
+            "messages":[
+                {"role":"system","content":system},
+                {"role":"user","content":user},
+            ],
+        }
+    else:
+        payload={
+            "model":FACTORY_LLM_MODEL,
+            "instructions":system,
+            "input":user,
+            "store":False,
+        }
     data=json.dumps(payload).encode("utf-8")
     req=urlrequest.Request(
         _llm_endpoint(),
@@ -1367,13 +1386,23 @@ def _call_live_llm(agent, job, input_pack):
         raise RuntimeError(f"LLM provider request failed: {exc}") from exc
     try:
         result=json.loads(raw)
-        content=result["choices"][0]["message"]["content"]
+        if FACTORY_LLM_API_MODE=="chat_completions":
+            content=result["choices"][0]["message"]["content"]
+            if isinstance(content,list):
+                content="\n".join(
+                    x.get("text","") for x in content if isinstance(x,dict) and x.get("text")
+                )
+        else:
+            parts=[]
+            for item in result.get("output") or []:
+                if item.get("type")!="message":
+                    continue
+                for block in item.get("content") or []:
+                    if block.get("type")=="output_text" and block.get("text"):
+                        parts.append(block["text"])
+            content="\n".join(parts)
     except Exception as exc:
         raise RuntimeError("LLM provider returned an unsupported response shape") from exc
-    if isinstance(content,list):
-        content="\n".join(
-            x.get("text","") for x in content if isinstance(x,dict) and x.get("text")
-        )
     content=str(content or "").strip()
     if not content:
         raise RuntimeError("LLM provider returned empty content")
@@ -1987,6 +2016,16 @@ async def verify_builder_bridge():
         print(json.dumps({"event":"BUILDER_BRIDGE_CHECK","status":"ready","workflow":BUILDER_WORKFLOW}),flush=True)
     except Exception as exc:
         print(json.dumps({"event":"BUILDER_BRIDGE_CHECK","status":"error","error":str(exc)[:300]}),flush=True)
+
+@app.on_event("startup")
+async def report_llm_readiness():
+    print(json.dumps({
+        "event":"LLM_PROVIDER_CHECK",
+        "configured":bool(FACTORY_LLM_API_KEY),
+        "model":FACTORY_LLM_MODEL if FACTORY_LLM_API_KEY else None,
+        "api_mode":FACTORY_LLM_API_MODE if FACTORY_LLM_API_KEY else None,
+        "base_url":FACTORY_LLM_BASE_URL if FACTORY_LLM_API_KEY else None,
+    }),flush=True)
 
 @app.on_event("startup")
 async def start_builder_reconciler():
