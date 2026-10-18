@@ -453,13 +453,36 @@ def record_run_step(run_id, job_id, agent, step_key, label, progress, status="co
 async def push_agent_progress(agent, run_id, job_id, step_key, label, progress, state="working", persist=True):
     snapshot=set_agent_progress(agent,progress,label,job_id,run_id,state)
     if persist:
-        record_run_step(run_id,job_id,agent,step_key,label,progress,"completed" if progress>=100 else "running")
+        record_run_step(run_id,job_id,agent,step_key,label,progress,"completed")
     await broadcast({"type":"agent_progress","agent":agent,"state":state,"progress":snapshot})
 
 def reset_agent_progress(agent, state="idle", step="Idle"):
     agent_runtime[agent]=state
     agent_progress[agent]={"progress":0 if state=="idle" else 100 if state=="done" else 0,
                            "step":step,"job_id":None,"run_id":None,"started_at":None,"updated_at":ts()}
+
+def get_agent_progress_snapshot(agent):
+    current=dict(agent_progress.get(agent,{}) or {})
+    if current.get("run_id") or agent_runtime.get(agent) in ("working","failed"):
+        return current
+    con=db()
+    row=con.execute("""SELECT s.progress,s.label,s.job_id,s.run_id,s.started_at,s.finished_at,r.status run_status
+                       FROM agent_run_steps s
+                       JOIN agent_runs r ON r.id=s.run_id
+                       WHERE s.agent=? ORDER BY s.started_at DESC LIMIT 1""",(agent,)).fetchone()
+    con.close()
+    if row:
+        return {
+            "progress":int(row["progress"] or 0),
+            "step":row["label"],
+            "job_id":row["job_id"],
+            "run_id":row["run_id"],
+            "started_at":row["started_at"],
+            "updated_at":row["finished_at"] or row["started_at"],
+        }
+    if agent=="Supervisor":
+        return {"progress":100,"step":"Continuous monitoring","job_id":None,"run_id":None,"started_at":None,"updated_at":ts()}
+    return current or {"progress":0,"step":"Idle","job_id":None,"run_id":None,"started_at":None,"updated_at":None}
 
 def get_agent_mcp_connections(agent):
     con=db()
@@ -1105,7 +1128,7 @@ def status():
         "factory":"online","jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
         "selectedJobQuality": get_job_quality(sid) if sid else None,
         "events":ev,"connections":CONNECTIONS,"stages":STAGES,
-        "agentStates":agent_states(jobs),"agentProgress":agent_progress,"agentMap":AGENT_MAP,
+        "agentStates":agent_states(jobs),"agentProgress":{a:get_agent_progress_snapshot(a) for a in AGENTS},"agentMap":AGENT_MAP,
         "runningJobs":list(running_jobs),"nextAction":next_action(selected),
         "supervisor": report,
         "supervisorState": supervisor_runtime.get("state", "monitoring"),
@@ -1307,7 +1330,7 @@ def agent_detail(agent_name:str):
         "dependencies":AGENT_DEPENDENCIES.get(agent_name,[]),
         "state":agent_states(get_jobs()).get(agent_name,"idle"),
         "metrics":get_agent_metrics(agent_name),
-        "progress":agent_progress.get(agent_name,{}),
+        "progress":get_agent_progress_snapshot(agent_name),
         "mcp":get_agent_mcp_connections(agent_name),
         "steps":steps,
         "runs":runs,
