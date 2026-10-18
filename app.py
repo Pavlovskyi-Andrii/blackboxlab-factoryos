@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.17"
+APP_VERSION = "v3.18"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -2110,13 +2110,31 @@ async def run_job(job_id:str):
     if job_id in running_jobs: return {"ok":True,"message":"Already running"}
     jobs=get_jobs(); job=next((j for j in jobs if j["id"]==job_id),None)
     if not job: raise HTTPException(404,"Job not found")
-    if job["status"] == "waiting_approval": return {"ok":False,"message":"Approval required"}
+    restarted_from_review=False
+    if job["status"] == "waiting_approval":
+        # "Run Factory" means re-run the production pipeline, not publish.
+        # Preserve the human approval gate while allowing an existing reviewed
+        # job to be regenerated after provider/configuration changes.
+        con=db()
+        research_progress=int(STAGES.index("research")/(len(STAGES)-1)*100)
+        con.execute(
+            "UPDATE jobs SET stage='research',status='idle',progress=?,updated_at=? WHERE id=?",
+            (research_progress,ts(),job_id),
+        )
+        con.commit(); con.close()
+        event(job_id,"Factory restart requested from review gate; approval remains required before publish")
+        restarted_from_review=True
     usage=get_usage_summary()
     if usage["today_cost_usd"] >= FACTORY_DAILY_BUDGET_USD:
         return {"ok":False,"message":"Daily provider budget reached. Increase the budget only after review."}
     if get_job_cost(job_id) >= FACTORY_JOB_BUDGET_USD:
         return {"ok":False,"message":"This job reached its provider budget. Review its agent ledger before continuing."}
-    running_jobs.add(job_id); asyncio.create_task(run_until_review(job_id)); return {"ok":True}
+    running_jobs.add(job_id)
+    asyncio.create_task(run_until_review(job_id))
+    return {
+        "ok":True,
+        "message":"Factory restarted from Research with the approval gate preserved." if restarted_from_review else "Factory started."
+    }
 
 async def run_until_review(job_id:str):
     try:
