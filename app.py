@@ -17,12 +17,25 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.15"
+APP_VERSION = "v3.16"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
 BUILDER_WORKFLOW = os.environ.get("FACTORY_BUILDER_WORKFLOW", "factory-builder.yml")
 FACTORY_MCP_TOKEN = os.environ.get("FACTORY_MCP_TOKEN", "").strip()
+
+# Live LLM adapter. Defaults to an OpenAI-compatible Chat Completions endpoint,
+# but the base URL and model are configurable so FactoryOS is not coupled to one vendor.
+FACTORY_LLM_API_KEY = os.environ.get("FACTORY_LLM_API_KEY", "").strip()
+FACTORY_LLM_BASE_URL = os.environ.get("FACTORY_LLM_BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
+FACTORY_LLM_MODEL = os.environ.get("FACTORY_LLM_MODEL", "gpt-5-mini").strip()
+FACTORY_LLM_INPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_INPUT_USD_PER_1M", "0"))
+FACTORY_LLM_OUTPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_OUTPUT_USD_PER_1M", "0"))
+LLM_LIVE_AGENTS = {
+    "Scout","Researcher","Tech Verifier","Hook Writer","Scriptwriter",
+    "Visual Director","QA Agent","Publisher","Analyst",
+}
+
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB = DATA_DIR / "factory.db"
@@ -358,7 +371,10 @@ CONNECTIONS = {
     "Instagram": {"state":"connected","detail":"Connected in Metricool"},
     "TikTok": {"state":"connected","detail":"@blackboxlab"},
     "vidIQ": {"state":"paused","detail":"Paused for now"},
-    "LLM": {"state":"demo","detail":"Agents are simulated in v3"},
+    "LLM": {
+        "state":"connected" if FACTORY_LLM_API_KEY else "demo",
+        "detail":f"Live model: {FACTORY_LLM_MODEL}" if FACTORY_LLM_API_KEY else "Live adapter ready; set FACTORY_LLM_API_KEY",
+    },
     "Voice": {"state":"not_configured","detail":"Provider not selected"},
     "Video": {"state":"not_configured","detail":"Provider not selected"},
 }
@@ -1258,6 +1274,118 @@ def agent_artifact_template(agent, job):
     }
     return templates.get(agent,("text","Agent output",f"DEMO OUTPUT for {title}"))
 
+def _llm_endpoint():
+    if FACTORY_LLM_BASE_URL.endswith("/chat/completions"):
+        return FACTORY_LLM_BASE_URL
+    return FACTORY_LLM_BASE_URL + "/chat/completions"
+
+def _llm_artifact_identity(agent):
+    identities={
+        "Scout":("analysis","Opportunity scan"),
+        "Researcher":("research","Research brief"),
+        "Tech Verifier":("analysis","Technical verification"),
+        "Hook Writer":("text","Hook candidates"),
+        "Scriptwriter":("text","Draft script"),
+        "Visual Director":("text","Storyboard / visual plan"),
+        "QA Agent":("analysis","QA report"),
+        "Publisher":("text","Publishing package"),
+        "Analyst":("analysis","Performance learning brief"),
+    }
+    return identities.get(agent,("text",f"{agent} output"))
+
+def _trim_llm_context(value, limit=5000):
+    value=(value or "").strip()
+    if len(value)<=limit:
+        return value
+    return value[:limit] + "\n...[truncated]"
+
+def _call_live_llm(agent, job, input_pack):
+    if not FACTORY_LLM_API_KEY:
+        raise RuntimeError("FACTORY_LLM_API_KEY is not configured")
+    spec=AGENT_SPECS.get(agent,{})
+    memories=get_agent_memory(agent,limit=8)
+    upstream=[]
+    for art in input_pack.get("artifacts",[]):
+        upstream.append(
+            f"FROM {art.get('agent','unknown')} — {art.get('title','artifact')}:\n"
+            + _trim_llm_context(art.get("content",""),4500)
+        )
+    memory_text="\n".join(
+        f"- {m.get('content','')}" for m in memories if m.get("content")
+    )
+    system=(
+        f"You are the {agent} inside Blackbox Lab FactoryOS. "
+        f"Role: {spec.get('role','AI worker')}. Goal: {spec.get('goal','Produce the requested artifact')}. "
+        "Produce the artifact itself, not commentary about being an AI. "
+        "Be concise, operational and explicit about uncertainty. "
+        "Never invent sources, test results, analytics or tool outputs. "
+        "If evidence is missing, state exactly what still needs verification. "
+        "Respect the requested language and preserve the human approval gate before publishing."
+    )
+    user=(
+        f"JOB TITLE: {job.get('title','')}\n"
+        f"BRIEF: {_trim_llm_context(job.get('brief',''),4000)}\n"
+        f"LANGUAGE: {job.get('language','English')}\n"
+        f"FORMAT: {job.get('format','')}\n"
+        f"PRESENTER: {job.get('presenter','')}\n\n"
+        f"UPSTREAM ARTIFACTS:\n{chr(10).join(upstream) if upstream else '(none)'}\n\n"
+        f"APPROVED WORKER MEMORY:\n{memory_text or '(none)'}\n\n"
+        "Return a production-ready artifact for this worker stage."
+    )
+    payload={
+        "model":FACTORY_LLM_MODEL,
+        "messages":[
+            {"role":"system","content":system},
+            {"role":"user","content":user},
+        ],
+    }
+    data=json.dumps(payload).encode("utf-8")
+    req=urlrequest.Request(
+        _llm_endpoint(),
+        data=data,
+        headers={
+            "Authorization":f"Bearer {FACTORY_LLM_API_KEY}",
+            "Content-Type":"application/json",
+            "Accept":"application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlrequest.urlopen(req,timeout=max(15,AGENT_TIMEOUT_SECONDS)) as resp:
+            raw=resp.read().decode("utf-8")
+    except urlerror.HTTPError as exc:
+        body=exc.read().decode("utf-8","replace")[:1200]
+        raise RuntimeError(f"LLM provider HTTP {exc.code}: {body}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"LLM provider request failed: {exc}") from exc
+    try:
+        result=json.loads(raw)
+        content=result["choices"][0]["message"]["content"]
+    except Exception as exc:
+        raise RuntimeError("LLM provider returned an unsupported response shape") from exc
+    if isinstance(content,list):
+        content="\n".join(
+            x.get("text","") for x in content if isinstance(x,dict) and x.get("text")
+        )
+    content=str(content or "").strip()
+    if not content:
+        raise RuntimeError("LLM provider returned empty content")
+    usage=result.get("usage") or {}
+    input_tokens=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    output_tokens=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    cost_usd=(
+        input_tokens * FACTORY_LLM_INPUT_USD_PER_1M / 1_000_000
+        + output_tokens * FACTORY_LLM_OUTPUT_USD_PER_1M / 1_000_000
+    )
+    kind,title=_llm_artifact_identity(agent)
+    return {
+        "kind":kind,"title":title,"content":content,
+        "model":result.get("model") or FACTORY_LLM_MODEL,
+        "input_tokens":input_tokens,"output_tokens":output_tokens,
+        "cost_usd":cost_usd,
+        "provider_request_id":result.get("id"),
+    }
+
 def add_agent_memory(agent, content, kind="learning", source="manual", source_job_id=None, confidence=1.0):
     if agent not in AGENTS:
         raise ValueError(f"Unknown agent: {agent}")
@@ -1482,7 +1610,9 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
     total_attempts=max(1,AGENT_MAX_RETRIES+1)
     for attempt in range(1,total_attempts+1):
         input_pack=collect_agent_inputs(job_id,agent)
-        run_id=start_agent_run(agent,job_id,stage)
+        live_llm=bool(FACTORY_LLM_API_KEY and agent in LLM_LIVE_AGENTS)
+        run_model=FACTORY_LLM_MODEL if live_llm else "simulation-v3"
+        run_id=start_agent_run(agent,job_id,stage,model=run_model)
         attach_run_inputs(run_id,input_pack["artifacts"])
         set_agent_progress(agent,3,"Starting run",job_id,run_id,"working")
         event(job_id,f"{agent}: working (attempt {attempt}/{total_attempts})")
@@ -1510,10 +1640,23 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
             await asyncio.sleep(max(0.05,delay*0.12))
 
             await push_agent_progress(agent,run_id,job_id,"generate","Producing output",52)
-            async def demo_step():
-                await asyncio.sleep(max(0.05,delay*0.40))
-                return agent_artifact_template(agent,job)
-            kind,title,content,*extra=await asyncio.wait_for(demo_step(),timeout=AGENT_TIMEOUT_SECONDS)
+            llm_result=None
+            if live_llm:
+                usage=get_usage_summary()
+                if usage["today_cost_usd"] >= FACTORY_DAILY_BUDGET_USD:
+                    raise RuntimeError("Daily provider budget reached before model call")
+                if get_job_cost(job_id) >= FACTORY_JOB_BUDGET_USD:
+                    raise RuntimeError("Job provider budget reached before model call")
+                llm_result=await asyncio.wait_for(
+                    asyncio.to_thread(_call_live_llm,agent,job,input_pack),
+                    timeout=AGENT_TIMEOUT_SECONDS,
+                )
+                kind=llm_result["kind"]; title=llm_result["title"]; content=llm_result["content"]; extra=[]
+            else:
+                async def demo_step():
+                    await asyncio.sleep(max(0.05,delay*0.40))
+                    return agent_artifact_template(agent,job)
+                kind,title,content,*extra=await asyncio.wait_for(demo_step(),timeout=AGENT_TIMEOUT_SECONDS)
 
             await push_agent_progress(agent,run_id,job_id,"validate","Validating output",76)
             await asyncio.sleep(max(0.05,delay*0.13))
@@ -1524,13 +1667,32 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
                 if len(extra)>1: kwargs["mime_type"]=extra[1]
 
             await push_agent_progress(agent,run_id,job_id,"save","Saving artifact & ledger",91)
+            mode="live_llm" if llm_result else "demo"
+            artifact_meta={
+                "mode":mode,"stage":stage,"attempt":attempt,
+                "enabled_mcp":[x["name"] for x in enabled_mcp],"mcp_capabilities":mcp_capabilities,
+            }
+            if llm_result:
+                artifact_meta.update({
+                    "model":llm_result["model"],
+                    "provider_request_id":llm_result.get("provider_request_id"),
+                })
             save_artifact(agent,kind,title,content,job_id=job_id,run_id=run_id,
-                          meta={"mode":"demo","stage":stage,"attempt":attempt,
-                                "enabled_mcp":[x["name"] for x in enabled_mcp],"mcp_capabilities":mcp_capabilities},**kwargs)
-            finish_agent_run(run_id,status="completed",
-                             meta={"mode":"demo","attempt":attempt,
-                                   "enabled_mcp":[x["name"] for x in enabled_mcp],"mcp_capabilities":mcp_capabilities,
-                                   "note":"MCP capabilities were probed. No paid model call was made; tool calls require explicit per-connection approval."})
+                          meta=artifact_meta,**kwargs)
+            finish_agent_run(
+                run_id,status="completed",
+                input_tokens=(llm_result or {}).get("input_tokens",0),
+                output_tokens=(llm_result or {}).get("output_tokens",0),
+                cost_usd=(llm_result or {}).get("cost_usd",0.0),
+                meta={
+                    **artifact_meta,
+                    "note":(
+                        "Live model call completed; MCP capabilities were probed but no MCP tool was invoked automatically."
+                        if llm_result else
+                        "Demo artifact generated. MCP capabilities were probed; no paid model call was made."
+                    ),
+                },
+            )
             record_run_step(run_id,job_id,agent,"complete","Completed",100,"completed")
             set_agent_progress(agent,100,"Completed",job_id,run_id,"done")
             event(job_id,f"{agent}: completed")
