@@ -1821,7 +1821,7 @@ def get_job_agent_errors(job_id):
         return {}
     con=db()
     rows=[dict(x) for x in con.execute(
-        """SELECT agent,error,finished_at,run_id,stage
+        """SELECT agent,error,finished_at,id AS run_id,stage
            FROM agent_runs
            WHERE job_id=? AND status='failed' AND error IS NOT NULL
            ORDER BY finished_at DESC""",(job_id,)
