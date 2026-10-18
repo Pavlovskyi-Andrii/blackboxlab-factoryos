@@ -32,6 +32,21 @@ AGENT_MAP = {
 }
 AGENTS = [a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Supervisor"]
 
+AGENT_SPECS = {
+    "Scout": {"stage":"research","role":"Trend & topic scout","goal":"Find timely, high-potential content opportunities and useful source leads."},
+    "Researcher": {"stage":"research","role":"Research analyst","goal":"Build a reliable evidence pack, key facts, angles and source notes."},
+    "Tech Verifier": {"stage":"research","role":"Technical verifier","goal":"Challenge claims, flag uncertainty and verify technical plausibility."},
+    "Hook Writer": {"stage":"script","role":"Hook specialist","goal":"Create opening hooks and retention beats that earn the next second of attention."},
+    "Scriptwriter": {"stage":"script","role":"Long-form scriptwriter","goal":"Turn verified research into a clear, engaging narrative."},
+    "Visual Director": {"stage":"visual","role":"Visual director","goal":"Translate the script into shots, screen recordings, graphics and image prompts."},
+    "Voice Agent": {"stage":"voice","role":"Voice producer","goal":"Prepare narration, delivery notes and final voice assets."},
+    "Render Agent": {"stage":"render","role":"Video producer","goal":"Assemble scenes, captions, timing and final video renders."},
+    "QA Agent": {"stage":"qa","role":"Quality controller","goal":"Check factual consistency, completeness, output readiness and policy risks."},
+    "Publisher": {"stage":"publish","role":"Distribution manager","goal":"Package and schedule platform-specific publishing assets."},
+    "Analyst": {"stage":"analytics","role":"Performance analyst","goal":"Turn performance data into concrete recommendations for the next production cycle."},
+    "Supervisor": {"stage":"supervision","role":"Factory supervisor","goal":"Monitor every agent, detect failures, auto-heal safe issues and continuously improve the process."},
+}
+
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
@@ -170,6 +185,39 @@ def init_db():
       warning_count INTEGER NOT NULL,
       report_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS agent_runs(
+      id TEXT PRIMARY KEY,
+      job_id TEXT,
+      agent TEXT NOT NULL,
+      stage TEXT,
+      status TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      duration_ms INTEGER DEFAULT 0,
+      model TEXT DEFAULT 'simulation',
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      cost_usd REAL DEFAULT 0,
+      error TEXT,
+      meta_json TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_job ON agent_runs(job_id, started_at DESC);
+    CREATE TABLE IF NOT EXISTS artifacts(
+      id TEXT PRIMARY KEY,
+      run_id TEXT,
+      job_id TEXT,
+      agent TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT DEFAULT '',
+      url TEXT,
+      mime_type TEXT,
+      created_at TEXT NOT NULL,
+      meta_json TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_artifacts_agent ON artifacts(agent, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts(job_id, created_at DESC);
     """)
     n = con.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
     if n == 0:
@@ -204,6 +252,109 @@ def job_dict(r): return dict(r) if r else None
 
 def get_jobs():
     con=db(); rows=con.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall(); con.close(); return [dict(x) for x in rows]
+
+def get_job(job_id):
+    con=db(); row=con.execute("SELECT * FROM jobs WHERE id=?",(job_id,)).fetchone(); con.close()
+    return dict(row) if row else None
+
+def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
+    run_id=str(uuid.uuid4())
+    con=db()
+    con.execute("""INSERT INTO agent_runs(id,job_id,agent,stage,status,started_at,model)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (run_id,job_id,agent,stage,"running",ts(),model))
+    con.commit(); con.close()
+    return run_id
+
+def finish_agent_run(run_id, status="completed", input_tokens=0, output_tokens=0, cost_usd=0.0, error=None, meta=None):
+    con=db(); row=con.execute("SELECT started_at FROM agent_runs WHERE id=?",(run_id,)).fetchone()
+    finished=ts()
+    duration_ms=0
+    if row:
+        duration_ms=max(0,int((datetime.fromisoformat(finished)-datetime.fromisoformat(row["started_at"])).total_seconds()*1000))
+    con.execute("""UPDATE agent_runs SET status=?,finished_at=?,duration_ms=?,input_tokens=?,output_tokens=?,cost_usd=?,error=?,meta_json=?
+                   WHERE id=?""",
+                (status,finished,duration_ms,int(input_tokens or 0),int(output_tokens or 0),float(cost_usd or 0),error,json.dumps(meta or {}),run_id))
+    con.commit(); con.close()
+    return duration_ms
+
+def save_artifact(agent, kind, title, content="", job_id=None, run_id=None, url=None, mime_type=None, meta=None):
+    artifact_id=str(uuid.uuid4())
+    con=db()
+    con.execute("""INSERT INTO artifacts(id,run_id,job_id,agent,kind,title,content,url,mime_type,created_at,meta_json)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (artifact_id,run_id,job_id,agent,kind,title,content,url,mime_type,ts(),json.dumps(meta or {})))
+    con.commit(); con.close()
+    return artifact_id
+
+def agent_artifact_template(agent, job):
+    title=job["title"] if job else "FactoryOS"
+    brief=(job or {}).get("brief","")
+    templates={
+        "Scout": ("analysis","Opportunity scan",f"DEMO OUTPUT — Topic: {title}\n\nSignals checked: searchability, novelty, visual potential, audience curiosity.\nPrimary angle: explain what looks like a black box and show the mechanism clearly.\nNext handoff: Researcher should validate claims and gather primary-source evidence."),
+        "Researcher": ("research","Research brief",f"DEMO OUTPUT — Research pack for: {title}\n\nWorking brief: {brief or 'No brief supplied.'}\nEvidence plan: official docs / repositories / primary sources first, then credible secondary context.\nOpen questions: what can be demonstrated safely, what needs qualification, and what visual proof will make the explanation believable."),
+        "Tech Verifier": ("analysis","Technical verification",f"DEMO OUTPUT — Verification pass for: {title}\n\nChecks: terminology, architecture assumptions, cause/effect claims, demo feasibility.\nResult: no real external verification has run yet because the LLM/research provider is still in demo mode. Treat generated claims as placeholders until a live verifier is connected."),
+        "Hook Writer": ("text","Hook candidates",f"DEMO OUTPUT — Hooks for: {title}\n\n1. “This tool lets you look inside software you were never given the source code for.”\n2. “A government-grade reverse-engineering tool is free — but what can it actually see?”\n3. “I gave a black box to an AI-assisted reverse-engineering workflow. Here is what came back.”"),
+        "Scriptwriter": ("text","Draft script",f"DEMO OUTPUT — Script skeleton for: {title}\n\nHOOK → why the viewer should care\nCONTEXT → what the technology is\nDEMO → show one concrete transformation or discovery\nLIMITS → what the tool cannot know\nPAYOFF → what this means for developers / security / hardware people\nCTA → next experiment."),
+        "Visual Director": ("image","Storyboard / visual plan",f"DEMO OUTPUT — Visual plan for: {title}\n\nShots: macro hardware / terminal / Ghidra UI / animated data flow / presenter inserts.\nVisual rule: every abstract claim should get an on-screen proof or diagram.\nImage preview below is the current FactoryOS office concept.",url="/static/office_scene.svg",mime_type="image/svg+xml"),
+        "Voice Agent": ("audio","Narration plan",f"DEMO OUTPUT — Voice plan for: {title}\n\nLanguage: {(job or {}).get('language','English')}\nDelivery: concise, confident, curious; short clauses for Shorts, slower explanatory cadence for long-form.\nNo real audio file yet — voice provider is not configured."),
+        "Render Agent": ("video","Render manifest",f"DEMO OUTPUT — Render manifest for: {title}\n\nTarget: 16:9 long video + vertical cut-downs.\nCaptions: burned-in for short-form.\nStatus: no real video asset yet — video provider is not configured."),
+        "QA Agent": ("analysis","QA report",f"DEMO OUTPUT — QA checklist for: {title}\n\n✓ stage completeness checked\n✓ human approval gate preserved\n⚠ factual/source validation is still demo-only\n⚠ voice/video providers are not configured\nRecommendation: do not auto-publish until live artifact validation is enabled."),
+        "Publisher": ("text","Publishing package",f"DEMO OUTPUT — Publishing package for: {title}\n\nYouTube: title + description + chapters + thumbnail brief\nTikTok/Reels: compact caption + 3–5 topic-specific hashtags\nPublishing remains approval-gated."),
+        "Analyst": ("analysis","Performance learning brief",f"DEMO OUTPUT — Analytics plan for: {title}\n\nTrack: hook hold, 30-second retention, average percentage viewed, CTR, comments per 1k views, saves/shares.\nFeedback loop: promote winning hook/angle patterns back to Scout and Hook Writer."),
+        "Supervisor": ("analysis","Factory audit","Factory Supervisor audit: runtime health, connection readiness, stalled work, cost/time signals and process-improvement backlog."),
+    }
+    return templates.get(agent,("text","Agent output",f"DEMO OUTPUT for {title}"))
+
+def get_agent_metrics(agent):
+    con=db()
+    row=con.execute("""SELECT COUNT(*) runs,
+                              COALESCE(SUM(duration_ms),0) duration_ms,
+                              COALESCE(SUM(input_tokens),0) input_tokens,
+                              COALESCE(SUM(output_tokens),0) output_tokens,
+                              COALESCE(SUM(cost_usd),0) cost_usd,
+                              MAX(finished_at) last_run
+                       FROM agent_runs WHERE agent=?""",(agent,)).fetchone()
+    art=con.execute("SELECT COUNT(*) c FROM artifacts WHERE agent=?",(agent,)).fetchone()["c"]
+    con.close()
+    data=dict(row); data["artifacts"]=art
+    return data
+
+def get_usage_summary():
+    con=db()
+    row=con.execute("""SELECT COUNT(*) runs,
+                              COALESCE(SUM(duration_ms),0) duration_ms,
+                              COALESCE(SUM(input_tokens),0) input_tokens,
+                              COALESCE(SUM(output_tokens),0) output_tokens,
+                              COALESCE(SUM(cost_usd),0) cost_usd
+                       FROM agent_runs""").fetchone()
+    con.close()
+    return dict(row)
+
+async def execute_agent(agent, stage, job_id, delay=1.1):
+    job=get_job(job_id)
+    run_id=start_agent_run(agent,job_id,stage)
+    agent_runtime[agent]="working"
+    event(job_id,f"{agent}: working")
+    await broadcast({"type":"agent","agent":agent,"state":"working"})
+    try:
+        await asyncio.sleep(delay)
+        kind,title,content,*extra=agent_artifact_template(agent,job)
+        kwargs={}
+        if extra:
+            if len(extra)>0: kwargs["url"]=extra[0]
+            if len(extra)>1: kwargs["mime_type"]=extra[1]
+        save_artifact(agent,kind,title,content,job_id=job_id,run_id=run_id,meta={"mode":"demo","stage":stage},**kwargs)
+        finish_agent_run(run_id,status="completed",meta={"mode":"demo","note":"No paid model call was made."})
+        agent_runtime[agent]="done"
+        event(job_id,f"{agent}: completed")
+        await broadcast({"type":"agent","agent":agent,"state":"done"})
+    except Exception as exc:
+        finish_agent_run(run_id,status="failed",error=str(exc),meta={"mode":"demo"})
+        agent_runtime[agent]="idle"
+        event(job_id,f"{agent}: failed — {exc}")
+        await broadcast({"type":"agent","agent":agent,"state":"failed"})
+        raise
 
 def current_selected(jobs):
     global selected_job_id
