@@ -311,14 +311,18 @@ def get_agent_metrics(agent):
     con=db()
     row=con.execute("""SELECT COUNT(*) runs,
                               COALESCE(SUM(duration_ms),0) duration_ms,
+                              COALESCE(AVG(duration_ms),0) avg_duration_ms,
                               COALESCE(SUM(input_tokens),0) input_tokens,
                               COALESCE(SUM(output_tokens),0) output_tokens,
                               COALESCE(SUM(cost_usd),0) cost_usd,
+                              COALESCE(SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END),0) completed_runs,
+                              COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0) failed_runs,
                               MAX(finished_at) last_run
                        FROM agent_runs WHERE agent=?""",(agent,)).fetchone()
     art=con.execute("SELECT COUNT(*) c FROM artifacts WHERE agent=?",(agent,)).fetchone()["c"]
     con.close()
     data=dict(row); data["artifacts"]=art
+    data["success_rate"]=round((data["completed_runs"]/data["runs"]*100),1) if data["runs"] else 0
     return data
 
 def get_usage_summary():
