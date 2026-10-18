@@ -16,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
+APP_VERSION = "v3.10"
+BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB = DATA_DIR / "factory.db"
@@ -1117,7 +1119,12 @@ async def broadcast(payload=None):
     for ws in dead: clients.discard(ws)
 
 @app.get("/")
-def root(): return FileResponse(BASE/"static"/"index.html")
+def root():
+    return FileResponse(BASE/"static"/"index.html", headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0","Pragma":"no-cache"})
+
+@app.get("/api/version")
+def version():
+    return {"version":APP_VERSION,"build_sha":BUILD_SHA,"service":"factoryos"}
 
 @app.get("/api/status")
 def status():
@@ -1125,7 +1132,7 @@ def status():
     con=db(); ev=[dict(x) for x in con.execute("SELECT * FROM events ORDER BY id DESC LIMIT 60").fetchall()]; con.close()
     report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
     return {
-        "factory":"online","jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
+        "factory":"online","version":APP_VERSION,"buildSha":BUILD_SHA,"jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
         "selectedJobQuality": get_job_quality(sid) if sid else None,
         "events":ev,"connections":CONNECTIONS,"stages":STAGES,
         "agentStates":agent_states(jobs),"agentProgress":{a:get_agent_progress_snapshot(a) for a in AGENTS},"agentMap":AGENT_MAP,
