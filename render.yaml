@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: blackboxlab-factoryos
+    runtime: python
+    region: frankfurt
+    plan: 0.5c-512mb
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATA_DIR
+        value: /var/data
+      - key: FACTORY_USER
+        value: blackboxlab
+      - key: FACTORY_PASSWORD
+        sync: false
+      - key: FACTORY_SECRET
+        generateValue: true
+    disk:
+      name: factory-data
+      mountPath: /var/data
+      sizeGB: 1
