@@ -99,7 +99,8 @@ def request_is_authed(request: Request) -> bool:
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/health", "/mcp"}
-    if request.url.path.startswith("/static/") or request.url.path in public_paths:
+    public_prefixes = ("/static/", "/.well-known/")
+    if request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     if not request_is_authed(request):
         if request.url.path.startswith("/api/"):
