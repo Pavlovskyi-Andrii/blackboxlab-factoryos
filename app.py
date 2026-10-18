@@ -97,34 +97,48 @@ async def auth_middleware(request: Request, call_next):
     if not request_is_authed(request):
         if request.url.path.startswith("/api/"):
             return JSONResponse({"detail": "authentication required"}, status_code=401)
-        return RedirectResponse("/login", status_code=303)
+        seg=request.url.path.strip("/").split("/",1)[0]
+        lang=seg if seg in ("en","uk","ru") else "en"
+        return RedirectResponse(f"/login?lang={lang}", status_code=303)
     return await call_next(request)
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
+def login_page(request: Request, lang: str = "en"):
+    lang=lang if lang in ("en","uk","ru") else "en"
     if request_is_authed(request):
-        return RedirectResponse("/", status_code=303)
-    return HTMLResponse("""<!doctype html><html><head><meta charset='utf-8'>
+        return RedirectResponse(f"/{lang}", status_code=303)
+    copy={
+      "en":{"sub":"Private AI content production control room","user":"Username","password":"Password","enter":"Enter FactoryOS"},
+      "uk":{"sub":"Приватний центр керування AI-виробництвом контенту","user":"Користувач","password":"Пароль","enter":"Увійти до FactoryOS"},
+      "ru":{"sub":"Приватный центр управления AI-производством контента","user":"Пользователь","password":"Пароль","enter":"Войти в FactoryOS"},
+    }[lang]
+    return HTMLResponse(f"""<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>
     <meta name='viewport' content='width=device-width,initial-scale=1'>
     <title>Blackbox Lab — FactoryOS Login</title>
     <style>
-    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07101b;color:#fff;font:14px Inter,system-ui,Arial}
-    .box{width:min(390px,90vw);background:#0d1827;border:1px solid #20354e;border-radius:18px;padding:26px;box-shadow:0 20px 70px #0008}
-    h1{margin:0 0 6px;font-size:24px}.sub{color:#7f93ac;margin-bottom:18px}
-    input{width:100%;box-sizing:border-box;margin:7px 0;padding:12px;background:#07111d;color:#fff;border:1px solid #20354e;border-radius:10px}
-    button{width:100%;margin-top:10px;padding:12px;border:0;border-radius:10px;background:linear-gradient(135deg,#1677ff,#0db7f5);color:#fff;font-weight:800;cursor:pointer}
-    .cube{width:42px;height:42px;border:2px solid #16bdf6;transform:rotate(30deg);border-radius:7px;margin-bottom:18px;box-shadow:0 0 24px #16bdf655}
+    body{{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(700px 420px at 50% 0,#163f6255,transparent 65%),#07101b;color:#fff;font:14px Inter,system-ui,Arial}}
+    .box{{width:min(410px,90vw);background:linear-gradient(180deg,#0e1d2d,#0a1522);border:1px solid #284963;border-radius:20px;padding:28px;box-shadow:0 24px 80px #000a}}
+    h1{{margin:0 0 6px;font-size:24px}}.sub{{color:#8ca0b4;margin-bottom:18px}}
+    input{{width:100%;box-sizing:border-box;margin:7px 0;padding:12px;background:#07111d;color:#fff;border:1px solid #28465f;border-radius:10px}}
+    button{{width:100%;margin-top:10px;padding:12px;border:0;border-radius:10px;background:linear-gradient(135deg,#1677ff,#0db7f5);color:#fff;font-weight:800;cursor:pointer}}
+    .cube{{width:42px;height:42px;border:2px solid #16bdf6;transform:rotate(30deg);border-radius:7px;margin-bottom:18px;box-shadow:0 0 24px #16bdf655}}
+    .langs{{display:flex;gap:5px;justify-content:flex-end;margin-bottom:14px}}.langs a{{font-size:10px;color:#8297ac;text-decoration:none;border:1px solid #294761;padding:5px 7px;border-radius:7px}}.langs a.active{{color:#fff;background:#153b63}}
     </style></head><body><form class='box' method='post' action='/login'>
-    <div class='cube'></div><h1>Blackbox Lab — FactoryOS</h1><div class='sub'>Private AI content production control room</div>
-    <input name='username' placeholder='Username' autocomplete='username' required>
-    <input name='password' type='password' placeholder='Password' autocomplete='current-password' required>
-    <button type='submit'>Enter FactoryOS</button></form></body></html>""")
+    <div class='langs'><a href='/login?lang=en' class='{"active" if lang=="en" else ""}'>EN</a><a href='/login?lang=uk' class='{"active" if lang=="uk" else ""}'>УКР</a><a href='/login?lang=ru' class='{"active" if lang=="ru" else ""}'>RU</a></div>
+    <div class='cube'></div><h1>Blackbox Lab — FactoryOS</h1><div class='sub'>{copy["sub"]}</div>
+    <input type='hidden' name='lang' value='{lang}'>
+    <input name='username' placeholder='{copy["user"]}' autocomplete='username' required>
+    <input name='password' type='password' placeholder='{copy["password"]}' autocomplete='current-password' required>
+    <button type='submit'>{copy["enter"]}</button></form></body></html>""")
 
 @app.post("/login")
-def login(username: str = Form(...), password: str = Form(...)):
+def login(username: str = Form(...), password: str = Form(...), lang: str = Form("en")):
+    lang=lang if lang in ("en","uk","ru") else "en"
     if not (hmac.compare_digest(username, FACTORY_USER) and hmac.compare_digest(password, FACTORY_PASSWORD)):
-        return HTMLResponse("Invalid username or password. <a href='/login'>Try again</a>", status_code=401)
-    response = RedirectResponse("/", status_code=303)
+        msg={"en":"Invalid username or password","uk":"Невірний логін або пароль","ru":"Неверный логин или пароль"}[lang]
+        retry={"en":"Try again","uk":"Спробувати ще раз","ru":"Попробовать снова"}[lang]
+        return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>{retry}</a>", status_code=401)
+    response = RedirectResponse(f"/{lang}", status_code=303)
     response.set_cookie(
         COOKIE_NAME,
         session_token(FACTORY_USER),
