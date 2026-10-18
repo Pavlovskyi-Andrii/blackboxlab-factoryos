@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-18T08:05:00Z",
+  "updated_at": "2026-10-18T08:24:00Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -43,8 +43,11 @@
       "steps": {
         "understand": "done",
         "inspect": "done",
-        "plan": "in_progress",
-        "implement": "todo",
+        "plan": "done",
+        "implement": {
+          "status": "in_progress",
+          "progress": 20
+        },
         "test": "todo",
         "deploy": "todo",
         "verify": "todo"
@@ -106,8 +109,131 @@
         "plan": "done",
         "implement": "done",
         "test": "done",
-        "deploy": "in_progress",
-        "verify": "todo"
+        "deploy": "done",
+        "verify": {
+          "status": "in_progress",
+          "progress": 60
+        }
+      }
+    },
+    "foundation-cloud": {
+      "status": "done",
+      "meta": {
+        "title": "Cloud deployment on Render",
+        "description": "FactoryOS runs online with persistent state and private login.",
+        "category": "infrastructure",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 10
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "clickable-agents": {
+      "status": "done",
+      "meta": {
+        "title": "Clickable worker profiles",
+        "description": "Every worker opens a profile with history, artifacts, time, tokens and cost.",
+        "category": "observability",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 20
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "supervisor-agent": {
+      "status": "done",
+      "meta": {
+        "title": "Factory Supervisor",
+        "description": "Supervisor monitors workers, failures, health and process improvements.",
+        "category": "supervision",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 30
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "agent-memory": {
+      "status": "done",
+      "meta": {
+        "title": "Persistent worker memory",
+        "description": "Workers retain approved process learnings and manual rules.",
+        "category": "intelligence",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 40
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "handoff-provenance": {
+      "status": "done",
+      "meta": {
+        "title": "Handoff provenance",
+        "description": "Track which upstream artifacts were passed into every worker run.",
+        "category": "observability",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 50
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "targeted-rerun": {
+      "status": "done",
+      "meta": {
+        "title": "Targeted worker reruns",
+        "description": "Re-run one worker and flag downstream outputs for rebuild.",
+        "category": "workflow",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 60
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
       }
     }
   }
