@@ -32,6 +32,21 @@ AGENT_MAP = {
 }
 AGENTS = [a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Supervisor"]
 
+AGENT_DEPENDENCIES = {
+    "Scout": [],
+    "Researcher": ["Scout"],
+    "Tech Verifier": ["Scout","Researcher"],
+    "Hook Writer": ["Researcher","Tech Verifier"],
+    "Scriptwriter": ["Hook Writer","Researcher","Tech Verifier"],
+    "Visual Director": ["Scriptwriter"],
+    "Voice Agent": ["Scriptwriter"],
+    "Render Agent": ["Visual Director","Voice Agent"],
+    "QA Agent": ["Render Agent","Scriptwriter","Tech Verifier"],
+    "Publisher": ["QA Agent","Render Agent"],
+    "Analyst": ["Publisher"],
+    "Supervisor": [],
+}
+
 AGENT_SPECS = {
     "Scout": {"stage":"research","role":"Trend & topic scout","goal":"Find timely, high-potential content opportunities and useful source leads."},
     "Researcher": {"stage":"research","role":"Research analyst","goal":"Build a reliable evidence pack, key facts, angles and source notes."},
@@ -247,6 +262,14 @@ def init_db():
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_agent_memory_agent ON agent_memory(agent, active, created_at DESC);
+    CREATE TABLE IF NOT EXISTS run_inputs(
+      run_id TEXT NOT NULL,
+      artifact_id TEXT NOT NULL,
+      source_agent TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(run_id,artifact_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_inputs_run ON run_inputs(run_id);
     """)
     n = con.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
     if n == 0:
@@ -286,6 +309,24 @@ def get_job(job_id):
     con=db(); row=con.execute("SELECT * FROM jobs WHERE id=?",(job_id,)).fetchone(); con.close()
     return dict(row) if row else None
 
+def collect_agent_inputs(job_id, agent):
+    deps=AGENT_DEPENDENCIES.get(agent,[])
+    if not deps or not job_id:
+        return {"artifacts":[],"missing":[]}
+    con=db()
+    artifacts=[]
+    missing=[]
+    for dep in deps:
+        row=con.execute("""SELECT id,agent,kind,title,content,url,mime_type,created_at
+                           FROM artifacts WHERE job_id=? AND agent=?
+                           ORDER BY created_at DESC LIMIT 1""",(job_id,dep)).fetchone()
+        if row:
+            artifacts.append(dict(row))
+        else:
+            missing.append(dep)
+    con.close()
+    return {"artifacts":artifacts,"missing":missing}
+
 def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
     run_id=str(uuid.uuid4())
     con=db()
@@ -294,6 +335,15 @@ def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
                 (run_id,job_id,agent,stage,"running",ts(),model))
     con.commit(); con.close()
     return run_id
+
+def attach_run_inputs(run_id, inputs):
+    if not inputs:
+        return
+    con=db()
+    for item in inputs:
+        con.execute("""INSERT OR IGNORE INTO run_inputs(run_id,artifact_id,source_agent,created_at)
+                       VALUES(?,?,?,?)""",(run_id,item["id"],item["agent"],ts()))
+    con.commit(); con.close()
 
 def finish_agent_run(run_id, status="completed", input_tokens=0, output_tokens=0, cost_usd=0.0, error=None, meta=None):
     con=db(); row=con.execute("SELECT started_at FROM agent_runs WHERE id=?",(run_id,)).fetchone()
@@ -558,8 +608,19 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
     last_error=None
     total_attempts=max(1,AGENT_MAX_RETRIES+1)
     for attempt in range(1,total_attempts+1):
+        input_pack=collect_agent_inputs(job_id,agent)
         run_id=start_agent_run(agent,job_id,stage)
+        attach_run_inputs(run_id,input_pack["artifacts"])
         agent_runtime[agent]="working"
+        if input_pack["missing"]:
+            missing=", ".join(input_pack["missing"])
+            error=f"Missing required upstream artifacts from: {missing}"
+            finish_agent_run(run_id,status="failed",error=error,
+                             meta={"mode":"demo","attempt":attempt,"missing_inputs":input_pack["missing"]})
+            agent_runtime[agent]="failed"
+            event(job_id,f"{agent}: blocked — {error}")
+            await broadcast({"type":"agent","agent":agent,"state":"failed"})
+            raise RuntimeError(error)
         event(job_id,f"{agent}: working (attempt {attempt}/{total_attempts})")
         await broadcast({"type":"agent","agent":agent,"state":"working","attempt":attempt})
         try:
@@ -1055,16 +1116,22 @@ def agent_detail(agent_name:str):
            FROM artifacts a LEFT JOIN jobs j ON j.id=a.job_id
            WHERE a.agent=? ORDER BY a.created_at DESC LIMIT 80""",(agent_name,)
     ).fetchall()]
-    con.close()
     for r in runs:
         try:r["meta"]=json.loads(r.pop("meta_json") or "{}")
         except Exception:r["meta"]={}
+        r["inputs"]=[dict(x) for x in con.execute(
+            """SELECT ri.source_agent,a.id,a.kind,a.title,a.created_at
+               FROM run_inputs ri JOIN artifacts a ON a.id=ri.artifact_id
+               WHERE ri.run_id=? ORDER BY a.created_at""",(r["id"],)
+        ).fetchall()]
+    con.close()
     for a in artifacts:
         try:a["meta"]=json.loads(a.pop("meta_json") or "{}")
         except Exception:a["meta"]={}
     return {
         "name":agent_name,
         "spec":AGENT_SPECS.get(agent_name,{}),
+        "dependencies":AGENT_DEPENDENCIES.get(agent_name,[]),
         "state":agent_states(get_jobs()).get(agent_name,"idle"),
         "metrics":get_agent_metrics(agent_name),
         "runs":runs,
