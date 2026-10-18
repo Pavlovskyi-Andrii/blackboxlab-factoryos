@@ -21,7 +21,7 @@
 <body><div class="shell">
 <aside class="side">
 <div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.4</span></small></div></div>
-<nav class="nav"><button class="active">▣ &nbsp; Control Room</button><button onclick="openNew()">＋ &nbsp; New Job</button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; Jobs</button><button onclick="openAgentDirectory()">◉ &nbsp; Agents</button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; Supervisor</button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; Pipeline</button><button>▥ &nbsp; Analytics</button><button>⚙ &nbsp; Settings</button></nav>
+<nav class="nav"><button class="active">▣ &nbsp; Control Room</button><button onclick="openNew()">＋ &nbsp; New Job</button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; Jobs</button><button onclick="openAgentDirectory()">◉ &nbsp; Agents</button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; Supervisor</button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; Pipeline</button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast('Select a job first')">▦ &nbsp; Outputs</button><button>▥ &nbsp; Analytics</button><button>⚙ &nbsp; Settings</button></nav>
 <div class="foot"><span class="green"></span>Factory online<br><span id="runState">No active run</span></div>
 </aside>
 <main class="main">
@@ -86,7 +86,7 @@ function supervisor(){const r=S.supervisor||{};const root=$('#supervisorPanel');
 function pipeline(){const j=S.selectedJob,cur=j?S.stages.indexOf(j.stage):0;$('#pipeline').innerHTML=S.stages.map((st,i)=>'<div class="stage '+(i<cur?'complete':i===cur?'current':'pending')+'"><i>'+icons[st]+'</i><b>'+labels[st]+'</b><span>'+subs[st]+'</span></div>').join('')}
 function jobs(){const a=S.jobs||[];$('#jobSummary').textContent=a.length+' jobs · '+S.runningJobs.length+' running · '+a.filter(j=>j.status==='done').length+' completed';if(!a.length){$('#jobs').innerHTML='<div class="sub" style="padding:18px">No jobs yet.</div>';return}$('#jobs').innerHTML=a.map(j=>'<div class="job '+(j.id===S.selectedJobId?'selectedJob':'')+'" onclick="selectJob(\''+j.id+'\')"><div><h4>'+esc(j.title)+'</h4><div class="jobMeta">'+esc(j.format)+' · '+esc(j.presenter)+' · '+esc(j.language)+'</div></div><div><div class="bar"><i style="width:'+j.progress+'%"></i></div><div class="jobMeta">'+labels[j.stage]+' · '+status(j.status)+'</div></div><button class="btn" onclick="event.stopPropagation();runJob(\''+j.id+'\')">'+(j.status==='running'?'Running…':'▶ Run')+'</button></div>').join('')}
 function status(s){return ({idle:'ready',running:'in progress',waiting_approval:'needs approval',done:'complete',failed:'failed — inspect agent ledger and retry'})[s]||s}
-function detail(){const j=S.selectedJob;if(!j){$('#detail').innerHTML='<div class="sub" style="padding:15px">Create or select a job.</div>';$('#log').innerHTML='';return}$('#detail').innerHTML='<div class="hero"><h4>'+esc(j.title)+'</h4><p>'+esc(j.brief||'No brief provided')+'</p></div><div class="kv"><span>Current stage</span><b>'+labels[j.stage]+'</b></div><div class="kv"><span>Status</span><b>'+status(j.status)+'</b></div><div class="kv"><span>Progress</span><b>'+j.progress+'%</b></div><div class="nextBox"><small>What happens next</small><b>'+esc(S.nextAction)+'</b></div>';$('#approveBtn').style.display=j.status==='waiting_approval'?'inline-block':'none';$('#runTop').style.display=j.status==='waiting_approval'?'none':'inline-block';$('#log').innerHTML='<div class="group">Recent activity</div>'+S.events.filter(e=>!e.job_id||e.job_id===j.id).slice(0,16).map(e=>'<div>'+e.ts.slice(11,19)+' · '+esc(e.message)+'</div>').join('')}
+function detail(){const j=S.selectedJob;if(!j){$('#detail').innerHTML='<div class="sub" style="padding:15px">Create or select a job.</div>';$('#log').innerHTML='';return}$('#detail').innerHTML='<div class="hero"><h4>'+esc(j.title)+'</h4><p>'+esc(j.brief||'No brief provided')+'</p><button class="btn" style="margin-top:8px" onclick="openJobOutputs(\\''+j.id+'\\')">▦ View all job outputs</button></div><div class="kv"><span>Current stage</span><b>'+labels[j.stage]+'</b></div><div class="kv"><span>Status</span><b>'+status(j.status)+'</b></div><div class="kv"><span>Progress</span><b>'+j.progress+'%</b></div><div class="nextBox"><small>What happens next</small><b>'+esc(S.nextAction)+'</b></div>';$('#approveBtn').style.display=j.status==='waiting_approval'?'inline-block':'none';$('#runTop').style.display=j.status==='waiting_approval'?'none':'inline-block';$('#log').innerHTML='<div class="group">Recent activity</div>'+S.events.filter(e=>!e.job_id||e.job_id===j.id).slice(0,16).map(e=>'<div>'+e.ts.slice(11,19)+' · '+esc(e.message)+'</div>').join('')}
 async function selectJob(id){await api('/api/jobs/'+id+'/select',{method:'POST'});refresh()}async function runJob(id){const r=await api('/api/jobs/'+id+'/run',{method:'POST'});if(r.message)toast(r.message);refresh()}function runSelected(){if(S.selectedJobId)runJob(S.selectedJobId)}async function approveSelected(){await api('/api/jobs/'+S.selectedJobId+'/approve',{method:'POST'});toast('Approved. Publishing can continue.');refresh()}async function runAudit(){const r=await api('/api/supervisor/run',{method:'POST'});toast(r.message||'Supervisor audit started');setTimeout(refresh,900)}
 async function acceptProposal(id){await api('/api/improvements/'+id+'/accept',{method:'POST'});toast('Improvement added to accepted backlog');refresh()}
 async function dismissProposal(id){await api('/api/improvements/'+id+'/dismiss',{method:'POST'});toast('Improvement dismissed');refresh()}
@@ -124,6 +124,23 @@ function applySearch(value){
   const q=(value||'').trim().toLowerCase();
   document.querySelectorAll('.job').forEach(el=>{el.style.display=!q||el.textContent.toLowerCase().includes(q)?'grid':'none'});
   document.querySelectorAll('.agent').forEach(el=>{el.style.opacity=!q||(el.dataset.name||'').includes(q)?'1':'.18'});
+}
+async function openJobOutputs(jobId){
+  $('#drawerShade').classList.add('open');$('#agentDrawer').classList.add('open');
+  const job=(S.jobs||[]).find(x=>x.id===jobId);
+  $('#agentName').textContent='Job Outputs';
+  $('#agentRole').textContent=job?job.title:'Production artifacts';
+  $('#agentAvatar').textContent='▦';
+  const body=$('#agentDrawerBody');
+  body.innerHTML='<div class="sub" style="padding:20px">Loading outputs…</div>';
+  try{
+    const d=await api('/api/jobs/'+encodeURIComponent(jobId)+'/artifacts');
+    const arts=d.artifacts||[];
+    if(!arts.length){body.innerHTML='<div class="sub" style="padding:20px">No saved outputs yet. Run the factory to create agent artifacts.</div>';return}
+    const groups={};
+    arts.forEach(a=>{(groups[a.agent]||(groups[a.agent]=[])).push(a)});
+    body.innerHTML=Object.entries(groups).map(([agent,items])=>'<div class="drawerSection"><h3>'+esc(agent)+' <span class="sub">('+items.length+')</span></h3>'+items.map(a=>artifactHtml(a)).join('')+'</div>').join('');
+  }catch(e){body.innerHTML='<div class="finding critical"><strong>Could not load job outputs</strong><span>'+esc(e.message)+'</span></div>'}
 }
 async function openAgent(name){
   $('#drawerShade').classList.add('open');$('#agentDrawer').classList.add('open');
