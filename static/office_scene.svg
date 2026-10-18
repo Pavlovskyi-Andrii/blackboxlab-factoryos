@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 720" role="img" aria-label="Blackbox Lab Agent Office">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07111d"/><stop offset=".55" stop-color="#0b1d32"/><stop offset="1" stop-color="#06101a"/></linearGradient>
+  <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#15263a"/><stop offset="1" stop-color="#0a1421"/></linearGradient>
+  <linearGradient id="desk" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#223851"/><stop offset="1" stop-color="#111f30"/></linearGradient>
+  <filter id="glow"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1600" height="720" fill="url(#bg)"/>
+<rect x="0" y="410" width="1600" height="310" fill="url(#floor)"/>
+<g opacity=".45" stroke="#1b6e99" stroke-width="1">
+  <path d="M0 520H1600M0 610H1600M180 410L80 720M430 410L380 720M680 410L680 720M930 410L980 720M1180 410L1280 720M1430 410L1580 720"/>
+</g>
+<rect x="220" y="38" width="1160" height="95" rx="18" fill="#081522" stroke="#1e4665"/>
+<text x="800" y="93" text-anchor="middle" fill="#31c5ff" font-family="Arial, sans-serif" font-size="49" font-weight="700" letter-spacing="11" filter="url(#glow)">BLACKBOX LAB</text>
+<text x="800" y="120" text-anchor="middle" fill="#8ea9be" font-family="Arial, sans-serif" font-size="16" letter-spacing="7">FACTORYOS • AGENT OFFICE</text>
+<g fill="#0d2234" stroke="#1e5274">
+  <rect x="35" y="55" width="150" height="270" rx="14"/><rect x="1415" y="55" width="150" height="270" rx="14"/>
+</g>
+<g fill="#26c8ff" opacity=".9" font-family="Arial,sans-serif">
+  <text x="60" y="95" font-size="18">IDEAS</text><text x="60" y="130" font-size="18">RESEARCH</text><text x="60" y="165" font-size="18">SCRIPTS</text><text x="60" y="200" font-size="18">VISUALS</text><text x="60" y="235" font-size="18">VOICE</text><text x="60" y="270" font-size="18">GROWTH</text>
+  <text x="1440" y="100" font-size="16">GOOD CONTENT</text><text x="1440" y="130" font-size="16">BETTER</text><text x="1440" y="160" font-size="16">HUMANS</text>
+</g>
+<g id="plants" fill="#143e32"><circle cx="210" cy="378" r="25"/><circle cx="1390" cy="385" r="28"/><circle cx="800" cy="170" r="28"/></g>
+<!-- desks row 1 -->
+<g>
+  <g transform="translate(260 260)"><rect width="250" height="96" rx="14" fill="url(#desk)" stroke="#2f526f"/><rect x="75" y="-48" width="100" height="58" rx="6" fill="#07131f" stroke="#1d96c9"/><rect x="88" y="-37" width="74" height="33" fill="#0e4261"/><circle cx="125" cy="-84" r="24" fill="#b47a5d"/><path d="M96 -64q29-25 58 0v37H96z" fill="#101a25"/><rect x="108" y="14" width="34" height="38" rx="9" fill="#111a28"/></g>
+  <g transform="translate(560 250)"><rect width="250" height="96" rx="14" fill="url(#desk)" stroke="#2f526f"/><rect x="75" y="-48" width="100" height="58" rx="6" fill="#07131f" stroke="#1d96c9"/><rect x="88" y="-37" width="74" height="33" fill="#0e4261"/><circle cx="125" cy="-84" r="24" fill="#a97053"/><path d="M96 -64q29-25 58 0v37H96z" fill="#17151a"/><rect x="108" y="14" width="34" height="38" rx="9" fill="#101b28"/></g>
+  <g transform="translate(860 260)"><rect width="250" height="96" rx="14" fill="url(#desk)" stroke="#2f526f"/><rect x="75" y="-48" width="100" height="58" rx="6" fill="#07131f" stroke="#1d96c9"/><rect x="88" y="-37" width="74" height="33" fill="#0e4261"/><circle cx="125" cy="-84" r="24" fill="#c18364"/><path d="M96 -64q29-25 58 0v37H96z" fill="#301a19"/><rect x="108" y="14" width="34" height="38" rx="9" fill="#111a28"/></g>
+  <g transform="translate(1160 250)"><rect width="250" height="96" rx="14" fill="url(#desk)" stroke="#2f526f"/><rect x="75" y="-48" width="100" height="58" rx="6" fill="#07131f" stroke="#1d96c9"/><rect x="88" y="-37" width="74" height="33" fill="#0e4261"/><circle cx="125" cy="-84" r="24" fill="#98664f"/><path d="M96 -64q29-25 58 0v37H96z" fill="#10151c"/><rect x="108" y="14" width="34" height="38" rx="9" fill="#111a28"/></g>
+</g>
+<!-- desks row 2 -->
+<g>
+  <g transform="translate(180 510)"><rect width="250" height="96" rx="14" fill="url(#desk)" stroke="#2f526f"/><rect x="75" y="-48" width="100" height="58" rx="6" fill="#07131f" stroke="#1d96c9"/><rect x="88" y="-37" width="74" height="33" fill="#0e4261"/><circle cx="125" cy="-84" r="24" fill="#b2785d"/><path d="M96 -64q29-25 58 0v37H96z" fill="#241c1c"/><rect x="108" y="14" width="34" height="38" rx="9" fill="#101b28"/></g>
+  <g transform="translate(480 505)"><rect width="250" height="96" rx="14" fill="url(#desk)" stroke="#2f526f"/><rect x="75" y="-48" width="100" height="58" rx="6" fill="#07131f" stroke="#1d96c9"/><rect x="88" y="-37" width="74" height="33" fill="#0e4261"/><circle cx="125" cy="-84" r="24" fill="#8d664f"/><path d="M96 -64q29-25 58 0v37H96z" fill="#11151c"/><rect x="108" y="14" width="34" height="38" rx="9" fill="#101b28"/></g>
+  <g transform="translate(780 515)"><rect width="250" height="96" rx="14" fill="url(#desk)" stroke="#2f526f"/><rect x="75" y="-48" width="100" height="58" rx="6" fill="#07131f" stroke="#1d96c9"/><rect x="88" y="-37" width="74" height="33" fill="#0e4261"/><circle cx="125" cy="-84" r="24" fill="#a27056"/><path d="M96 -64q29-25 58 0v37H96z" fill="#19171d"/><rect x="108" y="14" width="34" height="38" rx="9" fill="#101b28"/></g>
+  <g transform="translate(1080 505)"><rect width="250" height="96" rx="14" fill="url(#desk)" stroke="#2f526f"/><rect x="75" y="-48" width="100" height="58" rx="6" fill="#07131f" stroke="#1d96c9"/><rect x="88" y="-37" width="74" height="33" fill="#0e4261"/><circle cx="125" cy="-84" r="24" fill="#bd8467"/><path d="M96 -64q29-25 58 0v37H96z" fill="#141821"/><rect x="108" y="14" width="34" height="38" rx="9" fill="#101b28"/></g>
+</g>
+<g stroke="#23bdf7" stroke-width="3" opacity=".35" fill="none"><path d="M315 410L485 410M615 410L785 410M915 410L1085 410M1215 410L1385 410"/><path d="M430 615L480 555M730 615L780 565M1030 615L1080 555"/></g>
+</svg>
