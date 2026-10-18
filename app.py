@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.14"
+APP_VERSION = "v3.15"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -166,6 +166,14 @@ def logout():
 def _factory_mcp_authorized(request: Request) -> bool:
     if not FACTORY_MCP_TOKEN:
         return False
+
+    # Claude custom connectors do not always expose custom request headers
+    # in every client. Support a scoped query-key fallback in addition to
+    # the normal Authorization: Bearer <token> flow.
+    query_key=(request.query_params.get("key") or "").strip()
+    if query_key and hmac.compare_digest(query_key,FACTORY_MCP_TOKEN):
+        return True
+
     auth=request.headers.get("authorization","")
     if not auth.lower().startswith("bearer "):
         return False
@@ -320,7 +328,7 @@ def factory_mcp_info(request: Request):
     if not FACTORY_MCP_TOKEN:
         return JSONResponse({"enabled":False,"detail":"Set FACTORY_MCP_TOKEN in Render to enable the Claude/remote MCP connector."},status_code=503)
     if not _factory_mcp_authorized(request):
-        return JSONResponse({"enabled":True,"detail":"Bearer authentication required."},status_code=401)
+        return JSONResponse({"enabled":True,"detail":"Authentication required: Bearer token or ?key= token."},status_code=401)
     return {"enabled":True,"server":"Blackbox Lab FactoryOS","version":APP_VERSION,"tools":[x["name"] for x in FACTORY_MCP_TOOLS]}
 
 @app.get("/health")
