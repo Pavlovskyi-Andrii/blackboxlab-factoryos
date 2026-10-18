@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-18T07:30:00Z",
+  "updated_at": "2026-10-18T08:00:00Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -40,6 +40,66 @@
     },
     "mcp-execution": {
       "status": "in_progress",
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "in_progress",
+        "implement": "todo",
+        "test": "todo",
+        "deploy": "todo",
+        "verify": "todo"
+      }
+    },
+    "task-launcher": {
+      "status": "done",
+      "meta": {
+        "title": "Launch builder work from FactoryOS",
+        "description": "Start a roadmap task from the website, emit an auditable builder event and expose its execution checklist.",
+        "category": "product",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 95
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "multilingual-ui": {
+      "status": "done",
+      "meta": {
+        "title": "EN / UK / RU interface",
+        "description": "Serve dedicated English, Ukrainian and Russian UI routes with a persistent language switcher.",
+        "category": "product",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 98
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "design-refresh": {
+      "status": "in_progress",
+      "meta": {
+        "title": "Dashboard visual redesign",
+        "description": "Refine spacing, hierarchy, cards and interactive states while preserving observability.",
+        "category": "design",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 99
+      },
       "steps": {
         "understand": "done",
         "inspect": "done",
