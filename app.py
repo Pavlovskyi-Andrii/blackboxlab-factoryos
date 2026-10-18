@@ -132,6 +132,7 @@ supervisor_runtime = {
     "state": "monitoring",
     "last_run": None,
     "last_report": None,
+    "last_signature": None,
     "auto_heal": True,
 }
 
@@ -549,10 +550,32 @@ def supervisor_audit(auto_heal=False, persist=False):
 async def supervisor_cycle():
     supervisor_runtime["state"] = "working"
     agent_runtime["Supervisor"] = "working"
+    started=ts()
     try:
-        report = supervisor_audit(auto_heal=supervisor_runtime["auto_heal"], persist=True)
+        report = supervisor_audit(auto_heal=supervisor_runtime["auto_heal"], persist=False)
         supervisor_runtime["last_report"] = report
         supervisor_runtime["last_run"] = report["checked_at"]
+        signature=json.dumps({
+            "score":report.get("score"),
+            "codes":[x.get("code") for x in report.get("findings",[])],
+            "healed":report.get("healed",[]),
+        },sort_keys=True)
+        # Persist Supervisor work only when the health picture changes, avoiding ledger spam every cycle.
+        if signature != supervisor_runtime.get("last_signature"):
+            run_id=start_agent_run("Supervisor",None,"supervision",model="rules-engine")
+            con=db()
+            con.execute(
+                "INSERT INTO supervisor_reports(ts,score,critical_count,warning_count,report_json) VALUES(?,?,?,?,?)",
+                (report["checked_at"],report["score"],
+                 sum(1 for x in report["findings"] if x["severity"]=="critical"),
+                 sum(1 for x in report["findings"] if x["severity"]=="warning"),
+                 json.dumps(report))
+            )
+            con.commit(); con.close()
+            content=json.dumps(report,indent=2)
+            save_artifact("Supervisor","analysis","Factory health audit",content,run_id=run_id,meta={"mode":"rules-engine"})
+            finish_agent_run(run_id,status="completed",meta={"mode":"rules-engine","started_cycle":started})
+            supervisor_runtime["last_signature"]=signature
     except Exception as exc:
         supervisor_runtime["last_report"] = {
             "score": 0, "state": "attention", "findings": [{
@@ -569,7 +592,7 @@ async def supervisor_cycle():
 async def supervisor_loop():
     while True:
         await supervisor_cycle()
-        await asyncio.sleep(45)
+        await asyncio.sleep(60)
 
 @app.on_event("startup")
 async def start_supervisor():
