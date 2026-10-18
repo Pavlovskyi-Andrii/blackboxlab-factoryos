@@ -277,45 +277,45 @@ function renderAgentDetail(d){
   const m=d.metrics||{},runs=d.runs||[],arts=d.artifacts||[],mem=d.memory||[],deps=d.dependencies||[],pr=d.progress||{},mcp=d.mcp||[],steps=d.steps||[];
   const liveJob=(S&&S.jobs||[]).find(x=>x.id===pr.job_id);
   const liveJobLabel=liveJob?liveJob.title:(pr.job_id||'none');
-  let h='<div class="liveProgress"><div class="liveProgressTop"><b>'+esc(pr.step||d.state||'Idle')+'</b><span>'+Number(pr.progress||0)+'%</span></div><div class="liveBar"><i style="width:'+Number(pr.progress||0)+'%"></i></div><div class="sub">Current job: '+esc(liveJobLabel)+' · run: '+esc(pr.run_id||'none')+'</div></div>';
-  h+='<div class="metricGrid"><div class="metric"><b>'+Number(m.runs||0)+'</b><span>Runs</span></div><div class="metric"><b>'+fmtDuration(m.duration_ms||0)+'</b><span>Total time</span></div><div class="metric"><b>'+fmtDuration(m.avg_duration_ms||0)+'</b><span>Avg run</span></div><div class="metric"><b>'+Number(m.success_rate||0).toFixed(1)+'%</b><span>Success rate</span></div><div class="metric"><b>'+fmtTokens((m.input_tokens||0)+(m.output_tokens||0))+'</b><span>Tokens</span></div><div class="metric"><b>'+fmtMoney(m.cost_usd||0)+'</b><span>'+Number(m.artifacts||0)+' artifacts · '+Number(m.memory_count||0)+' memories</span></div></div>';
-  h+='<div class="modeNote"><b>Goal:</b> '+esc(d.spec.goal||'')+'<br><b>Accounting:</b> duration is measured per run. Tokens and provider cost are recorded from live APIs; demo runs stay at 0 instead of inventing spend.<br><b>Handoff:</b> '+(deps.length?'Consumes latest approved output from: ':'Starts the chain with no upstream dependency.')+(deps.length?'<span class="depRow">'+deps.map(x=>'<span class="depChip">'+esc(x)+'</span>').join('')+'</span>':'')+'</div>';
+  let h='<div class="liveProgress"><div class="liveProgressTop"><b>'+esc(pr.step||d.state||tr('agent.idle'))+'</b><span>'+Number(pr.progress||0)+'%</span></div><div class="liveBar"><i style="width:'+Number(pr.progress||0)+'%"></i></div><div class="sub">'+tr('drawer.currentJob')+': '+esc(liveJobLabel)+' · '+tr('drawer.run')+': '+esc(pr.run_id||'none')+'</div></div>';
+  h+='<div class="metricGrid"><div class="metric"><b>'+Number(m.runs||0)+'</b><span>'+tr('drawer.runs')+'</span></div><div class="metric"><b>'+fmtDuration(m.duration_ms||0)+'</b><span>'+tr('drawer.totalTime')+'</span></div><div class="metric"><b>'+fmtDuration(m.avg_duration_ms||0)+'</b><span>'+tr('drawer.avgRun')+'</span></div><div class="metric"><b>'+Number(m.success_rate||0).toFixed(1)+'%</b><span>'+tr('drawer.success')+'</span></div><div class="metric"><b>'+fmtTokens((m.input_tokens||0)+(m.output_tokens||0))+'</b><span>'+tr('drawer.tokens')+'</span></div><div class="metric"><b>'+fmtMoney(m.cost_usd||0)+'</b><span>'+Number(m.artifacts||0)+' artifacts · '+Number(m.memory_count||0)+' memories</span></div></div>';
+  h+='<div class="modeNote"><b>'+tr('drawer.goal')+':</b> '+esc(d.spec.goal||'')+'<br><b>'+tr('drawer.accounting')+':</b> duration is measured per run. Tokens and provider cost are recorded from live APIs; demo runs stay at 0 instead of inventing spend.<br><b>'+tr('drawer.handoff')+':</b> '+(deps.length?'Consumes latest approved output from: ':'Starts the chain with no upstream dependency.')+(deps.length?'<span class="depRow">'+deps.map(x=>'<span class="depChip">'+esc(x)+'</span>').join('')+'</span>':'')+'</div>';
   if(d.name!=='Supervisor'&&S&&S.selectedJobId){
-    h+='<button class="btn primary" style="width:100%;margin-top:8px" onclick="rerunAgent(\''+esc(d.name)+'\')">↻ Re-run on selected job</button><div class="sub" style="margin-top:5px">This rewinds the job to '+esc(d.spec.stage||'this')+' and marks downstream outputs for rebuild. Human approval is required again before publishing.</div>';
+    h+='<button class="btn primary" style="width:100%;margin-top:8px" onclick="rerunAgent(\''+esc(d.name)+'\')">↻ '+tr('drawer.rerun')+'</button><div class="sub" style="margin-top:5px">'+tr('drawer.rerunNote',{stage:esc(d.spec.stage||'')})+'</div>';
   }
 
-  h+='<div class="drawerSection"><h3>MCP connections <span class="sub">('+mcp.length+')</span></h3><div class="mcpNote">Each worker has its own MCP registry. FactoryOS stores endpoint configuration and an environment-variable name, never the secret itself. MCP invocation remains gated until the execution bridge is enabled.</div>';
+  h+='<div class="drawerSection"><h3>'+tr('drawer.mcp')+' <span class="sub">('+mcp.length+')</span></h3><div class="mcpNote">'+tr('drawer.mcpNote')+'</div>';
   if(mcp.length){
     h+=mcp.map(x=>'<div class="mcpCard"><div class="mcpCardTop"><b>'+esc(x.name)+'</b><span class="status '+(x.enabled?'connected':'')+'">'+(x.enabled?'enabled':'configured')+'</span></div><small>'+esc(x.transport)+' · '+esc(x.endpoint)+(x.auth_env?' · auth env: '+esc(x.auth_env):'')+'</small><div class="mcpActions"><button class="btn" onclick="toggleMcp(\''+x.id+'\','+(!x.enabled)+')">'+(x.enabled?'Disable':'Enable')+'</button><button class="btn" onclick="deleteMcp(\''+x.id+'\')">Remove</button></div></div>').join('');
   }else{
-    h+='<div class="sub" style="margin-top:6px">No MCP server configured for this worker.</div>';
+    h+='<div class="sub" style="margin-top:6px">'+tr('drawer.noMcp')+'</div>';
   }
-  h+='<div class="mcpForm"><input id="mcpName" placeholder="MCP name"><select id="mcpTransport"><option value="streamable_http">Streamable HTTP</option><option value="sse">SSE</option></select><input class="wide" id="mcpEndpoint" placeholder="https://mcp.example.com/mcp"><input class="wide" id="mcpAuthEnv" placeholder="Auth env name, e.g. MCP_API_TOKEN (optional)"><button class="btn primary wide" onclick="addMcp()">+ Add MCP to '+esc(d.name)+'</button></div></div>';
+  h+='<div class="mcpForm"><input id="mcpName" placeholder="MCP name"><select id="mcpTransport"><option value="streamable_http">Streamable HTTP</option><option value="sse">SSE</option></select><input class="wide" id="mcpEndpoint" placeholder="https://mcp.example.com/mcp"><input class="wide" id="mcpAuthEnv" placeholder="Auth env name, e.g. MCP_API_TOKEN (optional)"><button class="btn primary wide" onclick="addMcp()">+ '+tr('drawer.addMcp',{name:esc(d.name)})+'</button></div></div>';
 
-  h+='<div class="drawerSection"><h3>Execution steps <span class="sub">('+steps.length+')</span></h3>';
+  h+='<div class="drawerSection"><h3>'+tr('drawer.steps')+' <span class="sub">('+steps.length+')</span></h3>';
   if(steps.length){
     h+=steps.slice(0,24).map(x=>'<div class="runStep '+esc(x.status)+'"><div class="check">'+(x.status==='failed'?'!':'✓')+'</div><div><b>'+esc(x.label)+'</b><small>'+esc(x.job_title||'Factory maintenance')+' · '+(x.started_at||'').replace('T',' ').slice(0,19)+'</small></div><em>'+Number(x.progress||0)+'%</em></div>').join('');
   }else{
-    h+='<div class="sub">No step history yet.</div>';
+    h+='<div class="sub">'+tr('drawer.noSteps')+'</div>';
   }
   h+='</div>';
 
-  h+='<div class="drawerSection"><h3>Persistent memory <span class="sub">('+mem.length+')</span></h3><div class="sub">Approved learnings stored here will be available to this agent when live model execution is connected.</div><div class="memoryComposer"><input id="memoryInput" placeholder="Add a rule, preference or learning…"><button class="btn" onclick="saveMemory(\''+esc(d.name)+'\')">Save</button></div>';
+  h+='<div class="drawerSection"><h3>'+tr('drawer.memory')+' <span class="sub">('+mem.length+')</span></h3><div class="sub">'+tr('drawer.memoryNote')+'</div><div class="memoryComposer"><input id="memoryInput" placeholder="'+tr('drawer.memoryPlaceholder')+'"><button class="btn" onclick="saveMemory(\''+esc(d.name)+'\')">'+tr('action.save')+'</button></div>';
   if(mem.length){
     h+=mem.map(x=>'<div class="memoryItem"><b>'+esc(x.kind||'learning')+'</b><p>'+esc(x.content)+'</p><small>'+esc(x.source||'manual')+' · '+(x.created_at||'').replace('T',' ').slice(0,19)+'</small><button class="memoryArchive" title="Archive memory" onclick="archiveMemory(\''+esc(d.name)+'\',\''+x.id+'\')">×</button></div>').join('');
   }else{
-    h+='<div class="sub">No persistent learnings yet.</div>';
+    h+='<div class="sub">'+tr('drawer.noMemory')+'</div>';
   }
   h+='</div>';
 
-  h+='<div class="drawerSection"><h3>Work history</h3>';
+  h+='<div class="drawerSection"><h3>'+tr('drawer.history')+'</h3>';
   if(!runs.length){
-    h+='<div class="sub">No recorded runs yet. Run a job to create the first ledger entry.</div>';
+    h+='<div class="sub">'+tr('drawer.noHistory')+'</div>';
   }else{
-    h+=runs.map(r=>'<div class="runRow"><div><b>'+esc(r.job_title||'Factory maintenance')+' · '+esc(r.status)+'</b><small>'+esc(r.stage||'supervision')+' · '+esc(r.model||'')+' · '+(r.started_at||'').replace('T',' ').slice(0,19)+(r.error?' · ERROR: '+esc(r.error):'')+'</small>'+((r.inputs||[]).length?'<div class="inputLine"><b>Inputs:</b> '+(r.inputs||[]).map(x=>esc(x.source_agent)+' → '+esc(x.title)).join(' · ')+'</div>':'')+'</div><div class="runNumbers">'+fmtDuration(r.duration_ms)+'<br>'+fmtTokens((r.input_tokens||0)+(r.output_tokens||0))+' tok · '+fmtMoney(r.cost_usd)+'</div></div>').join('');
+    h+=runs.map(r=>'<div class="runRow"><div><b>'+esc(r.job_title||'Factory maintenance')+' · '+esc(r.status)+'</b><small>'+esc(r.stage||'supervision')+' · '+esc(r.model||'')+' · '+(r.started_at||'').replace('T',' ').slice(0,19)+(r.error?' · ERROR: '+esc(r.error):'')+'</small>'+((r.inputs||[]).length?'<div class="inputLine"><b>'+tr('drawer.inputs')+':</b> '+(r.inputs||[]).map(x=>esc(x.source_agent)+' → '+esc(x.title)).join(' · ')+'</div>':'')+'</div><div class="runNumbers">'+fmtDuration(r.duration_ms)+'<br>'+fmtTokens((r.input_tokens||0)+(r.output_tokens||0))+' tok · '+fmtMoney(r.cost_usd)+'</div></div>').join('');
   }
-  h+='</div><div class="drawerSection"><h3>Outputs & artifacts <span class="sub">('+arts.length+')</span></h3>';
-  if(!arts.length) h+='<div class="sub">No saved outputs yet.</div>';
+  h+='</div><div class="drawerSection"><h3>'+tr('drawer.outputs')+' <span class="sub">('+arts.length+')</span></h3>';
+  if(!arts.length) h+='<div class="sub">'+tr('drawer.noOutputs')+'</div>';
   else h+=arts.map(a=>artifactHtml(a)).join('');
   h+='</div>';
   $('#agentDrawerBody').innerHTML=h;
