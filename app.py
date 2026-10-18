@@ -788,7 +788,13 @@ def status():
         "supervisorState": supervisor_runtime.get("state", "monitoring"),
         "usage": get_usage_summary(),
         "agentMetrics": {a:get_agent_metrics(a) for a in AGENTS},
-        "improvementProposals": get_improvement_proposals("proposed",5)
+        "improvementProposals": get_improvement_proposals("proposed",5),
+        "runtimePolicy": {
+            "agent_timeout_seconds":AGENT_TIMEOUT_SECONDS,
+            "max_retries":AGENT_MAX_RETRIES,
+            "daily_budget_usd":FACTORY_DAILY_BUDGET_USD,
+            "job_budget_usd":FACTORY_JOB_BUDGET_USD
+        }
     }
 
 @app.post("/api/jobs")
