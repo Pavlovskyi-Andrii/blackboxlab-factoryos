@@ -34,6 +34,10 @@ jobs:
           assert state["buildProgress"]["total"] >= 10
           assert "Scout" in state["agentProgress"]
           assert isinstance(app.get_agent_mcp_connections("Scout"), list)
+          tasks = app.get_factory_tasks()
+          assert tasks["total"] >= 10
+          assert any(t["steps"] for t in tasks["tasks"])
+          assert any(t["id"] == "multilingual-ui" for t in tasks["tasks"])
           print("FactoryOS runtime smoke test passed")
           PY
       - name: Validate required frontend assets
@@ -46,6 +50,12 @@ jobs:
           grep -q "FactoryOS Build Progress" static/index.html
           grep -q "agentTooltip" static/index.html
           grep -q "MCP connections" static/index.html
+          grep -q "const I18N" static/index.html
+          grep -q ""uk"" static/index.html
+          grep -q ""ru"" static/index.html
+          grep -q "startBuildTask" static/index.html
+          grep -q "taskSteps" static/index.html
+          grep -q "factory_build_manifest.json" app.py
       - name: Validate dashboard document structure
         run: |
           python - <<'PY'
