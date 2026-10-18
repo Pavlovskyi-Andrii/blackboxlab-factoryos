@@ -317,6 +317,20 @@ def init_db():
       completed_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_factory_tasks_status ON factory_tasks(status, order_index, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS factory_task_steps(
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      step_key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'todo',
+      progress INTEGER NOT NULL DEFAULT 0,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_task_steps_unique ON factory_task_steps(task_id, step_key);
+    CREATE INDEX IF NOT EXISTS idx_factory_task_steps_task ON factory_task_steps(task_id, order_index);
     """)
     n = con.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
     if n == 0:
@@ -369,6 +383,102 @@ def sync_factory_tasks():
     con.commit(); con.close()
 
 sync_factory_tasks()
+
+DEFAULT_BUILD_STEPS = [
+    ("understand","Understand task & acceptance criteria"),
+    ("inspect","Inspect current code, state & dependencies"),
+    ("plan","Plan the smallest safe implementation"),
+    ("implement","Implement the change"),
+    ("test","Run CI / regression checks"),
+    ("deploy","Deploy through CI-gated Render auto-deploy"),
+    ("verify","Verify live behavior & close the task"),
+]
+
+def ensure_factory_task_steps(task_id):
+    con=db(); now=ts()
+    existing=con.execute("SELECT COUNT(*) c FROM factory_task_steps WHERE task_id=?",(task_id,)).fetchone()["c"]
+    if not existing:
+        for idx,(key,label) in enumerate(DEFAULT_BUILD_STEPS, start=1):
+            con.execute("""INSERT INTO factory_task_steps(id,task_id,step_key,label,status,progress,order_index,created_at,updated_at)
+                           VALUES(?,?,?,?,?,?,?,?,?)""",
+                        (str(uuid.uuid4()),task_id,key,label,"todo",0,idx*10,now,now))
+        con.commit()
+    rows=[dict(x) for x in con.execute("""SELECT * FROM factory_task_steps
+                                          WHERE task_id=? ORDER BY order_index""",(task_id,)).fetchall()]
+    con.close()
+    return rows
+
+def get_factory_task_steps(task_id):
+    con=db()
+    rows=[dict(x) for x in con.execute("""SELECT * FROM factory_task_steps
+                                          WHERE task_id=? ORDER BY order_index""",(task_id,)).fetchall()]
+    con.close()
+    return rows
+
+def set_factory_task_step(task_id, step_key, status, progress=None):
+    if status not in ("todo","in_progress","done","blocked"):
+        raise ValueError("Unknown step status")
+    con=db(); now=ts()
+    row=con.execute("SELECT id FROM factory_task_steps WHERE task_id=? AND step_key=?",(task_id,step_key)).fetchone()
+    if not row:
+        con.close()
+        return False
+    if progress is None:
+        progress={"todo":0,"in_progress":35,"done":100,"blocked":0}[status]
+    con.execute("""UPDATE factory_task_steps
+                   SET status=?,progress=?,updated_at=?,completed_at=?
+                   WHERE task_id=? AND step_key=?""",
+                (status,max(0,min(100,int(progress))),now,now if status=="done" else None,task_id,step_key))
+    con.commit(); con.close()
+    return True
+
+def task_execution_progress(task_id):
+    steps=get_factory_task_steps(task_id)
+    if not steps:
+        return {"steps":[],"done":0,"total":0,"progress":0}
+    done=sum(1 for x in steps if x["status"]=="done")
+    partial=sum(int(x.get("progress") or 0) for x in steps)
+    return {"steps":steps,"done":done,"total":len(steps),"progress":round(partial/len(steps),1)}
+
+def apply_build_manifest():
+    path=BASE/"factory_build_manifest.json"
+    if not path.exists():
+        return 0
+    try:
+        payload=json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+    updates=payload.get("tasks",{})
+    if not isinstance(updates,dict):
+        return 0
+    applied=0; con=db(); now=ts()
+    for task_id,update in updates.items():
+        if not isinstance(update,dict):
+            continue
+        row=con.execute("SELECT id FROM factory_tasks WHERE id=?",(task_id,)).fetchone()
+        if not row:
+            meta=update.get("meta") or {}
+            title=meta.get("title") or task_id
+            con.execute("""INSERT INTO factory_tasks(id,title,description,category,priority,status,owner,order_index,created_at,updated_at,completed_at)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                        (task_id,title,meta.get("description",""),meta.get("category","product"),
+                         meta.get("priority","medium"),update.get("status","todo"),meta.get("owner","Factory Builder"),
+                         int(meta.get("order_index",9990)),now,now,now if update.get("status")=="done" else None))
+        elif update.get("status") in ("todo","in_progress","done","blocked"):
+            con.execute("UPDATE factory_tasks SET status=?,updated_at=?,completed_at=? WHERE id=?",
+                        (update["status"],now,now if update["status"]=="done" else None,task_id))
+        con.commit()
+        ensure_factory_task_steps(task_id)
+        for step_key,step_update in (update.get("steps") or {}).items():
+            if isinstance(step_update,str):
+                set_factory_task_step(task_id,step_key,step_update)
+            elif isinstance(step_update,dict):
+                set_factory_task_step(task_id,step_key,step_update.get("status","todo"),step_update.get("progress"))
+        applied+=1
+    con.close()
+    return applied
+
+apply_build_manifest()
 
 class JobCreate(BaseModel):
     title: str
@@ -500,8 +610,17 @@ def get_factory_tasks():
                                           ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'todo' THEN 1 WHEN 'blocked' THEN 2 ELSE 3 END,
                                                    order_index, updated_at DESC""").fetchall()]
     con.close()
+    for row in rows:
+        exec_state=task_execution_progress(row["id"])
+        row["steps"]=exec_state["steps"]
+        row["step_done"]=exec_state["done"]
+        row["step_total"]=exec_state["total"]
+        row["execution_progress"]=exec_state["progress"]
     total=len(rows); done=sum(1 for x in rows if x["status"]=="done")
-    return {"tasks":rows,"total":total,"done":done,"progress":round(done/total*100,1) if total else 100}
+    active=sum(1 for x in rows if x["status"]=="in_progress")
+    blocked=sum(1 for x in rows if x["status"]=="blocked")
+    return {"tasks":rows,"total":total,"done":done,"active":active,"blocked":blocked,
+            "progress":round(done/total*100,1) if total else 100}
 
 def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
     run_id=str(uuid.uuid4())
@@ -1441,6 +1560,39 @@ async def delete_agent_mcp(agent_name:str,connection_id:str):
 def factory_tasks():
     return get_factory_tasks()
 
+@app.get("/api/factory/tasks/{task_id}")
+def factory_task_detail(task_id:str):
+    con=db(); row=con.execute("SELECT * FROM factory_tasks WHERE id=?",(task_id,)).fetchone(); con.close()
+    if not row:
+        raise HTTPException(404,"Task not found")
+    task=dict(row)
+    exec_state=task_execution_progress(task_id)
+    task.update({"steps":exec_state["steps"],"step_done":exec_state["done"],"step_total":exec_state["total"],"execution_progress":exec_state["progress"]})
+    return task
+
+@app.post("/api/factory/tasks/{task_id}/start")
+async def start_factory_task(task_id:str):
+    con=db(); row=con.execute("SELECT * FROM factory_tasks WHERE id=?",(task_id,)).fetchone()
+    if not row:
+        con.close(); raise HTTPException(404,"Task not found")
+    now=ts()
+    con.execute("UPDATE factory_tasks SET status='in_progress',updated_at=?,completed_at=NULL WHERE id=?",(now,task_id))
+    con.commit(); con.close()
+    steps=ensure_factory_task_steps(task_id)
+    first_pending=next((x for x in steps if x["status"]!="done"),None)
+    if first_pending:
+        set_factory_task_step(task_id,first_pending["step_key"],"in_progress",15)
+    payload={
+        "event":"BUILDER_TASK_STARTED","task_id":task_id,"title":row["title"],
+        "description":row["description"],"category":row["category"],"priority":row["priority"],
+        "owner":row["owner"],"requested_at":now,
+        "instruction":"Inspect repository, implement safely, run CI, deploy, verify, and update factory_build_manifest.json for this task."
+    }
+    print(json.dumps(payload,ensure_ascii=False),flush=True)
+    event(None,f"Builder task started from FactoryOS: {row['title']}")
+    await broadcast({"type":"builder_task_started","taskId":task_id})
+    return {"ok":True,"message":"Task queued for Factory Builder","task":factory_task_detail(task_id)}
+
 @app.post("/api/factory/tasks")
 async def create_factory_task(item:FactoryTaskCreate):
     task_id=str(uuid.uuid4()); now=ts()
@@ -1466,8 +1618,15 @@ async def update_factory_task_status(task_id:str,item:FactoryTaskStatus):
     con.execute("UPDATE factory_tasks SET status=?,updated_at=?,completed_at=? WHERE id=?",
                 (item.status,now,now if item.status=="done" else None,task_id))
     con.commit(); con.close()
+    ensure_factory_task_steps(task_id)
+    if item.status=="done":
+        for step in get_factory_task_steps(task_id):
+            set_factory_task_step(task_id,step["step_key"],"done",100)
+    elif item.status=="blocked":
+        current=next((x for x in get_factory_task_steps(task_id) if x["status"]=="in_progress"),None)
+        if current: set_factory_task_step(task_id,current["step_key"],"blocked",current.get("progress") or 0)
     event(None,f"Build task {item.status}: {row['title']}")
-    await broadcast()
+    await broadcast({"type":"builder_task_status","taskId":task_id,"status":item.status})
     return {"ok":True}
 
 @app.get("/api/improvements")
