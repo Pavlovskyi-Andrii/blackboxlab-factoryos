@@ -427,6 +427,57 @@ def collect_agent_inputs(job_id, agent):
     con.close()
     return {"artifacts":artifacts,"missing":missing}
 
+def set_agent_progress(agent, progress=None, step=None, job_id=None, run_id=None, state=None):
+    current=agent_progress.setdefault(agent,{"progress":0,"step":"Idle","job_id":None,"run_id":None,"started_at":None,"updated_at":None})
+    now=ts()
+    if progress is not None: current["progress"]=max(0,min(100,int(progress)))
+    if step is not None: current["step"]=step
+    if job_id is not None: current["job_id"]=job_id
+    if run_id is not None: current["run_id"]=run_id
+    if current.get("started_at") is None and current.get("progress",0)>0: current["started_at"]=now
+    current["updated_at"]=now
+    if state is not None: agent_runtime[agent]=state
+    return dict(current)
+
+def record_run_step(run_id, job_id, agent, step_key, label, progress, status="completed"):
+    step_id=str(uuid.uuid4())
+    now=ts()
+    finished=now if status in ("completed","failed","skipped") else None
+    con=db()
+    con.execute("""INSERT INTO agent_run_steps(id,run_id,job_id,agent,step_key,label,status,progress,started_at,finished_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (step_id,run_id,job_id,agent,step_key,label,status,int(progress),now,finished))
+    con.commit(); con.close()
+    return step_id
+
+async def push_agent_progress(agent, run_id, job_id, step_key, label, progress, state="working", persist=True):
+    snapshot=set_agent_progress(agent,progress,label,job_id,run_id,state)
+    if persist:
+        record_run_step(run_id,job_id,agent,step_key,label,progress,"completed" if progress>=100 else "running")
+    await broadcast({"type":"agent_progress","agent":agent,"state":state,"progress":snapshot})
+
+def reset_agent_progress(agent, state="idle", step="Idle"):
+    agent_runtime[agent]=state
+    agent_progress[agent]={"progress":0 if state=="idle" else 100 if state=="done" else 0,
+                           "step":step,"job_id":None,"run_id":None,"started_at":None,"updated_at":ts()}
+
+def get_agent_mcp_connections(agent):
+    con=db()
+    rows=[dict(x) for x in con.execute("""SELECT * FROM agent_mcp_connections
+                                          WHERE agent=? ORDER BY enabled DESC,updated_at DESC""",(agent,)).fetchall()]
+    con.close()
+    for x in rows: x["enabled"]=bool(x["enabled"])
+    return rows
+
+def get_factory_tasks():
+    con=db()
+    rows=[dict(x) for x in con.execute("""SELECT * FROM factory_tasks
+                                          ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'todo' THEN 1 WHEN 'blocked' THEN 2 ELSE 3 END,
+                                                   order_index, updated_at DESC""").fetchall()]
+    con.close()
+    total=len(rows); done=sum(1 for x in rows if x["status"]=="done")
+    return {"tasks":rows,"total":total,"done":done,"progress":round(done/total*100,1) if total else 100}
+
 def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
     run_id=str(uuid.uuid4())
     con=db()
@@ -711,52 +762,67 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
         input_pack=collect_agent_inputs(job_id,agent)
         run_id=start_agent_run(agent,job_id,stage)
         attach_run_inputs(run_id,input_pack["artifacts"])
-        agent_runtime[agent]="working"
-        if input_pack["missing"]:
-            missing=", ".join(input_pack["missing"])
-            error=f"Missing required upstream artifacts from: {missing}"
-            finish_agent_run(run_id,status="failed",error=error,
-                             meta={"mode":"demo","attempt":attempt,"missing_inputs":input_pack["missing"]})
-            agent_runtime[agent]="failed"
-            event(job_id,f"{agent}: blocked — {error}")
-            await broadcast({"type":"agent","agent":agent,"state":"failed"})
-            raise RuntimeError(error)
+        set_agent_progress(agent,3,"Starting run",job_id,run_id,"working")
         event(job_id,f"{agent}: working (attempt {attempt}/{total_attempts})")
         await broadcast({"type":"agent","agent":agent,"state":"working","attempt":attempt})
-        try:
-            async def demo_step():
-                await asyncio.sleep(delay)
-                return agent_artifact_template(agent,job)
 
+        try:
+            await push_agent_progress(agent,run_id,job_id,"inputs","Checking upstream inputs",8)
+            if input_pack["missing"]:
+                missing=", ".join(input_pack["missing"])
+                raise RuntimeError(f"Missing required upstream artifacts from: {missing}")
+
+            await push_agent_progress(agent,run_id,job_id,"context","Preparing context & memory",20)
+            await asyncio.sleep(max(0.05,delay*0.15))
+
+            await push_agent_progress(agent,run_id,job_id,"tools","Checking MCP/tool capabilities",34)
+            mcp=get_agent_mcp_connections(agent)
+            enabled_mcp=[x for x in mcp if x["enabled"]]
+            await asyncio.sleep(max(0.05,delay*0.12))
+
+            await push_agent_progress(agent,run_id,job_id,"generate","Producing output",52)
+            async def demo_step():
+                await asyncio.sleep(max(0.05,delay*0.40))
+                return agent_artifact_template(agent,job)
             kind,title,content,*extra=await asyncio.wait_for(demo_step(),timeout=AGENT_TIMEOUT_SECONDS)
+
+            await push_agent_progress(agent,run_id,job_id,"validate","Validating output",76)
+            await asyncio.sleep(max(0.05,delay*0.13))
+
             kwargs={}
             if extra:
                 if len(extra)>0: kwargs["url"]=extra[0]
                 if len(extra)>1: kwargs["mime_type"]=extra[1]
+
+            await push_agent_progress(agent,run_id,job_id,"save","Saving artifact & ledger",91)
             save_artifact(agent,kind,title,content,job_id=job_id,run_id=run_id,
-                          meta={"mode":"demo","stage":stage,"attempt":attempt},**kwargs)
+                          meta={"mode":"demo","stage":stage,"attempt":attempt,
+                                "enabled_mcp":[x["name"] for x in enabled_mcp]},**kwargs)
             finish_agent_run(run_id,status="completed",
-                             meta={"mode":"demo","attempt":attempt,"note":"No paid model call was made."})
-            agent_runtime[agent]="done"
+                             meta={"mode":"demo","attempt":attempt,
+                                   "enabled_mcp":[x["name"] for x in enabled_mcp],
+                                   "note":"No paid model or MCP tool call was made."})
+            record_run_step(run_id,job_id,agent,"complete","Completed",100,"completed")
+            set_agent_progress(agent,100,"Completed",job_id,run_id,"done")
             event(job_id,f"{agent}: completed")
-            await broadcast({"type":"agent","agent":agent,"state":"done"})
+            await broadcast({"type":"agent_progress","agent":agent,"state":"done","progress":agent_progress[agent]})
             return
         except asyncio.TimeoutError:
             last_error=f"Timed out after {AGENT_TIMEOUT_SECONDS}s"
         except Exception as exc:
             last_error=str(exc)
 
+        record_run_step(run_id,job_id,agent,"failed",last_error,agent_progress.get(agent,{}).get("progress",0),"failed")
         finish_agent_run(run_id,status="failed",error=last_error,
                          meta={"mode":"demo","attempt":attempt})
+        set_agent_progress(agent,agent_progress.get(agent,{}).get("progress",0),f"Failed: {last_error}",job_id,run_id,"failed")
         event(job_id,f"{agent}: attempt {attempt} failed — {last_error}")
+        await broadcast({"type":"agent_progress","agent":agent,"state":"failed","progress":agent_progress[agent]})
         if attempt < total_attempts:
             event(job_id,f"{agent}: retrying")
-            await broadcast({"type":"agent","agent":agent,"state":"working","retrying":True})
+            set_agent_progress(agent,5,"Retrying",job_id,run_id,"working")
             await asyncio.sleep(min(2,attempt))
             continue
-
-        agent_runtime[agent]="failed"
-        await broadcast({"type":"agent","agent":agent,"state":"failed"})
         raise RuntimeError(f"{agent} failed after {total_attempts} attempt(s): {last_error}")
 
 def current_selected(jobs):
@@ -1039,13 +1105,14 @@ def status():
         "factory":"online","jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
         "selectedJobQuality": get_job_quality(sid) if sid else None,
         "events":ev,"connections":CONNECTIONS,"stages":STAGES,
-        "agentStates":agent_states(jobs),"agentMap":AGENT_MAP,
+        "agentStates":agent_states(jobs),"agentProgress":agent_progress,"agentMap":AGENT_MAP,
         "runningJobs":list(running_jobs),"nextAction":next_action(selected),
         "supervisor": report,
         "supervisorState": supervisor_runtime.get("state", "monitoring"),
         "usage": get_usage_summary(),
         "agentMetrics": {a:get_agent_metrics(a) for a in AGENTS},
         "improvementProposals": get_improvement_proposals("proposed",5),
+        "buildProgress": get_factory_tasks(),
         "runtimePolicy": {
             "agent_timeout_seconds":AGENT_TIMEOUT_SECONDS,
             "max_retries":AGENT_MAX_RETRIES,
@@ -1225,15 +1292,28 @@ def agent_detail(agent_name:str):
                WHERE ri.run_id=? ORDER BY a.created_at""",(r["id"],)
         ).fetchall()]
     con.close()
+    steps=[dict(x) for x in con.execute("""SELECT s.*,j.title job_title
+                                                 FROM agent_run_steps s
+                                                 LEFT JOIN jobs j ON j.id=s.job_id
+                                                 WHERE s.agent=? ORDER BY s.started_at DESC LIMIT 120""",(agent_name,)).fetchall()] if False else []
     for a in artifacts:
         try:a["meta"]=json.loads(a.pop("meta_json") or "{}")
         except Exception:a["meta"]={}
+    con2=db()
+    steps=[dict(x) for x in con2.execute("""SELECT s.*,j.title job_title
+                                            FROM agent_run_steps s
+                                            LEFT JOIN jobs j ON j.id=s.job_id
+                                            WHERE s.agent=? ORDER BY s.started_at DESC LIMIT 120""",(agent_name,)).fetchall()]
+    con2.close()
     return {
         "name":agent_name,
         "spec":AGENT_SPECS.get(agent_name,{}),
         "dependencies":AGENT_DEPENDENCIES.get(agent_name,[]),
         "state":agent_states(get_jobs()).get(agent_name,"idle"),
         "metrics":get_agent_metrics(agent_name),
+        "progress":agent_progress.get(agent_name,{}),
+        "mcp":get_agent_mcp_connections(agent_name),
+        "steps":steps,
         "runs":runs,
         "artifacts":artifacts,
         "memory":get_agent_memory(agent_name),
