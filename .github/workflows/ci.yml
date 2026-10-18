@@ -15,8 +15,25 @@ jobs:
           python-version: "3.13"
       - name: Compile Python
         run: python -m py_compile app.py
+      - name: Install runtime dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Runtime smoke test
+        env:
+          DATA_DIR: /tmp/factoryos-ci
+          FACTORY_PASSWORD: ""
+        run: |
+          python - <<'PY'
+          import app
+          assert app.health()["ok"] is True
+          state = app.status()
+          assert state["factory"] == "online"
+          assert "Supervisor" in state["agentStates"]
+          assert "usage" in state
+          print("FactoryOS runtime smoke test passed")
+          PY
       - name: Validate required frontend assets
         run: |
           test -f static/index.html
           test -f static/office_scene.svg
           grep -q "FactoryOS" static/index.html
+          grep -q "agentDrawer" static/index.html
