@@ -324,7 +324,7 @@ def factory_mcp_info(request: Request):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "factoryos"}
+    return {"ok": True, "service": "factoryos", "version": APP_VERSION, "factory_mcp_configured": bool(FACTORY_MCP_TOKEN)}
 
 clients: set[WebSocket] = set()
 running_jobs: set[str] = set()
