@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-18T09:00:00Z",
+  "updated_at": "2026-10-18T09:14:00Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -44,12 +44,12 @@
         "understand": "done",
         "inspect": "done",
         "plan": "done",
-        "implement": {
+        "implement": "done",
+        "test": "done",
+        "deploy": {
           "status": "in_progress",
-          "progress": 20
+          "progress": 45
         },
-        "test": "todo",
-        "deploy": "todo",
         "verify": "todo"
       }
     },
@@ -109,11 +109,11 @@
         "plan": "done",
         "implement": "done",
         "test": "done",
-        "deploy": "done",
-        "verify": {
+        "deploy": {
           "status": "in_progress",
-          "progress": 60
-        }
+          "progress": 70
+        },
+        "verify": "todo"
       }
     },
     "foundation-cloud": {
