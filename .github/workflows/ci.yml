@@ -38,6 +38,19 @@ jobs:
           test -f static/demo_storyboard.svg
           grep -q "FactoryOS" static/index.html
           grep -q "agentDrawer" static/index.html
+      - name: Validate dashboard document structure
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/index.html").read_text(encoding="utf-8")
+          assert html.count("<html") == 1, "expected exactly one html root"
+          assert html.count("</html>") == 1, "expected exactly one closing html tag"
+          assert html.count("<script>") == 1, "expected exactly one inline script"
+          assert html.count("</script>") == 1, "expected exactly one inline script close"
+          trailing = html.split("</html>",1)[1].strip()
+          assert trailing == "", f"unexpected content after </html>: {trailing[:80]!r}"
+          print("Dashboard document structure valid")
+          PY
       - name: Check inline dashboard JavaScript
         run: |
           python - <<'PY'
