@@ -1581,6 +1581,9 @@ async def start_factory_task(task_id:str):
     con=db(); row=con.execute("SELECT * FROM factory_tasks WHERE id=?",(task_id,)).fetchone()
     if not row:
         con.close(); raise HTTPException(404,"Task not found")
+    if row["status"]=="in_progress":
+        con.close()
+        return {"ok":True,"message":"Task is already queued for Factory Builder","task":factory_task_detail(task_id),"already_queued":True}
     now=ts()
     con.execute("UPDATE factory_tasks SET status='in_progress',updated_at=?,completed_at=NULL WHERE id=?",(now,task_id))
     con.commit(); con.close()
@@ -1597,7 +1600,7 @@ async def start_factory_task(task_id:str):
     print(json.dumps(payload,ensure_ascii=False),flush=True)
     event(None,f"Builder task started from FactoryOS: {row['title']}")
     await broadcast({"type":"builder_task_started","taskId":task_id})
-    return {"ok":True,"message":"Task queued for Factory Builder","task":factory_task_detail(task_id)}
+    return {"ok":True,"message":"Task queued for Factory Builder","task":factory_task_detail(task_id),"already_queued":False}
 
 @app.post("/api/factory/tasks")
 async def create_factory_task(item:FactoryTaskCreate):
