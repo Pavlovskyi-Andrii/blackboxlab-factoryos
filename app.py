@@ -393,9 +393,8 @@ def sync_factory_tasks():
                        VALUES(?,?,?,?,?,?,?,?,?,?,?)
                        ON CONFLICT(id) DO UPDATE SET
                          title=excluded.title,description=excluded.description,category=excluded.category,
-                         priority=excluded.priority,status=excluded.status,owner=excluded.owner,
-                         order_index=excluded.order_index,updated_at=excluded.updated_at,
-                         completed_at=CASE WHEN excluded.status='done' THEN COALESCE(factory_tasks.completed_at,excluded.completed_at) ELSE NULL END""",
+                         priority=excluded.priority,owner=excluded.owner,
+                         order_index=excluded.order_index""",
                     (task_id,title,description,category,priority,status,owner,order_index,created,now,completed))
     con.commit(); con.close()
 
