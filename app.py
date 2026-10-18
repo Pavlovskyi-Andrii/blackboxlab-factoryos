@@ -346,7 +346,14 @@ def factory_mcp_info(request: Request):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "factoryos", "version": APP_VERSION, "factory_mcp_configured": bool(FACTORY_MCP_TOKEN)}
+    return {
+        "ok": True,
+        "service": "factoryos",
+        "version": APP_VERSION,
+        "factory_mcp_configured": bool(FACTORY_MCP_TOKEN),
+        "llm_configured": bool(FACTORY_LLM_API_KEY),
+        "llm_model": FACTORY_LLM_MODEL if FACTORY_LLM_API_KEY else None,
+    }
 
 clients: set[WebSocket] = set()
 running_jobs: set[str] = set()
