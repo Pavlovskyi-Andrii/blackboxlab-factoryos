@@ -329,7 +329,7 @@ async function openAgentDirectory(){
   $('#drawerShade').classList.add('open');$('#agentDrawer').classList.add('open');
   $('#agentName').textContent=tr('drawer.agentDirectory');
   $('#agentRole').textContent=tr('drawer.agentDirectorySub');
-  $('#agentAvatar').textContent='12';
+  $('#agentAvatar').textContent=String((S&&S.agentStates)?Object.keys(S.agentStates).length:13);
   const body=$('#agentDrawerBody');
   body.innerHTML='<div class="sub" style="padding:20px">'+tr('drawer.loadingTeam')+'</div>';
   try{
