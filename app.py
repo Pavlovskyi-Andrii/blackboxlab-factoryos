@@ -458,6 +458,40 @@ def validate_stage_outputs(job_id, stage):
     con.close()
     return {"ok":not missing,"expected":len(expected),"ready":ready,"missing":missing}
 
+def get_job_quality(job_id):
+    job=get_job(job_id)
+    if not job:
+        return None
+    checks={stage:validate_stage_outputs(job_id,stage) for stage in STAGES if AGENT_MAP.get(stage)}
+    expected=sum(x["expected"] for x in checks.values())
+    ready=sum(x["ready"] for x in checks.values())
+    con=db()
+    stage_times={}
+    for stage in STAGES:
+        agents=AGENT_MAP.get(stage,[])
+        if not agents:
+            continue
+        placeholders=",".join("?" for _ in agents)
+        row=con.execute(f"SELECT MAX(created_at) t FROM artifacts WHERE job_id=? AND agent IN ({placeholders})",
+                        (job_id,*agents)).fetchone()
+        stage_times[stage]=row["t"] if row else None
+    con.close()
+    stale=[]
+    newest_upstream=None
+    for stage in STAGES:
+        current=stage_times.get(stage)
+        if current:
+            if newest_upstream and current < newest_upstream:
+                stale.append(stage)
+            if newest_upstream is None or current > newest_upstream:
+                newest_upstream=current
+    return {
+        "job_id":job_id,"stage":job["stage"],"checks":checks,
+        "ready":ready,"expected":expected,
+        "coverage":round((ready/expected*100),1) if expected else 100,
+        "stale_stages":stale,"stage_times":stage_times,"fresh":not stale
+    }
+
 async def execute_agent(agent, stage, job_id, delay=1.1):
     job=get_job(job_id)
     last_error=None
@@ -781,6 +815,7 @@ def status():
     report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
     return {
         "factory":"online","jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
+        "selectedJobQuality": get_job_quality(sid) if sid else None,
         "events":ev,"connections":CONNECTIONS,"stages":STAGES,
         "agentStates":agent_states(jobs),"agentMap":AGENT_MAP,
         "runningJobs":list(running_jobs),"nextAction":next_action(selected),
@@ -888,6 +923,47 @@ async def run_publish(job_id:str):
     finally:
         running_jobs.discard(job_id)
 
+async def rerun_single_agent(job_id, agent_name, stage):
+    try:
+        event(job_id,f"Manual rerun: {agent_name} started")
+        await execute_agent(agent_name,stage,job_id,delay=1.0)
+        con=db()
+        con.execute("UPDATE jobs SET stage=?,status='idle',progress=?,updated_at=? WHERE id=?",
+                    (stage,int(STAGES.index(stage)/(len(STAGES)-1)*100),ts(),job_id))
+        con.commit(); con.close()
+        event(job_id,f"Manual rerun: {agent_name} completed; downstream stages require rebuild")
+        await broadcast()
+    except Exception as exc:
+        con=db()
+        con.execute("UPDATE jobs SET stage=?,status='failed',updated_at=? WHERE id=?",(stage,ts(),job_id))
+        con.commit(); con.close()
+        event(job_id,f"Manual rerun failed for {agent_name}: {exc}")
+        await broadcast({"type":"job_failed","jobId":job_id,"error":str(exc)})
+    finally:
+        running_jobs.discard(job_id)
+
+@app.post("/api/jobs/{job_id}/agents/{agent_name}/rerun")
+async def rerun_agent(job_id:str,agent_name:str):
+    job=get_job(job_id)
+    if not job:
+        raise HTTPException(404,"Job not found")
+    if agent_name not in AGENT_SPECS or agent_name=="Supervisor":
+        raise HTTPException(400,"This agent cannot be rerun on a content job")
+    stage=AGENT_SPECS[agent_name].get("stage")
+    if stage not in STAGES:
+        raise HTTPException(400,"Agent stage is not part of the content pipeline")
+    if job_id in running_jobs:
+        return {"ok":False,"message":"Wait for the current job run to finish first"}
+    running_jobs.add(job_id)
+    con=db()
+    con.execute("UPDATE jobs SET stage=?,status='running',progress=?,updated_at=? WHERE id=?",
+                (stage,int(STAGES.index(stage)/(len(STAGES)-1)*100),ts(),job_id))
+    con.commit(); con.close()
+    event(job_id,f"Manual rerun requested: {agent_name}; downstream outputs will require rebuild")
+    asyncio.create_task(rerun_single_agent(job_id,agent_name,stage))
+    await broadcast()
+    return {"ok":True,"message":f"{agent_name} rerun started"}
+
 @app.get("/api/agents")
 def list_agents():
     jobs=get_jobs()
@@ -937,14 +1013,10 @@ def agent_detail(agent_name:str):
 
 @app.get("/api/jobs/{job_id}/quality")
 def job_quality(job_id:str):
-    job=get_job(job_id)
-    if not job:
+    quality=get_job_quality(job_id)
+    if not quality:
         raise HTTPException(404,"Job not found")
-    checks={stage:validate_stage_outputs(job_id,stage) for stage in STAGES if AGENT_MAP.get(stage)}
-    expected=sum(x["expected"] for x in checks.values())
-    ready=sum(x["ready"] for x in checks.values())
-    return {"job_id":job_id,"stage":job["stage"],"checks":checks,"ready":ready,"expected":expected,
-            "coverage":round((ready/expected*100),1) if expected else 100}
+    return quality
 
 @app.get("/api/jobs/{job_id}/artifacts")
 def job_artifacts(job_id:str):
