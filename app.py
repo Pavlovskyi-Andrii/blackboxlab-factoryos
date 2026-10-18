@@ -1393,6 +1393,17 @@ async def supervisor_loop():
         await asyncio.sleep(60)
 
 @app.on_event("startup")
+async def verify_builder_bridge():
+    if not GITHUB_TOKEN:
+        print(json.dumps({"event":"BUILDER_BRIDGE_CHECK","status":"hourly_fallback","reason":"credential_not_configured"}),flush=True)
+        return
+    try:
+        await asyncio.to_thread(github_api,"GET",f"/actions/workflows/{BUILDER_WORKFLOW}")
+        print(json.dumps({"event":"BUILDER_BRIDGE_CHECK","status":"ready","workflow":BUILDER_WORKFLOW}),flush=True)
+    except Exception as exc:
+        print(json.dumps({"event":"BUILDER_BRIDGE_CHECK","status":"error","error":str(exc)[:300]}),flush=True)
+
+@app.on_event("startup")
 async def start_supervisor():
     backfilled=backfill_legacy_history()
     if backfilled:
