@@ -563,7 +563,9 @@ def status():
         "agentStates":agent_states(jobs),"agentMap":AGENT_MAP,
         "runningJobs":list(running_jobs),"nextAction":next_action(selected),
         "supervisor": report,
-        "supervisorState": supervisor_runtime.get("state", "monitoring")
+        "supervisorState": supervisor_runtime.get("state", "monitoring"),
+        "usage": get_usage_summary(),
+        "agentMetrics": {a:get_agent_metrics(a) for a in AGENTS}
     }
 
 @app.post("/api/jobs")
@@ -609,9 +611,7 @@ async def run_until_review(job_id:str):
                 (stage,int(idx/(len(STAGES)-1)*100),ts(),job_id)); con.commit(); con.close()
             await broadcast()
             for a in AGENT_MAP.get(stage,[]):
-                agent_runtime[a]="working"; event(job_id,f"{a}: working"); await broadcast({"type":"agent","agent":a,"state":"working"})
-                await asyncio.sleep(1.1)
-                agent_runtime[a]="done"; event(job_id,f"{a}: completed"); await broadcast({"type":"agent","agent":a,"state":"done"})
+                await execute_agent(a, stage, job_id, delay=1.1)
         con=db(); con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(ts(),job_id)); con.commit(); con.close()
         event(job_id,"Review gate: waiting for approval"); await broadcast()
     finally:
@@ -632,12 +632,80 @@ async def run_publish(job_id:str):
             con=db(); con.execute("UPDATE jobs SET stage=?,status='running',progress=?,updated_at=? WHERE id=?",
                 (stage,int(idx/(len(STAGES)-1)*100),ts(),job_id)); con.commit(); con.close(); await broadcast()
             for a in AGENT_MAP.get(stage,[]):
-                agent_runtime[a]="working"; event(job_id,f"{a}: working"); await broadcast(); await asyncio.sleep(1.2)
-                agent_runtime[a]="done"; event(job_id,f"{a}: completed"); await broadcast()
+                await execute_agent(a, stage, job_id, delay=1.2)
         con=db(); con.execute("UPDATE jobs SET stage='analytics',status='done',progress=100,updated_at=? WHERE id=?",(ts(),job_id)); con.commit(); con.close()
         event(job_id,"Factory run completed"); await broadcast()
     finally:
         running_jobs.discard(job_id)
+
+@app.get("/api/agents")
+def list_agents():
+    jobs=get_jobs()
+    states=agent_states(jobs)
+    return {
+        "agents":[
+            {
+                "name":name,
+                **AGENT_SPECS.get(name,{}),
+                "state":states.get(name,"idle"),
+                "metrics":get_agent_metrics(name),
+            } for name in AGENTS
+        ]
+    }
+
+@app.get("/api/agents/{agent_name}")
+def agent_detail(agent_name:str):
+    if agent_name not in AGENTS:
+        raise HTTPException(404,"Agent not found")
+    con=db()
+    runs=[dict(x) for x in con.execute(
+        """SELECT r.*, j.title job_title
+           FROM agent_runs r LEFT JOIN jobs j ON j.id=r.job_id
+           WHERE r.agent=? ORDER BY r.started_at DESC LIMIT 60""",(agent_name,)
+    ).fetchall()]
+    artifacts=[dict(x) for x in con.execute(
+        """SELECT a.*, j.title job_title
+           FROM artifacts a LEFT JOIN jobs j ON j.id=a.job_id
+           WHERE a.agent=? ORDER BY a.created_at DESC LIMIT 80""",(agent_name,)
+    ).fetchall()]
+    con.close()
+    for r in runs:
+        try:r["meta"]=json.loads(r.pop("meta_json") or "{}")
+        except Exception:r["meta"]={}
+    for a in artifacts:
+        try:a["meta"]=json.loads(a.pop("meta_json") or "{}")
+        except Exception:a["meta"]={}
+    return {
+        "name":agent_name,
+        "spec":AGENT_SPECS.get(agent_name,{}),
+        "state":agent_states(get_jobs()).get(agent_name,"idle"),
+        "metrics":get_agent_metrics(agent_name),
+        "runs":runs,
+        "artifacts":artifacts,
+        "providerMode":"demo" if CONNECTIONS.get("LLM",{}).get("state")=="demo" else "live"
+    }
+
+@app.get("/api/jobs/{job_id}/artifacts")
+def job_artifacts(job_id:str):
+    if not get_job(job_id):
+        raise HTTPException(404,"Job not found")
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        "SELECT * FROM artifacts WHERE job_id=? ORDER BY created_at DESC",(job_id,)
+    ).fetchall()]
+    con.close()
+    for a in rows:
+        try:a["meta"]=json.loads(a.pop("meta_json") or "{}")
+        except Exception:a["meta"]={}
+    return {"artifacts":rows}
+
+@app.get("/api/usage")
+def usage():
+    return {
+        "total":get_usage_summary(),
+        "agents":{a:get_agent_metrics(a) for a in AGENTS},
+        "note":"Token and cost fields are zero in demo mode. They become real provider usage after live APIs are connected."
+    }
 
 @app.get("/api/supervisor")
 def get_supervisor_report():
