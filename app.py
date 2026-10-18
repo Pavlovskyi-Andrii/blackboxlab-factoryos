@@ -56,6 +56,8 @@ FACTORY_SECRET = os.environ.get("FACTORY_SECRET", secrets.token_hex(32))
 COOKIE_NAME = "factoryos_session"
 FACTORY_DAILY_BUDGET_USD = float(os.environ.get("FACTORY_DAILY_BUDGET_USD", "10"))
 FACTORY_JOB_BUDGET_USD = float(os.environ.get("FACTORY_JOB_BUDGET_USD", "3"))
+AGENT_TIMEOUT_SECONDS = int(os.environ.get("AGENT_TIMEOUT_SECONDS", "180"))
+AGENT_MAX_RETRIES = int(os.environ.get("AGENT_MAX_RETRIES", "1"))
 
 def session_token(username: str) -> str:
     return hmac.new(
@@ -458,28 +460,48 @@ def validate_stage_outputs(job_id, stage):
 
 async def execute_agent(agent, stage, job_id, delay=1.1):
     job=get_job(job_id)
-    run_id=start_agent_run(agent,job_id,stage)
-    agent_runtime[agent]="working"
-    event(job_id,f"{agent}: working")
-    await broadcast({"type":"agent","agent":agent,"state":"working"})
-    try:
-        await asyncio.sleep(delay)
-        kind,title,content,*extra=agent_artifact_template(agent,job)
-        kwargs={}
-        if extra:
-            if len(extra)>0: kwargs["url"]=extra[0]
-            if len(extra)>1: kwargs["mime_type"]=extra[1]
-        save_artifact(agent,kind,title,content,job_id=job_id,run_id=run_id,meta={"mode":"demo","stage":stage},**kwargs)
-        finish_agent_run(run_id,status="completed",meta={"mode":"demo","note":"No paid model call was made."})
-        agent_runtime[agent]="done"
-        event(job_id,f"{agent}: completed")
-        await broadcast({"type":"agent","agent":agent,"state":"done"})
-    except Exception as exc:
-        finish_agent_run(run_id,status="failed",error=str(exc),meta={"mode":"demo"})
+    last_error=None
+    total_attempts=max(1,AGENT_MAX_RETRIES+1)
+    for attempt in range(1,total_attempts+1):
+        run_id=start_agent_run(agent,job_id,stage)
+        agent_runtime[agent]="working"
+        event(job_id,f"{agent}: working (attempt {attempt}/{total_attempts})")
+        await broadcast({"type":"agent","agent":agent,"state":"working","attempt":attempt})
+        try:
+            async def demo_step():
+                await asyncio.sleep(delay)
+                return agent_artifact_template(agent,job)
+
+            kind,title,content,*extra=await asyncio.wait_for(demo_step(),timeout=AGENT_TIMEOUT_SECONDS)
+            kwargs={}
+            if extra:
+                if len(extra)>0: kwargs["url"]=extra[0]
+                if len(extra)>1: kwargs["mime_type"]=extra[1]
+            save_artifact(agent,kind,title,content,job_id=job_id,run_id=run_id,
+                          meta={"mode":"demo","stage":stage,"attempt":attempt},**kwargs)
+            finish_agent_run(run_id,status="completed",
+                             meta={"mode":"demo","attempt":attempt,"note":"No paid model call was made."})
+            agent_runtime[agent]="done"
+            event(job_id,f"{agent}: completed")
+            await broadcast({"type":"agent","agent":agent,"state":"done"})
+            return
+        except asyncio.TimeoutError:
+            last_error=f"Timed out after {AGENT_TIMEOUT_SECONDS}s"
+        except Exception as exc:
+            last_error=str(exc)
+
+        finish_agent_run(run_id,status="failed",error=last_error,
+                         meta={"mode":"demo","attempt":attempt})
+        event(job_id,f"{agent}: attempt {attempt} failed — {last_error}")
+        if attempt < total_attempts:
+            event(job_id,f"{agent}: retrying")
+            await broadcast({"type":"agent","agent":agent,"state":"working","retrying":True})
+            await asyncio.sleep(min(2,attempt))
+            continue
+
         agent_runtime[agent]="failed"
-        event(job_id,f"{agent}: failed — {exc}")
         await broadcast({"type":"agent","agent":agent,"state":"failed"})
-        raise
+        raise RuntimeError(f"{agent} failed after {total_attempts} attempt(s): {last_error}")
 
 def current_selected(jobs):
     global selected_job_id
