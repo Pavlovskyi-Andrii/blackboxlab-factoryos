@@ -346,6 +346,14 @@ def init_db():
     CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_task_steps_unique ON factory_task_steps(task_id, step_key);
     CREATE INDEX IF NOT EXISTS idx_factory_task_steps_task ON factory_task_steps(task_id, order_index);
     """)
+    task_cols={row["name"] for row in con.execute("PRAGMA table_info(factory_tasks)").fetchall()}
+    for name,ddl in [
+        ("builder_state","TEXT NOT NULL DEFAULT 'idle'"),
+        ("requested_at","TEXT"),
+        ("builder_note","TEXT DEFAULT ''"),
+    ]:
+        if name not in task_cols:
+            con.execute(f"ALTER TABLE factory_tasks ADD COLUMN {name} {ddl}")
     n = con.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
     if n == 0:
         seeds = [
@@ -481,8 +489,13 @@ def apply_build_manifest():
                          meta.get("priority","medium"),update.get("status","todo"),meta.get("owner","Factory Builder"),
                          int(meta.get("order_index",9990)),now,now,now if update.get("status")=="done" else None))
         elif update.get("status") in ("todo","in_progress","done","blocked"):
-            con.execute("UPDATE factory_tasks SET status=?,updated_at=?,completed_at=? WHERE id=?",
-                        (update["status"],now,now if update["status"]=="done" else None,task_id))
+            next_status=update["status"]
+            builder_state="done" if next_status=="done" else ("active" if next_status=="in_progress" else next_status)
+            con.execute("""UPDATE factory_tasks
+                           SET status=?,builder_state=?,updated_at=?,completed_at=?,
+                               builder_note=CASE WHEN ?='active' THEN 'Factory Builder is processing this task' ELSE builder_note END
+                           WHERE id=?""",
+                        (next_status,builder_state,now,now if next_status=="done" else None,builder_state,task_id))
         con.commit()
         ensure_factory_task_steps(task_id)
         for step_key,step_update in (update.get("steps") or {}).items():
@@ -635,7 +648,10 @@ def get_factory_tasks():
     total=len(rows); done=sum(1 for x in rows if x["status"]=="done")
     active=sum(1 for x in rows if x["status"]=="in_progress")
     blocked=sum(1 for x in rows if x["status"]=="blocked")
+    queued=sum(1 for x in rows if x.get("builder_state")=="queued")
+    building=sum(1 for x in rows if x.get("builder_state")=="active")
     return {"tasks":rows,"total":total,"done":done,"active":active,"blocked":blocked,
+            "queued":queued,"building":building,
             "progress":round(done/total*100,1) if total else 100}
 
 def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
@@ -1598,7 +1614,10 @@ async def start_factory_task(task_id:str):
         con.close()
         return {"ok":True,"message":"Task is already queued for Factory Builder","task":factory_task_detail(task_id),"already_queued":True}
     now=ts()
-    con.execute("UPDATE factory_tasks SET status='in_progress',updated_at=?,completed_at=NULL WHERE id=?",(now,task_id))
+    con.execute("""UPDATE factory_tasks
+                   SET status='in_progress',builder_state='queued',requested_at=?,updated_at=?,completed_at=NULL,
+                       builder_note='Queued from FactoryOS. Factory Builder checks the queue on the autonomous cycle.'
+                   WHERE id=?""",(now,now,task_id))
     con.commit(); con.close()
     steps=ensure_factory_task_steps(task_id)
     first_pending=next((x for x in steps if x["status"]!="done"),None)
@@ -1637,8 +1656,9 @@ async def update_factory_task_status(task_id:str,item:FactoryTaskStatus):
     if not row:
         con.close(); raise HTTPException(404,"Task not found")
     now=ts()
-    con.execute("UPDATE factory_tasks SET status=?,updated_at=?,completed_at=? WHERE id=?",
-                (item.status,now,now if item.status=="done" else None,task_id))
+    builder_state={"todo":"idle","in_progress":"queued","done":"done","blocked":"blocked"}[item.status]
+    con.execute("""UPDATE factory_tasks SET status=?,builder_state=?,updated_at=?,completed_at=? WHERE id=?""",
+                (item.status,builder_state,now,now if item.status=="done" else None,task_id))
     con.commit(); con.close()
     ensure_factory_task_steps(task_id)
     if item.status=="done":
