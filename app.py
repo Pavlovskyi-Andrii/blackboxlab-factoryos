@@ -331,6 +331,39 @@ def get_usage_summary():
     con.close()
     return dict(row)
 
+def backfill_legacy_history():
+    """Convert old demo completion events into ledger entries once, so existing jobs have visible history."""
+    con=db()
+    existing=con.execute("SELECT COUNT(*) c FROM agent_runs WHERE agent!='Supervisor'").fetchone()["c"]
+    if existing:
+        con.close()
+        return 0
+    rows=con.execute("""SELECT e.job_id,e.ts,e.message,j.stage,j.title
+                        FROM events e LEFT JOIN jobs j ON j.id=e.job_id
+                        WHERE e.message LIKE '%: completed'
+                        ORDER BY e.id""").fetchall()
+    created=0
+    for row in rows:
+        agent=row["message"][:-len(": completed")]
+        if agent not in AGENTS or agent=="Supervisor":
+            continue
+        run_id=str(uuid.uuid4())
+        stage=AGENT_SPECS.get(agent,{}).get("stage") or row["stage"]
+        con.execute("""INSERT INTO agent_runs(id,job_id,agent,stage,status,started_at,finished_at,duration_ms,model,input_tokens,output_tokens,cost_usd,meta_json)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (run_id,row["job_id"],agent,stage,"completed",row["ts"],row["ts"],0,"legacy-demo",0,0,0.0,json.dumps({"mode":"legacy-demo","backfilled":True})))
+        job=con.execute("SELECT * FROM jobs WHERE id=?",(row["job_id"],)).fetchone()
+        if job:
+            kind,title,content,*extra=agent_artifact_template(agent,dict(job))
+            url=extra[0] if len(extra)>0 else None
+            mime=extra[1] if len(extra)>1 else None
+            con.execute("""INSERT INTO artifacts(id,run_id,job_id,agent,kind,title,content,url,mime_type,created_at,meta_json)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                        (str(uuid.uuid4()),run_id,row["job_id"],agent,kind,title,content,url,mime,row["ts"],json.dumps({"mode":"legacy-demo","backfilled":True})))
+        created+=1
+    con.commit(); con.close()
+    return created
+
 async def execute_agent(agent, stage, job_id, delay=1.1):
     job=get_job(job_id)
     run_id=start_agent_run(agent,job_id,stage)
@@ -540,6 +573,9 @@ async def supervisor_loop():
 
 @app.on_event("startup")
 async def start_supervisor():
+    backfilled=backfill_legacy_history()
+    if backfilled:
+        event(None,f"Ledger migration: backfilled {backfilled} historical agent runs")
     asyncio.create_task(supervisor_loop())
 
 async def broadcast(payload=None):
