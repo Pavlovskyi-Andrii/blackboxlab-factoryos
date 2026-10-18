@@ -91,7 +91,54 @@ async function selectJob(id){await api('/api/jobs/'+id+'/select',{method:'POST'}
 function openNew(){$('#modal').classList.add('open')}function closeNew(){$('#modal').classList.remove('open')}async function createJob(){const t=$('#title').value.trim();if(!t){toast('Add a title');return}await api('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,brief:$('#brief').value,presenter:$('#presenter').value,format:$('#format').value,language:$('#language').value||'English',outputs:+$('#outputs').value||1})});closeNew();$('#title').value='';$('#brief').value='';toast('Job created');refresh()}
 function fmtDuration(ms){ms=Number(ms||0);if(ms<1000)return ms+'ms';const s=Math.round(ms/1000);if(s<60)return s+'s';const m=Math.floor(s/60),r=s%60;if(m<60)return m+'m '+r+'s';return Math.floor(m/60)+'h '+(m%60)+'m'}
 function fmtTokens(n){n=Number(n||0);if(n>=1000000)return (n/1000000).toFixed(2)+'M';if(n>=1000)return (n/1000).toFixed(1)+'K';return String(n)}
-function fmtMoney(n){return '
+function fmtMoney(n){return 'USD '+Number(n||0).toFixed(4)}
+function initials(name){return name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()}
+async function openAgentDirectory(){
+  $('#drawerShade').classList.add('open');$('#agentDrawer').classList.add('open');
+  $('#agentName').textContent='Agent Directory';$('#agentRole').textContent='Click any worker to inspect its ledger, outputs and usage';$('#agentAvatar').textContent='12';
+  $('#agentDrawerBody').innerHTML='<div class="sub" style="padding:20px">Loading team…</div>';
+  try{
+    const d=await api('/api/agents');
+    $('#agentDrawerBody').innerHTML='<div class="agentList">'+d.agents.map(a=>'<div class="agentListItem" onclick="openAgent(\\''+esc(a.name)+'\\')"><b><span class="dot" style="background:'+(a.state==='failed'?'#ff667a':a.state==='working'?'#34dc7d':a.state==='monitoring'?'#a67cff':'#6d8298')+'"></span>'+esc(a.name)+'</b><span>'+esc(a.role||'Agent')+'</span><div class="agentListMeta"><span>'+esc(a.state)+'</span><span>'+Number(a.metrics.runs||0)+' runs · '+Number(a.metrics.artifacts||0)+' artifacts</span></div></div>').join('')+'</div>';
+  }catch(e){$('#agentDrawerBody').innerHTML='<div class="finding critical"><strong>Could not load team</strong><span>'+esc(e.message)+'</span></div>'}
+}
+function applySearch(value){
+  const q=(value||'').trim().toLowerCase();
+  document.querySelectorAll('.job').forEach(el=>{el.style.display=!q||el.textContent.toLowerCase().includes(q)?'grid':'none'});
+  document.querySelectorAll('.agent').forEach(el=>{el.style.opacity=!q||(el.dataset.name||'').includes(q)?'1':'.18'});
+}
+async function openAgent(name){
+  $('#drawerShade').classList.add('open');$('#agentDrawer').classList.add('open');
+  $('#agentName').textContent=name;$('#agentRole').textContent='Loading history…';$('#agentAvatar').textContent=initials(name);
+  $('#agentDrawerBody').innerHTML='<div class="sub" style="padding:20px">Loading agent ledger…</div>';
+  try{
+    const d=await api('/api/agents/'+encodeURIComponent(name));
+    renderAgentDetail(d);
+  }catch(e){$('#agentDrawerBody').innerHTML='<div class="finding critical"><strong>Could not load agent history</strong><span>'+esc(e.message)+'</span></div>'}
+}
+function closeAgent(){$('#drawerShade').classList.remove('open');$('#agentDrawer').classList.remove('open')}
+function renderAgentDetail(d){
+  $('#agentName').textContent=d.name;$('#agentRole').textContent=(d.spec.role||'Agent')+' · '+(d.spec.stage||'factory')+' · '+d.state;
+  $('#agentAvatar').textContent=initials(d.name);
+  const m=d.metrics||{},runs=d.runs||[],arts=d.artifacts||[];
+  let h='<div class="metricGrid"><div class="metric"><b>'+Number(m.runs||0)+'</b><span>Runs</span></div><div class="metric"><b>'+fmtDuration(m.duration_ms||0)+'</b><span>Total time</span></div><div class="metric"><b>'+fmtDuration(m.avg_duration_ms||0)+'</b><span>Avg run</span></div><div class="metric"><b>'+Number(m.success_rate||0).toFixed(1)+'%</b><span>Success rate</span></div><div class="metric"><b>'+fmtTokens((m.input_tokens||0)+(m.output_tokens||0))+'</b><span>Tokens</span></div><div class="metric"><b>'+fmtMoney(m.cost_usd||0)+'</b><span>Cost · '+Number(m.artifacts||0)+' artifacts</span></div></div>';
+  h+='<div class="modeNote"><b>Goal:</b> '+esc(d.spec.goal||'')+'<br><b>Accounting:</b> duration is measured per run. Tokens and provider cost are recorded from live APIs; demo runs stay at 0 instead of inventing spend.</div>';
+  h+='<div class="drawerSection"><h3>Work history</h3>';
+  if(!runs.length)h+='<div class="sub">No recorded runs yet. Run a job to create the first ledger entry.</div>';
+  else h+=runs.map(r=>'<div class="runRow"><div><b>'+esc(r.job_title||'Factory maintenance')+' · '+esc(r.status)+'</b><small>'+esc(r.stage||'supervision')+' · '+esc(r.model||'')+' · '+(r.started_at||'').replace('T',' ').slice(0,19)+'</small></div><div class="runNumbers">'+fmtDuration(r.duration_ms)+'<br>'+fmtTokens((r.input_tokens||0)+(r.output_tokens||0))+' tok · '+fmtMoney(r.cost_usd)+'</div></div>').join('');
+  h+='</div><div class="drawerSection"><h3>Outputs & artifacts <span class="sub">('+arts.length+')</span></h3>';
+  if(!arts.length)h+='<div class="sub">No saved outputs yet.</div>';
+  else h+=arts.map(a=>artifactHtml(a)).join('');
+  h+='</div>';$('#agentDrawerBody').innerHTML=h;
+}
+function artifactHtml(a){
+  let media='';
+  if(a.kind==='image'&&a.url)media='<img src="'+esc(a.url)+'" alt="'+esc(a.title)+'">';
+  else if(a.kind==='video')media='<div class="mediaPlaceholder">▷ Video preview will appear here when the video provider is connected.</div>';
+  else if(a.kind==='audio')media='<div class="mediaPlaceholder">◖ Audio preview will appear here when the voice provider is connected.</div>';
+  return '<div class="artifact"><div class="artifactHead"><b>'+esc(a.title)+'</b><span class="artifactType">'+esc(a.kind)+'</span></div>'+media+(a.content?'<pre>'+esc(a.content)+'</pre>':'')+'<div class="tiny" style="margin-top:6px">'+esc(a.job_title||'')+' · '+(a.created_at||'').replace('T',' ').slice(0,19)+'</div></div>';
+}
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2300)}
 const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.onopen=()=>ws.send('v3.4');ws.onmessage=()=>refresh();refresh();
 </script></body></html>+Number(n||0).toFixed(4)}
 function initials(name){return name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()}
