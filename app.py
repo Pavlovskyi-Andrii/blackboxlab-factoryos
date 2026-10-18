@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.12"
+APP_VERSION = "v3.13"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -646,6 +646,65 @@ async def track_builder_dispatch(task_id, requested_at):
         con.execute("UPDATE factory_tasks SET workflow_status=?,builder_state='active' WHERE id=?",(gh_status,task_id))
         con.commit(); con.close()
         await broadcast({"type":"builder_workflow","taskId":task_id,"status":gh_status})
+
+async def reconcile_builder_workflows_once():
+    if not GITHUB_TOKEN:
+        return
+    con=db()
+    rows=[dict(x) for x in con.execute("""SELECT id,workflow_run_id,workflow_status,status
+                                          FROM factory_tasks
+                                          WHERE status='in_progress' AND workflow_run_id IS NOT NULL
+                                          ORDER BY updated_at""").fetchall()]
+    con.close()
+    for task in rows:
+        run_id=str(task.get("workflow_run_id") or "").strip()
+        if not run_id:
+            continue
+        try:
+            run_data=await asyncio.to_thread(github_api,"GET",f"/actions/runs/{run_id}")
+            jobs=await asyncio.to_thread(github_api,"GET",f"/actions/runs/{run_id}/jobs?per_page=20")
+        except Exception:
+            continue
+        for job in jobs.get("jobs",[]):
+            for step in job.get("steps",[]):
+                task_step=_workflow_step_to_task_step(step.get("name"))
+                if not task_step:
+                    continue
+                status=step.get("status"); conclusion=step.get("conclusion")
+                if status=="completed" and conclusion=="success":
+                    set_factory_task_step(task["id"],task_step,"done",100)
+                elif status=="completed" and conclusion not in (None,"success","skipped"):
+                    set_factory_task_step(task["id"],task_step,"blocked",35)
+                elif status=="in_progress":
+                    set_factory_task_step(task["id"],task_step,"in_progress",55)
+        gh_status=run_data.get("status") or "unknown"
+        conclusion=run_data.get("conclusion")
+        con=db()
+        if gh_status=="completed":
+            if conclusion=="success":
+                impl=next((x for x in get_factory_task_steps(task["id"]) if x["step_key"]=="implement"),None)
+                if impl and impl["status"]=="todo":
+                    set_factory_task_step(task["id"],"implement","in_progress",20)
+                con.execute("""UPDATE factory_tasks SET builder_state='active',workflow_status='completed',
+                               builder_note=? WHERE id=?""",
+                            ("GitHub preflight completed. Waiting for the code implementation worker or a manual resume.",task["id"]))
+            else:
+                con.execute("""UPDATE factory_tasks SET builder_state='blocked',workflow_status=?,builder_note=? WHERE id=?""",
+                            (conclusion or "failed","GitHub Builder preflight failed. Use Start build to retry.",task["id"]))
+        else:
+            con.execute("""UPDATE factory_tasks SET builder_state='active',workflow_status=?,builder_note=?
+                           WHERE id=?""",
+                        (gh_status,"GitHub Builder preflight is running.",task["id"]))
+        con.commit(); con.close()
+
+async def builder_reconcile_loop():
+    while True:
+        try:
+            await reconcile_builder_workflows_once()
+            await broadcast({"type":"builder_reconcile"})
+        except Exception as exc:
+            print(json.dumps({"event":"BUILDER_RECONCILE_ERROR","error":str(exc)[:300]}),flush=True)
+        await asyncio.sleep(15)
 
 class JobCreate(BaseModel):
     title: str
@@ -1405,6 +1464,10 @@ async def verify_builder_bridge():
         print(json.dumps({"event":"BUILDER_BRIDGE_CHECK","status":"error","error":str(exc)[:300]}),flush=True)
 
 @app.on_event("startup")
+async def start_builder_reconciler():
+    asyncio.create_task(builder_reconcile_loop())
+
+@app.on_event("startup")
 async def start_supervisor():
     backfilled=backfill_legacy_history()
     if backfilled:
@@ -1747,6 +1810,8 @@ def factory_builder_status():
         "repo":GITHUB_REPO,
         "workflow":BUILDER_WORKFLOW,
         "mode":"github_actions_plus_autonomous_builder" if GITHUB_TOKEN else "autonomous_hourly_queue",
+        "reconcile_seconds":15,
+        "note":"GitHub preflight runs immediately; code implementation is a separate worker phase.",
     }
 
 @app.get("/api/factory/tasks")
@@ -1768,13 +1833,15 @@ async def start_factory_task(task_id:str):
     con=db(); row=con.execute("SELECT * FROM factory_tasks WHERE id=?",(task_id,)).fetchone()
     if not row:
         con.close(); raise HTTPException(404,"Task not found")
-    if row["status"]=="in_progress":
+    live_workflow_states={"queued","in_progress","waiting","pending","requested","dispatching"}
+    if row["status"]=="in_progress" and (row["workflow_status"] or "") in live_workflow_states:
         con.close()
-        return {"ok":True,"message":"Task is already queued for Factory Builder","task":factory_task_detail(task_id),"already_queued":True}
+        return {"ok":True,"message":"Task is already running in Factory Builder","task":factory_task_detail(task_id),"already_queued":True}
     now=ts()
     con.execute("""UPDATE factory_tasks
                    SET status='in_progress',builder_state='queued',requested_at=?,updated_at=?,completed_at=NULL,
-                       builder_note='Queued from FactoryOS. Factory Builder checks the queue on the autonomous cycle.'
+                       workflow_run_id=NULL,workflow_url=NULL,workflow_status=NULL,
+                       builder_note='Queued from FactoryOS. Immediate GitHub dispatch will be attempted when configured.'
                    WHERE id=?""",(now,now,task_id))
     con.commit(); con.close()
     steps=ensure_factory_task_steps(task_id)
