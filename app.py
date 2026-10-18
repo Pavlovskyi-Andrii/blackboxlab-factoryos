@@ -147,6 +147,10 @@ clients: set[WebSocket] = set()
 running_jobs: set[str] = set()
 selected_job_id: Optional[str] = None
 agent_runtime = {name: "idle" for name in AGENTS}
+agent_progress = {
+    name: {"progress":0,"step":"Idle","job_id":None,"run_id":None,"started_at":None,"updated_at":None}
+    for name in AGENTS
+}
 supervisor_runtime = {
     "state": "monitoring",
     "last_run": None,
@@ -270,6 +274,47 @@ def init_db():
       PRIMARY KEY(run_id,artifact_id)
     );
     CREATE INDEX IF NOT EXISTS idx_run_inputs_run ON run_inputs(run_id);
+    CREATE TABLE IF NOT EXISTS agent_run_steps(
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      job_id TEXT,
+      agent TEXT NOT NULL,
+      step_key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      progress INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      finished_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_steps_run ON agent_run_steps(run_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_run_steps_agent ON agent_run_steps(agent, started_at DESC);
+    CREATE TABLE IF NOT EXISTS agent_mcp_connections(
+      id TEXT PRIMARY KEY,
+      agent TEXT NOT NULL,
+      name TEXT NOT NULL,
+      transport TEXT NOT NULL DEFAULT 'streamable_http',
+      endpoint TEXT NOT NULL,
+      auth_env TEXT DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'configured',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_mcp_agent ON agent_mcp_connections(agent, enabled, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS factory_tasks(
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      category TEXT NOT NULL DEFAULT 'product',
+      priority TEXT NOT NULL DEFAULT 'medium',
+      status TEXT NOT NULL DEFAULT 'todo',
+      owner TEXT NOT NULL DEFAULT 'Factory Builder',
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_factory_tasks_status ON factory_tasks(status, order_index, updated_at DESC);
     """)
     n = con.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
     if n == 0:
@@ -287,6 +332,42 @@ def init_db():
 
 init_db()
 
+def sync_factory_tasks():
+    tasks=[
+      ("foundation-cloud","Cloud deployment on Render","FactoryOS runs online with persistent state and private login.","infrastructure","high","done","Factory Builder",10),
+      ("clickable-agents","Clickable worker profiles","Every worker opens a profile with history, artifacts, time, tokens and cost.","observability","high","done","Factory Builder",20),
+      ("supervisor-agent","Factory Supervisor","Supervisor monitors workers, failures, health and process improvements.","supervision","high","done","Factory Builder",30),
+      ("agent-memory","Persistent worker memory","Workers retain approved process learnings and manual rules.","intelligence","high","done","Factory Builder",40),
+      ("handoff-provenance","Handoff provenance","Track which upstream artifacts were passed into every worker run.","observability","high","done","Factory Builder",50),
+      ("targeted-rerun","Targeted worker reruns","Re-run one worker and flag downstream outputs for rebuild.","workflow","high","done","Factory Builder",60),
+      ("worker-progress","Transparent worker progress","Show live percent, current sub-step and persistent step history on hover and click.","observability","high","done","Factory Builder",70),
+      ("mcp-registry","Per-worker MCP registry","Each worker can keep its own MCP server configurations without storing secrets.","connectors","high","done","Factory Builder",80),
+      ("task-center","Build Progress task center","Separate tab shows product tasks, status, checkmarks and completion progress.","product","high","done","Factory Builder",90),
+      ("mcp-execution","MCP execution bridge","Invoke approved MCP tools from a worker run with capability restrictions and audit logs.","connectors","high","in_progress","Factory Builder",100),
+      ("live-llm","Live LLM worker adapter","Replace demo Scout/Researcher/Verifier/Writer execution with real model calls and usage accounting.","intelligence","high","todo","Factory Builder",110),
+      ("voice-adapter","Voice provider adapter","Generate narration and attach real audio artifacts with usage accounting.","generation","medium","todo","Factory Builder",120),
+      ("video-adapter","Video/render provider adapter","Create real video outputs while preserving approval and budget gates.","generation","medium","todo","Factory Builder",130),
+      ("analytics-loop","Analytics learning loop","Feed retention, CTR and engagement learnings back into Scout/Hook Writer/Scriptwriter.","analytics","high","todo","Factory Builder",140),
+      ("artifact-compare","Artifact version comparison","Compare two worker outputs side by side and select the winner.","quality","medium","todo","Factory Builder",150)
+    ]
+    con=db(); now=ts()
+    for task in tasks:
+        task_id,title,description,category,priority,status,owner,order_index=task
+        current=con.execute("SELECT status,created_at FROM factory_tasks WHERE id=?",(task_id,)).fetchone()
+        created=current["created_at"] if current else now
+        completed=now if status=="done" and (not current or current["status"]!="done") else (con.execute("SELECT completed_at FROM factory_tasks WHERE id=?",(task_id,)).fetchone()["completed_at"] if current else None)
+        con.execute("""INSERT INTO factory_tasks(id,title,description,category,priority,status,owner,order_index,created_at,updated_at,completed_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(id) DO UPDATE SET
+                         title=excluded.title,description=excluded.description,category=excluded.category,
+                         priority=excluded.priority,status=excluded.status,owner=excluded.owner,
+                         order_index=excluded.order_index,updated_at=excluded.updated_at,
+                         completed_at=CASE WHEN excluded.status='done' THEN COALESCE(factory_tasks.completed_at,excluded.completed_at) ELSE NULL END""",
+                    (task_id,title,description,category,priority,status,owner,order_index,created,now,completed))
+    con.commit(); con.close()
+
+sync_factory_tasks()
+
 class JobCreate(BaseModel):
     title: str
     brief: str = ""
@@ -296,6 +377,25 @@ class JobCreate(BaseModel):
     outputs: int = 8
 
 class Move(BaseModel): stage: str
+
+class McpConnectionCreate(BaseModel):
+    name: str
+    endpoint: str
+    transport: str = "streamable_http"
+    auth_env: str = ""
+
+class McpConnectionToggle(BaseModel):
+    enabled: bool
+
+class FactoryTaskCreate(BaseModel):
+    title: str
+    description: str = ""
+    category: str = "product"
+    priority: str = "medium"
+    owner: str = "Factory Builder"
+
+class FactoryTaskStatus(BaseModel):
+    status: str
 
 def event(job_id, message):
     con=db(); con.execute("INSERT INTO events(job_id,ts,message) VALUES(?,?,?)",(job_id,ts(),message)); con.commit(); con.close()
