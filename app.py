@@ -540,15 +540,48 @@ def supervisor_audit(auto_heal=False, persist=False):
                     agent_runtime[a] = "idle"
                 healed.append("Reset stale agent runtime states.")
 
-    # Process-improvement advice: always keep a small prioritized backlog.
+    # Data-driven agent performance checks.
+    perf=[]
+    for agent in AGENTS:
+        if agent=="Supervisor":
+            continue
+        m=get_agent_metrics(agent)
+        if not m["runs"]:
+            continue
+        perf.append((agent,m))
+        if m["runs"] >= 3 and m["success_rate"] < 90:
+            add("warning","low_success_rate",f"Low success rate: {agent}",
+                f"{agent} completed {m['success_rate']}% of {m['runs']} recorded runs.",
+                "Inspect recent failures, tighten the input contract and add a bounded retry only for transient errors.")
+        if m["avg_duration_ms"] > 120000:
+            add("warning","slow_agent",f"Slow agent: {agent}",
+                f"Average recorded run time is {round(m['avg_duration_ms']/1000,1)} seconds.",
+                "Profile this step, reduce unnecessary context, parallelize safe sub-tasks or switch provider/model.")
+        avg_cost=(m["cost_usd"]/m["runs"]) if m["runs"] else 0
+        if avg_cost > 1.0:
+            add("warning","high_agent_cost",f"High cost per run: {agent}",
+                f"Average recorded provider cost is USD {avg_cost:.4f} per run.",
+                "Reduce context/output size, route simpler work to a cheaper model, and set a hard per-run budget.")
+
+    # Process-improvement advice: keep a prioritized, data-aware backlog.
     if not any(x["code"] == "llm_demo" for x in findings):
-        improvements.append("Add per-agent artifact schemas so Supervisor can validate output quality, not only runtime state.")
+        improvements.append("Keep artifact schemas strict so Supervisor can validate quality, not only runtime state.")
+    if perf:
+        slowest=max(perf,key=lambda x:x[1]["avg_duration_ms"])
+        if slowest[1]["avg_duration_ms"]>0:
+            improvements.append(
+                f"Current time bottleneck: {slowest[0]} averages {round(slowest[1]['avg_duration_ms']/1000,1)}s per run. Optimize this stage first."
+            )
+        costliest=max(perf,key=lambda x:(x[1]["cost_usd"]/x[1]["runs"]) if x[1]["runs"] else 0)
+        avg=(costliest[1]["cost_usd"]/costliest[1]["runs"]) if costliest[1]["runs"] else 0
+        if avg>0:
+            improvements.append(f"Current cost bottleneck: {costliest[0]} averages USD {avg:.4f} per run.")
     improvements.extend([
-        "Add retry limits + timeout per agent, with failure reason stored in the job log.",
-        "Measure duration, cost and success rate per stage; Supervisor should optimize the slowest/most expensive stage.",
+        "Use bounded retries + timeout per agent, and store the exact failure reason in the ledger.",
         "Before Publish, require QA checks for factual support, duplicate content, title/thumbnail fit and platform policy.",
+        "Feed winning retention/CTR patterns from Analyst back into Scout, Hook Writer and Scriptwriter.",
     ])
-    improvements = improvements[:4]
+    improvements=list(dict.fromkeys(improvements))[:5]
 
     penalties = {"critical": 24, "warning": 9, "info": 2}
     score = max(0, 100 - sum(penalties.get(x["severity"], 0) for x in findings))
