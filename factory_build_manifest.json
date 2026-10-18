@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-18T09:14:00Z",
+  "updated_at": "2026-10-18T09:16:00Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -46,11 +46,11 @@
         "plan": "done",
         "implement": "done",
         "test": "done",
-        "deploy": {
+        "deploy": "done",
+        "verify": {
           "status": "in_progress",
-          "progress": 45
-        },
-        "verify": "todo"
+          "progress": 70
+        }
       }
     },
     "task-launcher": {
@@ -94,7 +94,7 @@
       }
     },
     "design-refresh": {
-      "status": "in_progress",
+      "status": "done",
       "meta": {
         "title": "Dashboard visual redesign",
         "description": "Refine spacing, hierarchy, cards and interactive states while preserving observability.",
@@ -109,11 +109,8 @@
         "plan": "done",
         "implement": "done",
         "test": "done",
-        "deploy": {
-          "status": "in_progress",
-          "progress": 70
-        },
-        "verify": "todo"
+        "deploy": "done",
+        "verify": "done"
       }
     },
     "foundation-cloud": {
