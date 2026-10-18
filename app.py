@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.18"
+APP_VERSION = "v3.19"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -1381,6 +1381,17 @@ def _call_live_llm(agent, job, input_pack):
             raw=resp.read().decode("utf-8")
     except urlerror.HTTPError as exc:
         body=exc.read().decode("utf-8","replace")[:1200]
+        low=body.lower()
+        if exc.code==429 and ("credit_balance_exhausted" in low or "insufficient_quota" in low or "no credits remaining" in low):
+            raise RuntimeError("OpenAI API balance exhausted. Add API credits, wait a minute, then rerun this worker.") from exc
+        if exc.code==429:
+            raise RuntimeError("OpenAI API rate limit reached. FactoryOS will retry once; if it repeats, wait briefly and rerun.") from exc
+        if exc.code in (401,403):
+            raise RuntimeError("OpenAI API authentication failed. Check FACTORY_LLM_API_KEY and project permissions in Render.") from exc
+        if exc.code==404 and ("model" in low or "not_found" in low):
+            raise RuntimeError(f"Configured LLM model '{FACTORY_LLM_MODEL}' is unavailable for this API project. Change FACTORY_LLM_MODEL in Render.") from exc
+        if exc.code==400:
+            raise RuntimeError(f"OpenAI rejected the model request (HTTP 400). Check model/API-mode compatibility. Provider detail: {body}") from exc
         raise RuntimeError(f"LLM provider HTTP {exc.code}: {body}") from exc
     except Exception as exc:
         raise RuntimeError(f"LLM provider request failed: {exc}") from exc
@@ -1745,12 +1756,93 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
         set_agent_progress(agent,agent_progress.get(agent,{}).get("progress",0),f"Failed: {last_error}",job_id,run_id,"failed")
         event(job_id,f"{agent}: attempt {attempt} failed — {last_error}")
         await broadcast({"type":"agent_progress","agent":agent,"state":"failed","progress":agent_progress[agent]})
-        if attempt < total_attempts:
+        if attempt < total_attempts and not non_retryable_agent_error(last_error):
             event(job_id,f"{agent}: retrying")
             set_agent_progress(agent,5,"Retrying",job_id,run_id,"working")
             await asyncio.sleep(min(2,attempt))
             continue
-        raise RuntimeError(f"{agent} failed after {total_attempts} attempt(s): {last_error}")
+        if non_retryable_agent_error(last_error):
+            event(job_id,f"{agent}: retry skipped because the error requires configuration or billing action")
+        raise RuntimeError(f"{agent} failed after {attempt} attempt(s): {last_error}")
+
+def get_job_worker_results(job_id):
+    if not job_id:
+        return {}
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        """SELECT id,run_id,agent,kind,title,content,url,mime_type,created_at,meta_json
+           FROM artifacts WHERE job_id=? ORDER BY created_at DESC""",(job_id,)
+    ).fetchall()]
+    con.close()
+    latest={}
+    for row in rows:
+        agent=row["agent"]
+        if agent in latest:
+            continue
+        try:
+            meta=json.loads(row.pop("meta_json") or "{}")
+        except Exception:
+            meta={}
+        content=(row.get("content") or "").strip()
+        latest[agent]={
+            "id":row["id"],
+            "run_id":row.get("run_id"),
+            "agent":agent,
+            "kind":row.get("kind"),
+            "title":row.get("title"),
+            "preview":content[:420],
+            "url":row.get("url"),
+            "mime_type":row.get("mime_type"),
+            "created_at":row.get("created_at"),
+            "mode":meta.get("mode"),
+            "model":meta.get("model"),
+        }
+    return latest
+
+def get_job_handoffs(job_id, limit=60):
+    if not job_id:
+        return []
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        """SELECT ri.run_id,ri.artifact_id,ri.source_agent,ri.created_at,
+                  r.agent target_agent,r.stage target_stage,r.status run_status,
+                  a.title artifact_title,a.kind artifact_kind
+           FROM run_inputs ri
+           JOIN agent_runs r ON r.id=ri.run_id
+           JOIN artifacts a ON a.id=ri.artifact_id
+           WHERE r.job_id=?
+           ORDER BY ri.created_at DESC LIMIT ?""",(job_id,limit)
+    ).fetchall()]
+    con.close()
+    return rows
+
+def get_job_agent_errors(job_id):
+    if not job_id:
+        return {}
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        """SELECT agent,error,finished_at,run_id,stage
+           FROM agent_runs
+           WHERE job_id=? AND status='failed' AND error IS NOT NULL
+           ORDER BY finished_at DESC""",(job_id,)
+    ).fetchall()]
+    con.close()
+    latest={}
+    for row in rows:
+        if row["agent"] not in latest:
+            latest[row["agent"]]=row
+    return latest
+
+def non_retryable_agent_error(message):
+    low=(message or "").lower()
+    return any(x in low for x in (
+        "balance exhausted",
+        "authentication failed",
+        "model '" ,
+        "model/api-mode compatibility",
+        "daily provider budget reached",
+        "job provider budget reached",
+    ))
 
 def current_selected(jobs):
     global selected_job_id
@@ -2064,8 +2156,12 @@ def status():
     return {
         "factory":"online","version":APP_VERSION,"buildSha":BUILD_SHA,"factoryMcpConfigured":bool(FACTORY_MCP_TOKEN),"jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
         "selectedJobQuality": get_job_quality(sid) if sid else None,
+        "selectedJobWorkerResults": get_job_worker_results(sid),
+        "selectedJobHandoffs": get_job_handoffs(sid),
+        "selectedJobAgentErrors": get_job_agent_errors(sid),
         "events":ev,"connections":CONNECTIONS,"stages":STAGES,
         "agentStates":agent_states(jobs),"agentProgress":{a:get_agent_progress_snapshot(a) for a in AGENTS},"agentMap":AGENT_MAP,
+        "agentDependencies":AGENT_DEPENDENCIES,
         "runningJobs":list(running_jobs),"nextAction":next_action(selected),
         "supervisor": report,
         "supervisorState": supervisor_runtime.get("state", "monitoring"),
