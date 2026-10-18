@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.11"
+APP_VERSION = "v3.12"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
