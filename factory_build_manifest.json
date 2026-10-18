@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-18T08:24:00Z",
+  "updated_at": "2026-10-18T09:00:00Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -225,6 +225,26 @@
         "priority": "high",
         "owner": "Factory Builder",
         "order_index": 60
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "instant-builder": {
+      "status": "done",
+      "meta": {
+        "title": "Instant website-to-Builder trigger",
+        "description": "Start a FactoryOS roadmap task immediately through GitHub Actions, with live workflow status and hourly fallback.",
+        "category": "automation",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 99
       },
       "steps": {
         "understand": "done",
