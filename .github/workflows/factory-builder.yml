@@ -1,0 +1,101 @@
+name: FactoryOS Immediate Builder
+
+run-name: "Factory Builder · ${{ inputs.task_id }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: FactoryOS task ID
+        required: true
+        type: string
+      title:
+        description: Task title
+        required: true
+        type: string
+      description:
+        description: Task description
+        required: false
+        type: string
+      priority:
+        description: Task priority
+        required: false
+        default: medium
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "factory-builder-${{ inputs.task_id }}"
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Understand task & acceptance criteria
+        run: |
+          echo "## FactoryOS Builder Task" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Task:** ${{ inputs.title }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**ID:** ${{ inputs.task_id }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Priority:** ${{ inputs.priority }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ inputs.description }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v4
+
+      - name: Inspect current code, state & dependencies
+        run: |
+          test -f app.py
+          test -f static/index.html
+          test -f factory_build_manifest.json
+          python -m py_compile app.py
+          echo "Repository preflight passed."
+
+      - name: Plan the smallest safe implementation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          task_id = """${{ inputs.task_id }}"""
+          title = """${{ inputs.title }}"""
+          description = """${{ inputs.description }}"""
+          manifest = json.loads(Path("factory_build_manifest.json").read_text())
+          task = manifest.get("tasks", {}).get(task_id, {})
+          print(json.dumps({
+              "task_id": task_id,
+              "title": title,
+              "description": description,
+              "manifest_status": task.get("status", "not_in_manifest"),
+              "safety": [
+                  "preserve human approval before publishing",
+                  "do not enable paid APIs automatically",
+                  "do not expose secrets",
+                  "run CI before deploy"
+              ]
+          }, indent=2))
+          PY
+
+      - name: Baseline CI / regression checks
+        run: |
+          python -m pip install -r requirements.txt
+          DATA_DIR=/tmp/factoryos-builder FACTORY_PASSWORD="" python - <<'PY'
+          import app
+          assert app.health()["ok"] is True
+          assert app.status()["factory"] == "online"
+          print("FactoryOS baseline runtime check passed")
+          PY
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/index.html").read_text(encoding="utf-8")
+          script = html.split("<script>",1)[1].split("</script>",1)[0]
+          Path("/tmp/factoryos-ui.js").write_text(script, encoding="utf-8")
+          PY
+          node --check /tmp/factoryos-ui.js
+
+      - name: Queue AI implementation
+        run: |
+          echo "Immediate preflight is complete." >> "$GITHUB_STEP_SUMMARY"
+          echo "FactoryOS will now show the task as active while the autonomous Factory Builder continues implementation." >> "$GITHUB_STEP_SUMMARY"
+          echo "Task ${{ inputs.task_id }} is ready for implementation."
