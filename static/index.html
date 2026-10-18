@@ -97,12 +97,28 @@ function fmtMoney(n){return 'USD '+Number(n||0).toFixed(4)}
 function initials(name){return name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()}
 async function openAgentDirectory(){
   $('#drawerShade').classList.add('open');$('#agentDrawer').classList.add('open');
-  $('#agentName').textContent='Agent Directory';$('#agentRole').textContent='Click any worker to inspect its ledger, outputs and usage';$('#agentAvatar').textContent='12';
-  $('#agentDrawerBody').innerHTML='<div class="sub" style="padding:20px">Loading team…</div>';
+  $('#agentName').textContent='Agent Directory';
+  $('#agentRole').textContent='Click any worker to inspect its ledger, outputs and usage';
+  $('#agentAvatar').textContent='12';
+  const body=$('#agentDrawerBody');
+  body.innerHTML='<div class="sub" style="padding:20px">Loading team…</div>';
   try{
     const d=await api('/api/agents');
-    $('#agentDrawerBody').innerHTML='<div class="agentList">'+d.agents.map(a=>'<div class="agentListItem" onclick="openAgent(\\''+esc(a.name)+'\\')"><b><span class="dot" style="background:'+(a.state==='failed'?'#ff667a':a.state==='working'?'#34dc7d':a.state==='monitoring'?'#a67cff':'#6d8298')+'"></span>'+esc(a.name)+'</b><span>'+esc(a.role||'Agent')+'</span><div class="agentListMeta"><span>'+esc(a.state)+'</span><span>'+Number(a.metrics.runs||0)+' runs · '+Number(a.metrics.artifacts||0)+' artifacts</span></div></div>').join('')+'</div>';
-  }catch(e){$('#agentDrawerBody').innerHTML='<div class="finding critical"><strong>Could not load team</strong><span>'+esc(e.message)+'</span></div>'}
+    const grid=document.createElement('div');
+    grid.className='agentList';
+    (d.agents||[]).forEach(a=>{
+      const card=document.createElement('div');
+      card.className='agentListItem';
+      card.onclick=()=>openAgent(a.name);
+      const color=a.state==='failed'?'#ff667a':a.state==='working'?'#34dc7d':a.state==='monitoring'?'#a67cff':'#6d8298';
+      card.innerHTML='<b><span class="dot" style="background:'+color+'"></span>'+esc(a.name)+'</b><span>'+esc(a.role||'Agent')+'</span><div class="agentListMeta"><span>'+esc(a.state)+'</span><span>'+Number((a.metrics||{}).runs||0)+' runs · '+Number((a.metrics||{}).artifacts||0)+' artifacts</span></div>';
+      grid.appendChild(card);
+    });
+    body.innerHTML='';
+    body.appendChild(grid);
+  }catch(e){
+    body.innerHTML='<div class="finding critical"><strong>Could not load team</strong><span>'+esc(e.message)+'</span></div>';
+  }
 }
 function applySearch(value){
   const q=(value||'').trim().toLowerCase();
