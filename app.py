@@ -235,6 +235,18 @@ def init_db():
       action_json TEXT DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_improvements_status ON improvement_proposals(status, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS agent_memory(
+      id TEXT PRIMARY KEY,
+      agent TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'learning',
+      content TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      source_job_id TEXT,
+      confidence REAL NOT NULL DEFAULT 1.0,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_agent ON agent_memory(agent, active, created_at DESC);
     """)
     n = con.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
     if n == 0:
@@ -323,6 +335,54 @@ def agent_artifact_template(agent, job):
     }
     return templates.get(agent,("text","Agent output",f"DEMO OUTPUT for {title}"))
 
+def add_agent_memory(agent, content, kind="learning", source="manual", source_job_id=None, confidence=1.0):
+    if agent not in AGENTS:
+        raise ValueError(f"Unknown agent: {agent}")
+    normalized=" ".join((content or "").split())
+    if not normalized:
+        return None
+    con=db()
+    duplicate=con.execute("""SELECT id FROM agent_memory
+                             WHERE agent=? AND active=1 AND lower(content)=lower(?)
+                             LIMIT 1""",(agent,normalized)).fetchone()
+    if duplicate:
+        con.close()
+        return duplicate["id"]
+    memory_id=str(uuid.uuid4())
+    con.execute("""INSERT INTO agent_memory(id,agent,kind,content,source,source_job_id,confidence,active,created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                (memory_id,agent,kind,normalized,source,source_job_id,float(confidence),1,ts()))
+    con.commit(); con.close()
+    return memory_id
+
+def get_agent_memory(agent, limit=30):
+    con=db()
+    rows=[dict(x) for x in con.execute("""SELECT * FROM agent_memory
+                                          WHERE agent=? AND active=1
+                                          ORDER BY created_at DESC LIMIT ?""",
+                                       (agent,limit)).fetchall()]
+    con.close()
+    return rows
+
+def improvement_memory_targets(text):
+    t=(text or "").lower()
+    targets={"Supervisor"}
+    if any(k in t for k in ("hook","retention","ctr","title","thumbnail")):
+        targets.update({"Hook Writer","Scriptwriter","Analyst"})
+    if any(k in t for k in ("research","source","fact","verify","evidence","technical")):
+        targets.update({"Researcher","Tech Verifier","QA Agent"})
+    if any(k in t for k in ("visual","image","shot","storyboard")):
+        targets.add("Visual Director")
+    if any(k in t for k in ("voice","narration","audio")):
+        targets.add("Voice Agent")
+    if any(k in t for k in ("render","video","caption")):
+        targets.add("Render Agent")
+    if any(k in t for k in ("publish","platform","youtube","tiktok","instagram")):
+        targets.update({"Publisher","Analyst"})
+    if any(k in t for k in ("topic","trend","idea","search")):
+        targets.add("Scout")
+    return sorted(targets)
+
 def get_agent_metrics(agent):
     con=db()
     row=con.execute("""SELECT COUNT(*) runs,
@@ -336,8 +396,9 @@ def get_agent_metrics(agent):
                               MAX(finished_at) last_run
                        FROM agent_runs WHERE agent=?""",(agent,)).fetchone()
     art=con.execute("SELECT COUNT(*) c FROM artifacts WHERE agent=?",(agent,)).fetchone()["c"]
+    mem=con.execute("SELECT COUNT(*) c FROM agent_memory WHERE agent=? AND active=1",(agent,)).fetchone()["c"]
     con.close()
-    data=dict(row); data["artifacts"]=art
+    data=dict(row); data["artifacts"]=art; data["memory_count"]=mem
     data["success_rate"]=round((data["completed_runs"]/data["runs"]*100),1) if data["runs"] else 0
     return data
 
@@ -1008,6 +1069,7 @@ def agent_detail(agent_name:str):
         "metrics":get_agent_metrics(agent_name),
         "runs":runs,
         "artifacts":artifacts,
+        "memory":get_agent_memory(agent_name),
         "providerMode":"demo" if CONNECTIONS.get("LLM",{}).get("state")=="demo" else "live"
     }
 
@@ -1046,14 +1108,18 @@ def list_improvements(status:str="proposed", limit:int=30):
 
 @app.post("/api/improvements/{proposal_id}/accept")
 async def accept_improvement(proposal_id:str):
-    con=db(); row=con.execute("SELECT title FROM improvement_proposals WHERE id=?",(proposal_id,)).fetchone()
+    con=db(); row=con.execute("SELECT title,rationale FROM improvement_proposals WHERE id=?",(proposal_id,)).fetchone()
     if not row:
         con.close(); raise HTTPException(404,"Proposal not found")
     con.execute("UPDATE improvement_proposals SET status='accepted',updated_at=? WHERE id=?",(ts(),proposal_id))
     con.commit(); con.close()
-    event(None,f"Supervisor improvement accepted: {row['title']}")
+    memory_text=f"Approved process learning: {row['rationale']}"
+    targets=improvement_memory_targets(row["title"]+" "+row["rationale"])
+    for agent in targets:
+        add_agent_memory(agent,memory_text,kind="process_learning",source=f"Supervisor proposal {proposal_id}",confidence=1.0)
+    event(None,f"Supervisor improvement accepted: {row['title']} → memory for {', '.join(targets)}")
     await broadcast()
-    return {"ok":True}
+    return {"ok":True,"memory_targets":targets}
 
 @app.post("/api/improvements/{proposal_id}/dismiss")
 async def dismiss_improvement(proposal_id:str):
@@ -1063,6 +1129,40 @@ async def dismiss_improvement(proposal_id:str):
     con.execute("UPDATE improvement_proposals SET status='dismissed',updated_at=? WHERE id=?",(ts(),proposal_id))
     con.commit(); con.close()
     event(None,f"Supervisor improvement dismissed: {row['title']}")
+    await broadcast()
+    return {"ok":True}
+
+class MemoryCreate(BaseModel):
+    content: str
+    kind: str = "learning"
+    confidence: float = 1.0
+
+@app.get("/api/agents/{agent_name}/memory")
+def agent_memory(agent_name:str):
+    if agent_name not in AGENTS:
+        raise HTTPException(404,"Agent not found")
+    return {"agent":agent_name,"memory":get_agent_memory(agent_name)}
+
+@app.post("/api/agents/{agent_name}/memory")
+async def create_agent_memory(agent_name:str,item:MemoryCreate):
+    if agent_name not in AGENTS:
+        raise HTTPException(404,"Agent not found")
+    memory_id=add_agent_memory(agent_name,item.content,item.kind,"manual",confidence=max(0,min(1,item.confidence)))
+    event(None,f"Memory added to {agent_name}")
+    await broadcast()
+    return {"ok":True,"id":memory_id}
+
+@app.delete("/api/agents/{agent_name}/memory/{memory_id}")
+async def archive_agent_memory(agent_name:str,memory_id:str):
+    if agent_name not in AGENTS:
+        raise HTTPException(404,"Agent not found")
+    con=db()
+    row=con.execute("SELECT id FROM agent_memory WHERE id=? AND agent=?",(memory_id,agent_name)).fetchone()
+    if not row:
+        con.close(); raise HTTPException(404,"Memory not found")
+    con.execute("UPDATE agent_memory SET active=0 WHERE id=?",(memory_id,))
+    con.commit(); con.close()
+    event(None,f"Memory archived for {agent_name}")
     await broadcast()
     return {"ok":True}
 
