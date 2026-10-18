@@ -35,6 +35,7 @@ jobs:
         run: |
           test -f static/index.html
           test -f static/office_scene.svg
+          test -f static/demo_storyboard.svg
           grep -q "FactoryOS" static/index.html
           grep -q "agentDrawer" static/index.html
       - name: Check inline dashboard JavaScript
