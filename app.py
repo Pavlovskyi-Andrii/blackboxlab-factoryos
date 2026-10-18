@@ -321,6 +321,22 @@ def init_db():
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_agent_mcp_agent ON agent_mcp_connections(agent, enabled, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS mcp_call_log(
+      id TEXT PRIMARY KEY,
+      agent TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      run_id TEXT,
+      job_id TEXT,
+      action TEXT NOT NULL,
+      tool_name TEXT,
+      status TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      result_preview TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_mcp_call_agent ON mcp_call_log(agent, started_at DESC);
     CREATE TABLE IF NOT EXISTS factory_tasks(
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -350,6 +366,14 @@ def init_db():
     CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_task_steps_unique ON factory_task_steps(task_id, step_key);
     CREATE INDEX IF NOT EXISTS idx_factory_task_steps_task ON factory_task_steps(task_id, order_index);
     """)
+    mcp_cols={row["name"] for row in con.execute("PRAGMA table_info(agent_mcp_connections)").fetchall()}
+    for name,ddl in [
+        ("allowed_tools_json","TEXT NOT NULL DEFAULT '[]'"),
+        ("last_check_at","TEXT"),
+        ("last_error","TEXT DEFAULT ''"),
+    ]:
+        if name not in mcp_cols:
+            con.execute(f"ALTER TABLE agent_mcp_connections ADD COLUMN {name} {ddl}")
     task_cols={row["name"] for row in con.execute("PRAGMA table_info(factory_tasks)").fetchall()}
     for name,ddl in [
         ("builder_state","TEXT NOT NULL DEFAULT 'idle'"),
@@ -721,6 +745,11 @@ class McpConnectionCreate(BaseModel):
     endpoint: str
     transport: str = "streamable_http"
     auth_env: str = ""
+    allowed_tools: list[str] = []
+
+class McpToolCall(BaseModel):
+    tool_name: str
+    arguments: dict = {}
 
 class McpConnectionToggle(BaseModel):
     enabled: bool
@@ -827,8 +856,127 @@ def get_agent_mcp_connections(agent):
     rows=[dict(x) for x in con.execute("""SELECT * FROM agent_mcp_connections
                                           WHERE agent=? ORDER BY enabled DESC,updated_at DESC""",(agent,)).fetchall()]
     con.close()
-    for x in rows: x["enabled"]=bool(x["enabled"])
+    for x in rows:
+        x["enabled"]=bool(x["enabled"])
+        try: x["allowed_tools"]=json.loads(x.pop("allowed_tools_json") or "[]")
+        except Exception: x["allowed_tools"]=[]
     return rows
+
+def _mcp_headers(connection, session_id=None):
+    headers={
+        "Content-Type":"application/json",
+        "Accept":"application/json, text/event-stream",
+        "User-Agent":"BlackboxLab-FactoryOS-MCP",
+    }
+    auth_env=(connection.get("auth_env") or "").strip()
+    if auth_env:
+        token=os.environ.get(auth_env,"").strip()
+        if not token:
+            raise RuntimeError(f"Required MCP auth environment variable {auth_env} is not configured")
+        headers["Authorization"]=f"Bearer {token}"
+    if session_id:
+        headers["Mcp-Session-Id"]=session_id
+    return headers
+
+def _parse_mcp_body(raw):
+    text_body=(raw or "").strip()
+    if not text_body:
+        return {}
+    if text_body.startswith("{") or text_body.startswith("["):
+        return json.loads(text_body)
+    data_lines=[]
+    for line in text_body.splitlines():
+        if line.startswith("data:"):
+            data_lines.append(line[5:].strip())
+    for candidate in reversed(data_lines):
+        if candidate and candidate!="[DONE]":
+            try:return json.loads(candidate)
+            except Exception:continue
+    raise RuntimeError("MCP server returned an unsupported response format")
+
+def mcp_rpc(connection, method, params=None, session_id=None, notification=False):
+    if connection.get("transport")!="streamable_http":
+        raise RuntimeError("Live MCP execution currently supports streamable_http; SSE remains configuration-only")
+    payload={"jsonrpc":"2.0","method":method}
+    if not notification:
+        payload["id"]=str(uuid.uuid4())
+    if params is not None:
+        payload["params"]=params
+    req=urlrequest.Request(
+        connection["endpoint"],
+        data=json.dumps(payload).encode("utf-8"),
+        headers=_mcp_headers(connection,session_id),
+        method="POST",
+    )
+    try:
+        with urlrequest.urlopen(req,timeout=20) as resp:
+            raw=resp.read().decode("utf-8","replace")
+            sid=resp.headers.get("Mcp-Session-Id") or session_id
+            parsed=_parse_mcp_body(raw) if raw.strip() else {}
+            if isinstance(parsed,dict) and parsed.get("error"):
+                raise RuntimeError(f"MCP error: {parsed['error']}")
+            return parsed,sid
+    except urlerror.HTTPError as exc:
+        body=exc.read().decode("utf-8","replace")
+        raise RuntimeError(f"MCP HTTP {exc.code}: {body[:400]}") from exc
+
+def mcp_session(connection):
+    init,sid=mcp_rpc(connection,"initialize",{
+        "protocolVersion":"2025-03-26",
+        "capabilities":{},
+        "clientInfo":{"name":"BlackboxLab FactoryOS","version":APP_VERSION},
+    })
+    try:
+        mcp_rpc(connection,"notifications/initialized",{},sid,notification=True)
+    except Exception:
+        pass
+    return init,sid
+
+def record_mcp_audit(agent,connection_id,action,status,started_at,run_id=None,job_id=None,tool_name=None,error=None,result=None):
+    finished=ts()
+    try:
+        duration_ms=max(0,int((datetime.fromisoformat(finished)-datetime.fromisoformat(started_at)).total_seconds()*1000))
+    except Exception:
+        duration_ms=0
+    preview=""
+    if result is not None:
+        try: preview=json.dumps(result,ensure_ascii=False)[:900]
+        except Exception: preview=str(result)[:900]
+    con=db()
+    con.execute("""INSERT INTO mcp_call_log(id,agent,connection_id,run_id,job_id,action,tool_name,status,started_at,finished_at,duration_ms,error,result_preview)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (str(uuid.uuid4()),agent,connection_id,run_id,job_id,action,tool_name,status,started_at,finished,duration_ms,error,preview))
+    con.commit(); con.close()
+
+def mcp_list_tools(agent, connection, run_id=None, job_id=None):
+    started=ts()
+    try:
+        _,sid=mcp_session(connection)
+        response,_=mcp_rpc(connection,"tools/list",{},sid)
+        tools=((response or {}).get("result") or {}).get("tools",[])
+        safe=[{"name":x.get("name",""),"description":x.get("description",""),"inputSchema":x.get("inputSchema",{})} for x in tools]
+        record_mcp_audit(agent,connection["id"],"tools/list","completed",started,run_id,job_id,result={"tools":[x["name"] for x in safe]})
+        con=db(); con.execute("UPDATE agent_mcp_connections SET status='reachable',last_check_at=?,last_error='',updated_at=? WHERE id=?",(ts(),ts(),connection["id"])); con.commit(); con.close()
+        return safe
+    except Exception as exc:
+        record_mcp_audit(agent,connection["id"],"tools/list","failed",started,run_id,job_id,error=str(exc))
+        con=db(); con.execute("UPDATE agent_mcp_connections SET status='error',last_check_at=?,last_error=?,updated_at=? WHERE id=?",(ts(),str(exc)[:500],ts(),connection["id"])); con.commit(); con.close()
+        raise
+
+def mcp_call_tool(agent, connection, tool_name, arguments, run_id=None, job_id=None):
+    allowed=set(connection.get("allowed_tools") or [])
+    if tool_name not in allowed:
+        raise RuntimeError(f"Tool '{tool_name}' is not approved for {agent}")
+    started=ts()
+    try:
+        _,sid=mcp_session(connection)
+        response,_=mcp_rpc(connection,"tools/call",{"name":tool_name,"arguments":arguments or {}},sid)
+        result=(response or {}).get("result",{})
+        record_mcp_audit(agent,connection["id"],"tools/call","completed",started,run_id,job_id,tool_name,result=result)
+        return result
+    except Exception as exc:
+        record_mcp_audit(agent,connection["id"],"tools/call","failed",started,run_id,job_id,tool_name,error=str(exc))
+        raise
 
 def get_factory_tasks():
     con=db()
@@ -1151,6 +1299,13 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
             await push_agent_progress(agent,run_id,job_id,"tools","Checking MCP/tool capabilities",34)
             mcp=get_agent_mcp_connections(agent)
             enabled_mcp=[x for x in mcp if x["enabled"]]
+            mcp_capabilities={}
+            for connection in enabled_mcp:
+                try:
+                    tools=await asyncio.wait_for(asyncio.to_thread(mcp_list_tools,agent,connection,run_id,job_id),timeout=min(25,AGENT_TIMEOUT_SECONDS))
+                    mcp_capabilities[connection["name"]]=[x["name"] for x in tools]
+                except Exception as exc:
+                    mcp_capabilities[connection["name"]]=[f"ERROR: {str(exc)[:120]}"]
             await asyncio.sleep(max(0.05,delay*0.12))
 
             await push_agent_progress(agent,run_id,job_id,"generate","Producing output",52)
@@ -1170,11 +1325,11 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
             await push_agent_progress(agent,run_id,job_id,"save","Saving artifact & ledger",91)
             save_artifact(agent,kind,title,content,job_id=job_id,run_id=run_id,
                           meta={"mode":"demo","stage":stage,"attempt":attempt,
-                                "enabled_mcp":[x["name"] for x in enabled_mcp]},**kwargs)
+                                "enabled_mcp":[x["name"] for x in enabled_mcp],"mcp_capabilities":mcp_capabilities},**kwargs)
             finish_agent_run(run_id,status="completed",
                              meta={"mode":"demo","attempt":attempt,
-                                   "enabled_mcp":[x["name"] for x in enabled_mcp],
-                                   "note":"No paid model or MCP tool call was made."})
+                                   "enabled_mcp":[x["name"] for x in enabled_mcp],"mcp_capabilities":mcp_capabilities,
+                                   "note":"MCP capabilities were probed. No paid model call was made; tool calls require explicit per-connection approval."})
             record_run_step(run_id,job_id,agent,"complete","Completed",100,"completed")
             set_agent_progress(agent,100,"Completed",job_id,run_id,"done")
             event(job_id,f"{agent}: completed")
@@ -1766,9 +1921,10 @@ async def add_agent_mcp(agent_name:str,item:McpConnectionCreate):
         raise HTTPException(400,"auth_env must be an environment variable name, not a secret value")
     connection_id=str(uuid.uuid4()); now=ts()
     con=db()
-    con.execute("""INSERT INTO agent_mcp_connections(id,agent,name,transport,endpoint,auth_env,enabled,status,created_at,updated_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (connection_id,agent_name,item.name.strip() or "MCP Server",item.transport,endpoint,auth_env,0,"configured",now,now))
+    approved=sorted(set(x.strip() for x in item.allowed_tools if x and x.strip()))
+    con.execute("""INSERT INTO agent_mcp_connections(id,agent,name,transport,endpoint,auth_env,enabled,status,created_at,updated_at,allowed_tools_json)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (connection_id,agent_name,item.name.strip() or "MCP Server",item.transport,endpoint,auth_env,0,"configured",now,now,json.dumps(approved)))
     con.commit(); con.close()
     event(None,f"MCP configured for {agent_name}: {item.name}")
     await broadcast()
@@ -1802,6 +1958,36 @@ async def delete_agent_mcp(agent_name:str,connection_id:str):
     event(None,f"MCP removed from {agent_name}: {row['name']}")
     await broadcast()
     return {"ok":True}
+
+@app.get("/api/agents/{agent_name}/mcp/{connection_id}/tools")
+async def list_agent_mcp_tools(agent_name:str,connection_id:str):
+    if agent_name not in AGENTS:
+        raise HTTPException(404,"Agent not found")
+    connection=next((x for x in get_agent_mcp_connections(agent_name) if x["id"]==connection_id),None)
+    if not connection:
+        raise HTTPException(404,"MCP connection not found")
+    try:
+        tools=await asyncio.to_thread(mcp_list_tools,agent_name,connection)
+        return {"ok":True,"tools":tools,"allowed_tools":connection.get("allowed_tools",[])}
+    except Exception as exc:
+        raise HTTPException(502,str(exc))
+
+@app.post("/api/agents/{agent_name}/mcp/{connection_id}/call")
+async def call_agent_mcp_tool(agent_name:str,connection_id:str,item:McpToolCall):
+    if agent_name not in AGENTS:
+        raise HTTPException(404,"Agent not found")
+    connection=next((x for x in get_agent_mcp_connections(agent_name) if x["id"]==connection_id),None)
+    if not connection:
+        raise HTTPException(404,"MCP connection not found")
+    if not connection.get("enabled"):
+        raise HTTPException(409,"MCP connection is disabled")
+    try:
+        result=await asyncio.to_thread(mcp_call_tool,agent_name,connection,item.tool_name,item.arguments)
+        event(None,f"MCP tool called for {agent_name}: {item.tool_name}")
+        await broadcast({"type":"mcp_tool_call","agent":agent_name,"tool":item.tool_name})
+        return {"ok":True,"result":result}
+    except Exception as exc:
+        raise HTTPException(502,str(exc))
 
 @app.get("/api/factory/builder")
 def factory_builder_status():
