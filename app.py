@@ -54,6 +54,8 @@ FACTORY_USER = os.environ.get("FACTORY_USER", "blackboxlab")
 FACTORY_PASSWORD = os.environ.get("FACTORY_PASSWORD", "")
 FACTORY_SECRET = os.environ.get("FACTORY_SECRET", secrets.token_hex(32))
 COOKIE_NAME = "factoryos_session"
+FACTORY_DAILY_BUDGET_USD = float(os.environ.get("FACTORY_DAILY_BUDGET_USD", "10"))
+FACTORY_JOB_BUDGET_USD = float(os.environ.get("FACTORY_JOB_BUDGET_USD", "3"))
 
 def session_token(username: str) -> str:
     return hmac.new(
@@ -333,8 +335,18 @@ def get_usage_summary():
                               COALESCE(SUM(output_tokens),0) output_tokens,
                               COALESCE(SUM(cost_usd),0) cost_usd
                        FROM agent_runs""").fetchone()
+    today=con.execute("""SELECT COALESCE(SUM(cost_usd),0) c FROM agent_runs
+                         WHERE substr(started_at,1,10)=?""",(datetime.now(timezone.utc).date().isoformat(),)).fetchone()["c"]
     con.close()
-    return dict(row)
+    data=dict(row)
+    data["today_cost_usd"]=float(today or 0)
+    data["daily_budget_usd"]=FACTORY_DAILY_BUDGET_USD
+    data["job_budget_usd"]=FACTORY_JOB_BUDGET_USD
+    return data
+
+def get_job_cost(job_id):
+    con=db(); row=con.execute("SELECT COALESCE(SUM(cost_usd),0) c FROM agent_runs WHERE job_id=?",(job_id,)).fetchone(); con.close()
+    return float(row["c"] or 0)
 
 def backfill_legacy_history():
     """Convert old demo completion events into ledger entries once, so existing jobs have visible history."""
@@ -540,6 +552,16 @@ def supervisor_audit(auto_heal=False, persist=False):
                     agent_runtime[a] = "idle"
                 healed.append("Reset stale agent runtime states.")
 
+    usage=get_usage_summary()
+    if usage["daily_budget_usd"] > 0 and usage["today_cost_usd"] >= usage["daily_budget_usd"]:
+        add("critical","daily_budget_reached","Daily provider budget reached",
+            f"Today's recorded provider cost is USD {usage['today_cost_usd']:.4f}, at or above the USD {usage['daily_budget_usd']:.2f} limit.",
+            "Keep new paid agent work blocked until the budget is reviewed.")
+    elif usage["daily_budget_usd"] > 0 and usage["today_cost_usd"] >= usage["daily_budget_usd"]*0.8:
+        add("warning","daily_budget_warning","Daily provider budget above 80%",
+            f"Today's recorded provider cost is USD {usage['today_cost_usd']:.4f}.",
+            "Review remaining planned work and reserve budget for high-value stages.")
+
     # Data-driven agent performance checks.
     perf=[]
     for agent in AGENTS:
@@ -721,6 +743,11 @@ async def run_job(job_id:str):
     jobs=get_jobs(); job=next((j for j in jobs if j["id"]==job_id),None)
     if not job: raise HTTPException(404,"Job not found")
     if job["status"] == "waiting_approval": return {"ok":False,"message":"Approval required"}
+    usage=get_usage_summary()
+    if usage["today_cost_usd"] >= FACTORY_DAILY_BUDGET_USD:
+        return {"ok":False,"message":"Daily provider budget reached. Increase the budget only after review."}
+    if get_job_cost(job_id) >= FACTORY_JOB_BUDGET_USD:
+        return {"ok":False,"message":"This job reached its provider budget. Review its agent ledger before continuing."}
     running_jobs.add(job_id); asyncio.create_task(run_until_review(job_id)); return {"ok":True}
 
 async def run_until_review(job_id:str):
