@@ -1404,24 +1404,6 @@ async def verify_builder_bridge():
         print(json.dumps({"event":"BUILDER_BRIDGE_CHECK","status":"error","error":str(exc)[:300]}),flush=True)
 
 @app.on_event("startup")
-async def verify_builder_dispatch_once():
-    marker_file=DATA_DIR/"builder_dispatch_verified"
-    if marker_file.exists() or not GITHUB_TOKEN:
-        return
-    try:
-        probe={
-            "id":"bridge-selftest",
-            "title":"Factory Builder bridge self-test",
-            "description":"Verify immediate workflow_dispatch from FactoryOS. No product code changes requested.",
-            "priority":"low",
-        }
-        await dispatch_builder_workflow(probe)
-        marker_file.write_text(ts(),encoding="utf-8")
-        print(json.dumps({"event":"BUILDER_DISPATCH_SELFTEST","status":"dispatched"}),flush=True)
-    except Exception as exc:
-        print(json.dumps({"event":"BUILDER_DISPATCH_SELFTEST","status":"error","error":str(exc)[:300]}),flush=True)
-
-@app.on_event("startup")
 async def start_supervisor():
     backfilled=backfill_legacy_history()
     if backfilled:
