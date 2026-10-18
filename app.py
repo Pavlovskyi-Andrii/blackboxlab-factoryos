@@ -221,6 +221,18 @@ def init_db():
     );
     CREATE INDEX IF NOT EXISTS idx_artifacts_agent ON artifacts(agent, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts(job_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS improvement_proposals(
+      id TEXT PRIMARY KEY,
+      fingerprint TEXT UNIQUE NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      title TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'proposed',
+      source TEXT NOT NULL DEFAULT 'Supervisor',
+      action_json TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_improvements_status ON improvement_proposals(status, updated_at DESC);
     """)
     n = con.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
     if n == 0:
@@ -380,6 +392,48 @@ def backfill_legacy_history():
         created+=1
     con.commit(); con.close()
     return created
+
+def sync_improvement_proposals(report):
+    suggestions=[]
+    for text in report.get("improvements",[]):
+        suggestions.append({
+            "title": text[:110],
+            "rationale": text,
+            "action": {"type":"process_improvement","requires_review":True},
+        })
+    for finding in report.get("findings",[]):
+        rec=finding.get("recommendation")
+        if rec:
+            suggestions.append({
+                "title": f"Resolve: {finding.get('title','Factory issue')}"[:110],
+                "rationale": rec,
+                "action": {"type":"finding_resolution","code":finding.get("code"),"requires_review":True},
+            })
+    con=db()
+    for item in suggestions[:12]:
+        fingerprint=hashlib.sha256((item["title"]+"|"+item["rationale"]).encode("utf-8")).hexdigest()
+        now=ts()
+        con.execute("""INSERT OR IGNORE INTO improvement_proposals
+                       (id,fingerprint,created_at,updated_at,title,rationale,status,source,action_json)
+                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (str(uuid.uuid4()),fingerprint,now,now,item["title"],item["rationale"],"proposed","Supervisor",json.dumps(item["action"])))
+    con.commit(); con.close()
+
+def get_improvement_proposals(status="proposed", limit=8):
+    con=db()
+    if status:
+        rows=con.execute("""SELECT * FROM improvement_proposals WHERE status=?
+                            ORDER BY updated_at DESC LIMIT ?""",(status,limit)).fetchall()
+    else:
+        rows=con.execute("SELECT * FROM improvement_proposals ORDER BY updated_at DESC LIMIT ?",(limit,)).fetchall()
+    con.close()
+    out=[]
+    for row in rows:
+        d=dict(row)
+        try:d["action"]=json.loads(d.pop("action_json") or "{}")
+        except Exception:d["action"]={}
+        out.append(d)
+    return out
 
 def validate_stage_outputs(job_id, stage):
     expected=AGENT_MAP.get(stage,[])
@@ -641,6 +695,7 @@ async def supervisor_cycle():
         report = supervisor_audit(auto_heal=supervisor_runtime["auto_heal"], persist=False)
         supervisor_runtime["last_report"] = report
         supervisor_runtime["last_run"] = report["checked_at"]
+        sync_improvement_proposals(report)
         signature=json.dumps({
             "score":report.get("score"),
             "codes":[x.get("code") for x in report.get("findings",[])],
@@ -710,7 +765,8 @@ def status():
         "supervisor": report,
         "supervisorState": supervisor_runtime.get("state", "monitoring"),
         "usage": get_usage_summary(),
-        "agentMetrics": {a:get_agent_metrics(a) for a in AGENTS}
+        "agentMetrics": {a:get_agent_metrics(a) for a in AGENTS},
+        "improvementProposals": get_improvement_proposals("proposed",5)
     }
 
 @app.post("/api/jobs")
@@ -883,6 +939,32 @@ def usage():
         "agents":{a:get_agent_metrics(a) for a in AGENTS},
         "note":"Token and cost fields are zero in demo mode. They become real provider usage after live APIs are connected."
     }
+
+@app.get("/api/improvements")
+def list_improvements(status:str="proposed", limit:int=30):
+    return {"proposals":get_improvement_proposals(status if status!="all" else None,min(max(limit,1),100))}
+
+@app.post("/api/improvements/{proposal_id}/accept")
+async def accept_improvement(proposal_id:str):
+    con=db(); row=con.execute("SELECT title FROM improvement_proposals WHERE id=?",(proposal_id,)).fetchone()
+    if not row:
+        con.close(); raise HTTPException(404,"Proposal not found")
+    con.execute("UPDATE improvement_proposals SET status='accepted',updated_at=? WHERE id=?",(ts(),proposal_id))
+    con.commit(); con.close()
+    event(None,f"Supervisor improvement accepted: {row['title']}")
+    await broadcast()
+    return {"ok":True}
+
+@app.post("/api/improvements/{proposal_id}/dismiss")
+async def dismiss_improvement(proposal_id:str):
+    con=db(); row=con.execute("SELECT title FROM improvement_proposals WHERE id=?",(proposal_id,)).fetchone()
+    if not row:
+        con.close(); raise HTTPException(404,"Proposal not found")
+    con.execute("UPDATE improvement_proposals SET status='dismissed',updated_at=? WHERE id=?",(ts(),proposal_id))
+    con.commit(); con.close()
+    event(None,f"Supervisor improvement dismissed: {row['title']}")
+    await broadcast()
+    return {"ok":True}
 
 @app.get("/api/supervisor")
 def get_supervisor_report():
