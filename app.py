@@ -30,7 +30,7 @@ AGENT_MAP = {
     "publish": ["Publisher"],
     "analytics": ["Analyst"],
 }
-AGENTS = [a for stage in STAGES for a in AGENT_MAP.get(stage, [])]
+AGENTS = [a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Supervisor"]
 
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
@@ -113,6 +113,12 @@ clients: set[WebSocket] = set()
 running_jobs: set[str] = set()
 selected_job_id: Optional[str] = None
 agent_runtime = {name: "idle" for name in AGENTS}
+supervisor_runtime = {
+    "state": "monitoring",
+    "last_run": None,
+    "last_report": None,
+    "auto_heal": True,
+}
 
 # Local MVP knows only what was verified during setup. Standalone server cannot reuse ChatGPT plugin auth.
 CONNECTIONS = {
@@ -155,6 +161,14 @@ def init_db():
       job_id TEXT,
       ts TEXT NOT NULL,
       message TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS supervisor_reports(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      critical_count INTEGER NOT NULL,
+      warning_count INTEGER NOT NULL,
+      report_json TEXT NOT NULL
     );
     """)
     n = con.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
@@ -216,6 +230,7 @@ def agent_states(jobs):
     for a,s in agent_runtime.items():
         if s in ("working","done"):
             states[a]=s
+    states["Supervisor"] = supervisor_runtime.get("state", "monitoring")
     return states
 
 def next_action(job):
@@ -225,6 +240,156 @@ def next_action(job):
     if job["status"] == "done": return "Review analytics or create the next job."
     if job["stage"] == "inbox": return "Click Run Factory to start research."
     return "Click Run Factory to continue from this stage."
+
+def _parse_dt(value):
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return datetime.now(timezone.utc)
+
+def supervisor_audit(auto_heal=False, persist=False):
+    jobs = get_jobs()
+    findings = []
+    healed = []
+    improvements = []
+    now_dt = datetime.now(timezone.utc)
+
+    def add(severity, code, title, detail, recommendation):
+        findings.append({
+            "severity": severity,
+            "code": code,
+            "title": title,
+            "detail": detail,
+            "recommendation": recommendation,
+        })
+
+    # Production-readiness checks.
+    if CONNECTIONS.get("LLM", {}).get("state") == "demo":
+        add("critical", "llm_demo", "Agents are still simulated",
+            "Research, writing and verification agents currently simulate work instead of producing real artifacts.",
+            "Connect a real LLM provider and require every agent to save an output artifact before the next stage.")
+        improvements.append("Replace simulated Research/Script agents with a real LLM adapter and artifact validation.")
+
+    for name in ("Voice", "Video"):
+        if CONNECTIONS.get(name, {}).get("state") == "not_configured":
+            add("warning", f"{name.lower()}_missing", f"{name} provider is not configured",
+                f"The pipeline can reach the {name.lower()} stage but cannot produce a real {name.lower()} asset yet.",
+                f"Choose and connect a {name.lower()} provider before enabling unattended publishing.")
+
+    if CONNECTIONS.get("vidIQ", {}).get("state") == "paused":
+        add("info", "vidiq_paused", "vidIQ is paused",
+            "Keyword intelligence is not feeding the Scout or Analyst yet.",
+            "Keep it paused for now or reconnect later when we automate topic selection.")
+
+    # Runtime health and safe self-healing.
+    for j in jobs:
+        age = (now_dt - _parse_dt(j["updated_at"])).total_seconds()
+        expected = int(STAGES.index(j["stage"]) / (len(STAGES) - 1) * 100)
+
+        if j["status"] == "running" and j["id"] not in running_jobs:
+            add("critical", "orphan_job", f"Orphaned running job: {j['title']}",
+                "The database says the job is running, but no worker task owns it.",
+                "Reset it to ready and restart from the current stage.")
+            if auto_heal:
+                con = db()
+                con.execute("UPDATE jobs SET status='idle',updated_at=? WHERE id=?", (ts(), j["id"]))
+                con.commit(); con.close()
+                event(j["id"], "Supervisor auto-heal: orphaned run reset to ready")
+                healed.append(f"Reset orphaned job '{j['title']}' to ready.")
+
+        if j["status"] == "running" and age > 180:
+            add("critical", "stuck_job", f"Possible stalled job: {j['title']}",
+                f"No job update has been recorded for {int(age)} seconds.",
+                "Stop the stalled stage, capture the error, and retry with a bounded retry policy.")
+
+        if j["status"] == "waiting_approval" and age > 1800:
+            add("warning", "approval_wait", f"Approval waiting: {j['title']}",
+                "This job has been waiting for human review for more than 30 minutes.",
+                "Surface the review task more prominently or send a notification.")
+
+        if j["status"] not in ("waiting_approval", "done") and abs(j["progress"] - expected) > 20:
+            add("warning", "progress_mismatch", f"Progress mismatch: {j['title']}",
+                f"Stage {j['stage']} and stored progress {j['progress']}% disagree.",
+                "Calculate progress from completed stage artifacts instead of storing it independently.")
+
+    # Reset impossible agent runtime states.
+    if not running_jobs:
+        stale_agents = [a for a, state in agent_runtime.items() if state == "working" and a != "Supervisor"]
+        if stale_agents:
+            add("warning", "orphan_agents", "Agents marked working with no active job",
+                ", ".join(stale_agents),
+                "Reset stale runtime states and tie agent state to a job execution id.")
+            if auto_heal:
+                for a in stale_agents:
+                    agent_runtime[a] = "idle"
+                healed.append("Reset stale agent runtime states.")
+
+    # Process-improvement advice: always keep a small prioritized backlog.
+    if not any(x["code"] == "llm_demo" for x in findings):
+        improvements.append("Add per-agent artifact schemas so Supervisor can validate output quality, not only runtime state.")
+    improvements.extend([
+        "Add retry limits + timeout per agent, with failure reason stored in the job log.",
+        "Measure duration, cost and success rate per stage; Supervisor should optimize the slowest/most expensive stage.",
+        "Before Publish, require QA checks for factual support, duplicate content, title/thumbnail fit and platform policy.",
+    ])
+    improvements = improvements[:4]
+
+    penalties = {"critical": 24, "warning": 9, "info": 2}
+    score = max(0, 100 - sum(penalties.get(x["severity"], 0) for x in findings))
+    critical_count = sum(1 for x in findings if x["severity"] == "critical")
+    warning_count = sum(1 for x in findings if x["severity"] == "warning")
+    state = "attention" if critical_count else ("watch" if warning_count else "healthy")
+    report = {
+        "score": score,
+        "state": state,
+        "findings": findings,
+        "improvements": improvements,
+        "healed": healed,
+        "checked_at": ts(),
+        "auto_heal": bool(supervisor_runtime.get("auto_heal", True)),
+        "summary": (
+            "Critical intervention required" if critical_count
+            else "Factory is stable, with improvements available" if warning_count
+            else "Factory health looks good"
+        ),
+    }
+    if persist:
+        con = db()
+        con.execute(
+            "INSERT INTO supervisor_reports(ts,score,critical_count,warning_count,report_json) VALUES(?,?,?,?,?)",
+            (report["checked_at"], score, critical_count, warning_count, json.dumps(report)),
+        )
+        con.commit(); con.close()
+    return report
+
+async def supervisor_cycle():
+    supervisor_runtime["state"] = "working"
+    agent_runtime["Supervisor"] = "working"
+    try:
+        report = supervisor_audit(auto_heal=supervisor_runtime["auto_heal"], persist=True)
+        supervisor_runtime["last_report"] = report
+        supervisor_runtime["last_run"] = report["checked_at"]
+    except Exception as exc:
+        supervisor_runtime["last_report"] = {
+            "score": 0, "state": "attention", "findings": [{
+                "severity": "critical", "code": "supervisor_error", "title": "Supervisor audit failed",
+                "detail": str(exc), "recommendation": "Inspect the server log and fix the audit exception."
+            }], "improvements": [], "healed": [], "checked_at": ts(), "auto_heal": True,
+            "summary": "Supervisor encountered an internal error"
+        }
+    finally:
+        supervisor_runtime["state"] = "monitoring"
+        agent_runtime["Supervisor"] = "monitoring"
+        await broadcast({"type": "supervisor"})
+
+async def supervisor_loop():
+    while True:
+        await supervisor_cycle()
+        await asyncio.sleep(45)
+
+@app.on_event("startup")
+async def start_supervisor():
+    asyncio.create_task(supervisor_loop())
 
 async def broadcast(payload=None):
     dead=[]; msg=json.dumps(payload or {"type":"refresh"})
@@ -240,11 +405,14 @@ def root(): return FileResponse(BASE/"static"/"index.html")
 def status():
     jobs=get_jobs(); sid=current_selected(jobs); selected=next((j for j in jobs if j["id"]==sid),None)
     con=db(); ev=[dict(x) for x in con.execute("SELECT * FROM events ORDER BY id DESC LIMIT 60").fetchall()]; con.close()
+    report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
     return {
         "factory":"online","jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
         "events":ev,"connections":CONNECTIONS,"stages":STAGES,
         "agentStates":agent_states(jobs),"agentMap":AGENT_MAP,
-        "runningJobs":list(running_jobs),"nextAction":next_action(selected)
+        "runningJobs":list(running_jobs),"nextAction":next_action(selected),
+        "supervisor": report,
+        "supervisorState": supervisor_runtime.get("state", "monitoring")
     }
 
 @app.post("/api/jobs")
@@ -319,6 +487,17 @@ async def run_publish(job_id:str):
         event(job_id,"Factory run completed"); await broadcast()
     finally:
         running_jobs.discard(job_id)
+
+@app.get("/api/supervisor")
+def get_supervisor_report():
+    return supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
+
+@app.post("/api/supervisor/run")
+async def run_supervisor_now():
+    if supervisor_runtime.get("state") == "working":
+        return {"ok": True, "message": "Supervisor audit is already running"}
+    asyncio.create_task(supervisor_cycle())
+    return {"ok": True, "message": "Supervisor audit started"}
 
 @app.websocket("/ws")
 async def ws(ws:WebSocket):
