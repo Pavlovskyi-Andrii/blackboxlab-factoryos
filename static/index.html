@@ -160,7 +160,7 @@ function renderAgentDetail(d){
   h+='<div class="modeNote"><b>Goal:</b> '+esc(d.spec.goal||'')+'<br><b>Accounting:</b> duration is measured per run. Tokens and provider cost are recorded from live APIs; demo runs stay at 0 instead of inventing spend.</div>';
   h+='<div class="drawerSection"><h3>Work history</h3>';
   if(!runs.length)h+='<div class="sub">No recorded runs yet. Run a job to create the first ledger entry.</div>';
-  else h+=runs.map(r=>'<div class="runRow"><div><b>'+esc(r.job_title||'Factory maintenance')+' · '+esc(r.status)+'</b><small>'+esc(r.stage||'supervision')+' · '+esc(r.model||'')+' · '+(r.started_at||'').replace('T',' ').slice(0,19)+'</small></div><div class="runNumbers">'+fmtDuration(r.duration_ms)+'<br>'+fmtTokens((r.input_tokens||0)+(r.output_tokens||0))+' tok · '+fmtMoney(r.cost_usd)+'</div></div>').join('');
+  else h+=runs.map(r=>'<div class="runRow"><div><b>'+esc(r.job_title||'Factory maintenance')+' · '+esc(r.status)+'</b><small>'+esc(r.stage||'supervision')+' · '+esc(r.model||'')+' · '+(r.started_at||'').replace('T',' ').slice(0,19)+(r.error?' · ERROR: '+esc(r.error):'')+'</small></div><div class="runNumbers">'+fmtDuration(r.duration_ms)+'<br>'+fmtTokens((r.input_tokens||0)+(r.output_tokens||0))+' tok · '+fmtMoney(r.cost_usd)+'</div></div>').join('');
   h+='</div><div class="drawerSection"><h3>Outputs & artifacts <span class="sub">('+arts.length+')</span></h3>';
   if(!arts.length)h+='<div class="sub">No saved outputs yet.</div>';
   else h+=arts.map(a=>artifactHtml(a)).join('');
@@ -171,7 +171,7 @@ function artifactHtml(a){
   if(a.kind==='image'&&a.url)media='<img src="'+esc(a.url)+'" alt="'+esc(a.title)+'">';
   else if(a.kind==='video')media='<div class="mediaPlaceholder">▷ Video preview will appear here when the video provider is connected.</div>';
   else if(a.kind==='audio')media='<div class="mediaPlaceholder">◖ Audio preview will appear here when the voice provider is connected.</div>';
-  return '<div class="artifact"><div class="artifactHead"><b>'+esc(a.title)+'</b><span class="artifactType">'+esc(a.kind)+'</span></div>'+media+(a.content?'<pre>'+esc(a.content)+'</pre>':'')+'<div class="tiny" style="margin-top:6px">'+esc(a.job_title||'')+' · '+(a.created_at||'').replace('T',' ').slice(0,19)+'</div></div>';
+  const mode=(a.meta&&a.meta.mode)?String(a.meta.mode):'';return '<div class="artifact"><div class="artifactHead"><b>'+esc(a.title)+'</b><span class="artifactType">'+esc(a.kind)+(mode?' · '+esc(mode):'')+'</span></div>'+media+(a.content?'<pre>'+esc(a.content)+'</pre>':'')+'<div class="tiny" style="margin-top:6px">'+esc(a.job_title||'')+' · '+(a.created_at||'').replace('T',' ').slice(0,19)+'</div></div>';
 }
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2300)}
 const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.onopen=()=>ws.send('v3.4');ws.onmessage=()=>refresh();refresh();
