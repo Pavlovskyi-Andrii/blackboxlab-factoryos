@@ -228,7 +228,7 @@ def _create_design_task_from_review(args):
     con=db()
     next_order=con.execute("SELECT COALESCE(MAX(order_index),0)+10 n FROM factory_tasks").fetchone()["n"]
     con.execute("""INSERT INTO factory_tasks(id,title,description,category,priority,status,owner,order_index,created_at,updated_at,builder_state)
-                   VALUES(?,?,?,?,?,'todo',?,?,?,?,?,'idle')""",
+                   VALUES(?,?,?,?,?,'todo',?,?,?,?,'idle')""",
                 (task_id,title,description,"design","high","Design Partner",next_order,now,now))
     con.commit(); con.close()
     ensure_factory_task_steps(task_id)
