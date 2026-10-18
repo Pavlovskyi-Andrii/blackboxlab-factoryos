@@ -721,7 +721,35 @@ async def reconcile_builder_workflows_once():
                         (gh_status,"GitHub Builder preflight is running.",task["id"]))
         con.commit(); con.close()
 
+async def resume_stale_started_tasks():
+    if not GITHUB_TOKEN:
+        return
+    live_states={"queued","in_progress","waiting","pending","requested","dispatching"}
+    con=db()
+    rows=[dict(x) for x in con.execute("""SELECT * FROM factory_tasks
+                                          WHERE status='in_progress' AND requested_at IS NOT NULL
+                                          ORDER BY requested_at""").fetchall()]
+    con.close()
+    for task in rows:
+        if (task.get("workflow_status") or "") in live_states:
+            continue
+        try:
+            await dispatch_builder_workflow(task)
+            con=db()
+            con.execute("""UPDATE factory_tasks SET builder_state='queued',workflow_status='dispatching',
+                           workflow_run_id=NULL,workflow_url=NULL,builder_note=?,updated_at=? WHERE id=?""",
+                        ("Recovered after restart: immediate GitHub Builder preflight re-dispatched.",ts(),task["id"]))
+            con.commit(); con.close()
+            asyncio.create_task(track_builder_dispatch(task["id"],task.get("requested_at") or ts()))
+            print(json.dumps({"event":"BUILDER_TASK_RECOVERED","task_id":task["id"]}),flush=True)
+        except Exception as exc:
+            con=db()
+            con.execute("UPDATE factory_tasks SET builder_note=? WHERE id=?",
+                        (f"Recovery dispatch failed; manual Resume remains available. {str(exc)[:250]}",task["id"]))
+            con.commit(); con.close()
+
 async def builder_reconcile_loop():
+    await resume_stale_started_tasks()
     while True:
         try:
             await reconcile_builder_workflows_once()
