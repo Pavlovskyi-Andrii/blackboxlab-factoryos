@@ -9,6 +9,7 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib import request as urlrequest, error as urlerror, parse as urlparse
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request, Form
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
@@ -18,6 +19,9 @@ from pydantic import BaseModel
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v3.12"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
+GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
+GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
+BUILDER_WORKFLOW = os.environ.get("FACTORY_BUILDER_WORKFLOW", "factory-builder.yml")
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB = DATA_DIR / "factory.db"
@@ -351,6 +355,9 @@ def init_db():
         ("builder_state","TEXT NOT NULL DEFAULT 'idle'"),
         ("requested_at","TEXT"),
         ("builder_note","TEXT DEFAULT ''"),
+        ("workflow_run_id","TEXT"),
+        ("workflow_url","TEXT"),
+        ("workflow_status","TEXT"),
     ]:
         if name not in task_cols:
             con.execute(f"ALTER TABLE factory_tasks ADD COLUMN {name} {ddl}")
@@ -508,6 +515,136 @@ def apply_build_manifest():
     return applied
 
 apply_build_manifest()
+
+def github_api(method, path, payload=None):
+    if not GITHUB_TOKEN:
+        raise RuntimeError("FACTORY_GITHUB_TOKEN is not configured")
+    url=f"https://api.github.com/repos/{GITHUB_REPO}{path}"
+    data=None
+    headers={
+        "Accept":"application/vnd.github+json",
+        "Authorization":f"Bearer {GITHUB_TOKEN}",
+        "X-GitHub-Api-Version":"2022-11-28",
+        "User-Agent":"BlackboxLab-FactoryOS",
+    }
+    if payload is not None:
+        data=json.dumps(payload).encode("utf-8")
+        headers["Content-Type"]="application/json"
+    req=urlrequest.Request(url,data=data,headers=headers,method=method)
+    try:
+        with urlrequest.urlopen(req,timeout=12) as resp:
+            raw=resp.read().decode("utf-8","replace")
+            return json.loads(raw) if raw else {}
+    except urlerror.HTTPError as exc:
+        body=exc.read().decode("utf-8","replace")
+        raise RuntimeError(f"GitHub API {exc.code}: {body[:500]}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"GitHub API error: {exc}") from exc
+
+async def dispatch_builder_workflow(task):
+    payload={
+        "ref":"main",
+        "inputs":{
+            "task_id":task["id"],
+            "title":task["title"],
+            "description":task["description"] or "",
+            "priority":task["priority"] or "medium",
+        }
+    }
+    await asyncio.to_thread(github_api,"POST",f"/actions/workflows/{BUILDER_WORKFLOW}/dispatches",payload)
+    return True
+
+def _workflow_step_to_task_step(name):
+    n=(name or "").lower()
+    mapping=[
+        ("understand task","understand"),
+        ("inspect current","inspect"),
+        ("plan the smallest","plan"),
+        ("baseline ci","test"),
+        ("queue ai implementation","implement"),
+    ]
+    for phrase,key in mapping:
+        if phrase in n:
+            return key
+    return None
+
+async def track_builder_dispatch(task_id, requested_at):
+    # GitHub may take a few seconds to materialize a workflow_dispatch run.
+    run=None
+    for _ in range(18):
+        await asyncio.sleep(4)
+        try:
+            runs=await asyncio.to_thread(
+                github_api,"GET",
+                f"/actions/workflows/{BUILDER_WORKFLOW}/runs?event=workflow_dispatch&branch=main&per_page=20"
+            )
+            for candidate in runs.get("workflow_runs",[]):
+                title=candidate.get("display_title") or candidate.get("name") or ""
+                if task_id in title:
+                    run=candidate; break
+            if run: break
+        except Exception as exc:
+            con=db(); con.execute("UPDATE factory_tasks SET builder_note=?,workflow_status=? WHERE id=?",
+                                  (f"Workflow lookup error: {exc}","lookup_error",task_id)); con.commit(); con.close()
+    if not run:
+        con=db(); con.execute("""UPDATE factory_tasks SET builder_state='blocked',workflow_status='not_found',
+                                 builder_note=? WHERE id=?""",
+                              ("GitHub accepted the dispatch but the workflow run was not found.",task_id))
+        con.commit(); con.close()
+        await broadcast({"type":"builder_workflow","taskId":task_id,"status":"not_found"})
+        return
+
+    run_id=str(run["id"]); html_url=run.get("html_url") or ""
+    con=db(); con.execute("""UPDATE factory_tasks SET builder_state='active',workflow_run_id=?,workflow_url=?,
+                             workflow_status=?,builder_note=? WHERE id=?""",
+                          (run_id,html_url,run.get("status") or "queued","GitHub Builder preflight is running.",task_id))
+    con.commit(); con.close()
+    await broadcast({"type":"builder_workflow","taskId":task_id,"status":"in_progress","runId":run_id})
+
+    while True:
+        await asyncio.sleep(5)
+        try:
+            run_data=await asyncio.to_thread(github_api,"GET",f"/actions/runs/{run_id}")
+            jobs=await asyncio.to_thread(github_api,"GET",f"/actions/runs/{run_id}/jobs?per_page=20")
+        except Exception as exc:
+            con=db(); con.execute("UPDATE factory_tasks SET builder_note=? WHERE id=?",
+                                  (f"Workflow tracking error: {exc}",task_id)); con.commit(); con.close()
+            continue
+
+        for job in jobs.get("jobs",[]):
+            for step in job.get("steps",[]):
+                task_step=_workflow_step_to_task_step(step.get("name"))
+                if not task_step: continue
+                status=step.get("status")
+                conclusion=step.get("conclusion")
+                if status=="completed" and conclusion=="success":
+                    set_factory_task_step(task_id,task_step,"done",100)
+                elif status=="completed" and conclusion not in (None,"success","skipped"):
+                    set_factory_task_step(task_id,task_step,"blocked",35)
+                elif status=="in_progress":
+                    set_factory_task_step(task_id,task_step,"in_progress",55)
+
+        gh_status=run_data.get("status") or "unknown"
+        conclusion=run_data.get("conclusion")
+        con=db()
+        if gh_status=="completed":
+            if conclusion=="success":
+                # Immediate workflow handles kickoff/preflight. Actual code implementation continues in the autonomous Builder.
+                impl=next((x for x in get_factory_task_steps(task_id) if x["step_key"]=="implement"),None)
+                if impl and impl["status"]!="done":
+                    set_factory_task_step(task_id,"implement","in_progress",20)
+                con.execute("""UPDATE factory_tasks SET builder_state='active',workflow_status='completed',
+                               builder_note=? WHERE id=?""",
+                            ("Immediate GitHub preflight complete. Autonomous Factory Builder is continuing implementation.",task_id))
+            else:
+                con.execute("""UPDATE factory_tasks SET builder_state='blocked',workflow_status=?,builder_note=? WHERE id=?""",
+                            (conclusion or "failed","GitHub Builder preflight failed. Inspect the workflow run.",task_id))
+            con.commit(); con.close()
+            await broadcast({"type":"builder_workflow","taskId":task_id,"status":conclusion or "completed"})
+            return
+        con.execute("UPDATE factory_tasks SET workflow_status=?,builder_state='active' WHERE id=?",(gh_status,task_id))
+        con.commit(); con.close()
+        await broadcast({"type":"builder_workflow","taskId":task_id,"status":gh_status})
 
 class JobCreate(BaseModel):
     title: str
@@ -1591,6 +1728,15 @@ async def delete_agent_mcp(agent_name:str,connection_id:str):
     await broadcast()
     return {"ok":True}
 
+@app.get("/api/factory/builder")
+def factory_builder_status():
+    return {
+        "instant_dispatch":bool(GITHUB_TOKEN),
+        "repo":GITHUB_REPO,
+        "workflow":BUILDER_WORKFLOW,
+        "mode":"github_actions_plus_autonomous_builder" if GITHUB_TOKEN else "autonomous_hourly_queue",
+    }
+
 @app.get("/api/factory/tasks")
 def factory_tasks():
     return get_factory_tasks()
@@ -1631,8 +1777,27 @@ async def start_factory_task(task_id:str):
     }
     print(json.dumps(payload,ensure_ascii=False),flush=True)
     event(None,f"Builder task started from FactoryOS: {row['title']}")
-    await broadcast({"type":"builder_task_started","taskId":task_id})
-    return {"ok":True,"message":"Task queued for Factory Builder","task":factory_task_detail(task_id),"already_queued":False}
+    dispatch_state="hourly_queue"
+    dispatch_error=None
+    if GITHUB_TOKEN:
+        try:
+            await dispatch_builder_workflow(dict(row))
+            dispatch_state="github_dispatched"
+            con=db(); con.execute("""UPDATE factory_tasks SET builder_state='queued',workflow_status='dispatching',
+                                     builder_note=? WHERE id=?""",
+                                  ("GitHub Builder preflight dispatched immediately.",task_id))
+            con.commit(); con.close()
+            asyncio.create_task(track_builder_dispatch(task_id,now))
+        except Exception as exc:
+            dispatch_error=str(exc)
+            con=db(); con.execute("UPDATE factory_tasks SET workflow_status='dispatch_failed',builder_note=? WHERE id=?",
+                                  (f"Immediate dispatch failed; hourly Builder queue remains active. {dispatch_error}",task_id))
+            con.commit(); con.close()
+    await broadcast({"type":"builder_task_started","taskId":task_id,"dispatch":dispatch_state})
+    return {"ok":True,
+            "message":"Immediate GitHub Builder started" if dispatch_state=="github_dispatched" else "Task queued for autonomous Factory Builder",
+            "dispatch":dispatch_state,"dispatch_error":dispatch_error,
+            "task":factory_task_detail(task_id),"already_queued":False}
 
 @app.post("/api/factory/tasks")
 async def create_factory_task(item:FactoryTaskCreate):
