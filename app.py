@@ -369,6 +369,27 @@ def backfill_legacy_history():
     con.commit(); con.close()
     return created
 
+def validate_stage_outputs(job_id, stage):
+    expected=AGENT_MAP.get(stage,[])
+    if not expected:
+        return {"ok":True,"expected":0,"ready":0,"missing":[]}
+    con=db()
+    missing=[]
+    ready=0
+    for agent in expected:
+        run=con.execute("""SELECT id,status FROM agent_runs
+                           WHERE job_id=? AND agent=? AND stage=?
+                           ORDER BY started_at DESC LIMIT 1""",(job_id,agent,stage)).fetchone()
+        artifact_count=0
+        if run:
+            artifact_count=con.execute("SELECT COUNT(*) c FROM artifacts WHERE run_id=?",(run["id"],)).fetchone()["c"]
+        if run and run["status"]=="completed" and artifact_count>0:
+            ready+=1
+        else:
+            missing.append(agent)
+    con.close()
+    return {"ok":not missing,"expected":len(expected),"ready":ready,"missing":missing}
+
 async def execute_agent(agent, stage, job_id, delay=1.1):
     job=get_job(job_id)
     run_id=start_agent_run(agent,job_id,stage)
@@ -681,6 +702,10 @@ async def run_until_review(job_id:str):
             await broadcast()
             for a in AGENT_MAP.get(stage,[]):
                 await execute_agent(a, stage, job_id, delay=1.1)
+            gate=validate_stage_outputs(job_id,stage)
+            if not gate["ok"]:
+                raise RuntimeError(f"Quality gate failed for {stage}: missing artifacts from {', '.join(gate['missing'])}")
+            event(job_id,f"Quality gate passed: {stage} ({gate['ready']}/{gate['expected']} agent outputs)")
         con=db(); con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(ts(),job_id)); con.commit(); con.close()
         event(job_id,"Review gate: waiting for approval"); await broadcast()
     except Exception as exc:
@@ -706,6 +731,10 @@ async def run_publish(job_id:str):
                 (stage,int(idx/(len(STAGES)-1)*100),ts(),job_id)); con.commit(); con.close(); await broadcast()
             for a in AGENT_MAP.get(stage,[]):
                 await execute_agent(a, stage, job_id, delay=1.2)
+            gate=validate_stage_outputs(job_id,stage)
+            if not gate["ok"]:
+                raise RuntimeError(f"Quality gate failed for {stage}: missing artifacts from {', '.join(gate['missing'])}")
+            event(job_id,f"Quality gate passed: {stage} ({gate['ready']}/{gate['expected']} agent outputs)")
         con=db(); con.execute("UPDATE jobs SET stage='analytics',status='done',progress=100,updated_at=? WHERE id=?",(ts(),job_id)); con.commit(); con.close()
         event(job_id,"Factory run completed"); await broadcast()
     except Exception as exc:
@@ -761,6 +790,17 @@ def agent_detail(agent_name:str):
         "artifacts":artifacts,
         "providerMode":"demo" if CONNECTIONS.get("LLM",{}).get("state")=="demo" else "live"
     }
+
+@app.get("/api/jobs/{job_id}/quality")
+def job_quality(job_id:str):
+    job=get_job(job_id)
+    if not job:
+        raise HTTPException(404,"Job not found")
+    checks={stage:validate_stage_outputs(job_id,stage) for stage in STAGES if AGENT_MAP.get(stage)}
+    expected=sum(x["expected"] for x in checks.values())
+    ready=sum(x["ready"] for x in checks.values())
+    return {"job_id":job_id,"stage":job["stage"],"checks":checks,"ready":ready,"expected":expected,
+            "coverage":round((ready/expected*100),1) if expected else 100}
 
 @app.get("/api/jobs/{job_id}/artifacts")
 def job_artifacts(job_id:str):
