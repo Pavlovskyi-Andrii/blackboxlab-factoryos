@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-18T09:18:00Z",
+  "updated_at": "2026-10-18T09:29:30Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -248,6 +248,29 @@
         "test": "done",
         "deploy": "done",
         "verify": "done"
+      }
+    },
+    "design-partner": {
+      "status": "in_progress",
+      "meta": {
+        "title": "Claude Design Partner via FactoryOS MCP",
+        "description": "Expose a secure remote MCP connector so Claude Free can read FactoryOS design context and submit structured UI/UX reviews into the roadmap without paid API calls or automatic code execution.",
+        "category": "design",
+        "priority": "high",
+        "owner": "Design Partner",
+        "order_index": 100
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": {
+          "status": "in_progress",
+          "progress": 80
+        },
+        "verify": "todo"
       }
     }
   }
