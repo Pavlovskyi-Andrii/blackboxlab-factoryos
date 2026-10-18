@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-18T20:39:59.478Z",
+  "updated_at": "2026-10-18T21:36:16.842Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -294,6 +294,175 @@
           "status": "in_progress",
           "progress": 60
         }
+      }
+    },
+    "night-live-llm-hardening": {
+      "status": "in_progress",
+      "meta": {
+        "title": "Night 1 — Live LLM hardening",
+        "description": "Verify paid API execution end-to-end, normalize provider errors, avoid pointless retries, confirm tokens/cost/artifacts and preserve the approval gate.",
+        "category": "quality",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 120
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": {
+          "status": "in_progress",
+          "progress": 80
+        },
+        "test": {
+          "status": "in_progress",
+          "progress": 40
+        },
+        "deploy": "todo",
+        "verify": "todo"
+      }
+    },
+    "night-worker-visibility": {
+      "status": "todo",
+      "meta": {
+        "title": "Night 2 — Worker outputs & handoff visibility",
+        "description": "Make every worker's latest result visible on the main dashboard and show source→target handoffs, model/mode, failures, and artifact previews.",
+        "category": "observability",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 130
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": {
+          "status": "in_progress",
+          "progress": 85
+        },
+        "test": "todo",
+        "deploy": "todo",
+        "verify": "todo"
+      }
+    },
+    "night-trace-viewer": {
+      "status": "todo",
+      "meta": {
+        "title": "Night 3 — Clickable handoff trace viewer",
+        "description": "Click a worker-to-worker handoff to inspect exactly which artifact was passed, source output, target input context, timestamps and run IDs.",
+        "category": "observability",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 140
+      },
+      "steps": {
+        "understand": "todo",
+        "inspect": "todo",
+        "plan": "todo",
+        "implement": "todo",
+        "test": "todo",
+        "deploy": "todo",
+        "verify": "todo"
+      }
+    },
+    "night-live-pipeline": {
+      "status": "todo",
+      "meta": {
+        "title": "Night 4 — Live pipeline motion",
+        "description": "Animate active stages and data packets through the Agent Office so a running job visibly moves from worker to worker without becoming a game HUD.",
+        "category": "design",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 150
+      },
+      "steps": {
+        "understand": "todo",
+        "inspect": "todo",
+        "plan": "todo",
+        "implement": "todo",
+        "test": "todo",
+        "deploy": "todo",
+        "verify": "todo"
+      }
+    },
+    "night-error-center": {
+      "status": "todo",
+      "meta": {
+        "title": "Night 5 — Error center & recovery policy",
+        "description": "Separate transient errors from billing/configuration failures, provide actionable messages, safe retry actions, and prevent duplicate spend.",
+        "category": "quality",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 160
+      },
+      "steps": {
+        "understand": "todo",
+        "inspect": "todo",
+        "plan": "todo",
+        "implement": "todo",
+        "test": "todo",
+        "deploy": "todo",
+        "verify": "todo"
+      }
+    },
+    "night-responsive-i18n": {
+      "status": "todo",
+      "meta": {
+        "title": "Night 6 — Responsive + EN/UK/RU polish",
+        "description": "Polish the new worker-results, trace and error UI on desktop/mobile and localize all newly added labels in EN, UK and RU.",
+        "category": "product",
+        "priority": "medium",
+        "owner": "Factory Builder",
+        "order_index": 170
+      },
+      "steps": {
+        "understand": "todo",
+        "inspect": "todo",
+        "plan": "todo",
+        "implement": "todo",
+        "test": "todo",
+        "deploy": "todo",
+        "verify": "todo"
+      }
+    },
+    "night-smoke-tests": {
+      "status": "todo",
+      "meta": {
+        "title": "Night 7 — Smoke tests & regression checks",
+        "description": "Add lightweight endpoint/data-shape checks for status, worker results, handoffs, reruns, approval gate and provider readiness; verify latest Render deploy health.",
+        "category": "quality",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 180
+      },
+      "steps": {
+        "understand": "todo",
+        "inspect": "todo",
+        "plan": "todo",
+        "implement": "todo",
+        "test": "todo",
+        "deploy": "todo",
+        "verify": "todo"
+      }
+    },
+    "night-morning-qa": {
+      "status": "todo",
+      "meta": {
+        "title": "Night 8 — Morning QA & product summary",
+        "description": "Do a final audit of the live FactoryOS build, update roadmap statuses, record remaining blockers, and prepare a concise morning changelog with next priorities.",
+        "category": "product",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 190
+      },
+      "steps": {
+        "understand": "todo",
+        "inspect": "todo",
+        "plan": "todo",
+        "implement": "todo",
+        "test": "todo",
+        "deploy": "todo",
+        "verify": "todo"
       }
     }
   }
