@@ -385,7 +385,7 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
         await broadcast({"type":"agent","agent":agent,"state":"done"})
     except Exception as exc:
         finish_agent_run(run_id,status="failed",error=str(exc),meta={"mode":"demo"})
-        agent_runtime[agent]="idle"
+        agent_runtime[agent]="failed"
         event(job_id,f"{agent}: failed — {exc}")
         await broadcast({"type":"agent","agent":agent,"state":"failed"})
         raise
@@ -413,7 +413,7 @@ def agent_states(jobs):
                     elif j["status"] == "waiting_approval": states[a]="waiting"
     # runtime event state can show a currently active agent more precisely
     for a,s in agent_runtime.items():
-        if s in ("working","done"):
+        if s in ("working","done","failed"):
             states[a]=s
     states["Supervisor"] = supervisor_runtime.get("state", "monitoring")
     return states
@@ -423,6 +423,7 @@ def next_action(job):
     if job["status"] == "waiting_approval": return "Review the output, then click Approve & Publish."
     if job["status"] == "running": return f"Factory is working on {job['stage']}."
     if job["status"] == "done": return "Review analytics or create the next job."
+    if job["status"] == "failed": return "Open the failed agent history, inspect the error, then retry the job."
     if job["stage"] == "inbox": return "Click Run Factory to start research."
     return "Click Run Factory to continue from this stage."
 
@@ -470,6 +471,11 @@ def supervisor_audit(auto_heal=False, persist=False):
     for j in jobs:
         age = (now_dt - _parse_dt(j["updated_at"])).total_seconds()
         expected = int(STAGES.index(j["stage"]) / (len(STAGES) - 1) * 100)
+
+        if j["status"] == "failed":
+            add("critical", "failed_job", f"Failed job: {j['title']}",
+                "A pipeline stage raised an exception and the job is paused.",
+                "Open the responsible agent ledger, inspect the error, then retry from the current stage.")
 
         if j["status"] == "running" and j["id"] not in running_jobs:
             add("critical", "orphan_job", f"Orphaned running job: {j['title']}",
@@ -673,6 +679,10 @@ async def run_until_review(job_id:str):
                 await execute_agent(a, stage, job_id, delay=1.1)
         con=db(); con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(ts(),job_id)); con.commit(); con.close()
         event(job_id,"Review gate: waiting for approval"); await broadcast()
+    except Exception as exc:
+        con=db(); con.execute("UPDATE jobs SET status='failed',updated_at=? WHERE id=?",(ts(),job_id)); con.commit(); con.close()
+        event(job_id,f"Pipeline failed: {exc}")
+        await broadcast({"type":"job_failed","jobId":job_id,"error":str(exc)})
     finally:
         running_jobs.discard(job_id)
 
@@ -694,6 +704,10 @@ async def run_publish(job_id:str):
                 await execute_agent(a, stage, job_id, delay=1.2)
         con=db(); con.execute("UPDATE jobs SET stage='analytics',status='done',progress=100,updated_at=? WHERE id=?",(ts(),job_id)); con.commit(); con.close()
         event(job_id,"Factory run completed"); await broadcast()
+    except Exception as exc:
+        con=db(); con.execute("UPDATE jobs SET status='failed',updated_at=? WHERE id=?",(ts(),job_id)); con.commit(); con.close()
+        event(job_id,f"Publishing pipeline failed: {exc}")
+        await broadcast({"type":"job_failed","jobId":job_id,"error":str(exc)})
     finally:
         running_jobs.discard(job_id)
 
