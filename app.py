@@ -17,11 +17,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.13"
+APP_VERSION = "v3.14"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
 BUILDER_WORKFLOW = os.environ.get("FACTORY_BUILDER_WORKFLOW", "factory-builder.yml")
+FACTORY_MCP_TOKEN = os.environ.get("FACTORY_MCP_TOKEN", "").strip()
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB = DATA_DIR / "factory.db"
@@ -36,7 +37,7 @@ AGENT_MAP = {
     "publish": ["Publisher"],
     "analytics": ["Analyst"],
 }
-AGENTS = [a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Supervisor"]
+AGENTS = [a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Supervisor","Design Partner"]
 
 AGENT_DEPENDENCIES = {
     "Scout": [],
@@ -51,6 +52,7 @@ AGENT_DEPENDENCIES = {
     "Publisher": ["QA Agent","Render Agent"],
     "Analyst": ["Publisher"],
     "Supervisor": [],
+    "Design Partner": [],
 }
 
 AGENT_SPECS = {
@@ -66,6 +68,7 @@ AGENT_SPECS = {
     "Publisher": {"stage":"publish","role":"Distribution manager","goal":"Package and schedule platform-specific publishing assets."},
     "Analyst": {"stage":"analytics","role":"Performance analyst","goal":"Turn performance data into concrete recommendations for the next production cycle."},
     "Supervisor": {"stage":"supervision","role":"Factory supervisor","goal":"Monitor every agent, detect failures, auto-heal safe issues and continuously improve the process."},
+    "Design Partner": {"stage":"design-system","role":"UI/UX design reviewer","goal":"Review FactoryOS screens against the premium cyber-office reference, propose concrete layout and visual-system improvements, and convert approved recommendations into build tasks."},
 }
 
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
@@ -95,7 +98,7 @@ def request_is_authed(request: Request) -> bool:
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/health"}
+    public_paths = {"/login", "/health", "/mcp"}
     if request.url.path.startswith("/static/") or request.url.path in public_paths:
         return await call_next(request)
     if not request_is_authed(request):
@@ -158,6 +161,166 @@ def logout():
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(COOKIE_NAME)
     return response
+
+def _factory_mcp_authorized(request: Request) -> bool:
+    if not FACTORY_MCP_TOKEN:
+        return False
+    auth=request.headers.get("authorization","")
+    if not auth.lower().startswith("bearer "):
+        return False
+    supplied=auth.split(" ",1)[1].strip()
+    return hmac.compare_digest(supplied,FACTORY_MCP_TOKEN)
+
+def _factory_mcp_text(value):
+    if isinstance(value,str):
+        text=value
+    else:
+        text=json.dumps(value,ensure_ascii=False,indent=2)
+    return {"content":[{"type":"text","text":text}]}
+
+def _design_context():
+    tasks=get_factory_tasks()
+    active=[{
+        "id":x["id"],"title":x["title"],"description":x.get("description",""),
+        "status":x["status"],"progress":x.get("execution_progress",0)
+    } for x in tasks["tasks"] if x["status"]!="done"][:20]
+    return {
+        "product":"Blackbox Lab FactoryOS",
+        "version":APP_VERSION,
+        "live_url":"https://blackboxlab-factoryos.onrender.com",
+        "design_goal":[
+            "Premium dark cyber-operations product, not a game HUD.",
+            "Agent Office should feel like a believable modern AI operations room with clear worker identity and status.",
+            "Match the user's reference direction: cinematic office, realistic depth, restrained neon, strong hierarchy, dense but readable dashboard.",
+            "Avoid cartoonish people, excessive borders, tiny unreadable labels and decorative clutter.",
+            "Every worker must remain clickable; hover shows live progress; click opens history, artifacts, time, tokens, cost and MCP configuration.",
+            "Keep EN / UK / RU localization and preserve the human approval gate before publishing."
+        ],
+        "current_structure":[
+            "Left navigation",
+            "Top command/search bar",
+            "Five-step mission strip",
+            "Agent Office scene",
+            "Connections rail",
+            "Factory Supervisor",
+            "Content Pipeline",
+            "Jobs + selected-job detail",
+            "Build Progress roadmap"
+        ],
+        "active_build_tasks":active,
+        "design_partner_mode":"Claude Free can connect TO this FactoryOS MCP server as a custom connector. Claude.ai itself is not used as an MCP endpoint."
+    }
+
+def _create_design_task_from_review(args):
+    title=(args.get("title") or "Design review improvements").strip()[:180]
+    summary=(args.get("summary") or "").strip()
+    recs=args.get("recommendations") or []
+    criteria=args.get("acceptance_criteria") or []
+    lines=[]
+    if summary:
+        lines.append("Design review summary:\n"+summary)
+    if recs:
+        lines.append("Recommended changes:\n" + "\n".join(f"- {str(x).strip()}" for x in recs if str(x).strip()))
+    if criteria:
+        lines.append("Acceptance criteria:\n" + "\n".join(f"- {str(x).strip()}" for x in criteria if str(x).strip()))
+    description="\n\n".join(lines).strip() or "Implement the approved design review while preserving current functionality and observability."
+    task_id=str(uuid.uuid4()); now=ts()
+    con=db()
+    next_order=con.execute("SELECT COALESCE(MAX(order_index),0)+10 n FROM factory_tasks").fetchone()["n"]
+    con.execute("""INSERT INTO factory_tasks(id,title,description,category,priority,status,owner,order_index,created_at,updated_at,builder_state)
+                   VALUES(?,?,?,?,?,'todo',?,?,?,?,?,'idle')""",
+                (task_id,title,description,"design","high","Design Partner",next_order,now,now))
+    con.commit(); con.close()
+    ensure_factory_task_steps(task_id)
+    event(None,f"Design Partner added roadmap task: {title}")
+    return {"ok":True,"task_id":task_id,"status":"todo","note":"Created as planned only. Human must explicitly start the build."}
+
+FACTORY_MCP_TOOLS=[
+    {
+      "name":"get_design_context",
+      "description":"Read the current FactoryOS design goals, layout structure, live URL and active build tasks before proposing UI changes.",
+      "inputSchema":{"type":"object","properties":{},"additionalProperties":False}
+    },
+    {
+      "name":"list_build_tasks",
+      "description":"List FactoryOS roadmap tasks with status, progress and descriptions.",
+      "inputSchema":{"type":"object","properties":{"status":{"type":"string","enum":["all","todo","in_progress","done","blocked"]}},"additionalProperties":False}
+    },
+    {
+      "name":"submit_design_review",
+      "description":"Submit an approved UI/UX review into FactoryOS as a planned design roadmap task. This never starts implementation automatically.",
+      "inputSchema":{
+        "type":"object",
+        "properties":{
+          "title":{"type":"string"},
+          "summary":{"type":"string"},
+          "recommendations":{"type":"array","items":{"type":"string"}},
+          "acceptance_criteria":{"type":"array","items":{"type":"string"}}
+        },
+        "required":["title","summary","recommendations","acceptance_criteria"],
+        "additionalProperties":False
+      }
+    }
+]
+
+@app.post("/mcp")
+async def factory_mcp(request: Request):
+    if not FACTORY_MCP_TOKEN:
+        return JSONResponse({"jsonrpc":"2.0","id":None,"error":{"code":-32001,"message":"FactoryOS MCP connector is disabled until FACTORY_MCP_TOKEN is configured."}},status_code=503)
+    if not _factory_mcp_authorized(request):
+        return JSONResponse({"jsonrpc":"2.0","id":None,"error":{"code":-32000,"message":"Unauthorized"}},status_code=401)
+    try:
+        payload=await request.json()
+    except Exception:
+        return JSONResponse({"jsonrpc":"2.0","id":None,"error":{"code":-32700,"message":"Parse error"}},status_code=400)
+    req_id=payload.get("id")
+    method=payload.get("method")
+    params=payload.get("params") or {}
+    if method=="initialize":
+        result={
+          "protocolVersion":params.get("protocolVersion") or "2025-03-26",
+          "capabilities":{"tools":{"listChanged":False}},
+          "serverInfo":{"name":"Blackbox Lab FactoryOS","version":APP_VERSION}
+        }
+        return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":result})
+    if method=="notifications/initialized":
+        return JSONResponse({},status_code=202)
+    if method=="ping":
+        return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{}})
+    if method=="tools/list":
+        return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"tools":FACTORY_MCP_TOOLS}})
+    if method=="tools/call":
+        name=params.get("name"); args=params.get("arguments") or {}
+        try:
+            if name=="get_design_context":
+                result=_factory_mcp_text(_design_context())
+            elif name=="list_build_tasks":
+                data=get_factory_tasks()
+                wanted=args.get("status","all")
+                rows=data["tasks"] if wanted=="all" else [x for x in data["tasks"] if x["status"]==wanted]
+                result=_factory_mcp_text([{
+                    "id":x["id"],"title":x["title"],"description":x.get("description",""),
+                    "status":x["status"],"progress":x.get("execution_progress",0),
+                    "priority":x["priority"],"owner":x["owner"]
+                } for x in rows])
+            elif name=="submit_design_review":
+                created=_create_design_task_from_review(args)
+                await broadcast({"type":"design_review_task","taskId":created["task_id"]})
+                result=_factory_mcp_text(created)
+            else:
+                return JSONResponse({"jsonrpc":"2.0","id":req_id,"error":{"code":-32601,"message":"Unknown tool"}},status_code=404)
+            return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":result})
+        except Exception as exc:
+            return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,"content":[{"type":"text","text":str(exc)}]}})
+    return JSONResponse({"jsonrpc":"2.0","id":req_id,"error":{"code":-32601,"message":"Method not found"}},status_code=404)
+
+@app.get("/mcp")
+def factory_mcp_info(request: Request):
+    if not FACTORY_MCP_TOKEN:
+        return JSONResponse({"enabled":False,"detail":"Set FACTORY_MCP_TOKEN in Render to enable the Claude/remote MCP connector."},status_code=503)
+    if not _factory_mcp_authorized(request):
+        return JSONResponse({"enabled":True,"detail":"Bearer authentication required."},status_code=401)
+    return {"enabled":True,"server":"Blackbox Lab FactoryOS","version":APP_VERSION,"tools":[x["name"] for x in FACTORY_MCP_TOOLS]}
 
 @app.get("/health")
 def health():
@@ -415,6 +578,7 @@ def sync_factory_tasks():
       ("task-launcher","Launch builder work from FactoryOS","Start a roadmap task from the website, emit an auditable builder event and expose its execution checklist.","product","high","done","Factory Builder",95),
       ("multilingual-ui","EN / UK / RU interface","Serve dedicated English, Ukrainian and Russian UI routes with a persistent language switcher.","product","high","done","Factory Builder",98),
       ("instant-builder","Instant website-to-Builder trigger","Start a FactoryOS roadmap task immediately through GitHub Actions, with live workflow status and hourly fallback.","automation","high","done","Factory Builder",99),
+      ("design-partner","Claude design partner via FactoryOS MCP","Expose a secure remote MCP connector so Claude Free can read FactoryOS design context and submit structured design reviews back into the roadmap without paid API calls or automatic code execution.","design","high","in_progress","Design Partner",100),
       ("design-refresh","Dashboard visual redesign","Refine spacing, hierarchy, cards and interactive states while preserving observability.","design","high","in_progress","Factory Builder",99),
       ("mcp-execution","MCP execution bridge","Invoke approved MCP tools from a worker run with capability restrictions and audit logs.","connectors","high","in_progress","Factory Builder",100),
       ("live-llm","Live LLM worker adapter","Replace demo Scout/Researcher/Verifier/Writer execution with real model calls and usage accounting.","intelligence","high","todo","Factory Builder",110),
