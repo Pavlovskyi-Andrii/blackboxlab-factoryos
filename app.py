@@ -1292,10 +1292,6 @@ def agent_detail(agent_name:str):
                WHERE ri.run_id=? ORDER BY a.created_at""",(r["id"],)
         ).fetchall()]
     con.close()
-    steps=[dict(x) for x in con.execute("""SELECT s.*,j.title job_title
-                                                 FROM agent_run_steps s
-                                                 LEFT JOIN jobs j ON j.id=s.job_id
-                                                 WHERE s.agent=? ORDER BY s.started_at DESC LIMIT 120""",(agent_name,)).fetchall()] if False else []
     for a in artifacts:
         try:a["meta"]=json.loads(a.pop("meta_json") or "{}")
         except Exception:a["meta"]={}
@@ -1348,6 +1344,101 @@ def usage():
         "agents":{a:get_agent_metrics(a) for a in AGENTS},
         "note":"Token and cost fields are zero in demo mode. They become real provider usage after live APIs are connected."
     }
+
+@app.get("/api/agents/{agent_name}/mcp")
+def list_agent_mcp(agent_name:str):
+    if agent_name not in AGENTS:
+        raise HTTPException(404,"Agent not found")
+    return {
+        "agent":agent_name,
+        "connections":get_agent_mcp_connections(agent_name),
+        "execution":"configuration_only",
+        "note":"Credentials are never stored here. auth_env names an environment variable. Live MCP invocation is the next connector milestone."
+    }
+
+@app.post("/api/agents/{agent_name}/mcp")
+async def add_agent_mcp(agent_name:str,item:McpConnectionCreate):
+    if agent_name not in AGENTS:
+        raise HTTPException(404,"Agent not found")
+    if item.transport not in ("streamable_http","sse"):
+        raise HTTPException(400,"Supported transports: streamable_http, sse")
+    endpoint=item.endpoint.strip()
+    if not endpoint.startswith(("https://","http://")):
+        raise HTTPException(400,"Remote MCP endpoint must start with http:// or https://")
+    auth_env=item.auth_env.strip()
+    if auth_env and not auth_env.replace("_","").isalnum():
+        raise HTTPException(400,"auth_env must be an environment variable name, not a secret value")
+    connection_id=str(uuid.uuid4()); now=ts()
+    con=db()
+    con.execute("""INSERT INTO agent_mcp_connections(id,agent,name,transport,endpoint,auth_env,enabled,status,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (connection_id,agent_name,item.name.strip() or "MCP Server",item.transport,endpoint,auth_env,0,"configured",now,now))
+    con.commit(); con.close()
+    event(None,f"MCP configured for {agent_name}: {item.name}")
+    await broadcast()
+    return {"ok":True,"id":connection_id}
+
+@app.post("/api/agents/{agent_name}/mcp/{connection_id}/toggle")
+async def toggle_agent_mcp(agent_name:str,connection_id:str,item:McpConnectionToggle):
+    if agent_name not in AGENTS:
+        raise HTTPException(404,"Agent not found")
+    con=db()
+    row=con.execute("SELECT id FROM agent_mcp_connections WHERE id=? AND agent=?",(connection_id,agent_name)).fetchone()
+    if not row:
+        con.close(); raise HTTPException(404,"MCP connection not found")
+    con.execute("UPDATE agent_mcp_connections SET enabled=?,status=?,updated_at=? WHERE id=?",
+                (1 if item.enabled else 0,"enabled" if item.enabled else "configured",ts(),connection_id))
+    con.commit(); con.close()
+    event(None,f"MCP {'enabled' if item.enabled else 'disabled'} for {agent_name}")
+    await broadcast()
+    return {"ok":True}
+
+@app.delete("/api/agents/{agent_name}/mcp/{connection_id}")
+async def delete_agent_mcp(agent_name:str,connection_id:str):
+    if agent_name not in AGENTS:
+        raise HTTPException(404,"Agent not found")
+    con=db()
+    row=con.execute("SELECT name FROM agent_mcp_connections WHERE id=? AND agent=?",(connection_id,agent_name)).fetchone()
+    if not row:
+        con.close(); raise HTTPException(404,"MCP connection not found")
+    con.execute("DELETE FROM agent_mcp_connections WHERE id=?",(connection_id,))
+    con.commit(); con.close()
+    event(None,f"MCP removed from {agent_name}: {row['name']}")
+    await broadcast()
+    return {"ok":True}
+
+@app.get("/api/factory/tasks")
+def factory_tasks():
+    return get_factory_tasks()
+
+@app.post("/api/factory/tasks")
+async def create_factory_task(item:FactoryTaskCreate):
+    task_id=str(uuid.uuid4()); now=ts()
+    con=db()
+    next_order=con.execute("SELECT COALESCE(MAX(order_index),0)+10 n FROM factory_tasks").fetchone()["n"]
+    con.execute("""INSERT INTO factory_tasks(id,title,description,category,priority,status,owner,order_index,created_at,updated_at)
+                   VALUES(?,?,?,?,?,'todo',?,?,?,?)""",
+                (task_id,item.title.strip(),item.description.strip(),item.category,item.priority,item.owner,next_order,now,now))
+    con.commit(); con.close()
+    event(None,f"Build task created: {item.title}")
+    await broadcast()
+    return {"ok":True,"id":task_id}
+
+@app.post("/api/factory/tasks/{task_id}/status")
+async def update_factory_task_status(task_id:str,item:FactoryTaskStatus):
+    if item.status not in ("todo","in_progress","done","blocked"):
+        raise HTTPException(400,"Unknown task status")
+    con=db()
+    row=con.execute("SELECT title FROM factory_tasks WHERE id=?",(task_id,)).fetchone()
+    if not row:
+        con.close(); raise HTTPException(404,"Task not found")
+    now=ts()
+    con.execute("UPDATE factory_tasks SET status=?,updated_at=?,completed_at=? WHERE id=?",
+                (item.status,now,now if item.status=="done" else None,task_id))
+    con.commit(); con.close()
+    event(None,f"Build task {item.status}: {row['title']}")
+    await broadcast()
+    return {"ok":True}
 
 @app.get("/api/improvements")
 def list_improvements(status:str="proposed", limit:int=30):
