@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-18T09:29:30Z",
+  "updated_at": "2026-10-18T18:10:23.635Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -251,7 +251,7 @@
       }
     },
     "design-partner": {
-      "status": "in_progress",
+      "status": "done",
       "meta": {
         "title": "Claude Design Partner via FactoryOS MCP",
         "description": "Expose a secure remote MCP connector so Claude Free can read FactoryOS design context and submit structured UI/UX reviews into the roadmap without paid API calls or automatic code execution.",
@@ -266,10 +266,30 @@
         "plan": "done",
         "implement": "done",
         "test": "done",
-        "deploy": {
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "live-llm": {
+      "status": "in_progress",
+      "meta": {
+        "title": "Live LLM worker adapter",
+        "description": "Replace demo Scout/Researcher/Verifier/Writer execution with real model calls and usage accounting.",
+        "category": "intelligence",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 110
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": {
           "status": "in_progress",
-          "progress": 80
+          "progress": 60
         },
+        "deploy": "todo",
         "verify": "todo"
       }
     }
