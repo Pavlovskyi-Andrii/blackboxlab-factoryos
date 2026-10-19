@@ -6,6 +6,12 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 
 ## Product changelog
 
+### v3.4 — Live Pipeline Motion — 2026-10-19
+- Added live stage highlighting driven by actual worker runtime state rather than a cosmetic timer.
+- Active pipeline stages show the worker currently executing and a moving data packet toward the next stage.
+- Existing Agent Office dependency edges continue to animate only when source/target activity is real.
+- Preserved the human approval boundary before publishing.
+
 ### v3.3 — Handoff Trace Viewer — 2026-10-19
 - Added clickable worker-to-worker handoffs on the main dashboard.
 - Added persisted provenance tracing: exact artifact, source run, target run, stage, timestamps, token usage and provider cost.
