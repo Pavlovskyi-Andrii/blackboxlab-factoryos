@@ -6,6 +6,13 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 
 ## Product changelog
 
+### v3.21 — Factory Intelligence — 2026-10-19
+- Added a dedicated Analytics workspace comparing worker reliability, measured latency, tokens, provider cost, failures and artifact production.
+- Added recent-job comparisons with persisted run cost/time/failures plus pipeline artifact coverage and stale-stage signals.
+- Added evidence-based optimization insights for failure hotspots, cost drivers, latency bottlenecks and incomplete job coverage.
+- Explicitly labels artifact coverage as pipeline readiness rather than inventing a subjective AI quality score.
+- Uses existing persisted ledgers only; no destructive schema migration was introduced.
+
 ### v3.20 — Operations & Error Center (Night 5) — 2026-10-19
 - Added a dedicated Operations / Error Center with classified incidents, recovery guidance, resolved history and recorded run cost.
 - Split billing, configuration, budget, dependency, rate-limit, provider-response, transport and unknown failures into explicit recovery policies.

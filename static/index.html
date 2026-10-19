@@ -25,11 +25,22 @@
 .errorSummary{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}.errorChip{font-size:7px;padding:4px 7px;border:1px solid #294b64;border-radius:999px;color:#9cb0c1;background:#0a1722}.errorChip.critical{border-color:#713341;color:#ff9aaa}.errorChip.uncertain{border-color:#745d24;color:#ffd272}.errorChip.resolved{border-color:#245f42;color:#79dfa2}
 .errorList{display:grid;gap:7px}.errorIncident{display:grid;grid-template-columns:130px 1fr auto;gap:10px;align-items:center;padding:9px 10px;border:1px solid #24465e;border-radius:10px;background:#0b1b29}.errorIncident.critical{border-color:#6f3040;background:#24131a}.errorIncident.resolved{opacity:.58;border-color:#244d39;background:#0b1b17}.errorIdentity b{display:block;font-size:9px}.errorIdentity small,.errorCopy small{display:block;font-size:7px;color:#728a9d;margin-top:2px}.errorCopy strong{display:block;font-size:8px;color:#dcefff}.errorCopy span{display:block;font-size:7px;color:#91a5b6;margin-top:3px;line-height:1.45}.errorBadge{display:inline-flex;font-size:6px;text-transform:uppercase;letter-spacing:.06em;border:1px solid #31546d;border-radius:999px;padding:2px 5px;margin-left:5px;color:#8cdfff}.errorActions{display:flex;gap:5px;align-items:center}.errorActions .resolvedMark{font-size:7px;color:#75dda0}
 @media(max-width:700px){.errorCenterHead{display:block}.errorSummary{justify-content:flex-start;margin-top:7px}.errorIncident{grid-template-columns:1fr}.errorActions{justify-content:flex-start}}
+
+.intelShade{position:fixed;inset:0;background:#02070dcc;backdrop-filter:blur(5px);z-index:82;opacity:0;pointer-events:none;transition:.2s}.intelShade.open{opacity:1;pointer-events:auto}
+.intelPage{position:fixed;inset:24px;background:radial-gradient(900px 520px at 85% 0,#173e5b55,transparent 62%),linear-gradient(180deg,#091621,#06101a);border:1px solid #2b5776;border-radius:18px;box-shadow:0 30px 110px #000e;z-index:83;transform:translateY(12px) scale(.985);opacity:0;pointer-events:none;transition:.22s;display:flex;flex-direction:column;overflow:hidden}.intelPage.open{opacity:1;pointer-events:auto;transform:none}
+.intelTop{padding:14px 16px;border-bottom:1px solid #1b354e;display:flex;justify-content:space-between;align-items:center}.intelTop h2{margin:0;font-size:18px}.intelTop p{margin:3px 0 0;font-size:9px;color:#8198ac}.intelBody{padding:14px 16px 22px;overflow:auto}
+.intelSummary{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px}.intelStat{padding:11px;border:1px solid #21445f;background:#0a1a29;border-radius:11px}.intelStat b{display:block;font-size:17px;color:#dff7ff}.intelStat span{font-size:7px;color:#7891a5}
+.intelGrid{display:grid;grid-template-columns:1.6fr 1fr;gap:10px}.intelPanel{border:1px solid #1d3c56;background:#081724;border-radius:12px;padding:11px}.intelPanel h3{margin:0 0 8px;font-size:11px}
+.intelWorkerHead,.intelWorker{display:grid;grid-template-columns:1.4fr .7fr .8fr .8fr .8fr .55fr;gap:7px;align-items:center}.intelWorkerHead{font-size:6px;text-transform:uppercase;letter-spacing:.07em;color:#637d92;padding:0 7px 5px}.intelWorker{padding:7px;border-top:1px solid #142e43;font-size:7px}.intelWorker b{font-size:8px}.intelBar{height:4px;background:#06101a;border-radius:99px;overflow:hidden;margin-top:3px}.intelBar i{display:block;height:100%;background:linear-gradient(90deg,#2781ff,#2bd7ff);border-radius:99px}
+.intelJobs{display:grid;gap:6px}.intelJob{padding:8px;border:1px solid #1e3c55;background:#0a1927;border-radius:9px}.intelJobTop{display:flex;justify-content:space-between;gap:8px}.intelJob b{font-size:8px}.intelJob small{font-size:6px;color:#748da1}.intelJobMeta{display:flex;gap:7px;flex-wrap:wrap;margin-top:5px;font-size:6px;color:#8ba0b2}
+.intelInsights{display:grid;gap:6px;margin-top:10px}.intelInsight{padding:8px 9px;border:1px solid #244660;background:#0a1927;border-radius:9px}.intelInsight.warning{border-color:#6a5322;background:#241f11}.intelInsight strong{display:block;font-size:8px}.intelInsight span{display:block;font-size:7px;color:#8fa4b5;margin-top:3px;line-height:1.4}.intelNote{margin-top:10px;padding:8px;border:1px dashed #24445b;border-radius:8px;color:#71899d;font-size:7px}
+@media(max-width:900px){.intelSummary{grid-template-columns:repeat(2,1fr)}.intelGrid{grid-template-columns:1fr}.intelWorkerHead,.intelWorker{grid-template-columns:1.3fr .7fr .8fr .8fr}.intelWorkerHead span:nth-child(5),.intelWorkerHead span:nth-child(6),.intelWorker span:nth-child(5),.intelWorker span:nth-child(6){display:none}}
+@media(max-width:650px){.intelPage{inset:8px}.intelBody{padding:10px}.intelSummary{grid-template-columns:1fr 1fr}.intelWorkerHead,.intelWorker{grid-template-columns:1.4fr .75fr .85fr}.intelWorkerHead span:nth-child(4),.intelWorker span:nth-child(4){display:none}}
 </style></head>
 <body><div class="shell">
 <aside class="side">
-<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.20</span></small></div></div>
-<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; Error Center</button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button>▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
+<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.21</span></small></div></div>
+<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; Error Center</button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
 <div class="foot"><span class="green"></span><span data-i18n="factory.online">Factory online</span><br><span id="runState">No active run</span></div>
 </aside>
 <main class="main">
@@ -89,6 +100,12 @@
     <div class="addTaskRow"><input id="newTaskTitle" data-i18n-placeholder="build.addPlaceholder" placeholder="Add a product/development task…"><select id="newTaskPriority"><option value="high" data-i18n="priority.high">High priority</option><option value="medium" selected data-i18n="priority.medium">Medium priority</option><option value="low" data-i18n="priority.low">Low priority</option></select><button class="btn primary" onclick="addBuildTask()">+ <span data-i18n="build.add">Add task</span></button></div>
     <div class="taskBoard" id="taskBoard"></div>
   </div>
+</section>
+
+<div class="intelShade" id="intelShade" onclick="closeFactoryIntelligence()"></div>
+<section class="intelPage" id="intelPage">
+  <div class="intelTop"><div><h2>Factory Intelligence</h2><p>Measured worker reliability, latency, cost and recent job readiness — no synthetic quality score.</p></div><button class="closeX" onclick="closeFactoryIntelligence()">×</button></div>
+  <div class="intelBody" id="intelBody"><div class="sub" style="padding:20px">Loading measured factory data…</div></div>
 </section>
 
 <div class="drawerShade" id="drawerShade" onclick="closeAgent()"></div>
@@ -398,6 +415,29 @@ function fmtDuration(ms){ms=Number(ms||0);if(ms<1000)return ms+'ms';const s=Math
 function fmtTokens(n){n=Number(n||0);if(n>=1000000)return (n/1000000).toFixed(2)+'M';if(n>=1000)return (n/1000).toFixed(1)+'K';return String(n)}
 function fmtMoney(n){return 'USD '+Number(n||0).toFixed(4)}
 function initials(name){return name.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()}
+async function openFactoryIntelligence(){
+ const shade=$('#intelShade'),page=$('#intelPage'),body=$('#intelBody');
+ shade.classList.add('open');page.classList.add('open');body.innerHTML='<div class="sub" style="padding:20px">Loading measured factory data…</div>';
+ try{const d=await api('/api/intelligence');renderFactoryIntelligence(d)}catch(e){body.innerHTML='<div class="finding critical"><strong>Could not load Factory Intelligence</strong><span>'+esc(e.message)+'</span></div>'}
+}
+function closeFactoryIntelligence(){$('#intelShade').classList.remove('open');$('#intelPage').classList.remove('open')}
+function renderFactoryIntelligence(d){
+ const body=$('#intelBody'),s=d.summary||{},workers=d.workers||[],jobs=d.jobs||[],insights=d.insights||[];
+ const stats=[
+   [String(Number(s.runs||0)),'measured worker runs'],
+   [Number(s.success_rate||0).toFixed(1)+'%','run reliability'],
+   [fmtDuration(s.duration_ms||0),'measured worker time'],
+   [fmtMoney(s.cost_usd||0),'persisted provider cost'],
+   [Number(s.recent_avg_artifact_coverage||0).toFixed(1)+'%','recent artifact coverage']
+ ];
+ const summary='<div class="intelSummary">'+stats.map(x=>'<div class="intelStat"><b>'+esc(x[0])+'</b><span>'+esc(x[1])+'</span></div>').join('')+'</div>';
+ const head='<div class="intelWorkerHead"><span>Worker</span><span>Reliability</span><span>Avg time</span><span>Tokens</span><span>Cost</span><span>Fails</span></div>';
+ const rows=workers.map(w=>'<div class="intelWorker"><span><b>'+esc(w.agent)+'</b><div class="intelBar"><i style="width:'+Math.max(0,Math.min(100,Number(w.success_rate||0)))+'%"></i></div></span><span>'+Number(w.success_rate||0).toFixed(1)+'% · '+Number(w.runs||0)+'</span><span>'+fmtDuration(w.avg_duration_ms||0)+'</span><span>'+fmtTokens(w.total_tokens||0)+'</span><span>'+fmtMoney(w.cost_usd||0)+'<small> · '+Number(w.cost_share_pct||0).toFixed(1)+'%</small></span><span>'+Number(w.failed_runs||0)+'</span></div>').join('');
+ const jobCards=jobs.map(j=>'<div class="intelJob"><div class="intelJobTop"><b>'+esc(j.title||'Untitled job')+'</b><small>'+esc(status(j.status))+' · '+esc(stageLabel(j.stage))+'</small></div><div class="intelJobMeta"><span>coverage '+Number(j.artifact_coverage||0).toFixed(0)+'%</span><span>runs '+Number(j.runs||0)+'</span><span>fails '+Number(j.failed_runs||0)+'</span><span>'+fmtDuration(j.duration_ms||0)+'</span><span>'+fmtMoney(j.cost_usd||0)+'</span></div></div>').join('')||'<div class="tiny">No jobs measured yet.</div>';
+ const insightHtml=insights.map(x=>'<div class="intelInsight '+esc(x.severity||'info')+'"><strong>'+esc(x.title||'Insight')+'</strong><span>'+esc(x.detail||'')+'</span></div>').join('');
+ body.innerHTML=summary+'<div class="intelGrid"><div class="intelPanel"><h3>Worker comparison</h3>'+head+rows+'</div><div class="intelPanel"><h3>Recent jobs</h3><div class="intelJobs">'+jobCards+'</div><div class="intelInsights">'+insightHtml+'</div></div></div><div class="intelNote">'+esc(d.measurement_note||'')+'</div>';
+}
+
 async function openAgentDirectory(){
   $('#drawerShade').classList.add('open');$('#agentDrawer').classList.add('open');
   $('#agentName').textContent=tr('drawer.agentDirectory');

@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.20"
+APP_VERSION = "v3.21"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -1520,6 +1520,138 @@ def get_usage_summary():
     data["job_budget_usd"]=FACTORY_JOB_BUDGET_USD
     return data
 
+def get_factory_intelligence(limit_jobs=8):
+    content_agents=[a for a in AGENTS if a not in ("Supervisor","Design Partner")]
+    con=db()
+    worker_rows=[dict(x) for x in con.execute(
+        """SELECT agent,
+                  COUNT(*) runs,
+                  COALESCE(SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END),0) completed_runs,
+                  COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0) failed_runs,
+                  COALESCE(SUM(duration_ms),0) duration_ms,
+                  COALESCE(AVG(duration_ms),0) avg_duration_ms,
+                  COALESCE(SUM(input_tokens),0) input_tokens,
+                  COALESCE(SUM(output_tokens),0) output_tokens,
+                  COALESCE(SUM(cost_usd),0) cost_usd,
+                  MAX(COALESCE(finished_at,started_at)) last_run
+           FROM agent_runs
+           WHERE agent NOT IN ('Supervisor','Design Partner')
+           GROUP BY agent ORDER BY agent"""
+    ).fetchall()]
+    artifact_counts={x["agent"]:x["c"] for x in con.execute(
+        """SELECT agent,COUNT(*) c FROM artifacts
+           WHERE agent NOT IN ('Supervisor','Design Partner') GROUP BY agent"""
+    ).fetchall()}
+    recent_jobs=[dict(x) for x in con.execute(
+        """SELECT j.id,j.title,j.status,j.stage,j.created_at,j.updated_at,
+                  COUNT(r.id) runs,
+                  COALESCE(SUM(CASE WHEN r.status='completed' THEN 1 ELSE 0 END),0) completed_runs,
+                  COALESCE(SUM(CASE WHEN r.status='failed' THEN 1 ELSE 0 END),0) failed_runs,
+                  COALESCE(SUM(r.duration_ms),0) duration_ms,
+                  COALESCE(SUM(r.input_tokens),0) input_tokens,
+                  COALESCE(SUM(r.output_tokens),0) output_tokens,
+                  COALESCE(SUM(r.cost_usd),0) cost_usd
+           FROM jobs j LEFT JOIN agent_runs r ON r.job_id=j.id
+           GROUP BY j.id,j.title,j.status,j.stage,j.created_at,j.updated_at
+           ORDER BY j.updated_at DESC LIMIT ?""",(limit_jobs,)
+    ).fetchall()]
+    con.close()
+
+    known={row["agent"]:row for row in worker_rows}
+    workers=[]
+    for agent in content_agents:
+        row=known.get(agent,{
+            "agent":agent,"runs":0,"completed_runs":0,"failed_runs":0,
+            "duration_ms":0,"avg_duration_ms":0,"input_tokens":0,"output_tokens":0,
+            "cost_usd":0.0,"last_run":None,
+        })
+        row["artifacts"]=int(artifact_counts.get(agent,0))
+        row["total_tokens"]=int(row.get("input_tokens",0) or 0)+int(row.get("output_tokens",0) or 0)
+        row["success_rate"]=round((row["completed_runs"]/row["runs"]*100),1) if row["runs"] else 0
+        row["avg_cost_usd"]=round((float(row["cost_usd"] or 0)/row["runs"]),6) if row["runs"] else 0.0
+        workers.append(row)
+
+    total_runs=sum(int(x["runs"] or 0) for x in workers)
+    completed=sum(int(x["completed_runs"] or 0) for x in workers)
+    failed=sum(int(x["failed_runs"] or 0) for x in workers)
+    total_cost=sum(float(x["cost_usd"] or 0) for x in workers)
+    total_duration=sum(int(x["duration_ms"] or 0) for x in workers)
+    total_tokens=sum(int(x["total_tokens"] or 0) for x in workers)
+    for row in workers:
+        row["cost_share_pct"]=round((float(row["cost_usd"] or 0)/total_cost*100),1) if total_cost else 0
+
+    job_metrics=[]
+    for row in recent_jobs:
+        quality=get_job_quality(row["id"]) or {}
+        row["total_tokens"]=int(row.get("input_tokens",0) or 0)+int(row.get("output_tokens",0) or 0)
+        row["artifact_coverage"]=float(quality.get("coverage",100 if not row["runs"] else 0))
+        row["stale_stages"]=quality.get("stale_stages",[])
+        row["fresh"]=bool(quality.get("fresh",True))
+        job_metrics.append(row)
+
+    avg_coverage=round(sum(x["artifact_coverage"] for x in job_metrics)/len(job_metrics),1) if job_metrics else 0
+    measured=[x for x in workers if x["runs"]]
+    reliable=sorted(measured,key=lambda x:(x["success_rate"],x["runs"]),reverse=True)
+    costliest=sorted([x for x in measured if float(x["cost_usd"] or 0)>0],key=lambda x:float(x["cost_usd"] or 0),reverse=True)
+    slowest=sorted([x for x in measured if float(x["avg_duration_ms"] or 0)>0],key=lambda x:float(x["avg_duration_ms"] or 0),reverse=True)
+    hotspots=sorted([x for x in measured if x["failed_runs"]],key=lambda x:(x["failed_runs"],-x["success_rate"]),reverse=True)
+
+    insights=[]
+    if hotspots:
+        x=hotspots[0]
+        insights.append({
+            "type":"reliability","severity":"warning","agent":x["agent"],
+            "title":f"{x['agent']} is the current failure hotspot",
+            "detail":f"{x['failed_runs']} failed run(s) across {x['runs']} measured run(s); success rate {x['success_rate']}%.",
+        })
+    if costliest:
+        x=costliest[0]
+        insights.append({
+            "type":"cost","severity":"info","agent":x["agent"],
+            "title":f"{x['agent']} drives the most measured provider spend",
+            "detail":f"USD {float(x['cost_usd'] or 0):.4f}, {x['cost_share_pct']}% of persisted worker cost.",
+        })
+    if slowest:
+        x=slowest[0]
+        insights.append({
+            "type":"latency","severity":"info","agent":x["agent"],
+            "title":f"{x['agent']} has the highest average measured run time",
+            "detail":f"Average {int(x['avg_duration_ms'] or 0)} ms across {x['runs']} run(s).",
+        })
+    incomplete=next((x for x in job_metrics if x["artifact_coverage"]<100 and x["status"]!="running"),None)
+    if incomplete:
+        insights.append({
+            "type":"coverage","severity":"warning","job_id":incomplete["id"],
+            "title":f"Recent job '{incomplete['title']}' is not fully covered",
+            "detail":f"Artifact readiness coverage is {incomplete['artifact_coverage']}%; stale stages: {', '.join(incomplete['stale_stages']) or 'none detected'}.",
+        })
+    if not insights:
+        insights.append({
+            "type":"baseline","severity":"info",
+            "title":"No optimization hotspot is measurable yet",
+            "detail":"Run more production jobs to build a useful reliability, latency and cost baseline.",
+        })
+
+    return {
+        "generated_at":ts(),
+        "summary":{
+            "runs":total_runs,"completed_runs":completed,"failed_runs":failed,
+            "success_rate":round((completed/total_runs*100),1) if total_runs else 0,
+            "duration_ms":total_duration,"tokens":total_tokens,"cost_usd":round(total_cost,6),
+            "recent_avg_artifact_coverage":avg_coverage,
+        },
+        "leaders":{
+            "reliability":reliable[0]["agent"] if reliable else None,
+            "cost":costliest[0]["agent"] if costliest else None,
+            "latency":slowest[0]["agent"] if slowest else None,
+            "failure_hotspot":hotspots[0]["agent"] if hotspots else None,
+        },
+        "workers":workers,
+        "jobs":job_metrics,
+        "insights":insights,
+        "measurement_note":"Reliability, latency, token usage and provider cost come from persisted agent runs. Artifact coverage measures pipeline readiness, not subjective content quality.",
+    }
+
 def get_job_cost(job_id):
     con=db(); row=con.execute("SELECT COALESCE(SUM(cost_usd),0) c FROM agent_runs WHERE job_id=?",(job_id,)).fetchone(); con.close()
     return float(row["c"] or 0)
@@ -2283,6 +2415,10 @@ def status():
             "job_budget_usd":FACTORY_JOB_BUDGET_USD
         }
     }
+
+@app.get("/api/intelligence")
+def factory_intelligence():
+    return get_factory_intelligence()
 
 @app.post("/api/jobs")
 async def create_job(j: JobCreate):
