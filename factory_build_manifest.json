@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-19T07:28:00.000Z",
+  "updated_at": "2026-10-19T08:10:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -324,7 +324,7 @@
       }
     },
     "night-worker-visibility": {
-      "status": "todo",
+      "status": "done",
       "meta": {
         "title": "Night 2 — Worker outputs & handoff visibility",
         "description": "Make every worker's latest result visible on the main dashboard and show source→target handoffs, model/mode, failures, and artifact previews.",
@@ -337,17 +337,14 @@
         "understand": "done",
         "inspect": "done",
         "plan": "done",
-        "implement": {
-          "status": "in_progress",
-          "progress": 85
-        },
-        "test": "todo",
-        "deploy": "todo",
-        "verify": "todo"
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
       }
     },
     "night-trace-viewer": {
-      "status": "todo",
+      "status": "done",
       "meta": {
         "title": "Night 3 — Clickable handoff trace viewer",
         "description": "Click a worker-to-worker handoff to inspect exactly which artifact was passed, source output, target input context, timestamps and run IDs.",
@@ -357,17 +354,17 @@
         "order_index": 140
       },
       "steps": {
-        "understand": "todo",
-        "inspect": "todo",
-        "plan": "todo",
-        "implement": "todo",
-        "test": "todo",
-        "deploy": "todo",
-        "verify": "todo"
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
       }
     },
     "night-live-pipeline": {
-      "status": "todo",
+      "status": "in_progress",
       "meta": {
         "title": "Night 4 — Live pipeline motion",
         "description": "Animate active stages and data packets through the Agent Office so a running job visibly moves from worker to worker without becoming a game HUD.",
@@ -377,11 +374,14 @@
         "order_index": 150
       },
       "steps": {
-        "understand": "todo",
-        "inspect": "todo",
-        "plan": "todo",
-        "implement": "todo",
-        "test": "todo",
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": {
+          "status": "in_progress",
+          "progress": 70
+        },
         "deploy": "todo",
         "verify": "todo"
       }
