@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-19T19:45:00.000Z",
+  "updated_at": "2026-10-19T19:55:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -521,6 +521,39 @@
         "test": "done",
         "deploy": "done",
         "verify": "done"
+      }
+    },
+    "v3.30-content-brain": {
+      "status": "in_progress",
+      "meta": {
+        "title": "v3.30 — Content Brain / Idea Factory",
+        "description": "Persist source signals and ideas, deduplicate inputs, generate traceable idea shortlists from signals, then add enrichment, verification and mobile Idea Queue.",
+        "category": "intelligence",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 220,
+        "evidence": {
+          "backend_commit": "108256e400e3bfb5b643bbf3e89014f067056f7f",
+          "render_deploy": "dep-dbb7a8rsv6fc73bdftu0",
+          "current_slice": "signals + dedup + Idea Queue API + spend-guarded Scout generation",
+          "ci": "passed",
+          "deploy": "live"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": {
+          "status": "in_progress",
+          "progress": 55
+        },
+        "test": "done",
+        "deploy": "done",
+        "verify": {
+          "status": "in_progress",
+          "progress": 45
+        }
       }
     }
   }
