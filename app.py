@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.24"
+APP_VERSION = "v3.25"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -39,9 +39,9 @@ _default_input_price,_default_output_price=_DEFAULT_LLM_PRICES.get(FACTORY_LLM_M
 FACTORY_LLM_INPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_INPUT_USD_PER_1M", str(_default_input_price)))
 FACTORY_LLM_OUTPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_OUTPUT_USD_PER_1M", str(_default_output_price)))
 FACTORY_LLM_MAX_OUTPUT_TOKENS = max(128, min(4096, int(os.environ.get("FACTORY_LLM_MAX_OUTPUT_TOKENS", "1200"))))
-# Explicitly approved one-shot paid verification. This trigger is removed after the
-# v3.24 production run is observed so future deploys cannot spend again.
-PAID_VERIFICATION_TAG = "v3.24-live-e2e-2026-10-19"
+# Historical production verification evidence remains queryable, but the startup trigger is disabled after the passed v3.24 run.
+VERIFICATION_EVIDENCE_TAG = "v3.24-live-e2e-2026-10-19"
+PAID_VERIFICATION_TAG = ""
 LLM_LIVE_AGENTS = {
     "Scout","Researcher","Tech Verifier","Hook Writer","Scriptwriter",
     "Visual Director","QA Agent","Publisher","Analyst",
@@ -411,7 +411,7 @@ def db():
     con.row_factory = sqlite3.Row
     return con
 
-def get_paid_verification(tag=PAID_VERIFICATION_TAG):
+def get_paid_verification(tag=VERIFICATION_EVIDENCE_TAG):
     if not tag:
         return {"status":"disabled","live_runs":0,"input_tokens":0,"output_tokens":0,"cost_usd":0}
     con=db()
