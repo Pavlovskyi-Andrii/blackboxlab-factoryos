@@ -495,6 +495,38 @@ def init_db():
     );
     CREATE INDEX IF NOT EXISTS idx_artifacts_agent ON artifacts(agent, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts(job_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS source_signals(
+      id TEXT PRIMARY KEY,
+      fingerprint TEXT UNIQUE NOT NULL,
+      source_type TEXT NOT NULL DEFAULT 'manual',
+      title TEXT NOT NULL,
+      url TEXT DEFAULT '',
+      content TEXT DEFAULT '',
+      topic TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'new',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      meta_json TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_source_signals_status ON source_signals(status, created_at DESC);
+    CREATE TABLE IF NOT EXISTS content_ideas(
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      topic TEXT DEFAULT '',
+      angle TEXT DEFAULT '',
+      audience TEXT DEFAULT '',
+      why_now TEXT DEFAULT '',
+      source_signal_ids_json TEXT DEFAULT '[]',
+      source_links_json TEXT DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'generated',
+      score REAL DEFAULT 0,
+      risk_flags_json TEXT DEFAULT '[]',
+      complexity TEXT DEFAULT 'medium',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      provenance_json TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_content_ideas_status ON content_ideas(status, score DESC, created_at DESC);
     CREATE TABLE IF NOT EXISTS improvement_proposals(
       id TEXT PRIMARY KEY,
       fingerprint TEXT UNIQUE NOT NULL,
@@ -1027,6 +1059,29 @@ class FactoryTaskCreate(BaseModel):
 class FactoryTaskStatus(BaseModel):
     status: str
 
+
+class SignalCreate(BaseModel):
+    title: str
+    content: str = ""
+    url: str = ""
+    source_type: str = "manual"
+    topic: str = ""
+
+class IdeaCreate(BaseModel):
+    title: str
+    topic: str = ""
+    angle: str = ""
+    audience: str = ""
+    why_now: str = ""
+    source_signal_ids: list[str] = []
+    source_links: list[str] = []
+    score: float = 0
+    risk_flags: list[str] = []
+    complexity: str = "medium"
+
+class IdeaStatus(BaseModel):
+    status: str
+
 def event(job_id, message):
     con=db(); con.execute("INSERT INTO events(job_id,ts,message) VALUES(?,?,?)",(job_id,ts(),message)); con.commit(); con.close()
 
@@ -1038,6 +1093,110 @@ def get_jobs():
 def get_job(job_id):
     con=db(); row=con.execute("SELECT * FROM jobs WHERE id=?",(job_id,)).fetchone(); con.close()
     return dict(row) if row else None
+
+
+def _signal_fingerprint(source_type, title, url, content):
+    normalized="|".join([
+        (source_type or "manual").strip().lower(),
+        (url or "").strip().lower(),
+        " ".join((title or "").split()).lower(),
+        " ".join((content or "").split()).lower(),
+    ])
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+def _decode_json(value, fallback):
+    try:
+        return json.loads(value or "")
+    except Exception:
+        return fallback
+
+def ingest_source_signal(payload):
+    title=" ".join((payload.title or "").split()).strip()
+    if not title:
+        raise ValueError("Signal title is required")
+    source_type=(payload.source_type or "manual").strip().lower()[:40] or "manual"
+    url=(payload.url or "").strip()
+    content=(payload.content or "").strip()
+    topic=(payload.topic or "").strip()
+    fingerprint=_signal_fingerprint(source_type,title,url,content)
+    con=db()
+    existing=con.execute("SELECT * FROM source_signals WHERE fingerprint=?",(fingerprint,)).fetchone()
+    if existing:
+        con.close()
+        return {"created":False,"duplicate":True,"signal":dict(existing)}
+    signal_id=str(uuid.uuid4()); now=ts()
+    con.execute("""INSERT INTO source_signals(id,fingerprint,source_type,title,url,content,topic,status,created_at,updated_at,meta_json)
+                   VALUES(?,?,?,?,?,?,?,'new',?,?,?)""",
+                (signal_id,fingerprint,source_type,title,url,content,topic,now,now,json.dumps({"ingested_by":"manual_api"})))
+    con.commit()
+    row=con.execute("SELECT * FROM source_signals WHERE id=?",(signal_id,)).fetchone()
+    con.close()
+    return {"created":True,"duplicate":False,"signal":dict(row)}
+
+def create_content_idea(payload):
+    title=" ".join((payload.title or "").split()).strip()
+    if not title:
+        raise ValueError("Idea title is required")
+    signal_ids=list(dict.fromkeys([str(x).strip() for x in (payload.source_signal_ids or []) if str(x).strip()]))
+    links=list(dict.fromkeys([str(x).strip() for x in (payload.source_links or []) if str(x).strip()]))
+    con=db()
+    if signal_ids:
+        placeholders=",".join("?" for _ in signal_ids)
+        found={x["id"] for x in con.execute(f"SELECT id FROM source_signals WHERE id IN ({placeholders})",signal_ids).fetchall()}
+        missing=[x for x in signal_ids if x not in found]
+        if missing:
+            con.close()
+            raise ValueError("Unknown source signal id(s): "+", ".join(missing))
+    idea_id=str(uuid.uuid4()); now=ts()
+    provenance={"created_by":"manual_api","source_signal_ids":signal_ids}
+    con.execute("""INSERT INTO content_ideas(
+                     id,title,topic,angle,audience,why_now,source_signal_ids_json,source_links_json,
+                     status,score,risk_flags_json,complexity,created_at,updated_at,provenance_json
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (idea_id,title,(payload.topic or "").strip(),(payload.angle or "").strip(),
+                 (payload.audience or "").strip(),(payload.why_now or "").strip(),
+                 json.dumps(signal_ids),json.dumps(links),"generated",float(payload.score or 0),
+                 json.dumps(payload.risk_flags or []),(payload.complexity or "medium").strip(),
+                 now,now,json.dumps(provenance)))
+    con.commit()
+    row=con.execute("SELECT * FROM content_ideas WHERE id=?",(idea_id,)).fetchone()
+    con.close()
+    return _idea_dict(row)
+
+def _idea_dict(row):
+    if not row:
+        return None
+    item=dict(row)
+    item["source_signal_ids"]=_decode_json(item.pop("source_signal_ids_json","[]"),[])
+    item["source_links"]=_decode_json(item.pop("source_links_json","[]"),[])
+    item["risk_flags"]=_decode_json(item.pop("risk_flags_json","[]"),[])
+    item["provenance"]=_decode_json(item.pop("provenance_json","{}"),{})
+    return item
+
+def get_content_brain(limit=50):
+    con=db()
+    signals=[dict(x) for x in con.execute("""SELECT * FROM source_signals
+                                             ORDER BY created_at DESC LIMIT ?""",(limit,)).fetchall()]
+    ideas=[_idea_dict(x) for x in con.execute("""SELECT * FROM content_ideas
+                                                 ORDER BY CASE status WHEN 'selected' THEN 0 WHEN 'shortlisted' THEN 1
+                                                                      WHEN 'generated' THEN 2 WHEN 'rejected' THEN 3 ELSE 4 END,
+                                                          score DESC, created_at DESC LIMIT ?""",(limit,)).fetchall()]
+    signal_counts={x["status"]:x["c"] for x in con.execute("SELECT status,COUNT(*) c FROM source_signals GROUP BY status").fetchall()}
+    idea_counts={x["status"]:x["c"] for x in con.execute("SELECT status,COUNT(*) c FROM content_ideas GROUP BY status").fetchall()}
+    con.close()
+    return {
+        "summary":{
+            "signals":sum(signal_counts.values()),
+            "new_signals":int(signal_counts.get("new",0)),
+            "ideas":sum(idea_counts.values()),
+            "generated":int(idea_counts.get("generated",0)),
+            "shortlisted":int(idea_counts.get("shortlisted",0)),
+            "selected":int(idea_counts.get("selected",0)),
+            "rejected":int(idea_counts.get("rejected",0)),
+        },
+        "signals":signals,
+        "ideas":ideas,
+    }
 
 def collect_agent_inputs(job_id, agent):
     deps=AGENT_DEPENDENCIES.get(agent,[])
@@ -2607,6 +2766,7 @@ def status():
         "usage": get_usage_summary(),
         "agentMetrics": {a:get_agent_metrics(a) for a in AGENTS},
         "improvementProposals": get_improvement_proposals("proposed",5),
+        "contentBrain": get_content_brain(12),
         "buildProgress": get_factory_tasks(),
         "runtimePolicy": {
             "agent_timeout_seconds":AGENT_TIMEOUT_SECONDS,
@@ -2623,6 +2783,48 @@ def release_readiness():
 @app.get("/api/intelligence")
 def factory_intelligence():
     return get_factory_intelligence()
+
+
+@app.get("/api/content-brain")
+def content_brain(limit: int = 50):
+    return get_content_brain(max(1,min(200,int(limit))))
+
+@app.post("/api/content-brain/signals")
+async def add_content_signal(payload: SignalCreate):
+    try:
+        result=ingest_source_signal(payload)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+    if result["created"]:
+        event(None,f"Content Brain signal ingested: {result['signal']['title']}")
+        await broadcast({"type":"content_brain","action":"signal_ingested","signalId":result["signal"]["id"]})
+    return result
+
+@app.post("/api/content-brain/ideas")
+async def add_content_idea(payload: IdeaCreate):
+    try:
+        idea=create_content_idea(payload)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+    event(None,f"Content Brain idea created: {idea['title']}")
+    await broadcast({"type":"content_brain","action":"idea_created","ideaId":idea["id"]})
+    return {"created":True,"idea":idea}
+
+@app.post("/api/content-brain/ideas/{idea_id}/status")
+async def set_content_idea_status(idea_id: str, payload: IdeaStatus):
+    allowed={"generated","shortlisted","selected","rejected","in_production"}
+    status=(payload.status or "").strip().lower()
+    if status not in allowed:
+        raise HTTPException(400,"Unknown idea status")
+    con=db()
+    row=con.execute("SELECT id,title FROM content_ideas WHERE id=?",(idea_id,)).fetchone()
+    if not row:
+        con.close(); raise HTTPException(404,"Idea not found")
+    con.execute("UPDATE content_ideas SET status=?,updated_at=? WHERE id=?",(status,ts(),idea_id))
+    con.commit(); con.close()
+    event(None,f"Content Brain idea status: {row['title']} → {status}")
+    await broadcast({"type":"content_brain","action":"idea_status","ideaId":idea_id,"status":status})
+    return {"ok":True,"idea_id":idea_id,"status":status}
 
 @app.post("/api/jobs")
 async def create_job(j: JobCreate):
