@@ -61,10 +61,83 @@
 .qaGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.qaPanel{padding:11px;border:1px solid #1e4439;background:#081813;border-radius:11px}.qaPanel h3{font-size:11px;margin:0 0 7px}.qaCheck,.qaBlocker{display:grid;grid-template-columns:80px 1fr;gap:8px;padding:7px 0;border-top:1px solid #15352d}.qaCheck:first-of-type,.qaBlocker:first-of-type{border-top:0}.qaCheck em{font-style:normal;font-size:7px}.qaCheck em.pass{color:#78e2a2}.qaCheck em.fail{color:#ffaf72}.qaCheck b,.qaBlocker b{font-size:8px;display:block}.qaCheck small,.qaBlocker small{font-size:7px;color:#7d978d;display:block;margin-top:2px;line-height:1.4}.qaBlocker.critical b{color:#ff93a3}.qaBlocker.warning b{color:#ffd174}.qaBlocker.info b{color:#83d6ff}
 .qaPriorities{margin-top:10px;padding:10px;border:1px solid #1e4439;background:#081813;border-radius:11px}.qaPriorities h3{margin:0 0 6px;font-size:11px}.qaPriorities div{font-size:8px;color:#8ca59b;margin-top:4px}.qaNote{margin-top:8px;font-size:7px;color:#6d877d}
 @media(max-width:800px){.qaPage{inset:8px}.qaStats{grid-template-columns:1fr 1fr 1fr}.qaGrid{grid-template-columns:1fr}.qaBody{padding:10px}}@media(max-width:480px){.qaStats{grid-template-columns:1fr 1fr}.qaTop h2{font-size:15px}.qaCheck,.qaBlocker{grid-template-columns:68px 1fr}}
+
+/* v3.24 mobile parity: phone layouts keep the same operational actions as desktop. */
+@media(max-width:700px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .shell{display:block;min-height:100vh}
+  .side{position:sticky;top:0;z-index:45;width:auto;min-height:0;height:auto;padding:6px 7px;border-right:0;border-bottom:1px solid #18364d;background:rgba(5,14,23,.97);backdrop-filter:blur(14px)}
+  .brand,.foot{display:none}
+  .nav{display:flex;gap:6px;overflow-x:auto;padding:0 0 3px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .nav::-webkit-scrollbar{display:none}
+  .nav button,.nav button:not(.active){flex:0 0 72px;min-height:48px;padding:5px 4px;border-radius:9px;text-align:center;font-size:17px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;white-space:nowrap}
+  .nav button span[data-i18n]{display:block;max-width:66px;overflow:hidden;text-overflow:ellipsis;font-size:7px;line-height:1.1}
+  #buildNavPct{display:none}
+  .main{padding:8px 8px 18px}
+  .top{grid-template-columns:1fr;gap:8px;margin-bottom:8px}
+  .top h1{font-size:17px;line-height:1.15}
+  .top .sub{font-size:7px}
+  .topActions{display:flex;gap:6px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px;scrollbar-width:none}
+  .topActions::-webkit-scrollbar{display:none}
+  .topActions .btn,.langSwitch button{min-height:40px;flex:0 0 auto}
+  .topActions form{display:none}
+  .mission{grid-template-columns:1fr 1fr;gap:6px;padding:8px}
+  .missionTitle{grid-column:1/-1}
+  .missionTitle h2{font-size:13px}
+  .missionTitle p{font-size:8px}
+  .step{min-height:52px;padding:7px}
+  .usageStrip{grid-template-columns:1fr 1fr;gap:6px}
+  .usageStat{padding:8px}
+  .grid,.bottom{grid-template-columns:1fr}
+  .rightRail{display:grid;grid-template-columns:1fr;gap:8px}
+  .officeCard{overflow:visible}
+  .office{height:auto;min-height:0;padding:8px;background:linear-gradient(180deg,#091726,#07111c)}
+  .office>img,.flowGraph{display:none}
+  #agentBadges{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .agent{display:grid!important;position:relative!important;left:auto!important;top:auto!important;transform:none!important;width:auto;min-width:0;min-height:58px;box-sizing:border-box;padding:8px;z-index:1}
+  .agent:hover{transform:none!important}
+  .agentTooltip{display:none!important}
+  .agent b,.agent small{font-size:8px}
+  .agentMiniBar{height:4px}
+  .errorCenterHead,.workerFlowHead{display:block}
+  .errorSummary{margin-top:8px;display:flex;flex-wrap:wrap;gap:5px}
+  .workerResults{grid-template-columns:1fr!important;overflow:visible!important}
+  .workerResult,.factoryError,.errorIncident{min-width:0}
+  .handoffStream{overflow-x:auto}
+  .pipeline{grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible;gap:6px}
+  .stage{min-width:0}
+  .stage:after{display:none}
+  .rowHead{align-items:flex-start;gap:8px;flex-wrap:wrap}
+  .rowHead>div:last-child{display:flex;gap:6px;flex-wrap:wrap}
+  .rowHead .btn{min-height:40px}
+  .job{grid-template-columns:1fr;gap:7px}
+  .selected{min-width:0}
+  .formRow{grid-template-columns:1fr}
+  .dialog{width:calc(100vw - 18px);max-height:92vh;overflow:auto;box-sizing:border-box}
+  .dialog input,.dialog textarea,.dialog select,.dialog button{min-height:42px;font-size:12px}
+  .agentDrawer{width:100vw;max-width:none}
+  .drawerTop{padding:12px}
+  .drawerBody{padding:10px 10px 24px}
+  .metricGrid{grid-template-columns:1fr 1fr}
+  .taskPage,.intelPage,.qaPage{inset:0;border-radius:0}
+  .taskTop,.intelTop,.qaTop{padding:12px}
+  .taskBody,.intelBody,.qaBody{padding:10px}
+  .buildProgress,.intelSummary{grid-template-columns:1fr 1fr}
+  .intelWorker{min-width:620px}
+  .intelPanel{overflow-x:auto}
+  .btn,.nav button,.stage,.agent{touch-action:manipulation}
+}
+@media(max-width:460px){
+  #agentBadges{grid-template-columns:1fr}
+  .mission{grid-template-columns:1fr}
+  .usageStrip{grid-template-columns:1fr 1fr}
+  .pipeline{grid-template-columns:1fr 1fr}
+  .metricGrid{grid-template-columns:1fr 1fr}
+}
 </style></head>
 <body><div class="shell">
 <aside class="side">
-<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.23</span></small></div></div>
+<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.24</span></small></div></div>
 <nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
 <div class="foot"><span class="green"></span><span data-i18n="factory.online">Factory online</span><br><span id="runState">No active run</span></div>
 </aside>
