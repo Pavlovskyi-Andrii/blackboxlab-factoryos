@@ -1221,6 +1221,86 @@ def _parse_idea_candidates(raw):
         raise ValueError("Idea generator response must be a JSON array")
     return [x for x in data if isinstance(x,dict)]
 
+async def generate_ideas_from_signals(payload):
+    if not FACTORY_LLM_API_KEY:
+        raise RuntimeError("Live LLM provider is not configured")
+    max_ideas=max(1,min(8,int(payload.max_ideas or 5)))
+    con=db()
+    pool=[dict(x) for x in con.execute(
+        "SELECT * FROM source_signals ORDER BY created_at DESC LIMIT 50"
+    ).fetchall()]
+    con.close()
+    wanted={str(x).strip() for x in (payload.signal_ids or []) if str(x).strip()}
+    rows=[x for x in pool if not wanted or x["id"] in wanted][:12]
+    if wanted and len({x["id"] for x in rows})!=len(wanted):
+        raise ValueError("One or more source signal ids are unknown")
+    if not rows:
+        raise ValueError("No source signals available")
+    usage=get_usage_summary()
+    reserve=FACTORY_LLM_MAX_OUTPUT_TOKENS * FACTORY_LLM_OUTPUT_USD_PER_1M / 1000000
+    if usage["today_cost_usd"] + reserve > FACTORY_DAILY_BUDGET_USD:
+        raise RuntimeError("Daily provider budget would be exceeded by the next Content Brain call")
+    signals="\n\n".join(
+        f"SIGNAL_ID: {x['id']}\nTITLE: {x['title']}\nURL: {x.get('url') or '(none)'}\nTOPIC: {x.get('topic') or '(none)'}\nCONTENT: {_trim_llm_context(x.get('content',''),1600)}"
+        for x in rows
+    )
+    pseudo_job={
+        "title":"Content Brain idea shortlist",
+        "brief":(
+            f"Create up to {max_ideas} distinct short-form content ideas from these signals. "
+            "Return only a JSON array. Each item must include title, topic, angle, audience, why_now, "
+            "source_signal_ids, source_links, score from 0 to 1, risk_flags, and complexity. "
+            "Use only supplied SIGNAL_ID values and never invent sources.\n\n"+signals
+        ),
+        "language":payload.language or "English",
+        "format":"Short-form ideas",
+        "presenter":"FactoryOS",
+    }
+    run_id=start_agent_run("Scout",None,"content_brain",model=FACTORY_LLM_MODEL)
+    try:
+        result=await asyncio.wait_for(
+            asyncio.to_thread(_call_live_llm,"Scout",pseudo_job,{"artifacts":[],"missing":[]}),
+            timeout=AGENT_TIMEOUT_SECONDS,
+        )
+        candidates=_parse_idea_candidates(result["content"])[:max_ideas]
+        created=[]
+        allowed={x["id"] for x in rows}
+        for item in candidates:
+            title=" ".join(str(item.get("title") or "").split()).strip()
+            if not title:
+                continue
+            source_ids=[str(x) for x in (item.get("source_signal_ids") or []) if str(x) in allowed] or list(allowed)
+            links=[str(x).strip() for x in (item.get("source_links") or []) if str(x).strip()]
+            try:
+                score=max(0.0,min(1.0,float(item.get("score") or 0)))
+            except Exception:
+                score=0.0
+            idea=create_content_idea(IdeaCreate(
+                title=title,topic=str(item.get("topic") or ""),angle=str(item.get("angle") or ""),
+                audience=str(item.get("audience") or ""),why_now=str(item.get("why_now") or ""),
+                source_signal_ids=source_ids,source_links=links,score=score,
+                risk_flags=[str(x) for x in (item.get("risk_flags") or [])],
+                complexity=str(item.get("complexity") or "medium"),
+            ))
+            provenance={"created_by":"content_brain_llm","worker":"Scout","run_id":run_id,"model":result.get("model")}
+            con=db(); con.execute("UPDATE content_ideas SET provenance_json=? WHERE id=?",(json.dumps(provenance),idea["id"])); con.commit(); con.close()
+            idea["provenance"]=provenance
+            created.append(idea)
+        created.sort(key=lambda x:float(x.get("score") or 0),reverse=True)
+        for idea in created[:3]:
+            con=db(); con.execute("UPDATE content_ideas SET status='shortlisted',updated_at=? WHERE id=?",(ts(),idea["id"])); con.commit(); con.close()
+            idea["status"]="shortlisted"
+        con=db()
+        for signal in rows:
+            con.execute("UPDATE source_signals SET status='processed',updated_at=? WHERE id=?",(ts(),signal["id"]))
+        con.commit(); con.close()
+        save_artifact("Scout","analysis","Content Brain raw shortlist",result["content"],run_id=run_id,meta={"content_brain":True,"idea_count":len(created)})
+        finish_agent_run(run_id,status="completed",input_tokens=result["input_tokens"],output_tokens=result["output_tokens"],cost_usd=result["cost_usd"],meta={"content_brain":True,"idea_count":len(created)})
+        return {"run_id":run_id,"model":result.get("model"),"cost_usd":round(float(result.get("cost_usd") or 0),6),"ideas":created}
+    except Exception as exc:
+        finish_agent_run(run_id,status="failed",error=str(exc),meta={"content_brain":True})
+        raise
+
 def collect_agent_inputs(job_id, agent):
     deps=AGENT_DEPENDENCIES.get(agent,[])
     if not deps or not job_id:
