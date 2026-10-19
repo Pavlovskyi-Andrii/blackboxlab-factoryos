@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-19T10:56:00.000Z",
+  "updated_at": "2026-10-19T19:45:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -271,7 +271,7 @@
       }
     },
     "live-llm": {
-      "status": "in_progress",
+      "status": "done",
       "meta": {
         "title": "Live LLM worker adapter",
         "description": "Replace demo Scout/Researcher/Verifier/Writer execution with real model calls and usage accounting.",
@@ -279,26 +279,20 @@
         "priority": "high",
         "owner": "Factory Builder",
         "order_index": 110,
-        "blocker": "Explicit paid verification is approved and wired as a one-shot v3.24 production run. Final closure waits for production evidence: real artifacts, input/output tokens, provider cost, and QA approval-gate state."
+        "blocker": "Closed by production verification v3.24-live-e2e-2026-10-19: 7 live runs, 9 artifacts, 5,846 tokens, $0.029902, approval gate reached."
       },
       "steps": {
         "understand": "done",
         "inspect": "done",
         "plan": "done",
         "implement": "done",
-        "test": {
-          "status": "in_progress",
-          "progress": 80
-        },
+        "test": "done",
         "deploy": "done",
-        "verify": {
-          "status": "in_progress",
-          "progress": 60
-        }
+        "verify": "done"
       }
     },
     "night-live-llm-hardening": {
-      "status": "in_progress",
+      "status": "done",
       "meta": {
         "title": "Night 1 — Live LLM hardening",
         "description": "Verify paid API execution end-to-end, normalize provider errors, avoid pointless retries, confirm tokens/cost/artifacts and preserve the approval gate.",
@@ -306,22 +300,16 @@
         "priority": "high",
         "owner": "Factory Builder",
         "order_index": 120,
-        "blocker": "Explicit paid verification is approved and wired as a one-shot v3.24 production run. Final closure waits for production evidence: real artifacts, input/output tokens, provider cost, and QA approval-gate state."
+        "blocker": "Closed by production verification v3.24-live-e2e-2026-10-19: real artifacts, token/cost accounting and waiting_approval confirmed."
       },
       "steps": {
         "understand": "done",
         "inspect": "done",
         "plan": "done",
         "implement": "done",
-        "test": {
-          "status": "in_progress",
-          "progress": 80
-        },
+        "test": "done",
         "deploy": "done",
-        "verify": {
-          "status": "in_progress",
-          "progress": 80
-        }
+        "verify": "done"
       }
     },
     "night-worker-visibility": {
@@ -500,14 +488,39 @@
         "plan": "done",
         "implement": "done",
         "test": "done",
-        "deploy": {
-          "status": "in_progress",
-          "progress": 70
-        },
-        "verify": {
-          "status": "in_progress",
-          "progress": 50
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v3.25-baseline-closure": {
+      "status": "done",
+      "meta": {
+        "title": "v3.25 — Baseline Closure",
+        "description": "Synchronize production build identity, paid-run evidence, mobile parity, manifest and roadmap; disable the one-shot paid verification trigger after success.",
+        "category": "release",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 210,
+        "evidence": {
+          "verification_tag": "v3.24-live-e2e-2026-10-19",
+          "live_runs": 7,
+          "artifacts": 9,
+          "total_tokens": 5846,
+          "cost_usd": 0.029902,
+          "final_state": "waiting_approval",
+          "approval_gate_reached": true,
+          "production_commit": "d2e596ffab78557a078f97d9be386e76e980f641",
+          "baseline_closure_commit": "fc8d4c7ed743d6e67dd7c0adbea05df291cac782"
         }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
       }
     }
   }
