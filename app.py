@@ -1203,6 +1203,24 @@ def get_content_brain(limit=50):
         "ideas":ideas,
     }
 
+def _parse_idea_candidates(raw):
+    text=(raw or "").strip()
+    if text.startswith("```"):
+        lines=text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines=lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines=lines[:-1]
+        text="\n".join(lines).strip()
+    start=text.find("[")
+    end=text.rfind("]")
+    if start<0 or end<=start:
+        raise ValueError("Idea generator did not return a JSON array")
+    data=json.loads(text[start:end+1])
+    if not isinstance(data,list):
+        raise ValueError("Idea generator response must be a JSON array")
+    return [x for x in data if isinstance(x,dict)]
+
 def collect_agent_inputs(job_id, agent):
     deps=AGENT_DEPENDENCIES.get(agent,[])
     if not deps or not job_id:
