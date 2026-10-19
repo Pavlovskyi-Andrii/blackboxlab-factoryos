@@ -295,7 +295,7 @@ function workerResults(){
  }).join('');
  const unique=[];const seen=new Set();
  handoffs.forEach(x=>{const k=x.source_agent+'>'+x.target_agent+'>'+x.artifact_id;if(!seen.has(k)){seen.add(k);unique.push(x)}});
- stream.innerHTML=unique.slice(0,16).map(x=>'<div class="handoffItem"><strong>'+esc(x.source_agent)+'</strong><b>→</b><strong>'+esc(x.target_agent)+'</strong><small>'+esc(x.artifact_title||'artifact')+'</small></div>').join('')||'<div class="tiny">No handoffs yet — they appear here as workers pass artifacts downstream.</div>';
+ stream.innerHTML=unique.slice(0,16).map(x=>'<div class="handoffItem" role="button" tabindex="0" title="Open trace" onclick="openHandoffTrace(\''+esc(x.run_id)+'\',\''+esc(x.artifact_id)+'\')" onkeydown="if(event.key===\'Enter\')openHandoffTrace(\''+esc(x.run_id)+'\',\''+esc(x.artifact_id)+'\')"><strong>'+esc(x.source_agent)+'</strong><b>→</b><strong>'+esc(x.target_agent)+'</strong><small>'+esc(x.artifact_title||'artifact')+'</small></div>').join('')||'<div class="tiny">No handoffs yet — they appear here as workers pass artifacts downstream.</div>';
 }
 function supervisor(){const r=S.supervisor||{},p=S.runtimePolicy||{};const root=$('#supervisorPanel');if(!root)return;const findings=(r.findings||[]).slice(0,2),improvements=(r.improvements||[]).slice(0,2),proposals=(S.improvementProposals||[]).slice(0,3);root.innerHTML='<div class="health"><div class="score" style="--score:'+(r.score??0)+'"><b>'+(r.score??0)+'</b><small>'+tr('super.health')+'</small></div><div class="supSummary"><b>'+esc(r.summary||tr('super.monitoring'))+'</b><span>'+tr('super.lastAudit')+': '+(r.checked_at?r.checked_at.slice(11,19):'…')+'</span></div></div><div class="policyBar"><span>timeout '+Number(p.agent_timeout_seconds||0)+'s</span><span>retries '+Number(p.max_retries||0)+'</span><span>job budget '+fmtMoney(p.job_budget_usd||0)+'</span><span>day budget '+fmtMoney(p.daily_budget_usd||0)+'</span></div>'+(findings.length?findings.map(f=>'<div class="finding '+f.severity+'"><strong>'+esc(f.title)+'</strong><span>'+esc(f.detail)+'</span></div>').join(''):'<div class="finding info"><strong>'+tr('super.noIncidents')+'</strong><span>'+tr('super.monitoring')+'</span></div>')+'<div class="improve"><b>'+tr('super.improvements')+'</b>'+improvements.map(x=>'<div>→ '+esc(x)+'</div>').join('')+'</div>'+(proposals.length?'<div class="group">'+tr('super.backlog')+'</div>'+proposals.map(p=>'<div class="proposal"><strong>'+esc(p.title)+'</strong><span>'+esc(p.rationale)+'</span><div class="proposalActions"><button class="btn" onclick="event.stopPropagation();acceptProposal(\''+p.id+'\')">'+tr('super.accept')+'</button><button class="btn" onclick="event.stopPropagation();dismissProposal(\''+p.id+'\')">'+tr('super.dismiss')+'</button></div></div>').join(''):'')}
 function pipeline(){const j=S.selectedJob,cur=j?S.stages.indexOf(j.stage):0,stale=((S.selectedJobQuality||{}).stale_stages||[]);$('#pipeline').innerHTML=S.stages.map((st,i)=>'<div class="stage '+(stale.includes(st)?'stale ':(i<cur?'complete ':i===cur?'current ':'pending '))+'"><i>'+icons[st]+'</i><b>'+stageLabel(st)+'</b><span>'+stageSub(st)+(stale.includes(st)?' · '+tr('stage.rebuild'):'')+'</span></div>').join('')}
@@ -408,6 +408,22 @@ async function openJobOutputs(jobId){
     arts.forEach(a=>{(groups[a.agent]||(groups[a.agent]=[])).push(a)});
     body.innerHTML=Object.entries(groups).map(([agent,items])=>'<div class="drawerSection"><h3>'+esc(agent)+' <span class="sub">('+items.length+')</span></h3>'+items.map(a=>artifactHtml(a)).join('')+'</div>').join('');
   }catch(e){body.innerHTML='<div class="finding critical"><strong>Could not load job outputs</strong><span>'+esc(e.message)+'</span></div>'}
+}
+async function openHandoffTrace(runId,artifactId){
+  currentAgentDrawer=null;
+  $('#drawerShade').classList.add('open');$('#agentDrawer').classList.add('open');
+  $('#agentName').textContent='Handoff Trace';$('#agentRole').textContent='Loading provenance…';$('#agentAvatar').textContent='↗';
+  const body=$('#agentDrawerBody');body.innerHTML='<div class="sub" style="padding:20px">Loading handoff trace…</div>';
+  try{
+    const d=await api('/api/handoffs/'+encodeURIComponent(runId)+'/'+encodeURIComponent(artifactId));
+    $('#agentName').textContent=d.source_agent+' → '+d.target_agent;
+    $('#agentRole').textContent=(d.artifact_title||d.artifact_kind||'Artifact')+' · '+(d.target_stage||'factory');
+    const src=d.source_run||{};
+    body.innerHTML='<div class="modeNote"><b>Trace:</b> exact persisted artifact consumed by the target worker. No reconstructed or inferred inputs.</div>'+
+      '<div class="metricGrid"><div class="metric"><b>'+esc(d.source_agent)+'</b><span>Source worker</span></div><div class="metric"><b>→</b><span>Handoff</span></div><div class="metric"><b>'+esc(d.target_agent)+'</b><span>Target worker</span></div></div>'+
+      '<div class="drawerSection"><h3>Artifact passed</h3><div class="artifact"><div class="artifactHead"><b>'+esc(d.artifact_title||'Artifact')+'</b><span class="artifactType">'+esc(d.artifact_kind||'output')+'</span></div>'+(d.artifact_content?'<pre>'+esc(d.artifact_content)+'</pre>':'')+'<div class="tiny" style="margin-top:6px">artifact '+esc(d.artifact_id)+' · '+esc(d.artifact_created_at||'')+'</div></div></div>'+
+      '<div class="drawerSection"><h3>Run provenance</h3><div class="runRow"><div><b>Source run</b><small>'+esc(src.id||'—')+' · '+esc(src.stage||'—')+' · '+esc(src.status||'—')+'</small></div><div class="runNumbers">'+Number(src.input_tokens||0)+' in · '+Number(src.output_tokens||0)+' out · '+fmtMoney(src.cost_usd||0)+'</div></div><div class="runRow"><div><b>Target run</b><small>'+esc(d.run_id)+' · '+esc(d.target_stage||'—')+' · '+esc(d.target_status||'—')+'</small></div><div class="runNumbers">'+esc(d.handoff_at||'')+'</div></div></div>';
+  }catch(e){body.innerHTML='<div class="finding critical"><strong>Could not load handoff trace</strong><span>'+esc(e.message)+'</span></div>'}
 }
 async function openAgent(name){
   currentAgentDrawer=name;
