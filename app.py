@@ -1082,6 +1082,11 @@ class IdeaCreate(BaseModel):
 class IdeaStatus(BaseModel):
     status: str
 
+class IdeaGenerateRequest(BaseModel):
+    signal_ids: list[str] = []
+    max_ideas: int = 5
+    language: str = "English"
+
 def event(job_id, message):
     con=db(); con.execute("INSERT INTO events(job_id,ts,message) VALUES(?,?,?)",(job_id,ts(),message)); con.commit(); con.close()
 
