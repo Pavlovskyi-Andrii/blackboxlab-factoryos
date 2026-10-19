@@ -12,6 +12,7 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 - Added a zero-spend standalone smoke/regression suite covering health/provider readiness, status data shapes, worker outputs/handoffs, approval gating, recovery retry policy, intelligence contracts and i18n completeness.
 - Wired the regression suite into GitHub Actions alongside Python compilation, HTML structure checks and inline JavaScript syntax validation.
 - Smoke tests explicitly clear the LLM API key, so CI cannot spend provider balance.
+- Verified in production: GitHub CI passed all compile/smoke/HTML/JavaScript checks and Render deployed v3.22 with successful startup and health checks.
 
 ### v3.21 — Factory Intelligence — 2026-10-19
 - Added a dedicated Analytics workspace comparing worker reliability, measured latency, tokens, provider cost, failures and artifact production.
