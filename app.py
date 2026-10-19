@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.23"
+APP_VERSION = "v3.24"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -39,6 +39,9 @@ _default_input_price,_default_output_price=_DEFAULT_LLM_PRICES.get(FACTORY_LLM_M
 FACTORY_LLM_INPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_INPUT_USD_PER_1M", str(_default_input_price)))
 FACTORY_LLM_OUTPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_OUTPUT_USD_PER_1M", str(_default_output_price)))
 FACTORY_LLM_MAX_OUTPUT_TOKENS = max(128, min(4096, int(os.environ.get("FACTORY_LLM_MAX_OUTPUT_TOKENS", "1200"))))
+# Explicitly approved one-shot paid verification. This trigger is removed after the
+# v3.24 production run is observed so future deploys cannot spend again.
+PAID_VERIFICATION_TAG = "v3.24-live-e2e-2026-10-19"
 LLM_LIVE_AGENTS = {
     "Scout","Researcher","Tech Verifier","Hook Writer","Scriptwriter",
     "Visual Director","QA Agent","Publisher","Analyst",
@@ -354,6 +357,7 @@ def factory_mcp_info(request: Request):
 
 @app.get("/health")
 def health():
+    verification=get_paid_verification()
     return {
         "ok": True,
         "service": "factoryos",
@@ -361,6 +365,12 @@ def health():
         "factory_mcp_configured": bool(FACTORY_MCP_TOKEN),
         "llm_configured": bool(FACTORY_LLM_API_KEY),
         "llm_model": FACTORY_LLM_MODEL if FACTORY_LLM_API_KEY else None,
+        "paid_verification": {
+            "status": verification.get("status"),
+            "live_runs": int(verification.get("live_runs") or 0),
+            "total_tokens": int(verification.get("input_tokens") or 0) + int(verification.get("output_tokens") or 0),
+            "cost_usd": round(float(verification.get("cost_usd") or 0), 6),
+        },
     }
 
 clients: set[WebSocket] = set()
@@ -401,6 +411,14 @@ def db():
     con.row_factory = sqlite3.Row
     return con
 
+def get_paid_verification(tag=PAID_VERIFICATION_TAG):
+    if not tag:
+        return {"status":"disabled","live_runs":0,"input_tokens":0,"output_tokens":0,"cost_usd":0}
+    con=db()
+    row=con.execute("SELECT * FROM system_verifications WHERE tag=?",(tag,)).fetchone()
+    con.close()
+    return dict(row) if row else {"tag":tag,"status":"pending","live_runs":0,"input_tokens":0,"output_tokens":0,"cost_usd":0}
+
 def init_db():
     con = db()
     con.executescript("""
@@ -423,6 +441,18 @@ def init_db():
       job_id TEXT,
       ts TEXT NOT NULL,
       message TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS system_verifications(
+      tag TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      job_id TEXT,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      live_runs INTEGER DEFAULT 0,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      cost_usd REAL DEFAULT 0,
+      detail TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS supervisor_reports(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -622,6 +652,7 @@ def sync_factory_tasks():
       ("design-refresh","Dashboard visual redesign","Refine spacing, hierarchy, cards and interactive states while preserving observability.","design","high","in_progress","Factory Builder",99),
       ("mcp-execution","MCP execution bridge","Invoke approved MCP tools from a worker run with capability restrictions and audit logs.","connectors","high","in_progress","Factory Builder",100),
       ("live-llm","Live LLM worker adapter","Replace demo Scout/Researcher/Verifier/Writer execution with real model calls and usage accounting.","intelligence","high","todo","Factory Builder",110),
+      ("mobile-parity","Mobile control-room parity","Keep workers, navigation, drawers, jobs, pipeline and operational actions fully usable on phone layouts.","product","high","done","Factory Builder",115),
       ("voice-adapter","Voice provider adapter","Generate narration and attach real audio artifacts with usage accounting.","generation","medium","todo","Factory Builder",120),
       ("video-adapter","Video/render provider adapter","Create real video outputs while preserving approval and budget gates.","generation","medium","todo","Factory Builder",130),
       ("analytics-loop","Analytics learning loop","Feed retention, CTR and engagement learnings back into Scout/Hook Writer/Scriptwriter.","analytics","high","todo","Factory Builder",140),
@@ -2427,6 +2458,94 @@ async def verify_builder_bridge():
     except Exception as exc:
         print(json.dumps({"event":"BUILDER_BRIDGE_CHECK","status":"error","error":str(exc)[:300]}),flush=True)
 
+async def run_paid_verification_once():
+    tag=PAID_VERIFICATION_TAG
+    if not tag:
+        return
+    if not FACTORY_LLM_API_KEY:
+        print(json.dumps({"event":"PAID_E2E_VERIFICATION","tag":tag,"status":"skipped","reason":"llm_not_configured"}),flush=True)
+        return
+    con=db()
+    existing=con.execute("SELECT * FROM system_verifications WHERE tag=?",(tag,)).fetchone()
+    if existing:
+        con.close()
+        print(json.dumps({"event":"PAID_E2E_VERIFICATION","tag":tag,"status":"skip_existing","existing_status":existing["status"]}),flush=True)
+        return
+    started=ts()
+    # Persist the fence before any paid provider call. A restart during an
+    # uncertain request must never auto-repeat the paid verification.
+    con.execute("""INSERT INTO system_verifications(tag,status,started_at,detail)
+                   VALUES(?,?,?,?)""",(tag,"started",started,"Explicit user-approved one-shot production verification."))
+    con.commit(); con.close()
+    job_id=None
+    try:
+        created=await create_job(JobCreate(
+            title="FactoryOS v3.24 controlled live verification",
+            brief=(
+                "Production verification only. Create concise real artifacts so FactoryOS can prove "
+                "live model execution, worker handoffs, token accounting, provider cost, artifact persistence "
+                "and the human approval gate. Keep each artifact under 120 words when practical."
+            ),
+            presenter="Faceless",
+            format="Short only",
+            language="English",
+            outputs=1,
+        ))
+        job_id=created["id"]
+        con=db()
+        con.execute("UPDATE system_verifications SET job_id=?,detail=? WHERE tag=?",
+                    (job_id,"Paid verification job created; running pipeline to QA approval gate.",tag))
+        con.commit(); con.close()
+        running_jobs.add(job_id)
+        await run_until_review(job_id)
+        job=get_job(job_id) or {}
+        con=db()
+        totals=con.execute("""SELECT COUNT(*) live_runs,
+                                     COALESCE(SUM(input_tokens),0) input_tokens,
+                                     COALESCE(SUM(output_tokens),0) output_tokens,
+                                     COALESCE(SUM(cost_usd),0) cost_usd
+                              FROM agent_runs
+                              WHERE job_id=? AND status='completed' AND model=?""",
+                           (job_id,FACTORY_LLM_MODEL)).fetchone()
+        artifact_count=con.execute("SELECT COUNT(*) c FROM artifacts WHERE job_id=?",(job_id,)).fetchone()["c"]
+        con.close()
+        live_runs=int(totals["live_runs"] or 0)
+        input_tokens=int(totals["input_tokens"] or 0)
+        output_tokens=int(totals["output_tokens"] or 0)
+        cost_usd=float(totals["cost_usd"] or 0)
+        passed=(
+            job.get("status")=="waiting_approval"
+            and live_runs >= 7
+            and (input_tokens + output_tokens) > 0
+            and cost_usd > 0
+            and artifact_count >= 9
+        )
+        status="passed" if passed else "failed"
+        detail=json.dumps({
+            "job_status":job.get("status"),
+            "artifact_count":artifact_count,
+            "approval_gate_reached":job.get("status")=="waiting_approval",
+            "expected_min_live_runs":7,
+        },ensure_ascii=False)
+        con=db()
+        con.execute("""UPDATE system_verifications
+                       SET status=?,finished_at=?,live_runs=?,input_tokens=?,output_tokens=?,cost_usd=?,detail=?
+                       WHERE tag=?""",
+                    (status,ts(),live_runs,input_tokens,output_tokens,cost_usd,detail,tag))
+        con.commit(); con.close()
+        print(json.dumps({
+            "event":"PAID_E2E_VERIFICATION","tag":tag,"status":status,"job_id":job_id,
+            "job_status":job.get("status"),"artifact_count":artifact_count,"live_runs":live_runs,
+            "input_tokens":input_tokens,"output_tokens":output_tokens,"cost_usd":round(cost_usd,6),
+            "approval_gate_reached":job.get("status")=="waiting_approval",
+        }),flush=True)
+    except Exception as exc:
+        con=db()
+        con.execute("""UPDATE system_verifications SET status='failed',finished_at=?,detail=?,job_id=COALESCE(job_id,?)
+                       WHERE tag=?""",(ts(),str(exc)[:1000],job_id,tag))
+        con.commit(); con.close()
+        print(json.dumps({"event":"PAID_E2E_VERIFICATION","tag":tag,"status":"failed","job_id":job_id,"error":str(exc)[:600]}),flush=True)
+
 @app.on_event("startup")
 async def report_llm_readiness():
     print(json.dumps({
@@ -2436,6 +2555,7 @@ async def report_llm_readiness():
         "api_mode":FACTORY_LLM_API_MODE if FACTORY_LLM_API_KEY else None,
         "base_url":FACTORY_LLM_BASE_URL if FACTORY_LLM_API_KEY else None,
     }),flush=True)
+    asyncio.create_task(run_paid_verification_once())
 
 @app.on_event("startup")
 async def start_builder_reconciler():
