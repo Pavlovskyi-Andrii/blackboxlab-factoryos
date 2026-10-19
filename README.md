@@ -12,6 +12,7 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 - Added structured known-gap reporting instead of hiding incomplete capabilities: the controlled paid LLM end-to-end verification remains intentionally pending, and voice/video providers remain unconfigured.
 - Added the /api/release-readiness endpoint and extended the zero-spend regression suite to protect its contract and safety invariants.
 - Morning QA does not execute paid model calls.
+- Verified live: GitHub CI passed Python, zero-spend regression, HTML and JavaScript checks; Render started v3.23 successfully with Builder/LLM readiness and health checks.
 
 ### v3.22 — Responsive / i18n + Regression Guard — 2026-10-19
 - Localized Error Center, Worker Results, Handoff Trace and Factory Intelligence dynamic states across EN / UK / RU, including recovery confirmations and structured analytics insights.
