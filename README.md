@@ -4,6 +4,14 @@ Private AI content production control room for Blackbox Lab.
 
 FactoryOS orchestrates specialized AI workers through a visible production pipeline while preserving a human approval gate before publishing. The service is deployed on Render from `main`.
 
+## Active roadmap
+
+The living technical specification and progress tracker for the next major product cycle is here:
+
+- [FactoryOS v4.0 — Technical Specification & Roadmap](docs/roadmap/FACTORYOS_V4_TECH_SPEC.md)
+
+This document is the source of truth for milestone status, Definition of Done, progress checkboxes, known gaps and the next action from v3.25 through v4.0.
+
 ## Product changelog
 
 ### v3.24 — Mobile Control Room + Controlled Paid Verification — 2026-10-19
