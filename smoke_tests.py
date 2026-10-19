@@ -19,7 +19,9 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v3.23","version mismatch")
+require(health["version"]==app.APP_VERSION=="v3.24","version mismatch")
+require("paid_verification" in health,"paid verification health summary missing")
+require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
 state=app.status()
 for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","runtimePolicy"):
@@ -64,6 +66,9 @@ require('data-i18n="error.title"' in html,"Error Center title is not localized")
 require('data-i18n="worker.title"' in html,"Worker Results title is not localized")
 require('data-i18n="intel.title"' in html,"Factory Intelligence title is not localized")
 require("FactoryOS v3.14" not in html,"stale document title version returned")
+require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
+require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
+require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
 for key in ("nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v3.23 smoke/regression suite passed without paid provider calls")
+print("FactoryOS v3.24 smoke/regression suite passed without paid provider calls")

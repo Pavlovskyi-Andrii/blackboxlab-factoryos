@@ -6,6 +6,15 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 
 ## Product changelog
 
+### v3.24 — Mobile Control Room + Controlled Paid Verification — 2026-10-19
+- Restored Agent Office worker cards on phone layouts instead of hiding them below 700 px; workers remain visible, live-state aware and clickable.
+- Reworked mobile navigation into a horizontal touch rail and kept Jobs, Pipeline, Error Center, Outputs, Analytics, Release QA and worker drawers operational on small screens.
+- Added mobile-safe layouts for creation forms, job controls, metrics, full-screen operational pages and agent detail drawers while preserving the existing desktop layout.
+- Added an explicitly approved one-shot paid production verification that runs the pipeline to the QA approval gate, records real live-worker artifacts, input/output tokens and provider cost, and persists a pre-call fence so a restart cannot auto-repeat spend.
+- Exposed only a safe verification summary through /health; artifact contents and secrets remain private.
+- CI remains zero-spend because smoke tests clear the provider API key.
+
+
 ### v3.23 — Release Readiness / Morning QA — 2026-10-19
 - Added a live Release QA workspace that summarizes production state, roadmap completion, failed jobs, open incidents, current provider spend and build identity.
 - Added explicit runtime safety checks for the human approval gate, provider budget guards, spend-safe retry behavior, private authentication, live LLM configuration and Builder bridge.
