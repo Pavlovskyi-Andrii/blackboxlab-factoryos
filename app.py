@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.19"
+APP_VERSION = "v3.20"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -1757,19 +1757,22 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
         except Exception as exc:
             last_error=str(exc)
 
+        policy=classify_agent_error(last_error)
         record_run_step(run_id,job_id,agent,"failed",last_error,agent_progress.get(agent,{}).get("progress",0),"failed")
         finish_agent_run(run_id,status="failed",error=last_error,
-                         meta={"mode":"live_llm" if live_llm else "demo","attempt":attempt})
+                         meta={"mode":"live_llm" if live_llm else "demo","attempt":attempt,"error_policy":policy})
         set_agent_progress(agent,agent_progress.get(agent,{}).get("progress",0),f"Failed: {last_error}",job_id,run_id,"failed")
         event(job_id,f"{agent}: attempt {attempt} failed — {last_error}")
         await broadcast({"type":"agent_progress","agent":agent,"state":"failed","progress":agent_progress[agent]})
-        if attempt < total_attempts and not non_retryable_agent_error(last_error):
-            event(job_id,f"{agent}: retrying")
-            set_agent_progress(agent,5,"Retrying",job_id,run_id,"working")
+        if attempt < total_attempts and policy["auto_retry"]:
+            event(job_id,f"{agent}: safe automatic retry ({policy['code']})")
+            set_agent_progress(agent,5,"Safe retry",job_id,run_id,"working")
             await asyncio.sleep(min(2,attempt))
             continue
-        if non_retryable_agent_error(last_error):
-            event(job_id,f"{agent}: retry skipped because the error requires configuration or billing action")
+        if policy["retryable"] and not policy["auto_retry"]:
+            event(job_id,f"{agent}: automatic retry paused ({policy['code']}) — {policy['action']}")
+        elif not policy["retryable"]:
+            event(job_id,f"{agent}: retry blocked ({policy['code']}) — {policy['action']}")
         raise RuntimeError(f"{agent} failed after {attempt} attempt(s): {last_error}")
 
 def get_job_worker_results(job_id):
@@ -1823,33 +1826,129 @@ def get_job_handoffs(job_id, limit=60):
     con.close()
     return rows
 
+def classify_agent_error(message):
+    raw=(message or "").strip()
+    low=raw.lower()
+    policy={
+        "code":"unknown_failure","category":"unknown","severity":"warning",
+        "retryable":True,"auto_retry":False,"requires_confirmation":True,"spend_uncertain":True,
+        "title":"Unclassified worker failure",
+        "action":"Review the failed run before retrying. The provider outcome may be uncertain.",
+    }
+    if any(x in low for x in ("balance exhausted","insufficient_quota","no credits remaining")):
+        policy.update({
+            "code":"billing_exhausted","category":"billing","severity":"critical",
+            "retryable":True,"auto_retry":False,"requires_confirmation":False,"spend_uncertain":False,
+            "title":"Provider balance exhausted","action":"Add provider credits, then retry this worker.",
+        })
+    elif any(x in low for x in ("authentication failed","factory_llm_api_key is not configured","configured llm model","model/api-mode compatibility","openai rejected the model request","api-mode compatibility")):
+        policy.update({
+            "code":"provider_configuration","category":"configuration","severity":"critical",
+            "retryable":True,"auto_retry":False,"requires_confirmation":False,"spend_uncertain":False,
+            "title":"Provider configuration needs attention",
+            "action":"Fix the API key, project permission, model or API mode, then retry.",
+        })
+    elif "budget" in low and any(x in low for x in ("reached","exceeded","would be exceeded")):
+        policy.update({
+            "code":"budget_guard","category":"budget","severity":"warning",
+            "retryable":True,"auto_retry":False,"requires_confirmation":False,"spend_uncertain":False,
+            "title":"FactoryOS budget guard stopped the call",
+            "action":"Review job/day spend and budget limits before retrying.",
+        })
+    elif any(x in low for x in ("missing required upstream artifacts","quality gate failed")):
+        policy.update({
+            "code":"dependency_missing","category":"dependency","severity":"warning",
+            "retryable":False,"auto_retry":False,"requires_confirmation":False,"spend_uncertain":False,
+            "title":"Upstream dependency is missing",
+            "action":"Rebuild the missing upstream worker or artifact before retrying this stage.",
+        })
+    elif any(x in low for x in ("rate limit","http 429")):
+        policy.update({
+            "code":"provider_rate_limit","category":"transient","severity":"warning",
+            "retryable":True,"auto_retry":True,"requires_confirmation":False,"spend_uncertain":False,
+            "title":"Provider rate limit",
+            "action":"FactoryOS may safely retry once; if it repeats, wait briefly and retry manually.",
+        })
+    elif any(x in low for x in ("llm provider http 500","llm provider http 502","llm provider http 503","llm provider http 504")):
+        policy.update({
+            "code":"provider_5xx","category":"transient","severity":"warning",
+            "retryable":True,"auto_retry":False,"requires_confirmation":True,"spend_uncertain":True,
+            "title":"Provider service error",
+            "action":"Provider outcome may be uncertain. Review the incident before a manual retry.",
+        })
+    elif any(x in low for x in ("timed out","provider request failed","connection reset","remote end closed","network","temporary failure","name or service not known")):
+        policy.update({
+            "code":"transport_uncertain","category":"transport","severity":"critical",
+            "retryable":True,"auto_retry":False,"requires_confirmation":True,"spend_uncertain":True,
+            "title":"Provider outcome is uncertain",
+            "action":"Do not auto-retry. Confirm the provider did not complete the request, then retry manually if needed.",
+        })
+    elif any(x in low for x in ("unsupported response shape","returned empty content")):
+        policy.update({
+            "code":"provider_response_invalid","category":"provider_response","severity":"warning",
+            "retryable":True,"auto_retry":False,"requires_confirmation":True,"spend_uncertain":True,
+            "title":"Provider returned an unusable response",
+            "action":"The call may already have consumed tokens. Review the incident before retrying.",
+        })
+    policy["raw"]=raw
+    return policy
+
 def get_job_agent_errors(job_id):
     if not job_id:
         return {}
     con=db()
     rows=[dict(x) for x in con.execute(
-        """SELECT agent,error,finished_at,id AS run_id,stage
-           FROM agent_runs
-           WHERE job_id=? AND status='failed' AND error IS NOT NULL
+        """SELECT agent,error,finished_at,id AS run_id,stage,cost_usd
+           FROM agent_runs WHERE job_id=? AND status='failed' AND error IS NOT NULL
            ORDER BY finished_at DESC""",(job_id,)
     ).fetchall()]
     con.close()
     latest={}
     for row in rows:
         if row["agent"] not in latest:
+            row["policy"]=classify_agent_error(row.get("error"))
             latest[row["agent"]]=row
     return latest
 
+def get_job_error_center(job_id, limit=30):
+    empty={"summary":{"open":0,"critical":0,"spend_uncertain":0,"resolved":0},"incidents":[]}
+    if not job_id:
+        return empty
+    con=db()
+    failures=[dict(x) for x in con.execute(
+        """SELECT id AS run_id,agent,stage,error,started_at,finished_at,cost_usd,model
+           FROM agent_runs WHERE job_id=? AND status='failed' AND error IS NOT NULL
+           ORDER BY COALESCE(finished_at,started_at) DESC LIMIT ?""",(job_id,limit)
+    ).fetchall()]
+    completed=[dict(x) for x in con.execute(
+        """SELECT agent,MAX(COALESCE(finished_at,started_at)) AS completed_at
+           FROM agent_runs WHERE job_id=? AND status='completed' GROUP BY agent""",(job_id,)
+    ).fetchall()]
+    con.close()
+    completed_at={x["agent"]:x.get("completed_at") for x in completed}
+    incidents=[]
+    for row in failures:
+        policy=classify_agent_error(row.get("error"))
+        failed_at=row.get("finished_at") or row.get("started_at") or ""
+        success_at=completed_at.get(row["agent"]) or ""
+        resolved=bool(success_at and failed_at and success_at > failed_at)
+        incidents.append({**row,"resolved":resolved,"resolved_at":success_at if resolved else None,"policy":policy})
+    unresolved=[x for x in incidents if not x["resolved"]]
+    return {
+        "summary":{
+            "open":len(unresolved),
+            "critical":sum(1 for x in unresolved if x["policy"]["severity"]=="critical"),
+            "spend_uncertain":sum(1 for x in unresolved if x["policy"]["spend_uncertain"]),
+            "resolved":sum(1 for x in incidents if x["resolved"]),
+        },
+        "incidents":incidents,
+    }
+
 def non_retryable_agent_error(message):
-    low=(message or "").lower()
-    return any(x in low for x in (
-        "balance exhausted",
-        "authentication failed",
-        "model '" ,
-        "model/api-mode compatibility",
-        "daily provider budget reached",
-        "job provider budget reached",
-    ))
+    return not classify_agent_error(message)["retryable"]
+
+def safe_auto_retry_agent_error(message):
+    return classify_agent_error(message)["auto_retry"]
 
 def current_selected(jobs):
     global selected_job_id
@@ -2166,6 +2265,7 @@ def status():
         "selectedJobWorkerResults": get_job_worker_results(sid),
         "selectedJobHandoffs": get_job_handoffs(sid),
         "selectedJobAgentErrors": get_job_agent_errors(sid),
+        "selectedJobErrorCenter": get_job_error_center(sid),
         "events":ev,"connections":CONNECTIONS,"stages":STAGES,
         "agentStates":agent_states(jobs),"agentProgress":{a:get_agent_progress_snapshot(a) for a in AGENTS},"agentMap":AGENT_MAP,
         "agentDependencies":AGENT_DEPENDENCIES,
@@ -2313,7 +2413,7 @@ async def rerun_single_agent(job_id, agent_name, stage):
         running_jobs.discard(job_id)
 
 @app.post("/api/jobs/{job_id}/agents/{agent_name}/rerun")
-async def rerun_agent(job_id:str,agent_name:str):
+async def rerun_agent(job_id:str,agent_name:str,expected_run_id:str | None=None,confirm_uncertain:bool=False):
     job=get_job(job_id)
     if not job:
         raise HTTPException(404,"Job not found")
@@ -2324,15 +2424,38 @@ async def rerun_agent(job_id:str,agent_name:str):
         raise HTTPException(400,"Agent stage is not part of the content pipeline")
     if job_id in running_jobs:
         return {"ok":False,"message":"Wait for the current job run to finish first"}
+    center=get_job_error_center(job_id)
+    incident=next((x for x in center["incidents"] if x["agent"]==agent_name and not x["resolved"]),None)
+    if expected_run_id and (not incident or incident["run_id"]!=expected_run_id):
+        return {"ok":False,"message":"This recovery incident is stale or already resolved. Refresh Error Center before retrying."}
+    if incident:
+        policy=incident["policy"]
+        if not policy["retryable"]:
+            return {"ok":False,"message":policy["action"],"recovery":policy}
+        if policy["requires_confirmation"] and not confirm_uncertain:
+            return {
+                "ok":False,"requiresConfirmation":True,"failedRunId":incident["run_id"],
+                "message":"Provider outcome may be uncertain and a retry could duplicate spend. Confirm the incident before retrying.",
+                "recovery":policy,
+            }
+    live_llm=bool(FACTORY_LLM_API_KEY and agent_name in LLM_LIVE_AGENTS)
+    if live_llm:
+        usage=get_usage_summary(); job_cost=get_job_cost(job_id)
+        max_call_cost=FACTORY_LLM_MAX_OUTPUT_TOKENS * FACTORY_LLM_OUTPUT_USD_PER_1M / 1_000_000
+        if usage["today_cost_usd"] + max_call_cost > FACTORY_DAILY_BUDGET_USD:
+            return {"ok":False,"message":"Daily provider budget guard blocks this recovery retry."}
+        if job_cost + max_call_cost > FACTORY_JOB_BUDGET_USD:
+            return {"ok":False,"message":"Job provider budget guard blocks this recovery retry."}
     running_jobs.add(job_id)
     con=db()
     con.execute("UPDATE jobs SET stage=?,status='running',progress=?,updated_at=? WHERE id=?",
                 (stage,int(STAGES.index(stage)/(len(STAGES)-1)*100),ts(),job_id))
     con.commit(); con.close()
-    event(job_id,f"Manual rerun requested: {agent_name}; downstream outputs will require rebuild")
+    recovery_code=(incident or {}).get("policy",{}).get("code","manual_rerun")
+    event(job_id,f"Manual recovery requested: {agent_name} ({recovery_code}); downstream outputs will require rebuild")
     asyncio.create_task(rerun_single_agent(job_id,agent_name,stage))
     await broadcast()
-    return {"ok":True,"message":f"{agent_name} rerun started"}
+    return {"ok":True,"message":f"{agent_name} recovery rerun started","recovery":(incident or {}).get("policy")}
 
 @app.get("/api/agents")
 def list_agents():

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-19T08:10:00.000Z",
+  "updated_at": "2026-10-19T09:47:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -364,7 +364,7 @@
       }
     },
     "night-live-pipeline": {
-      "status": "in_progress",
+      "status": "done",
       "meta": {
         "title": "Night 4 — Live pipeline motion",
         "description": "Animate active stages and data packets through the Agent Office so a running job visibly moves from worker to worker without becoming a game HUD.",
@@ -378,31 +378,32 @@
         "inspect": "done",
         "plan": "done",
         "implement": "done",
-        "test": {
-          "status": "in_progress",
-          "progress": 70
-        },
-        "deploy": "todo",
-        "verify": "todo"
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
       }
     },
     "night-error-center": {
-      "status": "todo",
+      "status": "in_progress",
       "meta": {
         "title": "Night 5 — Error center & recovery policy",
         "description": "Separate transient errors from billing/configuration failures, provide actionable messages, safe retry actions, and prevent duplicate spend.",
         "category": "quality",
         "priority": "high",
         "owner": "Factory Builder",
-        "order_index": 160
+        "order_index": 160,
+        "blocker": "Code implemented and committed; waiting for Render production deploy and live verification."
       },
       "steps": {
-        "understand": "todo",
-        "inspect": "todo",
-        "plan": "todo",
-        "implement": "todo",
-        "test": "todo",
-        "deploy": "todo",
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": {
+          "status": "in_progress",
+          "progress": 60
+        },
         "verify": "todo"
       }
     },

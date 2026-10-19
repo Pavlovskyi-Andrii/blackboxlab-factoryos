@@ -6,6 +6,13 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 
 ## Product changelog
 
+### v3.20 — Operations & Error Center (Night 5) — 2026-10-19
+- Added a dedicated Operations / Error Center with classified incidents, recovery guidance, resolved history and recorded run cost.
+- Split billing, configuration, budget, dependency, rate-limit, provider-response, transport and unknown failures into explicit recovery policies.
+- Automatic retry is now limited to explicitly safe transient failures; timeout/network/provider-uncertain cases require manual confirmation to reduce duplicate spend risk.
+- Added stale-incident retry fencing and budget preflight checks to manual worker recovery.
+- Reconciled Night 4 as deployed and moved Night 5 into active production rollout.
+
 ### v3.4 — Live Pipeline Motion — 2026-10-19
 - Added live stage highlighting driven by actual worker runtime state rather than a cosmetic timer.
 - Active pipeline stages show the worker currently executing and a moving data packet toward the next stage.
