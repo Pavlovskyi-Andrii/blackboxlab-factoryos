@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-19T09:47:00.000Z",
+  "updated_at": "2026-10-19T10:00:30.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -384,15 +384,14 @@
       }
     },
     "night-error-center": {
-      "status": "in_progress",
+      "status": "done",
       "meta": {
         "title": "Night 5 — Error center & recovery policy",
         "description": "Separate transient errors from billing/configuration failures, provide actionable messages, safe retry actions, and prevent duplicate spend.",
         "category": "quality",
         "priority": "high",
         "owner": "Factory Builder",
-        "order_index": 160,
-        "blocker": "Code implemented and committed; waiting for Render production deploy and live verification."
+        "order_index": 160
       },
       "steps": {
         "understand": "done",
@@ -400,11 +399,8 @@
         "plan": "done",
         "implement": "done",
         "test": "done",
-        "deploy": {
-          "status": "in_progress",
-          "progress": 60
-        },
-        "verify": "todo"
+        "deploy": "done",
+        "verify": "done"
       }
     },
     "night-responsive-i18n": {
