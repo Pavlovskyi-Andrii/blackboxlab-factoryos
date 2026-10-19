@@ -264,18 +264,29 @@ Idea Queue должна показывать:
 ## Tasks
 
 - [ ] Source adapter interface.
-- [ ] Manual URL ingestion.
-- [ ] Source deduplication.
-- [ ] Signal persistence.
-- [ ] Scout generation.
+- [x] Manual URL ingestion.
+- [x] Source deduplication.
+- [x] Signal persistence.
+- [x] Scout generation.
 - [ ] Researcher enrichment.
 - [ ] Idea Strategist.
 - [ ] Idea Verifier.
 - [ ] Idea Queue UI.
-- [ ] Idea provenance trace.
-- [ ] Cost/token accounting.
+- [x] Idea provenance trace.
+- [x] Cost/token accounting.
 - [ ] Mobile UI.
-- [ ] Regression tests.
+- [x] Regression tests.
+
+### Текущий implementation progress
+
+- Backend foundation LIVE: commit `108256e400e3bfb5b643bbf3e89014f067056f7f`, Render deploy `dep-dbb7a8rsv6fc73bdftu0`.
+- Добавлены persistent `source_signals` и `content_ideas`.
+- Есть fingerprint-based deduplication.
+- Есть API для ingestion, Idea Queue и изменения статуса идеи.
+- Есть явный spend-guarded `signal → Scout → idea shortlist` generation endpoint; он не запускается автоматически.
+- Сохраняются run/model/source provenance, tokens и provider cost.
+- Zero-spend CI покрывает storage/dedup/API/parser contract.
+- Следующий slice: Researcher enrichment → Idea Strategist → Idea Verifier → mobile Idea Queue UI.
 
 ## Definition of Done
 
@@ -748,6 +759,14 @@ signal
 
 Новые записи добавлять сверху.
 
+## 2026-10-19 — v3.30 backend foundation LIVE
+
+- Content Brain persistence, deduplication and Idea Queue API deployed.
+- Spend-guarded Scout generation endpoint deployed; no automatic paid calls.
+- CI passed zero-spend regressions for the new Content Brain contract.
+- Render deploy: `dep-dbb7a8rsv6fc73bdftu0`.
+- v3.30 remains IN PROGRESS: enrichment, strategist/verifier and mobile UI are next.
+
 ## 2026-10-19 — v3.25 Baseline Closure DONE / v3.30 started
 
 - Production evidence подтверждён в Render: 7 live runs, 9 artifacts, 5,846 tokens, $0.029902.
@@ -770,4 +789,4 @@ signal
 
 **NEXT: v3.30 — Content Brain / Idea Factory**
 
-Первый implementation slice: persistence для source signals/ideas, manual signal ingestion, deduplication и Idea Queue API; затем Scout/Researcher/Strategist/Verifier generation и mobile UI.
+Backend foundation уже live. NEXT: Researcher enrichment → Idea Strategist → Idea Verifier → mobile Idea Queue UI, затем переход к v3.40 Production Pipeline 2.0.
