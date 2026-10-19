@@ -2903,6 +2903,18 @@ async def add_content_signal(payload: SignalCreate):
         await broadcast({"type":"content_brain","action":"signal_ingested","signalId":result["signal"]["id"]})
     return result
 
+@app.post("/api/content-brain/generate")
+async def generate_content_brain(payload: IdeaGenerateRequest):
+    try:
+        result=await generate_ideas_from_signals(payload)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(503,str(exc))
+    event(None,f"Content Brain generated {len(result['ideas'])} idea(s)")
+    await broadcast({"type":"content_brain","action":"generated","count":len(result["ideas"]),"runId":result["run_id"]})
+    return result
+
 @app.post("/api/content-brain/ideas")
 async def add_content_idea(payload: IdeaCreate):
     try:
