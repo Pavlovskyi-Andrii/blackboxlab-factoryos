@@ -286,11 +286,12 @@ function workerResults(){
  const liveErrors=order.filter(name=>states[name]==='failed'&&errors[name]);
  errorsRoot.innerHTML=liveErrors.map(name=>'<div class="factoryError"><b>'+esc(name)+'</b><span>'+esc(errors[name].error||'Worker failed')+'</span><button class="btn" onclick="rerunAgent(\''+esc(name)+'\')">↻ Retry</button></div>').join('');
  root.innerHTML=order.map(name=>{
-   const state=states[name]||'idle',r=results[name],err=errors[name],incoming=handoffs.filter(x=>x.target_agent===name).slice(0,3);
+   const state=states[name]||'idle',r=results[name],err=errors[name],incoming=handoffs.filter(x=>x.target_agent===name).slice(0,3),outgoing=handoffs.filter(x=>x.source_agent===name).slice(0,3);
    const title=r?(r.title||r.kind||'Output'):(state==='failed'?'Failed':'Waiting for output');
    const preview=r?(r.preview||'Artifact saved'):(state==='failed'?(err&&err.error||'Worker failed'):'No artifact for this job yet.');
    const mode=r&&r.mode?r.mode.replace('_',' '):'—',model=r&&r.model?r.model:'';
-   return '<div class="workerResult '+state+'" onclick="openAgent(\''+esc(name)+'\')"><div class="workerResultTop"><b>'+esc(name)+'</b><span class="workerResultState">'+esc(state)+'</span></div><span class="workerResultTitle">'+esc(title)+'</span><div class="workerResultPreview">'+esc(preview)+'</div><div class="handoffChips">'+incoming.map(x=>'<span class="handoffChip">← '+esc(x.source_agent)+'</span>').join('')+'</div><div class="workerResultMeta"><span>'+esc(mode)+'</span><span>'+esc(model)+'</span></div></div>';
+   const chips=incoming.map(x=>'<span class="handoffChip">← '+esc(x.source_agent)+'</span>').concat(outgoing.map(x=>'<span class="handoffChip">→ '+esc(x.target_agent)+'</span>')).join('');
+   return '<div class="workerResult '+state+'" onclick="openAgent(\''+esc(name)+'\')"><div class="workerResultTop"><b>'+esc(name)+'</b><span class="workerResultState">'+esc(state)+'</span></div><span class="workerResultTitle">'+esc(title)+'</span><div class="workerResultPreview">'+esc(preview)+'</div><div class="handoffChips">'+chips+'</div><div class="workerResultMeta"><span>'+esc(mode)+'</span><span>'+esc(model)+'</span></div></div>';
  }).join('');
  const unique=[];const seen=new Set();
  handoffs.forEach(x=>{const k=x.source_agent+'>'+x.target_agent+'>'+x.artifact_id;if(!seen.has(k)){seen.add(k);unique.push(x)}});
