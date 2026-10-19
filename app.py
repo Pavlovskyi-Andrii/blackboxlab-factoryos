@@ -38,6 +38,7 @@ _DEFAULT_LLM_PRICES={
 _default_input_price,_default_output_price=_DEFAULT_LLM_PRICES.get(FACTORY_LLM_MODEL,(0.0,0.0))
 FACTORY_LLM_INPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_INPUT_USD_PER_1M", str(_default_input_price)))
 FACTORY_LLM_OUTPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_OUTPUT_USD_PER_1M", str(_default_output_price)))
+FACTORY_LLM_MAX_OUTPUT_TOKENS = max(128, min(4096, int(os.environ.get("FACTORY_LLM_MAX_OUTPUT_TOKENS", "1200"))))
 LLM_LIVE_AGENTS = {
     "Scout","Researcher","Tech Verifier","Hook Writer","Scriptwriter",
     "Visual Director","QA Agent","Publisher","Analyst",
@@ -1353,6 +1354,7 @@ def _call_live_llm(agent, job, input_pack):
     if FACTORY_LLM_API_MODE=="chat_completions":
         payload={
             "model":FACTORY_LLM_MODEL,
+            "max_completion_tokens":FACTORY_LLM_MAX_OUTPUT_TOKENS,
             "messages":[
                 {"role":"system","content":system},
                 {"role":"user","content":user},
@@ -1361,6 +1363,7 @@ def _call_live_llm(agent, job, input_pack):
     else:
         payload={
             "model":FACTORY_LLM_MODEL,
+            "max_output_tokens":FACTORY_LLM_MAX_OUTPUT_TOKENS,
             "instructions":system,
             "input":user,
             "store":False,
@@ -1690,10 +1693,14 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
             llm_result=None
             if live_llm:
                 usage=get_usage_summary()
-                if usage["today_cost_usd"] >= FACTORY_DAILY_BUDGET_USD:
-                    raise RuntimeError("Daily provider budget reached before model call")
-                if get_job_cost(job_id) >= FACTORY_JOB_BUDGET_USD:
-                    raise RuntimeError("Job provider budget reached before model call")
+                job_cost=get_job_cost(job_id)
+                # Reserve the configured maximum output cost before a paid call.
+                # This keeps one request from overshooting the daily/job cap.
+                max_call_cost=FACTORY_LLM_MAX_OUTPUT_TOKENS * FACTORY_LLM_OUTPUT_USD_PER_1M / 1_000_000
+                if usage["today_cost_usd"] + max_call_cost > FACTORY_DAILY_BUDGET_USD:
+                    raise RuntimeError("Daily provider budget would be exceeded by the next model call")
+                if job_cost + max_call_cost > FACTORY_JOB_BUDGET_USD:
+                    raise RuntimeError("Job provider budget would be exceeded by the next model call")
                 llm_result=await asyncio.wait_for(
                     asyncio.to_thread(_call_live_llm,agent,job,input_pack),
                     timeout=AGENT_TIMEOUT_SECONDS,
@@ -1752,7 +1759,7 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
 
         record_run_step(run_id,job_id,agent,"failed",last_error,agent_progress.get(agent,{}).get("progress",0),"failed")
         finish_agent_run(run_id,status="failed",error=last_error,
-                         meta={"mode":"demo","attempt":attempt})
+                         meta={"mode":"live_llm" if live_llm else "demo","attempt":attempt})
         set_agent_progress(agent,agent_progress.get(agent,{}).get("progress",0),f"Failed: {last_error}",job_id,run_id,"failed")
         event(job_id,f"{agent}: attempt {attempt} failed — {last_error}")
         await broadcast({"type":"agent_progress","agent":agent,"state":"failed","progress":agent_progress[agent]})
