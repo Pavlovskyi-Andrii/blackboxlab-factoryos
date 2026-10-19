@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-19T10:35:00.000Z",
+  "updated_at": "2026-10-19T10:56:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -279,7 +279,7 @@
         "priority": "high",
         "owner": "Factory Builder",
         "order_index": 110,
-        "blocker": "Implementation and production provider readiness are verified. Final paid end-to-end worker artifact/tokens/cost verification remains intentionally pending until an explicit paid run is approved."
+        "blocker": "Explicit paid verification is approved and wired as a one-shot v3.24 production run. Final closure waits for production evidence: real artifacts, input/output tokens, provider cost, and QA approval-gate state."
       },
       "steps": {
         "understand": "done",
@@ -306,7 +306,7 @@
         "priority": "high",
         "owner": "Factory Builder",
         "order_index": 120,
-        "blocker": "Live provider startup and bounded-spend deploy verified; final end-to-end paid worker artifact/tokens/cost verification still requires an intentional worker run."
+        "blocker": "Explicit paid verification is approved and wired as a one-shot v3.24 production run. Final closure waits for production evidence: real artifacts, input/output tokens, provider cost, and QA approval-gate state."
       },
       "steps": {
         "understand": "done",
@@ -482,6 +482,32 @@
         "test": "done",
         "deploy": "done",
         "verify": "done"
+      }
+    },
+    "mobile-parity": {
+      "status": "done",
+      "meta": {
+        "title": "v3.24 — Mobile control-room parity",
+        "description": "Keep Agent Office workers, navigation, job controls, pipeline, drawers and operational workspaces fully usable on phone layouts.",
+        "category": "product",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 200
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": {
+          "status": "in_progress",
+          "progress": 70
+        },
+        "verify": {
+          "status": "in_progress",
+          "progress": 50
+        }
       }
     }
   }
