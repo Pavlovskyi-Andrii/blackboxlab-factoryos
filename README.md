@@ -12,6 +12,7 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 - Added evidence-based optimization insights for failure hotspots, cost drivers, latency bottlenecks and incomplete job coverage.
 - Explicitly labels artifact coverage as pipeline readiness rather than inventing a subjective AI quality score.
 - Uses existing persisted ledgers only; no destructive schema migration was introduced.
+- Verified live on Render: successful build, application startup and production health checks.
 
 ### v3.20 — Operations & Error Center (Night 5) — 2026-10-19
 - Added a dedicated Operations / Error Center with classified incidents, recovery guidance, resolved history and recorded run cost.

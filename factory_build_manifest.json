@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-19T10:06:00.000Z",
+  "updated_at": "2026-10-19T10:04:30.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -464,15 +464,14 @@
       }
     },
     "factory-intelligence": {
-      "status": "in_progress",
+      "status": "done",
       "meta": {
         "title": "Factory Intelligence — worker & job comparison",
         "description": "Compare measured worker reliability, latency, token usage, provider cost and recent job artifact coverage, then surface evidence-based optimization hotspots.",
         "category": "intelligence",
         "priority": "high",
         "owner": "Factory Builder",
-        "order_index": 165,
-        "blocker": "Implementation committed; waiting for Render production deploy and live startup verification."
+        "order_index": 165
       },
       "steps": {
         "understand": "done",
@@ -480,11 +479,8 @@
         "plan": "done",
         "implement": "done",
         "test": "done",
-        "deploy": {
-          "status": "in_progress",
-          "progress": 60
-        },
-        "verify": "todo"
+        "deploy": "done",
+        "verify": "done"
       }
     }
   }
