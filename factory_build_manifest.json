@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-19T10:04:30.000Z",
+  "updated_at": "2026-10-19T10:12:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -404,42 +404,56 @@
       }
     },
     "night-responsive-i18n": {
-      "status": "todo",
+      "status": "in_progress",
       "meta": {
         "title": "Night 6 — Responsive + EN/UK/RU polish",
         "description": "Polish the new worker-results, trace and error UI on desktop/mobile and localize all newly added labels in EN, UK and RU.",
         "category": "product",
         "priority": "medium",
         "owner": "Factory Builder",
-        "order_index": 170
+        "order_index": 170,
+        "blocker": "Implementation committed; waiting for GitHub CI and Render production verification."
       },
       "steps": {
-        "understand": "todo",
-        "inspect": "todo",
-        "plan": "todo",
-        "implement": "todo",
-        "test": "todo",
-        "deploy": "todo",
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": {
+          "status": "in_progress",
+          "progress": 80
+        },
+        "deploy": {
+          "status": "in_progress",
+          "progress": 50
+        },
         "verify": "todo"
       }
     },
     "night-smoke-tests": {
-      "status": "todo",
+      "status": "in_progress",
       "meta": {
         "title": "Night 7 — Smoke tests & regression checks",
         "description": "Add lightweight endpoint/data-shape checks for status, worker results, handoffs, reruns, approval gate and provider readiness; verify latest Render deploy health.",
         "category": "quality",
         "priority": "high",
         "owner": "Factory Builder",
-        "order_index": 180
+        "order_index": 180,
+        "blocker": "Implementation committed; waiting for GitHub CI and Render production verification."
       },
       "steps": {
-        "understand": "todo",
-        "inspect": "todo",
-        "plan": "todo",
-        "implement": "todo",
-        "test": "todo",
-        "deploy": "todo",
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": {
+          "status": "in_progress",
+          "progress": 80
+        },
+        "deploy": {
+          "status": "in_progress",
+          "progress": 50
+        },
         "verify": "todo"
       }
     },

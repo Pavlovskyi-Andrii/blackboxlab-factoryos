@@ -6,6 +6,13 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 
 ## Product changelog
 
+### v3.22 — Responsive / i18n + Regression Guard — 2026-10-19
+- Localized Error Center, Worker Results, Handoff Trace and Factory Intelligence dynamic states across EN / UK / RU, including recovery confirmations and structured analytics insights.
+- Removed stale hardcoded UI versioning and added mobile-first navigation/layout overrides for the new operational surfaces, drawers, analytics workspace and error recovery cards.
+- Added a zero-spend standalone smoke/regression suite covering health/provider readiness, status data shapes, worker outputs/handoffs, approval gating, recovery retry policy, intelligence contracts and i18n completeness.
+- Wired the regression suite into GitHub Actions alongside Python compilation, HTML structure checks and inline JavaScript syntax validation.
+- Smoke tests explicitly clear the LLM API key, so CI cannot spend provider balance.
+
 ### v3.21 — Factory Intelligence — 2026-10-19
 - Added a dedicated Analytics workspace comparing worker reliability, measured latency, tokens, provider cost, failures and artifact production.
 - Added recent-job comparisons with persisted run cost/time/failures plus pipeline artifact coverage and stale-stage signals.
