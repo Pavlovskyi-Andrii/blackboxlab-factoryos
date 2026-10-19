@@ -14,6 +14,13 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v3.25 — Baseline Closure — 2026-10-19
+- Confirmed the controlled paid production run in Render: 7 live LLM runs, 9 artifacts, 5,846 total tokens and $0.029902 provider cost.
+- Confirmed the pipeline stopped at `waiting_approval`, preserving the human approval gate before publishing.
+- Synchronized `live-llm`, Night 1 hardening and mobile parity as completed in the build manifest.
+- Disabled the one-shot paid verification startup trigger after success while retaining the historical evidence summary.
+- Promoted the runtime build identity to v3.25 and moved the active roadmap to v3.30 Content Brain / Idea Factory.
+
 ### v3.24 — Mobile Control Room + Controlled Paid Verification — 2026-10-19
 - Restored Agent Office worker cards on phone layouts instead of hiding them below 700 px; workers remain visible, live-state aware and clickable.
 - Reworked mobile navigation into a horizontal touch rail and kept Jobs, Pipeline, Error Center, Outputs, Analytics, Release QA and worker drawers operational on small screens.
