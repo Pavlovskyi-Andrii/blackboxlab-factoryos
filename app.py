@@ -2397,6 +2397,30 @@ def agent_detail(agent_name:str):
         "providerMode":"demo" if CONNECTIONS.get("LLM",{}).get("state")=="demo" else "live"
     }
 
+@app.get("/api/handoffs/{run_id}/{artifact_id}")
+def handoff_trace(run_id:str, artifact_id:str):
+    con=db()
+    row=con.execute(
+        """SELECT ri.run_id,ri.artifact_id,ri.source_agent,ri.created_at handoff_at,
+                  r.agent target_agent,r.stage target_stage,r.status target_status,r.started_at target_started_at,r.finished_at target_finished_at,
+                  a.job_id,a.kind artifact_kind,a.title artifact_title,a.content artifact_content,a.url artifact_url,a.mime_type,a.created_at artifact_created_at
+           FROM run_inputs ri
+           JOIN agent_runs r ON r.id=ri.run_id
+           JOIN artifacts a ON a.id=ri.artifact_id
+           WHERE ri.run_id=? AND ri.artifact_id=?""",(run_id,artifact_id)
+    ).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404,"Handoff not found")
+    data=dict(row)
+    source_run=con.execute(
+        """SELECT id,stage,status,started_at,finished_at,input_tokens,output_tokens,cost_usd
+           FROM agent_runs WHERE id=(SELECT run_id FROM artifacts WHERE id=?)""",(artifact_id,)
+    ).fetchone()
+    con.close()
+    data["source_run"]=dict(source_run) if source_run else None
+    return data
+
 @app.get("/api/jobs/{job_id}/quality")
 def job_quality(job_id:str):
     quality=get_job_quality(job_id)
