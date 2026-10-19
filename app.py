@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.22"
+APP_VERSION = "v3.23"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -1652,6 +1652,86 @@ def get_factory_intelligence(limit_jobs=8):
         "measurement_note":"Reliability, latency, token usage and provider cost come from persisted agent runs. Artifact coverage measures pipeline readiness, not subjective content quality.",
     }
 
+def get_release_readiness():
+    jobs=get_jobs()
+    build=get_factory_tasks()
+    usage=get_usage_summary()
+    report=supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False,persist=False)
+    failed_jobs=[j for j in jobs if j.get("status")=="failed"]
+    waiting_jobs=[j for j in jobs if j.get("status")=="waiting_approval"]
+    running=[j for j in jobs if j.get("status")=="running"]
+    unresolved_incidents=0
+    spend_uncertain=0
+    for job in jobs[:12]:
+        center=get_job_error_center(job["id"])
+        unresolved_incidents+=int(center["summary"].get("open",0))
+        spend_uncertain+=int(center["summary"].get("spend_uncertain",0))
+
+    task_by_id={x["id"]:x for x in build.get("tasks",[])}
+    paid_verification_pending=any(
+        task_by_id.get(task_id,{}).get("status")!="done"
+        for task_id in ("live-llm","night-live-llm-hardening")
+    )
+
+    retry_probe=classify_agent_error("LLM provider request failed: timed out")
+    checks=[
+        {"id":"approval_gate","label":"Human approval gate","ok":True,
+         "detail":"Publishing remains blocked until the job reaches waiting_approval and a human approves it."},
+        {"id":"spend_guards","label":"Provider spend guards","ok":FACTORY_DAILY_BUDGET_USD>0 and FACTORY_JOB_BUDGET_USD>0,
+         "detail":f"Daily cap USD {FACTORY_DAILY_BUDGET_USD:g}; per-job cap USD {FACTORY_JOB_BUDGET_USD:g}."},
+        {"id":"uncertain_retry","label":"Spend-safe retry policy",
+         "ok":bool(retry_probe.get("requires_confirmation")) and not bool(retry_probe.get("auto_retry")),
+         "detail":"Timeout/network outcomes require manual confirmation instead of blind automatic retry."},
+        {"id":"authentication","label":"Private authentication","ok":bool(FACTORY_PASSWORD),
+         "detail":"Login protection is configured." if FACTORY_PASSWORD else "FACTORY_PASSWORD is not configured in this runtime."},
+        {"id":"llm_provider","label":"Live LLM provider","ok":bool(FACTORY_LLM_API_KEY),
+         "detail":f"{FACTORY_LLM_MODEL} via {FACTORY_LLM_API_MODE}." if FACTORY_LLM_API_KEY else "Live LLM key is not configured."},
+        {"id":"builder_bridge","label":"Factory Builder bridge","ok":bool(GITHUB_TOKEN),
+         "detail":"GitHub builder credential is configured." if GITHUB_TOKEN else "Builder uses fallback mode because GitHub credential is absent."},
+    ]
+
+    blockers=[]
+    def add(severity,code,title,detail):
+        blockers.append({"severity":severity,"code":code,"title":title,"detail":detail})
+    if not FACTORY_LLM_API_KEY:
+        add("critical","llm_not_configured","Live LLM provider is not configured","Content workers cannot complete real model-backed generation.")
+    if not FACTORY_PASSWORD:
+        add("warning","auth_not_configured","Private login is not configured","Production should keep FACTORY_PASSWORD configured.")
+    if failed_jobs:
+        add("critical","failed_jobs",f"{len(failed_jobs)} job(s) are failed","Resolve failed jobs in Error Center before unattended production.")
+    if spend_uncertain:
+        add("warning","uncertain_spend",f"{spend_uncertain} unresolved incident(s) have uncertain provider spend","Review provider-side completion before retrying these calls.")
+    if paid_verification_pending:
+        add("warning","paid_llm_verification","Intentional paid LLM end-to-end verification is still pending","Run one controlled paid worker only when you explicitly want to verify real artifact + token + cost accounting.")
+    if CONNECTIONS.get("Voice",{}).get("state")=="not_configured":
+        add("info","voice_provider","Voice provider is not configured","Narration remains a capability gap, not a hidden failure.")
+    if CONNECTIONS.get("Video",{}).get("state")=="not_configured":
+        add("info","video_provider","Video provider is not configured","Final rendering remains a capability gap, not a hidden failure.")
+
+    critical=sum(1 for x in blockers if x["severity"]=="critical")
+    state="blocked" if critical else ("ready_with_known_gaps" if blockers else "ready")
+    return {
+        "generated_at":ts(),"version":APP_VERSION,"build_sha":BUILD_SHA,"state":state,
+        "summary":{
+            "jobs":len(jobs),"running_jobs":len(running),"waiting_approval":len(waiting_jobs),
+            "failed_jobs":len(failed_jobs),"open_incidents":unresolved_incidents,
+            "spend_uncertain_incidents":spend_uncertain,
+            "roadmap_progress":float(build.get("progress",0)),
+            "roadmap_done":int(build.get("done",0)),"roadmap_total":int(build.get("total",0)),
+            "provider_cost_usd":float(usage.get("cost_usd",0) or 0),
+            "today_cost_usd":float(usage.get("today_cost_usd",0) or 0),
+            "supervisor_score":int(report.get("score",0) or 0),
+        },
+        "checks":checks,"blockers":blockers,
+        "remaining_paid_verification":paid_verification_pending,
+        "next_priorities":[
+            "Run one controlled paid LLM worker verification only with explicit approval.",
+            "Select and connect voice/video providers before claiming full media-production readiness.",
+            "Use Factory Intelligence and Error Center data to optimize workers after more real production runs.",
+        ],
+        "note":"This readiness snapshot reports measured/runtime facts and declared capability gaps. It does not execute paid provider calls.",
+    }
+
 def get_job_cost(job_id):
     con=db(); row=con.execute("SELECT COALESCE(SUM(cost_usd),0) c FROM agent_runs WHERE job_id=?",(job_id,)).fetchone(); con.close()
     return float(row["c"] or 0)
@@ -2415,6 +2495,10 @@ def status():
             "job_budget_usd":FACTORY_JOB_BUDGET_USD
         }
     }
+
+@app.get("/api/release-readiness")
+def release_readiness():
+    return get_release_readiness()
 
 @app.get("/api/intelligence")
 def factory_intelligence():

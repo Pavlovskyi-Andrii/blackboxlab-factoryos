@@ -6,6 +6,13 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 
 ## Product changelog
 
+### v3.23 — Release Readiness / Morning QA — 2026-10-19
+- Added a live Release QA workspace that summarizes production state, roadmap completion, failed jobs, open incidents, current provider spend and build identity.
+- Added explicit runtime safety checks for the human approval gate, provider budget guards, spend-safe retry behavior, private authentication, live LLM configuration and Builder bridge.
+- Added structured known-gap reporting instead of hiding incomplete capabilities: the controlled paid LLM end-to-end verification remains intentionally pending, and voice/video providers remain unconfigured.
+- Added the /api/release-readiness endpoint and extended the zero-spend regression suite to protect its contract and safety invariants.
+- Morning QA does not execute paid model calls.
+
 ### v3.22 — Responsive / i18n + Regression Guard — 2026-10-19
 - Localized Error Center, Worker Results, Handoff Trace and Factory Intelligence dynamic states across EN / UK / RU, including recovery confirmations and structured analytics insights.
 - Removed stale hardcoded UI versioning and added mobile-first navigation/layout overrides for the new operational surfaces, drawers, analytics workspace and error recovery cards.

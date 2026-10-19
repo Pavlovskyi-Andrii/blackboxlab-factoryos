@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-19T10:30:00.000Z",
+  "updated_at": "2026-10-19T10:34:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -444,22 +444,29 @@
       }
     },
     "night-morning-qa": {
-      "status": "todo",
+      "status": "in_progress",
       "meta": {
         "title": "Night 8 — Morning QA & product summary",
         "description": "Do a final audit of the live FactoryOS build, update roadmap statuses, record remaining blockers, and prepare a concise morning changelog with next priorities.",
         "category": "product",
         "priority": "high",
         "owner": "Factory Builder",
-        "order_index": 190
+        "order_index": 190,
+        "blocker": "Release-readiness workspace implemented; waiting for GitHub CI and Render production verification."
       },
       "steps": {
-        "understand": "todo",
-        "inspect": "todo",
-        "plan": "todo",
-        "implement": "todo",
-        "test": "todo",
-        "deploy": "todo",
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": {
+          "status": "in_progress",
+          "progress": 80
+        },
+        "deploy": {
+          "status": "in_progress",
+          "progress": 50
+        },
         "verify": "todo"
       }
     },
