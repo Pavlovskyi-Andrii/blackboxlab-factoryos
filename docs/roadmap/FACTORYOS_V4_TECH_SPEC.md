@@ -2,7 +2,7 @@
 
 **Проект:** Blackbox Lab — FactoryOS  
 **Ветка:** `main`  
-**Baseline:** v3.24  
+**Baseline:** v3.25  
 **Создано:** 2026-10-19  
 **Статус документа:** ACTIVE / living specification  
 **Цель:** превратить FactoryOS из работающего AI orchestration control room в автономную, измеримую и самоулучшающуюся фабрику контента.
@@ -127,13 +127,15 @@ signals / trends / sources
 
 ## Технические хвосты baseline
 
-**Status: IN PROGRESS**
+**Status: DONE**
 
-- [ ] Синхронизировать build manifest с реальным v3.24 production state.
-- [ ] Закрыть `live-llm` после сохранённого production verification evidence.
-- [ ] Закрыть `night-live-llm-hardening` после verification evidence.
-- [ ] Закрыть `mobile-parity` после production/mobile verification.
-- [ ] Зафиксировать baseline snapshot: version / commit / deploy / health / known gaps.
+- [x] Синхронизирован build manifest с реальным production state.
+- [x] `live-llm` закрыт после production verification evidence.
+- [x] `night-live-llm-hardening` закрыт после production verification evidence.
+- [x] `mobile-parity` закрыт после production/mobile verification.
+- [x] Зафиксирован baseline snapshot: version / commit / deploy / health / known gaps.
+
+**Production evidence:** `v3.24-live-e2e-2026-10-19` → 7 live runs, 9 artifacts, 5,846 tokens, $0.029902, final state `waiting_approval`, approval gate reached. Одноразовый paid startup-trigger после успешной проверки отключён в v3.25.
 
 ---
 
@@ -141,8 +143,8 @@ signals / trends / sources
 
 | Version | Milestone | Status | Главный результат |
 |---|---|---|---|
-| v3.25 | Baseline Closure | TODO | чистый и проверенный production baseline |
-| v3.30 | Content Brain / Idea Factory | TODO | FactoryOS сам находит и ранжирует темы |
+| v3.25 | Baseline Closure | DONE | чистый и проверенный production baseline |
+| v3.30 | Content Brain / Idea Factory | IN PROGRESS | FactoryOS сам находит и ранжирует темы |
 | v3.40 | Production Pipeline 2.0 | TODO | многоступенчатое производство качественного сценария |
 | v3.50 | Content Package / Shorts Factory | TODO | готовый production package для ролика |
 | v3.60 | Approval Studio | TODO | удобное мобильное редакторское одобрение |
@@ -155,7 +157,7 @@ signals / trends / sources
 
 # 5. v3.25 — Baseline Closure
 
-**Status: TODO**
+**Status: DONE**
 
 ## Цель
 
@@ -171,15 +173,15 @@ signals / trends / sources
 
 ## Tasks
 
-- [ ] Production LLM run evidence сохранён.
-- [ ] Есть input/output token accounting.
-- [ ] Есть provider cost accounting.
-- [ ] Есть artifact count / run IDs.
-- [ ] Pipeline остановился на approval gate.
-- [ ] Mobile dashboard проверен на phone width.
-- [ ] Manifest соответствует production.
-- [ ] README / changelog соответствует production.
-- [ ] Release QA показывает правильный current build.
+- [x] Production LLM run evidence сохранён.
+- [x] Есть input/output token accounting.
+- [x] Есть provider cost accounting.
+- [x] Есть artifact count / run IDs.
+- [x] Pipeline остановился на approval gate.
+- [x] Mobile dashboard проверен на phone width.
+- [x] Manifest соответствует production.
+- [x] README / changelog соответствует production.
+- [x] Release QA показывает правильный current build.
 
 ## Definition of Done
 
@@ -189,7 +191,7 @@ signals / trends / sources
 
 # 6. v3.30 — Content Brain / Idea Factory
 
-**Status: TODO**
+**Status: IN PROGRESS**
 
 ## Цель
 
@@ -746,6 +748,15 @@ signal
 
 Новые записи добавлять сверху.
 
+## 2026-10-19 — v3.25 Baseline Closure DONE / v3.30 started
+
+- Production evidence подтверждён в Render: 7 live runs, 9 artifacts, 5,846 tokens, $0.029902.
+- Pipeline завершил controlled paid verification в `waiting_approval`; human approval gate подтверждён.
+- `live-llm`, Night 1 hardening и mobile parity синхронизированы как DONE.
+- APP_VERSION поднят до v3.25.
+- Одноразовый paid verification startup-trigger отключён; историческое evidence остаётся доступным.
+- Следующий активный milestone: v3.30 Content Brain / Idea Factory.
+
 ## 2026-10-19 — Roadmap created
 
 - Создано единое ТЗ FactoryOS v4.0.
@@ -757,6 +768,6 @@ signal
 
 # 17. Current Next Action
 
-**NEXT: v3.25 — Baseline Closure**
+**NEXT: v3.30 — Content Brain / Idea Factory**
 
-До начала Content Brain необходимо привести manifest, Release QA и production verification evidence к единому состоянию.
+Первый implementation slice: persistence для source signals/ideas, manual signal ingestion, deduplication и Idea Queue API; затем Scout/Researcher/Strategist/Verifier generation и mobile UI.
