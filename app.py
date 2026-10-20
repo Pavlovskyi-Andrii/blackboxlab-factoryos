@@ -3303,21 +3303,29 @@ def _revideo_dict(row):
         d[out]=_decode_json(d.pop(field,"{}"),{})
     return d
 
+def _attach_latest_media_job(project):
+    if not project:return project
+    con=db();row=con.execute("SELECT * FROM media_jobs WHERE revideo_project_id=? ORDER BY updated_at DESC LIMIT 1",
+                             (project["id"],)).fetchone();con.close()
+    project["media_job"]=_media_job_dict(row) if row else None
+    return project
+
 def get_revideo_project(project_id):
     con=db();row=con.execute("SELECT * FROM revideo_projects WHERE id=?",(project_id,)).fetchone();con.close()
-    return _revideo_dict(row)
+    return _attach_latest_media_job(_revideo_dict(row))
 
 def get_revideo_projects(limit=80):
     con=db();rows=con.execute("SELECT * FROM revideo_projects ORDER BY updated_at DESC LIMIT ?",
                               (max(1,min(200,int(limit))),)).fetchall();con.close()
-    items=[_revideo_dict(x) for x in rows];counts={}
+    items=[_attach_latest_media_job(_revideo_dict(x)) for x in rows];counts={}
     for x in items:counts[x["status"]]=counts.get(x["status"],0)+1
     return {
         "summary":{"projects":len(items),**counts},"projects":items,
         "transcript_adapter":{"selected":FACTORY_TRANSCRIPT_ADAPTER,"configured":bool(FACTORY_TRANSCRIPT_ENDPOINT),
                               "mode":"manual" if not FACTORY_TRANSCRIPT_ENDPOINT else "webhook"},
         "video_adapter":{"selected":FACTORY_MEDIA_ADAPTERS.get("video") or None,
-                         "configured":bool(FACTORY_VIDEO_ENDPOINT),"mode":"webhook" if FACTORY_VIDEO_ENDPOINT else "not_configured"},
+                         "configured":bool(FACTORY_VIDEO_ENDPOINT),"mode":"async_webhook" if FACTORY_VIDEO_ENDPOINT else "not_configured",
+                         "status_endpoint_configured":bool(FACTORY_VIDEO_STATUS_ENDPOINT)},
         "safety_note":"Revideo extracts reusable structure and creates an original rewrite. Source media is not copied/re-uploaded by default; human approval remains mandatory."
     }
 
