@@ -48,6 +48,8 @@ FACTORY_REAL_PILOT_SIGNALS_JSON = os.environ.get("FACTORY_REAL_PILOT_SIGNALS_JSO
 FACTORY_REAL_PILOT_MAX_USD = max(0.01, float(os.environ.get("FACTORY_REAL_PILOT_MAX_USD", "0.75")))
 FACTORY_REAL_PILOT_MAX_IDEAS = max(1, min(2, int(os.environ.get("FACTORY_REAL_PILOT_MAX_IDEAS", "1"))))
 FACTORY_REAL_PILOT_LANGUAGE = (os.environ.get("FACTORY_REAL_PILOT_LANGUAGE", "English").strip() or "English")
+FACTORY_REAL_PILOT_RESUME_STARTED = os.environ.get("FACTORY_REAL_PILOT_RESUME_STARTED", "").strip().lower() in ("1","true","yes","on")
+real_pilot_runtime={"active":False,"tag":None,"started_at":None,"max_usd":FACTORY_REAL_PILOT_MAX_USD}
 # Historical production verification evidence remains queryable, but the startup trigger is disabled after the passed v3.24 run.
 VERIFICATION_EVIDENCE_TAG = "v3.24-live-e2e-2026-10-19"
 PAID_VERIFICATION_TAG = ""
@@ -444,8 +446,9 @@ CONNECTIONS = {
 def ts(): return datetime.now(timezone.utc).isoformat()
 
 def db():
-    con = sqlite3.connect(DB)
+    con = sqlite3.connect(DB, timeout=30)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA busy_timeout=30000")
     return con
 
 def get_paid_verification(tag=VERIFICATION_EVIDENCE_TAG):
@@ -474,6 +477,43 @@ def get_real_pilot(tag=None):
         "quote_usd":meta.get("quote_usd"),"max_usd":meta.get("max_usd"),
         "error":meta.get("error"),
     }
+
+def _pilot_spend_since(started_at):
+    if not started_at:return 0.0
+    con=db()
+    row=con.execute("""SELECT COALESCE(SUM(cost_usd),0) cost FROM agent_runs
+                       WHERE started_at>=? AND model!='simulation-v3'""",(started_at,)).fetchone()
+    con.close()
+    return round(float(row["cost"] or 0),6)
+
+def _real_pilot_budget_guard(output_tokens=1200):
+    if not real_pilot_runtime.get("active"):return 0.0
+    started=real_pilot_runtime.get("started_at")
+    max_usd=float(real_pilot_runtime.get("max_usd") or FACTORY_REAL_PILOT_MAX_USD)
+    spent=_pilot_spend_since(started)
+    # Conservative reserve includes 5k input tokens plus the configured output ceiling.
+    reserve=(5000*FACTORY_LLM_INPUT_USD_PER_1M + max(128,int(output_tokens))*FACTORY_LLM_OUTPUT_USD_PER_1M)/1_000_000
+    if spent + reserve > max_usd + 1e-9:
+        raise RuntimeError(f"Real pilot hard budget would be exceeded: spent USD {spent:.6f} + reserve USD {reserve:.6f} > USD {max_usd:.6f}")
+    return reserve
+
+def _verification_update(tag, values, attempts=6):
+    last=None
+    for n in range(max(1,attempts)):
+        con=None
+        try:
+            con=db()
+            cols=",".join(f"{k}=?" for k in values)
+            con.execute(f"UPDATE system_verifications SET {cols} WHERE tag=?",(*values.values(),tag))
+            con.commit();con.close();return
+        except sqlite3.OperationalError as exc:
+            last=exc
+            if con:
+                try:con.close()
+                except Exception:pass
+            if "locked" not in str(exc).lower():raise
+            time.sleep(0.15*(n+1))
+    raise last or RuntimeError("verification update failed")
 
 def _parse_real_pilot_signals(raw=None):
     raw=FACTORY_REAL_PILOT_SIGNALS_JSON if raw is None else raw
@@ -1666,6 +1706,7 @@ def _content_brain_llm(role, system, user, max_output_tokens=900, model=None):
             "provider_request_id":result.get("id")}
 
 def _content_brain_budget_guard(output_tokens=900):
+    _real_pilot_budget_guard(output_tokens)
     usage=get_usage_summary()
     reserve=max(128,int(output_tokens))*FACTORY_LLM_OUTPUT_USD_PER_1M/1_000_000
     if usage["today_cost_usd"] + reserve > FACTORY_DAILY_BUDGET_USD:
@@ -2756,6 +2797,7 @@ def _variant_research_context(job_id):
     return "\n\n".join(f"{x['agent']} — {x['title']}:\n{_trim_llm_context(x.get('content',''),5000)}" for x in reversed(rows)) or "(no persisted research artifacts; do not invent evidence)"
 
 def _variant_budget_guard(job_id, output_tokens=1200):
+    _real_pilot_budget_guard(output_tokens)
     reserve=max(128,int(output_tokens))*FACTORY_LLM_OUTPUT_USD_PER_1M/1_000_000
     usage=get_usage_summary()
     if usage["today_cost_usd"] + reserve > FACTORY_DAILY_BUDGET_USD:raise RuntimeError("Daily provider budget would be exceeded by the next variant call")
@@ -2834,6 +2876,7 @@ async def run_variant_pipeline(job_id,candidate_count=None):
     for n,a in enumerate(angles,1):
         vid=str(uuid.uuid4());provenance={"batch_id":batch_id,"run_ids":{"angle":angle_run},"workflow_version_id":workflow["version"]["id"]}
         con.execute("INSERT INTO production_variants(id,batch_id,job_id,ordinal,status,angle,angle_reason,provenance_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",(vid,batch_id,job_id,n,"candidate",str(a.get("angle") or "").strip(),str(a.get("reason") or "").strip(),json.dumps(provenance),now,now))
+        con.commit()
         variants.append({"id":vid,"ordinal":n,"angle":str(a.get("angle") or "").strip(),"angle_reason":str(a.get("reason") or "").strip()});_save_variant_piece("Angle Strategist",job_id,angle_run,batch_id,vid,"angle",f"Variant {n} · angle",json.dumps(a,ensure_ascii=False,indent=2))
     con.commit();con.close()
     hook_obj,hook_run,_=await _variant_agent_call("Hook Generator",job_id,"Generating hook candidates","You are Hook Generator. Create one specific 1–3 second opening hook for each supplied variant. Hooks must differ in mechanism, not just wording, and must not add unsupported claims. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"hook\":\"...\",\"rationale\":\"...\"}]}.",f"LANGUAGE: {language}\nRESEARCH:\n{research}\nVARIANTS:\n{json.dumps(variants,ensure_ascii=False)}",1000)
@@ -2842,7 +2885,7 @@ async def run_variant_pipeline(job_id,candidate_count=None):
         h=hooks.get(v["id"]) or {};v["hook"]=str(h.get("hook") or "").strip();v["hook_rationale"]=str(h.get("rationale") or "").strip()
         if not v["hook"]:raise RuntimeError(f"Hook Generator missed variant {v['ordinal']}")
         prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["hook"]=hook_run
-        con.execute("UPDATE production_variants SET hook=?,hook_rationale=?,provenance_json=?,updated_at=? WHERE id=?",(v["hook"],v["hook_rationale"],json.dumps(prov),ts(),v["id"]));_save_variant_piece("Hook Generator",job_id,hook_run,batch_id,v["id"],"hook",f"Variant {v['ordinal']} · hook",json.dumps(h,ensure_ascii=False,indent=2))
+        con.execute("UPDATE production_variants SET hook=?,hook_rationale=?,provenance_json=?,updated_at=? WHERE id=?",(v["hook"],v["hook_rationale"],json.dumps(prov),ts(),v["id"]));con.commit();_save_variant_piece("Hook Generator",job_id,hook_run,batch_id,v["id"],"hook",f"Variant {v['ordinal']} · hook",json.dumps(h,ensure_ascii=False,indent=2))
     con.commit();con.close()
     script_obj,script_run,_=await _variant_agent_call("Scriptwriter",job_id,"Writing script variants","You are Scriptwriter. Write a distinct concise production script for each supplied variant, keeping its angle and hook. Use only supplied research. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"script\":\"...\"}]}. Each script must contain a concrete payoff and CTA, and explicitly qualify uncertainty.",f"LANGUAGE: {language}\nFORMAT: {job.get('format','')}\nRESEARCH:\n{research}\nVARIANTS:\n{json.dumps(variants,ensure_ascii=False)}",1200)
     scripts={str(x.get("variant_id")):x for x in script_obj.get("variants") or [] if isinstance(x,dict)};con=db()
@@ -2850,20 +2893,20 @@ async def run_variant_pipeline(job_id,candidate_count=None):
         x=scripts.get(v["id"]) or {};v["script"]=str(x.get("script") or "").strip()
         if not v["script"]:raise RuntimeError(f"Scriptwriter missed variant {v['ordinal']}")
         prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["script"]=script_run
-        con.execute("UPDATE production_variants SET script=?,provenance_json=?,updated_at=? WHERE id=?",(v["script"],json.dumps(prov),ts(),v["id"]));_save_variant_piece("Scriptwriter",job_id,script_run,batch_id,v["id"],"script",f"Variant {v['ordinal']} · script",v["script"])
+        con.execute("UPDATE production_variants SET script=?,provenance_json=?,updated_at=? WHERE id=?",(v["script"],json.dumps(prov),ts(),v["id"]));con.commit();_save_variant_piece("Scriptwriter",job_id,script_run,batch_id,v["id"],"script",f"Variant {v['ordinal']} · script",v["script"])
     con.commit();con.close()
     fact_obj,fact_run,_=await _variant_agent_call("Fact Checker",job_id,"Fact-checking variants","You are Fact Checker. Inspect each script against supplied persisted research only. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"findings\":[{\"type\":\"unsupported_claim|missing_source|fact_conflict\",\"severity\":\"info|warning|critical\",\"message\":\"...\",\"evidence\":\"...\"}],\"fact_summary\":\"...\"}]}. Never claim external verification that is not present in research.",f"RESEARCH:\n{research}\nSCRIPTS:\n{json.dumps([{k:v.get(k) for k in ('id','script')} for v in variants],ensure_ascii=False)}",1100)
     facts={str(x.get("variant_id")):x for x in fact_obj.get("variants") or [] if isinstance(x,dict)};con=db()
     for v in variants:
         x=facts.get(v["id"]) or {};x["findings"]=_normalize_qa_findings(x.get("findings") or []);v["fact_check"]=x
         prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["factcheck"]=fact_run
-        con.execute("UPDATE production_variants SET fact_check_json=?,provenance_json=?,updated_at=? WHERE id=?",(json.dumps(x,ensure_ascii=False),json.dumps(prov),ts(),v["id"]));_save_variant_piece("Fact Checker",job_id,fact_run,batch_id,v["id"],"factcheck",f"Variant {v['ordinal']} · fact check",json.dumps(x,ensure_ascii=False,indent=2))
+        con.execute("UPDATE production_variants SET fact_check_json=?,provenance_json=?,updated_at=? WHERE id=?",(json.dumps(x,ensure_ascii=False),json.dumps(prov),ts(),v["id"]));con.commit();_save_variant_piece("Fact Checker",job_id,fact_run,batch_id,v["id"],"factcheck",f"Variant {v['ordinal']} · fact check",json.dumps(x,ensure_ascii=False,indent=2))
     con.commit();con.close()
     opt_obj,opt_run,_=await _variant_agent_call("Hook Optimizer",job_id,"Optimizing hooks","You are Hook Optimizer. Improve each hook after reading fact-check findings. Preserve evidence boundaries; do not introduce new claims. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"optimized_hook\":\"...\",\"change_reason\":\"...\"}]}.",f"LANGUAGE: {language}\nVARIANTS:\n{json.dumps([{**{k:v.get(k) for k in ('id','hook')},'fact_check':v.get('fact_check')} for v in variants],ensure_ascii=False)}",850)
     opts={str(x.get("variant_id")):x for x in opt_obj.get("variants") or [] if isinstance(x,dict)};con=db()
     for v in variants:
         x=opts.get(v["id"]) or {};v["optimized_hook"]=str(x.get("optimized_hook") or v.get("hook") or "").strip();prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["optimize"]=opt_run
-        con.execute("UPDATE production_variants SET optimized_hook=?,provenance_json=?,updated_at=? WHERE id=?",(v["optimized_hook"],json.dumps(prov),ts(),v["id"]));_save_variant_piece("Hook Optimizer",job_id,opt_run,batch_id,v["id"],"optimize",f"Variant {v['ordinal']} · optimized hook",json.dumps(x,ensure_ascii=False,indent=2))
+        con.execute("UPDATE production_variants SET optimized_hook=?,provenance_json=?,updated_at=? WHERE id=?",(v["optimized_hook"],json.dumps(prov),ts(),v["id"]));con.commit();_save_variant_piece("Hook Optimizer",job_id,opt_run,batch_id,v["id"],"optimize",f"Variant {v['ordinal']} · optimized hook",json.dumps(x,ensure_ascii=False,indent=2))
     con.commit();con.close()
     edit_obj,edit_run,_=await _variant_agent_call("Editor",job_id,"Editing production variants","You are Editor. Produce final edited script for each variant using its optimized hook and fact-check findings. Remove or qualify unsupported claims. Keep variants meaningfully distinct. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"edited_script\":\"...\",\"edit_notes\":\"...\"}]}.",f"LANGUAGE: {language}\nVARIANTS:\n{json.dumps([{k:v.get(k) for k in ('id','angle','optimized_hook','script','fact_check')} for v in variants],ensure_ascii=False)}",1200)
     edits={str(x.get("variant_id")):x for x in edit_obj.get("variants") or [] if isinstance(x,dict)};con=db()
@@ -2871,14 +2914,14 @@ async def run_variant_pipeline(job_id,candidate_count=None):
         x=edits.get(v["id"]) or {};v["edited_script"]=str(x.get("edited_script") or "").strip()
         if not v["edited_script"]:raise RuntimeError(f"Editor missed variant {v['ordinal']}")
         prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["editor"]=edit_run
-        con.execute("UPDATE production_variants SET edited_script=?,provenance_json=?,updated_at=? WHERE id=?",(v["edited_script"],json.dumps(prov),ts(),v["id"]));_save_variant_piece("Editor",job_id,edit_run,batch_id,v["id"],"editor",f"Variant {v['ordinal']} · edited script",v["edited_script"])
+        con.execute("UPDATE production_variants SET edited_script=?,provenance_json=?,updated_at=? WHERE id=?",(v["edited_script"],json.dumps(prov),ts(),v["id"]));con.commit();_save_variant_piece("Editor",job_id,edit_run,batch_id,v["id"],"editor",f"Variant {v['ordinal']} · edited script",v["edited_script"])
     con.commit();con.close()
     qa_obj,qa_run,_=await _variant_agent_call("QA Agent",job_id,"Comparing variants with structured QA","You are QA Agent comparing competing content variants before downstream production. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"decision\":\"keep|reject\",\"reason\":\"...\",\"findings\":[{\"type\":\"unsupported_claim|weak_hook|duplicated_angle|missing_source|slow_intro|unclear_cta|excessive_length|unsafe_sensitive_claim|fact_conflict\",\"severity\":\"info|warning|critical\",\"message\":\"...\",\"evidence\":\"...\"}]}],\"recommended_variant_id\":\"...\"}. Do not use a made-up quality score. Recommend based on concrete findings only.",f"LANGUAGE: {language}\nRESEARCH:\n{research}\nVARIANTS:\n{json.dumps([{k:v.get(k) for k in ('id','angle','optimized_hook','edited_script','fact_check')} for v in variants],ensure_ascii=False)}",1200)
     qa_map={str(x.get("variant_id")):x for x in qa_obj.get("variants") or [] if isinstance(x,dict)};con=db();hydrated=[]
     for v in variants:
         q=qa_map.get(v["id"]) or {"decision":"keep","reason":"QA returned no variant-specific decision","findings":[]};q["findings"]=_normalize_qa_findings(q.get("findings") or []);v["qa"]=q
         prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["qa"]=qa_run
-        con.execute("UPDATE production_variants SET qa_json=?,provenance_json=?,updated_at=? WHERE id=?",(json.dumps(q,ensure_ascii=False),json.dumps(prov),ts(),v["id"]));_save_variant_piece("QA Agent",job_id,qa_run,batch_id,v["id"],"qa",f"Variant {v['ordinal']} · structured QA",json.dumps(q,ensure_ascii=False,indent=2));hydrated.append({**v,"provenance":prov})
+        con.execute("UPDATE production_variants SET qa_json=?,provenance_json=?,updated_at=? WHERE id=?",(json.dumps(q,ensure_ascii=False),json.dumps(prov),ts(),v["id"]));con.commit();_save_variant_piece("QA Agent",job_id,qa_run,batch_id,v["id"],"qa",f"Variant {v['ordinal']} · structured QA",json.dumps(q,ensure_ascii=False,indent=2));hydrated.append({**v,"provenance":prov})
     con.commit();con.close()
     selected_id=_select_variant_from_qa(hydrated,str(qa_obj.get("recommended_variant_id") or ""))
     if not selected_id:raise RuntimeError("Structured QA could not select a production variant")
@@ -3316,6 +3359,7 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
                 # Reserve the configured maximum output cost before a paid call.
                 # This keeps one request from overshooting the daily/job cap.
                 max_call_cost=FACTORY_LLM_MAX_OUTPUT_TOKENS * FACTORY_LLM_OUTPUT_USD_PER_1M / 1_000_000
+                _real_pilot_budget_guard(FACTORY_LLM_MAX_OUTPUT_TOKENS)
                 if usage["today_cost_usd"] + max_call_cost > FACTORY_DAILY_BUDGET_USD:
                     raise RuntimeError("Daily provider budget would be exceeded by the next model call")
                 if job_cost + max_call_cost > FACTORY_JOB_BUDGET_USD:
@@ -4947,92 +4991,102 @@ async def factory_cycle_reconcile_loop():
 
 async def run_real_world_pilot_once():
     tag=FACTORY_REAL_PILOT_TAG
-    if not tag:
-        return
+    if not tag:return
     if not FACTORY_LLM_API_KEY:
-        print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"skipped","reason":"llm_not_configured"}),flush=True)
-        return
-    con=db();existing=con.execute("SELECT * FROM system_verifications WHERE tag=?",(tag,)).fetchone()
-    if existing:
-        con.close()
-        print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"skip_existing","existing_status":existing["status"]}),flush=True)
-        return
-    started=ts()
-    con.execute("""INSERT INTO system_verifications(tag,status,started_at,detail)
-                   VALUES(?,?,?,?)""",(tag,"started",started,json.dumps({
-                       "phase":"fenced","max_usd":FACTORY_REAL_PILOT_MAX_USD,
-                       "approval_gate_reached":False
-                   })))
-    con.commit();con.close()
-    cycle_id=None;job_id=None
-    before=get_usage_summary()["today_cost_usd"]
-    try:
-        source_rows=[]
-        for signal in _parse_real_pilot_signals():
-            result=ingest_source_signal(SignalCreate(
-                title=signal["title"],url=signal["url"],content=signal["content"],
-                source_type="real_pilot_web",topic=signal["topic"]
-            ))
-            source_rows.append(result["signal"])
-        cycle=create_factory_cycle(FactoryCycleCreate(
-            signal_ids=[x["id"] for x in source_rows],language=FACTORY_REAL_PILOT_LANGUAGE
-        ),source="v4.1_real_world_pilot")
-        cycle_id=cycle["id"]
-        quote=estimate_factory_cycle_cost(cycle_id,FACTORY_REAL_PILOT_MAX_IDEAS)
-        quote_usd=float(quote.get("estimated_max_usd") or 0)
-        if not quote.get("paid_calls_possible"):
-            raise RuntimeError("Pilot expected live paid LLM work but provider quote reports zero-spend mode")
-        if quote_usd > FACTORY_REAL_PILOT_MAX_USD:
-            raise RuntimeError(f"Pilot quote USD {quote_usd:.6f} exceeds hard pilot ceiling USD {FACTORY_REAL_PILOT_MAX_USD:.6f}")
-        con=db();con.execute("UPDATE system_verifications SET detail=? WHERE tag=?",(
-            json.dumps({"phase":"running","cycle_id":cycle_id,"source_urls":[x["url"] for x in source_rows],
-                        "quote_usd":quote_usd,"max_usd":FACTORY_REAL_PILOT_MAX_USD,"approval_gate_reached":False}),tag
-        ));con.commit();con.close()
-        print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"running","cycle_id":cycle_id,
-                          "quote_usd":quote_usd,"max_usd":FACTORY_REAL_PILOT_MAX_USD,
-                          "sources":[x["url"] for x in source_rows]}),flush=True)
+        print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"skipped","reason":"llm_not_configured"}),flush=True);return
 
+    con=db();existing=con.execute("SELECT * FROM system_verifications WHERE tag=?",(tag,)).fetchone();con.close()
+    source_rows=[];quote_usd=None;cycle_id=None;job_id=None
+    if existing:
+        row=dict(existing)
+        try:meta=json.loads(row.get("detail") or "{}")
+        except Exception:meta={}
+        if not (row.get("status")=="started" and FACTORY_REAL_PILOT_RESUME_STARTED and meta.get("cycle_id")):
+            print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"skip_existing","existing_status":row.get("status")}),flush=True);return
+        started=row.get("started_at");cycle_id=meta.get("cycle_id");quote_usd=meta.get("quote_usd")
+        source_urls=meta.get("source_urls") or []
+        spent=_pilot_spend_since(started)
+        if spent >= FACTORY_REAL_PILOT_MAX_USD:
+            _verification_update(tag,{"status":"failed","finished_at":ts(),"cost_usd":spent,
+                "detail":json.dumps({**meta,"phase":"failed","error":"Pilot budget exhausted before safe resume","actual_cost_usd":spent},ensure_ascii=False)})
+            print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"failed","cycle_id":cycle_id,"actual_cost_usd":spent,"error":"budget exhausted before safe resume"}),flush=True);return
+        print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"resuming","cycle_id":cycle_id,
+                          "spent_so_far_usd":spent,"max_usd":FACTORY_REAL_PILOT_MAX_USD}),flush=True)
+    else:
+        started=ts()
+        con=db();con.execute("""INSERT INTO system_verifications(tag,status,started_at,detail)
+                               VALUES(?,?,?,?)""",(tag,"started",started,json.dumps({
+                                   "phase":"fenced","max_usd":FACTORY_REAL_PILOT_MAX_USD,"approval_gate_reached":False
+                               })));con.commit();con.close()
+        try:
+            for signal in _parse_real_pilot_signals():
+                result=ingest_source_signal(SignalCreate(
+                    title=signal["title"],url=signal["url"],content=signal["content"],
+                    source_type="real_pilot_web",topic=signal["topic"]
+                ));source_rows.append(result["signal"])
+            cycle=create_factory_cycle(FactoryCycleCreate(
+                signal_ids=[x["id"] for x in source_rows],language=FACTORY_REAL_PILOT_LANGUAGE
+            ),source="v4.1_real_world_pilot")
+            cycle_id=cycle["id"];quote=estimate_factory_cycle_cost(cycle_id,FACTORY_REAL_PILOT_MAX_IDEAS)
+            quote_usd=float(quote.get("estimated_max_usd") or 0)
+            if not quote.get("paid_calls_possible"):raise RuntimeError("Pilot expected live paid LLM work but provider quote reports zero-spend mode")
+            if quote_usd > FACTORY_REAL_PILOT_MAX_USD:
+                raise RuntimeError(f"Pilot quote USD {quote_usd:.6f} exceeds hard pilot ceiling USD {FACTORY_REAL_PILOT_MAX_USD:.6f}")
+            meta={"phase":"running","cycle_id":cycle_id,"source_urls":[x["url"] for x in source_rows],
+                  "quote_usd":quote_usd,"max_usd":FACTORY_REAL_PILOT_MAX_USD,"approval_gate_reached":False}
+            _verification_update(tag,{"detail":json.dumps(meta,ensure_ascii=False)})
+            print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"running","cycle_id":cycle_id,
+                              "quote_usd":quote_usd,"max_usd":FACTORY_REAL_PILOT_MAX_USD,
+                              "sources":meta["source_urls"]}),flush=True)
+        except Exception as exc:
+            spent=_pilot_spend_since(started)
+            _verification_update(tag,{"status":"failed","finished_at":ts(),"cost_usd":spent,
+                "detail":json.dumps({"phase":"failed","cycle_id":cycle_id,"max_usd":FACTORY_REAL_PILOT_MAX_USD,
+                                     "approval_gate_reached":False,"actual_cost_usd":spent,"error":str(exc)[:1000]},ensure_ascii=False)})
+            print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"failed","cycle_id":cycle_id,
+                              "actual_cost_usd":spent,"error":str(exc)[:700]}),flush=True);return
+
+    real_pilot_runtime.update({"active":True,"tag":tag,"started_at":started,"max_usd":FACTORY_REAL_PILOT_MAX_USD})
+    try:
         await _run_factory_cycle_to_review(cycle_id,FACTORY_REAL_PILOT_MAX_IDEAS,FACTORY_REAL_PILOT_LANGUAGE)
         cycle=get_factory_cycle(cycle_id,True);job_id=cycle.get("job_id")
-        after=get_usage_summary()["today_cost_usd"];delta=max(0.0,float(after)-float(before))
-        con=db()
-        totals=con.execute("""SELECT COUNT(*) live_runs,COALESCE(SUM(input_tokens),0) input_tokens,
-                                     COALESCE(SUM(output_tokens),0) output_tokens
-                              FROM agent_runs WHERE started_at>=? AND model=?""",(started,FACTORY_LLM_MODEL)).fetchone()
-        con.close()
+        spent=_pilot_spend_since(started)
+        con=db();totals=con.execute("""SELECT COUNT(*) live_runs,COALESCE(SUM(input_tokens),0) input_tokens,
+                                             COALESCE(SUM(output_tokens),0) output_tokens
+                                      FROM agent_runs WHERE started_at>=? AND model!='simulation-v3'""",(started,)).fetchone();con.close()
         approval_reached=bool(cycle.get("status")=="waiting_approval" and cycle.get("job",{}).get("status")=="waiting_approval")
-        no_publish=not bool(cycle.get("publish_id"))
-        within_budget=delta <= FACTORY_REAL_PILOT_MAX_USD + 1e-9
-        passed=approval_reached and no_publish and within_budget and delta>0
-        idea=(cycle.get("idea") or {})
+        no_publish=not bool(cycle.get("publish_id"));within_budget=spent<=FACTORY_REAL_PILOT_MAX_USD+1e-9
+        passed=approval_reached and no_publish and within_budget and spent>0
+        idea=cycle.get("idea") or {};old=get_paid_verification(tag)
+        try:old_meta=json.loads(old.get("detail") or "{}")
+        except Exception:old_meta={}
+        detail={**old_meta,"phase":"waiting_approval" if approval_reached else cycle.get("phase"),
+                "cycle_id":cycle_id,"job_id":job_id,"idea_id":cycle.get("idea_id"),"idea_title":idea.get("title"),
+                "quote_usd":quote_usd or old_meta.get("quote_usd"),"max_usd":FACTORY_REAL_PILOT_MAX_USD,
+                "approval_gate_reached":approval_reached,"publish_created":not no_publish,
+                "actual_cost_usd":spent,"cycle_status":cycle.get("status")}
         status="passed" if passed else "failed"
-        detail={
-            "phase":"waiting_approval" if approval_reached else cycle.get("phase"),
-            "cycle_id":cycle_id,"job_id":job_id,"idea_id":cycle.get("idea_id"),
-            "idea_title":idea.get("title"),"source_urls":[x["url"] for x in source_rows],
-            "quote_usd":quote_usd,"max_usd":FACTORY_REAL_PILOT_MAX_USD,
-            "approval_gate_reached":approval_reached,"publish_created":not no_publish,
-            "actual_cost_delta_usd":round(delta,6),"cycle_status":cycle.get("status"),
-        }
-        con=db();con.execute("""UPDATE system_verifications
-                               SET status=?,job_id=?,finished_at=?,live_runs=?,input_tokens=?,output_tokens=?,cost_usd=?,detail=?
-                               WHERE tag=?""",(
-            status,job_id,ts(),int(totals["live_runs"] or 0),int(totals["input_tokens"] or 0),
-            int(totals["output_tokens"] or 0),delta,json.dumps(detail,ensure_ascii=False),tag
-        ));con.commit();con.close()
+        _verification_update(tag,{"status":status,"job_id":job_id,"finished_at":ts(),
+                                  "live_runs":int(totals["live_runs"] or 0),"input_tokens":int(totals["input_tokens"] or 0),
+                                  "output_tokens":int(totals["output_tokens"] or 0),"cost_usd":spent,
+                                  "detail":json.dumps(detail,ensure_ascii=False)})
         print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":status,"cycle_id":cycle_id,"job_id":job_id,
-                          "idea_title":idea.get("title"),"actual_cost_usd":round(delta,6),
+                          "idea_title":idea.get("title"),"actual_cost_usd":spent,
                           "approval_gate_reached":approval_reached,"publish_created":not no_publish,
                           "live_runs":int(totals["live_runs"] or 0),
                           "total_tokens":int(totals["input_tokens"] or 0)+int(totals["output_tokens"] or 0)}),flush=True)
     except Exception as exc:
-        after=get_usage_summary()["today_cost_usd"];delta=max(0.0,float(after)-float(before))
-        detail={"phase":"failed","cycle_id":cycle_id,"job_id":job_id,"max_usd":FACTORY_REAL_PILOT_MAX_USD,
-                "approval_gate_reached":False,"actual_cost_delta_usd":round(delta,6),"error":str(exc)[:1000]}
-        con=db();con.execute("""UPDATE system_verifications SET status='failed',job_id=?,finished_at=?,cost_usd=?,detail=?
-                               WHERE tag=?""",(job_id,ts(),delta,json.dumps(detail,ensure_ascii=False),tag));con.commit();con.close()
+        spent=_pilot_spend_since(started);old=get_paid_verification(tag)
+        try:old_meta=json.loads(old.get("detail") or "{}")
+        except Exception:old_meta={}
+        detail={**old_meta,"phase":"failed","cycle_id":cycle_id,"job_id":job_id,"max_usd":FACTORY_REAL_PILOT_MAX_USD,
+                "approval_gate_reached":False,"actual_cost_usd":spent,"error":str(exc)[:1000]}
+        _verification_update(tag,{"status":"failed","job_id":job_id,"finished_at":ts(),"cost_usd":spent,
+                                  "detail":json.dumps(detail,ensure_ascii=False)})
         print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"failed","cycle_id":cycle_id,"job_id":job_id,
-                          "actual_cost_usd":round(delta,6),"error":str(exc)[:700]}),flush=True)
+                          "actual_cost_usd":spent,"error":str(exc)[:700]}),flush=True)
+    finally:
+        real_pilot_runtime["active"]=False
 
 def _approval_summary():
     con=db()

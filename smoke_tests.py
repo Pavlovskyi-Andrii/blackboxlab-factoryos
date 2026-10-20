@@ -201,6 +201,51 @@ dash=app.get_self_improvement_dashboard()
 require(dash["active_workflow"]["config"]["candidate_count"]==3 and dash["experiments"],"Experiment Lab dashboard regression")
 require("never auto-promote" in dash["safety_note"],"self-improvement safety note regression")
 
+# v4.1 production SQLite regression: exercise the LIVE variant persistence path with a deterministic fake worker.
+lock_job=asyncio.run(app.create_job(app.JobCreate(
+    title="CI live-variant transaction regression",brief="No network; fake live worker exercises SQLite persistence.",
+    presenter="Faceless",format="Short only",language="English",outputs=1
+)))["id"]
+orig_key=app.FACTORY_LLM_API_KEY
+orig_variant_call=app._variant_agent_call
+app.FACTORY_LLM_API_KEY="ci-fake-no-network"
+async def fake_variant_call(agent,job_id,label,system,user,max_output_tokens=1100):
+    run_id=app.start_agent_run(agent,job_id,"script",model="ci-fake")
+    ids=list(dict.fromkeys(app.re.findall(r'"id"\s*:\s*"([^"]+)"',user)))
+    if agent=="Angle Strategist":
+        obj={"angles":[
+            {"angle":"CI angle one","reason":"transaction test","audience":"builders"},
+            {"angle":"CI angle two","reason":"transaction test","audience":"builders"},
+            {"angle":"CI angle three","reason":"transaction test","audience":"builders"},
+        ]}
+    elif agent=="Hook Generator":
+        obj={"variants":[{"variant_id":x,"hook":f"Hook {i+1}","rationale":"CI"} for i,x in enumerate(ids)]}
+    elif agent=="Scriptwriter":
+        obj={"variants":[{"variant_id":x,"script":f"Hook {i+1}. Evidence-bounded CI script. CTA."} for i,x in enumerate(ids)]}
+    elif agent=="Fact Checker":
+        obj={"variants":[{"variant_id":x,"findings":[],"fact_summary":"CI only"} for x in ids]}
+    elif agent=="Hook Optimizer":
+        obj={"variants":[{"variant_id":x,"optimized_hook":f"Optimized {i+1}","change_reason":"CI"} for i,x in enumerate(ids)]}
+    elif agent=="Editor":
+        obj={"variants":[{"variant_id":x,"edited_script":f"Optimized {i+1}. Edited evidence-bounded CI script. CTA.","edit_notes":"CI"} for i,x in enumerate(ids)]}
+    elif agent=="QA Agent":
+        obj={"variants":[{"variant_id":x,"decision":"keep" if i==0 else "reject","reason":"CI deterministic choice","findings":[]} for i,x in enumerate(ids)],
+             "recommended_variant_id":ids[0] if ids else ""}
+    else:
+        raise AssertionError("unexpected fake variant agent "+agent)
+    app.finish_agent_run(run_id,status="completed",meta={"mode":"ci_fake_live"})
+    return obj,run_id,{"input_tokens":0,"output_tokens":0,"cost_usd":0.0,"model":"ci-fake"}
+app._variant_agent_call=fake_variant_call
+try:
+    live_variant_result=asyncio.run(app.run_variant_pipeline(lock_job,None))
+    require(live_variant_result["summary"]["variants"]==3 and live_variant_result["summary"]["selected"]==1,
+            "live variant persistence/SQLite transaction regression")
+    con=app.db();busy=int(con.execute("PRAGMA busy_timeout").fetchone()[0]);con.close()
+    require(busy>=30000,"SQLite busy_timeout hardening regression")
+finally:
+    app._variant_agent_call=orig_variant_call
+    app.FACTORY_LLM_API_KEY=orig_key
+
 # v4.1 real-world pilot controls — zero-spend validation only.
 pilot_signals=app._parse_real_pilot_signals('[{"title":"Real signal","url":"https://example.com/real","content":"A factual source summary for pilot parsing.","topic":"AI"}]')
 require(len(pilot_signals)==1 and pilot_signals[0]["url"]=="https://example.com/real","real pilot signal parsing regression")
