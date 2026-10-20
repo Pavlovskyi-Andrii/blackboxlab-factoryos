@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.0"
+APP_VERSION = "v4.1"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -43,6 +43,11 @@ _default_input_price,_default_output_price=_DEFAULT_LLM_PRICES.get(FACTORY_LLM_M
 FACTORY_LLM_INPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_INPUT_USD_PER_1M", str(_default_input_price)))
 FACTORY_LLM_OUTPUT_USD_PER_1M = float(os.environ.get("FACTORY_LLM_OUTPUT_USD_PER_1M", str(_default_output_price)))
 FACTORY_LLM_MAX_OUTPUT_TOKENS = max(128, min(4096, int(os.environ.get("FACTORY_LLM_MAX_OUTPUT_TOKENS", "1200"))))
+FACTORY_REAL_PILOT_TAG = os.environ.get("FACTORY_REAL_PILOT_TAG", "").strip()
+FACTORY_REAL_PILOT_SIGNALS_JSON = os.environ.get("FACTORY_REAL_PILOT_SIGNALS_JSON", "").strip()
+FACTORY_REAL_PILOT_MAX_USD = max(0.01, float(os.environ.get("FACTORY_REAL_PILOT_MAX_USD", "0.75")))
+FACTORY_REAL_PILOT_MAX_IDEAS = max(1, min(2, int(os.environ.get("FACTORY_REAL_PILOT_MAX_IDEAS", "1"))))
+FACTORY_REAL_PILOT_LANGUAGE = (os.environ.get("FACTORY_REAL_PILOT_LANGUAGE", "English").strip() or "English")
 # Historical production verification evidence remains queryable, but the startup trigger is disabled after the passed v3.24 run.
 VERIFICATION_EVIDENCE_TAG = "v3.24-live-e2e-2026-10-19"
 PAID_VERIFICATION_TAG = ""
@@ -401,6 +406,7 @@ def health():
             "total_tokens": int(verification.get("input_tokens") or 0) + int(verification.get("output_tokens") or 0),
             "cost_usd": round(float(verification.get("cost_usd") or 0), 6),
         },
+        "real_pilot": get_real_pilot(),
     }
 
 clients: set[WebSocket] = set()
@@ -449,6 +455,45 @@ def get_paid_verification(tag=VERIFICATION_EVIDENCE_TAG):
     row=con.execute("SELECT * FROM system_verifications WHERE tag=?",(tag,)).fetchone()
     con.close()
     return dict(row) if row else {"tag":tag,"status":"pending","live_runs":0,"input_tokens":0,"output_tokens":0,"cost_usd":0}
+
+def get_real_pilot(tag=None):
+    tag=(tag if tag is not None else FACTORY_REAL_PILOT_TAG).strip()
+    if not tag:
+        return {"tag":"","status":"disabled","cycle_id":None,"job_id":None,"cost_usd":0.0,"approval_gate_reached":False}
+    row=get_paid_verification(tag)
+    detail=row.get("detail") or ""
+    try:meta=json.loads(detail) if detail.strip().startswith("{") else {}
+    except Exception:meta={}
+    return {
+        "tag":tag,"status":row.get("status","pending"),"cycle_id":meta.get("cycle_id"),
+        "job_id":row.get("job_id") or meta.get("job_id"),"cost_usd":round(float(row.get("cost_usd") or 0),6),
+        "live_runs":int(row.get("live_runs") or 0),
+        "total_tokens":int(row.get("input_tokens") or 0)+int(row.get("output_tokens") or 0),
+        "approval_gate_reached":bool(meta.get("approval_gate_reached")),
+        "idea_title":meta.get("idea_title"),"source_urls":meta.get("source_urls") or [],
+        "quote_usd":meta.get("quote_usd"),"max_usd":meta.get("max_usd"),
+        "error":meta.get("error"),
+    }
+
+def _parse_real_pilot_signals(raw=None):
+    raw=FACTORY_REAL_PILOT_SIGNALS_JSON if raw is None else raw
+    if not str(raw or "").strip():
+        raise ValueError("FACTORY_REAL_PILOT_SIGNALS_JSON is empty")
+    data=json.loads(raw)
+    if not isinstance(data,list) or not data:
+        raise ValueError("Pilot signals must be a non-empty JSON array")
+    out=[]
+    for item in data[:6]:
+        if not isinstance(item,dict):continue
+        title=" ".join(str(item.get("title") or "").split()).strip()
+        url=str(item.get("url") or "").strip()
+        content=" ".join(str(item.get("content") or "").split()).strip()
+        topic=" ".join(str(item.get("topic") or "AI / technology").split()).strip()
+        if not title or not url or not content:continue
+        out.append({"title":title[:300],"url":url[:2000],"content":content[:7000],"topic":topic[:200]})
+    if not out:
+        raise ValueError("Pilot signal array contains no usable title/url/content items")
+    return out
 
 def init_db():
     con = db()
@@ -3921,6 +3966,7 @@ async def start_content_brain_collector():
 @app.on_event("startup")
 async def start_factory_cycle_reconciler():
     asyncio.create_task(factory_cycle_reconcile_loop())
+    asyncio.create_task(run_real_world_pilot_once())
 
 async def broadcast(payload=None):
     dead=[]; msg=json.dumps(payload or {"type":"refresh"})
@@ -4897,6 +4943,96 @@ async def factory_cycle_reconcile_loop():
         except Exception as exc:
             print(json.dumps({"event":"FACTORY_CYCLE_RECONCILE_ERROR","error":str(exc)[:400]}),flush=True)
         await asyncio.sleep(60)
+
+
+async def run_real_world_pilot_once():
+    tag=FACTORY_REAL_PILOT_TAG
+    if not tag:
+        return
+    if not FACTORY_LLM_API_KEY:
+        print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"skipped","reason":"llm_not_configured"}),flush=True)
+        return
+    con=db();existing=con.execute("SELECT * FROM system_verifications WHERE tag=?",(tag,)).fetchone()
+    if existing:
+        con.close()
+        print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"skip_existing","existing_status":existing["status"]}),flush=True)
+        return
+    started=ts()
+    con.execute("""INSERT INTO system_verifications(tag,status,started_at,detail)
+                   VALUES(?,?,?,?)""",(tag,"started",started,json.dumps({
+                       "phase":"fenced","max_usd":FACTORY_REAL_PILOT_MAX_USD,
+                       "approval_gate_reached":False
+                   })))
+    con.commit();con.close()
+    cycle_id=None;job_id=None
+    before=get_usage_summary()["today_cost_usd"]
+    try:
+        source_rows=[]
+        for signal in _parse_real_pilot_signals():
+            result=ingest_source_signal(SignalCreate(
+                title=signal["title"],url=signal["url"],content=signal["content"],
+                source_type="real_pilot_web",topic=signal["topic"]
+            ))
+            source_rows.append(result["signal"])
+        cycle=create_factory_cycle(FactoryCycleCreate(
+            signal_ids=[x["id"] for x in source_rows],language=FACTORY_REAL_PILOT_LANGUAGE
+        ),source="v4.1_real_world_pilot")
+        cycle_id=cycle["id"]
+        quote=estimate_factory_cycle_cost(cycle_id,FACTORY_REAL_PILOT_MAX_IDEAS)
+        quote_usd=float(quote.get("estimated_max_usd") or 0)
+        if not quote.get("paid_calls_possible"):
+            raise RuntimeError("Pilot expected live paid LLM work but provider quote reports zero-spend mode")
+        if quote_usd > FACTORY_REAL_PILOT_MAX_USD:
+            raise RuntimeError(f"Pilot quote USD {quote_usd:.6f} exceeds hard pilot ceiling USD {FACTORY_REAL_PILOT_MAX_USD:.6f}")
+        con=db();con.execute("UPDATE system_verifications SET detail=? WHERE tag=?",(
+            json.dumps({"phase":"running","cycle_id":cycle_id,"source_urls":[x["url"] for x in source_rows],
+                        "quote_usd":quote_usd,"max_usd":FACTORY_REAL_PILOT_MAX_USD,"approval_gate_reached":False}),tag
+        ));con.commit();con.close()
+        print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"running","cycle_id":cycle_id,
+                          "quote_usd":quote_usd,"max_usd":FACTORY_REAL_PILOT_MAX_USD,
+                          "sources":[x["url"] for x in source_rows]}),flush=True)
+
+        await _run_factory_cycle_to_review(cycle_id,FACTORY_REAL_PILOT_MAX_IDEAS,FACTORY_REAL_PILOT_LANGUAGE)
+        cycle=get_factory_cycle(cycle_id,True);job_id=cycle.get("job_id")
+        after=get_usage_summary()["today_cost_usd"];delta=max(0.0,float(after)-float(before))
+        con=db()
+        totals=con.execute("""SELECT COUNT(*) live_runs,COALESCE(SUM(input_tokens),0) input_tokens,
+                                     COALESCE(SUM(output_tokens),0) output_tokens
+                              FROM agent_runs WHERE started_at>=? AND model=?""",(started,FACTORY_LLM_MODEL)).fetchone()
+        con.close()
+        approval_reached=bool(cycle.get("status")=="waiting_approval" and cycle.get("job",{}).get("status")=="waiting_approval")
+        no_publish=not bool(cycle.get("publish_id"))
+        within_budget=delta <= FACTORY_REAL_PILOT_MAX_USD + 1e-9
+        passed=approval_reached and no_publish and within_budget and delta>0
+        idea=(cycle.get("idea") or {})
+        status="passed" if passed else "failed"
+        detail={
+            "phase":"waiting_approval" if approval_reached else cycle.get("phase"),
+            "cycle_id":cycle_id,"job_id":job_id,"idea_id":cycle.get("idea_id"),
+            "idea_title":idea.get("title"),"source_urls":[x["url"] for x in source_rows],
+            "quote_usd":quote_usd,"max_usd":FACTORY_REAL_PILOT_MAX_USD,
+            "approval_gate_reached":approval_reached,"publish_created":not no_publish,
+            "actual_cost_delta_usd":round(delta,6),"cycle_status":cycle.get("status"),
+        }
+        con=db();con.execute("""UPDATE system_verifications
+                               SET status=?,job_id=?,finished_at=?,live_runs=?,input_tokens=?,output_tokens=?,cost_usd=?,detail=?
+                               WHERE tag=?""",(
+            status,job_id,ts(),int(totals["live_runs"] or 0),int(totals["input_tokens"] or 0),
+            int(totals["output_tokens"] or 0),delta,json.dumps(detail,ensure_ascii=False),tag
+        ));con.commit();con.close()
+        print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":status,"cycle_id":cycle_id,"job_id":job_id,
+                          "idea_title":idea.get("title"),"actual_cost_usd":round(delta,6),
+                          "approval_gate_reached":approval_reached,"publish_created":not no_publish,
+                          "live_runs":int(totals["live_runs"] or 0),
+                          "total_tokens":int(totals["input_tokens"] or 0)+int(totals["output_tokens"] or 0)}),flush=True)
+    except Exception as exc:
+        after=get_usage_summary()["today_cost_usd"];delta=max(0.0,float(after)-float(before))
+        detail={"phase":"failed","cycle_id":cycle_id,"job_id":job_id,"max_usd":FACTORY_REAL_PILOT_MAX_USD,
+                "approval_gate_reached":False,"actual_cost_delta_usd":round(delta,6),"error":str(exc)[:1000]}
+        con=db();con.execute("""UPDATE system_verifications SET status='failed',job_id=?,finished_at=?,cost_usd=?,detail=?
+                               WHERE tag=?""",(job_id,ts(),delta,json.dumps(detail,ensure_ascii=False),tag));con.commit();con.close()
+        print(json.dumps({"event":"V41_REAL_PILOT","tag":tag,"status":"failed","cycle_id":cycle_id,"job_id":job_id,
+                          "actual_cost_usd":round(delta,6),"error":str(exc)[:700]}),flush=True)
 
 def _approval_summary():
     con=db()

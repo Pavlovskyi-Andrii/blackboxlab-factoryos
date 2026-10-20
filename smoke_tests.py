@@ -19,10 +19,11 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v4.0","version mismatch")
+require(health["version"]==app.APP_VERSION=="v4.1","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
+require("real_pilot" in health and health["real_pilot"]["status"]=="disabled","CI must never auto-run the real paid pilot")
 state=app.status()
 for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
     require(key in state,f"status missing {key}")
@@ -200,6 +201,16 @@ dash=app.get_self_improvement_dashboard()
 require(dash["active_workflow"]["config"]["candidate_count"]==3 and dash["experiments"],"Experiment Lab dashboard regression")
 require("never auto-promote" in dash["safety_note"],"self-improvement safety note regression")
 
+# v4.1 real-world pilot controls — zero-spend validation only.
+pilot_signals=app._parse_real_pilot_signals('[{"title":"Real signal","url":"https://example.com/real","content":"A factual source summary for pilot parsing.","topic":"AI"}]')
+require(len(pilot_signals)==1 and pilot_signals[0]["url"]=="https://example.com/real","real pilot signal parsing regression")
+pilot_tag="ci-v4.1-pilot-fence"
+con=app.db();con.execute("""INSERT OR REPLACE INTO system_verifications(tag,status,started_at,finished_at,live_runs,input_tokens,output_tokens,cost_usd,detail)
+                           VALUES(?,?,?,?,?,?,?,?,?)""",(pilot_tag,"passed",app.ts(),app.ts(),4,100,40,0.01,
+                           '{"cycle_id":"ci-cycle","job_id":"ci-job","approval_gate_reached":true,"idea_title":"CI pilot"}'));con.commit();con.close()
+pilot=app.get_real_pilot(pilot_tag)
+require(pilot["status"]=="passed" and pilot["approval_gate_reached"] is True and pilot["cycle_id"]=="ci-cycle","real pilot evidence readback regression")
+
 # v4.0 Autonomous Content Factory — zero-spend closed-loop acceptance.
 cycle_signal=app.ingest_source_signal(app.SignalCreate(
     title="CI v4 autonomous signal",
@@ -317,10 +328,10 @@ require('onclick="openVariantStudio()"' in html,"Variant Studio action missing")
 require("rerunVariant" in html and "buildVariants" in html,"Variant Studio controls missing")
 require('onclick="openContentBrain()"' in html,"Content Brain navigation missing")
 require("runBrainFull()" in html and "processBrainIdea" in html,"Content Brain mobile actions missing")
-require('<span class="version">v4.0</span>' in html,"visible UI version mismatch")
+require('<span class="version">v4.1</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
 for key in ("approval.nav","approval.title","publishing.nav","publishing.title","performance.nav","performance.title","experiment.nav","experiment.title","experiment.sub","cycle.nav","cycle.title","cycle.sub","cycle.run","cycle.review","cycle.next","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v4.0 smoke/regression suite passed without paid provider calls")
+print("FactoryOS v4.1 smoke/regression suite passed without paid provider calls")
