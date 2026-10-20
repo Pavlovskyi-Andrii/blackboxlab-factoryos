@@ -19,7 +19,7 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v3.30","version mismatch")
+require(health["version"]==app.APP_VERSION=="v3.40","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -47,7 +47,7 @@ require(obj["decision"]=="shortlist","Content Brain JSON object parser regressio
 brain=app.get_content_brain()
 require("adapters" in brain and "rss" in brain["adapters"],"source adapter registry missing")
 require("verified" in brain["summary"] and "feeds_configured" in brain["summary"],"Content Brain summary fields missing")
-for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
+for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
     require(route_exists(path,method),f"route missing: {method} {path}")
 
 created=asyncio.run(app.create_job(app.JobCreate(title="CI smoke job",brief="Zero-spend regression fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))
@@ -60,6 +60,24 @@ require(set(center)=={"summary","incidents"},"error center shape changed")
 require(center["summary"]["open"]==0,"new job should not have incidents")
 approval=asyncio.run(app.approve(job_id))
 require(approval["ok"] is False,"approval must be gated until waiting_approval")
+
+# v3.40 zero-spend variant pipeline: CI clears provider key, so this exercises demo contracts only.
+variant_result=asyncio.run(app.run_variant_pipeline(job_id,3))
+require(variant_result["summary"]["variants"]==3,"variant pipeline must create three candidates")
+require(variant_result["summary"]["selected"]==1,"variant pipeline must select exactly one candidate")
+require(variant_result["summary"]["rejected"]==2,"non-selected demo variants must remain comparable")
+require(app.validate_stage_outputs(job_id,"script")["ok"] is True,"script-stage variant workers must persist artifacts")
+selected=[x for x in variant_result["variants"] if x["status"]=="selected"][0]
+require(selected["edited_script"],"selected variant must keep an edited script")
+require("fact_check" in selected and "qa" in selected and "provenance" in selected,"variant trace fields missing")
+normalized=app._normalize_qa_findings([
+    {"type":"weak_hook","severity":"warning","message":"Too generic","evidence":"opening"},
+    {"type":"invented_type","severity":"critical","message":"ignore me"}
+])
+require(len(normalized)==1 and normalized[0]["type"]=="weak_hook","structured QA finding normalization regression")
+manual=app.select_production_variant(job_id,variant_result["variants"][1]["id"])
+require(manual["summary"]["selected"]==1,"manual variant selection must preserve one winner")
+
 
 transport=app.classify_agent_error("LLM provider request failed: timed out")
 require(transport["requires_confirmation"] is True,"uncertain transport failure must require confirmation")
@@ -87,12 +105,15 @@ require('data-i18n="worker.title"' in html,"Worker Results title is not localize
 require('data-i18n="intel.title"' in html,"Factory Intelligence title is not localized")
 require("FactoryOS v3.14" not in html,"stale document title version returned")
 require('data-i18n="brain.title"' in html,"Content Brain workspace missing")
+require('data-i18n="variant.title"' in html,"Variant Studio workspace missing")
+require('onclick="openVariantStudio()"' in html,"Variant Studio action missing")
+require("rerunVariant" in html and "buildVariants" in html,"Variant Studio controls missing")
 require('onclick="openContentBrain()"' in html,"Content Brain navigation missing")
 require("runBrainFull()" in html and "processBrainIdea" in html,"Content Brain mobile actions missing")
-require('<span class="version">v3.30</span>' in html,"visible UI version mismatch")
+require('<span class="version">v3.40</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
-for key in ("brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
+for key in ("brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v3.30 smoke/regression suite passed without paid provider calls")
+print("FactoryOS v3.40 smoke/regression suite passed without paid provider calls")
