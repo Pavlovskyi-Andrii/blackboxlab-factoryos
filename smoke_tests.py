@@ -19,13 +19,13 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v4.2","version mismatch")
+require(health["version"]==app.APP_VERSION=="v4.3","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
 require("real_pilot" in health and health["real_pilot"]["status"]=="disabled","CI must never auto-run the real paid pilot")
 state=app.status()
-for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
+for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","revideoSummary","revideoAdapters","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
     require(key in state,f"status missing {key}")
 require(state["factory"]=="online","factory must report online")
 
@@ -48,7 +48,7 @@ require(obj["decision"]=="shortlist","Content Brain JSON object parser regressio
 brain=app.get_content_brain()
 require("adapters" in brain and "rss" in brain["adapters"],"source adapter registry missing")
 require("verified" in brain["summary"] and "feeds_configured" in brain["summary"],"Content Brain summary fields missing")
-for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/reject","POST"),("/api/approval","GET"),("/api/jobs/{job_id}/approval/history","GET"),("/api/jobs/{job_id}/approval/quote/{component}","GET"),("/api/jobs/{job_id}/approval/regenerate","POST"),("/api/jobs/{job_id}/idea-link/{idea_id}","POST"),("/api/publisher-adapters","GET"),("/api/publishing","GET"),("/api/publishing/{publish_id}/schedule","POST"),("/api/publishing/{publish_id}/publish","POST"),("/api/publishing/{publish_id}/confirm","POST"),("/api/publishing/run-due","POST"),("/api/analytics-adapters","GET"),("/api/performance","GET"),("/api/performance/{publish_id}","GET"),("/api/performance/snapshots","POST"),("/api/performance/{publish_id}/sync","POST"),("/api/self-improvement","GET"),("/api/workflow/active","GET"),("/api/experiments","GET"),("/api/improvements","POST"),("/api/improvements/{proposal_id}/experiment","POST"),("/api/experiments/{experiment_id}/assign","POST"),("/api/experiments/{experiment_id}/evaluate","POST"),("/api/experiments/{experiment_id}/rollout","POST"),("/api/experiments/{experiment_id}/rollback","POST"),("/api/experiments/{experiment_id}/reject","POST"),("/api/factory-cycles","GET"),("/api/factory-cycles","POST"),("/api/factory-cycles/{cycle_id}","GET"),("/api/factory-cycles/{cycle_id}/quote","GET"),("/api/factory-cycles/{cycle_id}/run","POST"),("/api/factory-cycles/{cycle_id}/sync","POST"),("/api/factory-cycles/{cycle_id}/learn","POST"),("/api/factory-cycles/{cycle_id}/next","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
+for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/reject","POST"),("/api/approval","GET"),("/api/jobs/{job_id}/approval/history","GET"),("/api/jobs/{job_id}/approval/quote/{component}","GET"),("/api/jobs/{job_id}/approval/regenerate","POST"),("/api/jobs/{job_id}/idea-link/{idea_id}","POST"),("/api/publisher-adapters","GET"),("/api/publishing","GET"),("/api/publishing/{publish_id}/schedule","POST"),("/api/publishing/{publish_id}/publish","POST"),("/api/publishing/{publish_id}/confirm","POST"),("/api/publishing/run-due","POST"),("/api/analytics-adapters","GET"),("/api/performance","GET"),("/api/performance/{publish_id}","GET"),("/api/performance/snapshots","POST"),("/api/performance/{publish_id}/sync","POST"),("/api/self-improvement","GET"),("/api/workflow/active","GET"),("/api/experiments","GET"),("/api/improvements","POST"),("/api/improvements/{proposal_id}/experiment","POST"),("/api/experiments/{experiment_id}/assign","POST"),("/api/experiments/{experiment_id}/evaluate","POST"),("/api/experiments/{experiment_id}/rollout","POST"),("/api/experiments/{experiment_id}/rollback","POST"),("/api/experiments/{experiment_id}/reject","POST"),("/api/factory-cycles","GET"),("/api/factory-cycles","POST"),("/api/factory-cycles/{cycle_id}","GET"),("/api/factory-cycles/{cycle_id}/quote","GET"),("/api/factory-cycles/{cycle_id}/run","POST"),("/api/factory-cycles/{cycle_id}/sync","POST"),("/api/factory-cycles/{cycle_id}/learn","POST"),("/api/factory-cycles/{cycle_id}/next","POST"),("/api/revideo","GET"),("/api/revideo","POST"),("/api/revideo/adapters","GET"),("/api/revideo/{project_id}","GET"),("/api/revideo/{project_id}/quote","GET"),("/api/revideo/{project_id}/analyze","POST"),("/api/revideo/{project_id}/create-job","POST"),("/api/revideo/{project_id}/render","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
     require(route_exists(path,method),f"route missing: {method} {path}")
 
 created=asyncio.run(app.create_job(app.JobCreate(title="CI smoke job",brief="Zero-spend regression fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))
@@ -75,6 +75,33 @@ legacy_id=legacy["id"]
 con=app.db();con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(app.ts(),legacy_id));con.commit();con.close()
 legacy_item=next(x for x in app.get_approval_queue()["items"] if x["job"]["id"]==legacy_id)
 require(legacy_item["legacy_incomplete"] is True and legacy_item["review_ready"] is False,"legacy approval item must be explicitly marked incomplete")
+
+# v4.3 Revideo MVP — zero-spend original rewrite + provenance + production handoff.
+rv=app.create_revideo_project(app.RevideoCreateRequest(
+    source_url="https://example.com/public-video",
+    source_title="Public explainer source",
+    topic="AI interface adoption",
+    transcript="This source explains a product launch with a strong opening, then context, mechanism, evidence and a final takeaway. The exact wording belongs to the source and must not be copied.",
+    source_notes="CI fixture contains no claim of external verification.",
+    language="English",
+))
+require(rv["status"]=="draft" and rv["source_url"].startswith("https://"),"Revideo project persistence regression")
+rv_quote=app._revideo_quote(rv)
+require(rv_quote["paid_calls_possible"] is False and rv_quote["estimated_max_usd"]==0.0,"CI Revideo must remain zero-spend")
+rv_ready=asyncio.run(app.run_revideo_analysis(rv["id"],"English"))
+require(rv_ready["status"]=="ready","demo Revideo rewrite must pass originality guard")
+require(rv_ready["analysis"].get("source_hook_pattern") and rv_ready["rewrite"].get("original_script"),"Revideo analysis/rewrite artifacts missing")
+require(rv_ready["originality"]["passed"] is True and rv_ready["originality"]["five_word_shingle_overlap"]<0.20,"Revideo originality guard regression")
+rv_job=app.create_revideo_production_job(rv["id"])
+require(rv_job["created"] is True and rv_job["job"]["id"],"Revideo production handoff failed")
+rv_project=app.get_revideo_project(rv["id"])
+require(rv_project["status"]=="in_production" and rv_project["job_id"]==rv_job["job"]["id"],"Revideo job linkage regression")
+rv_worker=app.get_job_worker_results(rv_job["job"]["id"])
+require("Researcher" in rv_worker and "Editor" in rv_worker,"Revideo worker evidence must be visible on production job")
+require(rv_project["source_signal_id"] and rv_project["idea_id"],"Revideo provenance links missing")
+rv_registry=app.get_revideo_adapter_registry()
+require(rv_registry["transcript"]["manual_supported"] is True,"manual transcript baseline missing")
+require(rv_registry["video"]["configured"] is False,"CI must not claim a configured video provider")
 
 # v3.40 zero-spend variant pipeline: CI clears provider key, so this exercises demo contracts only.
 variant_result=asyncio.run(app.run_variant_pipeline(job_id,3))
@@ -376,11 +403,13 @@ require('data-i18n="publishing.title"' in html,"Publishing Engine workspace miss
 require('data-i18n="performance.title"' in html,"Performance Feedback workspace missing")
 require('data-i18n="experiment.title"' in html,"Experiment Lab workspace missing")
 require('data-i18n="cycle.title"' in html,"Autonomous Cycle Control workspace missing")
+require('data-i18n="revideo.title"' in html,"Revideo workspace missing")
 require("openApprovalStudio" in html and "approvalRegenerate" in html,"Approval Studio controls missing")
 require("openPublishingStudio" in html and "publishQueueItem" in html,"Publishing controls missing")
 require("openPerformanceStudio" in html and "addPerformanceSnapshot" in html,"Performance controls missing")
 require("openExperimentLab" in html and "evaluateExperiment" in html and "rolloutExperiment" in html and "rollbackExperiment" in html,"Experiment Lab controls missing")
 require("openAutonomousFactory" in html and "runFactoryCycle" in html and "nextFactoryCycle" in html,"Autonomous Cycle controls missing")
+require("openRevideoStudio" in html and "analyzeRevideo" in html and "createRevideoJob" in html and "renderRevideoVideo" in html,"Revideo controls missing")
 require('onclick="openPackageStudio()"' in html,"Content Package action missing")
 require("buildContentPackage" in html and "renderPackageStudio" in html,"Content Package controls missing")
 require('onclick="openVariantStudio()"' in html,"Variant Studio action missing")
@@ -392,10 +421,10 @@ require("const esc=s=>(s||'').replace" not in html,"unsafe frontend escape funct
 require("workerSelectedResult" in html and "selected_job_result" in Path("app.py").read_text(encoding="utf-8"),"selected-job worker evidence UI/API missing")
 require('data-help="help.approval"' in html and 'data-help="help.brain"' in html and 'data-help="help.worker"' in html,"help tooltip coverage missing")
 require("legacyBanner" in html and "approval.legacyHelp" in html,"legacy approval clarity missing")
-require('<span class="version">v4.2</span>' in html,"visible UI version mismatch")
+require('<span class="version">v4.3</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
-for key in ("approval.nav","approval.title","approval.statWaiting","approval.approveQueue","approval.legacyHelp","help.approval","help.brain","help.worker","publishing.nav","publishing.title","publishing.statQueue","performance.nav","performance.title","performance.statPublished","experiment.nav","experiment.title","experiment.sub","cycle.nav","cycle.title","cycle.sub","cycle.run","cycle.review","cycle.next","cycle.statCycles","cycle.status.waiting_approval","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","worker.selectedResult","worker.purpose.renderagent","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
+for key in ("approval.nav","approval.title","approval.statWaiting","approval.approveQueue","approval.legacyHelp","help.approval","help.brain","help.worker","help.revideo","revideo.nav","revideo.title","revideo.analyze","revideo.originalRewrite","publishing.nav","publishing.title","publishing.statQueue","performance.nav","performance.title","performance.statPublished","experiment.nav","experiment.title","experiment.sub","cycle.nav","cycle.title","cycle.sub","cycle.run","cycle.review","cycle.next","cycle.statCycles","cycle.status.waiting_approval","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","worker.selectedResult","worker.purpose.renderagent","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v4.2 smoke/regression suite passed without paid provider calls")
+print("FactoryOS v4.3 smoke/regression suite passed without paid provider calls")

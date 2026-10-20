@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.2"
+APP_VERSION = "v4.3"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -143,6 +143,11 @@ FACTORY_PUBLISHER_TOKEN = os.environ.get("FACTORY_PUBLISHER_TOKEN", "").strip()
 FACTORY_ANALYTICS_ADAPTER = (os.environ.get("FACTORY_ANALYTICS_ADAPTER", "manual").strip().lower() or "manual")
 FACTORY_ANALYTICS_ENDPOINT = os.environ.get("FACTORY_ANALYTICS_ENDPOINT", "").strip()
 FACTORY_ANALYTICS_TOKEN = os.environ.get("FACTORY_ANALYTICS_TOKEN", "").strip()
+FACTORY_TRANSCRIPT_ADAPTER = (os.environ.get("FACTORY_TRANSCRIPT_ADAPTER", "manual").strip().lower() or "manual")
+FACTORY_TRANSCRIPT_ENDPOINT = os.environ.get("FACTORY_TRANSCRIPT_ENDPOINT", "").strip()
+FACTORY_TRANSCRIPT_TOKEN = os.environ.get("FACTORY_TRANSCRIPT_TOKEN", "").strip()
+FACTORY_VIDEO_ENDPOINT = os.environ.get("FACTORY_VIDEO_ENDPOINT", "").strip()
+FACTORY_VIDEO_TOKEN = os.environ.get("FACTORY_VIDEO_TOKEN", "").strip()
 
 def session_token(username: str) -> str:
     return hmac.new(
@@ -828,6 +833,28 @@ def init_db():
       meta_json TEXT NOT NULL DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_factory_cycle_events_cycle ON factory_cycle_events(cycle_id, id DESC);
+    CREATE TABLE IF NOT EXISTS revideo_projects(
+      id TEXT PRIMARY KEY,
+      source_url TEXT NOT NULL,
+      source_title TEXT DEFAULT '',
+      topic TEXT DEFAULT '',
+      language TEXT NOT NULL DEFAULT 'English',
+      transcript TEXT DEFAULT '',
+      source_notes TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      source_signal_id TEXT,
+      idea_id TEXT,
+      job_id TEXT,
+      analysis_json TEXT NOT NULL DEFAULT '{}',
+      rewrite_json TEXT NOT NULL DEFAULT '{}',
+      originality_json TEXT NOT NULL DEFAULT '{}',
+      media_json TEXT NOT NULL DEFAULT '{}',
+      provenance_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_revideo_status ON revideo_projects(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_revideo_job ON revideo_projects(job_id, updated_at DESC);
     CREATE TABLE IF NOT EXISTS agent_memory(
       id TEXT PRIMARY KEY,
       agent TEXT NOT NULL,
@@ -1402,6 +1429,22 @@ class FactoryCycleRunRequest(BaseModel):
     confirm_cost: bool = False
     max_ideas: int = 3
     language: str = "English"
+
+class RevideoCreateRequest(BaseModel):
+    source_url: str
+    source_title: str = ""
+    topic: str = ""
+    transcript: str = ""
+    source_notes: str = ""
+    language: str = "English"
+
+class RevideoRunRequest(BaseModel):
+    confirm_cost: bool = False
+    confirm_external_cost: bool = False
+    language: str = "English"
+
+class RevideoRenderRequest(BaseModel):
+    confirm_external_cost: bool = False
 
 def event(job_id, message):
     con=db(); con.execute("INSERT INTO events(job_id,ts,message) VALUES(?,?,?)",(job_id,ts(),message)); con.commit(); con.close()
@@ -2976,6 +3019,255 @@ def select_production_variant(job_id,variant_id):
     event(job_id,f"Variant {chosen['ordinal']} selected in Variant Studio; Content Package and downstream media require rebuild");return get_job_variants(job_id)
 
 
+# v4.3 — Revideo MVP / original rewrite pipeline.
+# The source is used for analysis and provenance; FactoryOS does not default to downloading/reposting source media.
+REVIDEO_REQUIRED_REWRITE_FIELDS=("new_angle","hook_candidates","original_script","originality_note","media_brief","fact_check_notes")
+
+def _revideo_dict(row):
+    if not row:return None
+    d=dict(row)
+    for field,out in (("analysis_json","analysis"),("rewrite_json","rewrite"),("originality_json","originality"),
+                      ("media_json","media"),("provenance_json","provenance")):
+        d[out]=_decode_json(d.pop(field,"{}"),{})
+    return d
+
+def get_revideo_project(project_id):
+    con=db();row=con.execute("SELECT * FROM revideo_projects WHERE id=?",(project_id,)).fetchone();con.close()
+    return _revideo_dict(row)
+
+def get_revideo_projects(limit=80):
+    con=db();rows=con.execute("SELECT * FROM revideo_projects ORDER BY updated_at DESC LIMIT ?",
+                              (max(1,min(200,int(limit))),)).fetchall();con.close()
+    items=[_revideo_dict(x) for x in rows];counts={}
+    for x in items:counts[x["status"]]=counts.get(x["status"],0)+1
+    return {
+        "summary":{"projects":len(items),**counts},"projects":items,
+        "transcript_adapter":{"selected":FACTORY_TRANSCRIPT_ADAPTER,"configured":bool(FACTORY_TRANSCRIPT_ENDPOINT),
+                              "mode":"manual" if not FACTORY_TRANSCRIPT_ENDPOINT else "webhook"},
+        "video_adapter":{"selected":FACTORY_MEDIA_ADAPTERS.get("video") or None,
+                         "configured":bool(FACTORY_VIDEO_ENDPOINT),"mode":"webhook" if FACTORY_VIDEO_ENDPOINT else "not_configured"},
+        "safety_note":"Revideo extracts reusable structure and creates an original rewrite. Source media is not copied/re-uploaded by default; human approval remains mandatory."
+    }
+
+def _valid_public_url(value):
+    try:
+        p=urlparse.urlparse(value)
+        return p.scheme in ("http","https") and bool(p.netloc)
+    except Exception:return False
+
+def create_revideo_project(payload):
+    source_url=(payload.source_url or "").strip()
+    if not _valid_public_url(source_url):raise ValueError("A valid http/https source URL is required")
+    title=" ".join((payload.source_title or "").split()).strip()[:400]
+    topic=" ".join((payload.topic or "").split()).strip()[:250]
+    transcript=(payload.transcript or "").strip()
+    notes=(payload.source_notes or "").strip()
+    language=(payload.language or "English").strip() or "English"
+    pid=str(uuid.uuid4());now=ts()
+    provenance={"created_by":"owner","source_url":source_url,"copyright_mode":"original_rewrite_only",
+                "voice_identity_imitation":False,"auto_publish":False}
+    con=db();con.execute("""INSERT INTO revideo_projects(
+        id,source_url,source_title,topic,language,transcript,source_notes,status,
+        analysis_json,rewrite_json,originality_json,media_json,provenance_json,created_at,updated_at
+    ) VALUES(?,?,?,?,?,?,?,'draft','{}','{}','{}','{}',?,?,?)""",
+    (pid,source_url,title,topic,language,transcript,notes,json.dumps(provenance,ensure_ascii=False),now,now))
+    con.commit();con.close()
+    return get_revideo_project(pid)
+
+def _fetch_revideo_transcript(project):
+    if project.get("transcript"):return project["transcript"]
+    if not FACTORY_TRANSCRIPT_ENDPOINT:
+        raise RuntimeError("No transcript was supplied and no transcript webhook provider is configured")
+    result=_external_json(FACTORY_TRANSCRIPT_ENDPOINT,"POST",
+                          {"source_url":project["source_url"],"project_id":project["id"]},FACTORY_TRANSCRIPT_TOKEN)
+    transcript=str(result.get("transcript") or result.get("text") or result.get("content") or "").strip()
+    if not transcript:raise RuntimeError("Transcript provider returned no transcript text")
+    con=db();con.execute("UPDATE revideo_projects SET transcript=?,updated_at=? WHERE id=?",(transcript,ts(),project["id"]));con.commit();con.close()
+    return transcript
+
+def _revideo_quote(project):
+    # Two bounded LLM calls. Provider calls remain additionally protected by FactoryOS daily/job budget guards.
+    if not FACTORY_LLM_API_KEY:return {"estimated_max_usd":0.0,"paid_calls_possible":False,"calls":0}
+    calls=2
+    per=(6500*FACTORY_LLM_INPUT_USD_PER_1M + 1200*FACTORY_LLM_OUTPUT_USD_PER_1M)/1_000_000
+    return {"estimated_max_usd":round(calls*per,6),"paid_calls_possible":True,"calls":calls,
+            "note":"Conservative estimate for Structure Analyzer + Rewrite Strategist; actual usage is recorded per run."}
+
+def _word_shingles(text,n=5):
+    words=[re.sub(r"[^\w'-]","",x.lower()) for x in re.findall(r"\S+",text or "")]
+    words=[x for x in words if x]
+    return {" ".join(words[i:i+n]) for i in range(max(0,len(words)-n+1))}
+
+def _originality_check(source,new_script):
+    a=_word_shingles(source,5);b=_word_shingles(new_script,5)
+    shared=a & b
+    overlap=(len(shared)/max(1,len(b))) if b else 0.0
+    return {
+        "five_word_shingle_overlap":round(overlap,4),
+        "shared_phrase_count":len(shared),
+        "passed":overlap<0.20,
+        "threshold":0.20,
+        "note":"This is a mechanical phrase-overlap guard, not a legal copyright determination."
+    }
+
+def _demo_revideo(project,transcript):
+    analysis={
+        "source_summary":(project.get("source_notes") or transcript[:600] or project.get("source_title") or "Source video")[:900],
+        "source_hook_pattern":"Open with a concrete tension or surprising consequence, then quickly explain the mechanism.",
+        "structure":["hook","context","mechanism","evidence/qualification","payoff","CTA"],
+        "pacing":"Fast opening, short explanatory beats, one clear payoff.",
+        "reusable_patterns":["specific tension first","show mechanism instead of copying wording","short evidence-bounded claims"],
+        "evidence_claims":[],
+        "prohibited_copy_notes":["Do not reuse source lines verbatim.","Do not imitate creator identity or voice.","Do not reuse source footage by default."],
+    }
+    base=project.get("topic") or project.get("source_title") or "the source topic"
+    rewrite={
+        "new_angle":f"Explain the mechanism behind {base} from a fresh evidence-bounded angle.",
+        "hook_candidates":[f"What actually makes {base} work?","The interesting part of {base} is not the headline — it is the mechanism."],
+        "original_script":f"Here is a new way to look at {base}. Start with the mechanism, separate what is known from what still needs evidence, and end with one practical takeaway. This demo rewrite is intentionally original and does not reproduce the source wording.",
+        "originality_note":"Original demonstration rewrite based on structure, not copied wording or identity.",
+        "media_brief":"Use original graphics, screenshots you have rights to, licensed/stock B-roll, or generated visuals. Do not reuse source creator footage by default.",
+        "fact_check_notes":["Demo mode contains no claim of external factual verification."],
+        "source_links":[project["source_url"]],
+    }
+    return analysis,rewrite
+
+async def run_revideo_analysis(project_id,language="English"):
+    project=get_revideo_project(project_id)
+    if not project:raise ValueError("Revideo project not found")
+    transcript=await asyncio.to_thread(_fetch_revideo_transcript,project)
+    if not FACTORY_LLM_API_KEY:
+        analysis,rewrite=_demo_revideo(project,transcript)
+        analysis_run=rewrite_run=None
+    else:
+        _content_brain_budget_guard(1000)
+        analysis_system=(
+            "You are the Structure Analyzer in FactoryOS Revideo. Analyze the supplied public-source transcript for reusable editorial structure, "
+            "not for copying. Return JSON only with keys source_summary, source_hook_pattern, structure, pacing, reusable_patterns, evidence_claims, prohibited_copy_notes. "
+            "Do not recommend copying exact lines, creator identity, voice, footage, branding, or distinctive expression. Treat unsupported claims as unverified."
+        )
+        analysis_user=(
+            f"LANGUAGE: {language}\nSOURCE URL: {project['source_url']}\nTITLE: {project.get('source_title','')}\nTOPIC: {project.get('topic','')}\n"
+            f"SOURCE NOTES: {project.get('source_notes','')}\nTRANSCRIPT:\n{_trim_llm_context(transcript,12000)}"
+        )
+        result=await asyncio.wait_for(asyncio.to_thread(_content_brain_llm,"Researcher",analysis_system,analysis_user,1000,_workflow_model(None)),timeout=AGENT_TIMEOUT_SECONDS)
+        analysis=_parse_json_object(result["content"])
+        analysis_run=start_agent_run("Researcher",None,"revideo",model=result["model"])
+        save_artifact("Researcher","analysis",f"Revideo source structure · {project_id[:8]}",
+                      json.dumps(analysis,ensure_ascii=False,indent=2),run_id=analysis_run,
+                      meta={"mode":"live_llm","revideo_project_id":project_id,"source_url":project["source_url"],"model":result["model"]})
+        finish_agent_run(analysis_run,status="completed",input_tokens=result["input_tokens"],output_tokens=result["output_tokens"],cost_usd=result["cost_usd"],
+                         meta={"mode":"live_llm","revideo_project_id":project_id})
+        _content_brain_budget_guard(1200)
+        rewrite_system=(
+            "You are the Rewrite Strategist in FactoryOS Revideo. Create a materially original short-form concept from the supplied structural analysis and source evidence. "
+            "Return JSON only with keys new_angle, hook_candidates, original_script, originality_note, media_brief, fact_check_notes, source_links. "
+            "Do not reproduce distinctive source wording, do not imitate the creator's identity or voice, do not instruct re-uploading source footage, and do not add unsupported factual claims. "
+            "Preserve the source URL in source_links. hook_candidates must contain 2-4 concise original hooks."
+        )
+        rewrite_user=(
+            f"LANGUAGE: {language}\nSOURCE URL: {project['source_url']}\nANALYSIS: {json.dumps(analysis,ensure_ascii=False)[:9000]}\n"
+            f"SOURCE NOTES: {project.get('source_notes','')}\nCreate an original rewrite inspired only by reusable structure."
+        )
+        result2=await asyncio.wait_for(asyncio.to_thread(_content_brain_llm,"Editor",rewrite_system,rewrite_user,1200,_workflow_model(None)),timeout=AGENT_TIMEOUT_SECONDS)
+        rewrite=_parse_json_object(result2["content"])
+        rewrite_run=start_agent_run("Editor",None,"revideo",model=result2["model"])
+        save_artifact("Editor","text",f"Revideo original rewrite · {project_id[:8]}",
+                      json.dumps(rewrite,ensure_ascii=False,indent=2),run_id=rewrite_run,
+                      meta={"mode":"live_llm","revideo_project_id":project_id,"source_url":project["source_url"],"model":result2["model"]})
+        finish_agent_run(rewrite_run,status="completed",input_tokens=result2["input_tokens"],output_tokens=result2["output_tokens"],cost_usd=result2["cost_usd"],
+                         meta={"mode":"live_llm","revideo_project_id":project_id})
+    for key in REVIDEO_REQUIRED_REWRITE_FIELDS:
+        if key not in rewrite:raise RuntimeError(f"Rewrite provider output missing required field: {key}")
+    rewrite["source_links"]=list(dict.fromkeys([project["source_url"]]+[str(x) for x in rewrite.get("source_links") or [] if str(x).strip()]))
+    original=_originality_check(transcript,rewrite.get("original_script") or "")
+    status="ready" if original["passed"] else "needs_revision"
+    provenance=dict(project.get("provenance") or {})
+    provenance.update({"analysis_run_id":analysis_run,"rewrite_run_id":rewrite_run,"analyzed_at":ts(),
+                       "source_url":project["source_url"],"human_approval_required":True})
+    con=db();con.execute("""UPDATE revideo_projects SET transcript=?,status=?,analysis_json=?,rewrite_json=?,originality_json=?,provenance_json=?,updated_at=? WHERE id=?""",
+        (transcript,status,json.dumps(analysis,ensure_ascii=False),json.dumps(rewrite,ensure_ascii=False),
+         json.dumps(original,ensure_ascii=False),json.dumps(provenance,ensure_ascii=False),ts(),project_id))
+    con.commit();con.close()
+    return get_revideo_project(project_id)
+
+def create_revideo_production_job(project_id):
+    project=get_revideo_project(project_id)
+    if not project:raise ValueError("Revideo project not found")
+    if project.get("status")!="ready":raise ValueError("Revideo analysis must be ready and pass the originality guard first")
+    if project.get("job_id"):
+        return {"created":False,"job":get_job(project["job_id"]),"project":project}
+    rewrite=project.get("rewrite") or {};analysis=project.get("analysis") or {}
+    signal=ingest_source_signal(SignalCreate(
+        title=project.get("source_title") or f"Revideo source {project_id[:8]}",
+        url=project["source_url"],content=project.get("transcript") or project.get("source_notes") or analysis.get("source_summary",""),
+        source_type="revideo_source",topic=project.get("topic") or "revideo"
+    ))["signal"]
+    idea=create_content_idea(IdeaCreate(
+        title=(rewrite.get("new_angle") or project.get("source_title") or "Original Revideo concept")[:300],
+        topic=project.get("topic") or "revideo",
+        angle=rewrite.get("new_angle") or "",
+        audience="short-form audience",
+        why_now="Derived from a current public-source video/topic using an original rewrite workflow.",
+        source_signal_ids=[signal["id"]],source_links=[project["source_url"]],
+        score=0.75,risk_flags=[] if (project.get("originality") or {}).get("passed") else ["originality_review"],
+        complexity="medium"
+    ))
+    verification={"decision":"shortlist","score":0.75,"risk_flags":[],
+                  "verification_notes":"Revideo source provenance and mechanical originality guard recorded. Human approval remains required.",
+                  "rejection_reason":""}
+    research={"research_summary":analysis.get("source_summary",""),"claims":analysis.get("evidence_claims") or [],
+              "source_signal_ids":[signal["id"]],"source_links":[project["source_url"]],
+              "missing_evidence":["Any factual claim not supported by the source transcript/notes still requires verification."]}
+    provenance=dict(idea.get("provenance") or {});provenance["revideo"]={"project_id":project_id,"source_url":project["source_url"],
+        "originality":project.get("originality") or {},"rewrite_created_at":ts()}
+    con=db();now=ts();con.execute("""UPDATE content_ideas SET status='selected',verified_at=?,research_json=?,strategy_json=?,verification_json=?,provenance_json=?,updated_at=? WHERE id=?""",
+        (now,json.dumps(research,ensure_ascii=False),json.dumps({"rewrite":rewrite},ensure_ascii=False),
+         json.dumps(verification,ensure_ascii=False),json.dumps(provenance,ensure_ascii=False),now,idea["id"]));con.commit();con.close()
+    bridged=create_job_from_idea(idea["id"],project.get("language") or "English")
+    job=bridged["job"]
+    brief=(job.get("brief") or "")+"\n\nREVIDEO ORIGINAL SCRIPT DIRECTION:\n"+str(rewrite.get("original_script") or "")+"\n\nSOURCE STRUCTURE (do not copy wording):\n"+json.dumps(analysis,ensure_ascii=False)
+    con=db();con.execute("UPDATE jobs SET brief=?,updated_at=? WHERE id=?",(brief[:22000],ts(),job["id"]))
+    con.execute("UPDATE revideo_projects SET source_signal_id=?,idea_id=?,job_id=?,status='in_production',updated_at=? WHERE id=?",
+                (signal["id"],idea["id"],job["id"],ts(),project_id));con.commit();con.close()
+    save_artifact("Researcher","analysis","Revideo source structure",json.dumps(analysis,ensure_ascii=False,indent=2),
+                  job_id=job["id"],meta={"revideo_project_id":project_id,"source_url":project["source_url"],"provenance":True})
+    save_artifact("Editor","text","Revideo original rewrite",json.dumps(rewrite,ensure_ascii=False,indent=2),
+                  job_id=job["id"],meta={"revideo_project_id":project_id,"source_url":project["source_url"],"originality":project.get("originality")})
+    event(job["id"],f"Created from Revideo project {project_id}; source wording/identity must not be copied")
+    return {"created":True,"job":get_job(job["id"]),"project":get_revideo_project(project_id)}
+
+def get_revideo_adapter_registry():
+    return {
+        "transcript":{"selected":FACTORY_TRANSCRIPT_ADAPTER,"configured":bool(FACTORY_TRANSCRIPT_ENDPOINT),
+                      "manual_supported":True,"endpoint_configured":bool(FACTORY_TRANSCRIPT_ENDPOINT)},
+        "video":{"selected":FACTORY_MEDIA_ADAPTERS.get("video") or None,"configured":bool(FACTORY_VIDEO_ENDPOINT),
+                 "endpoint_configured":bool(FACTORY_VIDEO_ENDPOINT)},
+        "note":"Provider endpoints/tokens come from environment variables and are never exposed in this response."
+    }
+
+def render_revideo_media(project_id):
+    project=get_revideo_project(project_id)
+    if not project:raise ValueError("Revideo project not found")
+    if not project.get("job_id"):raise ValueError("Create a production job first")
+    package=get_content_package(project["job_id"]).get("package_record")
+    if not package or package.get("status")!="ready":raise ValueError("A fresh Content Package is required before video generation")
+    if not FACTORY_VIDEO_ENDPOINT:raise RuntimeError("Video provider is not configured")
+    payload={"project_id":project_id,"job_id":project["job_id"],"source_url":project["source_url"],
+             "content_package":package.get("package") or {},
+             "guardrails":{"do_not_reuse_source_media":True,"do_not_imitate_creator_identity_or_voice":True}}
+    result=_external_json(FACTORY_VIDEO_ENDPOINT,"POST",payload,FACTORY_VIDEO_TOKEN)
+    media_url=str(result.get("url") or result.get("video_url") or result.get("output_url") or "").strip()
+    if not media_url:raise RuntimeError("Video provider returned no media URL")
+    media={"url":media_url,"provider":FACTORY_MEDIA_ADAPTERS.get("video") or "webhook","provider_id":result.get("id"),
+           "created_at":ts(),"raw_status":result.get("status")}
+    con=db();con.execute("UPDATE revideo_projects SET media_json=?,updated_at=? WHERE id=?",
+                         (json.dumps(media,ensure_ascii=False),ts(),project_id));con.commit();con.close()
+    save_artifact("Render Agent","video","Revideo generated video",job_id=project["job_id"],url=media_url,mime_type="video/mp4",
+                  meta={"revideo_project_id":project_id,"provider":media["provider"],"source_media_reused":False})
+    event(project["job_id"],f"Revideo video provider returned a media artifact for project {project_id}")
+    return get_revideo_project(project_id)
+
 CONTENT_PACKAGE_SCHEMA_VERSION="1.0"
 CONTENT_PACKAGE_REQUIRED_FIELDS=(
     "final_script","hook","scenes","voice_over","subtitles_srt","title","description","cta",
@@ -2987,7 +3279,7 @@ def get_media_adapter_registry():
     contracts={
         "tts":{"input":["voice_over","language","delivery_notes"],"output":["audio"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["tts"] else "not_configured"},
         "image":{"input":["scene_prompt","aspect_ratio","style"],"output":["image"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["image"] else "not_configured"},
-        "video":{"input":["scene","audio","captions","assets"],"output":["video"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["video"] else "not_configured"},
+        "video":{"input":["scene","audio","captions","assets"],"output":["video"],"status":"configured" if (FACTORY_MEDIA_ADAPTERS["video"] and FACTORY_VIDEO_ENDPOINT) else "not_configured"},
         "stock":{"input":["query","duration","orientation"],"output":["stock_asset"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["stock"] else "not_configured"},
         "manual":{"input":["uploaded_media"],"output":["media_asset"],"status":"ready"},
     }
@@ -2997,7 +3289,7 @@ def get_media_adapter_registry():
         out.append({
             "kind":kind,"provider":provider or None,"configured":spec["status"] in ("configured","ready"),
             "status":spec["status"],"contract":{"input":spec["input"],"output":spec["output"]},
-            "execution":"adapter_interface_only" if kind!="manual" else "manual_asset_path",
+            "execution":("webhook_provider" if kind=="video" and FACTORY_VIDEO_ENDPOINT else "adapter_interface_only") if kind!="manual" else "manual_asset_path",
         })
     return {
         "contract_version":"1.0",
@@ -5523,6 +5815,8 @@ def status():
         "performanceSummary": _performance_summary(),
         "selfImprovementSummary": get_self_improvement_dashboard()["summary"],
         "autonomousCycleSummary": get_factory_cycles(40)["summary"],
+        "revideoSummary": get_revideo_projects(40)["summary"],
+        "revideoAdapters": get_revideo_adapter_registry(),
         "activeWorkflow": _active_workflow_version(),
         "publisherAdapters": get_publisher_adapter_registry(),
         "analyticsAdapters": get_analytics_adapter_registry(),
@@ -5896,6 +6190,68 @@ def handoff_trace(run_id:str, artifact_id:str):
     return data
 
 
+
+@app.get("/api/revideo")
+def revideo_projects(limit:int=80):
+    return get_revideo_projects(limit)
+
+@app.get("/api/revideo/adapters")
+def revideo_adapters():
+    return get_revideo_adapter_registry()
+
+@app.post("/api/revideo")
+async def create_revideo(payload:RevideoCreateRequest):
+    try:project=create_revideo_project(payload)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"revideo","action":"created","projectId":project["id"]})
+    return {"ok":True,"project":project}
+
+@app.get("/api/revideo/{project_id}")
+def revideo_project(project_id:str):
+    project=get_revideo_project(project_id)
+    if not project:raise HTTPException(404,"Revideo project not found")
+    return project
+
+@app.get("/api/revideo/{project_id}/quote")
+def revideo_quote(project_id:str):
+    project=get_revideo_project(project_id)
+    if not project:raise HTTPException(404,"Revideo project not found")
+    return _revideo_quote(project)
+
+@app.post("/api/revideo/{project_id}/analyze")
+async def analyze_revideo(project_id:str,payload:RevideoRunRequest):
+    project=get_revideo_project(project_id)
+    if not project:raise HTTPException(404,"Revideo project not found")
+    if not project.get("transcript") and FACTORY_TRANSCRIPT_ENDPOINT and not payload.confirm_external_cost:
+        return {"ok":False,"requiresExternalCostConfirmation":True,
+                "message":"Transcript webhook may have external provider cost. Confirm before calling it."}
+    quote=_revideo_quote(project)
+    if quote.get("paid_calls_possible") and not payload.confirm_cost:
+        return {"ok":False,"requiresCostConfirmation":True,"quote":quote,
+                "message":"Confirm the bounded LLM analysis/rewrite estimate before running Revideo."}
+    try:project=await run_revideo_analysis(project_id,payload.language or project.get("language") or "English")
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    except RuntimeError as exc:raise HTTPException(503,str(exc))
+    await broadcast({"type":"revideo","action":"analyzed","projectId":project_id})
+    return {"ok":True,"project":project}
+
+@app.post("/api/revideo/{project_id}/create-job")
+async def revideo_create_job(project_id:str):
+    try:result=create_revideo_production_job(project_id)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"revideo","action":"job_created","projectId":project_id,"jobId":result["job"]["id"]})
+    return {"ok":True,**result}
+
+@app.post("/api/revideo/{project_id}/render")
+async def revideo_render(project_id:str,payload:RevideoRenderRequest):
+    if not payload.confirm_external_cost:
+        return {"ok":False,"requiresExternalCostConfirmation":True,
+                "message":"Video generation may incur external provider cost. Confirm before calling the configured provider."}
+    try:project=await asyncio.to_thread(render_revideo_media,project_id)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    except RuntimeError as exc:raise HTTPException(503,str(exc))
+    await broadcast({"type":"revideo","action":"media_ready","projectId":project_id})
+    return {"ok":True,"project":project}
 
 @app.get("/api/media-adapters")
 def media_adapters():

@@ -196,11 +196,22 @@
 .artifact img{max-width:100%;border-radius:8px;margin-top:8px}
 .mediaLink{display:inline-block;margin-top:7px;font-size:11px;color:#5fd8ff}
 @media(max-width:700px){.explainStrip{grid-template-columns:1fr}}
+
+.revideoComposer{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.revideoComposer .wide{grid-column:1/-1}
+.revideoComposer input,.revideoComposer textarea,.revideoComposer select{box-sizing:border-box;width:100%;background:#071521;color:#dceaf4;border:1px solid #23445b;border-radius:9px;padding:10px;font:inherit}
+.revideoComposer textarea{min-height:110px;resize:vertical}
+.revideoCompare{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.revideoCompare>div{border:1px solid rgba(109,130,152,.25);background:rgba(4,17,27,.65);border-radius:10px;padding:10px}
+.revideoCompare strong{display:block;margin-bottom:7px;font-size:11px}
+.revideoCompare pre{white-space:pre-wrap;max-height:320px;overflow:auto}
+.revideoGuard{margin-top:8px;font-size:10px;color:#91aabd;line-height:1.5}
+@media(max-width:700px){.revideoComposer,.revideoCompare{grid-template-columns:1fr}.revideoComposer .wide{grid-column:auto}}
 </style></head>
 <body><div class="shell">
 <aside class="side">
-<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v4.2</span></small></div></div>
-<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openApprovalStudio()">✓ &nbsp; <span data-i18n="approval.nav">Review</span></button><button onclick="openPublishingStudio()">⇧ &nbsp; <span data-i18n="publishing.nav">Publish</span></button><button onclick="openAutonomousFactory()">∞ &nbsp; <span data-i18n="cycle.nav">Autopilot</span></button><button onclick="openPerformanceStudio()">↗ &nbsp; <span data-i18n="performance.nav">Performance</span></button><button onclick="openExperimentLab()">⌘ &nbsp; <span data-i18n="experiment.nav">Experiments</span></button><button onclick="openContentBrain()">✦ &nbsp; <span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openVariantStudio():toast(tr('toast.selectJob'))">◇ &nbsp; <span data-i18n="variant.nav">Variants</span> <span id="variantNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openPackageStudio():toast(tr('toast.selectJob'))">▤ &nbsp; <span data-i18n="package.nav">Package</span> <span id="packageNavState" style="float:right;color:#63d9ff"></span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
+<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v4.3</span></small></div></div>
+<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openApprovalStudio()">✓ &nbsp; <span data-i18n="approval.nav">Review</span></button><button onclick="openPublishingStudio()">⇧ &nbsp; <span data-i18n="publishing.nav">Publish</span></button><button onclick="openAutonomousFactory()">∞ &nbsp; <span data-i18n="cycle.nav">Autopilot</span></button><button onclick="openPerformanceStudio()">↗ &nbsp; <span data-i18n="performance.nav">Performance</span></button><button onclick="openExperimentLab()">⌘ &nbsp; <span data-i18n="experiment.nav">Experiments</span></button><button onclick="openContentBrain()">✦ &nbsp; <span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="openRevideoStudio()">⟳ &nbsp; <span data-i18n="revideo.nav">Revideo</span> <span id="revideoNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openVariantStudio():toast(tr('toast.selectJob'))">◇ &nbsp; <span data-i18n="variant.nav">Variants</span> <span id="variantNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openPackageStudio():toast(tr('toast.selectJob'))">▤ &nbsp; <span data-i18n="package.nav">Package</span> <span id="packageNavState" style="float:right;color:#63d9ff"></span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
 <div class="foot"><span class="green"></span><span data-i18n="factory.online">Factory online</span><br><span id="runState">No active run</span></div>
 </aside>
 <main class="main">
@@ -256,6 +267,8 @@
 
 <div class="flowShade" id="cycleShade" onclick="closeAutonomousFactory()"></div>
 <section class="flowPage" id="cyclePage"><div class="flowTop"><div><h2 class="helpable" data-help="help.cycle" data-i18n="cycle.title">Autonomous Content Factory / Cycle Control</h2><p data-i18n="cycle.sub">Signals → ideas → production → human approval → publishing → real analytics → learning, with no manual data handoff.</p></div><button class="closeX" onclick="closeAutonomousFactory()">×</button></div><div class="flowBody" id="cycleBody"></div></section>
+<div class="flowShade" id="revideoShade" onclick="closeRevideoStudio()"></div>
+<section class="flowPage" id="revideoPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.revideo" data-i18n="revideo.title">Revideo / Original Rewrite Studio</h2><p data-i18n="revideo.sub">Analyze a successful public video/topic, extract reusable structure, create an original evidence-bounded rewrite, then send it into FactoryOS production.</p></div><button class="closeX" onclick="closeRevideoStudio()">×</button></div><div class="flowBody" id="revideoBody"></div></section>
 <div class="flowShade" id="approvalShade" onclick="closeApprovalStudio()"></div>
 <section class="flowPage" id="approvalPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.approval" data-i18n="approval.title">Approval Studio</h2><p data-i18n="approval.sub">Preview, evidence, targeted regeneration and decisions before publishing.</p></div><button class="closeX" onclick="closeApprovalStudio()">×</button></div><div class="flowBody" id="approvalBody"></div></section>
 <div class="flowShade" id="publishingShade" onclick="closePublishingStudio()"></div>
@@ -367,6 +380,22 @@ function helpTitle(key){const v=tr(key);return v===key?'':v}
 
 const I18N={
  en:{
+  "revideo.nav":"Revideo","revideo.title":"Revideo / Original Rewrite Studio","revideo.sub":"Analyze a successful public video/topic, extract reusable structure, create an original evidence-bounded rewrite, then send it into FactoryOS production.",
+  "help.revideo":"Revideo learns structure, hook mechanics and pacing from a public source, then creates materially original wording and a new production job. It does not default to copying/re-uploading source footage or imitating creator identity/voice.",
+  "revideo.projects":"projects","revideo.ready":"ready","revideo.production":"in production","revideo.videoProvider":"video provider",
+  "revideo.new":"New source","revideo.sourceUrl":"Public source video URL","revideo.sourceTitle":"Source title / working label","revideo.topic":"Topic",
+  "revideo.transcript":"Transcript (recommended; paste it here)","revideo.notes":"Source notes / verified context","revideo.language":"Output language",
+  "revideo.create":"Save source","revideo.analyze":"Analyze + original rewrite","revideo.createJob":"Create production job","revideo.openJob":"Open job",
+  "revideo.generateVideo":"Generate video","revideo.openVideo":"Open generated video","revideo.sourcePattern":"Source pattern (analysis)",
+  "revideo.originalRewrite":"Original rewrite","revideo.originality":"Originality guard","revideo.media":"Media provider","revideo.notConfigured":"not configured",
+  "revideo.manualTranscript":"manual transcript supported","revideo.noProjects":"No Revideo projects yet. Paste a public source URL and transcript above.",
+  "revideo.safety":"FactoryOS extracts reusable editorial mechanics, not creator identity. The source stays in provenance; source media is not re-uploaded by default; publishing still requires human approval.",
+  "revideo.costConfirm":"Revideo analysis/rewrite estimated maximum: {cost}. Continue?","revideo.externalTranscriptConfirm":"Transcript provider may charge separately. Call the configured provider?",
+  "revideo.videoCostConfirm":"Video generation may incur an external provider charge. Continue?","revideo.saved":"Revideo source saved","revideo.analyzed":"Original rewrite ready",
+  "revideo.jobCreated":"Production job created","revideo.mediaReady":"Generated video artifact saved","revideo.needsRevision":"needs originality revision",
+  "revideo.status.draft":"draft","revideo.status.ready":"rewrite ready","revideo.status.needs_revision":"needs revision","revideo.status.in_production":"in production",
+  "revideo.prohibited":"Do not copy source wording, footage, identity or voice by default.","revideo.loading":"Loading Revideo projects…",
+
   "help.approval":"Final human review. Approve sends a fresh Content Package to the publishing queue; it does not publish by itself.",
   "help.cycle":"One traceable end-to-end Factory Cycle: sources → idea → production → review → publish → analytics → learning.",
   "help.brain":"Content Brain converts source signals into researched and verified content ideas. Shortlist generation can use paid LLM calls inside budget guards.",
@@ -571,6 +600,22 @@ const I18N={
   "super.health":"health","super.lastAudit":"Last audit","super.noIncidents":"No active incidents","super.monitoring":"Supervisor is monitoring jobs and agent runtime.","super.improvements":"Process improvements","super.backlog":"Improvement backlog","super.accept":"Accept","super.dismiss":"Dismiss"
  },
  uk:{
+  "revideo.nav":"Revideo","revideo.title":"Revideo / Студія оригінального рерайту","revideo.sub":"Аналізує успішне публічне відео/тему, виділяє механіку структури й hook та створює оригінальний evidence-bounded рерайт для FactoryOS.",
+  "help.revideo":"Revideo вивчає структуру, механіку hook і темп публічного джерела, а потім створює суттєво оригінальний текст і новий production job. За замовчуванням не копіює/перезаливає чуже відео і не імітує особу чи голос автора.",
+  "revideo.projects":"проєкти","revideo.ready":"готові","revideo.production":"у production","revideo.videoProvider":"video provider",
+  "revideo.new":"Нове джерело","revideo.sourceUrl":"URL публічного відео-джерела","revideo.sourceTitle":"Назва джерела / робоча мітка","revideo.topic":"Тема",
+  "revideo.transcript":"Транскрипт (рекомендовано вставити тут)","revideo.notes":"Нотатки джерела / перевірений контекст","revideo.language":"Мова результату",
+  "revideo.create":"Зберегти джерело","revideo.analyze":"Аналіз + оригінальний рерайт","revideo.createJob":"Створити production job","revideo.openJob":"Відкрити job",
+  "revideo.generateVideo":"Згенерувати відео","revideo.openVideo":"Відкрити згенероване відео","revideo.sourcePattern":"Патерн джерела (аналіз)",
+  "revideo.originalRewrite":"Оригінальний рерайт","revideo.originality":"Originality guard","revideo.media":"Media provider","revideo.notConfigured":"не налаштовано",
+  "revideo.manualTranscript":"ручний транскрипт підтримується","revideo.noProjects":"Revideo-проєктів ще немає. Встав URL публічного джерела і транскрипт вище.",
+  "revideo.safety":"FactoryOS витягує повторно використовувану редакційну механіку, а не особу автора. Джерело залишається в provenance; чуже медіа не перезаливається за замовчуванням; публікація потребує human approval.",
+  "revideo.costConfirm":"Максимальна оцінка аналізу/рерайту: {cost}. Продовжити?","revideo.externalTranscriptConfirm":"Transcript provider може мати окрему вартість. Викликати налаштований provider?",
+  "revideo.videoCostConfirm":"Генерація відео може мати зовнішню вартість provider. Продовжити?","revideo.saved":"Revideo-джерело збережено","revideo.analyzed":"Оригінальний рерайт готовий",
+  "revideo.jobCreated":"Production job створено","revideo.mediaReady":"Згенерований video artifact збережено","revideo.needsRevision":"потрібне доопрацювання оригінальності",
+  "revideo.status.draft":"чернетка","revideo.status.ready":"рерайт готовий","revideo.status.needs_revision":"потрібне доопрацювання","revideo.status.in_production":"у production",
+  "revideo.prohibited":"Не копіювати формулювання, відео, особу або голос джерела за замовчуванням.","revideo.loading":"Завантаження Revideo-проєктів…",
+
   "help.approval":"Фінальна людська перевірка. Approve додає свіжий Content Package у чергу публікації, але не публікує автоматично.",
   "help.cycle":"Один наскрізний Factory Cycle: джерела → ідея → production → перевірка → публікація → аналітика → learning.",
   "help.brain":"Content Brain перетворює сигнали джерел на досліджені та перевірені ідеї. Shortlist може використовувати платні LLM-виклики в межах бюджету.",
@@ -775,6 +820,22 @@ const I18N={
   "super.health":"здоров'я","super.lastAudit":"Останній аудит","super.noIncidents":"Активних інцидентів немає","super.monitoring":"Супервізор контролює завдання й стан агентів.","super.improvements":"Покращення процесу","super.backlog":"Черга покращень","super.accept":"Прийняти","super.dismiss":"Відхилити"
  },
  ru:{
+  "revideo.nav":"Revideo","revideo.title":"Revideo / Студия оригинального рерайта","revideo.sub":"Анализирует успешное публичное видео/тему, выделяет механику структуры и hook и создаёт оригинальный evidence-bounded рерайт для FactoryOS.",
+  "help.revideo":"Revideo изучает структуру, механику hook и темп публичного источника, затем создаёт существенно оригинальный текст и новый production job. По умолчанию не копирует/перезаливает чужое видео и не имитирует личность или голос автора.",
+  "revideo.projects":"проекты","revideo.ready":"готовы","revideo.production":"в production","revideo.videoProvider":"video provider",
+  "revideo.new":"Новый источник","revideo.sourceUrl":"URL публичного видео-источника","revideo.sourceTitle":"Название источника / рабочая метка","revideo.topic":"Тема",
+  "revideo.transcript":"Транскрипт (рекомендуется вставить сюда)","revideo.notes":"Заметки источника / проверенный контекст","revideo.language":"Язык результата",
+  "revideo.create":"Сохранить источник","revideo.analyze":"Анализ + оригинальный рерайт","revideo.createJob":"Создать production job","revideo.openJob":"Открыть job",
+  "revideo.generateVideo":"Сгенерировать видео","revideo.openVideo":"Открыть сгенерированное видео","revideo.sourcePattern":"Паттерн источника (анализ)",
+  "revideo.originalRewrite":"Оригинальный рерайт","revideo.originality":"Originality guard","revideo.media":"Media provider","revideo.notConfigured":"не настроен",
+  "revideo.manualTranscript":"ручной транскрипт поддерживается","revideo.noProjects":"Revideo-проектов пока нет. Вставь URL публичного источника и транскрипт выше.",
+  "revideo.safety":"FactoryOS извлекает повторно используемую редакционную механику, а не личность автора. Источник остаётся в provenance; чужое медиа по умолчанию не перезаливается; публикация требует human approval.",
+  "revideo.costConfirm":"Максимальная оценка анализа/рерайта: {cost}. Продолжить?","revideo.externalTranscriptConfirm":"Transcript provider может иметь отдельную стоимость. Вызвать настроенный provider?",
+  "revideo.videoCostConfirm":"Генерация видео может стоить денег у внешнего provider. Продолжить?","revideo.saved":"Revideo-источник сохранён","revideo.analyzed":"Оригинальный рерайт готов",
+  "revideo.jobCreated":"Production job создан","revideo.mediaReady":"Сгенерированный video artifact сохранён","revideo.needsRevision":"нужна доработка оригинальности",
+  "revideo.status.draft":"черновик","revideo.status.ready":"рерайт готов","revideo.status.needs_revision":"нужна доработка","revideo.status.in_production":"в production",
+  "revideo.prohibited":"Не копировать формулировки, видео, личность или голос источника по умолчанию.","revideo.loading":"Загрузка Revideo-проектов…",
+
   "help.approval":"Финальная человеческая проверка. Approve добавляет свежий Content Package в очередь публикации, но сам ничего не публикует.",
   "help.cycle":"Один сквозной Factory Cycle: источники → идея → production → проверка → публикация → аналитика → learning.",
   "help.brain":"Content Brain превращает сигналы источников в исследованные и проверенные идеи. Shortlist может использовать платные LLM-вызовы в пределах бюджета.",
@@ -1067,7 +1128,7 @@ function stageSub(st){return tr('stagesub.'+st)}
 const icons={inbox:'○',research:'⌕',script:'▤',visual:'▧',voice:'≋',render:'▷',qa:'✓',publish:'⇧',analytics:'▥'};
 const pos={"Scout":[7,39],"Researcher":[20,39],"Tech Verifier":[33,39],"Angle Strategist":[46,39],"Hook Generator":[59,39],"Scriptwriter":[72,39],"Fact Checker":[85,39],"Hook Optimizer":[20,75],"Editor":[33,75],"Visual Director":[46,75],"Voice Agent":[59,75],"Render Agent":[72,75],"QA Agent":[85,75],"Publisher":[59,91],"Analyst":[72,91],"Supervisor":[92,91],"Hook Writer":[7,91],"Content Packager":[46,91]};
 async function api(u,o){const r=await fetch(u,o);if(!r.ok)throw Error(await r.text());return r.json()}async function refresh(){try{S=await api('/api/status');render()}catch(e){toast(tr('toast.refreshFailed'))}}
-function render(){mission();usage();buildBadge();contentBrainBadge();variantBadge();packageBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8);$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
+function render(){mission();usage();buildBadge();contentBrainBadge();revideoNavBadge();variantBadge();packageBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8);$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
 function buildBadge(){const b=S.buildProgress||{};const el=$('#buildNavPct');if(el)el.textContent=Math.round(Number(b.progress||0))+'%'}
 function contentBrainBadge(){const b=(S&&S.contentBrain)||{},sm=b.summary||{},el=$('#brainNavCount');if(el)el.textContent=Number(sm.shortlisted||0)?String(sm.shortlisted):''}
 function variantBadge(){const b=(S&&S.selectedJobVariants)||{},sm=b.summary||{},el=$('#variantNavCount');if(el)el.textContent=Number(sm.variants||0)?String(sm.variants):''}
@@ -1406,6 +1467,54 @@ function initials(name){return name.split(' ').map(x=>x[0]).join('').slice(0,2).
 function _openFlow(name){$('#'+name+'Shade').classList.add('open');$('#'+name+'Page').classList.add('open')}
 function _closeFlow(name){$('#'+name+'Shade').classList.remove('open');$('#'+name+'Page').classList.remove('open')}
 
+let revideoBusy=false;
+function revideoStatusLabel(status){const k='revideo.status.'+(status||'draft'),v=tr(k);return v===k?(status||'draft'):v}
+async function openRevideoStudio(){_openFlow('revideo');$('#revideoBody').innerHTML='<div class="flowEmpty">'+esc(tr('revideo.loading'))+'</div>';await renderRevideoStudio()}
+function closeRevideoStudio(){_closeFlow('revideo')}
+function revideoLanguage(){return LANG==='uk'?'Ukrainian':LANG==='ru'?'Russian':'English'}
+function revideoNavBadge(){const el=$('#revideoNavCount');if(!el||!S)return;const n=Number(((S.revideoSummary||{}).projects)||0);el.textContent=n?String(n):''}
+async function renderRevideoStudio(){
+ const root=$('#revideoBody');if(!root)return;
+ try{
+  const d=await api('/api/revideo?limit=80'),sm=d.summary||{},projects=d.projects||[],ta=d.transcript_adapter||{},va=d.video_adapter||{};
+  let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.projects||0)+'</b><span>'+esc(tr('revideo.projects'))+'</span></div><div class="flowStat"><b>'+Number(sm.ready||0)+'</b><span>'+esc(tr('revideo.ready'))+'</span></div><div class="flowStat"><b>'+Number(sm.in_production||0)+'</b><span>'+esc(tr('revideo.production'))+'</span></div><div class="flowStat"><b>'+(va.configured?'ON':'OFF')+'</b><span>'+esc(tr('revideo.videoProvider'))+'</span></div></div>';
+  out+='<article class="flowCard"><h3>'+esc(tr('revideo.new'))+'</h3><p>'+esc(d.safety_note||tr('revideo.safety'))+'</p><div class="revideoComposer"><input class="wide" id="rvUrl" placeholder="'+esc(tr('revideo.sourceUrl'))+'"><input id="rvTitle" placeholder="'+esc(tr('revideo.sourceTitle'))+'"><input id="rvTopic" placeholder="'+esc(tr('revideo.topic'))+'"><textarea class="wide" id="rvTranscript" placeholder="'+esc(tr('revideo.transcript'))+'"></textarea><textarea class="wide" id="rvNotes" placeholder="'+esc(tr('revideo.notes'))+'"></textarea><button class="btn primary wide" onclick="createRevideoProject()">+ '+esc(tr('revideo.create'))+'</button></div><div class="revideoGuard">'+esc(tr('revideo.prohibited'))+' · '+esc(ta.configured?(ta.selected||'webhook'):tr('revideo.manualTranscript'))+'</div></article>';
+  if(!projects.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('revideo.noProjects'))+'</div>';return}
+  out+='<div class="flowGrid" style="margin-top:10px">'+projects.map(p=>{
+   const a=p.analysis||{},r=p.rewrite||{},o=p.originality||{},m=p.media||{};
+   const hooks=(r.hook_candidates||[]).map((x,i)=>(i+1)+'. '+textValue(x)).join('\n');
+   const sourcePattern=[a.source_hook_pattern||'',...(a.structure||[]).map((x,i)=>(i+1)+'. '+textValue(x)),a.pacing||''].filter(Boolean).join('\n');
+   const original=[r.new_angle||'',hooks,r.original_script||''].filter(Boolean).join('\n\n');
+   let actions='';
+   if(['draft','needs_revision'].includes(p.status))actions+='<button class="btn primary" onclick="analyzeRevideo(\''+p.id+'\')">▶ '+esc(tr('revideo.analyze'))+'</button>';
+   if(p.status==='ready')actions+='<button class="btn good" onclick="createRevideoJob(\''+p.id+'\')">+ '+esc(tr('revideo.createJob'))+'</button>';
+   if(p.job_id)actions+='<button class="btn" onclick="openRevideoJob(\''+p.job_id+'\')">↗ '+esc(tr('revideo.openJob'))+'</button>';
+   if(p.job_id&&va.configured&&!m.url)actions+='<button class="btn" onclick="renderRevideoVideo(\''+p.id+'\')">▶ '+esc(tr('revideo.generateVideo'))+'</button>';
+   if(m.url)actions+='<a class="btn" href="'+esc(m.url)+'" target="_blank" rel="noopener">↗ '+esc(tr('revideo.openVideo'))+'</a>';
+   const guard=o.passed===true?'PASS · overlap '+Number((o.five_word_shingle_overlap||0)*100).toFixed(1)+'%':(p.status==='needs_revision'?tr('revideo.needsRevision'):'—');
+   return '<article class="flowCard"><h3>'+esc(p.source_title||p.topic||textValue(p.source_url).slice(0,80))+'</h3><div class="flowMeta"><span class="flowPill '+(p.status==='ready'?'good':p.status==='needs_revision'?'bad':'warn')+'">'+esc(revideoStatusLabel(p.status))+'</span><span class="flowPill">'+esc(tr('revideo.originality'))+': '+esc(guard)+'</span><span class="flowPill">'+esc(tr('revideo.media'))+': '+esc(va.configured?(va.selected||'webhook'):tr('revideo.notConfigured'))+'</span></div><a class="mediaLink" href="'+esc(p.source_url)+'" target="_blank" rel="noopener">'+esc(p.source_url)+'</a><div class="revideoCompare"><div><strong>'+esc(tr('revideo.sourcePattern'))+'</strong><pre>'+esc(sourcePattern||p.source_notes||'—')+'</pre></div><div><strong>'+esc(tr('revideo.originalRewrite'))+'</strong><pre>'+esc(original||'—')+'</pre></div></div><div class="revideoGuard">'+esc(r.originality_note||tr('revideo.prohibited'))+'</div><div class="flowActions">'+actions+'</div></article>';
+  }).join('')+'</div>';root.innerHTML=out
+ }catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}
+}
+async function createRevideoProject(){
+ const url=$('#rvUrl').value.trim();if(!url){toast(tr('revideo.sourceUrl'));return}
+ const payload={source_url:url,source_title:$('#rvTitle').value.trim(),topic:$('#rvTopic').value.trim(),transcript:$('#rvTranscript').value.trim(),source_notes:$('#rvNotes').value.trim(),language:revideoLanguage()};
+ try{await api('/api/revideo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});toast(tr('revideo.saved'));renderRevideoStudio();await refresh()}catch(e){toast(e.message)}
+}
+async function analyzeRevideo(id){
+ if(revideoBusy)return;revideoBusy=true;
+ try{
+  let body={confirm_cost:false,confirm_external_cost:false,language:revideoLanguage()};
+  let r=await api('/api/revideo/'+id+'/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r.requiresExternalCostConfirmation){if(!confirm(tr('revideo.externalTranscriptConfirm')))return;body.confirm_external_cost=true;r=await api('/api/revideo/'+id+'/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
+  if(r.requiresCostConfirmation){const cost=fmtMoney(((r.quote||{}).estimated_max_usd)||0);if(!confirm(tr('revideo.costConfirm',{cost})))return;body.confirm_cost=true;r=await api('/api/revideo/'+id+'/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
+  toast(tr('revideo.analyzed'));renderRevideoStudio();await refresh()
+ }catch(e){toast(e.message)}finally{revideoBusy=false}
+}
+async function createRevideoJob(id){try{const r=await api('/api/revideo/'+id+'/create-job',{method:'POST'});toast(tr('revideo.jobCreated'));if(r.job&&r.job.id){await api('/api/jobs/'+r.job.id+'/select',{method:'POST'})}await refresh();renderRevideoStudio()}catch(e){toast(e.message)}}
+async function openRevideoJob(id){await api('/api/jobs/'+id+'/select',{method:'POST'});closeRevideoStudio();await refresh();document.querySelector('.jobs').scrollIntoView({behavior:'smooth'})}
+async function renderRevideoVideo(id){if(!confirm(tr('revideo.videoCostConfirm')))return;try{const r=await api('/api/revideo/'+id+'/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_external_cost:true})});toast(r.ok?tr('revideo.mediaReady'):(r.message||'blocked'));renderRevideoStudio();await refresh()}catch(e){toast(e.message)}}
+
 let cyclePollTimer=null;
 async function openAutonomousFactory(){_openFlow('cycle');const root=$('#cycleBody');root.innerHTML='<div class="flowEmpty">Loading autonomous cycles…</div>';await renderAutonomousFactory();clearInterval(cyclePollTimer);cyclePollTimer=setInterval(()=>{if($('#cyclePage').classList.contains('open'))renderAutonomousFactory(true)},5000)}
 function closeAutonomousFactory(){clearInterval(cyclePollTimer);cyclePollTimer=null;_closeFlow('cycle')}
@@ -1717,5 +1826,5 @@ function artifactHtml(a){
 }
 
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2300)}
-const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.onopen=()=>ws.send('v4.2');ws.onmessage=()=>refresh();applyLanguage();refresh();
+const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.onopen=()=>ws.send('v4.3');ws.onmessage=()=>refresh();applyLanguage();refresh();
 </script></body></html>
