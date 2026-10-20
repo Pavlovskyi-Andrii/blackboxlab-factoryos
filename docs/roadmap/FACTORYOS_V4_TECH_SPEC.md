@@ -155,6 +155,7 @@ signals / trends / sources
 | v4.1 | Production Hardening / Real Pilot | DONE | первый real paid cycle + production hardening |
 | v4.2 | UX Clarity / Worker Transparency | DONE | понятный UI, tooltips, i18n и реальные outputs workers |
 | v4.3 | Revideo / Original Rewrite MVP | DONE | URL/transcript → original rewrite → production + video adapter hook |
+| v4.4 | Real Media Provider Foundation | IN PROGRESS | async media jobs + Descript verified; Runway runtime verification pending |
 
 ---
 
@@ -914,6 +915,19 @@ Human approval, explicit publishing, spend budgets, evidence boundaries и contr
 
 Новые записи добавлять сверху.
 
+## 2026-10-20 — v4.4 media foundation LIVE / Descript pilot PASS / Runway VERIFY pending
+
+- Добавлен persistent async media-job lifecycle для Revideo: `queued → submitted → processing → ready/failed`.
+- Сохраняются provider job ID, request/response, error, media URL, timestamps и связь с Revideo/project production job.
+- Добавлены `FACTORY_VIDEO_STATUS_ENDPOINT` для provider polling и `FACTORY_VIDEO_CALLBACK_TOKEN` для защищённого callback completion.
+- Revideo UI показывает текущий render status, блокирует повторный generate во время активной задачи и поддерживает explicit refresh; copy добавлен в EN/UK/RU.
+- Готовый media URL сохраняется в Revideo и как Render Agent video artifact, поэтому результат виден в Worker Evidence.
+- Zero-spend regression теперь проверяет полный async media lifecycle и Render Agent artifact; CI `39441923218` PASS.
+- Production head `7edec23c0d0258abb4978fcfbeab272d4260b97c`; Render `dep-dbbnsjpsrm7s738fqbj0` LIVE; startup clean; repeated `/health 200 OK`.
+- Проведён реальный Descript pilot: Agent Underlord создал 8-секундную vertical 1080×1920 / 30 fps композицию и Descript успешно опубликовал реальный 1080p Video output.
+- Runway пока остаётся `VERIFY`: архитектура FactoryOS готова принять async Runway job через generic provider contract, но milestone нельзя закрывать до фактического Runway provider call из FactoryOS с сохранённым provider job/result.
+- Human approval/publishing boundary не изменён; auto-publish не включён.
+
 ## 2026-10-20 — v4.2 + v4.3 DONE / Revideo MVP LIVE
 
 - По итогам owner-review интерфейса зафиксировано отдельное ТЗ `FACTORYOS_V4_2_V4_3_SPEC.md`.
@@ -1048,10 +1062,12 @@ Human approval, explicit publishing, spend budgets, evidence boundaries и contr
 
 # 17. Current Next Action
 
-**NEXT: v4.4 — Real Media Provider + controlled Revideo pilot**
+**NEXT: v4.4 — Runway runtime binding + controlled end-to-end Revideo media pilot**
 
-v4.2 и v4.3 MVP завершены и live. Следующий практический шаг — подключить реального video generation/composition provider к уже существующему generic adapter contract и провести один controlled Revideo media pilot:
+v4.4 media foundation уже live: persistent async media jobs, provider polling/callback, UI status и Render Agent artifact path проверены; отдельный реальный Descript composition/publish pilot прошёл успешно.
 
-`public source URL + transcript → original rewrite → production variants → fresh Content Package → explicit video generation → Render Agent media artifact → human review`.
+Следующий обязательный acceptance:
 
-Публикация остаётся отдельным действием после human approval. До подключения provider credentials FactoryOS должен честно показывать `video provider not configured`, а не симулировать готовый ролик.
+`public source URL + transcript → original rewrite → production variants → fresh Content Package → real Runway generation job → optional Descript assembly/edit → Render Agent media artifact → human review`.
+
+Milestone v4.4 остаётся **IN PROGRESS**, пока FactoryOS не выполнит и не сохранит фактический Runway provider job/result. Публикация остаётся отдельным explicit действием после human approval; отсутствие provider credentials/status должно отображаться честно, без fake media.
