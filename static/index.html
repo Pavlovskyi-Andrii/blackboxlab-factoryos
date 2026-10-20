@@ -415,7 +415,7 @@ const I18N={
   "revideo.safety":"FactoryOS extracts reusable editorial mechanics, not creator identity. The source stays in provenance; source media is not re-uploaded by default; publishing still requires human approval.",
   "revideo.costConfirm":"Revideo analysis/rewrite estimated maximum: {cost}. Continue?","revideo.externalTranscriptConfirm":"Transcript provider may charge separately. Call the configured provider?",
   "revideo.videoCostConfirm":"Video generation may incur an external provider charge. Continue?","revideo.saved":"Revideo source saved","revideo.analyzed":"Original rewrite ready",
-  "revideo.jobCreated":"Production job created","revideo.mediaReady":"Generated video artifact saved","revideo.needsRevision":"needs originality revision",
+  "revideo.jobCreated":"Production job created","revideo.mediaReady":"Generated video artifact saved","revideo.mediaQueued":"Video job submitted","revideo.mediaStatus":"render status","revideo.refreshMedia":"Refresh render","revideo.mediaFailed":"Video render failed","revideo.needsRevision":"needs originality revision",
   "revideo.status.draft":"draft","revideo.status.ready":"rewrite ready","revideo.status.needs_revision":"needs revision","revideo.status.in_production":"in production",
   "revideo.prohibited":"Do not copy source wording, footage, identity or voice by default.","revideo.loading":"Loading Revideo projects…",
 
@@ -647,7 +647,7 @@ const I18N={
   "revideo.safety":"FactoryOS витягує повторно використовувану редакційну механіку, а не особу автора. Джерело залишається в provenance; чуже медіа не перезаливається за замовчуванням; публікація потребує human approval.",
   "revideo.costConfirm":"Максимальна оцінка аналізу/рерайту: {cost}. Продовжити?","revideo.externalTranscriptConfirm":"Transcript provider може мати окрему вартість. Викликати налаштований provider?",
   "revideo.videoCostConfirm":"Генерація відео може мати зовнішню вартість provider. Продовжити?","revideo.saved":"Revideo-джерело збережено","revideo.analyzed":"Оригінальний рерайт готовий",
-  "revideo.jobCreated":"Production job створено","revideo.mediaReady":"Згенерований video artifact збережено","revideo.needsRevision":"потрібне доопрацювання оригінальності",
+  "revideo.jobCreated":"Production job створено","revideo.mediaReady":"Згенерований video artifact збережено","revideo.mediaQueued":"Video job відправлено","revideo.mediaStatus":"статус render","revideo.refreshMedia":"Оновити render","revideo.mediaFailed":"Video render завершився помилкою","revideo.needsRevision":"потрібне доопрацювання оригінальності",
   "revideo.status.draft":"чернетка","revideo.status.ready":"рерайт готовий","revideo.status.needs_revision":"потрібне доопрацювання","revideo.status.in_production":"у production",
   "revideo.prohibited":"Не копіювати формулювання, відео, особу або голос джерела за замовчуванням.","revideo.loading":"Завантаження Revideo-проєктів…",
 
@@ -879,7 +879,7 @@ const I18N={
   "revideo.safety":"FactoryOS извлекает повторно используемую редакционную механику, а не личность автора. Источник остаётся в provenance; чужое медиа по умолчанию не перезаливается; публикация требует human approval.",
   "revideo.costConfirm":"Максимальная оценка анализа/рерайта: {cost}. Продолжить?","revideo.externalTranscriptConfirm":"Transcript provider может иметь отдельную стоимость. Вызвать настроенный provider?",
   "revideo.videoCostConfirm":"Генерация видео может стоить денег у внешнего provider. Продолжить?","revideo.saved":"Revideo-источник сохранён","revideo.analyzed":"Оригинальный рерайт готов",
-  "revideo.jobCreated":"Production job создан","revideo.mediaReady":"Сгенерированный video artifact сохранён","revideo.needsRevision":"нужна доработка оригинальности",
+  "revideo.jobCreated":"Production job создан","revideo.mediaReady":"Сгенерированный video artifact сохранён","revideo.mediaQueued":"Video job отправлен","revideo.mediaStatus":"статус render","revideo.refreshMedia":"Обновить render","revideo.mediaFailed":"Video render завершился ошибкой","revideo.needsRevision":"нужна доработка оригинальности",
   "revideo.status.draft":"черновик","revideo.status.ready":"рерайт готов","revideo.status.needs_revision":"нужна доработка","revideo.status.in_production":"в production",
   "revideo.prohibited":"Не копировать формулировки, видео, личность или голос источника по умолчанию.","revideo.loading":"Загрузка Revideo-проектов…",
 
@@ -1557,7 +1557,7 @@ async function renderRevideoStudio(){
   out+='<article class="flowCard"><h3>'+esc(tr('revideo.new'))+'</h3><p>'+esc(d.safety_note||tr('revideo.safety'))+'</p><div class="revideoComposer"><input class="wide" id="rvUrl" placeholder="'+esc(tr('revideo.sourceUrl'))+'"><input id="rvTitle" placeholder="'+esc(tr('revideo.sourceTitle'))+'"><input id="rvTopic" placeholder="'+esc(tr('revideo.topic'))+'"><textarea class="wide" id="rvTranscript" placeholder="'+esc(tr('revideo.transcript'))+'"></textarea><textarea class="wide" id="rvNotes" placeholder="'+esc(tr('revideo.notes'))+'"></textarea><button class="btn primary wide" onclick="createRevideoProject()">+ '+esc(tr('revideo.create'))+'</button></div><div class="revideoGuard">'+esc(tr('revideo.prohibited'))+' · '+esc(ta.configured?(ta.selected||'webhook'):tr('revideo.manualTranscript'))+'</div></article>';
   if(!projects.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('revideo.noProjects'))+'</div>';return}
   out+='<div class="flowGrid" style="margin-top:10px">'+projects.map(p=>{
-   const a=p.analysis||{},r=p.rewrite||{},o=p.originality||{},m=p.media||{};
+   const a=p.analysis||{},r=p.rewrite||{},o=p.originality||{},m=p.media||{},mj=p.media_job||{};
    const hooks=(r.hook_candidates||[]).map((x,i)=>(i+1)+'. '+textValue(x)).join('\n');
    const sourcePattern=[a.source_hook_pattern||'',...(a.structure||[]).map((x,i)=>(i+1)+'. '+textValue(x)),a.pacing||''].filter(Boolean).join('\n');
    const original=[r.new_angle||'',hooks,r.original_script||''].filter(Boolean).join('\n\n');
@@ -1565,10 +1565,11 @@ async function renderRevideoStudio(){
    if(['draft','needs_revision'].includes(p.status))actions+='<button class="btn primary" onclick="analyzeRevideo(\''+p.id+'\')">▶ '+esc(tr('revideo.analyze'))+'</button>';
    if(p.status==='ready')actions+='<button class="btn good" onclick="createRevideoJob(\''+p.id+'\')">+ '+esc(tr('revideo.createJob'))+'</button>';
    if(p.job_id)actions+='<button class="btn" onclick="openRevideoJob(\''+p.job_id+'\')">↗ '+esc(tr('revideo.openJob'))+'</button>';
-   if(p.job_id&&va.configured&&!m.url)actions+='<button class="btn" onclick="renderRevideoVideo(\''+p.id+'\')">▶ '+esc(tr('revideo.generateVideo'))+'</button>';
+   if(p.job_id&&va.configured&&!m.url&&!['queued','submitted','processing'].includes(mj.status))actions+='<button class="btn" onclick="renderRevideoVideo(\''+p.id+'\')">▶ '+esc(tr('revideo.generateVideo'))+'</button>';
+   if(['queued','submitted','processing'].includes(mj.status))actions+='<button class="btn" onclick="refreshRevideoMedia(\''+mj.id+'\')">↻ '+esc(tr('revideo.refreshMedia'))+'</button>';
    if(m.url)actions+='<a class="btn" href="'+esc(m.url)+'" target="_blank" rel="noopener">↗ '+esc(tr('revideo.openVideo'))+'</a>';
    const guard=o.passed===true?'PASS · overlap '+Number((o.five_word_shingle_overlap||0)*100).toFixed(1)+'%':(p.status==='needs_revision'?tr('revideo.needsRevision'):'—');
-   return '<article class="flowCard"><h3>'+esc(p.source_title||p.topic||textValue(p.source_url).slice(0,80))+'</h3><div class="flowMeta"><span class="flowPill '+(p.status==='ready'?'good':p.status==='needs_revision'?'bad':'warn')+'">'+esc(revideoStatusLabel(p.status))+'</span><span class="flowPill">'+esc(tr('revideo.originality'))+': '+esc(guard)+'</span><span class="flowPill">'+esc(tr('revideo.media'))+': '+esc(va.configured?(va.selected||'webhook'):tr('revideo.notConfigured'))+'</span></div><a class="mediaLink" href="'+esc(p.source_url)+'" target="_blank" rel="noopener">'+esc(p.source_url)+'</a><div class="revideoCompare"><div><strong>'+esc(tr('revideo.sourcePattern'))+'</strong><pre>'+esc(sourcePattern||p.source_notes||'—')+'</pre></div><div><strong>'+esc(tr('revideo.originalRewrite'))+'</strong><pre>'+esc(original||'—')+'</pre></div></div><div class="revideoGuard">'+esc(r.originality_note||tr('revideo.prohibited'))+'</div><div class="flowActions">'+actions+'</div></article>';
+   return '<article class="flowCard"><h3>'+esc(p.source_title||p.topic||textValue(p.source_url).slice(0,80))+'</h3><div class="flowMeta"><span class="flowPill '+(p.status==='ready'?'good':p.status==='needs_revision'?'bad':'warn')+'">'+esc(revideoStatusLabel(p.status))+'</span><span class="flowPill">'+esc(tr('revideo.originality'))+': '+esc(guard)+'</span><span class="flowPill">'+esc(tr('revideo.media'))+': '+esc(va.configured?(va.selected||'webhook'):tr('revideo.notConfigured'))+'</span><span class="flowPill '+(mj.status==='ready'?'good':mj.status==='failed'?'bad':mj.status?'warn':'')+'">'+esc(tr('revideo.mediaStatus'))+': '+esc(mj.status||'—')+'</span></div><a class="mediaLink" href="'+esc(p.source_url)+'" target="_blank" rel="noopener">'+esc(p.source_url)+'</a><div class="revideoCompare"><div><strong>'+esc(tr('revideo.sourcePattern'))+'</strong><pre>'+esc(sourcePattern||p.source_notes||'—')+'</pre></div><div><strong>'+esc(tr('revideo.originalRewrite'))+'</strong><pre>'+esc(original||'—')+'</pre></div></div><div class="revideoGuard">'+esc(r.originality_note||tr('revideo.prohibited'))+'</div><div class="flowActions">'+actions+'</div></article>';
   }).join('')+'</div>';root.innerHTML=out
  }catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}
 }
@@ -1589,7 +1590,8 @@ async function analyzeRevideo(id){
 }
 async function createRevideoJob(id){try{const r=await api('/api/revideo/'+id+'/create-job',{method:'POST'});toast(tr('revideo.jobCreated'));if(r.job&&r.job.id){await api('/api/jobs/'+r.job.id+'/select',{method:'POST'})}await refresh();renderRevideoStudio()}catch(e){toast(e.message)}}
 async function openRevideoJob(id){await api('/api/jobs/'+id+'/select',{method:'POST'});closeRevideoStudio();await refresh();document.querySelector('.jobs').scrollIntoView({behavior:'smooth'})}
-async function renderRevideoVideo(id){if(!confirm(tr('revideo.videoCostConfirm')))return;try{const r=await api('/api/revideo/'+id+'/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_external_cost:true})});toast(r.ok?tr('revideo.mediaReady'):(r.message||'blocked'));renderRevideoStudio();await refresh()}catch(e){toast(e.message)}}
+async function renderRevideoVideo(id){if(!confirm(tr('revideo.videoCostConfirm')))return;try{const r=await api('/api/revideo/'+id+'/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_external_cost:true})}),mj=r.media_job||{};toast(r.ok?(mj.status==='ready'?tr('revideo.mediaReady'):tr('revideo.mediaQueued')):(r.message||'blocked'));renderRevideoStudio();await refresh()}catch(e){toast(e.message)}}
+async function refreshRevideoMedia(id){try{const r=await api('/api/media-jobs/'+id+'/refresh',{method:'POST'}),mj=r.media_job||{};toast(mj.status==='ready'?tr('revideo.mediaReady'):(mj.status==='failed'?tr('revideo.mediaFailed'):tr('revideo.mediaQueued')));renderRevideoStudio();await refresh()}catch(e){toast(e.message)}}
 
 let cyclePollTimer=null;
 async function openAutonomousFactory(){_openFlow('cycle');const root=$('#cycleBody');root.innerHTML='<div class="flowEmpty">Loading autonomous cycles…</div>';await renderAutonomousFactory();clearInterval(cyclePollTimer);cyclePollTimer=setInterval(()=>{if($('#cyclePage').classList.contains('open'))renderAutonomousFactory(true)},5000)}
