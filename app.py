@@ -6,6 +6,9 @@ import os
 import hmac
 import hashlib
 import secrets
+import io
+import re
+import zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,12 +16,12 @@ from typing import Optional
 from urllib import request as urlrequest, error as urlerror, parse as urlparse
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request, Form
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.40"
+APP_VERSION = "v3.50"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -45,7 +48,7 @@ VERIFICATION_EVIDENCE_TAG = "v3.24-live-e2e-2026-10-19"
 PAID_VERIFICATION_TAG = ""
 LLM_LIVE_AGENTS = {
     "Scout","Researcher","Tech Verifier","Hook Writer","Angle Strategist","Hook Generator",
-    "Scriptwriter","Fact Checker","Hook Optimizer","Editor","Visual Director","QA Agent","Publisher","Analyst",
+    "Scriptwriter","Fact Checker","Hook Optimizer","Editor","Content Packager","Visual Director","QA Agent","Publisher","Analyst",
 }
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE / "data")))
@@ -62,7 +65,7 @@ AGENT_MAP = {
     "publish": ["Publisher"],
     "analytics": ["Analyst"],
 }
-AGENTS = list(dict.fromkeys([a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Hook Writer","Supervisor","Design Partner"]))
+AGENTS = list(dict.fromkeys([a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Hook Writer","Content Packager","Supervisor","Design Partner"]))
 
 AGENT_DEPENDENCIES = {
     "Scout": [],
@@ -75,10 +78,11 @@ AGENT_DEPENDENCIES = {
     "Fact Checker": ["Scriptwriter","Researcher","Tech Verifier"],
     "Hook Optimizer": ["Hook Generator","Fact Checker"],
     "Editor": ["Scriptwriter","Hook Optimizer","Fact Checker"],
-    "Visual Director": ["Editor"],
-    "Voice Agent": ["Editor"],
+    "Content Packager": ["Editor","Fact Checker"],
+    "Visual Director": ["Content Packager"],
+    "Voice Agent": ["Content Packager"],
     "Render Agent": ["Visual Director","Voice Agent"],
-    "QA Agent": ["Render Agent","Editor","Fact Checker"],
+    "QA Agent": ["Render Agent","Content Packager","Fact Checker"],
     "Publisher": ["QA Agent","Render Agent"],
     "Analyst": ["Publisher"],
     "Supervisor": [],
@@ -96,7 +100,8 @@ AGENT_SPECS = {
     "Fact Checker": {"stage":"script","role":"Fact checker","goal":"Identify unsupported claims, source gaps and factual conflicts in each script variant."},
     "Hook Optimizer": {"stage":"script","role":"Hook optimizer","goal":"Tighten hooks after fact checking without adding unsupported claims."},
     "Editor": {"stage":"script","role":"Content editor","goal":"Produce the clean final script for each variant while preserving verified claims and optimized hooks."},
-    "Visual Director": {"stage":"visual","role":"Visual director","goal":"Translate the selected edited script into shots, screen recordings, graphics and image prompts."},
+    "Content Packager": {"stage":"package","role":"Short-form content packager","goal":"Turn the selected verified variant into one traceable package containing scenes, voice-over, subtitles, publishing metadata, thumbnail concept and media brief."},
+    "Visual Director": {"stage":"visual","role":"Visual director","goal":"Translate the selected Content Package into shots, screen recordings, graphics and image prompts."},
     "Voice Agent": {"stage":"voice","role":"Voice producer","goal":"Prepare narration, delivery notes and final voice assets from the selected variant."},
     "Render Agent": {"stage":"render","role":"Video producer","goal":"Assemble scenes, captions, timing and final video renders."},
     "QA Agent": {"stage":"qa","role":"Quality controller","goal":"Return structured findings for factual consistency, hook strength, sourcing, pacing, CTA and safety."},
@@ -119,6 +124,12 @@ AGENT_TIMEOUT_SECONDS = int(os.environ.get("AGENT_TIMEOUT_SECONDS", "180"))
 AGENT_MAX_RETRIES = int(os.environ.get("AGENT_MAX_RETRIES", "1"))
 FACTORY_SIGNAL_FEEDS = [x.strip() for x in os.environ.get("FACTORY_SIGNAL_FEEDS", "").split(",") if x.strip()]
 FACTORY_SIGNAL_COLLECTION_MINUTES = max(5, int(os.environ.get("FACTORY_SIGNAL_COLLECTION_MINUTES", "360")))
+FACTORY_MEDIA_ADAPTERS = {
+    "tts": os.environ.get("FACTORY_TTS_ADAPTER", "").strip(),
+    "image": os.environ.get("FACTORY_IMAGE_ADAPTER", "").strip(),
+    "video": os.environ.get("FACTORY_VIDEO_ADAPTER", "").strip(),
+    "stock": os.environ.get("FACTORY_STOCK_ADAPTER", "").strip(),
+}
 
 def session_token(username: str) -> str:
     return hmac.new(
@@ -388,6 +399,7 @@ def health():
 
 clients: set[WebSocket] = set()
 running_jobs: set[str] = set()
+package_building: set[str] = set()
 selected_job_id: Optional[str] = None
 agent_runtime = {name: "idle" for name in AGENTS}
 agent_progress = {
@@ -563,6 +575,19 @@ def init_db():
     );
     CREATE INDEX IF NOT EXISTS idx_production_variants_job ON production_variants(job_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_production_variants_batch ON production_variants(batch_id, ordinal);
+    CREATE TABLE IF NOT EXISTS content_packages(
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      variant_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ready',
+      package_json TEXT NOT NULL DEFAULT '{}',
+      srt_text TEXT NOT NULL DEFAULT '',
+      generation_cost_usd REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_content_packages_job ON content_packages(job_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_content_packages_variant ON content_packages(variant_id, created_at DESC);
     CREATE TABLE IF NOT EXISTS improvement_proposals(
       id TEXT PRIMARY KEY,
       fingerprint TEXT UNIQUE NOT NULL,
@@ -1384,7 +1409,7 @@ def _parse_json_object(raw):
 def _content_brain_llm(role, system, user, max_output_tokens=900):
     if not FACTORY_LLM_API_KEY:
         raise RuntimeError("Live LLM provider is not configured")
-    limit=max(128,min(1200,int(max_output_tokens)))
+    limit=max(128,min(2400,int(max_output_tokens)))
     if FACTORY_LLM_API_MODE=="chat_completions":
         payload={
             "model":FACTORY_LLM_MODEL,
@@ -1940,6 +1965,7 @@ def _llm_artifact_identity(agent):
         "Fact Checker":("analysis","Fact-check findings"),
         "Hook Optimizer":("text","Optimized hooks"),
         "Editor":("text","Edited script variants"),
+        "Content Packager":("json","Content package manifest"),
         "Visual Director":("text","Storyboard / visual plan"),
         "QA Agent":("analysis","Structured QA report"),
         "Publisher":("text","Publishing package"),
@@ -2653,7 +2679,7 @@ async def rerun_variant_component(job_id,variant_id,component):
         if str(obj.get("decision") or "").lower()=="reject":updates["status"]="rejected";updates["decision_reason"]=str(obj.get("reason") or "Rejected by structured QA").strip()
     cols=",".join(f"{k}=?" for k in updates);con=db();con.execute(f"UPDATE production_variants SET {cols} WHERE id=?",(*updates.values(),variant_id))
     con.execute("UPDATE jobs SET stage='script',status='idle',progress=?,updated_at=? WHERE id=?",(int(STAGES.index("script")/(len(STAGES)-1)*100),now,job_id))
-    con.commit();con.close();_save_variant_piece(agent,job_id,run_id,variant["batch_id"],variant_id,component,f"Variant {variant['ordinal']} · partial {component}",json.dumps(obj,ensure_ascii=False,indent=2),{"partial_rerun":True});event(job_id,f"Variant {variant['ordinal']}: partial rerun {component}; downstream stages invalidated from script");await broadcast({"type":"variants","jobId":job_id,"variantId":variant_id,"component":component});return get_job_variants(job_id)
+    con.commit();con.close();_mark_content_package_stale(job_id,f"Variant {variant['ordinal']} changed via partial rerun: {component}.")_save_variant_piece(agent,job_id,run_id,variant["batch_id"],variant_id,component,f"Variant {variant['ordinal']} · partial {component}",json.dumps(obj,ensure_ascii=False,indent=2),{"partial_rerun":True});event(job_id,f"Variant {variant['ordinal']}: partial rerun {component}; downstream stages invalidated from script");await broadcast({"type":"variants","jobId":job_id,"variantId":variant_id,"component":component});return get_job_variants(job_id)
 
 def select_production_variant(job_id,variant_id):
     con=db();row=con.execute("SELECT * FROM production_variants WHERE id=? AND job_id=?",(variant_id,job_id)).fetchone()
@@ -2664,7 +2690,300 @@ def select_production_variant(job_id,variant_id):
     con.execute("UPDATE production_variants SET status='rejected',decision_reason=CASE WHEN id=? THEN decision_reason ELSE 'Not selected in variant comparison.' END,updated_at=? WHERE job_id=? AND batch_id=?",(variant_id,ts(),job_id,chosen["batch_id"]));con.execute("UPDATE production_variants SET status='selected',decision_reason='Selected in Variant Studio.',updated_at=? WHERE id=?",(ts(),variant_id));con.commit();con.close()
     _save_variant_piece("Editor",job_id,None,chosen["batch_id"],variant_id,"selected","Selected production variant",(chosen.get("optimized_hook") or chosen.get("hook") or "")+"\n\n"+chosen.get("edited_script",""),{"selected":True,"manual_selection":True})
     _save_variant_piece("Fact Checker",job_id,None,chosen["batch_id"],variant_id,"selected_factcheck","Selected variant fact check",json.dumps(chosen.get("fact_check") or {},ensure_ascii=False,indent=2),{"selected":True,"manual_selection":True})
+    _mark_content_package_stale(job_id,f"Selected production variant changed to variant {chosen['ordinal']}.")
     event(job_id,f"Variant {chosen['ordinal']} selected in Variant Studio");return get_job_variants(job_id)
+
+
+CONTENT_PACKAGE_SCHEMA_VERSION="1.0"
+CONTENT_PACKAGE_REQUIRED_FIELDS=(
+    "final_script","hook","scenes","voice_over","subtitles_srt","title","description","cta",
+    "hashtags","thumbnail_concept","media_brief","source_list","fact_check_report",
+    "estimated_duration_sec","production_cost",
+)
+
+def get_media_adapter_registry():
+    contracts={
+        "tts":{"input":["voice_over","language","delivery_notes"],"output":["audio"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["tts"] else "not_configured"},
+        "image":{"input":["scene_prompt","aspect_ratio","style"],"output":["image"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["image"] else "not_configured"},
+        "video":{"input":["scene","audio","captions","assets"],"output":["video"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["video"] else "not_configured"},
+        "stock":{"input":["query","duration","orientation"],"output":["stock_asset"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["stock"] else "not_configured"},
+        "manual":{"input":["uploaded_media"],"output":["media_asset"],"status":"ready"},
+    }
+    out=[]
+    for kind,spec in contracts.items():
+        provider="manual" if kind=="manual" else FACTORY_MEDIA_ADAPTERS.get(kind,"")
+        out.append({
+            "kind":kind,"provider":provider or None,"configured":spec["status"] in ("configured","ready"),
+            "status":spec["status"],"contract":{"input":spec["input"],"output":spec["output"]},
+            "execution":"adapter_interface_only" if kind!="manual" else "manual_asset_path",
+        })
+    return {
+        "contract_version":"1.0",
+        "adapters":out,
+        "note":"Provider names are environment configuration, not hardcoded business logic. Secrets are not exposed by this registry.",
+    }
+
+def _selected_production_variant(job_id):
+    data=get_job_variants(job_id)
+    return next((x for x in data.get("variants",[]) if x.get("status")=="selected"),None)
+
+def _content_package_sources(job_id,variant):
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        """SELECT id,agent,title,content,url,created_at FROM artifacts
+           WHERE job_id=? AND agent IN ('Researcher','Tech Verifier')
+           ORDER BY created_at DESC LIMIT 8""",(job_id,)
+    ).fetchall()]
+    con.close()
+    urls=[];refs=[];notes=[]
+    for row in rows:
+        refs.append({"artifact_id":row["id"],"agent":row["agent"],"title":row["title"],"created_at":row["created_at"]})
+        candidates=[]
+        if row.get("url"):candidates.append(row["url"])
+        candidates.extend(re.findall(r'https?://[^\s<>\]\[()"\\']+',row.get("content") or ""))
+        for url in candidates:
+            clean=url.rstrip(".,;:!?")
+            if clean and clean not in urls:urls.append(clean)
+    for finding in (variant.get("fact_check") or {}).get("findings") or []:
+        evidence=str(finding.get("evidence") or "").strip()
+        if evidence and evidence not in notes:notes.append(evidence)
+    source_list=[]
+    source_list.extend({"type":"url","value":x} for x in urls)
+    source_list.extend({"type":"artifact","artifact_id":x["artifact_id"],"agent":x["agent"],"title":x["title"],"created_at":x["created_at"]} for x in refs)
+    source_list.extend({"type":"fact_evidence","value":x} for x in notes)
+    return source_list
+
+def _package_duration_seconds(text):
+    words=len(re.findall(r"\S+",text or ""))
+    return max(6,int(round(words/2.55))) if words else 6
+
+def _split_package_sentences(text):
+    parts=[x.strip() for x in re.split(r'(?<=[.!?])\s+|\n+',text or "") if x.strip()]
+    return parts or [str(text or "").strip() or "Narration"]
+
+def _demo_package_scenes(script,duration):
+    sentences=_split_package_sentences(script)
+    target=min(8,max(3,len(sentences)))
+    groups=[[] for _ in range(target)]
+    for i,sentence in enumerate(sentences):
+        groups[min(target-1,int(i*target/max(1,len(sentences))))].append(sentence)
+    groups=[x for x in groups if x]
+    per=max(1,duration/len(groups));scenes=[];cursor=0.0
+    for i,group in enumerate(groups,1):
+        narration=" ".join(group).strip()
+        end=duration if i==len(groups) else round(cursor+per,1)
+        scenes.append({
+            "scene":i,"start_sec":round(cursor,1),"end_sec":round(end,1),
+            "narration":narration,
+            "visual":"Show concrete on-screen evidence or a visual illustration that directly supports this narration without adding new factual claims.",
+            "on_screen_text":" ".join(narration.split()[:7]),
+        })
+        cursor=end
+    return scenes
+
+def _srt_time(seconds):
+    ms=max(0,int(round(float(seconds or 0)*1000)))
+    h,rem=divmod(ms,3600000);m,rem=divmod(rem,60000);sec,msec=divmod(rem,1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{msec:03d}"
+
+def _build_srt(voice_over,duration):
+    words=(voice_over or "").split()
+    if not words:return ""
+    chunks=[" ".join(words[i:i+8]) for i in range(0,len(words),8)]
+    total=max(float(duration or 1),float(len(chunks))*0.9)
+    lines=[];cursor=0.0
+    for i,chunk in enumerate(chunks,1):
+        frac=len(chunk.split())/max(1,len(words));span=max(0.9,total*frac)
+        end=total if i==len(chunks) else min(total,cursor+span)
+        lines.extend([str(i),f"{_srt_time(cursor)} --> {_srt_time(end)}",chunk,""])
+        cursor=end
+    return "\n".join(lines).strip()+"\n"
+
+def _normalize_package_scenes(raw_scenes,voice_over,duration):
+    scenes=[]
+    raw=[x for x in (raw_scenes or []) if isinstance(x,dict)]
+    if not raw:return _demo_package_scenes(voice_over,duration)
+    cursor=0.0
+    fallback=max(1,float(duration)/max(1,len(raw)))
+    for i,item in enumerate(raw[:10],1):
+        narration=str(item.get("narration") or item.get("voice_over") or "").strip()
+        visual=str(item.get("visual") or item.get("visual_direction") or "").strip()
+        onscreen=str(item.get("on_screen_text") or item.get("text") or "").strip()
+        span=float(item.get("duration_sec") or fallback)
+        end=float(duration) if i==len(raw[:10]) else min(float(duration),cursor+max(0.8,span))
+        scenes.append({"scene":i,"start_sec":round(cursor,1),"end_sec":round(end,1),
+                       "narration":narration,"visual":visual,"on_screen_text":onscreen})
+        cursor=end
+    return scenes
+
+def _package_demo_payload(job,variant):
+    script=(variant.get("edited_script") or variant.get("script") or "").strip()
+    hook=(variant.get("optimized_hook") or variant.get("hook") or "").strip()
+    duration=_package_duration_seconds(script)
+    title=(job.get("title") or "Untitled short").strip()
+    words=[re.sub(r"[^A-Za-z0-9А-Яа-яІіЇїЄє_-]","",x) for x in title.split()]
+    tags=["#"+x for x in words if len(x)>=4][:5] or ["#shorts"]
+    return {
+        "title":title,
+        "description":(script[:280].strip()+("…" if len(script)>280 else "")),
+        "cta":"Follow for the next verified breakdown.",
+        "hashtags":tags,
+        "voice_over":script,
+        "scenes":_demo_package_scenes(script,duration),
+        "thumbnail_concept":{"headline":hook[:70] or title[:70],"visual_direction":"Use one clear subject plus one proof-oriented visual cue; avoid adding unverified claims.","composition":"9:16-safe focal composition"},
+        "media_brief":{"format":"vertical short-form","aspect_ratio":"9:16","style":"clear, evidence-led, fast-paced","visual_rules":["Every factual claim should have matching on-screen proof or an explicit qualification.","Keep captions inside mobile safe areas."],"asset_needs":["proof visuals","simple diagrams","supporting B-roll where relevant"]},
+    }
+
+def _content_package_dict(row):
+    if not row:return None
+    item=dict(row);item["package"]=_decode_json(item.pop("package_json","{}"),{})
+    item["package"]["subtitles_srt"]=item.get("srt_text") or item["package"].get("subtitles_srt","")
+    return item
+
+def get_content_package(job_id):
+    if not job_id:return {"job_id":job_id,"status":"missing","package":None,"adapters":get_media_adapter_registry()}
+    con=db();row=con.execute("SELECT * FROM content_packages WHERE job_id=? ORDER BY created_at DESC LIMIT 1",(job_id,)).fetchone();con.close()
+    item=_content_package_dict(row)
+    return {
+        "job_id":job_id,
+        "status":item.get("status") if item else "missing",
+        "building":job_id in package_building,
+        "package_record":item,
+        "package":item.get("package") if item else None,
+        "adapters":get_media_adapter_registry(),
+    }
+
+def _mark_content_package_stale(job_id,reason):
+    con=db()
+    rows=con.execute("SELECT id,package_json FROM content_packages WHERE job_id=? AND status='ready'",(job_id,)).fetchall()
+    for row in rows:
+        payload=_decode_json(row["package_json"],{})
+        payload["stale_reason"]=reason
+        con.execute("UPDATE content_packages SET status='stale',package_json=?,updated_at=? WHERE id=?",
+                    (json.dumps(payload,ensure_ascii=False),ts(),row["id"]))
+    con.commit();con.close()
+    return len(rows)
+
+def _save_package_artifacts(job_id,run_id,package_id,payload):
+    common={"content_package":True,"package_id":package_id,"variant_id":payload.get("variant_id"),"schema_version":CONTENT_PACKAGE_SCHEMA_VERSION}
+    save_artifact("Content Packager","text","Final short-form script",payload.get("final_script",""),job_id=job_id,run_id=run_id,meta={**common,"component":"final_script"})
+    save_artifact("Content Packager","text","Voice-over",payload.get("voice_over",""),job_id=job_id,run_id=run_id,meta={**common,"component":"voice_over"})
+    save_artifact("Content Packager","text","Subtitles / SRT",payload.get("subtitles_srt",""),job_id=job_id,run_id=run_id,mime_type="application/x-subrip",meta={**common,"component":"srt"})
+    save_artifact("Content Packager","json","Scene breakdown",json.dumps(payload.get("scenes") or [],ensure_ascii=False,indent=2),job_id=job_id,run_id=run_id,meta={**common,"component":"scenes"})
+    save_artifact("Content Packager","json","Publishing metadata",json.dumps({k:payload.get(k) for k in ("title","description","cta","hashtags")},ensure_ascii=False,indent=2),job_id=job_id,run_id=run_id,meta={**common,"component":"metadata"})
+    save_artifact("Content Packager","json","Thumbnail + media brief",json.dumps({"thumbnail_concept":payload.get("thumbnail_concept"),"media_brief":payload.get("media_brief")},ensure_ascii=False,indent=2),job_id=job_id,run_id=run_id,meta={**common,"component":"media_brief"})
+    save_artifact("Content Packager","json","Content package manifest",json.dumps(payload,ensure_ascii=False,indent=2),job_id=job_id,run_id=run_id,meta={**common,"component":"manifest","selected":True})
+
+async def generate_content_package(job_id):
+    job=get_job(job_id)
+    if not job:raise ValueError("Job not found")
+    variant=_selected_production_variant(job_id)
+    if not variant:raise ValueError("A selected production variant is required before building a Content Package")
+    script=(variant.get("edited_script") or "").strip()
+    if not script:raise ValueError("Selected variant must have an edited script")
+    source_list=_content_package_sources(job_id,variant)
+    live=bool(FACTORY_LLM_API_KEY)
+    run_id=start_agent_run("Content Packager",job_id,"package",model=FACTORY_LLM_MODEL if live else "simulation-v3")
+    set_agent_progress("Content Packager",8,"Preparing selected variant",job_id,run_id,"working")
+    generation_cost=0.0
+    try:
+        if live:
+            _variant_budget_guard(job_id,1800)
+            system=(
+                "You are Content Packager in FactoryOS. Convert the selected verified short-form variant into a production package. "
+                "Do not invent facts, sources, analytics, media files or provider execution. Return JSON only with keys: "
+                "title, description, cta, hashtags, voice_over, scenes, thumbnail_concept, media_brief. "
+                "hashtags must be an array. scenes must be an array of objects containing narration, visual, on_screen_text and duration_sec. "
+                "thumbnail_concept and media_brief must be JSON objects. Keep it production-ready for a vertical short."
+            )
+            user=(
+                f"LANGUAGE: {job.get('language','English')}\nFORMAT: {job.get('format','Short only')}\n"
+                f"JOB TITLE: {job.get('title','')}\nHOOK: {variant.get('optimized_hook') or variant.get('hook') or ''}\n"
+                f"FINAL SCRIPT:\n{script}\n\nFACT CHECK:\n{json.dumps(variant.get('fact_check') or {},ensure_ascii=False)}\n\n"
+                f"STRUCTURED QA:\n{json.dumps(variant.get('qa') or {},ensure_ascii=False)}\n\n"
+                f"PERSISTED SOURCE REFERENCES:\n{json.dumps(source_list,ensure_ascii=False)}"
+            )
+            set_agent_progress("Content Packager",45,"Generating package structure",job_id,run_id,"working")
+            result=await asyncio.wait_for(asyncio.to_thread(_content_brain_llm,"Content Packager",system,user,1800),timeout=AGENT_TIMEOUT_SECONDS)
+            creative=_parse_json_object(result["content"]);generation_cost=float(result.get("cost_usd") or 0)
+            finish_agent_run(run_id,status="completed",input_tokens=result["input_tokens"],output_tokens=result["output_tokens"],cost_usd=generation_cost,meta={"mode":"live_llm","content_package":True,"variant_id":variant["id"]})
+        else:
+            creative=_package_demo_payload(job,variant)
+            finish_agent_run(run_id,status="completed",meta={"mode":"demo","content_package":True,"variant_id":variant["id"]})
+        voice_over=str(creative.get("voice_over") or script).strip() or script
+        duration=_package_duration_seconds(voice_over)
+        scenes=_normalize_package_scenes(creative.get("scenes"),voice_over,duration)
+        srt=_build_srt(voice_over,duration)
+        hashtags=[str(x).strip() for x in (creative.get("hashtags") or []) if str(x).strip()][:12]
+        payload={
+            "schema_version":CONTENT_PACKAGE_SCHEMA_VERSION,
+            "job_id":job_id,"variant_id":variant["id"],"variant_batch_id":variant.get("batch_id"),
+            "final_script":script,
+            "hook":str(variant.get("optimized_hook") or variant.get("hook") or "").strip(),
+            "scenes":scenes,"voice_over":voice_over,"subtitles_srt":srt,
+            "title":str(creative.get("title") or job.get("title") or "").strip(),
+            "description":str(creative.get("description") or "").strip(),
+            "cta":str(creative.get("cta") or "").strip(),
+            "hashtags":hashtags,
+            "thumbnail_concept":creative.get("thumbnail_concept") if isinstance(creative.get("thumbnail_concept"),dict) else {"concept":str(creative.get("thumbnail_concept") or "").strip()},
+            "media_brief":creative.get("media_brief") if isinstance(creative.get("media_brief"),dict) else {"brief":str(creative.get("media_brief") or "").strip()},
+            "source_list":source_list,
+            "fact_check_report":variant.get("fact_check") or {},
+            "structured_qa":variant.get("qa") or {},
+            "estimated_duration_sec":duration,
+            "production_cost":{
+                "package_generation_usd":round(generation_cost,6),
+                "selected_variant_allocated_usd":round(float(variant.get("allocated_cost_usd") or 0),6),
+                "job_total_measured_usd":round(get_job_cost(job_id),6),
+            },
+            "provider_adapters":get_media_adapter_registry(),
+            "provenance":{
+                "content_packager_run_id":run_id,
+                "variant_provenance":variant.get("provenance") or {},
+                "generated_at":ts(),
+                "mode":"live_llm" if live else "demo",
+            },
+        }
+        missing=[x for x in CONTENT_PACKAGE_REQUIRED_FIELDS if x not in payload]
+        if missing:raise RuntimeError("Content Package schema missing: "+", ".join(missing))
+        package_id=str(uuid.uuid4());now=ts();payload["package_id"]=package_id
+        con=db();con.execute("""INSERT INTO content_packages(id,job_id,variant_id,status,package_json,srt_text,generation_cost_usd,created_at,updated_at)
+                               VALUES(?,?,?,'ready',?,?,?,?,?)""",
+                            (package_id,job_id,variant["id"],json.dumps(payload,ensure_ascii=False),srt,generation_cost,now,now));con.commit();con.close()
+        _save_package_artifacts(job_id,run_id,package_id,payload)
+        record_run_step(run_id,job_id,"Content Packager","complete","Content Package ready",100,"completed")
+        set_agent_progress("Content Packager",100,"Content Package ready",job_id,run_id,"done")
+        event(job_id,f"Content Package ready: {len(scenes)} scene(s), ~{duration}s, package {package_id[:8]}")
+        await broadcast({"type":"content_package","jobId":job_id,"packageId":package_id,"status":"ready"})
+        return get_content_package(job_id)
+    except Exception as exc:
+        con=db();row=con.execute("SELECT status FROM agent_runs WHERE id=?",(run_id,)).fetchone();con.close()
+        if row and row["status"]=="running":finish_agent_run(run_id,status="failed",error=str(exc),meta={"content_package":True})
+        set_agent_progress("Content Packager",20,f"Failed: {str(exc)[:160]}",job_id,run_id,"failed")
+        raise
+
+def _package_export_files(record):
+    package=record.get("package") or {}
+    media=package.get("media_brief") or {}
+    thumb=package.get("thumbnail_concept") or {}
+    metadata={"title":package.get("title"),"description":package.get("description"),"cta":package.get("cta"),"hashtags":package.get("hashtags")}
+    brief_lines=["# Media Brief","",json.dumps(media,ensure_ascii=False,indent=2),"","# Thumbnail Concept","",json.dumps(thumb,ensure_ascii=False,indent=2)]
+    return {
+        "content-package.json":json.dumps(package,ensure_ascii=False,indent=2)+"\n",
+        "final-script.txt":str(package.get("final_script") or "")+"\n",
+        "voice-over.txt":str(package.get("voice_over") or "")+"\n",
+        "subtitles.srt":str(package.get("subtitles_srt") or record.get("srt_text") or ""),
+        "scenes.json":json.dumps(package.get("scenes") or [],ensure_ascii=False,indent=2)+"\n",
+        "publishing-metadata.json":json.dumps(metadata,ensure_ascii=False,indent=2)+"\n",
+        "sources.json":json.dumps(package.get("source_list") or [],ensure_ascii=False,indent=2)+"\n",
+        "fact-check.json":json.dumps(package.get("fact_check_report") or {},ensure_ascii=False,indent=2)+"\n",
+        "media-brief.md":"\n".join(brief_lines)+"\n",
+    }
+
+def _export_filename(job_id,suffix):
+    job=get_job(job_id) or {}
+    raw=re.sub(r"[^A-Za-z0-9._-]+","-",str(job.get("title") or "factoryos-package").strip()).strip("-")[:60] or "factoryos-package"
+    return f"{raw}-{job_id[:8]}{suffix}"
 
 def validate_stage_outputs(job_id, stage):
     expected=AGENT_MAP.get(stage,[])
@@ -3441,6 +3760,9 @@ def status():
         "selectedJobAgentErrors": get_job_agent_errors(sid),
         "selectedJobErrorCenter": get_job_error_center(sid),
         "selectedJobVariants": get_job_variants(sid),
+        "selectedJobContentPackage": get_content_package(sid),
+        "mediaAdapters": get_media_adapter_registry(),
+        "packageBuilding": list(package_building),
         "events":ev,"connections":CONNECTIONS,"stages":STAGES,
         "agentStates":agent_states(jobs),"agentProgress":{a:get_agent_progress_snapshot(a) for a in AGENTS},"agentMap":AGENT_MAP,
         "agentDependencies":AGENT_DEPENDENCIES,
@@ -3608,6 +3930,7 @@ async def run_until_review(job_id:str):
             await broadcast()
             if stage=="script":
                 await run_variant_pipeline(job_id,3)
+                await generate_content_package(job_id)
             else:
                 for a in AGENT_MAP.get(stage,[]):
                     await execute_agent(a, stage, job_id, delay=1.1)
@@ -3804,6 +4127,57 @@ def handoff_trace(run_id:str, artifact_id:str):
     data["source_run"]=dict(source_run) if source_run else None
     return data
 
+
+
+@app.get("/api/media-adapters")
+def media_adapters():
+    return get_media_adapter_registry()
+
+@app.get("/api/jobs/{job_id}/content-package")
+def job_content_package(job_id:str):
+    if not get_job(job_id):raise HTTPException(404,"Job not found")
+    return get_content_package(job_id)
+
+async def _manual_package_build(job_id):
+    try:
+        await generate_content_package(job_id)
+    except Exception as exc:
+        event(job_id,f"Content Package build failed: {exc}")
+        await broadcast({"type":"content_package","jobId":job_id,"status":"failed","error":str(exc)})
+    finally:
+        package_building.discard(job_id)
+
+@app.post("/api/jobs/{job_id}/content-package/generate")
+async def generate_job_content_package(job_id:str):
+    if not get_job(job_id):raise HTTPException(404,"Job not found")
+    if job_id in package_building:return {"ok":True,"message":"Content Package is already building"}
+    if job_id in running_jobs:return {"ok":False,"message":"Wait for the current Factory run to finish before rebuilding the package"}
+    if not _selected_production_variant(job_id):return {"ok":False,"message":"Select a complete production variant first"}
+    if FACTORY_LLM_API_KEY:
+        try:_variant_budget_guard(job_id,1800)
+        except RuntimeError as exc:return {"ok":False,"message":str(exc)}
+    package_building.add(job_id);asyncio.create_task(_manual_package_build(job_id))
+    await broadcast({"type":"content_package","jobId":job_id,"status":"building"})
+    return {"ok":True,"message":"Content Package build started"}
+
+@app.get("/api/jobs/{job_id}/content-package/export.json")
+def export_content_package_json(job_id:str):
+    data=get_content_package(job_id);record=data.get("package_record")
+    if not record:raise HTTPException(404,"Content Package not found")
+    body=json.dumps(record.get("package") or {},ensure_ascii=False,indent=2).encode("utf-8")
+    return Response(content=body,media_type="application/json; charset=utf-8",
+                    headers={"Content-Disposition":f'attachment; filename="{_export_filename(job_id,".json")}"'})
+
+@app.get("/api/jobs/{job_id}/content-package/export.zip")
+def export_content_package_zip(job_id:str):
+    data=get_content_package(job_id);record=data.get("package_record")
+    if not record:raise HTTPException(404,"Content Package not found")
+    buf=io.BytesIO()
+    with zipfile.ZipFile(buf,"w",zipfile.ZIP_DEFLATED) as zf:
+        for name,content in _package_export_files(record).items():
+            zf.writestr(name,content)
+    return Response(content=buf.getvalue(),media_type="application/zip",
+                    headers={"Content-Disposition":f'attachment; filename="{_export_filename(job_id,".zip")}"'})
 
 @app.get("/api/jobs/{job_id}/variants")
 def job_variants(job_id:str):
