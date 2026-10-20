@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.50"
+APP_VERSION = "v3.80"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -130,6 +130,12 @@ FACTORY_MEDIA_ADAPTERS = {
     "video": os.environ.get("FACTORY_VIDEO_ADAPTER", "").strip(),
     "stock": os.environ.get("FACTORY_STOCK_ADAPTER", "").strip(),
 }
+FACTORY_PUBLISHER_ADAPTER = (os.environ.get("FACTORY_PUBLISHER_ADAPTER", "manual").strip().lower() or "manual")
+FACTORY_PUBLISHER_ENDPOINT = os.environ.get("FACTORY_PUBLISHER_ENDPOINT", "").strip()
+FACTORY_PUBLISHER_TOKEN = os.environ.get("FACTORY_PUBLISHER_TOKEN", "").strip()
+FACTORY_ANALYTICS_ADAPTER = (os.environ.get("FACTORY_ANALYTICS_ADAPTER", "manual").strip().lower() or "manual")
+FACTORY_ANALYTICS_ENDPOINT = os.environ.get("FACTORY_ANALYTICS_ENDPOINT", "").strip()
+FACTORY_ANALYTICS_TOKEN = os.environ.get("FACTORY_ANALYTICS_TOKEN", "").strip()
 
 def session_token(username: str) -> str:
     return hmac.new(
@@ -588,6 +594,57 @@ def init_db():
     );
     CREATE INDEX IF NOT EXISTS idx_content_packages_job ON content_packages(job_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_content_packages_variant ON content_packages(variant_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS approval_decisions(
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      package_id TEXT,
+      variant_id TEXT,
+      decision TEXT NOT NULL,
+      reason TEXT DEFAULT '',
+      component TEXT DEFAULT '',
+      actor TEXT NOT NULL DEFAULT 'owner',
+      created_at TEXT NOT NULL,
+      meta_json TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_approval_job ON approval_decisions(job_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS publishing_queue(
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      package_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'approved',
+      target TEXT NOT NULL DEFAULT 'manual',
+      platform TEXT NOT NULL DEFAULT 'unspecified',
+      scheduled_at TEXT,
+      idempotency_key TEXT UNIQUE NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      external_post_id TEXT,
+      external_url TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      published_at TEXT,
+      meta_json TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_publish_status ON publishing_queue(status, scheduled_at, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_publish_job ON publishing_queue(job_id, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS performance_snapshots(
+      id TEXT PRIMARY KEY,
+      publish_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      platform TEXT NOT NULL DEFAULT 'unspecified',
+      captured_at TEXT NOT NULL,
+      metrics_json TEXT NOT NULL DEFAULT '{}',
+      source TEXT NOT NULL DEFAULT 'manual',
+      meta_json TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_perf_publish ON performance_snapshots(publish_id, captured_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_perf_job ON performance_snapshots(job_id, captured_at DESC);
+    CREATE TABLE IF NOT EXISTS job_idea_links(
+      job_id TEXT PRIMARY KEY,
+      idea_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_job_idea ON job_idea_links(idea_id, created_at DESC);
     CREATE TABLE IF NOT EXISTS improvement_proposals(
       id TEXT PRIMARY KEY,
       fingerprint TEXT UNIQUE NOT NULL,
@@ -3737,6 +3794,509 @@ async def broadcast(payload=None):
         except Exception: dead.append(ws)
     for ws in dead: clients.discard(ws)
 
+
+# v3.60 → v3.80 release train: approval, controlled publishing, real performance feedback.
+class ApprovalRejectRequest(BaseModel):
+    reason: str = ""
+
+class ApprovalRegenerateRequest(BaseModel):
+    component: str
+    confirm_cost: bool = False
+
+class PublishScheduleRequest(BaseModel):
+    target: str = "manual"
+    platform: str = "unspecified"
+    scheduled_at: Optional[str] = None
+
+class PublishConfirmRequest(BaseModel):
+    external_post_id: str
+    external_url: str = ""
+    published_at: Optional[str] = None
+
+class PerformanceSnapshotCreate(BaseModel):
+    publish_id: str
+    captured_at: Optional[str] = None
+    views: Optional[int] = None
+    reach: Optional[int] = None
+    watch_time_sec: Optional[float] = None
+    retention_pct: Optional[float] = None
+    completion_rate_pct: Optional[float] = None
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+    shares: Optional[int] = None
+    saves: Optional[int] = None
+    follower_delta: Optional[int] = None
+    content_duration_sec: Optional[float] = None
+    source: str = "manual"
+
+PERFORMANCE_FIELDS=(
+    "views","reach","watch_time_sec","retention_pct","completion_rate_pct",
+    "likes","comments","shares","saves","follower_delta","content_duration_sec",
+)
+
+def _json_row(row, field="meta_json", output="meta"):
+    if not row:return None
+    item=dict(row)
+    item[output]=_decode_json(item.pop(field,"{}"),{})
+    return item
+
+def _record_approval(job_id,decision,reason="",component="",meta=None):
+    package=get_content_package(job_id).get("package_record")
+    variant=_selected_production_variant(job_id)
+    decision_id=str(uuid.uuid4())
+    con=db()
+    con.execute("""INSERT INTO approval_decisions(
+        id,job_id,package_id,variant_id,decision,reason,component,actor,created_at,meta_json
+    ) VALUES(?,?,?,?,?,?,?,?,?,?)""",(
+        decision_id,job_id,(package or {}).get("id"),(variant or {}).get("id"),
+        decision,(reason or "").strip(),(component or "").strip(),"owner",ts(),
+        json.dumps(meta or {},ensure_ascii=False)
+    ))
+    con.commit();con.close()
+    return decision_id
+
+def get_approval_history(job_id,limit=80):
+    con=db()
+    rows=con.execute("SELECT * FROM approval_decisions WHERE job_id=? ORDER BY created_at DESC LIMIT ?",
+                     (job_id,max(1,min(300,int(limit))))).fetchall()
+    con.close()
+    return [_json_row(x) for x in rows]
+
+def _latest_render_preview(job_id):
+    con=db()
+    row=con.execute("""SELECT id,title,content,url,created_at FROM artifacts
+                       WHERE job_id=? AND agent='Render Agent'
+                       ORDER BY created_at DESC LIMIT 1""",(job_id,)).fetchone()
+    con.close()
+    return dict(row) if row else None
+
+def get_variant_diff(job_id):
+    data=get_job_variants(job_id); variants=data.get("variants") or []
+    selected=next((x for x in variants if x.get("status")=="selected"),None)
+    if not selected:return {"selected":None,"comparisons":[]}
+    comparisons=[]
+    for other in variants:
+        if other["id"]==selected["id"]:continue
+        changes=[]
+        for field in ("angle","hook","optimized_hook","edited_script","decision_reason","allocated_cost_usd"):
+            if selected.get(field)!=other.get(field):
+                changes.append({"field":field,"selected":selected.get(field),"other":other.get(field)})
+        comparisons.append({"variant_id":other["id"],"ordinal":other.get("ordinal"),"status":other.get("status"),
+                            "changes":changes,"qa":other.get("qa") or {}})
+    return {"selected":{"id":selected["id"],"ordinal":selected.get("ordinal"),"qa":selected.get("qa") or {}},
+            "comparisons":comparisons}
+
+def _estimated_regeneration_cost(component):
+    if component=="voice":
+        return {"component":"voice","estimated_model_cost_usd":0.0,"provider_cost_known":False,
+                "note":"Voice rerun uses no LLM call here; external TTS pricing may be unknown."}
+    caps={"hook":650,"script":1100,"caption":700}
+    if component not in caps:raise ValueError("Unsupported regeneration component")
+    if not FACTORY_LLM_API_KEY:
+        return {"component":component,"estimated_model_cost_usd":0.0,"provider_cost_known":True,
+                "note":"Zero-spend deterministic runtime: no live model call is configured."}
+    estimate=(5000*FACTORY_LLM_INPUT_USD_PER_1M + caps[component]*FACTORY_LLM_OUTPUT_USD_PER_1M)/1_000_000
+    return {"component":component,"estimated_model_cost_usd":round(estimate,6),"provider_cost_known":True,
+            "note":"Conservative pre-call estimate; actual provider usage is recorded from the run."}
+
+async def _regenerate_caption(job_id):
+    data=get_content_package(job_id);record=data.get("package_record")
+    variant=_selected_production_variant(job_id);job=get_job(job_id)
+    if not record or record.get("status")!="ready" or not variant:
+        raise ValueError("Ready package and selected variant required")
+    run_id=None
+    if FACTORY_LLM_API_KEY:
+        obj,run_id,_=await _variant_agent_call(
+            "Content Packager",job_id,"Partial rerun · publishing metadata",
+            "Return JSON only with title, description, cta, hashtags. Preserve verified meaning; do not add unsupported claims.",
+            json.dumps({"job_title":job.get("title"),"script":variant.get("edited_script"),
+                        "hook":variant.get("optimized_hook") or variant.get("hook")},ensure_ascii=False),700
+        )
+        fresh={k:obj.get(k) for k in ("title","description","cta","hashtags")}
+    else:
+        demo=_package_demo_payload(job,variant)
+        fresh={k:demo.get(k) for k in ("title","description","cta","hashtags")}
+    package=record.get("package") or {}
+    for key,value in fresh.items():
+        if value is not None:package[key]=value
+    package.setdefault("production_cost",{})["job_total_measured_usd"]=round(get_job_cost(job_id),6)
+    con=db()
+    con.execute("UPDATE content_packages SET package_json=?,updated_at=? WHERE id=?",
+                (json.dumps(package,ensure_ascii=False),ts(),record["id"]))
+    con.commit();con.close()
+    _record_approval(job_id,"regenerate","Publishing metadata regenerated","caption",{"run_id":run_id})
+    event(job_id,"Approval Studio: publishing metadata regenerated only")
+    return get_content_package(job_id)
+
+def link_job_idea(job_id,idea_id):
+    con=db()
+    if not con.execute("SELECT id FROM jobs WHERE id=?",(job_id,)).fetchone():
+        con.close();raise ValueError("Job not found")
+    if not con.execute("SELECT id FROM content_ideas WHERE id=?",(idea_id,)).fetchone():
+        con.close();raise ValueError("Idea not found")
+    con.execute("""INSERT INTO job_idea_links(job_id,idea_id,created_at) VALUES(?,?,?)
+                   ON CONFLICT(job_id) DO UPDATE SET idea_id=excluded.idea_id,created_at=excluded.created_at""",
+                (job_id,idea_id,ts()))
+    con.commit();con.close()
+    return {"job_id":job_id,"idea_id":idea_id}
+
+def get_publisher_adapter_registry():
+    webhook=bool(FACTORY_PUBLISHER_ENDPOINT)
+    return {"selected":FACTORY_PUBLISHER_ADAPTER,
+            "adapters":[
+                {"kind":"manual","configured":True,"status":"ready","execution":"explicit external confirmation"},
+                {"kind":"webhook","configured":webhook,"status":"configured" if webhook else "not_configured","execution":"idempotent POST"},
+            ],
+            "secrets_exposed":False,
+            "note":"Approval never publishes directly. Retries reuse one stable idempotency key."}
+
+def get_analytics_adapter_registry():
+    webhook=bool(FACTORY_ANALYTICS_ENDPOINT)
+    return {"selected":FACTORY_ANALYTICS_ADAPTER,
+            "adapters":[
+                {"kind":"manual","configured":True,"status":"ready"},
+                {"kind":"webhook","configured":webhook,"status":"configured" if webhook else "not_configured"},
+            ],
+            "secrets_exposed":False,
+            "note":"Only metrics actually supplied by the platform/owner are persisted."}
+
+def _publish_item(row):
+    return _json_row(row) if row else None
+
+def _ensure_publish_item(job_id):
+    package=get_content_package(job_id).get("package_record")
+    variant=_selected_production_variant(job_id)
+    if not package or package.get("status")!="ready":raise ValueError("A fresh Content Package is required before publishing")
+    if not variant:raise ValueError("A selected production variant is required before publishing")
+    idem=hashlib.sha256(f"{job_id}:{package['id']}:{variant['id']}".encode("utf-8")).hexdigest()
+    con=db();existing=con.execute("SELECT * FROM publishing_queue WHERE idempotency_key=?",(idem,)).fetchone()
+    if existing:con.close();return _publish_item(existing)
+    pid=str(uuid.uuid4());now=ts()
+    con.execute("""INSERT INTO publishing_queue(
+        id,job_id,package_id,status,target,platform,scheduled_at,idempotency_key,attempt_count,
+        external_post_id,external_url,last_error,created_at,updated_at,published_at,meta_json
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
+        pid,job_id,package["id"],"approved","manual","unspecified",None,idem,0,
+        None,None,None,now,now,None,json.dumps({"variant_id":variant["id"],"approval_required":True})
+    ))
+    con.commit();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(pid,)).fetchone();con.close()
+    return _publish_item(row)
+
+def get_publishing_queue(limit=100):
+    con=db();rows=con.execute("SELECT * FROM publishing_queue ORDER BY updated_at DESC LIMIT ?",
+                              (max(1,min(300,int(limit))),)).fetchall();con.close()
+    items=[_publish_item(x) for x in rows];counts={}
+    for item in items:counts[item["status"]]=counts.get(item["status"],0)+1
+    return {"summary":{"total":len(items),**counts},"items":items,"adapter":get_publisher_adapter_registry()}
+
+def _external_json(url,method="GET",payload=None,token=""):
+    headers={"Accept":"application/json","User-Agent":"FactoryOS/3.80"};data=None
+    if payload is not None:
+        data=json.dumps(payload,ensure_ascii=False).encode("utf-8");headers["Content-Type"]="application/json"
+    if token:headers["Authorization"]="Bearer "+token
+    req=urlrequest.Request(url,data=data,headers=headers,method=method)
+    with urlrequest.urlopen(req,timeout=25) as response:
+        return json.loads(response.read().decode("utf-8","replace") or "{}")
+
+def _publish_via_adapter(item):
+    if FACTORY_PUBLISHER_ADAPTER=="manual" or not FACTORY_PUBLISHER_ENDPOINT:
+        return {"manual":True,"status":"publishing"}
+    payload={"idempotency_key":item["idempotency_key"],"publish_id":item["id"],"job_id":item["job_id"],
+             "package_id":item["package_id"],"target":item["target"],"platform":item["platform"],
+             "scheduled_at":item.get("scheduled_at")}
+    result=_external_json(FACTORY_PUBLISHER_ENDPOINT,"POST",payload,FACTORY_PUBLISHER_TOKEN)
+    return {"manual":False,"status":str(result.get("status") or "publishing"),
+            "external_post_id":result.get("external_post_id") or result.get("id"),
+            "external_url":result.get("external_url") or result.get("url"),"raw":result}
+
+def _approval_summary():
+    con=db()
+    waiting=int(con.execute("SELECT COUNT(*) c FROM jobs WHERE status='waiting_approval'").fetchone()["c"] or 0)
+    decisions=int(con.execute("SELECT COUNT(*) c FROM approval_decisions").fetchone()["c"] or 0)
+    con.close();return {"waiting":waiting,"decisions":decisions}
+
+def _publishing_summary():
+    con=db();rows=con.execute("SELECT status,COUNT(*) c FROM publishing_queue GROUP BY status").fetchall();con.close()
+    return {x["status"]:x["c"] for x in rows}
+
+def _performance_summary():
+    con=db()
+    snapshots=int(con.execute("SELECT COUNT(*) c FROM performance_snapshots").fetchone()["c"] or 0)
+    published=int(con.execute("SELECT COUNT(*) c FROM publishing_queue WHERE status='published'").fetchone()["c"] or 0)
+    con.close();return {"snapshots":snapshots,"published_items":published}
+
+def get_approval_queue(limit=60):
+    con=db();jobs=[dict(x) for x in con.execute(
+        """SELECT * FROM jobs WHERE status IN ('waiting_approval','approved','rejected')
+           ORDER BY updated_at DESC LIMIT ?""",(max(1,min(200,int(limit))),)).fetchall()];con.close()
+    items=[]
+    for job in jobs:
+        package=get_content_package(job["id"]);variants=get_job_variants(job["id"])
+        con=db();pub=con.execute("SELECT * FROM publishing_queue WHERE job_id=? ORDER BY updated_at DESC LIMIT 1",
+                                 (job["id"],)).fetchone();con.close()
+        items.append({"job":job,"package":package.get("package_record"),"package_status":package.get("status"),
+                      "variants":variants,"preview":_latest_render_preview(job["id"]),
+                      "history":get_approval_history(job["id"],20),"variant_diff":get_variant_diff(job["id"]),
+                      "publish":_publish_item(pub)})
+    return {"summary":{"items":len(items),
+                       "waiting":sum(1 for x in items if x["job"]["status"]=="waiting_approval"),
+                       "approved":sum(1 for x in items if x["job"]["status"]=="approved"),
+                       "rejected":sum(1 for x in items if x["job"]["status"]=="rejected")},
+            "items":items}
+
+def _performance_item(publish):
+    con=db()
+    rows=con.execute("SELECT * FROM performance_snapshots WHERE publish_id=? ORDER BY captured_at",(publish["id"],)).fetchall()
+    idea=con.execute("SELECT idea_id FROM job_idea_links WHERE job_id=?",(publish["job_id"],)).fetchone()
+    con.close()
+    snapshots=[]
+    for row in rows:
+        x=dict(row);x["metrics"]=_decode_json(x.pop("metrics_json","{}"),{});x["meta"]=_decode_json(x.pop("meta_json","{}"),{});snapshots.append(x)
+    package=get_content_package(publish["job_id"]).get("package_record")
+    variant=_selected_production_variant(publish["job_id"])
+    latest=snapshots[-1] if snapshots else None;metrics=(latest or {}).get("metrics",{})
+    cost=float(((package or {}).get("package") or {}).get("production_cost",{}).get("job_total_measured_usd") or get_job_cost(publish["job_id"]) or 0)
+    views=metrics.get("views")
+    cpk=round(cost/(float(views)/1000),6) if isinstance(views,(int,float)) and views>0 else None
+    attribution={"idea_id":idea["idea_id"] if idea else None,"job_id":publish["job_id"],"package_id":publish["package_id"],
+                 "variant_id":(variant or {}).get("id"),"variant_provenance":(variant or {}).get("provenance") or {},
+                 "angle":(variant or {}).get("angle"),"hook":(variant or {}).get("optimized_hook") or (variant or {}).get("hook"),
+                 "sources":((package or {}).get("package") or {}).get("source_list") or [],
+                 "production_cost_usd":cost}
+    return {"publish":publish,"snapshots":snapshots,"latest":latest,"attribution":attribution,"cost_per_1k_views_usd":cpk}
+
+def get_performance_dashboard(limit=100):
+    con=db();rows=con.execute("""SELECT * FROM publishing_queue WHERE status='published'
+                                 ORDER BY published_at DESC,updated_at DESC LIMIT ?""",
+                              (max(1,min(300,int(limit))),)).fetchall();con.close()
+    items=[_performance_item(_publish_item(x)) for x in rows];cohorts={}
+    for item in items:
+        key=(item["attribution"].get("angle") or "unknown").strip()
+        metrics=(item.get("latest") or {}).get("metrics",{})
+        b=cohorts.setdefault(key,{"angle":key,"items":0,"views":0,"retention":[],"completion":[]})
+        b["items"]+=1;b["views"]+=metrics.get("views") or 0
+        if isinstance(metrics.get("retention_pct"),(int,float)):b["retention"].append(metrics["retention_pct"])
+        if isinstance(metrics.get("completion_rate_pct"),(int,float)):b["completion"].append(metrics["completion_rate_pct"])
+    cohort_rows=[]
+    for b in cohorts.values():
+        cohort_rows.append({"angle":b["angle"],"items":b["items"],"views":b["views"],
+                            "avg_retention_pct":round(sum(b["retention"])/len(b["retention"]),2) if b["retention"] else None,
+                            "avg_completion_rate_pct":round(sum(b["completion"])/len(b["completion"]),2) if b["completion"] else None})
+    return {"summary":{"published_items":len(items),"measured_items":sum(1 for x in items if x.get("latest")),
+                       "views":sum(((x.get("latest") or {}).get("metrics",{}).get("views") or 0) for x in items)},
+            "items":items,"angle_cohorts":cohort_rows,"adapter":get_analytics_adapter_registry(),
+            "measurement_note":"Missing platform metrics remain absent. Derived cost/outcome metrics exist only when their source metric exists."}
+
+def record_performance_snapshot(payload):
+    con=db();pub=con.execute("SELECT * FROM publishing_queue WHERE id=?",(payload.publish_id,)).fetchone()
+    if not pub:con.close();raise ValueError("Published item not found")
+    if pub["status"]!="published":con.close();raise ValueError("Performance can only be attached to a published item")
+    metrics={}
+    for key in PERFORMANCE_FIELDS:
+        value=getattr(payload,key)
+        if value is not None:metrics[key]=value
+    if not metrics:con.close();raise ValueError("At least one real platform metric is required")
+    snapshot_id=str(uuid.uuid4());captured=payload.captured_at or ts()
+    con.execute("""INSERT INTO performance_snapshots(
+        id,publish_id,job_id,platform,captured_at,metrics_json,source,meta_json
+    ) VALUES(?,?,?,?,?,?,?,?)""",(
+        snapshot_id,pub["id"],pub["job_id"],pub["platform"],captured,json.dumps(metrics),
+        payload.source or "manual","{}"
+    ))
+    con.commit();con.close()
+    save_artifact("Analyst","performance_snapshot",f"Performance snapshot · {pub['platform']}",
+                  json.dumps(metrics,ensure_ascii=False,indent=2),job_id=pub["job_id"],
+                  meta={"publish_id":pub["id"],"source":payload.source or "manual"})
+    event(pub["job_id"],f"Performance snapshot recorded: {pub['platform']} · {', '.join(metrics.keys())}")
+    return {"id":snapshot_id,"publish_id":pub["id"],"metrics":metrics,"captured_at":captured}
+
+@app.get("/api/approval")
+def approval_studio(job_id: Optional[str]=None):
+    data=get_approval_queue()
+    if job_id:
+        data["items"]=[x for x in data["items"] if x["job"]["id"]==job_id]
+        data["summary"]["items"]=len(data["items"])
+    data["regeneration_quotes"]={x:_estimated_regeneration_cost(x) for x in ("hook","script","caption","voice")}
+    return data
+
+@app.get("/api/jobs/{job_id}/approval/history")
+def approval_history(job_id:str):
+    if not get_job(job_id):raise HTTPException(404,"Job not found")
+    return {"history":get_approval_history(job_id),"variant_diff":get_variant_diff(job_id)}
+
+@app.get("/api/jobs/{job_id}/approval/quote/{component}")
+def approval_regeneration_quote(job_id:str,component:str):
+    if not get_job(job_id):raise HTTPException(404,"Job not found")
+    try:return _estimated_regeneration_cost(component)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+
+@app.post("/api/jobs/{job_id}/reject")
+async def reject_job(job_id:str,payload:ApprovalRejectRequest):
+    job=get_job(job_id)
+    if not job:raise HTTPException(404,"Job not found")
+    if job["status"]!="waiting_approval":return {"ok":False,"message":"Job is not waiting for approval"}
+    reason=(payload.reason or "").strip()
+    if not reason:return {"ok":False,"message":"Reject reason is required"}
+    _record_approval(job_id,"rejected",reason)
+    con=db();con.execute("UPDATE jobs SET status='rejected',stage='qa',updated_at=? WHERE id=?",(ts(),job_id));con.commit();con.close()
+    event(job_id,f"Approval Studio: rejected — {reason[:180]}")
+    await broadcast({"type":"approval","jobId":job_id,"decision":"rejected"})
+    return {"ok":True,"status":"rejected"}
+
+@app.post("/api/jobs/{job_id}/approval/regenerate")
+async def approval_regenerate(job_id:str,payload:ApprovalRegenerateRequest):
+    if not get_job(job_id):raise HTTPException(404,"Job not found")
+    component=(payload.component or "").strip().lower()
+    try:quote=_estimated_regeneration_cost(component)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    if quote["estimated_model_cost_usd"]>0 and not payload.confirm_cost:
+        return {"ok":False,"requiresCostConfirmation":True,"quote":quote}
+    if component in ("hook","script"):
+        selected=_selected_production_variant(job_id)
+        if not selected:raise HTTPException(400,"Select a production variant first")
+        try:result=await rerun_variant_component(job_id,selected["id"],component)
+        except (ValueError,RuntimeError) as exc:raise HTTPException(503,str(exc))
+        _record_approval(job_id,"regenerate",f"{component} targeted rerun",component,{"quote":quote})
+        return {"ok":True,"quote":quote,"variants":result}
+    if component=="caption":
+        try:package=await _regenerate_caption(job_id)
+        except (ValueError,RuntimeError) as exc:raise HTTPException(503,str(exc))
+        return {"ok":True,"quote":quote,"package":package}
+    await execute_agent("Voice Agent","voice",job_id,delay=0.0)
+    con=db();con.execute("UPDATE jobs SET stage='render',status='idle',progress=?,updated_at=? WHERE id=?",
+                        (int(STAGES.index("render")/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close()
+    _record_approval(job_id,"regenerate","Voice regenerated; Render and QA require rebuild","voice",{"quote":quote})
+    event(job_id,"Approval Studio: voice regenerated; Render → QA invalidated")
+    await broadcast({"type":"approval","jobId":job_id,"action":"regenerate_voice"})
+    return {"ok":True,"quote":quote}
+
+@app.post("/api/jobs/{job_id}/idea-link/{idea_id}")
+async def api_link_job_idea(job_id:str,idea_id:str):
+    try:return {"ok":True,**link_job_idea(job_id,idea_id)}
+    except ValueError as exc:raise HTTPException(400,str(exc))
+
+@app.get("/api/publisher-adapters")
+def publisher_adapters():
+    return get_publisher_adapter_registry()
+
+@app.get("/api/publishing")
+def publishing_queue(limit:int=100):
+    return get_publishing_queue(limit)
+
+@app.post("/api/publishing/{publish_id}/schedule")
+async def schedule_publishing(publish_id:str,payload:PublishScheduleRequest):
+    con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone()
+    if not row:con.close();raise HTTPException(404,"Publish item not found")
+    if row["status"]=="published":con.close();return {"ok":True,"item":_publish_item(row)}
+    when=payload.scheduled_at or ts();target=(payload.target or "manual").strip();platform=(payload.platform or "unspecified").strip()
+    con.execute("""UPDATE publishing_queue SET status='scheduled',target=?,platform=?,scheduled_at=?,updated_at=?,last_error=NULL
+                   WHERE id=?""",(target,platform,when,ts(),publish_id))
+    con.commit();updated=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
+    event(row["job_id"],f"Publishing scheduled: {platform} · {when}")
+    await broadcast({"type":"publishing","publishId":publish_id,"status":"scheduled"})
+    return {"ok":True,"item":_publish_item(updated)}
+
+@app.post("/api/publishing/{publish_id}/publish")
+async def publish_scheduled_item(publish_id:str,confirm_uncertain:bool=False):
+    con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone()
+    if not row:con.close();raise HTTPException(404,"Publish item not found")
+    item=_publish_item(row);meta=item.get("meta") or {}
+    if item["status"]=="published":con.close();return {"ok":True,"item":item,"idempotent":True}
+    if meta.get("outcome_uncertain") and not confirm_uncertain:
+        con.close();return {"ok":False,"requiresConfirmation":True,
+                            "message":"Previous external publish outcome is uncertain. Confirm before retrying the same idempotency key."}
+    if item.get("scheduled_at") and item["scheduled_at"]>ts():
+        con.close();return {"ok":False,"message":"Publish item is scheduled for a future time"}
+    con.execute("UPDATE publishing_queue SET status='publishing',attempt_count=attempt_count+1,updated_at=?,last_error=NULL WHERE id=?",
+                (ts(),publish_id));con.commit();con.close()
+    try:
+        result=await asyncio.to_thread(_publish_via_adapter,item)
+        if result.get("manual"):
+            con=db();con.execute("UPDATE publishing_queue SET status='publishing',updated_at=?,meta_json=? WHERE id=?",
+                                 (ts(),json.dumps({**meta,"manual_confirmation_required":True}),publish_id));con.commit();con.close()
+            return {"ok":True,"requiresManualConfirmation":True,
+                    "message":"Manual publisher path: confirm the real platform post ID/URL after publishing."}
+        status="published" if result.get("status")=="published" and result.get("external_post_id") else str(result.get("status") or "publishing")
+        published_at=ts() if status=="published" else None
+        con=db();con.execute("""UPDATE publishing_queue SET status=?,external_post_id=?,external_url=?,published_at=?,updated_at=?,meta_json=?
+                               WHERE id=?""",(status,result.get("external_post_id"),result.get("external_url"),published_at,ts(),
+                               json.dumps({**meta,"adapter_result":result.get("raw",{})},ensure_ascii=False),publish_id))
+        con.commit();con.close();event(item["job_id"],f"Publishing result: {status} · {item['platform']}")
+        await broadcast({"type":"publishing","publishId":publish_id,"status":status})
+        return {"ok":True,"status":status}
+    except Exception as exc:
+        uncertain=isinstance(exc,(TimeoutError,urlerror.URLError))
+        con=db();con.execute("UPDATE publishing_queue SET status='failed',last_error=?,updated_at=?,meta_json=? WHERE id=?",
+                             (str(exc)[:900],ts(),json.dumps({**meta,"outcome_uncertain":uncertain}),publish_id))
+        con.commit();con.close();event(item["job_id"],f"Publishing failed: {str(exc)[:180]}")
+        return {"ok":False,"status":"failed","outcomeUncertain":uncertain,"message":str(exc)}
+
+@app.post("/api/publishing/{publish_id}/confirm")
+async def confirm_manual_publish(publish_id:str,payload:PublishConfirmRequest):
+    external=(payload.external_post_id or "").strip()
+    if not external:raise HTTPException(400,"external_post_id is required")
+    con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone()
+    if not row:con.close();raise HTTPException(404,"Publish item not found")
+    published_at=payload.published_at or ts()
+    con.execute("""UPDATE publishing_queue SET status='published',external_post_id=?,external_url=?,published_at=?,updated_at=?,last_error=NULL
+                   WHERE id=?""",(external,(payload.external_url or "").strip(),published_at,ts(),publish_id))
+    con.commit();con.close()
+    save_artifact("Publisher","publish_receipt",f"Published · {row['platform']}",
+                  json.dumps({"external_post_id":external,"external_url":payload.external_url,"published_at":published_at},ensure_ascii=False,indent=2),
+                  job_id=row["job_id"],meta={"publish_id":publish_id,"idempotency_key":row["idempotency_key"]})
+    con=db();con.execute("UPDATE jobs SET stage='publish',status='published',progress=90,updated_at=? WHERE id=?",(ts(),row["job_id"]));con.commit();con.close()
+    event(row["job_id"],f"Manual publish confirmed: {row['platform']} · {external}")
+    await broadcast({"type":"publishing","publishId":publish_id,"status":"published"})
+    return {"ok":True,"status":"published"}
+
+@app.post("/api/publishing/run-due")
+async def run_due_publishing():
+    con=db();rows=con.execute("""SELECT id FROM publishing_queue WHERE status='scheduled' AND scheduled_at<=?
+                                 ORDER BY scheduled_at LIMIT 20""",(ts(),)).fetchall();con.close()
+    results=[]
+    for row in rows:results.append(await publish_scheduled_item(row["id"],False))
+    return {"ok":True,"processed":len(results),"results":results}
+
+@app.get("/api/analytics-adapters")
+def analytics_adapters():
+    return get_analytics_adapter_registry()
+
+@app.get("/api/performance")
+def performance_dashboard(limit:int=100):
+    return get_performance_dashboard(limit)
+
+@app.get("/api/performance/{publish_id}")
+def performance_detail(publish_id:str):
+    con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
+    if not row:raise HTTPException(404,"Published item not found")
+    return _performance_item(_publish_item(row))
+
+@app.post("/api/performance/snapshots")
+async def add_performance_snapshot(payload:PerformanceSnapshotCreate):
+    try:result=record_performance_snapshot(payload)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"performance","publishId":payload.publish_id})
+    return {"ok":True,**result}
+
+@app.post("/api/performance/{publish_id}/sync")
+async def sync_performance_snapshot(publish_id:str):
+    if not FACTORY_ANALYTICS_ENDPOINT:raise HTTPException(503,"Analytics webhook adapter is not configured")
+    con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
+    if not row or row["status"]!="published":raise HTTPException(400,"Published item required")
+    query=urlparse.urlencode({"external_post_id":row["external_post_id"] or "","platform":row["platform"]})
+    sep="&" if "?" in FACTORY_ANALYTICS_ENDPOINT else "?"
+    try:data=await asyncio.to_thread(_external_json,FACTORY_ANALYTICS_ENDPOINT+sep+query,"GET",None,FACTORY_ANALYTICS_TOKEN)
+    except Exception as exc:raise HTTPException(503,str(exc))
+    source=data.get("metrics") if isinstance(data.get("metrics"),dict) else data
+    kwargs={"publish_id":publish_id,"source":FACTORY_ANALYTICS_ADAPTER}
+    for key in PERFORMANCE_FIELDS:
+        if key in source:kwargs[key]=source[key]
+    try:result=record_performance_snapshot(PerformanceSnapshotCreate(**kwargs))
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"performance","publishId":publish_id})
+    return {"ok":True,**result}
+
+
 @app.get("/")
 @app.get("/en")
 @app.get("/uk")
@@ -3774,6 +4334,11 @@ def status():
         "agentMetrics": {a:get_agent_metrics(a) for a in AGENTS},
         "improvementProposals": get_improvement_proposals("proposed",5),
         "contentBrain": get_content_brain(12),
+        "approvalSummary": _approval_summary(),
+        "publishingSummary": _publishing_summary(),
+        "performanceSummary": _performance_summary(),
+        "publisherAdapters": get_publisher_adapter_registry(),
+        "analyticsAdapters": get_analytics_adapter_registry(),
         "buildProgress": get_factory_tasks(),
         "runtimePolicy": {
             "agent_timeout_seconds":AGENT_TIMEOUT_SECONDS,
@@ -3953,8 +4518,17 @@ async def approve(job_id:str):
     jobs=get_jobs(); j=next((x for x in jobs if x["id"]==job_id),None)
     if not j: raise HTTPException(404,"Job not found")
     if j["status"] != "waiting_approval": return {"ok":False,"message":"Job is not waiting for approval"}
-    if job_id in running_jobs: return {"ok":True}
-    running_jobs.add(job_id); asyncio.create_task(run_publish(job_id)); return {"ok":True}
+    package=get_content_package(job_id).get("package_record")
+    if not package or package.get("status")!="ready":
+        return {"ok":False,"message":"A fresh Content Package is required before approval"}
+    _record_approval(job_id,"approved","Approved in Approval Studio")
+    try:item=_ensure_publish_item(job_id)
+    except ValueError as exc:return {"ok":False,"message":str(exc)}
+    con=db();con.execute("UPDATE jobs SET status='approved',stage='qa',progress=75,updated_at=? WHERE id=?",(ts(),job_id));con.commit();con.close()
+    event(job_id,"Approval Studio: approved; added to publishing queue; no publish action executed")
+    await broadcast({"type":"approval","jobId":job_id,"decision":"approved","publishId":item["id"]})
+    return {"ok":True,"status":"approved","publish":item,
+            "message":"Approved and queued. Publishing still requires a separate schedule/publish action."}
 
 async def run_publish(job_id:str):
     try:

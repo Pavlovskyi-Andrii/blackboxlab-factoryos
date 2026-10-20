@@ -19,12 +19,12 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v3.50","version mismatch")
+require(health["version"]==app.APP_VERSION=="v3.80","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
 state=app.status()
-for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","runtimePolicy"):
+for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","publisherAdapters","analyticsAdapters","runtimePolicy"):
     require(key in state,f"status missing {key}")
 require(state["factory"]=="online","factory must report online")
 
@@ -47,7 +47,7 @@ require(obj["decision"]=="shortlist","Content Brain JSON object parser regressio
 brain=app.get_content_brain()
 require("adapters" in brain and "rss" in brain["adapters"],"source adapter registry missing")
 require("verified" in brain["summary"] and "feeds_configured" in brain["summary"],"Content Brain summary fields missing")
-for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
+for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/reject","POST"),("/api/approval","GET"),("/api/jobs/{job_id}/approval/history","GET"),("/api/jobs/{job_id}/approval/quote/{component}","GET"),("/api/jobs/{job_id}/approval/regenerate","POST"),("/api/jobs/{job_id}/idea-link/{idea_id}","POST"),("/api/publisher-adapters","GET"),("/api/publishing","GET"),("/api/publishing/{publish_id}/schedule","POST"),("/api/publishing/{publish_id}/publish","POST"),("/api/publishing/{publish_id}/confirm","POST"),("/api/publishing/run-due","POST"),("/api/analytics-adapters","GET"),("/api/performance","GET"),("/api/performance/{publish_id}","GET"),("/api/performance/snapshots","POST"),("/api/performance/{publish_id}/sync","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
     require(route_exists(path,method),f"route missing: {method} {path}")
 
 created=asyncio.run(app.create_job(app.JobCreate(title="CI smoke job",brief="Zero-spend regression fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))
@@ -101,6 +101,38 @@ app.select_production_variant(job_id,variant_result["variants"][0]["id"])
 require(app.get_content_package(job_id)["status"]=="stale","changing selected variant must invalidate existing Content Package")
 require(app.get_job(job_id)["stage"]=="script" and app.get_job(job_id)["status"]=="idle","changing selected variant must fence downstream stages back to script")
 
+# v3.60 Approval Studio — deterministic/zero-spend regression.
+asyncio.run(app.generate_content_package(job_id))
+app.link_job_idea(job_id,idea["id"])
+con=app.db();con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(app.ts(),job_id));con.commit();con.close()
+queue=app.get_approval_queue()
+require(any(x["job"]["id"]==job_id for x in queue["items"]),"approval queue must include waiting job")
+require("estimated_model_cost_usd" in app._estimated_regeneration_cost("hook"),"cost-before-rerun quote missing")
+approval=asyncio.run(app.approve(job_id))
+require(approval["ok"] is True and approval["status"]=="approved","approval decision regression")
+require(app.get_approval_history(job_id)[0]["decision"]=="approved","approval history must persist")
+pub=approval["publish"]
+require(pub["status"]=="approved" and pub["idempotency_key"],"approval must create idempotent queue item")
+
+# v3.70 Publishing Engine — no duplicate publish and no invented external receipt.
+scheduled=asyncio.run(app.schedule_publishing(pub["id"],app.PublishScheduleRequest(target="manual",platform="youtube_shorts",scheduled_at=app.ts())))
+require(scheduled["item"]["status"]=="scheduled","publishing schedule regression")
+started=asyncio.run(app.publish_scheduled_item(pub["id"]))
+require(started["requiresManualConfirmation"] is True,"manual path must require factual platform confirmation")
+confirmed=asyncio.run(app.confirm_manual_publish(pub["id"],app.PublishConfirmRequest(external_post_id="ci-post-1",external_url="https://example.com/post/ci-post-1")))
+require(confirmed["status"]=="published","manual publish confirmation regression")
+again=asyncio.run(app.publish_scheduled_item(pub["id"]))
+require(again.get("idempotent") is True,"published item must be duplicate-safe")
+
+# v3.80 Feedback Loop — store only metrics actually supplied and preserve attribution.
+snap=app.record_performance_snapshot(app.PerformanceSnapshotCreate(publish_id=pub["id"],views=1200,retention_pct=61.5,likes=48,source="ci_fixture"))
+require(snap["metrics"]=={"views":1200,"retention_pct":61.5,"likes":48},"missing metrics must not be invented")
+perf=app.get_performance_dashboard()
+pitem=next(x for x in perf["items"] if x["publish"]["id"]==pub["id"])
+require(pitem["attribution"]["idea_id"]==idea["id"],"performance must link to originating idea")
+require(pitem["attribution"]["package_id"] and pitem["attribution"]["variant_id"],"performance package/variant attribution missing")
+require(pitem["cost_per_1k_views_usd"] is not None,"cost/outcome comparison missing when views exist")
+require(perf["angle_cohorts"],"angle cohort comparison missing")
 
 transport=app.classify_agent_error("LLM provider request failed: timed out")
 require(transport["requires_confirmation"] is True,"uncertain transport failure must require confirmation")
@@ -130,16 +162,22 @@ require("FactoryOS v3.14" not in html,"stale document title version returned")
 require('data-i18n="brain.title"' in html,"Content Brain workspace missing")
 require('data-i18n="variant.title"' in html,"Variant Studio workspace missing")
 require('data-i18n="package.title"' in html,"Content Package workspace missing")
+require('data-i18n="approval.title"' in html,"Approval Studio workspace missing")
+require('data-i18n="publishing.title"' in html,"Publishing Engine workspace missing")
+require('data-i18n="performance.title"' in html,"Performance Feedback workspace missing")
+require("openApprovalStudio" in html and "approvalRegenerate" in html,"Approval Studio controls missing")
+require("openPublishingStudio" in html and "publishQueueItem" in html,"Publishing controls missing")
+require("openPerformanceStudio" in html and "addPerformanceSnapshot" in html,"Performance controls missing")
 require('onclick="openPackageStudio()"' in html,"Content Package action missing")
 require("buildContentPackage" in html and "renderPackageStudio" in html,"Content Package controls missing")
 require('onclick="openVariantStudio()"' in html,"Variant Studio action missing")
 require("rerunVariant" in html and "buildVariants" in html,"Variant Studio controls missing")
 require('onclick="openContentBrain()"' in html,"Content Brain navigation missing")
 require("runBrainFull()" in html and "processBrainIdea" in html,"Content Brain mobile actions missing")
-require('<span class="version">v3.50</span>' in html,"visible UI version mismatch")
+require('<span class="version">v3.80</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
-for key in ("brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
+for key in ("approval.nav","approval.title","publishing.nav","publishing.title","performance.nav","performance.title","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v3.50 smoke/regression suite passed without paid provider calls")
+print("FactoryOS v3.80 smoke/regression suite passed without paid provider calls")
