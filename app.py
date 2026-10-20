@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.30"
+APP_VERSION = "v3.40"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -44,8 +44,8 @@ FACTORY_LLM_MAX_OUTPUT_TOKENS = max(128, min(4096, int(os.environ.get("FACTORY_L
 VERIFICATION_EVIDENCE_TAG = "v3.24-live-e2e-2026-10-19"
 PAID_VERIFICATION_TAG = ""
 LLM_LIVE_AGENTS = {
-    "Scout","Researcher","Tech Verifier","Hook Writer","Scriptwriter",
-    "Visual Director","QA Agent","Publisher","Analyst",
+    "Scout","Researcher","Tech Verifier","Hook Writer","Angle Strategist","Hook Generator",
+    "Scriptwriter","Fact Checker","Hook Optimizer","Editor","Visual Director","QA Agent","Publisher","Analyst",
 }
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE / "data")))
@@ -54,7 +54,7 @@ DB = DATA_DIR / "factory.db"
 STAGES = ["inbox","research","script","visual","voice","render","qa","publish","analytics"]
 AGENT_MAP = {
     "research": ["Scout","Researcher","Tech Verifier"],
-    "script": ["Hook Writer","Scriptwriter"],
+    "script": ["Angle Strategist","Hook Generator","Scriptwriter","Fact Checker","Hook Optimizer","Editor"],
     "visual": ["Visual Director"],
     "voice": ["Voice Agent"],
     "render": ["Render Agent"],
@@ -62,18 +62,23 @@ AGENT_MAP = {
     "publish": ["Publisher"],
     "analytics": ["Analyst"],
 }
-AGENTS = [a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Supervisor","Design Partner"]
+AGENTS = list(dict.fromkeys([a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Hook Writer","Supervisor","Design Partner"]))
 
 AGENT_DEPENDENCIES = {
     "Scout": [],
     "Researcher": ["Scout"],
     "Tech Verifier": ["Scout","Researcher"],
     "Hook Writer": ["Researcher","Tech Verifier"],
-    "Scriptwriter": ["Hook Writer","Researcher","Tech Verifier"],
-    "Visual Director": ["Scriptwriter"],
-    "Voice Agent": ["Scriptwriter"],
+    "Angle Strategist": ["Researcher","Tech Verifier"],
+    "Hook Generator": ["Angle Strategist","Researcher","Tech Verifier"],
+    "Scriptwriter": ["Hook Generator","Angle Strategist","Researcher","Tech Verifier"],
+    "Fact Checker": ["Scriptwriter","Researcher","Tech Verifier"],
+    "Hook Optimizer": ["Hook Generator","Fact Checker"],
+    "Editor": ["Scriptwriter","Hook Optimizer","Fact Checker"],
+    "Visual Director": ["Editor"],
+    "Voice Agent": ["Editor"],
     "Render Agent": ["Visual Director","Voice Agent"],
-    "QA Agent": ["Render Agent","Scriptwriter","Tech Verifier"],
+    "QA Agent": ["Render Agent","Editor","Fact Checker"],
     "Publisher": ["QA Agent","Render Agent"],
     "Analyst": ["Publisher"],
     "Supervisor": [],
@@ -84,12 +89,17 @@ AGENT_SPECS = {
     "Scout": {"stage":"research","role":"Trend & topic scout","goal":"Find timely, high-potential content opportunities and useful source leads."},
     "Researcher": {"stage":"research","role":"Research analyst","goal":"Build a reliable evidence pack, key facts, angles and source notes."},
     "Tech Verifier": {"stage":"research","role":"Technical verifier","goal":"Challenge claims, flag uncertainty and verify technical plausibility."},
-    "Hook Writer": {"stage":"script","role":"Hook specialist","goal":"Create opening hooks and retention beats that earn the next second of attention."},
-    "Scriptwriter": {"stage":"script","role":"Long-form scriptwriter","goal":"Turn verified research into a clear, engaging narrative."},
-    "Visual Director": {"stage":"visual","role":"Visual director","goal":"Translate the script into shots, screen recordings, graphics and image prompts."},
-    "Voice Agent": {"stage":"voice","role":"Voice producer","goal":"Prepare narration, delivery notes and final voice assets."},
+    "Hook Writer": {"stage":"script","role":"Legacy hook specialist","goal":"Preserve access to historical Hook Writer runs from the v3.x pipeline."},
+    "Angle Strategist": {"stage":"script","role":"Angle strategist","goal":"Create distinct evidence-grounded narrative angles for competing production variants."},
+    "Hook Generator": {"stage":"script","role":"Hook generator","goal":"Create a concrete 1–3 second opening hook for each production variant."},
+    "Scriptwriter": {"stage":"script","role":"Script writer","goal":"Turn each verified angle and hook into a concise production-ready script variant."},
+    "Fact Checker": {"stage":"script","role":"Fact checker","goal":"Identify unsupported claims, source gaps and factual conflicts in each script variant."},
+    "Hook Optimizer": {"stage":"script","role":"Hook optimizer","goal":"Tighten hooks after fact checking without adding unsupported claims."},
+    "Editor": {"stage":"script","role":"Content editor","goal":"Produce the clean final script for each variant while preserving verified claims and optimized hooks."},
+    "Visual Director": {"stage":"visual","role":"Visual director","goal":"Translate the selected edited script into shots, screen recordings, graphics and image prompts."},
+    "Voice Agent": {"stage":"voice","role":"Voice producer","goal":"Prepare narration, delivery notes and final voice assets from the selected variant."},
     "Render Agent": {"stage":"render","role":"Video producer","goal":"Assemble scenes, captions, timing and final video renders."},
-    "QA Agent": {"stage":"qa","role":"Quality controller","goal":"Check factual consistency, completeness, output readiness and policy risks."},
+    "QA Agent": {"stage":"qa","role":"Quality controller","goal":"Return structured findings for factual consistency, hook strength, sourcing, pacing, CTA and safety."},
     "Publisher": {"stage":"publish","role":"Distribution manager","goal":"Package and schedule platform-specific publishing assets."},
     "Analyst": {"stage":"analytics","role":"Performance analyst","goal":"Turn performance data into concrete recommendations for the next production cycle."},
     "Supervisor": {"stage":"supervision","role":"Factory supervisor","goal":"Monitor every agent, detect failures, auto-heal safe issues and continuously improve the process."},
@@ -530,6 +540,29 @@ def init_db():
       provenance_json TEXT DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_content_ideas_status ON content_ideas(status, score DESC, created_at DESC);
+    CREATE TABLE IF NOT EXISTS production_variants(
+      id TEXT PRIMARY KEY,
+      batch_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'candidate',
+      angle TEXT DEFAULT '',
+      angle_reason TEXT DEFAULT '',
+      hook TEXT DEFAULT '',
+      hook_rationale TEXT DEFAULT '',
+      script TEXT DEFAULT '',
+      optimized_hook TEXT DEFAULT '',
+      edited_script TEXT DEFAULT '',
+      fact_check_json TEXT DEFAULT '{}',
+      qa_json TEXT DEFAULT '{}',
+      decision_reason TEXT DEFAULT '',
+      allocated_cost_usd REAL DEFAULT 0,
+      provenance_json TEXT DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_production_variants_job ON production_variants(job_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_production_variants_batch ON production_variants(batch_id, ordinal);
     CREATE TABLE IF NOT EXISTS improvement_proposals(
       id TEXT PRIMARY KEY,
       fingerprint TEXT UNIQUE NOT NULL,
@@ -1900,10 +1933,15 @@ def _llm_artifact_identity(agent):
         "Scout":("analysis","Opportunity scan"),
         "Researcher":("research","Research brief"),
         "Tech Verifier":("analysis","Technical verification"),
-        "Hook Writer":("text","Hook candidates"),
-        "Scriptwriter":("text","Draft script"),
+        "Hook Writer":("text","Legacy hook candidates"),
+        "Angle Strategist":("analysis","Angle candidates"),
+        "Hook Generator":("text","Hook candidates"),
+        "Scriptwriter":("text","Script variants"),
+        "Fact Checker":("analysis","Fact-check findings"),
+        "Hook Optimizer":("text","Optimized hooks"),
+        "Editor":("text","Edited script variants"),
         "Visual Director":("text","Storyboard / visual plan"),
-        "QA Agent":("analysis","QA report"),
+        "QA Agent":("analysis","Structured QA report"),
         "Publisher":("text","Publishing package"),
         "Analyst":("analysis","Performance learning brief"),
     }
@@ -1938,6 +1976,13 @@ def _call_live_llm(agent, job, input_pack):
         "If evidence is missing, state exactly what still needs verification. "
         "Respect the requested language and preserve the human approval gate before publishing."
     )
+    if agent=="QA Agent":
+        system += (
+            " Return JSON only with keys summary, release_decision and findings. "
+            "release_decision must be pass or attention. findings must be an array of objects with type, severity, message and evidence. "
+            "Allowed finding types: unsupported_claim, weak_hook, duplicated_angle, missing_source, slow_intro, unclear_cta, "
+            "excessive_length, unsafe_sensitive_claim, fact_conflict. Severity must be info, warning or critical."
+        )
     user=(
         f"JOB TITLE: {job.get('title','')}\n"
         f"BRIEF: {_trim_llm_context(job.get('brief',''),4000)}\n"
@@ -2408,6 +2453,214 @@ def get_improvement_proposals(status="proposed", limit=8):
         out.append(d)
     return out
 
+
+VARIANT_QA_TYPES={
+    "unsupported_claim","weak_hook","duplicated_angle","missing_source","slow_intro",
+    "unclear_cta","excessive_length","unsafe_sensitive_claim","fact_conflict",
+}
+VARIANT_COMPONENTS=("angle","hook","script","factcheck","optimize","editor","qa")
+
+def _normalize_qa_findings(findings):
+    normalized=[]
+    for raw in findings or []:
+        if not isinstance(raw,dict):
+            continue
+        kind=str(raw.get("type") or "").strip().lower().replace(" ","_").replace("/","_")
+        if kind not in VARIANT_QA_TYPES:
+            continue
+        severity=str(raw.get("severity") or "warning").strip().lower()
+        if severity not in ("info","warning","critical"):
+            severity="warning"
+        message=str(raw.get("message") or "").strip()
+        if not message:
+            continue
+        normalized.append({"type":kind,"severity":severity,"message":message,"evidence":str(raw.get("evidence") or "").strip()})
+    return normalized
+
+def _variant_dict(row):
+    if not row:return None
+    item=dict(row)
+    item["fact_check"]=_decode_json(item.pop("fact_check_json","{}"),{})
+    item["qa"]=_decode_json(item.pop("qa_json","{}"),{})
+    item["provenance"]=_decode_json(item.pop("provenance_json","{}"),{})
+    return item
+
+def get_job_variants(job_id):
+    empty={"job_id":job_id,"batch_id":None,"summary":{"variants":0,"selected":0,"rejected":0,"candidates":0,"allocated_cost_usd":0},"variants":[],"cost_note":"Shared batch-run provider cost is allocated evenly across variants for comparison; total job cost remains measured exactly in agent_runs."}
+    if not job_id:return empty
+    con=db()
+    latest=con.execute("SELECT batch_id,MAX(created_at) created_at FROM production_variants WHERE job_id=? GROUP BY batch_id ORDER BY created_at DESC LIMIT 1",(job_id,)).fetchone()
+    if not latest:
+        con.close();return empty
+    rows=[_variant_dict(x) for x in con.execute("SELECT * FROM production_variants WHERE job_id=? AND batch_id=? ORDER BY ordinal",(job_id,latest["batch_id"])).fetchall()]
+    con.close()
+    return {"job_id":job_id,"batch_id":latest["batch_id"],"summary":{"variants":len(rows),"selected":sum(1 for x in rows if x["status"]=="selected"),"rejected":sum(1 for x in rows if x["status"]=="rejected"),"candidates":sum(1 for x in rows if x["status"] in ("candidate","stale")),"allocated_cost_usd":round(sum(float(x.get("allocated_cost_usd") or 0) for x in rows),6)},"variants":rows,"cost_note":"Shared batch-run provider cost is allocated evenly across variants for comparison; total job cost remains measured exactly in agent_runs."}
+
+def _variant_research_context(job_id):
+    con=db()
+    rows=[dict(x) for x in con.execute("""SELECT agent,title,content,created_at FROM artifacts WHERE job_id=? AND agent IN ('Researcher','Tech Verifier') ORDER BY created_at DESC LIMIT 4""",(job_id,)).fetchall()]
+    con.close()
+    return "\n\n".join(f"{x['agent']} — {x['title']}:\n{_trim_llm_context(x.get('content',''),5000)}" for x in reversed(rows)) or "(no persisted research artifacts; do not invent evidence)"
+
+def _variant_budget_guard(job_id, output_tokens=1200):
+    reserve=max(128,int(output_tokens))*FACTORY_LLM_OUTPUT_USD_PER_1M/1_000_000
+    usage=get_usage_summary()
+    if usage["today_cost_usd"] + reserve > FACTORY_DAILY_BUDGET_USD:raise RuntimeError("Daily provider budget would be exceeded by the next variant call")
+    if get_job_cost(job_id) + reserve > FACTORY_JOB_BUDGET_USD:raise RuntimeError("Job provider budget would be exceeded by the next variant call")
+
+async def _variant_agent_call(agent,job_id,label,system,user,max_output_tokens=1100):
+    _variant_budget_guard(job_id,max_output_tokens)
+    run_id=start_agent_run(agent,job_id,"script",model=FACTORY_LLM_MODEL)
+    set_agent_progress(agent,8,label,job_id,run_id,"working");event(job_id,f"{agent}: {label}")
+    await broadcast({"type":"agent","agent":agent,"state":"working"})
+    try:
+        result=await asyncio.wait_for(asyncio.to_thread(_content_brain_llm,agent,system,user,max_output_tokens),timeout=AGENT_TIMEOUT_SECONDS)
+        parsed=_parse_json_object(result["content"])
+        save_artifact(agent,"analysis",label,result["content"],job_id=job_id,run_id=run_id,meta={"mode":"live_llm","stage":"script","variant_batch":True,"model":result["model"],"provider_request_id":result.get("provider_request_id")})
+        finish_agent_run(run_id,status="completed",input_tokens=result["input_tokens"],output_tokens=result["output_tokens"],cost_usd=result["cost_usd"],meta={"mode":"live_llm","variant_batch":True})
+        record_run_step(run_id,job_id,agent,"complete","Completed",100,"completed");set_agent_progress(agent,100,"Completed",job_id,run_id,"done")
+        await broadcast({"type":"agent_progress","agent":agent,"state":"done","progress":agent_progress[agent]})
+        return parsed,run_id,result
+    except Exception as exc:
+        finish_agent_run(run_id,status="failed",error=str(exc),meta={"mode":"live_llm","variant_batch":True});set_agent_progress(agent,20,f"Failed: {str(exc)[:160]}",job_id,run_id,"failed");raise
+
+def _save_variant_piece(agent,job_id,run_id,batch_id,variant_id,component,title,content,extra=None):
+    return save_artifact(agent,"analysis" if component in ("angle","factcheck","qa") else "text",title,content,job_id=job_id,run_id=run_id,meta={"mode":"live_llm" if FACTORY_LLM_API_KEY else "demo","stage":"script","variant_batch":True,"batch_id":batch_id,"variant_id":variant_id,"component":component,**(extra or {})})
+
+def _select_variant_from_qa(variants,recommended=None):
+    valid_ids={x["id"] for x in variants}
+    if recommended in valid_ids:
+        candidate=next(x for x in variants if x["id"]==recommended);findings=(candidate.get("qa") or {}).get("findings") or []
+        if not any(x.get("severity")=="critical" for x in findings):return recommended
+    ranked=[]
+    for v in variants:
+        findings=(v.get("qa") or {}).get("findings") or []
+        ranked.append((sum(1 for x in findings if x.get("severity")=="critical"),sum(1 for x in findings if x.get("severity")=="warning"),v["ordinal"],v["id"]))
+    ranked.sort();return ranked[0][3] if ranked else None
+
+def _demo_variant_pipeline(job_id,candidate_count=3):
+    job=get_job(job_id)
+    if not job:raise ValueError("Job not found")
+    batch_id=str(uuid.uuid4());now=ts()
+    templates=[("Explain the hidden mechanism first","You think this is a black box — here is what is actually happening."),("Lead with the surprising limitation","The most interesting part is what this system cannot know."),("Start from a concrete experiment","I tested the claim on one concrete example. Here is what survived verification.")]
+    con=db();variants=[]
+    for n in range(candidate_count):
+        variant_id=str(uuid.uuid4());angle,hook=templates[n%len(templates)]
+        script=f"{hook}\n\nContext: {job['title']}.\nDemo variant {n+1}: explain one concrete mechanism, show the evidence boundary, state limitations, then end with a clear CTA."
+        fact={"findings":[{"type":"missing_source","severity":"warning","message":"Demo mode has no live external source verification.","evidence":"simulation-v3"}]}
+        qa={"decision":"keep" if n==0 else "reject","findings":[{"type":"missing_source","severity":"warning","message":"Demo variant only; live source verification is required.","evidence":"simulation-v3"}]}
+        status="selected" if n==0 else "rejected";reason="Demo selection only — no live performance or source evidence." if n==0 else "Demo alternate retained for comparison.";provenance={"mode":"demo","batch_id":batch_id}
+        con.execute("""INSERT INTO production_variants(id,batch_id,job_id,ordinal,status,angle,angle_reason,hook,hook_rationale,script,optimized_hook,edited_script,fact_check_json,qa_json,decision_reason,allocated_cost_usd,provenance_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(variant_id,batch_id,job_id,n+1,status,angle,"Deterministic demo angle",hook,"Deterministic demo hook",script,hook,script,json.dumps(fact),json.dumps(qa),reason,0,json.dumps(provenance),now,now))
+        variants.append({"id":variant_id,"ordinal":n+1,"angle":angle,"hook":hook,"script":script,"status":status})
+    con.commit();con.close()
+    for agent,component in [("Angle Strategist","angle"),("Hook Generator","hook"),("Scriptwriter","script"),("Fact Checker","factcheck"),("Hook Optimizer","optimize"),("Editor","editor")]:
+        run_id=start_agent_run(agent,job_id,"script",model="simulation-v3")
+        for v in variants:_save_variant_piece(agent,job_id,run_id,batch_id,v["id"],component,f"Variant {v['ordinal']} · {component}",v["script"])
+        finish_agent_run(run_id,status="completed",meta={"mode":"demo","variant_batch":True,"batch_id":batch_id});record_run_step(run_id,job_id,agent,"complete","Completed",100,"completed");set_agent_progress(agent,100,"Completed",job_id,run_id,"done")
+    run_id=start_agent_run("QA Agent",job_id,"script",model="simulation-v3")
+    for v in variants:_save_variant_piece("QA Agent",job_id,run_id,batch_id,v["id"],"qa",f"Variant {v['ordinal']} · structured QA",json.dumps({"decision":"keep" if v["ordinal"]==1 else "reject","findings":[{"type":"missing_source","severity":"warning","message":"Demo variant only; live source verification is required.","evidence":"simulation-v3"}]},indent=2))
+    finish_agent_run(run_id,status="completed",meta={"mode":"demo","variant_batch":True,"batch_id":batch_id})
+    _save_variant_piece("Editor",job_id,None,batch_id,variants[0]["id"],"selected","Selected production variant",variants[0]["script"],{"selected":True})
+    event(job_id,f"Production Pipeline 2.0 demo batch created: {candidate_count} variants; variant 1 selected");return get_job_variants(job_id)
+
+async def run_variant_pipeline(job_id,candidate_count=3):
+    candidate_count=max(2,min(4,int(candidate_count or 3)))
+    if not FACTORY_LLM_API_KEY:return _demo_variant_pipeline(job_id,candidate_count)
+    job=get_job(job_id)
+    if not job:raise ValueError("Job not found")
+    batch_id=str(uuid.uuid4());research=_variant_research_context(job_id);language=job.get("language","English")
+    angle_obj,angle_run,_=await _variant_agent_call("Angle Strategist",job_id,"Generating competing angles","You are Angle Strategist in FactoryOS Production Pipeline 2.0. Create genuinely distinct evidence-grounded narrative angles. Use only supplied research. Return JSON only: {\"angles\":[{\"angle\":\"...\",\"reason\":\"...\",\"audience\":\"...\"}]}. Return exactly "+str(candidate_count)+" angles. Do not invent facts.",f"JOB: {job['title']}\nBRIEF: {job.get('brief','')}\nLANGUAGE: {language}\nRESEARCH:\n{research}",1000)
+    angles=[x for x in (angle_obj.get("angles") or []) if isinstance(x,dict) and str(x.get("angle") or "").strip()][:candidate_count]
+    if len(angles)<candidate_count:raise RuntimeError(f"Angle Strategist returned {len(angles)} usable angles; expected {candidate_count}")
+    con=db();now=ts();variants=[]
+    for n,a in enumerate(angles,1):
+        vid=str(uuid.uuid4());provenance={"batch_id":batch_id,"run_ids":{"angle":angle_run}}
+        con.execute("INSERT INTO production_variants(id,batch_id,job_id,ordinal,status,angle,angle_reason,provenance_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",(vid,batch_id,job_id,n,"candidate",str(a.get("angle") or "").strip(),str(a.get("reason") or "").strip(),json.dumps(provenance),now,now))
+        variants.append({"id":vid,"ordinal":n,"angle":str(a.get("angle") or "").strip(),"angle_reason":str(a.get("reason") or "").strip()});_save_variant_piece("Angle Strategist",job_id,angle_run,batch_id,vid,"angle",f"Variant {n} · angle",json.dumps(a,ensure_ascii=False,indent=2))
+    con.commit();con.close()
+    hook_obj,hook_run,_=await _variant_agent_call("Hook Generator",job_id,"Generating hook candidates","You are Hook Generator. Create one specific 1–3 second opening hook for each supplied variant. Hooks must differ in mechanism, not just wording, and must not add unsupported claims. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"hook\":\"...\",\"rationale\":\"...\"}]}.",f"LANGUAGE: {language}\nRESEARCH:\n{research}\nVARIANTS:\n{json.dumps(variants,ensure_ascii=False)}",1000)
+    hooks={str(x.get("variant_id")):x for x in hook_obj.get("variants") or [] if isinstance(x,dict)};con=db()
+    for v in variants:
+        h=hooks.get(v["id"]) or {};v["hook"]=str(h.get("hook") or "").strip();v["hook_rationale"]=str(h.get("rationale") or "").strip()
+        if not v["hook"]:raise RuntimeError(f"Hook Generator missed variant {v['ordinal']}")
+        prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["hook"]=hook_run
+        con.execute("UPDATE production_variants SET hook=?,hook_rationale=?,provenance_json=?,updated_at=? WHERE id=?",(v["hook"],v["hook_rationale"],json.dumps(prov),ts(),v["id"]));_save_variant_piece("Hook Generator",job_id,hook_run,batch_id,v["id"],"hook",f"Variant {v['ordinal']} · hook",json.dumps(h,ensure_ascii=False,indent=2))
+    con.commit();con.close()
+    script_obj,script_run,_=await _variant_agent_call("Scriptwriter",job_id,"Writing script variants","You are Scriptwriter. Write a distinct concise production script for each supplied variant, keeping its angle and hook. Use only supplied research. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"script\":\"...\"}]}. Each script must contain a concrete payoff and CTA, and explicitly qualify uncertainty.",f"LANGUAGE: {language}\nFORMAT: {job.get('format','')}\nRESEARCH:\n{research}\nVARIANTS:\n{json.dumps(variants,ensure_ascii=False)}",1200)
+    scripts={str(x.get("variant_id")):x for x in script_obj.get("variants") or [] if isinstance(x,dict)};con=db()
+    for v in variants:
+        x=scripts.get(v["id"]) or {};v["script"]=str(x.get("script") or "").strip()
+        if not v["script"]:raise RuntimeError(f"Scriptwriter missed variant {v['ordinal']}")
+        prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["script"]=script_run
+        con.execute("UPDATE production_variants SET script=?,provenance_json=?,updated_at=? WHERE id=?",(v["script"],json.dumps(prov),ts(),v["id"]));_save_variant_piece("Scriptwriter",job_id,script_run,batch_id,v["id"],"script",f"Variant {v['ordinal']} · script",v["script"])
+    con.commit();con.close()
+    fact_obj,fact_run,_=await _variant_agent_call("Fact Checker",job_id,"Fact-checking variants","You are Fact Checker. Inspect each script against supplied persisted research only. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"findings\":[{\"type\":\"unsupported_claim|missing_source|fact_conflict\",\"severity\":\"info|warning|critical\",\"message\":\"...\",\"evidence\":\"...\"}],\"fact_summary\":\"...\"}]}. Never claim external verification that is not present in research.",f"RESEARCH:\n{research}\nSCRIPTS:\n{json.dumps([{k:v.get(k) for k in ('id','script')} for v in variants],ensure_ascii=False)}",1100)
+    facts={str(x.get("variant_id")):x for x in fact_obj.get("variants") or [] if isinstance(x,dict)};con=db()
+    for v in variants:
+        x=facts.get(v["id"]) or {};x["findings"]=_normalize_qa_findings(x.get("findings") or []);v["fact_check"]=x
+        prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["factcheck"]=fact_run
+        con.execute("UPDATE production_variants SET fact_check_json=?,provenance_json=?,updated_at=? WHERE id=?",(json.dumps(x,ensure_ascii=False),json.dumps(prov),ts(),v["id"]));_save_variant_piece("Fact Checker",job_id,fact_run,batch_id,v["id"],"factcheck",f"Variant {v['ordinal']} · fact check",json.dumps(x,ensure_ascii=False,indent=2))
+    con.commit();con.close()
+    opt_obj,opt_run,_=await _variant_agent_call("Hook Optimizer",job_id,"Optimizing hooks","You are Hook Optimizer. Improve each hook after reading fact-check findings. Preserve evidence boundaries; do not introduce new claims. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"optimized_hook\":\"...\",\"change_reason\":\"...\"}]}.",f"LANGUAGE: {language}\nVARIANTS:\n{json.dumps([{**{k:v.get(k) for k in ('id','hook')},'fact_check':v.get('fact_check')} for v in variants],ensure_ascii=False)}",850)
+    opts={str(x.get("variant_id")):x for x in opt_obj.get("variants") or [] if isinstance(x,dict)};con=db()
+    for v in variants:
+        x=opts.get(v["id"]) or {};v["optimized_hook"]=str(x.get("optimized_hook") or v.get("hook") or "").strip();prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["optimize"]=opt_run
+        con.execute("UPDATE production_variants SET optimized_hook=?,provenance_json=?,updated_at=? WHERE id=?",(v["optimized_hook"],json.dumps(prov),ts(),v["id"]));_save_variant_piece("Hook Optimizer",job_id,opt_run,batch_id,v["id"],"optimize",f"Variant {v['ordinal']} · optimized hook",json.dumps(x,ensure_ascii=False,indent=2))
+    con.commit();con.close()
+    edit_obj,edit_run,_=await _variant_agent_call("Editor",job_id,"Editing production variants","You are Editor. Produce final edited script for each variant using its optimized hook and fact-check findings. Remove or qualify unsupported claims. Keep variants meaningfully distinct. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"edited_script\":\"...\",\"edit_notes\":\"...\"}]}.",f"LANGUAGE: {language}\nVARIANTS:\n{json.dumps([{k:v.get(k) for k in ('id','angle','optimized_hook','script','fact_check')} for v in variants],ensure_ascii=False)}",1200)
+    edits={str(x.get("variant_id")):x for x in edit_obj.get("variants") or [] if isinstance(x,dict)};con=db()
+    for v in variants:
+        x=edits.get(v["id"]) or {};v["edited_script"]=str(x.get("edited_script") or "").strip()
+        if not v["edited_script"]:raise RuntimeError(f"Editor missed variant {v['ordinal']}")
+        prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["editor"]=edit_run
+        con.execute("UPDATE production_variants SET edited_script=?,provenance_json=?,updated_at=? WHERE id=?",(v["edited_script"],json.dumps(prov),ts(),v["id"]));_save_variant_piece("Editor",job_id,edit_run,batch_id,v["id"],"editor",f"Variant {v['ordinal']} · edited script",v["edited_script"])
+    con.commit();con.close()
+    qa_obj,qa_run,_=await _variant_agent_call("QA Agent",job_id,"Comparing variants with structured QA","You are QA Agent comparing competing content variants before downstream production. Return JSON only: {\"variants\":[{\"variant_id\":\"...\",\"decision\":\"keep|reject\",\"reason\":\"...\",\"findings\":[{\"type\":\"unsupported_claim|weak_hook|duplicated_angle|missing_source|slow_intro|unclear_cta|excessive_length|unsafe_sensitive_claim|fact_conflict\",\"severity\":\"info|warning|critical\",\"message\":\"...\",\"evidence\":\"...\"}]}],\"recommended_variant_id\":\"...\"}. Do not use a made-up quality score. Recommend based on concrete findings only.",f"LANGUAGE: {language}\nRESEARCH:\n{research}\nVARIANTS:\n{json.dumps([{k:v.get(k) for k in ('id','angle','optimized_hook','edited_script','fact_check')} for v in variants],ensure_ascii=False)}",1200)
+    qa_map={str(x.get("variant_id")):x for x in qa_obj.get("variants") or [] if isinstance(x,dict)};con=db();hydrated=[]
+    for v in variants:
+        q=qa_map.get(v["id"]) or {"decision":"keep","reason":"QA returned no variant-specific decision","findings":[]};q["findings"]=_normalize_qa_findings(q.get("findings") or []);v["qa"]=q
+        prov=_decode_json(con.execute("SELECT provenance_json p FROM production_variants WHERE id=?",(v["id"],)).fetchone()["p"],{});prov.setdefault("run_ids",{})["qa"]=qa_run
+        con.execute("UPDATE production_variants SET qa_json=?,provenance_json=?,updated_at=? WHERE id=?",(json.dumps(q,ensure_ascii=False),json.dumps(prov),ts(),v["id"]));_save_variant_piece("QA Agent",job_id,qa_run,batch_id,v["id"],"qa",f"Variant {v['ordinal']} · structured QA",json.dumps(q,ensure_ascii=False,indent=2));hydrated.append({**v,"provenance":prov})
+    con.commit();con.close()
+    selected_id=_select_variant_from_qa(hydrated,str(qa_obj.get("recommended_variant_id") or ""))
+    if not selected_id:raise RuntimeError("Structured QA could not select a production variant")
+    run_ids=[angle_run,hook_run,script_run,fact_run,opt_run,edit_run,qa_run];con=db();placeholders=",".join("?" for _ in run_ids);total_cost=float(con.execute(f"SELECT COALESCE(SUM(cost_usd),0) c FROM agent_runs WHERE id IN ({placeholders})",run_ids).fetchone()["c"] or 0);allocated=round(total_cost/len(variants),6) if variants else 0
+    for v in hydrated:
+        selected=v["id"]==selected_id;q=v.get("qa") or {};reason=str(q.get("reason") or ("Recommended by structured QA findings." if selected else "Not recommended by structured QA findings.")).strip()
+        con.execute("UPDATE production_variants SET status=?,decision_reason=?,allocated_cost_usd=?,updated_at=? WHERE id=?",("selected" if selected else "rejected",reason,allocated,ts(),v["id"]))
+    con.commit();chosen=_variant_dict(con.execute("SELECT * FROM production_variants WHERE id=?",(selected_id,)).fetchone());con.close()
+    _save_variant_piece("Editor",job_id,edit_run,batch_id,selected_id,"selected","Selected production variant",(chosen.get("optimized_hook") or chosen.get("hook") or "")+"\n\n"+(chosen.get("edited_script") or chosen.get("script") or ""),{"selected":True,"decision_reason":chosen.get("decision_reason")})
+    _save_variant_piece("Fact Checker",job_id,fact_run,batch_id,selected_id,"selected_factcheck","Selected variant fact check",json.dumps(chosen.get("fact_check") or {},ensure_ascii=False,indent=2),{"selected":True})
+    event(job_id,f"Production Pipeline 2.0: {len(variants)} variants compared; variant {chosen['ordinal']} selected by structured findings");await broadcast({"type":"variants","jobId":job_id,"batchId":batch_id,"selectedVariantId":selected_id});return get_job_variants(job_id)
+
+async def rerun_variant_component(job_id,variant_id,component):
+    if component not in VARIANT_COMPONENTS:raise ValueError("Unknown variant component")
+    if not FACTORY_LLM_API_KEY:raise RuntimeError("Live LLM provider is required for a paid partial variant rerun")
+    con=db();row=con.execute("SELECT * FROM production_variants WHERE id=? AND job_id=?",(variant_id,job_id)).fetchone();con.close();variant=_variant_dict(row)
+    if not variant:raise ValueError("Variant not found")
+    research=_variant_research_context(job_id);job=get_job(job_id);agent_by_component={"angle":"Angle Strategist","hook":"Hook Generator","script":"Scriptwriter","factcheck":"Fact Checker","optimize":"Hook Optimizer","editor":"Editor","qa":"QA Agent"};agent=agent_by_component[component]
+    schemas={"angle":'{"angle":"...","reason":"..."}',"hook":'{"hook":"...","rationale":"..."}',"script":'{"script":"..."}',"factcheck":'{"findings":[{"type":"unsupported_claim|missing_source|fact_conflict","severity":"info|warning|critical","message":"...","evidence":"..."}],"fact_summary":"..."}',"optimize":'{"optimized_hook":"...","change_reason":"..."}',"editor":'{"edited_script":"...","edit_notes":"..."}',"qa":'{"decision":"keep|reject","reason":"...","findings":[{"type":"unsupported_claim|weak_hook|duplicated_angle|missing_source|slow_intro|unclear_cta|excessive_length|unsafe_sensitive_claim|fact_conflict","severity":"info|warning|critical","message":"...","evidence":"..."}]}'}
+    obj,run_id,_=await _variant_agent_call(agent,job_id,f"Partial rerun · {component}",f"You are {agent} doing a targeted partial rerun for one production variant. Return JSON only with schema {schemas[component]}. Use only persisted research and current variant context. Never invent evidence.",f"LANGUAGE: {job.get('language','English')}\nRESEARCH:\n{research}\nCURRENT VARIANT:\n{json.dumps(variant,ensure_ascii=False)[:12000]}",1000)
+    now=ts();prov=variant.get("provenance") or {};prov.setdefault("partial_reruns",[]).append({"component":component,"run_id":run_id,"at":now});updates={"status":"candidate","decision_reason":f"Downstream outputs invalidated by partial rerun of {component}.","provenance_json":json.dumps(prov,ensure_ascii=False),"updated_at":now}
+    if component=="angle":updates.update({"angle":str(obj.get("angle") or "").strip(),"angle_reason":str(obj.get("reason") or "").strip(),"hook":"","hook_rationale":"","script":"","optimized_hook":"","edited_script":"","fact_check_json":"{}","qa_json":"{}"})
+    elif component=="hook":updates.update({"hook":str(obj.get("hook") or "").strip(),"hook_rationale":str(obj.get("rationale") or "").strip(),"script":"","optimized_hook":"","edited_script":"","fact_check_json":"{}","qa_json":"{}"})
+    elif component=="script":updates.update({"script":str(obj.get("script") or "").strip(),"optimized_hook":"","edited_script":"","fact_check_json":"{}","qa_json":"{}"})
+    elif component=="factcheck":obj["findings"]=_normalize_qa_findings(obj.get("findings") or []);updates.update({"fact_check_json":json.dumps(obj,ensure_ascii=False),"optimized_hook":"","edited_script":"","qa_json":"{}"})
+    elif component=="optimize":updates.update({"optimized_hook":str(obj.get("optimized_hook") or "").strip(),"edited_script":"","qa_json":"{}"})
+    elif component=="editor":updates.update({"edited_script":str(obj.get("edited_script") or "").strip(),"qa_json":"{}"})
+    elif component=="qa":
+        obj["findings"]=_normalize_qa_findings(obj.get("findings") or []);updates["qa_json"]=json.dumps(obj,ensure_ascii=False)
+        if str(obj.get("decision") or "").lower()=="reject":updates["status"]="rejected";updates["decision_reason"]=str(obj.get("reason") or "Rejected by structured QA").strip()
+    cols=",".join(f"{k}=?" for k in updates);con=db();con.execute(f"UPDATE production_variants SET {cols} WHERE id=?",(*updates.values(),variant_id));con.commit();con.close();_save_variant_piece(agent,job_id,run_id,variant["batch_id"],variant_id,component,f"Variant {variant['ordinal']} · partial {component}",json.dumps(obj,ensure_ascii=False,indent=2),{"partial_rerun":True});event(job_id,f"Variant {variant['ordinal']}: partial rerun {component}; downstream variant outputs invalidated");await broadcast({"type":"variants","jobId":job_id,"variantId":variant_id,"component":component});return get_job_variants(job_id)
+
+def select_production_variant(job_id,variant_id):
+    con=db();row=con.execute("SELECT * FROM production_variants WHERE id=? AND job_id=?",(variant_id,job_id)).fetchone()
+    if not row:con.close();raise ValueError("Variant not found")
+    chosen=_variant_dict(row)
+    if not (chosen.get("edited_script") or chosen.get("script")):con.close();raise ValueError("Variant has no script to select")
+    con.execute("UPDATE production_variants SET status='rejected',decision_reason=CASE WHEN id=? THEN decision_reason ELSE 'Not selected in variant comparison.' END,updated_at=? WHERE job_id=? AND batch_id=?",(variant_id,ts(),job_id,chosen["batch_id"]));con.execute("UPDATE production_variants SET status='selected',decision_reason='Selected in Variant Studio.',updated_at=? WHERE id=?",(ts(),variant_id));con.commit();con.close()
+    _save_variant_piece("Editor",job_id,None,chosen["batch_id"],variant_id,"selected","Selected production variant",(chosen.get("optimized_hook") or chosen.get("hook") or "")+"\n\n"+(chosen.get("edited_script") or chosen.get("script") or ""),{"selected":True,"manual_selection":True});event(job_id,f"Variant {chosen['ordinal']} selected in Variant Studio");return get_job_variants(job_id)
+
 def validate_stage_outputs(job_id, stage):
     expected=AGENT_MAP.get(stage,[])
     if not expected:
@@ -2535,6 +2788,15 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
                 "mode":mode,"stage":stage,"attempt":attempt,
                 "enabled_mcp":[x["name"] for x in enabled_mcp],"mcp_capabilities":mcp_capabilities,
             }
+            if agent=="QA Agent" and llm_result:
+                try:
+                    qa_obj=_parse_json_object(content)
+                    qa_obj["findings"]=_normalize_qa_findings(qa_obj.get("findings") or [])
+                    qa_obj["release_decision"]="pass" if str(qa_obj.get("release_decision","")).lower()=="pass" else "attention"
+                    content=json.dumps(qa_obj,ensure_ascii=False,indent=2)
+                    artifact_meta["structured_qa"]=qa_obj
+                except Exception as exc:
+                    artifact_meta["structured_qa_parse_error"]=str(exc)[:240]
             if llm_result:
                 artifact_meta.update({
                     "model":llm_result["model"],
@@ -2615,6 +2877,10 @@ def get_job_worker_results(job_id):
             "created_at":row.get("created_at"),
             "mode":meta.get("mode"),
             "model":meta.get("model"),
+            "variant_id":meta.get("variant_id"),
+            "batch_id":meta.get("batch_id"),
+            "component":meta.get("component"),
+            "selected":bool(meta.get("selected")),
         }
     return latest
 
@@ -3169,6 +3435,7 @@ def status():
         "selectedJobHandoffs": get_job_handoffs(sid),
         "selectedJobAgentErrors": get_job_agent_errors(sid),
         "selectedJobErrorCenter": get_job_error_center(sid),
+        "selectedJobVariants": get_job_variants(sid),
         "events":ev,"connections":CONNECTIONS,"stages":STAGES,
         "agentStates":agent_states(jobs),"agentProgress":{a:get_agent_progress_snapshot(a) for a in AGENTS},"agentMap":AGENT_MAP,
         "agentDependencies":AGENT_DEPENDENCIES,
@@ -3334,8 +3601,11 @@ async def run_until_review(job_id:str):
             con=db(); con.execute("UPDATE jobs SET stage=?,status='running',progress=?,updated_at=? WHERE id=?",
                 (stage,int(idx/(len(STAGES)-1)*100),ts(),job_id)); con.commit(); con.close()
             await broadcast()
-            for a in AGENT_MAP.get(stage,[]):
-                await execute_agent(a, stage, job_id, delay=1.1)
+            if stage=="script":
+                await run_variant_pipeline(job_id,3)
+            else:
+                for a in AGENT_MAP.get(stage,[]):
+                    await execute_agent(a, stage, job_id, delay=1.1)
             gate=validate_stage_outputs(job_id,stage)
             if not gate["ok"]:
                 raise RuntimeError(f"Quality gate failed for {stage}: missing artifacts from {', '.join(gate['missing'])}")
@@ -3528,6 +3798,43 @@ def handoff_trace(run_id:str, artifact_id:str):
     con.close()
     data["source_run"]=dict(source_run) if source_run else None
     return data
+
+
+@app.get("/api/jobs/{job_id}/variants")
+def job_variants(job_id:str):
+    if not get_job(job_id):raise HTTPException(404,"Job not found")
+    return get_job_variants(job_id)
+
+async def _manual_variant_build(job_id):
+    try:
+        await run_variant_pipeline(job_id,3)
+        con=db();con.execute("UPDATE jobs SET stage='script',status='idle',progress=?,updated_at=? WHERE id=?",(int(STAGES.index("script")/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close();event(job_id,"Manual variant build completed; continue Factory to rebuild downstream stages");await broadcast()
+    except Exception as exc:
+        con=db();con.execute("UPDATE jobs SET stage='script',status='failed',updated_at=? WHERE id=?",(ts(),job_id));con.commit();con.close();event(job_id,f"Variant build failed: {exc}");await broadcast({"type":"job_failed","jobId":job_id,"error":str(exc)})
+    finally:running_jobs.discard(job_id)
+
+@app.post("/api/jobs/{job_id}/variants/generate")
+async def generate_job_variants(job_id:str):
+    if not get_job(job_id):raise HTTPException(404,"Job not found")
+    if job_id in running_jobs:return {"ok":False,"message":"Wait for the current job run to finish first"}
+    if FACTORY_LLM_API_KEY:
+        try:_variant_budget_guard(job_id,1200)
+        except RuntimeError as exc:return {"ok":False,"message":str(exc)}
+    running_jobs.add(job_id);con=db();con.execute("UPDATE jobs SET stage='script',status='running',progress=?,updated_at=? WHERE id=?",(int(STAGES.index("script")/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close();asyncio.create_task(_manual_variant_build(job_id));await broadcast();return {"ok":True,"message":"Production variant build started"}
+
+@app.post("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}")
+async def rerun_job_variant(job_id:str,variant_id:str,component:str):
+    if job_id in running_jobs:return {"ok":False,"message":"Wait for the current job run to finish first"}
+    try:result=await rerun_variant_component(job_id,variant_id,component)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    except RuntimeError as exc:raise HTTPException(503,str(exc))
+    return {"ok":True,"variants":result}
+
+@app.post("/api/jobs/{job_id}/variants/{variant_id}/select")
+async def select_job_variant(job_id:str,variant_id:str):
+    try:result=select_production_variant(job_id,variant_id)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"variants","jobId":job_id,"variantId":variant_id,"action":"selected"});return {"ok":True,"variants":result}
 
 @app.get("/api/jobs/{job_id}/quality")
 def job_quality(job_id:str):
