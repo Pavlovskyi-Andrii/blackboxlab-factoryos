@@ -148,6 +148,8 @@ FACTORY_TRANSCRIPT_ENDPOINT = os.environ.get("FACTORY_TRANSCRIPT_ENDPOINT", "").
 FACTORY_TRANSCRIPT_TOKEN = os.environ.get("FACTORY_TRANSCRIPT_TOKEN", "").strip()
 FACTORY_VIDEO_ENDPOINT = os.environ.get("FACTORY_VIDEO_ENDPOINT", "").strip()
 FACTORY_VIDEO_TOKEN = os.environ.get("FACTORY_VIDEO_TOKEN", "").strip()
+FACTORY_VIDEO_STATUS_ENDPOINT = os.environ.get("FACTORY_VIDEO_STATUS_ENDPOINT", "").strip()
+FACTORY_VIDEO_CALLBACK_TOKEN = os.environ.get("FACTORY_VIDEO_CALLBACK_TOKEN", "").strip()
 FACTORY_DISCOVERY_ENDPOINT = os.environ.get("FACTORY_DISCOVERY_ENDPOINT", "").strip()
 FACTORY_DISCOVERY_TOKEN = os.environ.get("FACTORY_DISCOVERY_TOKEN", "").strip()
 FACTORY_DISCOVERY_TOPICS = [x.strip() for x in os.environ.get("FACTORY_DISCOVERY_TOPICS", "").split(",") if x.strip()]
@@ -889,6 +891,24 @@ def init_db():
     );
     CREATE INDEX IF NOT EXISTS idx_revideo_status ON revideo_projects(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_revideo_job ON revideo_projects(job_id, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS media_jobs(
+      id TEXT PRIMARY KEY,
+      revideo_project_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'webhook',
+      provider_job_id TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'queued',
+      media_url TEXT DEFAULT '',
+      error TEXT DEFAULT '',
+      request_json TEXT NOT NULL DEFAULT '{}',
+      response_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_jobs_project ON media_jobs(revideo_project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_media_jobs_job ON media_jobs(job_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_media_jobs_status ON media_jobs(status, updated_at DESC);
     CREATE TABLE IF NOT EXISTS agent_memory(
       id TEXT PRIMARY KEY,
       agent TEXT NOT NULL,
@@ -1508,6 +1528,15 @@ class RevideoRunRequest(BaseModel):
 
 class RevideoRenderRequest(BaseModel):
     confirm_external_cost: bool = False
+
+class MediaJobCallbackRequest(BaseModel):
+    status: str = "processing"
+    url: str = ""
+    video_url: str = ""
+    output_url: str = ""
+    provider_job_id: str = ""
+    error: str = ""
+    raw: dict = {}
 
 def event(job_id, message):
     con=db(); con.execute("INSERT INTO events(job_id,ts,message) VALUES(?,?,?)",(job_id,ts(),message)); con.commit(); con.close()
@@ -3480,12 +3509,72 @@ def create_revideo_production_job(project_id):
     event(job["id"],f"Created from Revideo project {project_id}; source wording/identity must not be copied")
     return {"created":True,"job":get_job(job["id"]),"project":get_revideo_project(project_id)}
 
+def _media_job_dict(row):
+    if not row:return None
+    d=dict(row)
+    d["request"]=_decode_json(d.pop("request_json","{}"),{})
+    d["response"]=_decode_json(d.pop("response_json","{}"),{})
+    return d
+
+def get_media_job(media_job_id):
+    con=db();row=con.execute("SELECT * FROM media_jobs WHERE id=?",(media_job_id,)).fetchone();con.close()
+    return _media_job_dict(row)
+
+def get_media_jobs(limit=100,project_id=None):
+    con=db()
+    if project_id:
+        rows=con.execute("SELECT * FROM media_jobs WHERE revideo_project_id=? ORDER BY updated_at DESC LIMIT ?",
+                         (project_id,max(1,min(300,int(limit))))).fetchall()
+    else:
+        rows=con.execute("SELECT * FROM media_jobs ORDER BY updated_at DESC LIMIT ?",
+                         (max(1,min(300,int(limit))),)).fetchall()
+    con.close()
+    items=[_media_job_dict(x) for x in rows];counts={}
+    for item in items:counts[item["status"]]=counts.get(item["status"],0)+1
+    return {"summary":{"total":len(items),**counts},"items":items}
+
+def _normalize_media_status(raw_status,media_url=""):
+    value=str(raw_status or "").strip().lower()
+    if media_url:return "ready"
+    if value in ("done","complete","completed","success","succeeded","ready","finished"):return "ready"
+    if value in ("failed","error","cancelled","canceled","rejected"):return "failed"
+    if value in ("queued","pending","submitted"):return "submitted"
+    return "processing"
+
+def _finalize_media_job(media_job_id,status,media_url="",error="",response=None,provider_job_id=""):
+    item=get_media_job(media_job_id)
+    if not item:raise ValueError("Media job not found")
+    status=_normalize_media_status(status,media_url)
+    completed_at=ts() if status in ("ready","failed") else None
+    con=db();con.execute("""UPDATE media_jobs SET status=?,media_url=?,error=?,response_json=?,
+                            provider_job_id=CASE WHEN ?!='' THEN ? ELSE provider_job_id END,
+                            updated_at=?,completed_at=? WHERE id=?""",
+        (status,media_url or item.get("media_url",""),error or "",json.dumps(response or {},ensure_ascii=False),
+         provider_job_id,provider_job_id,ts(),completed_at,media_job_id))
+    con.commit();con.close()
+    item=get_media_job(media_job_id)
+    if status=="ready" and media_url:
+        project=get_revideo_project(item["revideo_project_id"])
+        media={"url":media_url,"provider":item["provider"],"provider_id":item.get("provider_job_id"),
+               "media_job_id":media_job_id,"created_at":ts(),"raw_status":status}
+        con=db();con.execute("UPDATE revideo_projects SET media_json=?,updated_at=? WHERE id=?",
+                             (json.dumps(media,ensure_ascii=False),ts(),item["revideo_project_id"]));con.commit();con.close()
+        save_artifact("Render Agent","video","Revideo generated video",job_id=item["job_id"],url=media_url,mime_type="video/mp4",
+                      meta={"revideo_project_id":item["revideo_project_id"],"provider":item["provider"],
+                            "provider_job_id":item.get("provider_job_id"),"media_job_id":media_job_id,
+                            "source_media_reused":False})
+        event(item["job_id"],f"Media job {media_job_id} completed with a video artifact")
+    elif status=="failed":
+        event(item["job_id"],f"Media job {media_job_id} failed: {error or 'provider failure'}")
+    return get_media_job(media_job_id)
+
 def get_revideo_adapter_registry():
     return {
         "transcript":{"selected":FACTORY_TRANSCRIPT_ADAPTER,"configured":bool(FACTORY_TRANSCRIPT_ENDPOINT),
                       "manual_supported":True,"endpoint_configured":bool(FACTORY_TRANSCRIPT_ENDPOINT)},
         "video":{"selected":FACTORY_MEDIA_ADAPTERS.get("video") or None,"configured":bool(FACTORY_VIDEO_ENDPOINT),
-                 "endpoint_configured":bool(FACTORY_VIDEO_ENDPOINT)},
+                 "endpoint_configured":bool(FACTORY_VIDEO_ENDPOINT),
+                 "async_jobs":True,"status_endpoint_configured":bool(FACTORY_VIDEO_STATUS_ENDPOINT)},
         "note":"Provider endpoints/tokens come from environment variables and are never exposed in this response."
     }
 
@@ -3499,17 +3588,41 @@ def render_revideo_media(project_id):
     payload={"project_id":project_id,"job_id":project["job_id"],"source_url":project["source_url"],
              "content_package":package.get("package") or {},
              "guardrails":{"do_not_reuse_source_media":True,"do_not_imitate_creator_identity_or_voice":True}}
-    result=_external_json(FACTORY_VIDEO_ENDPOINT,"POST",payload,FACTORY_VIDEO_TOKEN)
+    media_job_id=str(uuid.uuid4());now=ts();provider=FACTORY_MEDIA_ADAPTERS.get("video") or "webhook"
+    con=db();con.execute("""INSERT INTO media_jobs(
+        id,revideo_project_id,job_id,provider,provider_job_id,status,media_url,error,
+        request_json,response_json,created_at,updated_at,completed_at
+    ) VALUES(?,?,?,?,?,'queued','','',?,'{}',?,?,NULL)""",
+        (media_job_id,project_id,project["job_id"],provider,"",json.dumps(payload,ensure_ascii=False),now,now))
+    con.commit();con.close()
+    try:
+        result=_external_json(FACTORY_VIDEO_ENDPOINT,"POST",payload,FACTORY_VIDEO_TOKEN)
+    except Exception as exc:
+        _finalize_media_job(media_job_id,"failed",error=str(exc),response={"exception":str(exc)})
+        raise
     media_url=str(result.get("url") or result.get("video_url") or result.get("output_url") or "").strip()
-    if not media_url:raise RuntimeError("Video provider returned no media URL")
-    media={"url":media_url,"provider":FACTORY_MEDIA_ADAPTERS.get("video") or "webhook","provider_id":result.get("id"),
-           "created_at":ts(),"raw_status":result.get("status")}
-    con=db();con.execute("UPDATE revideo_projects SET media_json=?,updated_at=? WHERE id=?",
-                         (json.dumps(media,ensure_ascii=False),ts(),project_id));con.commit();con.close()
-    save_artifact("Render Agent","video","Revideo generated video",job_id=project["job_id"],url=media_url,mime_type="video/mp4",
-                  meta={"revideo_project_id":project_id,"provider":media["provider"],"source_media_reused":False})
-    event(project["job_id"],f"Revideo video provider returned a media artifact for project {project_id}")
-    return get_revideo_project(project_id)
+    provider_job_id=str(result.get("id") or result.get("job_id") or result.get("task_id") or "").strip()
+    status=_normalize_media_status(result.get("status"),media_url)
+    item=_finalize_media_job(media_job_id,status,media_url=media_url,response=result,provider_job_id=provider_job_id)
+    if item["status"]=="ready":
+        event(project["job_id"],f"Video provider returned a ready media artifact for project {project_id}")
+    else:
+        event(project["job_id"],f"Video provider accepted media job {media_job_id}; status={item['status']}")
+    return {"project":get_revideo_project(project_id),"media_job":item}
+
+def refresh_media_job(media_job_id):
+    item=get_media_job(media_job_id)
+    if not item:raise ValueError("Media job not found")
+    if item["status"] in ("ready","failed"):return item
+    if not item.get("provider_job_id"):raise RuntimeError("Provider job id is not available yet")
+    if not FACTORY_VIDEO_STATUS_ENDPOINT:raise RuntimeError("Video status endpoint is not configured")
+    endpoint=FACTORY_VIDEO_STATUS_ENDPOINT.replace("{provider_job_id}",urlparse.quote(item["provider_job_id"],safe=""))
+    result=_external_json(endpoint,"GET",None,FACTORY_VIDEO_TOKEN)
+    media_url=str(result.get("url") or result.get("video_url") or result.get("output_url") or "").strip()
+    provider_job_id=str(result.get("id") or result.get("job_id") or result.get("task_id") or item["provider_job_id"]).strip()
+    status=_normalize_media_status(result.get("status"),media_url)
+    return _finalize_media_job(media_job_id,status,media_url=media_url,error=str(result.get("error") or ""),
+                               response=result,provider_job_id=provider_job_id)
 
 CONTENT_PACKAGE_SCHEMA_VERSION="1.0"
 CONTENT_PACKAGE_REQUIRED_FIELDS=(
@@ -6520,11 +6633,45 @@ async def revideo_render(project_id:str,payload:RevideoRenderRequest):
     if not payload.confirm_external_cost:
         return {"ok":False,"requiresExternalCostConfirmation":True,
                 "message":"Video generation may incur external provider cost. Confirm before calling the configured provider."}
-    try:project=await asyncio.to_thread(render_revideo_media,project_id)
+    try:result=await asyncio.to_thread(render_revideo_media,project_id)
     except ValueError as exc:raise HTTPException(400,str(exc))
     except RuntimeError as exc:raise HTTPException(503,str(exc))
-    await broadcast({"type":"revideo","action":"media_ready","projectId":project_id})
-    return {"ok":True,"project":project}
+    media_job=result["media_job"]
+    await broadcast({"type":"revideo","action":"media_job","projectId":project_id,
+                     "mediaJobId":media_job["id"],"status":media_job["status"]})
+    return {"ok":True,**result}
+
+@app.get("/api/media-jobs")
+def media_jobs(limit:int=100,project_id:Optional[str]=None):
+    return get_media_jobs(limit,project_id)
+
+@app.get("/api/media-jobs/{media_job_id}")
+def media_job_detail(media_job_id:str):
+    item=get_media_job(media_job_id)
+    if not item:raise HTTPException(404,"Media job not found")
+    return item
+
+@app.post("/api/media-jobs/{media_job_id}/refresh")
+async def media_job_refresh(media_job_id:str):
+    try:item=await asyncio.to_thread(refresh_media_job,media_job_id)
+    except ValueError as exc:raise HTTPException(404,str(exc))
+    except RuntimeError as exc:raise HTTPException(503,str(exc))
+    await broadcast({"type":"media_job","action":"updated","mediaJobId":media_job_id,"status":item["status"]})
+    return {"ok":True,"media_job":item}
+
+@app.post("/api/media-jobs/{media_job_id}/callback")
+async def media_job_callback(media_job_id:str,payload:MediaJobCallbackRequest,request:Request):
+    if FACTORY_VIDEO_CALLBACK_TOKEN:
+        supplied=(request.headers.get("authorization") or "").replace("Bearer ","",1).strip()
+        if not hmac.compare_digest(supplied,FACTORY_VIDEO_CALLBACK_TOKEN):
+            raise HTTPException(401,"Invalid media callback token")
+    try:
+        media_url=(payload.url or payload.video_url or payload.output_url or "").strip()
+        item=_finalize_media_job(media_job_id,payload.status,media_url=media_url,error=payload.error,
+                                 response=payload.raw or payload.model_dump(),provider_job_id=payload.provider_job_id)
+    except ValueError as exc:raise HTTPException(404,str(exc))
+    await broadcast({"type":"media_job","action":"callback","mediaJobId":media_job_id,"status":item["status"]})
+    return {"ok":True,"media_job":item}
 
 @app.get("/api/media-adapters")
 def media_adapters():
