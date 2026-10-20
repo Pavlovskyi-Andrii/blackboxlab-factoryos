@@ -2651,15 +2651,20 @@ async def rerun_variant_component(job_id,variant_id,component):
     elif component=="qa":
         obj["findings"]=_normalize_qa_findings(obj.get("findings") or []);updates["qa_json"]=json.dumps(obj,ensure_ascii=False)
         if str(obj.get("decision") or "").lower()=="reject":updates["status"]="rejected";updates["decision_reason"]=str(obj.get("reason") or "Rejected by structured QA").strip()
-    cols=",".join(f"{k}=?" for k in updates);con=db();con.execute(f"UPDATE production_variants SET {cols} WHERE id=?",(*updates.values(),variant_id));con.commit();con.close();_save_variant_piece(agent,job_id,run_id,variant["batch_id"],variant_id,component,f"Variant {variant['ordinal']} · partial {component}",json.dumps(obj,ensure_ascii=False,indent=2),{"partial_rerun":True});event(job_id,f"Variant {variant['ordinal']}: partial rerun {component}; downstream variant outputs invalidated");await broadcast({"type":"variants","jobId":job_id,"variantId":variant_id,"component":component});return get_job_variants(job_id)
+    cols=",".join(f"{k}=?" for k in updates);con=db();con.execute(f"UPDATE production_variants SET {cols} WHERE id=?",(*updates.values(),variant_id))
+    con.execute("UPDATE jobs SET stage='script',status='idle',progress=?,updated_at=? WHERE id=?",(int(STAGES.index("script")/(len(STAGES)-1)*100),now,job_id))
+    con.commit();con.close();_save_variant_piece(agent,job_id,run_id,variant["batch_id"],variant_id,component,f"Variant {variant['ordinal']} · partial {component}",json.dumps(obj,ensure_ascii=False,indent=2),{"partial_rerun":True});event(job_id,f"Variant {variant['ordinal']}: partial rerun {component}; downstream stages invalidated from script");await broadcast({"type":"variants","jobId":job_id,"variantId":variant_id,"component":component});return get_job_variants(job_id)
 
 def select_production_variant(job_id,variant_id):
     con=db();row=con.execute("SELECT * FROM production_variants WHERE id=? AND job_id=?",(variant_id,job_id)).fetchone()
     if not row:con.close();raise ValueError("Variant not found")
     chosen=_variant_dict(row)
-    if not (chosen.get("edited_script") or chosen.get("script")):con.close();raise ValueError("Variant has no script to select")
+    if not chosen.get("edited_script"):con.close();raise ValueError("Variant must be edited before selection")
+    if not chosen.get("fact_check") or not chosen.get("qa"):con.close();raise ValueError("Variant must complete fact-check and structured QA before selection")
     con.execute("UPDATE production_variants SET status='rejected',decision_reason=CASE WHEN id=? THEN decision_reason ELSE 'Not selected in variant comparison.' END,updated_at=? WHERE job_id=? AND batch_id=?",(variant_id,ts(),job_id,chosen["batch_id"]));con.execute("UPDATE production_variants SET status='selected',decision_reason='Selected in Variant Studio.',updated_at=? WHERE id=?",(ts(),variant_id));con.commit();con.close()
-    _save_variant_piece("Editor",job_id,None,chosen["batch_id"],variant_id,"selected","Selected production variant",(chosen.get("optimized_hook") or chosen.get("hook") or "")+"\n\n"+(chosen.get("edited_script") or chosen.get("script") or ""),{"selected":True,"manual_selection":True});event(job_id,f"Variant {chosen['ordinal']} selected in Variant Studio");return get_job_variants(job_id)
+    _save_variant_piece("Editor",job_id,None,chosen["batch_id"],variant_id,"selected","Selected production variant",(chosen.get("optimized_hook") or chosen.get("hook") or "")+"\n\n"+chosen.get("edited_script",""),{"selected":True,"manual_selection":True})
+    _save_variant_piece("Fact Checker",job_id,None,chosen["batch_id"],variant_id,"selected_factcheck","Selected variant fact check",json.dumps(chosen.get("fact_check") or {},ensure_ascii=False,indent=2),{"selected":True,"manual_selection":True})
+    event(job_id,f"Variant {chosen['ordinal']} selected in Variant Studio");return get_job_variants(job_id)
 
 def validate_stage_outputs(job_id, stage):
     expected=AGENT_MAP.get(stage,[])
