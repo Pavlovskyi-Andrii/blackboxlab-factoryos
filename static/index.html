@@ -119,9 +119,9 @@
   .drawerTop{padding:12px}
   .drawerBody{padding:10px 10px 24px}
   .metricGrid{grid-template-columns:1fr 1fr}
-  .taskPage,.intelPage,.qaPage{inset:0;border-radius:0}
-  .taskTop,.intelTop,.qaTop{padding:12px}
-  .taskBody,.intelBody,.qaBody{padding:10px}
+  .taskPage,.intelPage,.qaPage,.variantPage{inset:0;border-radius:0}
+  .taskTop,.intelTop,.qaTop,.variantTop{padding:12px}
+  .taskBody,.intelBody,.qaBody,.variantBody{padding:10px}
   .buildProgress,.intelSummary{grid-template-columns:1fr 1fr}
   .intelWorker{min-width:620px}
   .intelPanel{overflow-x:auto}
@@ -146,11 +146,24 @@
 @media(max-width:900px){.brainSummary{grid-template-columns:repeat(3,1fr)}.brainGrid{grid-template-columns:1fr}.brainToolbar .brainHint{width:100%;margin-left:0}.ideaDetail{grid-template-columns:1fr 1fr}}
 @media(max-width:650px){.brainPage{inset:0;border-radius:0}.brainTop{padding:12px}.brainBody{padding:9px 9px 24px}.brainSummary{grid-template-columns:1fr 1fr 1fr}.brainStat{padding:8px}.brainGrid{gap:8px}.brainPanel{padding:9px}.brainComposer{grid-template-columns:1fr}.brainComposer textarea,.brainComposer .wide{grid-column:auto}.ideaDetail{grid-template-columns:1fr}.ideaHead{display:block}.ideaScore{margin-top:5px}.brainToolbar .btn{flex:1 1 auto}}
 
+
+/* v3.40 Variant Studio */
+.variantShade{position:fixed;inset:0;background:#02070dcc;backdrop-filter:blur(5px);z-index:88;opacity:0;pointer-events:none;transition:.2s}.variantShade.open{opacity:1;pointer-events:auto}
+.variantPage{position:fixed;inset:22px;background:radial-gradient(950px 520px at 80% 0,#243d6855,transparent 62%),linear-gradient(180deg,#091621,#06101a);border:1px solid #2b5776;border-radius:18px;box-shadow:0 30px 110px #000e;z-index:89;transform:translateY(12px) scale(.985);opacity:0;pointer-events:none;transition:.22s;display:flex;flex-direction:column;overflow:hidden}.variantPage.open{opacity:1;pointer-events:auto;transform:none}
+.variantTop{padding:14px 16px;border-bottom:1px solid #1b354e;display:flex;justify-content:space-between;align-items:center;gap:10px}.variantTop h2{margin:0;font-size:18px}.variantTop p{margin:3px 0 0;font-size:9px;color:#8198ac}.variantBody{padding:14px 16px 24px;overflow:auto}
+.variantSummary{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px}.variantStat{padding:10px;border:1px solid #21445f;background:#0a1a29;border-radius:11px}.variantStat b{display:block;font-size:17px;color:#dcf7ff}.variantStat span{font-size:7px;color:#7891a5}
+.variantToolbar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.variantNote{font-size:7px;color:#748da1;margin-left:auto;max-width:600px}.variantGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.variantCard{border:1px solid #21445e;background:linear-gradient(180deg,#0b1c2b,#081723);border-radius:12px;padding:11px;min-width:0}.variantCard.selected{border-color:#23885b;box-shadow:0 0 0 1px #23885b33}.variantCard.rejected{border-color:#60313a;opacity:.84}.variantCard.candidate,.variantCard.stale{border-color:#725c27}
+.variantHead{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.variantHead b{font-size:11px}.variantCost{font-size:10px;color:#6cdcff;font-weight:800}.variantPills{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}.variantPill{font-size:6px;padding:3px 5px;border:1px solid #2c4d65;border-radius:999px;color:#8aa2b5}.variantPill.selected{border-color:#246746;color:#75e1a2}.variantPill.rejected{border-color:#743441;color:#ff9cad}
+.variantBlock{padding:8px;border:1px solid #17354b;border-radius:8px;background:#07131e;margin-top:6px}.variantBlock strong{display:block;font-size:6px;text-transform:uppercase;letter-spacing:.07em;color:#647f94;margin-bottom:4px}.variantBlock span,.variantBlock pre{display:block;margin:0;white-space:pre-wrap;font:7px/1.48 Inter,system-ui;color:#9bafbf;max-height:130px;overflow:auto}.variantHook span{font-size:9px;color:#e0f4ff;font-weight:700}
+.variantFinding{padding:6px 7px;border:1px solid #23465e;border-radius:7px;margin-top:5px}.variantFinding.warning{border-color:#66531f}.variantFinding.critical{border-color:#71313e}.variantFinding b{font-size:6px;text-transform:uppercase}.variantFinding span{font-size:7px;color:#9aafbf}.variantReason{font-size:7px;color:#9aafbf;line-height:1.4;margin-top:7px}.variantActions{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}.variantActions select{background:#07131e;color:#dff3ff;border:1px solid #24445f;border-radius:7px;font-size:7px;padding:5px}.variantActions button{font-size:7px;padding:5px 7px}.variantEmpty{padding:28px;border:1px dashed #24445b;border-radius:10px;color:#71899d;font-size:8px;text-align:center}
+@media(max-width:1000px){.variantGrid{grid-template-columns:1fr}.variantSummary{grid-template-columns:repeat(3,1fr)}.variantNote{width:100%;margin-left:0}}
+@media(max-width:650px){.variantPage{inset:0;border-radius:0}.variantTop{padding:12px}.variantBody{padding:9px 9px 24px}.variantSummary{grid-template-columns:1fr 1fr}.variantToolbar .btn{flex:1 1 auto}.variantCard{padding:9px}.variantBlock span,.variantBlock pre{max-height:180px}}
+
 </style></head>
 <body><div class="shell">
 <aside class="side">
-<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.30</span></small></div></div>
-<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openContentBrain()">✦ &nbsp; <span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
+<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.40</span></small></div></div>
+<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openContentBrain()">✦ &nbsp; <span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openVariantStudio():toast(tr('toast.selectJob'))">◇ &nbsp; <span data-i18n="variant.nav">Variants</span> <span id="variantNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
 <div class="foot"><span class="green"></span><span data-i18n="factory.online">Factory online</span><br><span id="runState">No active run</span></div>
 </aside>
 <main class="main">
@@ -201,6 +214,17 @@
 </main></div>
 
 <div class="modal" id="modal"><div class="dialog"><h2 data-i18n="new.title">Create content job</h2><p data-i18n="new.sub">One idea becomes one production job. FactoryOS guides it through every stage.</p><input id="title" data-i18n-placeholder="new.topic" placeholder="Topic / working title"><textarea id="brief" data-i18n-placeholder="new.brief" placeholder="What should the video explain, prove or test?"></textarea><div class="formRow"><select id="presenter"><option>AI presenter</option><option>Digital twin</option><option>Faceless</option><option>Mixed</option></select><select id="format"><option>Long + Shorts</option><option>Short only</option><option>Long video</option></select></div><div class="formRow"><input id="language" value="English"><input id="outputs" type="number" value="8" min="1"></div><div class="dialogActions"><button class="btn" onclick="closeNew()" data-i18n="action.cancel">Cancel</button> <button class="btn primary" onclick="createJob()" data-i18n="new.create">Create Job</button></div></div></div>
+
+
+<div class="variantShade" id="variantShade" onclick="closeVariantStudio()"></div>
+<section class="variantPage" id="variantPage">
+  <div class="variantTop"><div><h2 data-i18n="variant.title">Variant Studio / Production Pipeline 2.0</h2><p data-i18n="variant.sub">Compare competing angles, hooks and scripts with fact-check findings, structured QA, provenance and measured allocated cost.</p></div><button class="closeX" onclick="closeVariantStudio()">×</button></div>
+  <div class="variantBody">
+    <div class="variantSummary" id="variantSummary"></div>
+    <div class="variantToolbar"><button class="btn primary" onclick="buildVariants()">▶ <span data-i18n="variant.build">Build / rebuild 3 variants</span></button><button class="btn" onclick="renderVariantStudio()">⟳ <span data-i18n="action.refresh">Refresh</span></button><span class="variantNote" id="variantCostNote" data-i18n="variant.costNote">Shared batch model cost is allocated evenly across variants for comparison; total job spend remains exact.</span></div>
+    <div class="variantGrid" id="variantGrid"></div>
+  </div>
+</section>
 
 <div class="brainShade" id="brainShade" onclick="closeContentBrain()"></div>
 <section class="brainPage" id="brainPage">
@@ -267,6 +291,36 @@
 let S=null;const $=s=>document.querySelector(s);const esc=s=>(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const I18N={
  en:{
+  "variant.nav":"Variants",
+  "variant.title":"Variant Studio / Production Pipeline 2.0",
+  "variant.sub":"Compare competing angles, hooks and scripts with fact-check findings, structured QA, provenance and measured allocated cost.",
+  "variant.build":"Build / rebuild 3 variants",
+  "variant.costNote":"Shared batch model cost is allocated evenly across variants for comparison; total job spend remains exact.",
+  "variant.statVariants":"variants",
+  "variant.statSelected":"selected",
+  "variant.statRejected":"rejected",
+  "variant.statCandidate":"needs work",
+  "variant.statCost":"allocated cost",
+  "variant.empty":"No production variants yet. Run the Factory or build a variant batch here.",
+  "variant.angle":"Angle",
+  "variant.hook":"Optimized hook",
+  "variant.script":"Edited script",
+  "variant.qa":"Structured QA",
+  "variant.provenance":"Provenance",
+  "variant.findings":"findings",
+  "variant.noFindings":"No structured findings recorded.",
+  "variant.select":"Select variant",
+  "variant.rerun":"Partial rerun",
+  "variant.buildConfirm":"Build a new 3-variant batch. Live mode uses paid LLM calls inside FactoryOS job/day budget guards. Continue?",
+  "variant.rerunConfirm":"Rerun only this component. Downstream outputs for this variant will be invalidated and may use a paid model call. Continue?",
+  "variant.started":"Variant build started",
+  "variant.selected":"Variant selected",
+  "variant.rerunDone":"Partial rerun completed",
+  "variant.status.selected":"selected",
+  "variant.status.rejected":"rejected",
+  "variant.status.candidate":"candidate",
+  "variant.status.stale":"stale",
+  "variant.runIds":"worker runs",
   "brain.nav":"Content Brain",
   "brain.title":"Content Brain / Idea Factory",
   "brain.sub":"Signals → Scout → Researcher → Strategist → Verifier → shortlist, with provenance and measured spend.",
@@ -340,6 +394,36 @@ const I18N={
   "super.health":"health","super.lastAudit":"Last audit","super.noIncidents":"No active incidents","super.monitoring":"Supervisor is monitoring jobs and agent runtime.","super.improvements":"Process improvements","super.backlog":"Improvement backlog","super.accept":"Accept","super.dismiss":"Dismiss"
  },
  uk:{
+  "variant.nav":"Варіанти",
+  "variant.title":"Variant Studio / Production Pipeline 2.0",
+  "variant.sub":"Порівняння angle, hook і script з fact-check, structured QA, provenance та виміряною розподіленою вартістю.",
+  "variant.build":"Створити / перебудувати 3 варіанти",
+  "variant.costNote":"Вартість спільних batch-викликів розподіляється порівну між варіантами для порівняння; загальні витрати job залишаються точними.",
+  "variant.statVariants":"варіантів",
+  "variant.statSelected":"обрано",
+  "variant.statRejected":"відхилено",
+  "variant.statCandidate":"потребують роботи",
+  "variant.statCost":"розподілена вартість",
+  "variant.empty":"Production-варіантів ще немає. Запустіть Factory або створіть batch тут.",
+  "variant.angle":"Angle",
+  "variant.hook":"Оптимізований hook",
+  "variant.script":"Відредагований script",
+  "variant.qa":"Structured QA",
+  "variant.provenance":"Provenance",
+  "variant.findings":"findings",
+  "variant.noFindings":"Структурованих findings немає.",
+  "variant.select":"Обрати варіант",
+  "variant.rerun":"Partial rerun",
+  "variant.buildConfirm":"Створити новий batch із 3 варіантів. Live mode використовує платні LLM-виклики в межах budget guards FactoryOS. Продовжити?",
+  "variant.rerunConfirm":"Перезапустити лише цей компонент. Downstream outputs цього варіанта будуть invalidated і можливий платний model call. Продовжити?",
+  "variant.started":"Побудову варіантів запущено",
+  "variant.selected":"Варіант обрано",
+  "variant.rerunDone":"Partial rerun завершено",
+  "variant.status.selected":"обрано",
+  "variant.status.rejected":"відхилено",
+  "variant.status.candidate":"кандидат",
+  "variant.status.stale":"застарів",
+  "variant.runIds":"worker runs",
   "brain.nav":"Content Brain",
   "brain.title":"Content Brain / Фабрика ідей",
   "brain.sub":"Signals → Scout → Researcher → Strategist → Verifier → shortlist із provenance та виміряними витратами.",
@@ -413,6 +497,36 @@ const I18N={
   "super.health":"здоров'я","super.lastAudit":"Останній аудит","super.noIncidents":"Активних інцидентів немає","super.monitoring":"Супервізор контролює завдання й стан агентів.","super.improvements":"Покращення процесу","super.backlog":"Черга покращень","super.accept":"Прийняти","super.dismiss":"Відхилити"
  },
  ru:{
+  "variant.nav":"Варианты",
+  "variant.title":"Variant Studio / Production Pipeline 2.0",
+  "variant.sub":"Сравнение angle, hook и script с fact-check, structured QA, provenance и измеримой распределённой стоимостью.",
+  "variant.build":"Создать / перестроить 3 варианта",
+  "variant.costNote":"Стоимость общих batch-вызовов распределяется поровну между вариантами для сравнения; общие расходы job остаются точными.",
+  "variant.statVariants":"вариантов",
+  "variant.statSelected":"выбрано",
+  "variant.statRejected":"отклонено",
+  "variant.statCandidate":"требуют работы",
+  "variant.statCost":"распределённая стоимость",
+  "variant.empty":"Production-вариантов пока нет. Запустите Factory или создайте batch здесь.",
+  "variant.angle":"Angle",
+  "variant.hook":"Оптимизированный hook",
+  "variant.script":"Отредактированный script",
+  "variant.qa":"Structured QA",
+  "variant.provenance":"Provenance",
+  "variant.findings":"findings",
+  "variant.noFindings":"Структурированных findings нет.",
+  "variant.select":"Выбрать вариант",
+  "variant.rerun":"Partial rerun",
+  "variant.buildConfirm":"Создать новый batch из 3 вариантов. Live mode использует платные LLM-вызовы в пределах budget guards FactoryOS. Продолжить?",
+  "variant.rerunConfirm":"Перезапустить только этот компонент. Downstream outputs этого варианта будут invalidated и возможен платный model call. Продолжить?",
+  "variant.started":"Построение вариантов запущено",
+  "variant.selected":"Вариант выбран",
+  "variant.rerunDone":"Partial rerun завершён",
+  "variant.status.selected":"выбран",
+  "variant.status.rejected":"отклонён",
+  "variant.status.candidate":"кандидат",
+  "variant.status.stale":"устарел",
+  "variant.runIds":"worker runs",
   "brain.nav":"Content Brain",
   "brain.title":"Content Brain / Фабрика идей",
   "brain.sub":"Signals → Scout → Researcher → Strategist → Verifier → shortlist с provenance и измеримыми затратами.",
@@ -571,7 +685,7 @@ function switchLanguage(lang){if(!I18N[lang])return;localStorage.setItem('factor
 function stageLabel(st){return tr('stage.'+st)}
 function stageSub(st){return tr('stagesub.'+st)}
 const icons={inbox:'○',research:'⌕',script:'▤',visual:'▧',voice:'≋',render:'▷',qa:'✓',publish:'⇧',analytics:'▥'};
-const pos={"Scout":[10,43],"Researcher":[26,43],"Tech Verifier":[42,43],"Hook Writer":[58,43],"Scriptwriter":[74,43],"Visual Director":[90,43],"Voice Agent":[10,77],"Render Agent":[26,77],"QA Agent":[42,77],"Publisher":[58,77],"Analyst":[74,77],"Supervisor":[90,77]};
+const pos={"Scout":[7,39],"Researcher":[20,39],"Tech Verifier":[33,39],"Angle Strategist":[46,39],"Hook Generator":[59,39],"Scriptwriter":[72,39],"Fact Checker":[85,39],"Hook Optimizer":[20,75],"Editor":[33,75],"Visual Director":[46,75],"Voice Agent":[59,75],"Render Agent":[72,75],"QA Agent":[85,75],"Publisher":[59,91],"Analyst":[72,91],"Supervisor":[92,91],"Hook Writer":[7,91]};
 async function api(u,o){const r=await fetch(u,o);if(!r.ok)throw Error(await r.text());return r.json()}async function refresh(){try{S=await api('/api/status');render()}catch(e){toast(tr('toast.refreshFailed'))}}
 function render(){mission();usage();buildBadge();contentBrainBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8);$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
 function buildBadge(){const b=S.buildProgress||{};const el=$('#buildNavPct');if(el)el.textContent=Math.round(Number(b.progress||0))+'%'}
