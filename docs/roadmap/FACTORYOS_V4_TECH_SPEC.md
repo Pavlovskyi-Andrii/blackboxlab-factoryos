@@ -144,7 +144,7 @@ signals / trends / sources
 | Version | Milestone | Status | Главный результат |
 |---|---|---|---|
 | v3.25 | Baseline Closure | DONE | чистый и проверенный production baseline |
-| v3.30 | Content Brain / Idea Factory | IN PROGRESS | FactoryOS сам находит и ранжирует темы |
+| v3.30 | Content Brain / Idea Factory | DONE | FactoryOS сам находит и ранжирует темы |
 | v3.40 | Production Pipeline 2.0 | TODO | многоступенчатое производство качественного сценария |
 | v3.50 | Content Package / Shorts Factory | TODO | готовый production package для ролика |
 | v3.60 | Approval Studio | TODO | удобное мобильное редакторское одобрение |
@@ -191,7 +191,7 @@ signals / trends / sources
 
 # 6. v3.30 — Content Brain / Idea Factory
 
-**Status: IN PROGRESS**
+**Status: DONE**
 
 ## Цель
 
@@ -263,30 +263,33 @@ Idea Queue должна показывать:
 
 ## Tasks
 
-- [ ] Source adapter interface.
+- [x] Source adapter interface.
 - [x] Manual URL ingestion.
 - [x] Source deduplication.
 - [x] Signal persistence.
 - [x] Scout generation.
-- [ ] Researcher enrichment.
-- [ ] Idea Strategist.
-- [ ] Idea Verifier.
-- [ ] Idea Queue UI.
+- [x] Researcher enrichment.
+- [x] Idea Strategist.
+- [x] Idea Verifier.
+- [x] Idea Queue UI.
 - [x] Idea provenance trace.
 - [x] Cost/token accounting.
-- [ ] Mobile UI.
+- [x] Mobile UI.
 - [x] Regression tests.
 
 ### Текущий implementation progress
 
-- Backend foundation LIVE: commit `108256e400e3bfb5b643bbf3e89014f067056f7f`, Render deploy `dep-dbb7a8rsv6fc73bdftu0`.
-- Добавлены persistent `source_signals` и `content_ideas`.
-- Есть fingerprint-based deduplication.
-- Есть API для ingestion, Idea Queue и изменения статуса идеи.
-- Есть явный spend-guarded `signal → Scout → idea shortlist` generation endpoint; он не запускается автоматически.
-- Сохраняются run/model/source provenance, tokens и provider cost.
-- Zero-spend CI покрывает storage/dedup/API/parser contract.
-- Следующий slice: Researcher enrichment → Idea Strategist → Idea Verifier → mobile Idea Queue UI.
+- **v3.30 DONE и LIVE**: production commit `00225f9ed45253f33c1d9159eba2eb090e6e9fb1`, Render deploy `dep-dbbgdagubc0c73d4qbng`.
+- Persistent `source_signals` и `content_ideas`, fingerprint-based deduplication и provenance работают.
+- Source adapter layer поддерживает manual/URL ingestion и настраиваемый scheduled RSS collector через `FACTORY_SIGNAL_FEEDS`.
+- Scout создаёт shortlist-кандидаты из persisted signals.
+- Researcher формирует evidence pack только по сохранённым источникам.
+- Idea Strategist уточняет title/angle/audience/why-now/novelty/complexity без добавления неподтверждённых фактов.
+- Idea Verifier возвращает `shortlist / reject / needs_research`, risk flags и reason.
+- Mobile Content Brain workspace показывает signals, Idea Queue, research/strategy/verification, позволяет выбрать/отклонить идею и создать production job.
+- Все model calls остаются spend-guarded; автоматический paid release test не запускался.
+- GitHub CI run `39379172168` прошёл compile, zero-spend smoke/regression, HTML и JavaScript checks.
+- Render подтвердил startup, configured LLM provider и повторные `/health 200 OK`.
 
 ## Definition of Done
 
@@ -759,6 +762,16 @@ signal
 
 Новые записи добавлять сверху.
 
+## 2026-10-20 — v3.30 Content Brain DONE / v3.40 next
+
+- Завершена цепочка Signal Collector → Scout → Researcher → Idea Strategist → Idea Verifier → Idea Queue.
+- Добавлен configurable scheduled RSS adapter без hardcoded внешних источников.
+- Добавлен mobile-first Content Brain workspace с provenance, decisions и переходом выбранной идеи в production job.
+- CI run `39379172168` — PASS.
+- Production deploy `dep-dbbgdagubc0c73d4qbng` — LIVE, startup чистый, `/health` = 200.
+- Release verification осталась zero-spend; платный Content Brain запуск выполняется только по явному действию пользователя и внутри budget guards.
+- Следующий milestone: v3.40 Production Pipeline 2.0.
+
 ## 2026-10-19 — v3.30 backend foundation LIVE
 
 - Content Brain persistence, deduplication and Idea Queue API deployed.
@@ -787,6 +800,6 @@ signal
 
 # 17. Current Next Action
 
-**NEXT: v3.30 — Content Brain / Idea Factory**
+**NEXT: v3.40 — Production Pipeline 2.0**
 
-Backend foundation уже live. NEXT: Researcher enrichment → Idea Strategist → Idea Verifier → mobile Idea Queue UI, затем переход к v3.40 Production Pipeline 2.0.
+v3.30 Content Brain завершён и live. NEXT: Angle Strategist → Hook Generator → multiple candidates → Fact Checker → structured QA → partial rerun/downstream invalidation → variant comparison.

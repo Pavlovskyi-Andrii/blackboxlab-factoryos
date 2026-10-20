@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-19T19:55:00.000Z",
+  "updated_at": "2026-10-20T06:15:30.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -524,36 +524,36 @@
       }
     },
     "v3.30-content-brain": {
-      "status": "in_progress",
+      "status": "done",
       "meta": {
         "title": "v3.30 — Content Brain / Idea Factory",
-        "description": "Persist source signals and ideas, deduplicate inputs, generate traceable idea shortlists from signals, then add enrichment, verification and mobile Idea Queue.",
+        "description": "Collect and persist source signals, deduplicate inputs, generate traceable ideas, enrich them through Researcher → Idea Strategist → Idea Verifier, and expose a mobile Idea Queue that can create production jobs.",
         "category": "intelligence",
         "priority": "high",
         "owner": "Factory Builder",
         "order_index": 220,
         "evidence": {
-          "backend_commit": "108256e400e3bfb5b643bbf3e89014f067056f7f",
-          "render_deploy": "dep-dbb7a8rsv6fc73bdftu0",
-          "current_slice": "signals + dedup + Idea Queue API + spend-guarded Scout generation",
+          "production_commit": "00225f9ed45253f33c1d9159eba2eb090e6e9fb1",
+          "ci_run": "39379172168",
           "ci": "passed",
-          "deploy": "live"
+          "render_deploy": "dep-dbbgdagubc0c73d4qbng",
+          "deploy": "live",
+          "health": "200 OK",
+          "provider": "configured gpt-5.6-terra / responses",
+          "source_adapters": "manual + configurable scheduled RSS",
+          "pipeline": "Signal Collector → Scout → Researcher → Idea Strategist → Idea Verifier → Idea Queue",
+          "mobile_ui": true,
+          "paid_release_test": "not executed; release verification remained zero-spend"
         }
       },
       "steps": {
         "understand": "done",
         "inspect": "done",
         "plan": "done",
-        "implement": {
-          "status": "in_progress",
-          "progress": 55
-        },
+        "implement": "done",
         "test": "done",
         "deploy": "done",
-        "verify": {
-          "status": "in_progress",
-          "progress": 45
-        }
+        "verify": "done"
       }
     }
   }

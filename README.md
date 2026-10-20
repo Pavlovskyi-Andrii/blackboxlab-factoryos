@@ -14,6 +14,15 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v3.30 — Content Brain / Idea Factory — 2026-10-20
+- Added persistent source signals, idea storage, fingerprint deduplication and traceable provenance.
+- Added manual/URL ingestion plus a configurable scheduled RSS source adapter through `FACTORY_SIGNAL_FEEDS`.
+- Added the full idea pipeline: Scout → Researcher → Idea Strategist → Idea Verifier → Idea Queue.
+- Researcher is constrained to persisted source signals; Strategist refines the content angle; Verifier returns shortlist/reject/needs-research decisions, risk flags and reasons.
+- Added a mobile-first Content Brain workspace with signal ingestion, feed collection, shortlist generation, research/verification details, select/reject actions and one-tap creation of a production job.
+- Preserved provider budget guards and explicit paid execution: release CI/verification remains zero-spend.
+- Verified production on Render: commit `00225f9ed45253f33c1d9159eba2eb090e6e9fb1`, deploy `dep-dbbgdagubc0c73d4qbng`, successful startup and health checks.
+
 ### v3.25 — Baseline Closure — 2026-10-19
 - Confirmed the controlled paid production run in Render: 7 live LLM runs, 9 artifacts, 5,846 total tokens and $0.029902 provider cost.
 - Confirmed the pipeline stopped at `waiting_approval`, preserving the human approval gate before publishing.
