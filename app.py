@@ -2740,7 +2740,7 @@ def _content_package_sources(job_id,variant):
         refs.append({"artifact_id":row["id"],"agent":row["agent"],"title":row["title"],"created_at":row["created_at"]})
         candidates=[]
         if row.get("url"):candidates.append(row["url"])
-        candidates.extend(re.findall(r'https?://[^\s<>\]\[()"\\']+',row.get("content") or ""))
+        candidates.extend(re.findall(r"https?://[^\\s<>\\]\\[()\\\"']+",row.get("content") or ""))
         for url in candidates:
             clean=url.rstrip(".,;:!?")
             if clean and clean not in urls:urls.append(clean)
