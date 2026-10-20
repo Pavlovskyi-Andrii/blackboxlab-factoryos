@@ -911,6 +911,23 @@ Human approval, explicit publishing, spend budgets, evidence boundaries и contr
 
 Новые записи добавлять сверху.
 
+## 2026-10-20 — v4.1 First Real LLM Pilot DONE / waiting for owner review
+
+- Запущен первый real-world paid Factory Cycle на двух публичных source signals: Reuters + OpenAI.
+- Pilot tag: `v4.1-real-world-pilot-2026-10-20-1`; cycle `15bea544-b055-44c6-84d4-833083c9befe`.
+- Conservative preflight quote: **$0.4636**; hard cumulative ceiling: **$0.75**.
+- Первый live проход обнаружил production-only SQLite lock в variant persistence после уже завершённого model call. Publish не создавался.
+- Исправление: SQLite busy timeout 30s + устранение nested writer transactions в live Production Pipeline 2.0.
+- Добавлен zero-spend regression, который проходит именно live persistence branch с deterministic fake workers.
+- Pilot безопасно продолжен на том же cycle, без нового full-cycle запуска; already-spent provider usage включён в тот же cumulative cap.
+- Финальный результат: **$0.188066**, **22 live runs**, **40,023 tokens**, `approval_gate_reached=true`, `publish_created=false`.
+- Job: `d0eeac5e-3fea-4fd2-bd22-2f15878101c2`.
+- Idea: **AI’s Next Competitive Test: Turning Model Output Into Product Adoption**.
+- Hardening commit `7994b61f15c3d37dc80c70cf81dd80eeaafc6d6c`; CI `39424673537` PASS.
+- Resume deploy `dep-dbbm5j0ae00c7399k3t0` — LIVE; repeated `/health 200 OK`.
+- Следующий шаг намеренно не автоматизирован: owner открывает Approval Studio, проверяет конкретный script/package/sources/QA и только после этого отдельно решает, публиковать ли материал.
+
+
 ## 2026-10-20 — v4.0 Autonomous Content Factory DONE
 
 - Добавлена persistent Factory Cycle lineage: signals → idea → job → workflow → publish → performance → learning.
@@ -1012,8 +1029,8 @@ Human approval, explicit publishing, spend budgets, evidence boundaries и contr
 
 # 17. Current Next Action
 
-**NEXT: v4.x — Production Operations & First Real Closed-Loop Cycle**
+**NEXT: Human review of the first real v4.1 pilot**
 
-v4.0 product loop завершён и live. Следующий шаг — не новый архитектурный milestone, а production operation: настроить/проверить реальные RSS/signal feeds, выбрать реальные media/publisher/analytics adapters, затем запустить первый owner-approved paid Factory Cycle с небольшим budget cap. После human review и реальной публикации собрать platform metrics, убедиться что learning/proposal сформированы из фактических данных, и только после достаточной выборки запускать controlled experiments.
+Первый real paid production cycle уже дошёл до `waiting_approval`. Следующий шаг — открыть Approval Studio для job `d0eeac5e-3fea-4fd2-bd22-2f15878101c2` и проверить generated script, selected variant, Content Package, source provenance, fact-check/QA findings и measured cost.
 
-До этого момента release считается функционально закрытым, но реальный external closed-loop proof остаётся отдельной операционной проверкой, чтобы не тратить деньги и не публиковать контент без явного решения владельца.
+После owner approval разрешён отдельный publishing step. До явного approval ничего не планируется и не публикуется. После фактической публикации нужно получить platform receipt + реальные analytics, синхронизировать их в originating Factory Cycle и только затем проверить learning/proposal path на реальных outcome-данных.

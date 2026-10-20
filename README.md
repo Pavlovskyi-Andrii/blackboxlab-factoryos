@@ -14,6 +14,19 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v4.1 — Production Hardening / First Real LLM Pilot — 2026-10-20
+- Ran the first fenced paid Factory Cycle on two real public source signals (Reuters + OpenAI) with one idea and a hard cumulative pilot ceiling of $0.75.
+- Conservative preflight quote was $0.4636. The one-shot verification fence was persisted before the first provider call, preventing a restart from silently creating a second paid cycle.
+- The first live pass uncovered a real SQLite writer-contention bug in the live variant persistence path after a completed model call. No publish action occurred.
+- Hardened SQLite with a 30-second busy timeout and removed nested writer transactions by committing production-variant state before saving variant artifacts.
+- Added a zero-spend regression that exercises the live variant persistence branch with deterministic fake workers, proving the production transaction path no longer deadlocks.
+- Added resumable pilot execution on the same cycle and same original spend window, with a cumulative pilot budget guard applied to Content Brain, variant workers, Content Packager and live pipeline workers.
+- Resumed the original cycle rather than starting over. The successful real pilot reached the human approval gate with cumulative measured provider cost **$0.188066**, **22 live runs** and **40,023 tokens**.
+- Pilot result: `approval_gate_reached=true`, `publish_created=false`. Nothing was scheduled or published.
+- Real pilot cycle: `15bea544-b055-44c6-84d4-833083c9befe`; job: `d0eeac5e-3fea-4fd2-bd22-2f15878101c2`; generated idea: **“AI’s Next Competitive Test: Turning Model Output Into Product Adoption”**.
+- Hardening commit `7994b61f15c3d37dc80c70cf81dd80eeaafc6d6c`; CI `39424673537` PASS; resume deploy `dep-dbbm5j0ae00c7399k3t0` LIVE with repeated `/health 200 OK`.
+- Next step is owner review in Approval Studio. Publishing remains a separate explicit action after review.
+
 ### v4.0 — Autonomous Content Factory — 2026-10-20
 - Added persistent Factory Cycles that carry source signals, the selected idea, production job, workflow version, publishing receipt, factual performance and learning as one traceable lineage.
 - Added a direct Content Brain → production bridge: verified ideas create linked production jobs without manual copy/paste, while preserving source provenance and the exact pinned workflow version.

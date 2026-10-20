@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-20T10:13:21.000Z",
+  "updated_at": "2026-10-20T12:49:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -771,6 +771,48 @@
           "safety": "Autopilot stops at human approval; publishing remains explicit; live paid work requires cost confirmation and hard budgets; learning can only propose controlled experiments",
           "ui": "Autopilot / Cycle Control mobile workspace in EN/UK/RU",
           "paid_release_test": "not executed; no real social post and no paid v4 production cycle were triggered"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v4.1-real-world-pilot": {
+      "status": "done",
+      "meta": {
+        "title": "v4.1 — Production Hardening / First Real LLM Pilot",
+        "description": "Run one fenced paid Factory Cycle on real source signals, find and fix production-only failures, preserve the human approval boundary, and record measured provider evidence.",
+        "category": "release",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 300,
+        "evidence": {
+          "pilot_tag": "v4.1-real-world-pilot-2026-10-20-1",
+          "source_signals": "Reuters + OpenAI public source summaries",
+          "cycle_id": "15bea544-b055-44c6-84d4-833083c9befe",
+          "job_id": "d0eeac5e-3fea-4fd2-bd22-2f15878101c2",
+          "idea_title": "AI’s Next Competitive Test: Turning Model Output Into Product Adoption",
+          "preflight_quote_usd": 0.4636,
+          "hard_pilot_ceiling_usd": 0.75,
+          "actual_cost_usd": 0.188066,
+          "live_runs": 22,
+          "total_tokens": 40023,
+          "approval_gate_reached": true,
+          "publish_created": false,
+          "initial_finding": "sqlite3.OperationalError: database is locked during live variant artifact persistence after a completed model call",
+          "hardening_commit": "7994b61f15c3d37dc80c70cf81dd80eeaafc6d6c",
+          "ci_run": "39424673537",
+          "ci": "passed",
+          "live_fix_deploy": "dep-dbbm4njm8hqs7393vgh0",
+          "resume_deploy": "dep-dbbm5j0ae00c7399k3t0",
+          "deploy": "live",
+          "safety": "Same cycle resumed with cumulative original spend window; Autopilot stopped at human approval; no publishing queue item was created."
         }
       },
       "steps": {
