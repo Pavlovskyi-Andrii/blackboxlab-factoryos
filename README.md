@@ -14,6 +14,17 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v4.4 — Real Media Provider Foundation — 2026-10-20
+- Added persistent asynchronous media jobs for Revideo with `queued → submitted → processing → ready/failed` lifecycle, provider job IDs, response/error persistence and duplicate-safe render visibility.
+- Added provider polling through `FACTORY_VIDEO_STATUS_ENDPOINT` plus authenticated callback completion through `FACTORY_VIDEO_CALLBACK_TOKEN`.
+- Revideo now exposes the latest media job, shows live render status in EN / UK / RU, prevents duplicate generation while a render is active and allows explicit status refresh.
+- A completed provider result is persisted back to the Revideo project and saved as a real Render Agent video artifact for Worker Evidence.
+- Added zero-spend regression coverage for the asynchronous media lifecycle; CI `39441923218` PASS.
+- Production commit `7edec23c0d0258abb4978fcfbeab272d4260b97c`; Render deploy `dep-dbbnsjpsrm7s738fqbj0` LIVE with clean startup and repeated `/health 200 OK`.
+- Completed a real Descript integration pilot in Blackbox Lab's Drive: Agent Underlord created an 8-second 1080×1920 / 30 fps composition and Descript published a real 1080p video successfully.
+- **Status: IN PROGRESS.** The generic media bridge and Descript leg are verified; the Runway runtime leg is not marked complete until FactoryOS itself successfully executes and records a real Runway provider job.
+- Human approval and publishing remain separate; no automatic social publishing was enabled.
+
 ### v4.3 — Revideo / Original Rewrite MVP — 2026-10-20
 - Added a dedicated Revideo workspace: source URL + transcript/source text → structure analysis → original rewrite → production job.
 - Added persistent Revideo provenance and specialized Transcript Agent, Structure Analyzer and Rewrite Strategist worker evidence.
