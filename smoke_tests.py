@@ -90,6 +90,8 @@ require("-->" in package["subtitles_srt"],"Content Package must include valid-lo
 require(package["voice_over"],"Content Package must include voice-over text")
 require(isinstance(package["source_list"],list),"Content Package source list must be traceable")
 require("package_generation_usd" in package["production_cost"] and "job_total_measured_usd" in package["production_cost"],"Content Package cost aggregation missing")
+visual_inputs=app.collect_agent_inputs(job_id,"Visual Director")
+require(not visual_inputs["missing"] and visual_inputs["artifacts"][0]["agent"]=="Content Packager","downstream visual stage must consume the Content Package manifest")
 adapters=app.get_media_adapter_registry()
 require({x["kind"] for x in adapters["adapters"]}=={"tts","image","video","stock","manual"},"media adapter contract regression")
 exports=app._package_export_files(package_result["package_record"])
@@ -97,6 +99,7 @@ for name in ("content-package.json","final-script.txt","voice-over.txt","subtitl
     require(name in exports,f"package export missing {name}")
 app.select_production_variant(job_id,variant_result["variants"][0]["id"])
 require(app.get_content_package(job_id)["status"]=="stale","changing selected variant must invalidate existing Content Package")
+require(app.get_job(job_id)["stage"]=="script" and app.get_job(job_id)["status"]=="idle","changing selected variant must fence downstream stages back to script")
 
 
 transport=app.classify_agent_error("LLM provider request failed: timed out")
