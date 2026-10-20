@@ -19,7 +19,7 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v3.25","version mismatch")
+require(health["version"]==app.APP_VERSION=="v3.30","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -42,7 +42,12 @@ brain=app.get_content_brain()
 require(brain["summary"]["signals"]==1 and brain["summary"]["ideas"]==1,"Content Brain counts regression")
 parsed=app._parse_idea_candidates('[{"title":"A","score":0.8}]')
 require(parsed and parsed[0]["title"]=="A","idea candidate parser regression")
-for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
+obj=app._parse_json_object('```json\n{"decision":"shortlist","score":0.9}\n```')
+require(obj["decision"]=="shortlist","Content Brain JSON object parser regression")
+brain=app.get_content_brain()
+require("adapters" in brain and "rss" in brain["adapters"],"source adapter registry missing")
+require("verified" in brain["summary"] and "feeds_configured" in brain["summary"],"Content Brain summary fields missing")
+for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
     require(route_exists(path,method),f"route missing: {method} {path}")
 
 created=asyncio.run(app.create_job(app.JobCreate(title="CI smoke job",brief="Zero-spend regression fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))
@@ -81,9 +86,13 @@ require('data-i18n="error.title"' in html,"Error Center title is not localized")
 require('data-i18n="worker.title"' in html,"Worker Results title is not localized")
 require('data-i18n="intel.title"' in html,"Factory Intelligence title is not localized")
 require("FactoryOS v3.14" not in html,"stale document title version returned")
+require('data-i18n="brain.title"' in html,"Content Brain workspace missing")
+require('onclick="openContentBrain()"' in html,"Content Brain navigation missing")
+require("runBrainFull()" in html and "processBrainIdea" in html,"Content Brain mobile actions missing")
+require('<span class="version">v3.30</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
-for key in ("nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
+for key in ("brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v3.25 smoke/regression suite passed without paid provider calls")
+print("FactoryOS v3.30 smoke/regression suite passed without paid provider calls")
