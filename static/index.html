@@ -159,11 +159,23 @@
 @media(max-width:1000px){.variantGrid{grid-template-columns:1fr}.variantSummary{grid-template-columns:repeat(3,1fr)}.variantNote{width:100%;margin-left:0}}
 @media(max-width:650px){.variantPage{inset:0;border-radius:0}.variantTop{padding:12px}.variantBody{padding:9px 9px 24px}.variantSummary{grid-template-columns:1fr 1fr}.variantToolbar .btn{flex:1 1 auto}.variantCard{padding:9px}.variantBlock span,.variantBlock pre{max-height:180px}}
 
+
+/* v3.50 Package Studio */
+.packageShade{position:fixed;inset:0;background:#02070dcc;backdrop-filter:blur(5px);z-index:90;opacity:0;pointer-events:none;transition:.2s}.packageShade.open{opacity:1;pointer-events:auto}
+.packagePage{position:fixed;inset:22px;background:radial-gradient(980px 540px at 30% 0,#21476855,transparent 62%),linear-gradient(180deg,#091621,#06101a);border:1px solid #2b5776;border-radius:18px;box-shadow:0 30px 110px #000e;z-index:91;transform:translateY(12px) scale(.985);opacity:0;pointer-events:none;transition:.22s;display:flex;flex-direction:column;overflow:hidden}.packagePage.open{opacity:1;pointer-events:auto;transform:none}
+.packageTop{padding:14px 16px;border-bottom:1px solid #1b354e;display:flex;justify-content:space-between;align-items:center;gap:10px}.packageTop h2{margin:0;font-size:18px}.packageTop p{margin:3px 0 0;font-size:9px;color:#8198ac}.packageBody{padding:14px 16px 24px;overflow:auto}
+.packageSummary{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px}.packageStat{padding:10px;border:1px solid #21445f;background:#0a1a29;border-radius:11px}.packageStat b{display:block;font-size:15px;color:#dcf7ff;overflow:hidden;text-overflow:ellipsis}.packageStat span{font-size:7px;color:#7891a5}
+.packageToolbar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.packageToolbar a{text-decoration:none}.packageStatus{font-size:7px;padding:4px 7px;border:1px solid #2d526e;border-radius:999px;color:#8fb7cf}.packageStatus.ready{border-color:#236848;color:#79dda5}.packageStatus.stale{border-color:#765721;color:#efca70}.packageStatus.missing{border-color:#63333d;color:#ee9eac}
+.packageGrid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:10px}.packagePanel{border:1px solid #1d3c56;background:#081724;border-radius:12px;padding:11px;min-width:0}.packagePanel h3{margin:0 0 8px;font-size:11px}.packageSection{padding:8px;border:1px solid #17354b;border-radius:8px;background:#07131e;margin-top:7px}.packageSection strong{display:block;font-size:6px;text-transform:uppercase;letter-spacing:.07em;color:#647f94;margin-bottom:4px}.packageSection span,.packageSection pre{display:block;margin:0;white-space:pre-wrap;font:7px/1.5 Inter,system-ui;color:#9eb1c0;max-height:220px;overflow:auto}.packageHook span{font-size:10px;color:#e4f7ff;font-weight:800}.packageMeta{display:grid;grid-template-columns:1fr 1fr;gap:7px}.packageScene{padding:8px;border:1px solid #1b3b53;border-radius:8px;background:#07131e;margin-top:6px}.packageSceneTop{display:flex;justify-content:space-between;gap:8px}.packageSceneTop b{font-size:8px}.packageSceneTop span{font-size:6px;color:#7090a6}.packageScene p{font-size:7px;color:#a2b5c3;line-height:1.45;margin:6px 0 0}.packageScene small{display:block;color:#6f879a;font-size:6px;margin-top:4px}
+.adapterGrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.adapterCard{border:1px solid #1e3d55;border-radius:8px;padding:7px;background:#07131e}.adapterCard b{font-size:8px}.adapterCard span{display:block;font-size:6px;color:#7f98aa;margin-top:3px}.adapterCard.ready{border-color:#275d45}.sourceItem{font-size:7px;color:#91a6b6;padding:6px 0;border-bottom:1px solid #142c3e;word-break:break-word}.sourceItem:last-child{border-bottom:0}.packageEmpty{padding:28px;border:1px dashed #24445b;border-radius:10px;color:#71899d;font-size:8px;text-align:center}.staleBanner{border:1px solid #715721;background:#2d2412;padding:9px;border-radius:9px;color:#efd083;font-size:8px;margin-bottom:9px}
+@media(max-width:900px){.packageGrid{grid-template-columns:1fr}.packageSummary{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:650px){.packagePage{inset:0;border-radius:0}.packageTop{padding:12px}.packageBody{padding:9px 9px 24px}.packageSummary{grid-template-columns:1fr 1fr}.packageToolbar .btn,.packageToolbar a{flex:1 1 auto}.packageToolbar a .btn{width:100%}.packageMeta,.adapterGrid{grid-template-columns:1fr}.packageSection span,.packageSection pre{max-height:260px}}
+
 </style></head>
 <body><div class="shell">
 <aside class="side">
-<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.40</span></small></div></div>
-<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openContentBrain()">✦ &nbsp; <span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openVariantStudio():toast(tr('toast.selectJob'))">◇ &nbsp; <span data-i18n="variant.nav">Variants</span> <span id="variantNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
+<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.50</span></small></div></div>
+<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openContentBrain()">✦ &nbsp; <span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openVariantStudio():toast(tr('toast.selectJob'))">◇ &nbsp; <span data-i18n="variant.nav">Variants</span> <span id="variantNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openPackageStudio():toast(tr('toast.selectJob'))">▤ &nbsp; <span data-i18n="package.nav">Package</span> <span id="packageNavState" style="float:right;color:#63d9ff"></span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
 <div class="foot"><span class="green"></span><span data-i18n="factory.online">Factory online</span><br><span id="runState">No active run</span></div>
 </aside>
 <main class="main">
@@ -215,6 +227,24 @@
 
 <div class="modal" id="modal"><div class="dialog"><h2 data-i18n="new.title">Create content job</h2><p data-i18n="new.sub">One idea becomes one production job. FactoryOS guides it through every stage.</p><input id="title" data-i18n-placeholder="new.topic" placeholder="Topic / working title"><textarea id="brief" data-i18n-placeholder="new.brief" placeholder="What should the video explain, prove or test?"></textarea><div class="formRow"><select id="presenter"><option>AI presenter</option><option>Digital twin</option><option>Faceless</option><option>Mixed</option></select><select id="format"><option>Long + Shorts</option><option>Short only</option><option>Long video</option></select></div><div class="formRow"><input id="language" value="English"><input id="outputs" type="number" value="8" min="1"></div><div class="dialogActions"><button class="btn" onclick="closeNew()" data-i18n="action.cancel">Cancel</button> <button class="btn primary" onclick="createJob()" data-i18n="new.create">Create Job</button></div></div></div>
 
+
+
+<div class="packageShade" id="packageShade" onclick="closePackageStudio()"></div>
+<section class="packagePage" id="packagePage">
+  <div class="packageTop"><div><h2 data-i18n="package.title">Content Package / Shorts Factory</h2><p data-i18n="package.sub">Selected variant → scenes → voice-over → subtitles → publishing metadata → thumbnail/media brief → export.</p></div><button class="closeX" onclick="closePackageStudio()">×</button></div>
+  <div class="packageBody">
+    <div id="packageStale"></div>
+    <div class="packageSummary" id="packageSummary"></div>
+    <div class="packageToolbar">
+      <button class="btn primary" onclick="buildContentPackage()">▶ <span data-i18n="package.build">Build / rebuild package</span></button>
+      <button class="btn" onclick="renderPackageStudio()">⟳ <span data-i18n="action.refresh">Refresh</span></button>
+      <a id="packageZip" href="#" target="_blank"><button class="btn">⇩ ZIP</button></a>
+      <a id="packageJson" href="#" target="_blank"><button class="btn">⇩ JSON</button></a>
+      <span id="packageStatus" class="packageStatus missing">missing</span>
+    </div>
+    <div class="packageGrid" id="packageGrid"></div>
+  </div>
+</section>
 
 <div class="variantShade" id="variantShade" onclick="closeVariantStudio()"></div>
 <section class="variantPage" id="variantPage">
@@ -291,6 +321,37 @@
 let S=null;const $=s=>document.querySelector(s);const esc=s=>(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const I18N={
  en:{
+  "package.nav":"Package",
+  "package.title":"Content Package / Shorts Factory",
+  "package.sub":"Selected variant → scenes → voice-over → subtitles → publishing metadata → thumbnail/media brief → export.",
+  "package.build":"Build / rebuild package",
+  "package.buildConfirm":"Build a new Content Package from the selected variant. Live mode may use one paid LLM call inside FactoryOS job/day budget guards. Continue?",
+  "package.started":"Content Package build started",
+  "package.statStatus":"status",
+  "package.statDuration":"duration",
+  "package.statScenes":"scenes",
+  "package.statSources":"sources",
+  "package.statCost":"job cost",
+  "package.empty":"No Content Package yet. Select a completed variant, then build the package.",
+  "package.stale":"This package is stale because its selected variant changed. Rebuild before downstream production.",
+  "package.hook":"1–3 sec hook",
+  "package.script":"Final script",
+  "package.voice":"Voice-over",
+  "package.srt":"Subtitles / SRT",
+  "package.scenes":"Scene breakdown",
+  "package.metadata":"Publishing metadata",
+  "package.thumbnail":"Thumbnail concept",
+  "package.media":"Media brief",
+  "package.sources":"Source list",
+  "package.fact":"Fact-check report",
+  "package.adapters":"Media adapters",
+  "package.adapterReady":"configured",
+  "package.adapterMissing":"not configured",
+  "package.download":"Export",
+  "package.titleField":"Title",
+  "package.description":"Description",
+  "package.cta":"CTA",
+  "package.hashtags":"Hashtags",
   "variant.nav":"Variants",
   "variant.title":"Variant Studio / Production Pipeline 2.0",
   "variant.sub":"Compare competing angles, hooks and scripts with fact-check findings, structured QA, provenance and measured allocated cost.",
@@ -394,6 +455,37 @@ const I18N={
   "super.health":"health","super.lastAudit":"Last audit","super.noIncidents":"No active incidents","super.monitoring":"Supervisor is monitoring jobs and agent runtime.","super.improvements":"Process improvements","super.backlog":"Improvement backlog","super.accept":"Accept","super.dismiss":"Dismiss"
  },
  uk:{
+  "package.nav":"Пакет",
+  "package.title":"Content Package / Shorts Factory",
+  "package.sub":"Обраний variant → scenes → voice-over → subtitles → publishing metadata → thumbnail/media brief → export.",
+  "package.build":"Створити / перебудувати пакет",
+  "package.buildConfirm":"Створити новий Content Package з обраного variant. Live mode може використати один платний LLM-виклик у межах budget guards FactoryOS. Продовжити?",
+  "package.started":"Побудову Content Package запущено",
+  "package.statStatus":"статус",
+  "package.statDuration":"тривалість",
+  "package.statScenes":"сцен",
+  "package.statSources":"джерел",
+  "package.statCost":"вартість job",
+  "package.empty":"Content Package ще немає. Оберіть завершений variant і створіть пакет.",
+  "package.stale":"Пакет застарів, бо обраний variant змінився. Перебудуйте його перед downstream production.",
+  "package.hook":"Hook 1–3 сек",
+  "package.script":"Фінальний script",
+  "package.voice":"Voice-over",
+  "package.srt":"Subtitles / SRT",
+  "package.scenes":"Розбивка на сцени",
+  "package.metadata":"Publishing metadata",
+  "package.thumbnail":"Thumbnail concept",
+  "package.media":"Media brief",
+  "package.sources":"Список джерел",
+  "package.fact":"Fact-check report",
+  "package.adapters":"Media adapters",
+  "package.adapterReady":"налаштовано",
+  "package.adapterMissing":"не налаштовано",
+  "package.download":"Export",
+  "package.titleField":"Title",
+  "package.description":"Description",
+  "package.cta":"CTA",
+  "package.hashtags":"Hashtags",
   "variant.nav":"Варіанти",
   "variant.title":"Variant Studio / Production Pipeline 2.0",
   "variant.sub":"Порівняння angle, hook і script з fact-check, structured QA, provenance та виміряною розподіленою вартістю.",
@@ -497,6 +589,37 @@ const I18N={
   "super.health":"здоров'я","super.lastAudit":"Останній аудит","super.noIncidents":"Активних інцидентів немає","super.monitoring":"Супервізор контролює завдання й стан агентів.","super.improvements":"Покращення процесу","super.backlog":"Черга покращень","super.accept":"Прийняти","super.dismiss":"Відхилити"
  },
  ru:{
+  "package.nav":"Пакет",
+  "package.title":"Content Package / Shorts Factory",
+  "package.sub":"Выбранный variant → scenes → voice-over → subtitles → publishing metadata → thumbnail/media brief → export.",
+  "package.build":"Создать / перестроить пакет",
+  "package.buildConfirm":"Создать новый Content Package из выбранного variant. Live mode может использовать один платный LLM-вызов в пределах budget guards FactoryOS. Продолжить?",
+  "package.started":"Сборка Content Package запущена",
+  "package.statStatus":"статус",
+  "package.statDuration":"длительность",
+  "package.statScenes":"сцен",
+  "package.statSources":"источников",
+  "package.statCost":"стоимость job",
+  "package.empty":"Content Package пока нет. Выберите завершённый variant и соберите пакет.",
+  "package.stale":"Пакет устарел, потому что выбранный variant изменился. Перестройте его перед downstream production.",
+  "package.hook":"Hook 1–3 сек",
+  "package.script":"Финальный script",
+  "package.voice":"Voice-over",
+  "package.srt":"Subtitles / SRT",
+  "package.scenes":"Разбивка на сцены",
+  "package.metadata":"Publishing metadata",
+  "package.thumbnail":"Thumbnail concept",
+  "package.media":"Media brief",
+  "package.sources":"Список источников",
+  "package.fact":"Fact-check report",
+  "package.adapters":"Media adapters",
+  "package.adapterReady":"настроено",
+  "package.adapterMissing":"не настроено",
+  "package.download":"Export",
+  "package.titleField":"Title",
+  "package.description":"Description",
+  "package.cta":"CTA",
+  "package.hashtags":"Hashtags",
   "variant.nav":"Варианты",
   "variant.title":"Variant Studio / Production Pipeline 2.0",
   "variant.sub":"Сравнение angle, hook и script с fact-check, structured QA, provenance и измеримой распределённой стоимостью.",
@@ -685,12 +808,13 @@ function switchLanguage(lang){if(!I18N[lang])return;localStorage.setItem('factor
 function stageLabel(st){return tr('stage.'+st)}
 function stageSub(st){return tr('stagesub.'+st)}
 const icons={inbox:'○',research:'⌕',script:'▤',visual:'▧',voice:'≋',render:'▷',qa:'✓',publish:'⇧',analytics:'▥'};
-const pos={"Scout":[7,39],"Researcher":[20,39],"Tech Verifier":[33,39],"Angle Strategist":[46,39],"Hook Generator":[59,39],"Scriptwriter":[72,39],"Fact Checker":[85,39],"Hook Optimizer":[20,75],"Editor":[33,75],"Visual Director":[46,75],"Voice Agent":[59,75],"Render Agent":[72,75],"QA Agent":[85,75],"Publisher":[59,91],"Analyst":[72,91],"Supervisor":[92,91],"Hook Writer":[7,91]};
+const pos={"Scout":[7,39],"Researcher":[20,39],"Tech Verifier":[33,39],"Angle Strategist":[46,39],"Hook Generator":[59,39],"Scriptwriter":[72,39],"Fact Checker":[85,39],"Hook Optimizer":[20,75],"Editor":[33,75],"Visual Director":[46,75],"Voice Agent":[59,75],"Render Agent":[72,75],"QA Agent":[85,75],"Publisher":[59,91],"Analyst":[72,91],"Supervisor":[92,91],"Hook Writer":[7,91],"Content Packager":[46,91]};
 async function api(u,o){const r=await fetch(u,o);if(!r.ok)throw Error(await r.text());return r.json()}async function refresh(){try{S=await api('/api/status');render()}catch(e){toast(tr('toast.refreshFailed'))}}
-function render(){mission();usage();buildBadge();contentBrainBadge();variantBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8);$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
+function render(){mission();usage();buildBadge();contentBrainBadge();variantBadge();packageBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8);$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
 function buildBadge(){const b=S.buildProgress||{};const el=$('#buildNavPct');if(el)el.textContent=Math.round(Number(b.progress||0))+'%'}
 function contentBrainBadge(){const b=(S&&S.contentBrain)||{},sm=b.summary||{},el=$('#brainNavCount');if(el)el.textContent=Number(sm.shortlisted||0)?String(sm.shortlisted):''}
 function variantBadge(){const b=(S&&S.selectedJobVariants)||{},sm=b.summary||{},el=$('#variantNavCount');if(el)el.textContent=Number(sm.variants||0)?String(sm.variants):''}
+function packageBadge(){const d=(S&&S.selectedJobContentPackage)||{},el=$('#packageNavState');if(!el)return;el.textContent=d.status==='ready'?'✓':d.status==='stale'?'!':(d.building?'…':'')}
 function designPartnerState(){const el=$('#designMcpState');if(!el)return;const ready=!!(S&&S.factoryMcpConfigured);el.classList.toggle('ready',ready);el.textContent=ready?tr('design.ready'):tr('design.needsToken')}
 function usage(){const u=S.usage||{};$('#uRuns').textContent=u.runs||0;$('#uTime').textContent=fmtDuration(u.duration_ms||0);$('#uTokens').textContent=fmtTokens((u.input_tokens||0)+(u.output_tokens||0));$('#uCost').textContent=fmtMoney(u.today_cost_usd||0)+' / '+fmtMoney(u.daily_budget_usd||0)}
 function mission(){const j=S.selectedJob;let active=2,title=tr('mission.next'),copy=tr('mission.create');if(j){if(j.status==='waiting_approval'){active=4;title=tr('mission.review');copy=tr('mission.reviewCopy')}else if(j.status==='done'){active=5;title=tr('mission.done');copy=tr('mission.doneCopy')}else if(j.status==='running'){active=3;title=tr('mission.working');copy=tr('mission.workingCopy',{stage:stageLabel(j.stage)})}else{active=3;title=tr('mission.ready');copy=tr('mission.readyCopy',{title:j.title})}}$('#missionTitle').textContent=title;$('#missionCopy').textContent=copy;[1,2,3,4,5].forEach(n=>{const e=$('#step'+n);e.classList.remove('active','done');if(n===active)e.classList.add('active');if(n<active)e.classList.add('done')})}
@@ -760,7 +884,7 @@ function supervisor(){const r=S.supervisor||{},p=S.runtimePolicy||{};const root=
 function pipeline(){const j=S.selectedJob,cur=j?S.stages.indexOf(j.stage):0,stale=((S.selectedJobQuality||{}).stale_stages||[]),states=S.agentStates||{},map=S.agentMap||{},vsm=((S.selectedJobVariants||{}).summary||{});$('#pipeline').innerHTML=S.stages.map((st,i)=>{const activeAgents=(map[st]||[]).filter(name=>states[name]==='working'),live=!!activeAgents.length;const cls=stale.includes(st)?'stale ':(live?'liveWorking ':(i<cur?'complete ':i===cur?'current ':'pending '));let detail=live?activeAgents.join(', '):(stageSub(st)+(stale.includes(st)?' · '+tr('stage.rebuild'):''));if(st==='script'&&Number(vsm.variants||0))detail=Number(vsm.variants)+' variants · '+Number(vsm.selected||0)+' selected'+(live?' · '+activeAgents.join(', '):'');return '<div class="stage '+cls+'"><i>'+icons[st]+'</i><b>'+stageLabel(st)+'</b><span>'+esc(detail)+'</span>'+(live&&i<S.stages.length-1?'<em class="stagePacket"></em>':'')+'</div>'}).join('')}
 function jobs(){const a=S.jobs||[],done=a.filter(j=>j.status==='done').length;$('#jobSummary').textContent=tr('jobs.summary',{jobs:a.length,running:S.runningJobs.length,done});if(!a.length){$('#jobs').innerHTML='<div class="sub" style="padding:18px">'+tr('jobs.none')+'</div>';return}$('#jobs').innerHTML=a.map(j=>'<div class="job '+(j.id===S.selectedJobId?'selectedJob':'')+'" onclick="selectJob(\''+j.id+'\')"><div><h4>'+esc(j.title)+'</h4><div class="jobMeta">'+esc(j.format)+' · '+esc(j.presenter)+' · '+esc(j.language)+'</div></div><div><div class="bar"><i style="width:'+j.progress+'%"></i></div><div class="jobMeta">'+stageLabel(j.stage)+' · '+status(j.status)+'</div></div><button class="btn" onclick="event.stopPropagation();runJob(\''+j.id+'\')">'+(j.status==='running'?tr('jobs.running'):j.status==='waiting_approval'?'↻ Restart':'▶ '+tr('jobs.run'))+'</button></div>').join('')}
 function status(s){return ({idle:tr('status.ready'),running:tr('status.running'),waiting_approval:tr('status.approval'),done:tr('status.done'),failed:tr('status.failed')})[s]||s}
-function detail(){const j=S.selectedJob;if(!j){$('#detail').innerHTML='<div class="sub" style="padding:15px">'+tr('jobs.createSelect')+'</div>';$('#log').innerHTML='';return}const q=S.selectedJobQuality||{},stale=q.stale_stages||[];const qhtml='<div class="qualityBox '+(stale.length?'warn':'')+'"><b>'+tr('quality.coverage',{n:Number(q.coverage||0).toFixed(0)})+'</b><span>'+(stale.length?tr('quality.stale',{stages:stale.map(stageLabel).join(', ')}):tr('quality.fresh'))+'</span></div>';$('#detail').innerHTML='<div class="hero"><h4>'+esc(j.title)+'</h4><p>'+esc(j.brief||'')+'</p><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn" onclick="openJobOutputs(S.selectedJobId)">▦ '+tr('jobs.viewOutputs')+'</button><button class="btn primary" onclick="openVariantStudio()">◇ '+tr('variant.nav')+'</button></div></div><div class="kv"><span>'+tr('jobs.currentStage')+'</span><b>'+stageLabel(j.stage)+'</b></div><div class="kv"><span>'+tr('jobs.status')+'</span><b>'+status(j.status)+'</b></div><div class="kv"><span>'+tr('jobs.progress')+'</span><b>'+j.progress+'%</b></div>'+qhtml+'<div class="nextBox"><small>'+tr('jobs.next')+'</small><b>'+esc(S.nextAction)+'</b></div>';$('#approveBtn').style.display=j.status==='waiting_approval'?'inline-block':'none';$('#runTop').style.display='inline-block';$('#runTop').textContent=j.status==='waiting_approval'?'↻ Restart Factory':'▶ '+tr('jobs.run');$('#log').innerHTML='<div class="group">'+tr('jobs.recent')+'</div>'+S.events.filter(e=>!e.job_id||e.job_id===j.id).slice(0,16).map(e=>'<div>'+e.ts.slice(11,19)+' · '+esc(e.message)+'</div>').join('')}
+function detail(){const j=S.selectedJob;if(!j){$('#detail').innerHTML='<div class="sub" style="padding:15px">'+tr('jobs.createSelect')+'</div>';$('#log').innerHTML='';return}const q=S.selectedJobQuality||{},stale=q.stale_stages||[];const qhtml='<div class="qualityBox '+(stale.length?'warn':'')+'"><b>'+tr('quality.coverage',{n:Number(q.coverage||0).toFixed(0)})+'</b><span>'+(stale.length?tr('quality.stale',{stages:stale.map(stageLabel).join(', ')}):tr('quality.fresh'))+'</span></div>';$('#detail').innerHTML='<div class="hero"><h4>'+esc(j.title)+'</h4><p>'+esc(j.brief||'')+'</p><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn" onclick="openJobOutputs(S.selectedJobId)">▦ '+tr('jobs.viewOutputs')+'</button><button class="btn primary" onclick="openVariantStudio()">◇ '+tr('variant.nav')+'</button><button class="btn" onclick="openPackageStudio()">▤ '+tr('package.nav')+'</button></div></div><div class="kv"><span>'+tr('jobs.currentStage')+'</span><b>'+stageLabel(j.stage)+'</b></div><div class="kv"><span>'+tr('jobs.status')+'</span><b>'+status(j.status)+'</b></div><div class="kv"><span>'+tr('jobs.progress')+'</span><b>'+j.progress+'%</b></div>'+qhtml+'<div class="nextBox"><small>'+tr('jobs.next')+'</small><b>'+esc(S.nextAction)+'</b></div>';$('#approveBtn').style.display=j.status==='waiting_approval'?'inline-block':'none';$('#runTop').style.display='inline-block';$('#runTop').textContent=j.status==='waiting_approval'?'↻ Restart Factory':'▶ '+tr('jobs.run');$('#log').innerHTML='<div class="group">'+tr('jobs.recent')+'</div>'+S.events.filter(e=>!e.job_id||e.job_id===j.id).slice(0,16).map(e=>'<div>'+e.ts.slice(11,19)+' · '+esc(e.message)+'</div>').join('')}
 let currentAgentDrawer=null;
 function openClaudeFree(){window.open('https://claude.ai','_blank','noopener')}
 function designBriefText(){
@@ -783,6 +907,49 @@ async function discoverMcp(id){if(!currentAgentDrawer)return;const el=$('#mcpToo
 async function toggleMcp(id,enabled){if(!currentAgentDrawer)return;try{await api('/api/agents/'+encodeURIComponent(currentAgentDrawer)+'/mcp/'+encodeURIComponent(id)+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});toast(enabled?'MCP enabled':'MCP disabled');openAgent(currentAgentDrawer)}catch(e){toast('Could not update MCP')}}
 async function deleteMcp(id){if(!currentAgentDrawer)return;try{await api('/api/agents/'+encodeURIComponent(currentAgentDrawer)+'/mcp/'+encodeURIComponent(id),{method:'DELETE'});toast('MCP removed');openAgent(currentAgentDrawer)}catch(e){toast('Could not remove MCP')}}
 
+
+
+let packagePollTimer=null;
+function closePackageStudio(){clearInterval(packagePollTimer);packagePollTimer=null;$('#packageShade').classList.remove('open');$('#packagePage').classList.remove('open')}
+async function openPackageStudio(){if(!S||!S.selectedJobId){toast(tr('toast.selectJob'));return}closeAgent();$('#packageShade').classList.add('open');$('#packagePage').classList.add('open');await renderPackageStudio();clearInterval(packagePollTimer);packagePollTimer=setInterval(()=>{if($('#packagePage').classList.contains('open'))renderPackageStudio()},6000)}
+function packageObjText(v){return typeof v==='string'?v:JSON.stringify(v||{},null,2)}
+function sourceHtml(x){if(x.type==='url')return '<div class="sourceItem">↗ '+esc(x.value||'')+'</div>';if(x.type==='artifact')return '<div class="sourceItem">'+esc(x.agent||'')+' · '+esc(x.title||'')+'<br><small>'+esc(x.artifact_id||'')+'</small></div>';return '<div class="sourceItem">'+esc(x.type||'source')+' · '+esc(x.value||'')+'</div>'}
+function adapterHtml(x){return '<div class="adapterCard '+(x.configured?'ready':'')+'"><b>'+esc((x.kind||'').toUpperCase())+'</b><span>'+esc(x.provider||tr(x.configured?'package.adapterReady':'package.adapterMissing'))+'</span><span>'+esc(((x.contract||{}).output||[]).join(', ')||'—')+'</span></div>'}
+async function renderPackageStudio(){
+ if(!S||!S.selectedJobId)return;const root=$('#packageGrid'),summary=$('#packageSummary'),statusEl=$('#packageStatus'),stale=$('#packageStale'),zip=$('#packageZip'),jsonLink=$('#packageJson');if(!root||!summary)return;
+ try{
+  const d=await api('/api/jobs/'+encodeURIComponent(S.selectedJobId)+'/content-package');S.selectedJobContentPackage=d;packageBadge();
+  const p=d.package||{},record=d.package_record||{},cost=(p.production_cost||{}),sources=p.source_list||[],scenes=p.scenes||[],status=d.building?'building':(d.status||'missing');
+  statusEl.textContent=status;statusEl.className='packageStatus '+(status==='building'?'stale':status);
+  const duration=Number(p.estimated_duration_sec||0);
+  summary.innerHTML=[[status,'package.statStatus'],[duration?duration+'s':'—','package.statDuration'],[scenes.length,'package.statScenes'],[sources.length,'package.statSources'],[fmtMoney(cost.job_total_measured_usd||0),'package.statCost']].map(x=>'<div class="packageStat"><b>'+esc(String(x[0]))+'</b><span>'+esc(tr(x[1]))+'</span></div>').join('');
+  stale.innerHTML=d.status==='stale'?'<div class="staleBanner">⚠ '+esc(tr('package.stale'))+(p.stale_reason?'<br>'+esc(p.stale_reason):'')+'</div>':'';
+  const base='/api/jobs/'+encodeURIComponent(S.selectedJobId)+'/content-package/export.';
+  zip.href=d.package?base+'zip':'#';jsonLink.href=d.package?base+'json':'#';zip.style.pointerEvents=d.package?'auto':'none';jsonLink.style.pointerEvents=d.package?'auto':'none';
+  if(!d.package){root.innerHTML='<div class="packageEmpty" style="grid-column:1/-1">'+esc(tr('package.empty'))+'</div>';return}
+  const meta='<div class="packageMeta"><div class="packageSection"><strong>'+esc(tr('package.titleField'))+'</strong><span>'+esc(p.title||'—')+'</span></div><div class="packageSection"><strong>'+esc(tr('package.cta'))+'</strong><span>'+esc(p.cta||'—')+'</span></div></div>'
+   +'<div class="packageSection"><strong>'+esc(tr('package.description'))+'</strong><span>'+esc(p.description||'—')+'</span></div>'
+   +'<div class="packageSection"><strong>'+esc(tr('package.hashtags'))+'</strong><span>'+esc((p.hashtags||[]).join(' ')||'—')+'</span></div>';
+  const sceneHtml=scenes.map(x=>'<div class="packageScene"><div class="packageSceneTop"><b>Scene '+Number(x.scene||0)+'</b><span>'+Number(x.start_sec||0).toFixed(1)+'–'+Number(x.end_sec||0).toFixed(1)+'s</span></div><p>'+esc(x.narration||'')+'</p><small>'+esc(x.visual||'')+(x.on_screen_text?' · “'+esc(x.on_screen_text)+'”':'')+'</small></div>').join('');
+  const adapters=(((d.adapters||{}).adapters)||[]).map(adapterHtml).join('');
+  root.innerHTML='<section class="packagePanel"><h3>'+esc(tr('package.script'))+'</h3>'
+   +'<div class="packageSection packageHook"><strong>'+esc(tr('package.hook'))+'</strong><span>'+esc(p.hook||'—')+'</span></div>'
+   +'<div class="packageSection"><strong>'+esc(tr('package.script'))+'</strong><pre>'+esc(p.final_script||'—')+'</pre></div>'
+   +'<div class="packageSection"><strong>'+esc(tr('package.voice'))+'</strong><pre>'+esc(p.voice_over||'—')+'</pre></div>'
+   +'<div class="packageSection"><strong>'+esc(tr('package.srt'))+'</strong><pre>'+esc(p.subtitles_srt||'—')+'</pre></div>'
+   +'<h3 style="margin-top:12px">'+esc(tr('package.scenes'))+'</h3>'+sceneHtml+'</section>'
+   +'<section class="packagePanel"><h3>'+esc(tr('package.metadata'))+'</h3>'+meta
+   +'<div class="packageSection"><strong>'+esc(tr('package.thumbnail'))+'</strong><pre>'+esc(packageObjText(p.thumbnail_concept))+'</pre></div>'
+   +'<div class="packageSection"><strong>'+esc(tr('package.media'))+'</strong><pre>'+esc(packageObjText(p.media_brief))+'</pre></div>'
+   +'<div class="packageSection"><strong>'+esc(tr('package.fact'))+'</strong><pre>'+esc(packageObjText(p.fact_check_report))+'</pre></div>'
+   +'<h3 style="margin-top:12px">'+esc(tr('package.sources'))+'</h3><div class="packageSection">'+(sources.length?sources.map(sourceHtml).join(''):'<span>—</span>')+'</div>'
+   +'<h3 style="margin-top:12px">'+esc(tr('package.adapters'))+'</h3><div class="adapterGrid">'+adapters+'</div></section>';
+ }catch(e){root.innerHTML='<div class="finding critical" style="grid-column:1/-1"><strong>'+esc(tr('toast.refreshFailed'))+'</strong><span>'+esc(e.message)+'</span></div>'}
+}
+async function buildContentPackage(){
+ if(!S||!S.selectedJobId)return;if(!confirm(tr('package.buildConfirm')))return;
+ try{const r=await api('/api/jobs/'+S.selectedJobId+'/content-package/generate',{method:'POST'});toast(r.message||tr('package.started'));await refresh();setTimeout(renderPackageStudio,1200)}catch(e){toast(e.message)}
+}
 
 let variantPollTimer=null;
 function closeVariantStudio(){clearInterval(variantPollTimer);variantPollTimer=null;$('#variantShade').classList.remove('open');$('#variantPage').classList.remove('open')}
