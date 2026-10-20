@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.80"
+APP_VERSION = "v3.90"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -657,6 +657,62 @@ def init_db():
       action_json TEXT DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_improvements_status ON improvement_proposals(status, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS workflow_versions(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      proposal_id TEXT,
+      parent_id TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TEXT NOT NULL,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      notes TEXT DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_versions_status ON workflow_versions(status, created_at DESC);
+    CREATE TABLE IF NOT EXISTS job_workflow_versions(
+      job_id TEXT PRIMARY KEY,
+      workflow_version_id TEXT NOT NULL,
+      experiment_id TEXT,
+      arm TEXT,
+      assigned_at TEXT NOT NULL,
+      locked INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_job_workflow_experiment ON job_workflow_versions(experiment_id, arm, assigned_at DESC);
+    CREATE TABLE IF NOT EXISTS experiments(
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      hypothesis TEXT NOT NULL,
+      primary_metric TEXT NOT NULL,
+      metric_direction TEXT NOT NULL DEFAULT 'higher',
+      min_samples_per_arm INTEGER NOT NULL DEFAULT 2,
+      min_effect_pct REAL NOT NULL DEFAULT 5.0,
+      platform TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      control_version_id TEXT NOT NULL,
+      treatment_version_id TEXT NOT NULL,
+      baseline_active_version_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      started_at TEXT,
+      evaluated_at TEXT,
+      decision TEXT,
+      decision_reason TEXT DEFAULT '',
+      rollout_version_id TEXT,
+      evaluation_json TEXT DEFAULT '{}',
+      meta_json TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS workflow_rollouts(
+      id TEXT PRIMARY KEY,
+      experiment_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      from_version_id TEXT,
+      to_version_id TEXT,
+      actor TEXT NOT NULL DEFAULT 'owner',
+      reason TEXT DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_rollouts_exp ON workflow_rollouts(experiment_id, created_at DESC);
     CREATE TABLE IF NOT EXISTS agent_memory(
       id TEXT PRIMARY KEY,
       agent TEXT NOT NULL,
@@ -1463,19 +1519,20 @@ def _parse_json_object(raw):
         raise ValueError("Worker response must be a JSON object")
     return data
 
-def _content_brain_llm(role, system, user, max_output_tokens=900):
+def _content_brain_llm(role, system, user, max_output_tokens=900, model=None):
     if not FACTORY_LLM_API_KEY:
         raise RuntimeError("Live LLM provider is not configured")
+    model=(model or FACTORY_LLM_MODEL).strip()
     limit=max(128,min(2400,int(max_output_tokens)))
     if FACTORY_LLM_API_MODE=="chat_completions":
         payload={
-            "model":FACTORY_LLM_MODEL,
+            "model":model,
             "max_completion_tokens":limit,
             "messages":[{"role":"system","content":system},{"role":"user","content":user}],
         }
     else:
         payload={
-            "model":FACTORY_LLM_MODEL,"max_output_tokens":limit,
+            "model":model,"max_output_tokens":limit,
             "instructions":system,"input":user,"store":False,
         }
     req=urlrequest.Request(
@@ -1518,7 +1575,7 @@ def _content_brain_llm(role, system, user, max_output_tokens=900):
     input_tokens=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
     output_tokens=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
     cost_usd=(input_tokens*FACTORY_LLM_INPUT_USD_PER_1M/1_000_000 + output_tokens*FACTORY_LLM_OUTPUT_USD_PER_1M/1_000_000)
-    return {"content":content,"model":result.get("model") or FACTORY_LLM_MODEL,
+    return {"content":content,"model":result.get("model") or model,
             "input_tokens":input_tokens,"output_tokens":output_tokens,"cost_usd":cost_usd,
             "provider_request_id":result.get("id")}
 
@@ -1544,10 +1601,12 @@ def _idea_source_bundle(idea):
 
 async def _run_content_brain_worker(agent, idea_id, label, system, user, max_output_tokens=900):
     _content_brain_budget_guard(max_output_tokens)
-    run_id=start_agent_run(agent,None,"content_brain",model=FACTORY_LLM_MODEL)
+    model=_workflow_model(None)
+    system=_apply_workflow_prompt(agent,system,None)
+    run_id=start_agent_run(agent,None,"content_brain",model=model)
     try:
         result=await asyncio.wait_for(
-            asyncio.to_thread(_content_brain_llm,agent,system,user,max_output_tokens),
+            asyncio.to_thread(_content_brain_llm,agent,system,user,max_output_tokens,model),
             timeout=AGENT_TIMEOUT_SECONDS,
         )
         parsed=_parse_json_object(result["content"])
@@ -2039,6 +2098,8 @@ def _trim_llm_context(value, limit=5000):
 def _call_live_llm(agent, job, input_pack):
     if not FACTORY_LLM_API_KEY:
         raise RuntimeError("FACTORY_LLM_API_KEY is not configured")
+    workflow=_workflow_context(job.get("id"),lock=True)
+    model=_workflow_model(job.get("id"))
     spec=AGENT_SPECS.get(agent,{})
     memories=get_agent_memory(agent,limit=8)
     upstream=[]
@@ -2059,6 +2120,7 @@ def _call_live_llm(agent, job, input_pack):
         "If evidence is missing, state exactly what still needs verification. "
         "Respect the requested language and preserve the human approval gate before publishing."
     )
+    system=_apply_workflow_prompt(agent,system,job.get("id"))
     if agent=="QA Agent":
         system += (
             " Return JSON only with keys summary, release_decision and findings. "
@@ -2078,7 +2140,7 @@ def _call_live_llm(agent, job, input_pack):
     )
     if FACTORY_LLM_API_MODE=="chat_completions":
         payload={
-            "model":FACTORY_LLM_MODEL,
+            "model":model,
             "max_completion_tokens":FACTORY_LLM_MAX_OUTPUT_TOKENS,
             "messages":[
                 {"role":"system","content":system},
@@ -2087,7 +2149,7 @@ def _call_live_llm(agent, job, input_pack):
         }
     else:
         payload={
-            "model":FACTORY_LLM_MODEL,
+            "model":model,
             "max_output_tokens":FACTORY_LLM_MAX_OUTPUT_TOKENS,
             "instructions":system,
             "input":user,
@@ -2155,10 +2217,11 @@ def _call_live_llm(agent, job, input_pack):
     kind,title=_llm_artifact_identity(agent)
     return {
         "kind":kind,"title":title,"content":content,
-        "model":result.get("model") or FACTORY_LLM_MODEL,
+        "model":result.get("model") or model,
         "input_tokens":input_tokens,"output_tokens":output_tokens,
         "cost_usd":cost_usd,
         "provider_request_id":result.get("id"),
+        "workflow_version_id":workflow["version"]["id"],
     }
 
 def add_agent_memory(agent, content, kind="learning", source="manual", source_job_id=None, confidence=1.0):
@@ -2496,11 +2559,13 @@ def backfill_legacy_history():
 
 def sync_improvement_proposals(report):
     suggestions=[]
+    checked_at=report.get("checked_at") or ts()
     for text in report.get("improvements",[]):
         suggestions.append({
             "title": text[:110],
             "rationale": text,
-            "action": {"type":"process_improvement","requires_review":True},
+            "finding": None,
+            "evidence": [{"type":"supervisor_report","checked_at":checked_at,"text":text}],
         })
     for finding in report.get("findings",[]):
         rec=finding.get("recommendation")
@@ -2508,16 +2573,25 @@ def sync_improvement_proposals(report):
             suggestions.append({
                 "title": f"Resolve: {finding.get('title','Factory issue')}"[:110],
                 "rationale": rec,
-                "action": {"type":"finding_resolution","code":finding.get("code"),"requires_review":True},
+                "finding": finding,
+                "evidence": [{
+                    "type":"supervisor_finding","checked_at":checked_at,
+                    "code":finding.get("code"),"severity":finding.get("severity"),
+                    "detail":finding.get("detail"),
+                }],
             })
     con=db()
     for item in suggestions[:12]:
+        action=build_improvement_action(
+            item["title"],item["rationale"],item.get("evidence") or [],
+            suggested_workflow_patch(item.get("finding"),item["title"],item["rationale"])
+        )
         fingerprint=hashlib.sha256((item["title"]+"|"+item["rationale"]).encode("utf-8")).hexdigest()
         now=ts()
         con.execute("""INSERT OR IGNORE INTO improvement_proposals
                        (id,fingerprint,created_at,updated_at,title,rationale,status,source,action_json)
                        VALUES(?,?,?,?,?,?,?,?,?)""",
-                    (str(uuid.uuid4()),fingerprint,now,now,item["title"],item["rationale"],"proposed","Supervisor",json.dumps(item["action"])))
+                    (str(uuid.uuid4()),fingerprint,now,now,item["title"],item["rationale"],"proposed","Supervisor",json.dumps(action,ensure_ascii=False)))
     con.commit(); con.close()
 
 def get_improvement_proposals(status="proposed", limit=8):
@@ -2533,9 +2607,12 @@ def get_improvement_proposals(status="proposed", limit=8):
         d=dict(row)
         try:d["action"]=json.loads(d.pop("action_json") or "{}")
         except Exception:d["action"]={}
+        d["hypothesis"]=d["action"].get("hypothesis") or ""
+        d["change"]=d["action"].get("change") or {}
+        d["evidence"]=d["action"].get("evidence") or []
+        d["requires_experiment"]=bool(d["action"].get("requires_experiment",True))
         out.append(d)
     return out
-
 
 VARIANT_QA_TYPES={
     "unsupported_claim","weak_hook","duplicated_angle","missing_source","slow_intro",
@@ -2593,14 +2670,17 @@ def _variant_budget_guard(job_id, output_tokens=1200):
 
 async def _variant_agent_call(agent,job_id,label,system,user,max_output_tokens=1100):
     _variant_budget_guard(job_id,max_output_tokens)
-    run_id=start_agent_run(agent,job_id,"script",model=FACTORY_LLM_MODEL)
+    workflow=_workflow_context(job_id,lock=True)
+    model=_workflow_model(job_id)
+    system=_apply_workflow_prompt(agent,system,job_id)
+    run_id=start_agent_run(agent,job_id,"script",model=model)
     set_agent_progress(agent,8,label,job_id,run_id,"working");event(job_id,f"{agent}: {label}")
     await broadcast({"type":"agent","agent":agent,"state":"working"})
     try:
-        result=await asyncio.wait_for(asyncio.to_thread(_content_brain_llm,agent,system,user,max_output_tokens),timeout=AGENT_TIMEOUT_SECONDS)
+        result=await asyncio.wait_for(asyncio.to_thread(_content_brain_llm,agent,system,user,max_output_tokens,model),timeout=AGENT_TIMEOUT_SECONDS)
         parsed=_parse_json_object(result["content"])
-        save_artifact(agent,"analysis",label,result["content"],job_id=job_id,run_id=run_id,meta={"mode":"live_llm","stage":"script","variant_batch":True,"model":result["model"],"provider_request_id":result.get("provider_request_id")})
-        finish_agent_run(run_id,status="completed",input_tokens=result["input_tokens"],output_tokens=result["output_tokens"],cost_usd=result["cost_usd"],meta={"mode":"live_llm","variant_batch":True})
+        save_artifact(agent,"analysis",label,result["content"],job_id=job_id,run_id=run_id,meta={"mode":"live_llm","stage":"script","variant_batch":True,"model":result["model"],"provider_request_id":result.get("provider_request_id"),"workflow_version_id":workflow["version"]["id"]})
+        finish_agent_run(run_id,status="completed",input_tokens=result["input_tokens"],output_tokens=result["output_tokens"],cost_usd=result["cost_usd"],meta={"mode":"live_llm","variant_batch":True,"workflow_version_id":workflow["version"]["id"]})
         record_run_step(run_id,job_id,agent,"complete","Completed",100,"completed");set_agent_progress(agent,100,"Completed",job_id,run_id,"done")
         await broadcast({"type":"agent_progress","agent":agent,"state":"done","progress":agent_progress[agent]})
         return parsed,run_id,result
@@ -2624,6 +2704,7 @@ def _select_variant_from_qa(variants,recommended=None):
 def _demo_variant_pipeline(job_id,candidate_count=3):
     job=get_job(job_id)
     if not job:raise ValueError("Job not found")
+    workflow=_workflow_context(job_id,lock=True)
     batch_id=str(uuid.uuid4());now=ts()
     templates=[("Explain the hidden mechanism first","You think this is a black box — here is what is actually happening."),("Lead with the surprising limitation","The most interesting part is what this system cannot know."),("Start from a concrete experiment","I tested the claim on one concrete example. Here is what survived verification.")]
     con=db();variants=[]
@@ -2632,7 +2713,7 @@ def _demo_variant_pipeline(job_id,candidate_count=3):
         script=f"{hook}\n\nContext: {job['title']}.\nDemo variant {n+1}: explain one concrete mechanism, show the evidence boundary, state limitations, then end with a clear CTA."
         fact={"findings":[{"type":"missing_source","severity":"warning","message":"Demo mode has no live external source verification.","evidence":"simulation-v3"}]}
         qa={"decision":"keep" if n==0 else "reject","findings":[{"type":"missing_source","severity":"warning","message":"Demo variant only; live source verification is required.","evidence":"simulation-v3"}]}
-        status="selected" if n==0 else "rejected";reason="Demo selection only — no live performance or source evidence." if n==0 else "Demo alternate retained for comparison.";provenance={"mode":"demo","batch_id":batch_id}
+        status="selected" if n==0 else "rejected";reason="Demo selection only — no live performance or source evidence." if n==0 else "Demo alternate retained for comparison.";provenance={"mode":"demo","batch_id":batch_id,"workflow_version_id":workflow["version"]["id"]}
         con.execute("""INSERT INTO production_variants(id,batch_id,job_id,ordinal,status,angle,angle_reason,hook,hook_rationale,script,optimized_hook,edited_script,fact_check_json,qa_json,decision_reason,allocated_cost_usd,provenance_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(variant_id,batch_id,job_id,n+1,status,angle,"Deterministic demo angle",hook,"Deterministic demo hook",script,hook,script,json.dumps(fact),json.dumps(qa),reason,0,json.dumps(provenance),now,now))
         variants.append({"id":variant_id,"ordinal":n+1,"angle":angle,"hook":hook,"script":script,"status":status})
     con.commit();con.close()
@@ -2646,8 +2727,9 @@ def _demo_variant_pipeline(job_id,candidate_count=3):
     _save_variant_piece("Editor",job_id,None,batch_id,variants[0]["id"],"selected","Selected production variant",variants[0]["script"],{"selected":True})
     event(job_id,f"Production Pipeline 2.0 demo batch created: {candidate_count} variants; variant 1 selected");return get_job_variants(job_id)
 
-async def run_variant_pipeline(job_id,candidate_count=3):
-    candidate_count=max(2,min(4,int(candidate_count or 3)))
+async def run_variant_pipeline(job_id,candidate_count=None):
+    workflow=_workflow_context(job_id,lock=True)
+    candidate_count=_workflow_candidate_count(job_id,candidate_count)
     if not FACTORY_LLM_API_KEY:return _demo_variant_pipeline(job_id,candidate_count)
     job=get_job(job_id)
     if not job:raise ValueError("Job not found")
@@ -2657,7 +2739,7 @@ async def run_variant_pipeline(job_id,candidate_count=3):
     if len(angles)<candidate_count:raise RuntimeError(f"Angle Strategist returned {len(angles)} usable angles; expected {candidate_count}")
     con=db();now=ts();variants=[]
     for n,a in enumerate(angles,1):
-        vid=str(uuid.uuid4());provenance={"batch_id":batch_id,"run_ids":{"angle":angle_run}}
+        vid=str(uuid.uuid4());provenance={"batch_id":batch_id,"run_ids":{"angle":angle_run},"workflow_version_id":workflow["version"]["id"]}
         con.execute("INSERT INTO production_variants(id,batch_id,job_id,ordinal,status,angle,angle_reason,provenance_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",(vid,batch_id,job_id,n,"candidate",str(a.get("angle") or "").strip(),str(a.get("reason") or "").strip(),json.dumps(provenance),now,now))
         variants.append({"id":vid,"ordinal":n,"angle":str(a.get("angle") or "").strip(),"angle_reason":str(a.get("reason") or "").strip()});_save_variant_piece("Angle Strategist",job_id,angle_run,batch_id,vid,"angle",f"Variant {n} · angle",json.dumps(a,ensure_ascii=False,indent=2))
     con.commit();con.close()
@@ -3105,7 +3187,7 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
     for attempt in range(1,total_attempts+1):
         input_pack=collect_agent_inputs(job_id,agent)
         live_llm=bool(FACTORY_LLM_API_KEY and agent in LLM_LIVE_AGENTS)
-        run_model=FACTORY_LLM_MODEL if live_llm else "simulation-v3"
+        run_model=_workflow_model(job_id) if live_llm else "simulation-v3"
         run_id=start_agent_run(agent,job_id,stage,model=run_model)
         attach_run_inputs(run_id,input_pack["artifacts"])
         set_agent_progress(agent,3,"Starting run",job_id,run_id,"working")
@@ -3183,6 +3265,7 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
                 artifact_meta.update({
                     "model":llm_result["model"],
                     "provider_request_id":llm_result.get("provider_request_id"),
+                    "workflow_version_id":llm_result.get("workflow_version_id"),
                 })
             save_artifact(agent,kind,title,content,job_id=job_id,run_id=run_id,
                           meta=artifact_meta,**kwargs)
@@ -3795,6 +3878,406 @@ async def broadcast(payload=None):
     for ws in dead: clients.discard(ws)
 
 
+# v3.90 — Self-Improving Factory. Workflow changes are isolated, measured and owner-approved.
+FACTORY_ALLOWED_LLM_MODELS=set(
+    x.strip() for x in ([FACTORY_LLM_MODEL]+os.environ.get("FACTORY_ALLOWED_LLM_MODELS","").split(","))
+    if x and x.strip()
+)
+WORKFLOW_ALLOWED_KEYS={"candidate_count","prompt_addenda","model","hook_pattern","routing_notes"}
+EXPERIMENT_METRICS=set(PERFORMANCE_FIELDS if "PERFORMANCE_FIELDS" in globals() else ()) | {
+    "views","retention_pct","completion_rate_pct","likes","comments","shares","saves","follower_delta",
+    "production_cost_usd","production_duration_ms","cost_per_1k_views_usd",
+}
+LOWER_IS_BETTER={"production_cost_usd","production_duration_ms","cost_per_1k_views_usd"}
+
+class ImprovementProposalCreate(BaseModel):
+    title: str
+    rationale: str
+    hypothesis: str = ""
+    change: dict = {}
+    evidence: list[dict] = []
+
+class ExperimentCreateRequest(BaseModel):
+    primary_metric: str = "retention_pct"
+    metric_direction: str = ""
+    min_samples_per_arm: int = 2
+    min_effect_pct: float = 5.0
+    platform: str = ""
+
+class ExperimentJobAssignment(BaseModel):
+    job_id: str
+    arm: str
+
+class ExperimentDecisionRequest(BaseModel):
+    confirm: bool = False
+    reason: str = ""
+
+def _decode_workflow_row(row):
+    if not row:return None
+    d=dict(row)
+    d["config"]=_decode_json(d.pop("config_json","{}"),{})
+    return d
+
+def _workflow_baseline_config():
+    return {"candidate_count":3,"prompt_addenda":{},"model":FACTORY_LLM_MODEL,"hook_pattern":"","routing_notes":""}
+
+def _sanitize_workflow_patch(patch):
+    if patch is None:return {}
+    if not isinstance(patch,dict):raise ValueError("Workflow change must be an object")
+    unknown=set(patch)-WORKFLOW_ALLOWED_KEYS
+    if unknown:raise ValueError("Unsafe/unsupported workflow keys: "+", ".join(sorted(unknown)))
+    out={}
+    if "candidate_count" in patch:
+        value=int(patch["candidate_count"])
+        if value<2 or value>4:raise ValueError("candidate_count must be between 2 and 4")
+        out["candidate_count"]=value
+    if "prompt_addenda" in patch:
+        raw=patch.get("prompt_addenda") or {}
+        if not isinstance(raw,dict):raise ValueError("prompt_addenda must be an object")
+        clean={}
+        for agent,text_value in raw.items():
+            if agent not in AGENTS:raise ValueError(f"Unknown workflow agent: {agent}")
+            text_value=" ".join(str(text_value or "").split())
+            if text_value:
+                clean[agent]=text_value[:1200]
+        out["prompt_addenda"]=clean
+    if "model" in patch:
+        model=str(patch.get("model") or "").strip()
+        if model not in FACTORY_ALLOWED_LLM_MODELS:
+            raise ValueError("Model is not in FACTORY_ALLOWED_LLM_MODELS")
+        out["model"]=model
+    if "hook_pattern" in patch:
+        out["hook_pattern"]=" ".join(str(patch.get("hook_pattern") or "").split())[:800]
+    if "routing_notes" in patch:
+        out["routing_notes"]=" ".join(str(patch.get("routing_notes") or "").split())[:800]
+    return out
+
+def _normalize_workflow_config(patch=None,base=None):
+    config=dict(_workflow_baseline_config() if base is None else base)
+    clean=_sanitize_workflow_patch(patch or {})
+    if "prompt_addenda" in clean:
+        merged=dict(config.get("prompt_addenda") or {})
+        merged.update(clean["prompt_addenda"])
+        clean["prompt_addenda"]=merged
+    config.update(clean)
+    config["candidate_count"]=max(2,min(4,int(config.get("candidate_count") or 3)))
+    if config.get("model") not in FACTORY_ALLOWED_LLM_MODELS:config["model"]=FACTORY_LLM_MODEL
+    config["prompt_addenda"]=config.get("prompt_addenda") if isinstance(config.get("prompt_addenda"),dict) else {}
+    return config
+
+def _active_workflow_version():
+    con=db()
+    row=con.execute("SELECT * FROM workflow_versions WHERE status='active' ORDER BY created_at DESC LIMIT 1").fetchone()
+    if not row:
+        wid=str(uuid.uuid4());now=ts();cfg=_workflow_baseline_config()
+        con.execute("""INSERT INTO workflow_versions(id,name,proposal_id,parent_id,status,created_at,config_json,notes)
+                       VALUES(?,?,?,?,?,?,?,?)""",
+                    (wid,"FactoryOS v3.90 baseline",None,None,"active",now,json.dumps(cfg),"Initial immutable runtime baseline for controlled experiments."))
+        con.commit();row=con.execute("SELECT * FROM workflow_versions WHERE id=?",(wid,)).fetchone()
+    con.close()
+    return _decode_workflow_row(row)
+
+def _workflow_version(version_id):
+    con=db();row=con.execute("SELECT * FROM workflow_versions WHERE id=?",(version_id,)).fetchone();con.close()
+    return _decode_workflow_row(row)
+
+def get_job_workflow_assignment(job_id):
+    if not job_id:return None
+    con=db();row=con.execute("SELECT * FROM job_workflow_versions WHERE job_id=?",(job_id,)).fetchone();con.close()
+    if not row:return None
+    d=dict(row);d["locked"]=bool(d.get("locked"));d["version"]=_workflow_version(d["workflow_version_id"])
+    return d
+
+def _workflow_context(job_id=None,lock=False):
+    assignment=get_job_workflow_assignment(job_id) if job_id else None
+    if assignment:
+        version=assignment["version"]
+    else:
+        version=_active_workflow_version()
+        if job_id and lock:
+            con=db()
+            con.execute("""INSERT OR IGNORE INTO job_workflow_versions(job_id,workflow_version_id,experiment_id,arm,assigned_at,locked)
+                           VALUES(?,?,?,?,?,1)""",(job_id,version["id"],None,None,ts()))
+            con.commit();con.close()
+            assignment=get_job_workflow_assignment(job_id)
+    return {"version":version,"config":_normalize_workflow_config(version.get("config") or {}),"assignment":assignment}
+
+def _workflow_model(job_id=None):
+    return str(_workflow_context(job_id).get("config",{}).get("model") or FACTORY_LLM_MODEL)
+
+def _workflow_candidate_count(job_id,requested=None):
+    if requested is not None:return max(2,min(4,int(requested)))
+    return int(_workflow_context(job_id).get("config",{}).get("candidate_count") or 3)
+
+def _apply_workflow_prompt(agent,system,job_id=None):
+    cfg=_workflow_context(job_id).get("config") or {}
+    extra=(cfg.get("prompt_addenda") or {}).get(agent,"").strip()
+    hook_pattern=(cfg.get("hook_pattern") or "").strip() if agent=="Hook Generator" else ""
+    additions=[]
+    if extra:additions.append("Approved workflow instruction: "+extra)
+    if hook_pattern:additions.append("Approved hook pattern to test: "+hook_pattern)
+    return system + (("\n" + "\n".join(additions)) if additions else "")
+
+def build_improvement_action(title,rationale,evidence=None,change=None,hypothesis=None):
+    change=_sanitize_workflow_patch(change or {})
+    hypothesis=(hypothesis or f"If we apply the proposed workflow change for '{title}', the selected measured outcome should improve without weakening safety controls.").strip()
+    return {
+        "type":"workflow_improvement",
+        "requires_review":True,
+        "requires_experiment":True,
+        "hypothesis":hypothesis[:900],
+        "change":change,
+        "evidence":list(evidence or [])[:20],
+    }
+
+def suggested_workflow_patch(finding,title="",rationale=""):
+    if not finding:return {}
+    code=str(finding.get("code") or "")
+    agent=""
+    if ":" in str(finding.get("title") or ""):agent=str(finding.get("title")).split(":",1)[1].strip()
+    if agent not in AGENTS:return {}
+    if code=="low_success_rate":
+        return {"prompt_addenda":{agent:"Use a strict input/output contract. If required evidence is missing, report the missing dependency instead of improvising."}}
+    if code in ("slow_agent","high_agent_cost"):
+        return {"prompt_addenda":{agent:"Return only stage-required content, avoid repeating upstream context, and prefer concise structured output."}}
+    return {}
+
+def create_improvement_proposal(payload):
+    title=" ".join((payload.title or "").split())[:180]
+    rationale=" ".join((payload.rationale or "").split())[:2500]
+    if not title or not rationale:raise ValueError("Title and rationale are required")
+    action=build_improvement_action(title,rationale,payload.evidence,payload.change,payload.hypothesis or None)
+    fingerprint=hashlib.sha256((title+"|"+rationale+"|"+json.dumps(action.get("change") or {},sort_keys=True)).encode("utf-8")).hexdigest()
+    con=db();existing=con.execute("SELECT id FROM improvement_proposals WHERE fingerprint=?",(fingerprint,)).fetchone()
+    if existing:
+        con.close();return next(x for x in get_improvement_proposals(None,100) if x["id"]==existing["id"])
+    pid=str(uuid.uuid4());now=ts()
+    con.execute("""INSERT INTO improvement_proposals(id,fingerprint,created_at,updated_at,title,rationale,status,source,action_json)
+                   VALUES(?,?,?,?,?,?,?,?,?)""",(pid,fingerprint,now,now,title,rationale,"proposed","owner",json.dumps(action,ensure_ascii=False)))
+    con.commit();con.close()
+    return next(x for x in get_improvement_proposals(None,100) if x["id"]==pid)
+
+def _experiment_row(row):
+    if not row:return None
+    d=dict(row)
+    d["evaluation"]=_decode_json(d.pop("evaluation_json","{}"),{})
+    d["meta"]=_decode_json(d.pop("meta_json","{}"),{})
+    d["control_version"]=_workflow_version(d["control_version_id"])
+    d["treatment_version"]=_workflow_version(d["treatment_version_id"])
+    return d
+
+def _get_experiment(experiment_id):
+    con=db();row=con.execute("SELECT * FROM experiments WHERE id=?",(experiment_id,)).fetchone();con.close()
+    return _experiment_row(row)
+
+def _proposal_by_id(proposal_id):
+    return next((x for x in get_improvement_proposals(None,300) if x["id"]==proposal_id),None)
+
+def create_experiment_from_proposal(proposal_id,request=None):
+    proposal=_proposal_by_id(proposal_id)
+    if not proposal:raise ValueError("Proposal not found")
+    change=_sanitize_workflow_patch(proposal.get("change") or {})
+    if not change:raise ValueError("Proposal has no concrete workflow change to test")
+    req=request or ExperimentCreateRequest()
+    metric=(req.primary_metric or "retention_pct").strip()
+    if metric not in EXPERIMENT_METRICS:raise ValueError("Unsupported experiment metric")
+    direction=(req.metric_direction or ("lower" if metric in LOWER_IS_BETTER else "higher")).strip().lower()
+    if direction not in ("higher","lower"):raise ValueError("metric_direction must be higher or lower")
+    con=db()
+    existing=con.execute("""SELECT * FROM experiments WHERE proposal_id=? AND status NOT IN ('rejected','rolled_back')
+                            ORDER BY created_at DESC LIMIT 1""",(proposal_id,)).fetchone()
+    con.close()
+    if existing:return _experiment_row(existing)
+    active=_active_workflow_version()
+    treatment_config=_normalize_workflow_config(change,active["config"])
+    treatment_id=str(uuid.uuid4());experiment_id=str(uuid.uuid4());now=ts()
+    con=db()
+    con.execute("""INSERT INTO workflow_versions(id,name,proposal_id,parent_id,status,created_at,config_json,notes)
+                   VALUES(?,?,?,?,?,?,?,?)""",(
+        treatment_id,f"Treatment · {proposal['title'][:90]}",proposal_id,active["id"],"experiment",now,
+        json.dumps(treatment_config,ensure_ascii=False),"Treatment version. Not active until measured experiment + owner rollout approval."
+    ))
+    con.execute("""INSERT INTO experiments(
+        id,proposal_id,title,hypothesis,primary_metric,metric_direction,min_samples_per_arm,min_effect_pct,platform,
+        status,control_version_id,treatment_version_id,baseline_active_version_id,created_at,updated_at,evaluation_json,meta_json
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
+        experiment_id,proposal_id,proposal["title"],proposal.get("hypothesis") or proposal["rationale"],metric,direction,
+        max(1,min(100,int(req.min_samples_per_arm))),max(0.0,float(req.min_effect_pct)),(req.platform or "").strip(),
+        "draft",active["id"],treatment_id,active["id"],now,now,"{}",
+        json.dumps({"evidence":proposal.get("evidence") or [],"safety":"No workflow version is activated automatically."},ensure_ascii=False)
+    ))
+    con.execute("UPDATE improvement_proposals SET status='experimenting',updated_at=? WHERE id=?",(now,proposal_id))
+    con.commit();con.close()
+    return _get_experiment(experiment_id)
+
+def assign_job_to_experiment(experiment_id,job_id,arm):
+    exp=_get_experiment(experiment_id)
+    if not exp:raise ValueError("Experiment not found")
+    if exp["status"] in ("rejected","rolled_out","rolled_back"):raise ValueError("Experiment is closed")
+    arm=(arm or "").strip().lower()
+    if arm not in ("control","treatment"):raise ValueError("arm must be control or treatment")
+    if not get_job(job_id):raise ValueError("Job not found")
+    con=db()
+    run_count=int(con.execute("SELECT COUNT(*) c FROM agent_runs WHERE job_id=?",(job_id,)).fetchone()["c"] or 0)
+    existing=con.execute("SELECT * FROM job_workflow_versions WHERE job_id=?",(job_id,)).fetchone()
+    if run_count:
+        con.close();raise ValueError("Experiment arm must be assigned before the first worker run")
+    if existing and (existing["experiment_id"]!=experiment_id or existing["arm"]!=arm):
+        con.close();raise ValueError("Job already has a locked workflow assignment")
+    version_id=exp["control_version_id"] if arm=="control" else exp["treatment_version_id"]
+    if not existing:
+        con.execute("""INSERT INTO job_workflow_versions(job_id,workflow_version_id,experiment_id,arm,assigned_at,locked)
+                       VALUES(?,?,?,?,?,1)""",(job_id,version_id,experiment_id,arm,ts()))
+    now=ts()
+    con.execute("""UPDATE experiments SET status='running',started_at=COALESCE(started_at,?),updated_at=? WHERE id=?""",
+                (now,now,experiment_id))
+    con.commit();con.close()
+    return get_job_workflow_assignment(job_id)
+
+def _metric_for_performance_item(item,metric):
+    latest=(item.get("latest") or {}).get("metrics") or {}
+    if metric in latest:return latest.get(metric)
+    if metric=="production_cost_usd":return float(item.get("attribution",{}).get("production_cost_usd") or 0)
+    if metric=="production_duration_ms":
+        con=db();row=con.execute("SELECT COALESCE(SUM(duration_ms),0) v FROM agent_runs WHERE job_id=?",(item["publish"]["job_id"],)).fetchone();con.close()
+        return float(row["v"] or 0)
+    if metric=="cost_per_1k_views_usd":return item.get("cost_per_1k_views_usd")
+    return None
+
+def evaluate_experiment(experiment_id):
+    exp=_get_experiment(experiment_id)
+    if not exp:raise ValueError("Experiment not found")
+    con=db();assignments=[dict(x) for x in con.execute(
+        "SELECT * FROM job_workflow_versions WHERE experiment_id=? ORDER BY assigned_at",(experiment_id,)
+    ).fetchall()];con.close()
+    samples={"control":[],"treatment":[]}
+    for assignment in assignments:
+        con=db();rows=con.execute("""SELECT * FROM publishing_queue WHERE job_id=? AND status='published'
+                                     ORDER BY published_at DESC,updated_at DESC""",(assignment["job_id"],)).fetchall();con.close()
+        for row in rows:
+            pub=_publish_item(row)
+            if exp.get("platform") and pub.get("platform")!=exp["platform"]:continue
+            item=_performance_item(pub)
+            value=_metric_for_performance_item(item,exp["primary_metric"])
+            if not isinstance(value,(int,float)):continue
+            con=db();dur=con.execute("SELECT COALESCE(SUM(duration_ms),0) v FROM agent_runs WHERE job_id=?",(assignment["job_id"],)).fetchone()["v"];con.close()
+            samples[assignment["arm"]].append({
+                "job_id":assignment["job_id"],"publish_id":pub["id"],"platform":pub.get("platform"),
+                "value":float(value),"production_cost_usd":float(item.get("attribution",{}).get("production_cost_usd") or 0),
+                "production_duration_ms":float(dur or 0),"workflow_version_id":assignment["workflow_version_id"],
+            })
+    def aggregate(items):
+        vals=[x["value"] for x in items]
+        costs=[x["production_cost_usd"] for x in items]
+        durations=[x["production_duration_ms"] for x in items]
+        return {"samples":len(vals),"mean":round(sum(vals)/len(vals),6) if vals else None,
+                "avg_production_cost_usd":round(sum(costs)/len(costs),6) if costs else None,
+                "avg_production_duration_ms":round(sum(durations)/len(durations),2) if durations else None}
+    control=aggregate(samples["control"]);treatment=aggregate(samples["treatment"])
+    enough=control["samples"]>=exp["min_samples_per_arm"] and treatment["samples"]>=exp["min_samples_per_arm"]
+    delta=None;delta_pct=None;improvement_pct=None;recommendation="insufficient_data"
+    if control["mean"] is not None and treatment["mean"] is not None:
+        delta=treatment["mean"]-control["mean"]
+        if control["mean"]!=0:delta_pct=delta/abs(control["mean"])*100
+        signed=(delta_pct if exp["metric_direction"]=="higher" else (-delta_pct if delta_pct is not None else None))
+        if enough:
+            if signed is not None and signed>=float(exp["min_effect_pct"]):recommendation="treatment"
+            elif signed is not None and signed<=-float(exp["min_effect_pct"]):recommendation="control"
+            else:recommendation="inconclusive"
+        improvement_pct=signed
+    evaluation={
+        "metric":exp["primary_metric"],"direction":exp["metric_direction"],"platform":exp.get("platform") or None,
+        "min_samples_per_arm":exp["min_samples_per_arm"],"min_effect_pct":exp["min_effect_pct"],
+        "control":control,"treatment":treatment,"delta":round(delta,6) if delta is not None else None,
+        "delta_pct":round(delta_pct,2) if delta_pct is not None else None,
+        "observed_improvement_pct":round(improvement_pct,2) if improvement_pct is not None else None,
+        "recommendation":recommendation,"enough_samples":enough,"samples":samples,
+        "note":"This is an observed controlled comparison, not a claim of statistical causality. Rollout always requires owner approval."
+    }
+    now=ts();new_status="ready_for_decision" if enough else ("running" if exp["status"]!="draft" else "draft")
+    con=db();con.execute("UPDATE experiments SET status=?,evaluation_json=?,evaluated_at=?,updated_at=? WHERE id=?",
+                         (new_status,json.dumps(evaluation,ensure_ascii=False),now,now,experiment_id));con.commit();con.close()
+    return evaluation
+
+def _experiment_config_diff(exp):
+    a=(exp.get("control_version") or {}).get("config") or {}
+    b=(exp.get("treatment_version") or {}).get("config") or {}
+    keys=sorted(set(a)|set(b))
+    return [{"key":k,"control":a.get(k),"treatment":b.get(k)} for k in keys if a.get(k)!=b.get(k)]
+
+def get_experiments(limit=100):
+    con=db();rows=con.execute("SELECT * FROM experiments ORDER BY updated_at DESC LIMIT ?",(max(1,min(300,int(limit))),)).fetchall();con.close()
+    out=[]
+    for row in rows:
+        exp=_experiment_row(row)
+        con=db();assign=[dict(x) for x in con.execute("SELECT job_id,workflow_version_id,arm,assigned_at FROM job_workflow_versions WHERE experiment_id=? ORDER BY assigned_at",(exp["id"],)).fetchall()];con.close()
+        exp["assignments"]=assign;exp["config_diff"]=_experiment_config_diff(exp);out.append(exp)
+    return out
+
+def rollout_experiment(experiment_id,confirm=False,reason=""):
+    exp=_get_experiment(experiment_id)
+    if not exp:raise ValueError("Experiment not found")
+    if not confirm:return {"ok":False,"requires_confirmation":True,"message":"Owner confirmation is required before production rollout."}
+    evaluation=exp.get("evaluation") or evaluate_experiment(experiment_id)
+    if evaluation.get("recommendation")!="treatment":raise ValueError("Treatment is not the measured recommendation; rollout is blocked")
+    treatment=_workflow_version(exp["treatment_version_id"])
+    _normalize_workflow_config(treatment.get("config") or {})
+    current=_active_workflow_version();now=ts();con=db()
+    con.execute("UPDATE workflow_versions SET status='archived' WHERE status='active'")
+    con.execute("UPDATE workflow_versions SET status='active' WHERE id=?",(treatment["id"],))
+    con.execute("""UPDATE experiments SET status='rolled_out',decision='accepted',decision_reason=?,rollout_version_id=?,updated_at=?
+                   WHERE id=?""",((reason or "Owner approved measured treatment rollout.")[:1200],treatment["id"],now,experiment_id))
+    con.execute("UPDATE improvement_proposals SET status='accepted',updated_at=? WHERE id=?",(now,exp["proposal_id"]))
+    con.execute("""INSERT INTO workflow_rollouts(id,experiment_id,action,from_version_id,to_version_id,actor,reason,created_at)
+                   VALUES(?,?,?,?,?,?,?,?)""",(str(uuid.uuid4()),experiment_id,"rollout",current["id"],treatment["id"],"owner",(reason or "")[:1200],now))
+    con.commit();con.close();event(None,f"Self-Improving Factory: treatment rolled out for experiment {experiment_id}")
+    return {"ok":True,"active":_active_workflow_version(),"experiment":_get_experiment(experiment_id)}
+
+def rollback_experiment(experiment_id,confirm=False,reason=""):
+    exp=_get_experiment(experiment_id)
+    if not exp:raise ValueError("Experiment not found")
+    if exp["status"]!="rolled_out":raise ValueError("Only a rolled-out experiment can be rolled back")
+    if not confirm:return {"ok":False,"requires_confirmation":True,"message":"Owner confirmation is required before rollback."}
+    con=db();last=con.execute("""SELECT * FROM workflow_rollouts WHERE experiment_id=? AND action='rollout'
+                                ORDER BY created_at DESC LIMIT 1""",(experiment_id,)).fetchone();con.close()
+    restore_id=(last["from_version_id"] if last else exp["baseline_active_version_id"])
+    restore=_workflow_version(restore_id)
+    if not restore:raise ValueError("Rollback baseline workflow version is unavailable")
+    _normalize_workflow_config(restore.get("config") or {})
+    current=_active_workflow_version();now=ts();con=db()
+    con.execute("UPDATE workflow_versions SET status='archived' WHERE status='active'")
+    con.execute("UPDATE workflow_versions SET status='active' WHERE id=?",(restore_id,))
+    con.execute("""UPDATE experiments SET status='rolled_back',decision='rollback',decision_reason=?,updated_at=? WHERE id=?""",
+                ((reason or "Owner rolled back the treatment.")[:1200],now,experiment_id))
+    con.execute("""INSERT INTO workflow_rollouts(id,experiment_id,action,from_version_id,to_version_id,actor,reason,created_at)
+                   VALUES(?,?,?,?,?,?,?,?)""",(str(uuid.uuid4()),experiment_id,"rollback",current["id"],restore_id,"owner",(reason or "")[:1200],now))
+    con.commit();con.close();event(None,f"Self-Improving Factory: rollback completed for experiment {experiment_id}")
+    return {"ok":True,"active":_active_workflow_version(),"experiment":_get_experiment(experiment_id)}
+
+def reject_experiment(experiment_id,reason=""):
+    exp=_get_experiment(experiment_id)
+    if not exp:raise ValueError("Experiment not found")
+    if exp["status"]=="rolled_out":raise ValueError("Rollback the active treatment instead of rejecting it")
+    now=ts();con=db()
+    con.execute("UPDATE experiments SET status='rejected',decision='rejected',decision_reason=?,updated_at=? WHERE id=?",
+                ((reason or "Owner rejected experiment.")[:1200],now,experiment_id))
+    con.execute("UPDATE improvement_proposals SET status='rejected',updated_at=? WHERE id=?",(now,exp["proposal_id"]))
+    con.execute("UPDATE workflow_versions SET status='rejected' WHERE id=? AND status='experiment'",(exp["treatment_version_id"],))
+    con.commit();con.close()
+    return _get_experiment(experiment_id)
+
+def get_self_improvement_dashboard():
+    experiments=get_experiments(100);active=_active_workflow_version();proposals=get_improvement_proposals(None,100)
+    counts={}
+    for x in experiments:counts[x["status"]]=counts.get(x["status"],0)+1
+    return {
+        "summary":{"proposals":len(proposals),"experiments":len(experiments),"running":counts.get("running",0),
+                   "ready_for_decision":counts.get("ready_for_decision",0),"rolled_out":counts.get("rolled_out",0)},
+        "active_workflow":active,"proposals":proposals,"experiments":experiments,
+        "allowed_models":sorted(FACTORY_ALLOWED_LLM_MODELS),"allowed_change_keys":sorted(WORKFLOW_ALLOWED_KEYS),
+        "safety_note":"Supervisor proposals never auto-promote. Jobs are pinned to immutable workflow versions; rollout and rollback require owner confirmation."
+    }
+
 # v3.60 → v3.80 release train: approval, controlled publishing, real performance feedback.
 class ApprovalRejectRequest(BaseModel):
     reason: str = ""
@@ -3833,6 +4316,8 @@ PERFORMANCE_FIELDS=(
     "views","reach","watch_time_sec","retention_pct","completion_rate_pct",
     "likes","comments","shares","saves","follower_delta","content_duration_sec",
 )
+
+EXPERIMENT_METRICS.update(PERFORMANCE_FIELDS)
 
 def _json_row(row, field="meta_json", output="meta"):
     if not row:return None
@@ -4058,11 +4543,14 @@ def _performance_item(publish):
     cost=float(((package or {}).get("package") or {}).get("production_cost",{}).get("job_total_measured_usd") or get_job_cost(publish["job_id"]) or 0)
     views=metrics.get("views")
     cpk=round(cost/(float(views)/1000),6) if isinstance(views,(int,float)) and views>0 else None
+    workflow=get_job_workflow_assignment(publish["job_id"])
     attribution={"idea_id":idea["idea_id"] if idea else None,"job_id":publish["job_id"],"package_id":publish["package_id"],
                  "variant_id":(variant or {}).get("id"),"variant_provenance":(variant or {}).get("provenance") or {},
                  "angle":(variant or {}).get("angle"),"hook":(variant or {}).get("optimized_hook") or (variant or {}).get("hook"),
                  "sources":((package or {}).get("package") or {}).get("source_list") or [],
-                 "production_cost_usd":cost}
+                 "production_cost_usd":cost,
+                 "workflow_version_id":(workflow or {}).get("workflow_version_id"),
+                 "experiment_id":(workflow or {}).get("experiment_id"),"experiment_arm":(workflow or {}).get("arm")}
     return {"publish":publish,"snapshots":snapshots,"latest":latest,"attribution":attribution,"cost_per_1k_views_usd":cpk}
 
 def get_performance_dashboard(limit=100):
@@ -4337,6 +4825,8 @@ def status():
         "approvalSummary": _approval_summary(),
         "publishingSummary": _publishing_summary(),
         "performanceSummary": _performance_summary(),
+        "selfImprovementSummary": get_self_improvement_dashboard()["summary"],
+        "activeWorkflow": _active_workflow_version(),
         "publisherAdapters": get_publisher_adapter_registry(),
         "analyticsAdapters": get_analytics_adapter_registry(),
         "buildProgress": get_factory_tasks(),
@@ -4495,7 +4985,7 @@ async def run_until_review(job_id:str):
                 (stage,int(idx/(len(STAGES)-1)*100),ts(),job_id)); con.commit(); con.close()
             await broadcast()
             if stage=="script":
-                await run_variant_pipeline(job_id,3)
+                await run_variant_pipeline(job_id,None)
                 await generate_content_package(job_id)
             else:
                 for a in AGENT_MAP.get(stage,[]):
@@ -4764,7 +5254,7 @@ def job_variants(job_id:str):
 
 async def _manual_variant_build(job_id):
     try:
-        await run_variant_pipeline(job_id,3)
+        await run_variant_pipeline(job_id,None)
         con=db();con.execute("UPDATE jobs SET stage='script',status='idle',progress=?,updated_at=? WHERE id=?",(int(STAGES.index("script")/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close();event(job_id,"Manual variant build completed; continue Factory to rebuild downstream stages");await broadcast()
     except Exception as exc:
         con=db();con.execute("UPDATE jobs SET stage='script',status='failed',updated_at=? WHERE id=?",(ts(),job_id));con.commit();con.close();event(job_id,f"Variant build failed: {exc}");await broadcast({"type":"job_failed","jobId":job_id,"error":str(exc)})
@@ -5033,18 +5523,11 @@ def list_improvements(status:str="proposed", limit:int=30):
 
 @app.post("/api/improvements/{proposal_id}/accept")
 async def accept_improvement(proposal_id:str):
-    con=db(); row=con.execute("SELECT title,rationale FROM improvement_proposals WHERE id=?",(proposal_id,)).fetchone()
-    if not row:
-        con.close(); raise HTTPException(404,"Proposal not found")
-    con.execute("UPDATE improvement_proposals SET status='accepted',updated_at=? WHERE id=?",(ts(),proposal_id))
-    con.commit(); con.close()
-    memory_text=f"Approved process learning: {row['rationale']}"
-    targets=improvement_memory_targets(row["title"]+" "+row["rationale"])
-    for agent in targets:
-        add_agent_memory(agent,memory_text,kind="process_learning",source=f"Supervisor proposal {proposal_id}",confidence=1.0)
-    event(None,f"Supervisor improvement accepted: {row['title']} → memory for {', '.join(targets)}")
-    await broadcast()
-    return {"ok":True,"memory_targets":targets}
+    try:experiment=create_experiment_from_proposal(proposal_id)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    event(None,f"Supervisor improvement approved for controlled experiment: {experiment['title']}")
+    await broadcast({"type":"self_improvement","action":"experiment_created","experimentId":experiment["id"]})
+    return {"ok":True,"experiment":experiment,"message":"Proposal moved into a controlled experiment; production is unchanged until measured owner-approved rollout."}
 
 @app.post("/api/improvements/{proposal_id}/dismiss")
 async def dismiss_improvement(proposal_id:str):
@@ -5056,6 +5539,69 @@ async def dismiss_improvement(proposal_id:str):
     event(None,f"Supervisor improvement dismissed: {row['title']}")
     await broadcast()
     return {"ok":True}
+
+@app.post("/api/improvements")
+async def create_improvement(payload:ImprovementProposalCreate):
+    try:proposal=create_improvement_proposal(payload)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    event(None,f"Workflow improvement proposed: {proposal['title']}")
+    await broadcast({"type":"self_improvement","action":"proposal_created","proposalId":proposal["id"]})
+    return {"ok":True,"proposal":proposal}
+
+@app.get("/api/self-improvement")
+def self_improvement_dashboard():
+    return get_self_improvement_dashboard()
+
+@app.get("/api/workflow/active")
+def active_workflow():
+    return {"active":_active_workflow_version(),"allowed_models":sorted(FACTORY_ALLOWED_LLM_MODELS)}
+
+@app.get("/api/experiments")
+def experiments():
+    return {"experiments":get_experiments(100),"active_workflow":_active_workflow_version()}
+
+@app.post("/api/improvements/{proposal_id}/experiment")
+async def create_improvement_experiment(proposal_id:str,payload:ExperimentCreateRequest):
+    try:experiment=create_experiment_from_proposal(proposal_id,payload)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"self_improvement","action":"experiment_created","experimentId":experiment["id"]})
+    return {"ok":True,"experiment":experiment}
+
+@app.post("/api/experiments/{experiment_id}/assign")
+async def assign_experiment(experiment_id:str,payload:ExperimentJobAssignment):
+    try:assignment=assign_job_to_experiment(experiment_id,payload.job_id,payload.arm)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    event(payload.job_id,f"Experiment {experiment_id}: assigned to {payload.arm}")
+    await broadcast({"type":"self_improvement","action":"assigned","experimentId":experiment_id,"jobId":payload.job_id,"arm":payload.arm})
+    return {"ok":True,"assignment":assignment}
+
+@app.post("/api/experiments/{experiment_id}/evaluate")
+async def evaluate_experiment_api(experiment_id:str):
+    try:evaluation=evaluate_experiment(experiment_id)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"self_improvement","action":"evaluated","experimentId":experiment_id})
+    return {"ok":True,"evaluation":evaluation,"experiment":_get_experiment(experiment_id)}
+
+@app.post("/api/experiments/{experiment_id}/rollout")
+async def rollout_experiment_api(experiment_id:str,payload:ExperimentDecisionRequest):
+    try:result=rollout_experiment(experiment_id,payload.confirm,payload.reason)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"self_improvement","action":"rollout","experimentId":experiment_id})
+    return result
+
+@app.post("/api/experiments/{experiment_id}/rollback")
+async def rollback_experiment_api(experiment_id:str,payload:ExperimentDecisionRequest):
+    try:result=rollback_experiment(experiment_id,payload.confirm,payload.reason)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"self_improvement","action":"rollback","experimentId":experiment_id})
+    return result
+
+@app.post("/api/experiments/{experiment_id}/reject")
+async def reject_experiment_api(experiment_id:str,payload:ExperimentDecisionRequest):
+    try:experiment=reject_experiment(experiment_id,payload.reason)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"self_improvement","action":"rejected","experimentId":experiment_id})
+    return {"ok":True,"experiment":experiment}
 
 class MemoryCreate(BaseModel):
     content: str

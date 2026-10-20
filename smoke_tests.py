@@ -19,12 +19,12 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v3.80","version mismatch")
+require(health["version"]==app.APP_VERSION=="v3.90","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
 state=app.status()
-for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","publisherAdapters","analyticsAdapters","runtimePolicy"):
+for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
     require(key in state,f"status missing {key}")
 require(state["factory"]=="online","factory must report online")
 
@@ -47,7 +47,7 @@ require(obj["decision"]=="shortlist","Content Brain JSON object parser regressio
 brain=app.get_content_brain()
 require("adapters" in brain and "rss" in brain["adapters"],"source adapter registry missing")
 require("verified" in brain["summary"] and "feeds_configured" in brain["summary"],"Content Brain summary fields missing")
-for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/reject","POST"),("/api/approval","GET"),("/api/jobs/{job_id}/approval/history","GET"),("/api/jobs/{job_id}/approval/quote/{component}","GET"),("/api/jobs/{job_id}/approval/regenerate","POST"),("/api/jobs/{job_id}/idea-link/{idea_id}","POST"),("/api/publisher-adapters","GET"),("/api/publishing","GET"),("/api/publishing/{publish_id}/schedule","POST"),("/api/publishing/{publish_id}/publish","POST"),("/api/publishing/{publish_id}/confirm","POST"),("/api/publishing/run-due","POST"),("/api/analytics-adapters","GET"),("/api/performance","GET"),("/api/performance/{publish_id}","GET"),("/api/performance/snapshots","POST"),("/api/performance/{publish_id}/sync","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
+for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/reject","POST"),("/api/approval","GET"),("/api/jobs/{job_id}/approval/history","GET"),("/api/jobs/{job_id}/approval/quote/{component}","GET"),("/api/jobs/{job_id}/approval/regenerate","POST"),("/api/jobs/{job_id}/idea-link/{idea_id}","POST"),("/api/publisher-adapters","GET"),("/api/publishing","GET"),("/api/publishing/{publish_id}/schedule","POST"),("/api/publishing/{publish_id}/publish","POST"),("/api/publishing/{publish_id}/confirm","POST"),("/api/publishing/run-due","POST"),("/api/analytics-adapters","GET"),("/api/performance","GET"),("/api/performance/{publish_id}","GET"),("/api/performance/snapshots","POST"),("/api/performance/{publish_id}/sync","POST"),("/api/self-improvement","GET"),("/api/workflow/active","GET"),("/api/experiments","GET"),("/api/improvements","POST"),("/api/improvements/{proposal_id}/experiment","POST"),("/api/experiments/{experiment_id}/assign","POST"),("/api/experiments/{experiment_id}/evaluate","POST"),("/api/experiments/{experiment_id}/rollout","POST"),("/api/experiments/{experiment_id}/rollback","POST"),("/api/experiments/{experiment_id}/reject","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
     require(route_exists(path,method),f"route missing: {method} {path}")
 
 created=asyncio.run(app.create_job(app.JobCreate(title="CI smoke job",brief="Zero-spend regression fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))
@@ -134,6 +134,72 @@ require(pitem["attribution"]["package_id"] and pitem["attribution"]["variant_id"
 require(pitem["cost_per_1k_views_usd"] is not None,"cost/outcome comparison missing when views exist")
 require(perf["angle_cohorts"],"angle cohort comparison missing")
 
+# v3.90 Self-Improving Factory — zero-spend controlled experiment and rollback.
+baseline=app._active_workflow_version()
+require(baseline["status"]=="active" and baseline["config"]["candidate_count"]==3,"baseline workflow version regression")
+try:
+    app._sanitize_workflow_patch({"approval_required":False})
+    raise AssertionError("workflow patch must reject safety invariant keys")
+except ValueError:
+    pass
+proposal=app.create_improvement_proposal(app.ImprovementProposalCreate(
+    title="Test a fourth production candidate",
+    rationale="Measure whether one additional candidate improves observed retention before changing production.",
+    hypothesis="Four candidates should improve observed retention by at least 5% without bypassing approval.",
+    change={"candidate_count":4,"prompt_addenda":{"Hook Generator":"Prefer a concrete mechanism-first opening and keep claims inside supplied evidence."}},
+    evidence=[{"type":"ci_fixture","detail":"Controlled deterministic v3.90 verification"}],
+))
+require(proposal["requires_experiment"] is True and proposal["change"]["candidate_count"]==4,"proposal schema regression")
+exp=app.create_experiment_from_proposal(proposal["id"],app.ExperimentCreateRequest(
+    primary_metric="retention_pct",min_samples_per_arm=1,min_effect_pct=5.0,platform="youtube_shorts"
+))
+require(exp["status"]=="draft","new experiment must start as draft")
+require(exp["control_version"]["config"]["candidate_count"]==3 and exp["treatment_version"]["config"]["candidate_count"]==4,"control/treatment version regression")
+
+control_created=asyncio.run(app.create_job(app.JobCreate(title="CI experiment control",brief="v3.90 control arm",presenter="Faceless",format="Short only",language="English",outputs=1)))
+treatment_created=asyncio.run(app.create_job(app.JobCreate(title="CI experiment treatment",brief="v3.90 treatment arm",presenter="Faceless",format="Short only",language="English",outputs=1)))
+control_id=control_created["id"];treatment_id=treatment_created["id"]
+control_assignment=app.assign_job_to_experiment(exp["id"],control_id,"control")
+treatment_assignment=app.assign_job_to_experiment(exp["id"],treatment_id,"treatment")
+require(control_assignment["arm"]=="control" and treatment_assignment["arm"]=="treatment","experiment arm assignment regression")
+
+control_variants=asyncio.run(app.run_variant_pipeline(control_id,None))
+treatment_variants=asyncio.run(app.run_variant_pipeline(treatment_id,None))
+require(control_variants["summary"]["variants"]==3,"control arm must keep baseline candidate count")
+require(treatment_variants["summary"]["variants"]==4,"treatment arm must use isolated workflow candidate count")
+
+def publish_experiment_fixture(job_id,external_post_id,retention,views):
+    asyncio.run(app.generate_content_package(job_id))
+    con=app.db();con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(app.ts(),job_id));con.commit();con.close()
+    approved=asyncio.run(app.approve(job_id))
+    require(approved["ok"] is True,"experiment fixture approval regression")
+    pub=approved["publish"]
+    asyncio.run(app.schedule_publishing(pub["id"],app.PublishScheduleRequest(target="manual",platform="youtube_shorts",scheduled_at=app.ts())))
+    started=asyncio.run(app.publish_scheduled_item(pub["id"]))
+    require(started["requiresManualConfirmation"] is True,"experiment fixture must not invent publish receipt")
+    asyncio.run(app.confirm_manual_publish(pub["id"],app.PublishConfirmRequest(external_post_id=external_post_id,external_url="https://example.com/post/"+external_post_id)))
+    snap=app.record_performance_snapshot(app.PerformanceSnapshotCreate(publish_id=pub["id"],views=views,retention_pct=retention,source="ci_experiment_fixture"))
+    return pub,snap
+
+control_pub,_=publish_experiment_fixture(control_id,"ci-exp-control",50.0,1000)
+treatment_pub,_=publish_experiment_fixture(treatment_id,"ci-exp-treatment",60.0,1100)
+control_perf=next(x for x in app.get_performance_dashboard()["items"] if x["publish"]["id"]==control_pub["id"])
+treatment_perf=next(x for x in app.get_performance_dashboard()["items"] if x["publish"]["id"]==treatment_pub["id"])
+require(control_perf["attribution"]["experiment_arm"]=="control" and treatment_perf["attribution"]["experiment_arm"]=="treatment","performance attribution must preserve experiment arm")
+evaluation=app.evaluate_experiment(exp["id"])
+require(evaluation["enough_samples"] is True and evaluation["recommendation"]=="treatment","measured treatment recommendation regression")
+require(round(evaluation["observed_improvement_pct"],1)==20.0,"retention effect calculation regression")
+require(evaluation["control"]["avg_production_cost_usd"] is not None and evaluation["treatment"]["avg_production_cost_usd"] is not None,"experiment cost comparison missing")
+blocked_rollout=app.rollout_experiment(exp["id"],False,"CI should require owner confirmation")
+require(blocked_rollout["requires_confirmation"] is True,"rollout must require explicit owner confirmation")
+rolled=app.rollout_experiment(exp["id"],True,"CI owner-approved measured rollout")
+require(rolled["active"]["config"]["candidate_count"]==4,"approved treatment did not become active")
+rolled_back=app.rollback_experiment(exp["id"],True,"CI rollback verification")
+require(rolled_back["active"]["config"]["candidate_count"]==3,"rollback did not restore baseline workflow")
+dash=app.get_self_improvement_dashboard()
+require(dash["active_workflow"]["config"]["candidate_count"]==3 and dash["experiments"],"Experiment Lab dashboard regression")
+require("never auto-promote" in dash["safety_note"],"self-improvement safety note regression")
+
 transport=app.classify_agent_error("LLM provider request failed: timed out")
 require(transport["requires_confirmation"] is True,"uncertain transport failure must require confirmation")
 require(transport["auto_retry"] is False,"uncertain transport failure must not auto-retry")
@@ -165,19 +231,21 @@ require('data-i18n="package.title"' in html,"Content Package workspace missing")
 require('data-i18n="approval.title"' in html,"Approval Studio workspace missing")
 require('data-i18n="publishing.title"' in html,"Publishing Engine workspace missing")
 require('data-i18n="performance.title"' in html,"Performance Feedback workspace missing")
+require('data-i18n="experiment.title"' in html,"Experiment Lab workspace missing")
 require("openApprovalStudio" in html and "approvalRegenerate" in html,"Approval Studio controls missing")
 require("openPublishingStudio" in html and "publishQueueItem" in html,"Publishing controls missing")
 require("openPerformanceStudio" in html and "addPerformanceSnapshot" in html,"Performance controls missing")
+require("openExperimentLab" in html and "evaluateExperiment" in html and "rolloutExperiment" in html and "rollbackExperiment" in html,"Experiment Lab controls missing")
 require('onclick="openPackageStudio()"' in html,"Content Package action missing")
 require("buildContentPackage" in html and "renderPackageStudio" in html,"Content Package controls missing")
 require('onclick="openVariantStudio()"' in html,"Variant Studio action missing")
 require("rerunVariant" in html and "buildVariants" in html,"Variant Studio controls missing")
 require('onclick="openContentBrain()"' in html,"Content Brain navigation missing")
 require("runBrainFull()" in html and "processBrainIdea" in html,"Content Brain mobile actions missing")
-require('<span class="version">v3.80</span>' in html,"visible UI version mismatch")
+require('<span class="version">v3.90</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
-for key in ("approval.nav","approval.title","publishing.nav","publishing.title","performance.nav","performance.title","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
+for key in ("approval.nav","approval.title","publishing.nav","publishing.title","performance.nav","performance.title","experiment.nav","experiment.title","experiment.sub","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v3.80 smoke/regression suite passed without paid provider calls")
+print("FactoryOS v3.90 smoke/regression suite passed without paid provider calls")
