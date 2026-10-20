@@ -179,10 +179,27 @@
 @media(max-width:900px){.packageGrid{grid-template-columns:1fr}.packageSummary{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:650px){.packagePage{inset:0;border-radius:0}.packageTop{padding:12px}.packageBody{padding:9px 9px 24px}.packageSummary{grid-template-columns:1fr 1fr}.packageToolbar .btn,.packageToolbar a{flex:1 1 auto}.packageToolbar a .btn{width:100%}.packageMeta,.adapterGrid{grid-template-columns:1fr}.packageSection span,.packageSection pre{max-height:260px}}
 
+
+.helpable{cursor:help}
+[data-help]{cursor:help}
+.workerSelectedResult{margin:10px 0 12px;padding:12px;border:1px solid rgba(76,207,255,.28);border-radius:12px;background:rgba(18,42,58,.7)}
+.workerSelectedResult h3{margin:0 0 8px;font-size:13px}
+.workerSelectedResult .selectedResultMeta{display:flex;gap:6px;flex-wrap:wrap;margin:7px 0}
+.workerSelectedResult pre{max-height:360px;overflow:auto;white-space:pre-wrap}
+.resultPill{font-size:10px;border:1px solid rgba(109,130,152,.45);border-radius:999px;padding:3px 7px;color:#a9bfd3}
+.legacyBanner{padding:10px 12px;margin:8px 0;border-radius:10px;border:1px solid rgba(255,184,77,.45);background:rgba(255,184,77,.08);color:#ffd18a;font-size:11px;line-height:1.45}
+.explainStrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}
+.explainStrip>div{padding:9px 10px;border:1px solid rgba(109,130,152,.25);border-radius:10px;background:rgba(5,21,31,.55)}
+.explainStrip b{display:block;font-size:11px;margin-bottom:3px}
+.explainStrip span{display:block;font-size:10px;color:#88a1b7;line-height:1.45}
+.artifact video,.artifact audio{display:block;width:100%;margin-top:8px;border-radius:8px;background:#020a10}
+.artifact img{max-width:100%;border-radius:8px;margin-top:8px}
+.mediaLink{display:inline-block;margin-top:7px;font-size:11px;color:#5fd8ff}
+@media(max-width:700px){.explainStrip{grid-template-columns:1fr}}
 </style></head>
 <body><div class="shell">
 <aside class="side">
-<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v4.1</span></small></div></div>
+<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v4.2</span></small></div></div>
 <nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openApprovalStudio()">✓ &nbsp; <span data-i18n="approval.nav">Review</span></button><button onclick="openPublishingStudio()">⇧ &nbsp; <span data-i18n="publishing.nav">Publish</span></button><button onclick="openAutonomousFactory()">∞ &nbsp; <span data-i18n="cycle.nav">Autopilot</span></button><button onclick="openPerformanceStudio()">↗ &nbsp; <span data-i18n="performance.nav">Performance</span></button><button onclick="openExperimentLab()">⌘ &nbsp; <span data-i18n="experiment.nav">Experiments</span></button><button onclick="openContentBrain()">✦ &nbsp; <span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openVariantStudio():toast(tr('toast.selectJob'))">◇ &nbsp; <span data-i18n="variant.nav">Variants</span> <span id="variantNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openPackageStudio():toast(tr('toast.selectJob'))">▤ &nbsp; <span data-i18n="package.nav">Package</span> <span id="packageNavState" style="float:right;color:#63d9ff"></span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
 <div class="foot"><span class="green"></span><span data-i18n="factory.online">Factory online</span><br><span id="runState">No active run</span></div>
 </aside>
@@ -223,7 +240,7 @@
 
 <section class="card errorCenterCard"><div class="errorCenterHead"><div><h3 data-i18n="error.title">Operations / Error Center</h3><p data-i18n="error.sub">Classified worker incidents, spend-safe recovery and resolved failure history for the selected job.</p></div><div class="errorSummary" id="errorSummary"></div></div><div class="errorList" id="errorCenter"></div></section>
 
-<section class="card workerFlowCard"><div class="workerFlowHead"><div><h3 data-i18n="worker.title">Worker Results & Handoffs</h3><p data-i18n="worker.sub">Latest output from every worker, visible handoffs, and current failures for the selected job.</p></div><div class="tiny" data-i18n="worker.clickHint">click a worker → full artifact ledger</div></div><div class="factoryErrors" id="factoryErrors"></div><div class="workerResults" id="workerResults"></div><div class="handoffStream" id="handoffStream"></div></section>
+<section class="card workerFlowCard"><div class="workerFlowHead"><div><h3 class="helpable" data-help="help.worker" data-i18n="worker.title">Worker Results & Handoffs</h3><p data-i18n="worker.sub">Latest output from every worker, visible handoffs, and current failures for the selected job.</p></div><div class="tiny" data-i18n="worker.clickHint">click a worker → full artifact ledger</div></div><div class="factoryErrors" id="factoryErrors"></div><div class="workerResults" id="workerResults"></div><div class="handoffStream" id="handoffStream"></div></section>
 
 <section class="card pipelineCard"><div class="pipeHead"><h3 data-i18n="pipeline.title">Content Pipeline</h3><div class="tiny" data-i18n="pipeline.legend">Green completed · Cyan current · Dim waiting</div></div><div class="pipeline" id="pipeline"></div></section>
 
@@ -238,19 +255,19 @@
 
 
 <div class="flowShade" id="cycleShade" onclick="closeAutonomousFactory()"></div>
-<section class="flowPage" id="cyclePage"><div class="flowTop"><div><h2 data-i18n="cycle.title">Autonomous Content Factory / Cycle Control</h2><p data-i18n="cycle.sub">Signals → ideas → production → human approval → publishing → real analytics → learning, with no manual data handoff.</p></div><button class="closeX" onclick="closeAutonomousFactory()">×</button></div><div class="flowBody" id="cycleBody"></div></section>
+<section class="flowPage" id="cyclePage"><div class="flowTop"><div><h2 class="helpable" data-help="help.cycle" data-i18n="cycle.title">Autonomous Content Factory / Cycle Control</h2><p data-i18n="cycle.sub">Signals → ideas → production → human approval → publishing → real analytics → learning, with no manual data handoff.</p></div><button class="closeX" onclick="closeAutonomousFactory()">×</button></div><div class="flowBody" id="cycleBody"></div></section>
 <div class="flowShade" id="approvalShade" onclick="closeApprovalStudio()"></div>
-<section class="flowPage" id="approvalPage"><div class="flowTop"><div><h2 data-i18n="approval.title">Approval Studio</h2><p data-i18n="approval.sub">Preview, evidence, targeted regeneration and decisions before publishing.</p></div><button class="closeX" onclick="closeApprovalStudio()">×</button></div><div class="flowBody" id="approvalBody"></div></section>
+<section class="flowPage" id="approvalPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.approval" data-i18n="approval.title">Approval Studio</h2><p data-i18n="approval.sub">Preview, evidence, targeted regeneration and decisions before publishing.</p></div><button class="closeX" onclick="closeApprovalStudio()">×</button></div><div class="flowBody" id="approvalBody"></div></section>
 <div class="flowShade" id="publishingShade" onclick="closePublishingStudio()"></div>
-<section class="flowPage" id="publishingPage"><div class="flowTop"><div><h2 data-i18n="publishing.title">Publishing Engine</h2><p data-i18n="publishing.sub">Approved packages, schedule, duplicate-safe publish attempts and real receipts.</p></div><button class="closeX" onclick="closePublishingStudio()">×</button></div><div class="flowBody" id="publishingBody"></div></section>
+<section class="flowPage" id="publishingPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.publishing" data-i18n="publishing.title">Publishing Engine</h2><p data-i18n="publishing.sub">Approved packages, schedule, duplicate-safe publish attempts and real receipts.</p></div><button class="closeX" onclick="closePublishingStudio()">×</button></div><div class="flowBody" id="publishingBody"></div></section>
 <div class="flowShade" id="performanceShade" onclick="closePerformanceStudio()"></div>
-<section class="flowPage" id="performancePage"><div class="flowTop"><div><h2 data-i18n="performance.title">Performance Feedback Loop</h2><p data-i18n="performance.sub">Real platform metrics attributed back to package, variant, workers and sources.</p></div><button class="closeX" onclick="closePerformanceStudio()">×</button></div><div class="flowBody" id="performanceBody"></div></section>
+<section class="flowPage" id="performancePage"><div class="flowTop"><div><h2 class="helpable" data-help="help.performance" data-i18n="performance.title">Performance Feedback Loop</h2><p data-i18n="performance.sub">Real platform metrics attributed back to package, variant, workers and sources.</p></div><button class="closeX" onclick="closePerformanceStudio()">×</button></div><div class="flowBody" id="performanceBody"></div></section>
 <div class="flowShade" id="experimentShade" onclick="closeExperimentLab()"></div>
-<section class="flowPage" id="experimentPage"><div class="flowTop"><div><h2 data-i18n="experiment.title">Experiment Lab / Self-Improving Factory</h2><p data-i18n="experiment.sub">Evidence-backed proposals, isolated control/treatment workflows, measured outcomes, owner-approved rollout and rollback.</p></div><button class="closeX" onclick="closeExperimentLab()">×</button></div><div class="flowBody" id="experimentBody"></div></section>
+<section class="flowPage" id="experimentPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.experiment" data-i18n="experiment.title">Experiment Lab / Self-Improving Factory</h2><p data-i18n="experiment.sub">Evidence-backed proposals, isolated control/treatment workflows, measured outcomes, owner-approved rollout and rollback.</p></div><button class="closeX" onclick="closeExperimentLab()">×</button></div><div class="flowBody" id="experimentBody"></div></section>
 
 <div class="packageShade" id="packageShade" onclick="closePackageStudio()"></div>
 <section class="packagePage" id="packagePage">
-  <div class="packageTop"><div><h2 data-i18n="package.title">Content Package / Shorts Factory</h2><p data-i18n="package.sub">Selected variant → scenes → voice-over → subtitles → publishing metadata → thumbnail/media brief → export.</p></div><button class="closeX" onclick="closePackageStudio()">×</button></div>
+  <div class="packageTop"><div><h2 class="helpable" data-help="help.package" data-i18n="package.title">Content Package / Shorts Factory</h2><p data-i18n="package.sub">Selected variant → scenes → voice-over → subtitles → publishing metadata → thumbnail/media brief → export.</p></div><button class="closeX" onclick="closePackageStudio()">×</button></div>
   <div class="packageBody">
     <div id="packageStale"></div>
     <div class="packageSummary" id="packageSummary"></div>
@@ -267,7 +284,7 @@
 
 <div class="variantShade" id="variantShade" onclick="closeVariantStudio()"></div>
 <section class="variantPage" id="variantPage">
-  <div class="variantTop"><div><h2 data-i18n="variant.title">Variant Studio / Production Pipeline 2.0</h2><p data-i18n="variant.sub">Compare competing angles, hooks and scripts with fact-check findings, structured QA, provenance and measured allocated cost.</p></div><button class="closeX" onclick="closeVariantStudio()">×</button></div>
+  <div class="variantTop"><div><h2 class="helpable" data-help="help.variant" data-i18n="variant.title">Variant Studio / Production Pipeline 2.0</h2><p data-i18n="variant.sub">Compare competing angles, hooks and scripts with fact-check findings, structured QA, provenance and measured allocated cost.</p></div><button class="closeX" onclick="closeVariantStudio()">×</button></div>
   <div class="variantBody">
     <div class="variantSummary" id="variantSummary"></div>
     <div class="variantToolbar"><button class="btn primary" onclick="buildVariants()">▶ <span data-i18n="variant.build">Build / rebuild 3 variants</span></button><button class="btn" onclick="renderVariantStudio()">⟳ <span data-i18n="action.refresh">Refresh</span></button><span class="variantNote" id="variantCostNote" data-i18n="variant.costNote">Shared batch model cost is allocated evenly across variants for comparison; total job spend remains exact.</span></div>
@@ -277,12 +294,12 @@
 
 <div class="brainShade" id="brainShade" onclick="closeContentBrain()"></div>
 <section class="brainPage" id="brainPage">
-  <div class="brainTop"><div><h2 data-i18n="brain.title">Content Brain / Idea Factory</h2><p data-i18n="brain.sub">Signals → Scout → Researcher → Strategist → Verifier → shortlist, with provenance and measured spend.</p></div><button class="closeX" onclick="closeContentBrain()">×</button></div>
+  <div class="brainTop"><div><h2 class="helpable" data-help="help.brain" data-i18n="brain.title">Content Brain / Idea Factory</h2><p data-i18n="brain.sub">Signals → Scout → Researcher → Strategist → Verifier → shortlist, with provenance and measured spend.</p></div><button class="closeX" onclick="closeContentBrain()">×</button></div>
   <div class="brainBody">
     <div class="brainSummary" id="brainSummary"></div>
     <div class="brainToolbar">
-      <button class="btn" onclick="collectBrainSignals()">↻ <span data-i18n="brain.collect">Collect feeds</span></button>
-      <button class="btn primary" onclick="runBrainFull()">▶ <span data-i18n="brain.run">Build shortlist</span></button>
+      <button class="btn" data-help="help.collectFeeds" onclick="collectBrainSignals()">↻ <span data-i18n="brain.collect">Collect feeds</span></button>
+      <button class="btn primary" data-help="help.buildShortlist" onclick="runBrainFull()">▶ <span data-i18n="brain.run">Build shortlist</span></button>
       <button class="btn" onclick="renderContentBrain()">⟳ <span data-i18n="action.refresh">Refresh</span></button>
       <span class="brainHint" data-i18n="brain.paidHint">Build shortlist uses paid LLM calls but remains inside FactoryOS budget guards.</span>
     </div>
@@ -294,7 +311,7 @@
           <input id="brainSignalTopic" data-i18n-placeholder="brain.signalTopic" placeholder="Topic">
           <input class="wide" id="brainSignalUrl" data-i18n-placeholder="brain.signalUrl" placeholder="Source URL">
           <textarea id="brainSignalContent" data-i18n-placeholder="brain.signalContent" placeholder="Source note / excerpt"></textarea>
-          <button class="btn primary wide" onclick="addBrainSignal()">+ <span data-i18n="brain.addSignal">Add signal</span></button>
+          <button class="btn primary wide" data-help="help.addSignal" onclick="addBrainSignal()">+ <span data-i18n="brain.addSignal">Add signal</span></button>
         </div>
         <div class="signalList" id="brainSignals"></div>
       </section>
@@ -337,9 +354,86 @@
 <div class="toast" id="toast"></div>
 
 <script>
-let S=null;const $=s=>document.querySelector(s);const esc=s=>(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+let S=null;const $=s=>document.querySelector(s);
+function textValue(v){
+ if(v===null||v===undefined)return '';
+ if(typeof v==='string')return v;
+ if(typeof v==='number'||typeof v==='boolean')return String(v);
+ try{return JSON.stringify(v,null,2)}catch(e){return String(v)}
+}
+const esc=v=>textValue(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+function safeDate(v){return textValue(v).replace('T',' ').slice(0,19)}
+function helpTitle(key){const v=tr(key);return v===key?'':v}
+
 const I18N={
  en:{
+  "help.approval":"Final human review. Approve sends a fresh Content Package to the publishing queue; it does not publish by itself.",
+  "help.cycle":"One traceable end-to-end Factory Cycle: sources → idea → production → review → publish → analytics → learning.",
+  "help.brain":"Content Brain converts source signals into researched and verified content ideas. Shortlist generation can use paid LLM calls inside budget guards.",
+  "help.variant":"Variant Studio compares alternative angles, hooks and scripts before one variant is selected for the package.",
+  "help.package":"Content Package is the complete production bundle: final script, scenes, voice-over, subtitles, metadata, sources and QA.",
+  "help.publishing":"Publishing Engine only receives human-approved packages. Scheduling and publishing are separate explicit actions.",
+  "help.performance":"Performance stores real platform metrics only. Missing metrics stay missing; they are never invented.",
+  "help.experiment":"Experiment Lab tests workflow changes as isolated control/treatment versions. Nothing rolls out automatically.",
+  "help.worker":"Shows what each worker actually produced for the selected job. Click a worker for the full output and provenance.",
+  "help.collectFeeds":"Pull new configured RSS/feed signals. This collection step itself does not call the paid LLM.",
+  "help.buildShortlist":"Run Scout → Researcher → Strategist → Verifier and build a ranked shortlist. This may use paid LLM calls.",
+  "help.addSignal":"Persist a source note/URL so later workers can cite and trace it.",
+  "help.approveQueue":"Accept this exact fresh package and create a publishing-queue item. Nothing is published yet.",
+  "help.reject":"Reject the package and save the reason in approval history.",
+  "help.regenerate":"Regenerate only this component. It can use a paid model call and invalidates dependent downstream output.",
+  "approval.statWaiting":"waiting for review","approval.statApproved":"approved","approval.statRejected":"rejected","approval.statItems":"review items",
+  "approval.empty":"No jobs are currently in the approval workflow.","approval.preview":"Preview","approval.hook":"Hook","approval.script":"Script","approval.sources":"Sources",
+  "approval.warnings":"Fact / QA warnings","approval.variantDiff":"Variant diff","approval.publishTarget":"Publish target","approval.history":"Decision history",
+  "approval.noFindings":"No structured findings recorded.","approval.noSources":"No sources recorded.","approval.noDecisions":"No decisions yet.",
+  "approval.variants":"variants","approval.approveQueue":"Approve to queue","approval.reject":"Reject","approval.legacy":"Legacy / incomplete package",
+  "approval.legacyHelp":"This old review item has no fresh Content Package or production variants. It cannot be approved until rebuilt.",
+  "approval.hookHelp":"The opening 1–3 seconds designed to stop the scroll and earn attention.",
+  "approval.scriptHelp":"The final narration/text that the content package will use.",
+  "approval.sourcesHelp":"Persisted evidence and source references used by research/fact-checking.",
+  "approval.warningsHelp":"Structured fact-check and QA risks that should be reviewed before approval.",
+  "approval.variantDiffHelp":"How alternative production variants differ and which one was selected.",
+  "approval.publishTargetHelp":"Approval only creates a queue item. Scheduling/publishing happens separately.",
+  "approval.loading":"Loading approval queue…","approval.rejectReason":"Reject reason","approval.approved":"Approved","approval.rejected":"Rejected",
+  "approval.regenDone":"Regeneration completed","approval.regenBlocked":"Regeneration blocked","approval.regenConfirm":"Targeted {component} regeneration. Estimated model cost: {cost}. Continue?",
+  "cycle.statCycles":"cycles","cycle.statActive":"active","cycle.statReview":"review","cycle.statLearned":"learned","cycle.control":"v4 closed-loop control",
+  "cycle.recentEvents":"Recent cycle events","cycle.score":"score","cycle.notCreated":"not created","cycle.loading":"Loading autonomous cycles…",
+  "cycle.status.ready":"ready","cycle.status.running":"running","cycle.status.waiting_approval":"waiting for approval","cycle.status.approved":"approved",
+  "cycle.status.scheduled":"scheduled","cycle.status.published":"published","cycle.status.measured":"measured","cycle.status.learning_ready":"learning ready",
+  "cycle.status.failed":"failed","cycle.status.rejected":"rejected","cycle.phase.signals":"signals","cycle.phase.ideas":"ideas","cycle.phase.production":"production",
+  "cycle.phase.approval":"approval","cycle.phase.publishing":"publishing","cycle.phase.analytics":"analytics","cycle.phase.learning":"learning",
+  "publishing.statQueue":"queue","publishing.statScheduled":"scheduled","publishing.statPublished":"published","publishing.statAdapter":"adapter",
+  "publishing.empty":"Approve a package first. Approval never publishes by itself.","publishing.attempts":"attempts","publishing.notScheduled":"not scheduled",
+  "publishing.schedule":"Schedule now","publishing.publishRetry":"Publish / retry","publishing.confirm":"Confirm real post","publishing.loading":"Loading publishing queue…",
+  "performance.statPublished":"published","performance.statMeasured":"measured","performance.statViews":"views","performance.statCohorts":"angle cohorts",
+  "performance.empty":"No confirmed published content yet. Metrics are never invented.","performance.retention":"retention","performance.completion":"completion",
+  "performance.cost1k":"cost/1k","performance.attribution":"Attribution","performance.addMetrics":"Metrics","performance.sync":"Sync adapter",
+  "performance.cohorts":"Angle cohorts","performance.loading":"Loading performance data…",
+  "worker.latestResult":"Latest selected-job result","worker.selectedResult":"Selected Job Result","worker.noSelectedResult":"This worker has no artifact for the selected job yet.",
+  "worker.fullOutput":"Full output","worker.inputs":"Inputs","worker.artifactCount":"artifacts for job","worker.clickFull":"Click to inspect full result, inputs and history.",
+  "worker.openMedia":"Open media","worker.runAccounting":"Run accounting","worker.role":"What this worker does",
+  "worker.purpose.scout":"Finds source signals and proposes evidence-linked content ideas.",
+  "worker.purpose.researcher":"Turns source signals into a bounded research/evidence summary.",
+  "worker.purpose.techverifier":"Checks technical claims and flags evidence that is still missing.",
+  "worker.purpose.anglestrategist":"Creates distinct content angles and framing options.",
+  "worker.purpose.hookgenerator":"Generates competing openings for the first seconds of the video.",
+  "worker.purpose.scriptwriter":"Writes full short-form script variants from the selected evidence and angle.",
+  "worker.purpose.factchecker":"Checks script claims against persisted evidence and records conflicts.",
+  "worker.purpose.hookoptimizer":"Improves the chosen opening without adding unsupported claims.",
+  "worker.purpose.editor":"Produces the clean final edited script.",
+  "worker.purpose.contentpackager":"Builds the complete Content Package: scenes, VO, SRT, metadata, sources and cost.",
+  "worker.purpose.visualdirector":"Turns the package into a scene/storyboard and media plan.",
+  "worker.purpose.voiceagent":"Prepares or generates the voice-over artifact through the configured voice adapter.",
+  "worker.purpose.renderagent":"Produces the final media artifact when a video/render provider is configured.",
+  "worker.purpose.qaagent":"Runs structured QA and fact/risk checks before human review.",
+  "worker.purpose.publisher":"Prepares approved content for the controlled publishing adapter.",
+  "worker.purpose.analyst":"Stores real performance metrics and creates evidence-based learning.",
+  "worker.purpose.supervisor":"Monitors reliability, failures, spend and workflow improvement opportunities.",
+  "worker.purpose.hookwriter":"Legacy hook worker retained for older jobs and compatibility.",
+  "worker.purpose.designpartner":"UI/UX design review workspace; it does not publish content.",
+  "common.status":"status","common.evidence":"evidence","common.running":"running","common.readyDecision":"decision-ready","common.hypothesis":"Hypothesis",
+  "common.controlTreatment":"Control → treatment","common.measuredComparison":"Measured comparison","common.loading":"Loading…","common.none":"none",
+
   "approval.nav":"Review","approval.title":"Approval Studio","approval.sub":"Preview, evidence, targeted regeneration and decisions before publishing.","publishing.nav":"Publish","publishing.title":"Publishing Engine","publishing.sub":"Approved packages, schedule, duplicate-safe publish attempts and real receipts.","performance.nav":"Performance","performance.title":"Performance Feedback Loop","performance.sub":"Real platform metrics attributed back to package, variant, workers and sources.",
   "cycle.nav":"Autopilot","cycle.title":"Autonomous Content Factory / Cycle Control","cycle.sub":"Signals → ideas → production → human approval → publishing → real analytics → learning, with no manual data handoff.","cycle.new":"New cycle","cycle.run":"Run to review","cycle.review":"Open review","cycle.publish":"Open publishing","cycle.performance":"Open performance","cycle.learn":"Build learning","cycle.next":"Start next cycle","cycle.sync":"Sync state","cycle.signals":"signals","cycle.idea":"idea","cycle.job":"job","cycle.metrics":"real metrics","cycle.learning":"learning","cycle.noCycles":"No autonomous cycles yet. Create one from the latest signals.","cycle.safety":"Autopilot can prepare content, but it stops at human approval. Publishing is always a separate explicit action.","cycle.costConfirm":"Autopilot may use paid model calls up to a conservative ceiling of {cost}. Continue?","cycle.started":"Autopilot started. It will stop at Review.","cycle.created":"Factory cycle created","cycle.nextCreated":"Next cycle created from the currently active owner-approved workflow.",
   "experiment.nav":"Experiments","experiment.title":"Experiment Lab / Self-Improving Factory","experiment.sub":"Evidence-backed proposals, isolated control/treatment workflows, measured outcomes, owner-approved rollout and rollback.","experiment.active":"Active workflow","experiment.proposals":"Improvement proposals","experiment.experiments":"Controlled experiments","experiment.newProposal":"New proposal","experiment.createExperiment":"Create experiment","experiment.assignControl":"Assign selected job → control","experiment.assignTreatment":"Assign selected job → treatment","experiment.evaluate":"Evaluate","experiment.rollout":"Approve rollout","experiment.rollback":"Rollback","experiment.reject":"Reject experiment","experiment.metric":"Primary metric","experiment.samples":"samples","experiment.recommendation":"recommendation","experiment.noExperiments":"No controlled experiments yet.","experiment.noProposals":"No improvement proposals yet.","experiment.safety":"No workflow change is promoted automatically. Jobs are pinned to a workflow version; rollout and rollback require owner confirmation.",
@@ -477,6 +571,73 @@ const I18N={
   "super.health":"health","super.lastAudit":"Last audit","super.noIncidents":"No active incidents","super.monitoring":"Supervisor is monitoring jobs and agent runtime.","super.improvements":"Process improvements","super.backlog":"Improvement backlog","super.accept":"Accept","super.dismiss":"Dismiss"
  },
  uk:{
+  "help.approval":"Фінальна людська перевірка. Approve додає свіжий Content Package у чергу публікації, але не публікує автоматично.",
+  "help.cycle":"Один наскрізний Factory Cycle: джерела → ідея → production → перевірка → публікація → аналітика → learning.",
+  "help.brain":"Content Brain перетворює сигнали джерел на досліджені та перевірені ідеї. Shortlist може використовувати платні LLM-виклики в межах бюджету.",
+  "help.variant":"Variant Studio порівнює різні кути, hooks і scripts до вибору одного варіанта.",
+  "help.package":"Content Package — повний production-набір: фінальний script, сцени, voice-over, субтитри, metadata, джерела та QA.",
+  "help.publishing":"Publishing Engine отримує тільки схвалені людиною пакети. Планування і публікація — окремі явні дії.",
+  "help.performance":"Performance зберігає тільки реальні метрики платформи. Відсутні метрики не вигадуються.",
+  "help.experiment":"Experiment Lab тестує зміни workflow як ізольовані control/treatment версії. Нічого не розгортається автоматично.",
+  "help.worker":"Показує, що реально зробив кожний worker для вибраного job. Натисни worker, щоб побачити повний результат і provenance.",
+  "help.collectFeeds":"Зібрати нові сигнали з налаштованих RSS/feed джерел. Сам збір не запускає платний LLM.",
+  "help.buildShortlist":"Запустити Scout → Researcher → Strategist → Verifier і побудувати shortlist. Може використовувати платні LLM-виклики.",
+  "help.addSignal":"Зберегти URL/нотатки джерела, щоб workers могли посилатися на них і зберігати provenance.",
+  "help.approveQueue":"Схвалити саме цей свіжий пакет і створити елемент publishing queue. Публікації ще немає.",
+  "help.reject":"Відхилити пакет і зберегти причину в історії рішень.",
+  "help.regenerate":"Перегенерувати лише цей компонент. Може коштувати гроші і робить залежні downstream-результати застарілими.",
+  "approval.statWaiting":"очікують перевірки","approval.statApproved":"схвалено","approval.statRejected":"відхилено","approval.statItems":"на перевірці",
+  "approval.empty":"Зараз немає job у workflow схвалення.","approval.preview":"Прев’ю","approval.hook":"Hook","approval.script":"Сценарій","approval.sources":"Джерела",
+  "approval.warnings":"Fact / QA попередження","approval.variantDiff":"Різниця варіантів","approval.publishTarget":"Ціль публікації","approval.history":"Історія рішень",
+  "approval.noFindings":"Структурованих зауважень немає.","approval.noSources":"Джерела не записані.","approval.noDecisions":"Рішень ще немає.",
+  "approval.variants":"варіанти","approval.approveQueue":"Схвалити в чергу","approval.reject":"Відхилити","approval.legacy":"Legacy / неповний пакет",
+  "approval.legacyHelp":"Цей старий review item не має свіжого Content Package або production variants. Перед схваленням його треба перебудувати.",
+  "approval.hookHelp":"Перші 1–3 секунди, які мають зупинити скрол і захопити увагу.",
+  "approval.scriptHelp":"Фінальний текст/нарація, яку використовує Content Package.",
+  "approval.sourcesHelp":"Збережені докази і посилання, використані research/fact-check.",
+  "approval.warningsHelp":"Структуровані ризики fact-check/QA, які треба переглянути до схвалення.",
+  "approval.variantDiffHelp":"Чим відрізняються production variants і який з них вибрано.",
+  "approval.publishTargetHelp":"Approval тільки створює чергу. Планування/публікація відбуваються окремо.",
+  "approval.loading":"Завантаження черги перевірки…","approval.rejectReason":"Причина відхилення","approval.approved":"Схвалено","approval.rejected":"Відхилено",
+  "approval.regenDone":"Перегенерацію завершено","approval.regenBlocked":"Перегенерацію заблоковано","approval.regenConfirm":"Точкова перегенерація {component}. Орієнтовна вартість моделі: {cost}. Продовжити?",
+  "cycle.statCycles":"цикли","cycle.statActive":"активні","cycle.statReview":"перевірка","cycle.statLearned":"навчено","cycle.control":"v4 замкнений цикл",
+  "cycle.recentEvents":"Останні події циклу","cycle.score":"оцінка","cycle.notCreated":"ще не створено","cycle.loading":"Завантаження автономних циклів…",
+  "cycle.status.ready":"готово","cycle.status.running":"виконується","cycle.status.waiting_approval":"очікує схвалення","cycle.status.approved":"схвалено",
+  "cycle.status.scheduled":"заплановано","cycle.status.published":"опубліковано","cycle.status.measured":"метрики отримано","cycle.status.learning_ready":"learning готовий",
+  "cycle.status.failed":"помилка","cycle.status.rejected":"відхилено","cycle.phase.signals":"сигнали","cycle.phase.ideas":"ідеї","cycle.phase.production":"production",
+  "cycle.phase.approval":"схвалення","cycle.phase.publishing":"публікація","cycle.phase.analytics":"аналітика","cycle.phase.learning":"learning",
+  "publishing.statQueue":"черга","publishing.statScheduled":"заплановано","publishing.statPublished":"опубліковано","publishing.statAdapter":"адаптер",
+  "publishing.empty":"Спочатку схвали пакет. Approval сам нічого не публікує.","publishing.attempts":"спроби","publishing.notScheduled":"не заплановано",
+  "publishing.schedule":"Запланувати зараз","publishing.publishRetry":"Опублікувати / повторити","publishing.confirm":"Підтвердити реальний пост","publishing.loading":"Завантаження черги публікації…",
+  "performance.statPublished":"опубліковано","performance.statMeasured":"з метриками","performance.statViews":"перегляди","performance.statCohorts":"когорти кутів",
+  "performance.empty":"Підтверджених опублікованих матеріалів ще немає. Метрики не вигадуються.","performance.retention":"утримання","performance.completion":"додивлення",
+  "performance.cost1k":"вартість/1k","performance.attribution":"Атрибуція","performance.addMetrics":"Метрики","performance.sync":"Синхронізувати адаптер",
+  "performance.cohorts":"Когорти кутів","performance.loading":"Завантаження performance даних…",
+  "worker.latestResult":"Останній результат для вибраного job","worker.selectedResult":"Результат для вибраного Job","worker.noSelectedResult":"Цей worker ще не створив artifact для вибраного job.",
+  "worker.fullOutput":"Повний результат","worker.inputs":"Входи","worker.artifactCount":"artifacts для job","worker.clickFull":"Натисни, щоб побачити повний результат, входи та історію.",
+  "worker.openMedia":"Відкрити медіа","worker.runAccounting":"Облік run","worker.role":"Що робить цей worker",
+  "worker.purpose.scout":"Знаходить source signals і пропонує ідеї, прив’язані до джерел.",
+  "worker.purpose.researcher":"Перетворює source signals на обмежений доказами research summary.",
+  "worker.purpose.techverifier":"Перевіряє технічні твердження і відмічає відсутні докази.",
+  "worker.purpose.anglestrategist":"Створює різні кути та framing для контенту.",
+  "worker.purpose.hookgenerator":"Генерує конкуруючі hooks для перших секунд ролика.",
+  "worker.purpose.scriptwriter":"Пише повні short-form script variants на основі доказів.",
+  "worker.purpose.factchecker":"Зіставляє твердження сценарію з джерелами і фіксує конфлікти.",
+  "worker.purpose.hookoptimizer":"Покращує обраний hook без додавання непідтверджених фактів.",
+  "worker.purpose.editor":"Готує чистий фінальний відредагований сценарій.",
+  "worker.purpose.contentpackager":"Збирає Content Package: сцени, VO, SRT, metadata, джерела і cost.",
+  "worker.purpose.visualdirector":"Перетворює пакет на storyboard і media plan.",
+  "worker.purpose.voiceagent":"Готує або генерує voice-over через налаштований voice adapter.",
+  "worker.purpose.renderagent":"Створює фінальний media artifact, якщо підключений video/render provider.",
+  "worker.purpose.qaagent":"Виконує структурований QA і перевірку ризиків перед human review.",
+  "worker.purpose.publisher":"Готує схвалений контент для контрольованого publishing adapter.",
+  "worker.purpose.analyst":"Зберігає реальні метрики і формує evidence-based learning.",
+  "worker.purpose.supervisor":"Моніторить надійність, помилки, витрати і можливості покращення workflow.",
+  "worker.purpose.hookwriter":"Legacy worker для hook, збережений для старих job і сумісності.",
+  "worker.purpose.designpartner":"UI/UX review workspace; не публікує контент.",
+  "common.status":"статус","common.evidence":"докази","common.running":"виконується","common.readyDecision":"готово до рішення","common.hypothesis":"Гіпотеза",
+  "common.controlTreatment":"Control → treatment","common.measuredComparison":"Виміряне порівняння","common.loading":"Завантаження…","common.none":"немає",
+
   "approval.nav":"Перевірка","approval.title":"Approval Studio","approval.sub":"Preview, evidence, targeted regeneration та рішення до публікації.","publishing.nav":"Публікація","publishing.title":"Publishing Engine","publishing.sub":"Схвалені пакети, розклад, duplicate-safe publish і реальні receipts.","performance.nav":"Метрики","performance.title":"Performance Feedback Loop","performance.sub":"Реальні метрики платформ з attribution до package, variant, workers і sources.",
   "cycle.nav":"Автопілот","cycle.title":"Autonomous Content Factory / Cycle Control","cycle.sub":"Signals → ideas → production → human approval → publishing → real analytics → learning без ручного перенесення даних.","cycle.new":"Новий цикл","cycle.run":"Запустити до review","cycle.review":"Відкрити перевірку","cycle.publish":"Відкрити публікацію","cycle.performance":"Відкрити метрики","cycle.learn":"Сформувати learning","cycle.next":"Запустити наступний цикл","cycle.sync":"Синхронізувати","cycle.signals":"сигналів","cycle.idea":"ідея","cycle.job":"job","cycle.metrics":"реальні метрики","cycle.learning":"learning","cycle.noCycles":"Автономних циклів ще немає. Створіть цикл з останніх signals.","cycle.safety":"Автопілот готує контент, але зупиняється на human approval. Публікація завжди окрема явна дія.","cycle.costConfirm":"Автопілот може використати платні model calls до консервативної межі {cost}. Продовжити?","cycle.started":"Автопілот запущено. Він зупиниться на Review.","cycle.created":"Factory cycle створено","cycle.nextCreated":"Наступний цикл створено з поточним owner-approved workflow.",
   "experiment.nav":"Експерименти","experiment.title":"Experiment Lab / Self-Improving Factory","experiment.sub":"Пропозиції з доказами, ізольовані control/treatment workflow, виміряні результати, ручний rollout і rollback.","experiment.active":"Активний workflow","experiment.proposals":"Пропозиції покращень","experiment.experiments":"Контрольовані експерименти","experiment.newProposal":"Нова пропозиція","experiment.createExperiment":"Створити експеримент","experiment.assignControl":"Обране завдання → control","experiment.assignTreatment":"Обране завдання → treatment","experiment.evaluate":"Оцінити","experiment.rollout":"Схвалити rollout","experiment.rollback":"Відкотити","experiment.reject":"Відхилити експеримент","experiment.metric":"Основна метрика","experiment.samples":"вибірок","experiment.recommendation":"рекомендація","experiment.noExperiments":"Контрольованих експериментів ще немає.","experiment.noProposals":"Пропозицій покращень ще немає.","experiment.safety":"Жодна зміна workflow не переходить у production автоматично. Job закріплюється за версією workflow; rollout і rollback потребують підтвердження власника.",
@@ -614,6 +775,73 @@ const I18N={
   "super.health":"здоров'я","super.lastAudit":"Останній аудит","super.noIncidents":"Активних інцидентів немає","super.monitoring":"Супервізор контролює завдання й стан агентів.","super.improvements":"Покращення процесу","super.backlog":"Черга покращень","super.accept":"Прийняти","super.dismiss":"Відхилити"
  },
  ru:{
+  "help.approval":"Финальная человеческая проверка. Approve добавляет свежий Content Package в очередь публикации, но сам ничего не публикует.",
+  "help.cycle":"Один сквозной Factory Cycle: источники → идея → production → проверка → публикация → аналитика → learning.",
+  "help.brain":"Content Brain превращает сигналы источников в исследованные и проверенные идеи. Shortlist может использовать платные LLM-вызовы в пределах бюджета.",
+  "help.variant":"Variant Studio сравнивает разные углы, hooks и scripts до выбора одного варианта.",
+  "help.package":"Content Package — полный production-набор: финальный script, сцены, voice-over, субтитры, metadata, источники и QA.",
+  "help.publishing":"Publishing Engine получает только одобренные человеком пакеты. Планирование и публикация — отдельные явные действия.",
+  "help.performance":"Performance хранит только реальные метрики платформы. Отсутствующие метрики не выдумываются.",
+  "help.experiment":"Experiment Lab тестирует изменения workflow как изолированные control/treatment версии. Ничего не включается автоматически.",
+  "help.worker":"Показывает, что реально сделал каждый worker для выбранного job. Нажми worker, чтобы увидеть полный результат и provenance.",
+  "help.collectFeeds":"Собрать новые сигналы из настроенных RSS/feed источников. Сам сбор не запускает платный LLM.",
+  "help.buildShortlist":"Запустить Scout → Researcher → Strategist → Verifier и построить shortlist. Может использовать платные LLM-вызовы.",
+  "help.addSignal":"Сохранить URL/заметку источника, чтобы workers могли ссылаться на него и сохранять provenance.",
+  "help.approveQueue":"Одобрить именно этот свежий пакет и создать элемент publishing queue. Публикации ещё нет.",
+  "help.reject":"Отклонить пакет и сохранить причину в истории решений.",
+  "help.regenerate":"Перегенерировать только этот компонент. Может стоить денег и инвалидирует зависимые downstream-результаты.",
+  "approval.statWaiting":"ждут проверки","approval.statApproved":"одобрено","approval.statRejected":"отклонено","approval.statItems":"на проверке",
+  "approval.empty":"Сейчас нет job в workflow одобрения.","approval.preview":"Превью","approval.hook":"Hook","approval.script":"Сценарий","approval.sources":"Источники",
+  "approval.warnings":"Fact / QA предупреждения","approval.variantDiff":"Разница вариантов","approval.publishTarget":"Цель публикации","approval.history":"История решений",
+  "approval.noFindings":"Структурированных замечаний нет.","approval.noSources":"Источники не записаны.","approval.noDecisions":"Решений пока нет.",
+  "approval.variants":"варианты","approval.approveQueue":"Одобрить в очередь","approval.reject":"Отклонить","approval.legacy":"Legacy / неполный пакет",
+  "approval.legacyHelp":"Этот старый review item не имеет свежего Content Package или production variants. Перед одобрением его нужно пересобрать.",
+  "approval.hookHelp":"Первые 1–3 секунды, которые должны остановить скролл и захватить внимание.",
+  "approval.scriptHelp":"Финальный текст/нарратив, который использует Content Package.",
+  "approval.sourcesHelp":"Сохранённые доказательства и ссылки, использованные research/fact-check.",
+  "approval.warningsHelp":"Структурированные риски fact-check/QA, которые нужно проверить до одобрения.",
+  "approval.variantDiffHelp":"Чем отличаются production variants и какой из них выбран.",
+  "approval.publishTargetHelp":"Approval только создаёт очередь. Планирование/публикация происходят отдельно.",
+  "approval.loading":"Загрузка очереди проверки…","approval.rejectReason":"Причина отклонения","approval.approved":"Одобрено","approval.rejected":"Отклонено",
+  "approval.regenDone":"Перегенерация завершена","approval.regenBlocked":"Перегенерация заблокирована","approval.regenConfirm":"Точечная перегенерация {component}. Оценочная стоимость модели: {cost}. Продолжить?",
+  "cycle.statCycles":"циклы","cycle.statActive":"активные","cycle.statReview":"проверка","cycle.statLearned":"обучено","cycle.control":"v4 замкнутый цикл",
+  "cycle.recentEvents":"Последние события цикла","cycle.score":"оценка","cycle.notCreated":"ещё не создано","cycle.loading":"Загрузка автономных циклов…",
+  "cycle.status.ready":"готово","cycle.status.running":"выполняется","cycle.status.waiting_approval":"ждёт одобрения","cycle.status.approved":"одобрено",
+  "cycle.status.scheduled":"запланировано","cycle.status.published":"опубликовано","cycle.status.measured":"метрики получены","cycle.status.learning_ready":"learning готов",
+  "cycle.status.failed":"ошибка","cycle.status.rejected":"отклонено","cycle.phase.signals":"сигналы","cycle.phase.ideas":"идеи","cycle.phase.production":"production",
+  "cycle.phase.approval":"одобрение","cycle.phase.publishing":"публикация","cycle.phase.analytics":"аналитика","cycle.phase.learning":"learning",
+  "publishing.statQueue":"очередь","publishing.statScheduled":"запланировано","publishing.statPublished":"опубликовано","publishing.statAdapter":"адаптер",
+  "publishing.empty":"Сначала одобри пакет. Approval сам ничего не публикует.","publishing.attempts":"попытки","publishing.notScheduled":"не запланировано",
+  "publishing.schedule":"Запланировать сейчас","publishing.publishRetry":"Опубликовать / повторить","publishing.confirm":"Подтвердить реальный пост","publishing.loading":"Загрузка очереди публикации…",
+  "performance.statPublished":"опубликовано","performance.statMeasured":"с метриками","performance.statViews":"просмотры","performance.statCohorts":"когорты углов",
+  "performance.empty":"Подтверждённого опубликованного контента пока нет. Метрики не выдумываются.","performance.retention":"удержание","performance.completion":"досмотр",
+  "performance.cost1k":"стоимость/1k","performance.attribution":"Атрибуция","performance.addMetrics":"Метрики","performance.sync":"Синхронизировать адаптер",
+  "performance.cohorts":"Когорты углов","performance.loading":"Загрузка performance данных…",
+  "worker.latestResult":"Последний результат для выбранного job","worker.selectedResult":"Результат для выбранного Job","worker.noSelectedResult":"Этот worker ещё не создал artifact для выбранного job.",
+  "worker.fullOutput":"Полный результат","worker.inputs":"Входы","worker.artifactCount":"artifacts для job","worker.clickFull":"Нажми, чтобы увидеть полный результат, входы и историю.",
+  "worker.openMedia":"Открыть медиа","worker.runAccounting":"Учёт run","worker.role":"Что делает этот worker",
+  "worker.purpose.scout":"Находит source signals и предлагает идеи, привязанные к источникам.",
+  "worker.purpose.researcher":"Превращает source signals в ограниченный доказательствами research summary.",
+  "worker.purpose.techverifier":"Проверяет технические утверждения и отмечает недостающие доказательства.",
+  "worker.purpose.anglestrategist":"Создаёт разные углы и framing для контента.",
+  "worker.purpose.hookgenerator":"Генерирует конкурирующие hooks для первых секунд ролика.",
+  "worker.purpose.scriptwriter":"Пишет полные short-form script variants на основе доказательств.",
+  "worker.purpose.factchecker":"Сверяет утверждения сценария с источниками и фиксирует конфликты.",
+  "worker.purpose.hookoptimizer":"Улучшает выбранный hook без добавления неподтверждённых фактов.",
+  "worker.purpose.editor":"Готовит чистый финальный отредактированный сценарий.",
+  "worker.purpose.contentpackager":"Собирает Content Package: сцены, VO, SRT, metadata, источники и cost.",
+  "worker.purpose.visualdirector":"Превращает пакет в storyboard и media plan.",
+  "worker.purpose.voiceagent":"Готовит или генерирует voice-over через настроенный voice adapter.",
+  "worker.purpose.renderagent":"Создаёт финальный media artifact, если подключён video/render provider.",
+  "worker.purpose.qaagent":"Выполняет структурированный QA и проверку рисков перед human review.",
+  "worker.purpose.publisher":"Готовит одобренный контент для контролируемого publishing adapter.",
+  "worker.purpose.analyst":"Сохраняет реальные метрики и формирует evidence-based learning.",
+  "worker.purpose.supervisor":"Мониторит надёжность, ошибки, расходы и возможности улучшения workflow.",
+  "worker.purpose.hookwriter":"Legacy worker для hook, сохранён для старых job и совместимости.",
+  "worker.purpose.designpartner":"UI/UX review workspace; не публикует контент.",
+  "common.status":"статус","common.evidence":"доказательства","common.running":"выполняется","common.readyDecision":"готово к решению","common.hypothesis":"Гипотеза",
+  "common.controlTreatment":"Control → treatment","common.measuredComparison":"Измеренное сравнение","common.loading":"Загрузка…","common.none":"нет",
+
   "approval.nav":"Проверка","approval.title":"Approval Studio","approval.sub":"Preview, evidence, targeted regeneration и решения до публикации.","publishing.nav":"Публикация","publishing.title":"Publishing Engine","publishing.sub":"Одобренные пакеты, расписание, duplicate-safe publish и реальные receipts.","performance.nav":"Метрики","performance.title":"Performance Feedback Loop","performance.sub":"Реальные метрики платформ с attribution до package, variant, workers и sources.",
   "cycle.nav":"Автопилот","cycle.title":"Autonomous Content Factory / Cycle Control","cycle.sub":"Signals → ideas → production → human approval → publishing → real analytics → learning без ручного переноса данных.","cycle.new":"Новый цикл","cycle.run":"Запустить до review","cycle.review":"Открыть проверку","cycle.publish":"Открыть публикацию","cycle.performance":"Открыть метрики","cycle.learn":"Сформировать learning","cycle.next":"Запустить следующий цикл","cycle.sync":"Синхронизировать","cycle.signals":"сигналов","cycle.idea":"идея","cycle.job":"job","cycle.metrics":"реальные метрики","cycle.learning":"learning","cycle.noCycles":"Автономных циклов пока нет. Создайте цикл из последних signals.","cycle.safety":"Автопилот готовит контент, но останавливается на human approval. Публикация всегда отдельное явное действие.","cycle.costConfirm":"Автопилот может использовать платные model calls до консервативного лимита {cost}. Продолжить?","cycle.started":"Автопилот запущен. Он остановится на Review.","cycle.created":"Factory cycle создан","cycle.nextCreated":"Следующий цикл создан с текущим owner-approved workflow.",
   "experiment.nav":"Эксперименты","experiment.title":"Experiment Lab / Self-Improving Factory","experiment.sub":"Предложения с доказательствами, изолированные control/treatment workflow, измеренные результаты, ручной rollout и rollback.","experiment.active":"Активный workflow","experiment.proposals":"Предложения улучшений","experiment.experiments":"Контролируемые эксперименты","experiment.newProposal":"Новое предложение","experiment.createExperiment":"Создать эксперимент","experiment.assignControl":"Выбранная задача → control","experiment.assignTreatment":"Выбранная задача → treatment","experiment.evaluate":"Оценить","experiment.rollout":"Одобрить rollout","experiment.rollback":"Откатить","experiment.reject":"Отклонить эксперимент","experiment.metric":"Основная метрика","experiment.samples":"выборок","experiment.recommendation":"рекомендация","experiment.noExperiments":"Контролируемых экспериментов пока нет.","experiment.noProposals":"Предложений улучшений пока нет.","experiment.safety":"Ни одно изменение workflow не попадает в production автоматически. Job закрепляется за версией workflow; rollout и rollback требуют подтверждения владельца.",
@@ -829,6 +1057,7 @@ function applyLanguage(){
  document.title='Blackbox Lab — FactoryOS';
  document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=tr(el.dataset.i18n)});
  document.querySelectorAll('[data-i18n-placeholder]').forEach(el=>{el.placeholder=tr(el.dataset.i18nPlaceholder)});
+ document.querySelectorAll('[data-help]').forEach(el=>{el.title=helpTitle(el.dataset.help)});
  ['en','uk','ru'].forEach(x=>{const b=$('#lang-'+x);if(b)b.classList.toggle('active',x===LANG)});
  if(S)render();
 }
@@ -847,7 +1076,29 @@ function designPartnerState(){const el=$('#designMcpState');if(!el)return;const 
 function usage(){const u=S.usage||{};$('#uRuns').textContent=u.runs||0;$('#uTime').textContent=fmtDuration(u.duration_ms||0);$('#uTokens').textContent=fmtTokens((u.input_tokens||0)+(u.output_tokens||0));$('#uCost').textContent=fmtMoney(u.today_cost_usd||0)+' / '+fmtMoney(u.daily_budget_usd||0)}
 function mission(){const j=S.selectedJob;let active=2,title=tr('mission.next'),copy=tr('mission.create');if(j){if(j.status==='waiting_approval'){active=4;title=tr('mission.review');copy=tr('mission.reviewCopy')}else if(j.status==='done'){active=5;title=tr('mission.done');copy=tr('mission.doneCopy')}else if(j.status==='running'){active=3;title=tr('mission.working');copy=tr('mission.workingCopy',{stage:stageLabel(j.stage)})}else{active=3;title=tr('mission.ready');copy=tr('mission.readyCopy',{title:j.title})}}$('#missionTitle').textContent=title;$('#missionCopy').textContent=copy;[1,2,3,4,5].forEach(n=>{const e=$('#step'+n);e.classList.remove('active','done');if(n===active)e.classList.add('active');if(n<active)e.classList.add('done')})}
 function connections(){const groups=[['group.publishing',['Metricool','YouTube','Instagram','TikTok']],['group.intelligence',['vidIQ','LLM']],['group.generation',['Voice','Video']]],ico={Metricool:'∞',YouTube:'▶',Instagram:'◎',TikTok:'♪',vidIQ:'IQ',LLM:'AI',Voice:'◖',Video:'▣'};let h='';groups.forEach(([g,arr])=>{h+='<div class="group">'+tr(g)+'</div>';arr.forEach(k=>{const v=S.connections[k];if(!v)return;const label=v.state==='not_configured'?tr('state.needsSetup'):tr('state.'+v.state)||v.state;h+='<div class="conn"><div class="svc">'+ico[k]+'</div><div><b>'+k+'</b><small>'+esc(v.detail)+'</small></div><span class="status '+v.state+'">'+esc(label)+'</span></div>'})});$('#connections').innerHTML=h}
-function agents(){const r=$('#agentBadges');r.innerHTML='';Object.entries(S.agentStates).filter(([name])=>name!=='Design Partner').forEach(([name,state])=>{const p=pos[name]||[50,50],d=document.createElement('div'),pr=(S.agentProgress||{})[name]||{},m=(S.agentMetrics||{})[name]||{};d.className='agent '+state;d.style.left=p[0]+'%';d.style.top=p[1]+'%';const key=state==='working'?'agent.working':state==='waiting'?'agent.waiting':state==='done'?'agent.done':state==='monitoring'?'agent.monitoring':state==='failed'?'agent.failed':'agent.idle',t=tr(key);const pct=state==='done'&&Number(pr.progress||0)===0?100:Number(pr.progress||0);const step=pr.step&&pr.step!=='Idle'?pr.step:t;d.dataset.name=name.toLowerCase();d.innerHTML='<span class="agentAvatar">'+esc(initials(name))+'</span><span class="agentText"><b><span class="dot"></span>'+esc(name)+'</b><small>'+esc(step)+' · '+pct+'%</small></span><div class="agentMiniBar"><i style="width:'+pct+'%"></i></div><div class="agentTooltip"><b>'+esc(name)+' · '+esc(t)+'</b><span>'+tr('agent.currentStep')+': '+esc(step)+'</span><span>'+tr('agent.runs')+': '+Number(m.runs||0)+' · '+tr('agent.artifacts')+': '+Number(m.artifacts||0)+'</span><span>'+tr('agent.mcpHint')+'</span><span class="hoverPct">'+pct+'% '+tr('agent.complete')+'</span></div>';d.onclick=()=>openAgent(name);r.appendChild(d)});$('#agentCount').textContent=tr('agent.count',{n:Object.keys(S.agentStates).filter(x=>x!=='Design Partner').length})}
+function agents(){
+ const r=$('#agentBadges');r.innerHTML='';
+ const results=(S&&S.selectedJobWorkerResults)||{};
+ Object.entries(S.agentStates).filter(([name])=>name!=='Design Partner').forEach(([name,state])=>{
+   const p=pos[name]||[50,50],d=document.createElement('div'),pr=(S.agentProgress||{})[name]||{},m=(S.agentMetrics||{})[name]||{},res=results[name]||{},run=res.run||{};
+   d.className='agent '+state;d.style.left=p[0]+'%';d.style.top=p[1]+'%';
+   const key=state==='working'?'agent.working':state==='waiting'?'agent.waiting':state==='done'?'agent.done':state==='monitoring'?'agent.monitoring':state==='failed'?'agent.failed':'agent.idle',t=tr(key);
+   const pct=state==='done'&&Number(pr.progress||0)===0?100:Number(pr.progress||0),step=pr.step&&pr.step!=='Idle'?pr.step:t;
+   const purpose=workerPurpose(name)||((S.agentMap||{})[name]||'');
+   const latest=res.preview?textValue(res.preview).slice(0,260):tr('worker.noArtifact');
+   const selectedMeta=res.id?(fmtTokens(Number(run.input_tokens||0)+Number(run.output_tokens||0))+' tok · '+fmtMoney(run.cost_usd||0)+' · '+Number(res.artifact_count||1)+' '+tr('worker.artifactCount')):'';
+   d.dataset.name=name.toLowerCase();
+   d.innerHTML='<span class="agentAvatar">'+esc(initials(name))+'</span><span class="agentText"><b><span class="dot"></span>'+esc(name)+'</b><small>'+esc(step)+' · '+pct+'%</small></span><div class="agentMiniBar"><i style="width:'+pct+'%"></i></div>'
+    +'<div class="agentTooltip"><b>'+esc(name)+' · '+esc(t)+'</b>'
+    +(purpose?'<span><strong>'+esc(tr('worker.role'))+':</strong> '+esc(purpose)+'</span>':'')
+    +'<span>'+esc(tr('agent.currentStep'))+': '+esc(step)+'</span>'
+    +'<span><strong>'+esc(tr('worker.latestResult'))+':</strong> '+esc(latest)+'</span>'
+    +(selectedMeta?'<span>'+esc(selectedMeta)+'</span>':'')
+    +'<span>'+esc(tr('worker.clickFull'))+'</span><span class="hoverPct">'+pct+'% '+esc(tr('agent.complete'))+'</span></div>';
+   d.onclick=()=>openAgent(name);r.appendChild(d)
+ });
+ $('#agentCount').textContent=tr('agent.count',{n:Object.keys(S.agentStates).filter(x=>x!=='Design Partner').length})
+}
 function officeFlow(){
  const svg=$('#officeFlow');if(!svg||!S)return;
  const deps=S.agentDependencies||{},states=S.agentStates||{},handoffs=S.selectedJobHandoffs||[];
@@ -890,18 +1141,26 @@ function errorCenter(){
  }).join('');
 }
 
+const WORKER_KEY={"Scout":"scout","Researcher":"researcher","Tech Verifier":"techverifier","Angle Strategist":"anglestrategist","Hook Generator":"hookgenerator","Scriptwriter":"scriptwriter","Fact Checker":"factchecker","Hook Optimizer":"hookoptimizer","Editor":"editor","Content Packager":"contentpackager","Visual Director":"visualdirector","Voice Agent":"voiceagent","Render Agent":"renderagent","QA Agent":"qaagent","Publisher":"publisher","Analyst":"analyst","Supervisor":"supervisor","Hook Writer":"hookwriter","Design Partner":"designpartner"};
+function workerPurpose(name){const k='worker.purpose.'+(WORKER_KEY[name]||'');const v=tr(k);return v===k?'':v}
 function workerStateLabel(state){const key='worker.state.'+(state||'idle'),value=tr(key);return value===key?(state||'idle'):value}
+function cycleStateLabel(state){const k='cycle.status.'+(state||'ready'),v=tr(k);return v===k?(state||'ready'):v}
+function cyclePhaseLabel(phase){const k='cycle.phase.'+(phase||'signals'),v=tr(k);return v===k?(phase||'signals'):v}
 function workerResults(){
  const root=$('#workerResults'),errorsRoot=$('#factoryErrors'),stream=$('#handoffStream');if(!root||!S)return;
  const results=S.selectedJobWorkerResults||{},states=S.agentStates||{},errors=S.selectedJobAgentErrors||{},handoffs=S.selectedJobHandoffs||[],order=Object.keys(pos).filter(x=>x!=='Supervisor');
  const liveErrors=order.filter(name=>states[name]==='failed'&&errors[name]);
  errorsRoot.innerHTML=liveErrors.map(name=>{const er=errors[name]||{},p=er.policy||{};return '<div class="factoryError"><b>'+esc(name)+'</b><span>'+esc(errorPolicyText(p,'title'))+' · '+esc(errorPolicyText(p,'action'))+'</span>'+(p.retryable===false?'<span class="tiny">'+esc(tr('error.dependencyRequired'))+'</span>':'<button class="btn" onclick="rerunAgent(\''+esc(name)+'\',\''+esc(er.run_id||'')+'\','+(p.requires_confirmation?'true':'false')+')">↻ '+esc(tr('error.retry'))+'</button>')+'</div>'}).join('');
  root.innerHTML=order.map(name=>{
-   const state=states[name]||'idle',r=results[name],err=errors[name],incoming=handoffs.filter(x=>x.target_agent===name).slice(0,3),outgoing=handoffs.filter(x=>x.source_agent===name).slice(0,3);
+   const state=states[name]||'idle',r=results[name]||null,err=errors[name],incoming=handoffs.filter(x=>x.target_agent===name).slice(0,3),outgoing=handoffs.filter(x=>x.source_agent===name).slice(0,3),run=(r&&r.run)||{};
    const title=r?(r.title||r.kind||tr('worker.output')):(state==='failed'?tr('worker.failed'):tr('worker.waiting'));
    const preview=r?(r.preview||tr('worker.artifactSaved')):(state==='failed'?(err&&err.error||tr('error.workerFailure')):tr('worker.noArtifact'));
-   const mode=r&&r.mode?r.mode.replace('_',' '):'—',model=r&&r.model?r.model:'',chips=incoming.map(x=>'<span class="handoffChip">← '+esc(x.source_agent)+'</span>').concat(outgoing.map(x=>'<span class="handoffChip">→ '+esc(x.target_agent)+'</span>')).join('');
-   return '<div class="workerResult '+state+'" onclick="openAgent(\''+esc(name)+'\')"><div class="workerResultTop"><b>'+esc(name)+'</b><span class="workerResultState">'+esc(workerStateLabel(state))+'</span></div><span class="workerResultTitle">'+esc(title)+'</span><div class="workerResultPreview">'+esc(preview)+'</div><div class="handoffChips">'+chips+'</div><div class="workerResultMeta"><span>'+esc(mode)+'</span><span>'+esc(model)+'</span></div></div>';
+   const mode=r&&r.mode?textValue(r.mode).replace('_',' '):'—',model=r&&r.model?r.model:'';
+   const chips=incoming.map(x=>'<span class="handoffChip">← '+esc(x.source_agent)+'</span>').concat(outgoing.map(x=>'<span class="handoffChip">→ '+esc(x.target_agent)+'</span>')).join('');
+   const accounting=r?'<span>'+fmtTokens(Number(run.input_tokens||0)+Number(run.output_tokens||0))+' tok</span><span>'+fmtMoney(run.cost_usd||0)+'</span><span>'+Number(r.artifact_count||1)+' '+esc(tr('worker.artifactCount'))+'</span>':'';
+   return '<div class="workerResult '+state+'" data-help="help.worker" title="'+esc(workerPurpose(name))+'" onclick="openAgent(\''+esc(name)+'\')"><div class="workerResultTop"><b>'+esc(name)+'</b><span class="workerResultState">'+esc(workerStateLabel(state))+'</span></div>'
+    +(workerPurpose(name)?'<span class="tiny">'+esc(workerPurpose(name))+'</span>':'')
+    +'<span class="workerResultTitle">'+esc(title)+'</span><div class="workerResultPreview">'+esc(preview)+'</div><div class="handoffChips">'+chips+'</div><div class="workerResultMeta"><span>'+esc(mode)+'</span><span>'+esc(model)+'</span>'+accounting+'</div></div>';
  }).join('');
  const unique=[];const seen=new Set();handoffs.forEach(x=>{const k=x.source_agent+'>'+x.target_agent+'>'+x.artifact_id;if(!seen.has(k)){seen.add(k);unique.push(x)}});
  const traceTitle=esc(tr('worker.openTrace'));
@@ -1152,51 +1411,95 @@ async function openAutonomousFactory(){_openFlow('cycle');const root=$('#cycleBo
 function closeAutonomousFactory(){clearInterval(cyclePollTimer);cyclePollTimer=null;_closeFlow('cycle')}
 function cycleStatusClass(x){return x==='learning_ready'?'good':(['waiting_approval','scheduled','published','measured'].includes(x)?'warn':(['failed','rejected'].includes(x)?'bad':''))}
 function cycleMetricText(c){const m=(((c.performance||{}).latest||{}).metrics)||{},a=[];if(m.views!=null)a.push('views '+m.views);if(m.retention_pct!=null)a.push('ret '+m.retention_pct+'%');if(m.completion_rate_pct!=null)a.push('completion '+m.completion_rate_pct+'%');return a.join(' · ')||'—'}
-async function renderAutonomousFactory(silent=false){const root=$('#cycleBody');if(!root)return;try{const d=await api('/api/factory-cycles'),cycles=d.cycles||[],sm=d.summary||{};let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.cycles||0)+'</b><span>cycles</span></div><div class="flowStat"><b>'+Number(sm.active||0)+'</b><span>active</span></div><div class="flowStat"><b>'+Number(sm.waiting_approval||0)+'</b><span>review</span></div><div class="flowStat"><b>'+Number(sm.learning_ready||0)+'</b><span>learned</span></div></div><article class="flowCard"><h3>v4.0 closed-loop control</h3><p>'+esc(d.safety_note||tr('cycle.safety'))+'</p><div class="flowActions"><button class="btn primary" onclick="createFactoryCycle()">+ '+esc(tr('cycle.new'))+'</button><button class="btn" onclick="openContentBrain()">✦ Content Brain</button><button class="btn" onclick="openExperimentLab()">⌘ '+esc(tr('experiment.nav'))+'</button></div></article>';if(!cycles.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('cycle.noCycles'))+'</div>';return}out+='<div class="flowGrid" style="margin-top:10px">'+cycles.map(c=>{const idea=c.idea||{},job=c.job||{},pub=c.publish||{},learn=c.learning||{};let actions='<button class="btn" onclick="syncFactoryCycle(\''+c.id+'\')">↻ '+esc(tr('cycle.sync'))+'</button>';if(['ready','failed'].includes(c.status)&&job.status!=='waiting_approval')actions+='<button class="btn primary" onclick="runFactoryCycle(\''+c.id+'\')">▶ '+esc(tr('cycle.run'))+'</button>';if(c.status==='waiting_approval'&&c.job_id)actions+='<button class="btn good" onclick="openCycleReview(\''+c.job_id+'\')">✓ '+esc(tr('cycle.review'))+'</button>';if(['approved','scheduled','published'].includes(c.status)||pub.id)actions+='<button class="btn" onclick="openPublishingStudio()">⇧ '+esc(tr('cycle.publish'))+'</button>';if(['published','measured','learning_ready'].includes(c.status))actions+='<button class="btn" onclick="openPerformanceStudio()">↗ '+esc(tr('cycle.performance'))+'</button>';if(['published','measured'].includes(c.status))actions+='<button class="btn" onclick="learnFactoryCycleUi(\''+c.id+'\')">◇ '+esc(tr('cycle.learn'))+'</button>';if(c.status==='learning_ready')actions+='<button class="btn primary" onclick="nextFactoryCycle(\''+c.id+'\')">∞ '+esc(tr('cycle.next'))+'</button>';const events=(c.events||[]).slice(0,5).map(e=>e.ts.slice(11,19)+' · '+e.phase+' · '+e.message).join('\n')||'—';return '<article class="flowCard"><h3>'+esc(idea.title||job.title||('Cycle '+c.id.slice(0,8)))+'</h3><div class="flowMeta"><span class="flowPill '+cycleStatusClass(c.status)+'">'+esc(c.status)+'</span><span class="flowPill">'+esc(c.phase||'signals')+'</span><span class="flowPill">'+Number((c.signals||[]).length)+' '+esc(tr('cycle.signals'))+'</span><span class="flowPill">wf '+esc(String(c.workflow_version_id||'').slice(0,8))+'</span></div><div class="packageSection"><strong>'+esc(tr('cycle.idea'))+'</strong><span>'+esc(idea.title||'—')+(idea.score!=null?' · score '+Number(idea.score).toFixed(2):'')+'</span></div><div class="packageSection"><strong>'+esc(tr('cycle.job'))+'</strong><span>'+esc(job.title||'—')+' · '+esc(job.status||'not created')+'</span></div><div class="packageSection"><strong>'+esc(tr('cycle.metrics'))+'</strong><span>'+esc(cycleMetricText(c))+'</span></div><div class="packageSection"><strong>'+esc(tr('cycle.learning'))+'</strong><span>'+esc(learn.recommendation||'—')+'</span></div><div class="packageSection"><strong>Recent cycle events</strong><pre>'+esc(events)+'</pre></div><div class="flowActions">'+actions+'</div></article>'}).join('')+'</div>';root.innerHTML=out}catch(e){if(!silent)root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}}
-async function createFactoryCycle(){try{await api('/api/factory-cycles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({signal_ids:[],language:'English'})});toast(tr('cycle.created'));renderAutonomousFactory();await refresh()}catch(e){toast(e.message)}}
-async function runFactoryCycle(id){try{let r=await api('/api/factory-cycles/'+id+'/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_cost:false,max_ideas:3,language:'English'})});if(r.requiresCostConfirmation){const cost=fmtMoney(((r.quote||{}).estimated_max_usd)||0);if(!confirm(tr('cycle.costConfirm',{cost})))return;r=await api('/api/factory-cycles/'+id+'/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_cost:true,max_ideas:3,language:'English'})})}toast(r.message||tr('cycle.started'));renderAutonomousFactory();await refresh()}catch(e){toast(e.message)}}
+async function renderAutonomousFactory(silent=false){
+ const root=$('#cycleBody');if(!root)return;
+ try{
+  const d=await api('/api/factory-cycles'),cycles=d.cycles||[],sm=d.summary||{};
+  let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.cycles||0)+'</b><span>'+esc(tr('cycle.statCycles'))+'</span></div><div class="flowStat"><b>'+Number(sm.active||0)+'</b><span>'+esc(tr('cycle.statActive'))+'</span></div><div class="flowStat"><b>'+Number(sm.waiting_approval||0)+'</b><span>'+esc(tr('cycle.statReview'))+'</span></div><div class="flowStat"><b>'+Number(sm.learning_ready||0)+'</b><span>'+esc(tr('cycle.statLearned'))+'</span></div></div>';
+  out+='<article class="flowCard" data-help="help.cycle" title="'+esc(helpTitle('help.cycle'))+'"><h3>'+esc(tr('cycle.control'))+'</h3><p>'+esc(d.safety_note||tr('cycle.safety'))+'</p><div class="flowActions"><button class="btn primary" onclick="createFactoryCycle()">+ '+esc(tr('cycle.new'))+'</button><button class="btn" data-help="help.brain" title="'+esc(helpTitle('help.brain'))+'" onclick="openContentBrain()">✦ '+esc(tr('brain.nav'))+'</button><button class="btn" data-help="help.experiment" title="'+esc(helpTitle('help.experiment'))+'" onclick="openExperimentLab()">⌘ '+esc(tr('experiment.nav'))+'</button></div></article>';
+  if(!cycles.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('cycle.noCycles'))+'</div>';return}
+  out+='<div class="flowGrid" style="margin-top:10px">'+cycles.map(c=>{
+   const idea=c.idea||{},job=c.job||{},pub=c.publish||{},learn=c.learning||{};
+   let actions='<button class="btn" onclick="syncFactoryCycle(\''+c.id+'\')">↻ '+esc(tr('cycle.sync'))+'</button>';
+   if(['ready','failed'].includes(c.status)&&job.status!=='waiting_approval')actions+='<button class="btn primary" onclick="runFactoryCycle(\''+c.id+'\')">▶ '+esc(tr('cycle.run'))+'</button>';
+   if(c.status==='waiting_approval'&&c.job_id)actions+='<button class="btn good" data-help="help.approval" title="'+esc(helpTitle('help.approval'))+'" onclick="openCycleReview(\''+c.job_id+'\')">✓ '+esc(tr('cycle.review'))+'</button>';
+   if(['approved','scheduled','published'].includes(c.status)||pub.id)actions+='<button class="btn" onclick="openPublishingStudio()">⇧ '+esc(tr('cycle.publish'))+'</button>';
+   if(['published','measured','learning_ready'].includes(c.status))actions+='<button class="btn" onclick="openPerformanceStudio()">↗ '+esc(tr('cycle.performance'))+'</button>';
+   if(['published','measured'].includes(c.status))actions+='<button class="btn" onclick="learnFactoryCycleUi(\''+c.id+'\')">◇ '+esc(tr('cycle.learn'))+'</button>';
+   if(c.status==='learning_ready')actions+='<button class="btn primary" onclick="nextFactoryCycle(\''+c.id+'\')">∞ '+esc(tr('cycle.next'))+'</button>';
+   const events=(c.events||[]).slice(0,5).map(e=>safeDate(e.ts).slice(11,19)+' · '+cyclePhaseLabel(e.phase)+' · '+textValue(e.message)).join('\n')||'—';
+   return '<article class="flowCard"><h3>'+esc(idea.title||job.title||('Cycle '+textValue(c.id).slice(0,8)))+'</h3><div class="flowMeta"><span class="flowPill '+cycleStatusClass(c.status)+'">'+esc(cycleStateLabel(c.status))+'</span><span class="flowPill">'+esc(cyclePhaseLabel(c.phase))+'</span><span class="flowPill">'+Number((c.signals||[]).length)+' '+esc(tr('cycle.signals'))+'</span><span class="flowPill">wf '+esc(textValue(c.workflow_version_id).slice(0,8))+'</span></div>'
+    +'<div class="packageSection"><strong>'+esc(tr('cycle.idea'))+'</strong><span>'+esc(idea.title||'—')+(idea.score!=null?' · '+esc(tr('cycle.score'))+' '+Number(idea.score).toFixed(2):'')+'</span></div>'
+    +'<div class="packageSection"><strong>'+esc(tr('cycle.job'))+'</strong><span>'+esc(job.title||'—')+' · '+esc(job.status?cycleStateLabel(job.status):tr('cycle.notCreated'))+'</span></div>'
+    +'<div class="packageSection"><strong>'+esc(tr('cycle.metrics'))+'</strong><span>'+esc(cycleMetricText(c))+'</span></div><div class="packageSection"><strong>'+esc(tr('cycle.learning'))+'</strong><span>'+esc(learn.recommendation||'—')+'</span></div>'
+    +'<div class="packageSection"><strong>'+esc(tr('cycle.recentEvents'))+'</strong><pre>'+esc(events)+'</pre></div><div class="flowActions">'+actions+'</div></article>';
+  }).join('')+'</div>';root.innerHTML=out
+ }catch(e){if(!silent)root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}
+}
+
+async function createFactoryCycle(){const language=LANG==='uk'?'Ukrainian':LANG==='ru'?'Russian':'English';try{await api('/api/factory-cycles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({signal_ids:[],language})});toast(tr('cycle.created'));renderAutonomousFactory();await refresh()}catch(e){toast(e.message)}}
+async function runFactoryCycle(id){const language=LANG==='uk'?'Ukrainian':LANG==='ru'?'Russian':'English';try{let r=await api('/api/factory-cycles/'+id+'/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_cost:false,max_ideas:3,language})});if(r.requiresCostConfirmation){const cost=fmtMoney(((r.quote||{}).estimated_max_usd)||0);if(!confirm(tr('cycle.costConfirm',{cost})))return;r=await api('/api/factory-cycles/'+id+'/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_cost:true,max_ideas:3,language})})}toast(r.message||tr('cycle.started'));renderAutonomousFactory();await refresh()}catch(e){toast(e.message)}}
 async function syncFactoryCycle(id){try{await api('/api/factory-cycles/'+id+'/sync',{method:'POST'});renderAutonomousFactory();await refresh()}catch(e){toast(e.message)}}
 async function openCycleReview(jobId){try{await api('/api/jobs/'+jobId+'/select',{method:'POST'});await refresh();openApprovalStudio()}catch(e){toast(e.message)}}
 async function learnFactoryCycleUi(id){try{const r=await api('/api/factory-cycles/'+id+'/learn',{method:'POST'});toast(r.ready?'Learning saved':(r.reason||'No metrics yet'));renderAutonomousFactory();await refresh()}catch(e){toast(e.message)}}
 async function nextFactoryCycle(id){try{await api('/api/factory-cycles/'+id+'/next',{method:'POST'});toast(tr('cycle.nextCreated'));renderAutonomousFactory();await refresh()}catch(e){toast(e.message)}}
 
-async function openApprovalStudio(){_openFlow('approval');const root=$('#approvalBody');root.innerHTML='<div class="flowEmpty">Loading approval queue…</div>';try{const q=S&&S.selectedJobId?'?job_id='+encodeURIComponent(S.selectedJobId):'';renderApprovalStudio(await api('/api/approval'+q))}catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}}
+async function openApprovalStudio(){_openFlow('approval');const root=$('#approvalBody');root.innerHTML='<div class="flowEmpty">'+esc(tr('approval.loading'))+'</div>';try{const q=S&&S.selectedJobId?'?job_id='+encodeURIComponent(S.selectedJobId):'';renderApprovalStudio(await api('/api/approval'+q))}catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}}
 function closeApprovalStudio(){_closeFlow('approval')}
 function renderApprovalStudio(d){
  const root=$('#approvalBody'),items=d.items||[],s=d.summary||{},quotes=d.regeneration_quotes||{};
- let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(s.waiting||0)+'</b><span>waiting</span></div><div class="flowStat"><b>'+Number(s.approved||0)+'</b><span>approved</span></div><div class="flowStat"><b>'+Number(s.rejected||0)+'</b><span>rejected</span></div><div class="flowStat"><b>'+Number(s.items||0)+'</b><span>review items</span></div></div>';
- if(!items.length){root.innerHTML=out+'<div class="flowEmpty">No jobs are currently in the approval workflow.</div>';return}
- out+='<div class="flowGrid">'+items.map(x=>{const j=x.job||{},p=(x.package||{}).package||{},v=x.variants||{},sel=(v.variants||[]).find(y=>y.status==='selected')||{},hist=x.history||[],diff=(x.variant_diff||{}).comparisons||[],pub=x.publish||{};
-  const findings=((sel.qa||{}).findings||[]).map(f=>f.type+': '+f.message).join('\n')||'No structured findings recorded.';
-  const sources=(p.source_list||[]).slice(0,8).map(z=>z.value||z.title||z.artifact_id).join('\n')||'No sources recorded.';
-  const regen=(c,label)=>'<button class="btn" onclick="approvalRegenerate(\''+j.id+'\',\''+c+'\','+Number((quotes[c]||{}).estimated_model_cost_usd||0)+')">'+label+'</button>';
-  return '<article class="flowCard"><h3>'+esc(j.title||'Untitled')+'</h3><div class="flowMeta"><span class="flowPill '+(j.status==='approved'?'good':j.status==='rejected'?'bad':'warn')+'">'+esc(j.status)+'</span><span class="flowPill">'+Number(p.estimated_duration_sec||0)+'s</span><span class="flowPill">'+fmtMoney(((p.production_cost||{}).job_total_measured_usd)||0)+'</span><span class="flowPill">variants '+Number((v.summary||{}).variants||0)+'</span></div>'
-   +(x.preview&&x.preview.url?'<div class="packageSection"><strong>Preview</strong><a href="'+esc(x.preview.url)+'" target="_blank">'+esc(x.preview.title||'Open render')+'</a></div>':'')
-   +'<div class="packageSection"><strong>Hook</strong><span>'+esc(p.hook||sel.optimized_hook||sel.hook||'—')+'</span></div><div class="packageSection"><strong>Script</strong><pre>'+esc(p.final_script||sel.edited_script||'—')+'</pre></div>'
-   +'<div class="packageSection"><strong>Sources</strong><pre>'+esc(sources)+'</pre></div><div class="packageSection"><strong>Fact / QA warnings</strong><pre>'+esc(findings)+'</pre></div><div class="packageSection"><strong>Variant diff</strong><span>'+diff.length+' comparison(s) · selected #'+esc(String((x.variant_diff||{}).selected?.ordinal||'—'))+'</span></div><div class="packageSection"><strong>Publish target</strong><span>'+esc(pub.status||'not queued')+' · '+esc(pub.platform||'not selected')+'</span></div>'
-   +'<div class="flowActions">'+regen('hook','↻ Hook '+fmtMoney((quotes.hook||{}).estimated_model_cost_usd||0))+regen('script','↻ Script '+fmtMoney((quotes.script||{}).estimated_model_cost_usd||0))+regen('caption','↻ Caption '+fmtMoney((quotes.caption||{}).estimated_model_cost_usd||0))+regen('voice','↻ Voice')+'</div>'
-   +(j.status==='waiting_approval'?'<div class="flowActions"><button class="btn good" onclick="approvalApprove(\''+j.id+'\')">✓ Approve to queue</button><button class="btn" onclick="approvalReject(\''+j.id+'\')">× Reject</button></div>':'')
-   +'<div class="packageSection"><strong>Decision history</strong><pre>'+esc(hist.slice(0,6).map(h=>h.created_at+' · '+h.decision+(h.reason?' · '+h.reason:'')).join('\n')||'No decisions yet')+'</pre></div></article>'
+ let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(s.waiting||0)+'</b><span>'+esc(tr('approval.statWaiting'))+'</span></div><div class="flowStat"><b>'+Number(s.approved||0)+'</b><span>'+esc(tr('approval.statApproved'))+'</span></div><div class="flowStat"><b>'+Number(s.rejected||0)+'</b><span>'+esc(tr('approval.statRejected'))+'</span></div><div class="flowStat"><b>'+Number(s.items||0)+'</b><span>'+esc(tr('approval.statItems'))+'</span></div></div>';
+ out+='<div class="explainStrip"><div><b>'+esc(tr('approval.hook'))+'</b><span>'+esc(tr('approval.hookHelp'))+'</span></div><div><b>'+esc(tr('approval.warnings'))+'</b><span>'+esc(tr('approval.warningsHelp'))+'</span></div><div><b>'+esc(tr('approval.publishTarget'))+'</b><span>'+esc(tr('approval.publishTargetHelp'))+'</span></div></div>';
+ if(!items.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('approval.empty'))+'</div>';return}
+ out+='<div class="flowGrid">'+items.map(x=>{
+  const j=x.job||{},p=(x.package||{}).package||{},v=x.variants||{},sel=(v.variants||[]).find(y=>y.status==='selected')||{},hist=x.history||[],diff=(x.variant_diff||{}).comparisons||[],pub=x.publish||{};
+  const findings=((sel.qa||{}).findings||[]).map(f=>textValue(f.type)+': '+textValue(f.message)).join('\n')||tr('approval.noFindings');
+  const sources=(p.source_list||[]).slice(0,8).map(z=>textValue(z.value||z.title||z.artifact_id)).join('\n')||tr('approval.noSources');
+  const regen=(c,label)=>'<button class="btn" data-help="help.regenerate" title="'+esc(helpTitle('help.regenerate'))+'" onclick="approvalRegenerate(\''+j.id+'\',\''+c+'\','+Number((quotes[c]||{}).estimated_model_cost_usd||0)+')">'+label+'</button>';
+  const legacy=!!x.legacy_incomplete;
+  const ready=!!x.review_ready;
+  const legacyBanner=legacy?'<div class="legacyBanner"><b>'+esc(tr('approval.legacy'))+'</b><br>'+esc(tr('approval.legacyHelp'))+'</div>':'';
+  const approveActions=(j.status==='waiting_approval'&&ready)?'<div class="flowActions"><button class="btn good" data-help="help.approveQueue" title="'+esc(helpTitle('help.approveQueue'))+'" onclick="approvalApprove(\''+j.id+'\')">✓ '+esc(tr('approval.approveQueue'))+'</button><button class="btn" data-help="help.reject" title="'+esc(helpTitle('help.reject'))+'" onclick="approvalReject(\''+j.id+'\')">× '+esc(tr('approval.reject'))+'</button></div>':(j.status==='waiting_approval'?'<div class="flowActions"><button class="btn" disabled>'+esc(tr('approval.legacy'))+'</button><button class="btn" onclick="approvalReject(\''+j.id+'\')">× '+esc(tr('approval.reject'))+'</button></div>':'');
+  return '<article class="flowCard"><h3>'+esc(j.title||'Untitled')+'</h3>'+legacyBanner+'<div class="flowMeta"><span class="flowPill '+(j.status==='approved'?'good':j.status==='rejected'?'bad':'warn')+'">'+esc(cycleStateLabel(j.status))+'</span><span class="flowPill">'+Number(p.estimated_duration_sec||0)+'s</span><span class="flowPill">'+fmtMoney(((p.production_cost||{}).job_total_measured_usd)||0)+'</span><span class="flowPill">'+esc(tr('approval.variants'))+' '+Number((v.summary||{}).variants||0)+'</span></div>'
+   +(x.preview&&x.preview.url?'<div class="packageSection"><strong>'+esc(tr('approval.preview'))+'</strong><a href="'+esc(x.preview.url)+'" target="_blank" rel="noopener">'+esc(x.preview.title||tr('worker.openMedia'))+'</a></div>':'')
+   +'<div class="packageSection" title="'+esc(tr('approval.hookHelp'))+'"><strong>'+esc(tr('approval.hook'))+'</strong><span>'+esc(p.hook||sel.optimized_hook||sel.hook||'—')+'</span></div>'
+   +'<div class="packageSection" title="'+esc(tr('approval.scriptHelp'))+'"><strong>'+esc(tr('approval.script'))+'</strong><pre>'+esc(p.final_script||sel.edited_script||'—')+'</pre></div>'
+   +'<div class="packageSection" title="'+esc(tr('approval.sourcesHelp'))+'"><strong>'+esc(tr('approval.sources'))+'</strong><pre>'+esc(sources)+'</pre></div>'
+   +'<div class="packageSection" title="'+esc(tr('approval.warningsHelp'))+'"><strong>'+esc(tr('approval.warnings'))+'</strong><pre>'+esc(findings)+'</pre></div>'
+   +'<div class="packageSection" title="'+esc(tr('approval.variantDiffHelp'))+'"><strong>'+esc(tr('approval.variantDiff'))+'</strong><span>'+Number(diff.length)+' · #'+esc(textValue((x.variant_diff||{}).selected?.ordinal||'—'))+'</span></div>'
+   +'<div class="packageSection" title="'+esc(tr('approval.publishTargetHelp'))+'"><strong>'+esc(tr('approval.publishTarget'))+'</strong><span>'+esc(pub.status||'—')+' · '+esc(pub.platform||'—')+'</span></div>'
+   +(ready?'<div class="flowActions">'+regen('hook','↻ '+esc(tr('approval.hook'))+' '+fmtMoney((quotes.hook||{}).estimated_model_cost_usd||0))+regen('script','↻ '+esc(tr('approval.script'))+' '+fmtMoney((quotes.script||{}).estimated_model_cost_usd||0))+regen('caption','↻ Caption '+fmtMoney((quotes.caption||{}).estimated_model_cost_usd||0))+regen('voice','↻ Voice')+'</div>':'')
+   +approveActions
+   +'<div class="packageSection"><strong>'+esc(tr('approval.history'))+'</strong><pre>'+esc(hist.slice(0,6).map(h=>safeDate(h.created_at)+' · '+textValue(h.decision)+(h.reason?' · '+textValue(h.reason):'')).join('\n')||tr('approval.noDecisions'))+'</pre></div></article>';
  }).join('')+'</div>';root.innerHTML=out;
 }
-async function approvalApprove(jobId){const r=await api('/api/jobs/'+jobId+'/approve',{method:'POST'});toast(r.message||'Approved');await refresh();openApprovalStudio()}
-async function approvalReject(jobId){const reason=prompt('Reject reason');if(!reason)return;const r=await api('/api/jobs/'+jobId+'/reject',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})});toast(r.message||'Rejected');await refresh();openApprovalStudio()}
-async function approvalRegenerate(jobId,component,cost){if(cost>0&&!confirm('Targeted '+component+' regeneration. Estimated model cost before call: '+fmtMoney(cost)+'. Continue?'))return;const r=await api('/api/jobs/'+jobId+'/approval/regenerate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({component,confirm_cost:true})});toast(r.ok?'Regeneration completed':(r.message||'Regeneration blocked'));await refresh();openApprovalStudio()}
 
-async function openPublishingStudio(){_openFlow('publishing');const root=$('#publishingBody');root.innerHTML='<div class="flowEmpty">Loading publishing queue…</div>';try{renderPublishingStudio(await api('/api/publishing'))}catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}}
+async function approvalApprove(jobId){const r=await api('/api/jobs/'+jobId+'/approve',{method:'POST'});toast(r.message||tr('approval.approved'));await refresh();openApprovalStudio()}
+async function approvalReject(jobId){const reason=prompt(tr('approval.rejectReason'));if(!reason)return;const r=await api('/api/jobs/'+jobId+'/reject',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})});toast(r.message||tr('approval.rejected'));await refresh();openApprovalStudio()}
+async function approvalRegenerate(jobId,component,cost){if(cost>0&&!confirm(tr('approval.regenConfirm',{component,cost:fmtMoney(cost)})))return;const r=await api('/api/jobs/'+jobId+'/approval/regenerate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({component,confirm_cost:true})});toast(r.ok?tr('approval.regenDone'):(r.message||tr('approval.regenBlocked')));await refresh();openApprovalStudio()}
+
+async function openPublishingStudio(){_openFlow('publishing');const root=$('#publishingBody');root.innerHTML='<div class="flowEmpty">'+esc(tr('publishing.loading'))+'</div>';try{renderPublishingStudio(await api('/api/publishing'))}catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}}
 function closePublishingStudio(){_closeFlow('publishing')}
-function renderPublishingStudio(d){const root=$('#publishingBody'),items=d.items||[],a=d.adapter||{},s=d.summary||{};let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(s.total||0)+'</b><span>queue</span></div><div class="flowStat"><b>'+Number(s.scheduled||0)+'</b><span>scheduled</span></div><div class="flowStat"><b>'+Number(s.published||0)+'</b><span>published</span></div><div class="flowStat"><b>'+esc(a.selected||'manual')+'</b><span>adapter</span></div></div>';
- if(!items.length){root.innerHTML=out+'<div class="flowEmpty">Approve a package first. Approval never publishes by itself.</div>';return}
- out+='<div class="flowGrid">'+items.map(x=>'<article class="flowCard"><h3>'+esc(x.platform||'unspecified')+' · '+esc(x.target||'manual')+'</h3><div class="flowMeta"><span class="flowPill '+(x.status==='published'?'good':x.status==='failed'?'bad':'warn')+'">'+esc(x.status)+'</span><span class="flowPill">attempts '+Number(x.attempt_count||0)+'</span><span class="flowPill">'+esc(x.scheduled_at||'not scheduled')+'</span></div><p>idempotency '+esc((x.idempotency_key||'').slice(0,16))+'…</p>'+(x.external_post_id?'<p>post '+esc(x.external_post_id)+'</p>':'')+(x.last_error?'<p>'+esc(x.last_error)+'</p>':'')+'<div class="flowActions">'+(x.status==='approved'?'<button class="btn" onclick="scheduleQueueItem(\''+x.id+'\')">Schedule now</button>':'')+(x.status==='scheduled'||x.status==='failed'?'<button class="btn primary" onclick="publishQueueItem(\''+x.id+'\')">Publish / retry</button>':'')+(x.status==='publishing'?'<button class="btn good" onclick="confirmQueueItem(\''+x.id+'\')">Confirm real post</button>':'')+'</div></article>').join('')+'</div>';root.innerHTML=out}
+function renderPublishingStudio(d){
+ const root=$('#publishingBody'),items=d.items||[],a=d.adapter||{},sm=d.summary||{};
+ let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.total||0)+'</b><span>'+esc(tr('publishing.statQueue'))+'</span></div><div class="flowStat"><b>'+Number(sm.scheduled||0)+'</b><span>'+esc(tr('publishing.statScheduled'))+'</span></div><div class="flowStat"><b>'+Number(sm.published||0)+'</b><span>'+esc(tr('publishing.statPublished'))+'</span></div><div class="flowStat"><b>'+esc(a.selected||'manual')+'</b><span>'+esc(tr('publishing.statAdapter'))+'</span></div></div>';
+ if(!items.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('publishing.empty'))+'</div>';return}
+ out+='<div class="flowGrid">'+items.map(x=>'<article class="flowCard"><h3>'+esc(x.platform||'unspecified')+' · '+esc(x.target||'manual')+'</h3><div class="flowMeta"><span class="flowPill '+(x.status==='published'?'good':x.status==='failed'?'bad':'warn')+'">'+esc(x.status)+'</span><span class="flowPill">'+esc(tr('publishing.attempts'))+' '+Number(x.attempt_count||0)+'</span><span class="flowPill">'+esc(x.scheduled_at||tr('publishing.notScheduled'))+'</span></div><p>idempotency '+esc(textValue(x.idempotency_key).slice(0,16))+'…</p>'+(x.external_post_id?'<p>post '+esc(x.external_post_id)+'</p>':'')+(x.last_error?'<p>'+esc(x.last_error)+'</p>':'')+'<div class="flowActions">'+(x.status==='approved'?'<button class="btn" onclick="scheduleQueueItem(\''+x.id+'\')">'+esc(tr('publishing.schedule'))+'</button>':'')+(x.status==='scheduled'||x.status==='failed'?'<button class="btn primary" onclick="publishQueueItem(\''+x.id+'\')">'+esc(tr('publishing.publishRetry'))+'</button>':'')+(x.status==='publishing'?'<button class="btn good" onclick="confirmQueueItem(\''+x.id+'\')">'+esc(tr('publishing.confirm'))+'</button>':'')+'</div></article>').join('')+'</div>';root.innerHTML=out
+}
+
 async function scheduleQueueItem(id){const platform=prompt('Platform target','youtube_shorts')||'unspecified';await api('/api/publishing/'+id+'/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:'manual',platform,scheduled_at:new Date().toISOString()})});openPublishingStudio();await refresh()}
 async function publishQueueItem(id){let r=await api('/api/publishing/'+id+'/publish',{method:'POST'});if(r.requiresConfirmation&&confirm(r.message||'Retry uncertain publish?'))r=await api('/api/publishing/'+id+'/publish?confirm_uncertain=true',{method:'POST'});toast(r.message||r.status||'Publish action recorded');openPublishingStudio();await refresh()}
 async function confirmQueueItem(id){const post=prompt('Real platform post ID');if(!post)return;const url=prompt('Post URL (optional)','')||'';await api('/api/publishing/'+id+'/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({external_post_id:post,external_url:url})});toast('Published state confirmed');openPublishingStudio();await refresh()}
 
-async function openPerformanceStudio(){_openFlow('performance');const root=$('#performanceBody');root.innerHTML='<div class="flowEmpty">Loading performance data…</div>';try{renderPerformanceStudio(await api('/api/performance'))}catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}}
+async function openPerformanceStudio(){_openFlow('performance');const root=$('#performanceBody');root.innerHTML='<div class="flowEmpty">'+esc(tr('performance.loading'))+'</div>';try{renderPerformanceStudio(await api('/api/performance'))}catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}}
 function closePerformanceStudio(){_closeFlow('performance')}
-function renderPerformanceStudio(d){const root=$('#performanceBody'),items=d.items||[],s=d.summary||{},coh=d.angle_cohorts||[];let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(s.published_items||0)+'</b><span>published</span></div><div class="flowStat"><b>'+Number(s.measured_items||0)+'</b><span>measured</span></div><div class="flowStat"><b>'+Number(s.views||0).toLocaleString()+'</b><span>views</span></div><div class="flowStat"><b>'+Number(coh.length||0)+'</b><span>angle cohorts</span></div></div>';
- if(!items.length){root.innerHTML=out+'<div class="flowEmpty">No confirmed published content yet. Metrics are never invented.</div>';return}
- out+='<div class="flowGrid">'+items.map(x=>{const p=x.publish||{},m=(x.latest||{}).metrics||{},a=x.attribution||{};return '<article class="flowCard"><h3>'+esc(p.platform||'unspecified')+' · '+esc(p.external_post_id||p.id)+'</h3><div class="flowMeta"><span class="flowPill good">views '+(m.views??'—')+'</span><span class="flowPill">retention '+(m.retention_pct??'—')+'%</span><span class="flowPill">completion '+(m.completion_rate_pct??'—')+'%</span><span class="flowPill">cost/1k '+(x.cost_per_1k_views_usd==null?'—':fmtMoney(x.cost_per_1k_views_usd))+'</span></div><div class="packageSection"><strong>Attribution</strong><pre>'+esc('idea '+(a.idea_id||'—')+'\npackage '+(a.package_id||'—')+'\nvariant '+(a.variant_id||'—')+'\nangle '+(a.angle||'—')+'\nhook '+(a.hook||'—'))+'</pre></div><div class="flowActions"><button class="btn" onclick="addPerformanceSnapshot(\''+p.id+'\')">+ Metrics</button><button class="btn" onclick="syncPerformance(\''+p.id+'\')">↻ Sync adapter</button></div></article>'}).join('')+'</div><div class="flowCard" style="margin-top:10px"><h3>Angle cohorts</h3><div class="flowTable">'+coh.map(c=>'<div class="flowRow"><span>'+esc(c.angle)+'</span><span>'+Number(c.items)+' items</span><span>'+Number(c.views||0)+' views</span><span>ret '+(c.avg_retention_pct??'—')+'%</span></div>').join('')+'</div><p>'+esc(d.measurement_note||'')+'</p></div>';root.innerHTML=out}
+function renderPerformanceStudio(d){
+ const root=$('#performanceBody'),items=d.items||[],sm=d.summary||{},coh=d.angle_cohorts||[];
+ let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.published_items||0)+'</b><span>'+esc(tr('performance.statPublished'))+'</span></div><div class="flowStat"><b>'+Number(sm.measured_items||0)+'</b><span>'+esc(tr('performance.statMeasured'))+'</span></div><div class="flowStat"><b>'+Number(sm.views||0).toLocaleString()+'</b><span>'+esc(tr('performance.statViews'))+'</span></div><div class="flowStat"><b>'+Number(coh.length||0)+'</b><span>'+esc(tr('performance.statCohorts'))+'</span></div></div>';
+ if(!items.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('performance.empty'))+'</div>';return}
+ out+='<div class="flowGrid">'+items.map(x=>{const p=x.publish||{},m=(x.latest||{}).metrics||{},a=x.attribution||{};return '<article class="flowCard"><h3>'+esc(p.platform||'unspecified')+' · '+esc(p.external_post_id||p.id)+'</h3><div class="flowMeta"><span class="flowPill good">'+esc(tr('performance.statViews'))+' '+(m.views??'—')+'</span><span class="flowPill">'+esc(tr('performance.retention'))+' '+(m.retention_pct??'—')+'%</span><span class="flowPill">'+esc(tr('performance.completion'))+' '+(m.completion_rate_pct??'—')+'%</span><span class="flowPill">'+esc(tr('performance.cost1k'))+' '+(x.cost_per_1k_views_usd==null?'—':fmtMoney(x.cost_per_1k_views_usd))+'</span></div><div class="packageSection"><strong>'+esc(tr('performance.attribution'))+'</strong><pre>'+esc('idea '+(a.idea_id||'—')+'\npackage '+(a.package_id||'—')+'\nvariant '+(a.variant_id||'—')+'\nangle '+(a.angle||'—')+'\nhook '+(a.hook||'—'))+'</pre></div><div class="flowActions"><button class="btn" onclick="addPerformanceSnapshot(\''+p.id+'\')">+ '+esc(tr('performance.addMetrics'))+'</button><button class="btn" onclick="syncPerformance(\''+p.id+'\')">↻ '+esc(tr('performance.sync'))+'</button></div></article>'}).join('')+'</div><div class="flowCard" style="margin-top:10px"><h3>'+esc(tr('performance.cohorts'))+'</h3><div class="flowTable">'+coh.map(c=>'<div class="flowRow"><span>'+esc(c.angle)+'</span><span>'+Number(c.items)+' items</span><span>'+Number(c.views||0)+' '+esc(tr('performance.statViews'))+'</span><span>'+esc(tr('performance.retention'))+' '+(c.avg_retention_pct??'—')+'%</span></div>').join('')+'</div><p>'+esc(d.measurement_note||'')+'</p></div>';root.innerHTML=out
+}
+
 async function addPerformanceSnapshot(id){const views=prompt('Views (blank = unavailable)','');const retention=prompt('Retention % (blank = unavailable)','');const likes=prompt('Likes (blank = unavailable)','');const body={publish_id:id,source:'manual'};if(views!=='')body.views=Number(views);if(retention!=='')body.retention_pct=Number(retention);if(likes!=='')body.likes=Number(likes);if(Object.keys(body).length===2){toast('Add at least one real metric');return}await api('/api/performance/snapshots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});openPerformanceStudio();await refresh()}
 async function syncPerformance(id){try{await api('/api/performance/'+id+'/sync',{method:'POST'});toast('Metrics synced');openPerformanceStudio();await refresh()}catch(e){toast(e.message)}}
 
@@ -1345,6 +1648,16 @@ function renderAgentDetail(d){
   const liveJob=(S&&S.jobs||[]).find(x=>x.id===pr.job_id);
   const liveJobLabel=liveJob?liveJob.title:(pr.job_id||'none');
   let h='<div class="liveProgress"><div class="liveProgressTop"><b>'+esc(pr.step||d.state||tr('agent.idle'))+'</b><span>'+Number(pr.progress||0)+'%</span></div><div class="liveBar"><i style="width:'+Number(pr.progress||0)+'%"></i></div><div class="sub">'+tr('drawer.currentJob')+': '+esc(liveJobLabel)+' · '+tr('drawer.run')+': '+esc(pr.run_id||'none')+'</div></div>';
+  const selected=d.selected_job_result||null;
+  if(selected){
+    const sr=selected.run||{},inputs=selected.inputs||[];
+    h+='<div class="workerSelectedResult"><h3>'+esc(tr('worker.selectedResult'))+'</h3><b>'+esc(selected.title||selected.kind||tr('worker.output'))+'</b><div class="selectedResultMeta"><span class="resultPill">'+esc(selected.kind||'artifact')+'</span><span class="resultPill">'+fmtTokens(Number(sr.input_tokens||0)+Number(sr.output_tokens||0))+' tok</span><span class="resultPill">'+fmtMoney(sr.cost_usd||0)+'</span><span class="resultPill">'+fmtDuration(sr.duration_ms||0)+'</span><span class="resultPill">'+Number(selected.artifact_count||1)+' '+esc(tr('worker.artifactCount'))+'</span></div>'
+      +(selected.url?'<a class="mediaLink" target="_blank" rel="noopener" href="'+esc(selected.url)+'">↗ '+esc(tr('worker.openMedia'))+'</a>':'')
+      +'<div class="sub" style="margin-top:8px">'+esc(tr('worker.inputs'))+': '+esc(inputs.length?inputs.map(x=>x.source_agent+' → '+x.title).join(' · '):tr('common.none'))+'</div>'
+      +'<pre>'+esc(selected.content||selected.preview||'—')+'</pre></div>';
+  }else if(d.selected_job_id){
+    h+='<div class="workerSelectedResult"><h3>'+esc(tr('worker.selectedResult'))+'</h3><div class="sub">'+esc(tr('worker.noSelectedResult'))+'</div></div>';
+  }
   h+='<div class="metricGrid"><div class="metric"><b>'+Number(m.runs||0)+'</b><span>'+tr('drawer.runs')+'</span></div><div class="metric"><b>'+fmtDuration(m.duration_ms||0)+'</b><span>'+tr('drawer.totalTime')+'</span></div><div class="metric"><b>'+fmtDuration(m.avg_duration_ms||0)+'</b><span>'+tr('drawer.avgRun')+'</span></div><div class="metric"><b>'+Number(m.success_rate||0).toFixed(1)+'%</b><span>'+tr('drawer.success')+'</span></div><div class="metric"><b>'+fmtTokens((m.input_tokens||0)+(m.output_tokens||0))+'</b><span>'+tr('drawer.tokens')+'</span></div><div class="metric"><b>'+fmtMoney(m.cost_usd||0)+'</b><span>'+Number(m.artifacts||0)+' artifacts · '+Number(m.memory_count||0)+' memories</span></div></div>';
   h+='<div class="modeNote"><b>'+tr('drawer.goal')+':</b> '+esc(d.spec.goal||'')+'<br><b>'+tr('drawer.accounting')+':</b> duration is measured per run. Tokens and provider cost are recorded from live APIs; demo runs stay at 0 instead of inventing spend.<br><b>'+tr('drawer.handoff')+':</b> '+(deps.length?'Consumes latest approved output from: ':'Starts the chain with no upstream dependency.')+(deps.length?'<span class="depRow">'+deps.map(x=>'<span class="depChip">'+esc(x)+'</span>').join('')+'</span>':'')+'</div>';
   if(d.name!=='Supervisor'&&S&&S.selectedJobId){
@@ -1391,13 +1704,18 @@ function renderAgentDetail(d){
   $('#agentDrawerBody').innerHTML=h;
 }
 function artifactHtml(a){
-  let media='';
-  if(a.kind==='image'&&a.url)media='<img src="'+esc(a.url)+'" alt="'+esc(a.title)+'">';
-  else if(a.kind==='video')media='<div class="mediaPlaceholder">▷ Video preview will appear here when the video provider is connected.</div>';
-  else if(a.kind==='audio')media='<div class="mediaPlaceholder">◖ Audio preview will appear here when the voice provider is connected.</div>';
-  const mode=(a.meta&&a.meta.mode)?String(a.meta.mode):'';
-  return '<div class="artifact"><div class="artifactHead"><b>'+esc(a.title)+'</b><span class="artifactType">'+esc(a.kind)+(mode?' · '+esc(mode):'')+'</span></div>'+media+(a.content?'<pre>'+esc(a.content)+'</pre>':'')+'<div class="tiny" style="margin-top:6px">'+esc(a.job_title||'')+' · '+(a.created_at||'').replace('T',' ').slice(0,19)+'</div></div>';
+ let media='';
+ const url=textValue(a.url);
+ if(a.kind==='image'&&url)media='<img src="'+esc(url)+'" alt="'+esc(a.title)+'">';
+ else if(a.kind==='video'&&url)media='<video controls preload="metadata" src="'+esc(url)+'"></video><a class="mediaLink" href="'+esc(url)+'" target="_blank" rel="noopener">↗ '+esc(tr('worker.openMedia'))+'</a>';
+ else if(a.kind==='audio'&&url)media='<audio controls preload="metadata" src="'+esc(url)+'"></audio><a class="mediaLink" href="'+esc(url)+'" target="_blank" rel="noopener">↗ '+esc(tr('worker.openMedia'))+'</a>';
+ else if(a.kind==='video')media='<div class="mediaPlaceholder">'+esc(workerPurpose('Render Agent'))+'</div>';
+ else if(a.kind==='audio')media='<div class="mediaPlaceholder">'+esc(workerPurpose('Voice Agent'))+'</div>';
+ else if(url)media='<a class="mediaLink" href="'+esc(url)+'" target="_blank" rel="noopener">↗ '+esc(tr('worker.openMedia'))+'</a>';
+ const mode=(a.meta&&a.meta.mode)?textValue(a.meta.mode):'';
+ return '<div class="artifact"><div class="artifactHead"><b>'+esc(a.title)+'</b><span class="artifactType">'+esc(a.kind)+(mode?' · '+esc(mode):'')+'</span></div>'+media+(a.content?'<pre>'+esc(a.content)+'</pre>':'')+'<div class="tiny" style="margin-top:6px">'+esc(a.job_title||'')+' · '+safeDate(a.created_at)+'</div></div>';
 }
+
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2300)}
-const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.onopen=()=>ws.send('v3.19');ws.onmessage=()=>refresh();applyLanguage();refresh();
+const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.onopen=()=>ws.send('v4.2');ws.onmessage=()=>refresh();applyLanguage();refresh();
 </script></body></html>

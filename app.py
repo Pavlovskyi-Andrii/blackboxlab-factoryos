@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.1"
+APP_VERSION = "v4.2"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -3456,7 +3456,9 @@ def get_job_worker_results(job_id):
         """SELECT id,run_id,agent,kind,title,content,url,mime_type,created_at,meta_json
            FROM artifacts WHERE job_id=? ORDER BY created_at DESC""",(job_id,)
     ).fetchall()]
-    con.close()
+    counts={x["agent"]:int(x["c"] or 0) for x in con.execute(
+        "SELECT agent,COUNT(*) c FROM artifacts WHERE job_id=? GROUP BY agent",(job_id,)
+    ).fetchall()}
     latest={}
     for row in rows:
         agent=row["agent"]
@@ -3466,24 +3468,49 @@ def get_job_worker_results(job_id):
             meta=json.loads(row.pop("meta_json") or "{}")
         except Exception:
             meta={}
-        content=(row.get("content") or "").strip()
+        raw=row.get("content")
+        if isinstance(raw,str):
+            content=raw.strip()
+        elif raw is None:
+            content=""
+        else:
+            content=json.dumps(raw,ensure_ascii=False,indent=2)
+        run=None;inputs=[]
+        if row.get("run_id"):
+            rr=con.execute("""SELECT id,status,stage,started_at,finished_at,duration_ms,input_tokens,output_tokens,cost_usd,model,error,meta_json
+                              FROM agent_runs WHERE id=?""",(row["run_id"],)).fetchone()
+            if rr:
+                run=dict(rr)
+                try:run["meta"]=json.loads(run.pop("meta_json") or "{}")
+                except Exception:run["meta"]={}
+                inputs=[dict(x) for x in con.execute(
+                    """SELECT ri.source_agent,a.id artifact_id,a.kind,a.title,a.created_at
+                       FROM run_inputs ri JOIN artifacts a ON a.id=ri.artifact_id
+                       WHERE ri.run_id=? ORDER BY a.created_at""",(row["run_id"],)
+                ).fetchall()]
         latest[agent]={
             "id":row["id"],
             "run_id":row.get("run_id"),
             "agent":agent,
             "kind":row.get("kind"),
             "title":row.get("title"),
-            "preview":content[:420],
+            "content":content,
+            "preview":content[:900],
             "url":row.get("url"),
             "mime_type":row.get("mime_type"),
             "created_at":row.get("created_at"),
             "mode":meta.get("mode"),
-            "model":meta.get("model"),
+            "model":meta.get("model") or ((run or {}).get("model")),
             "variant_id":meta.get("variant_id"),
             "batch_id":meta.get("batch_id"),
             "component":meta.get("component"),
             "selected":bool(meta.get("selected")),
+            "artifact_count":counts.get(agent,0),
+            "run":run,
+            "inputs":inputs,
+            "meta":meta,
         }
+    con.close()
     return latest
 
 def get_job_handoffs(job_id, limit=60):
@@ -5113,10 +5140,14 @@ def get_approval_queue(limit=60):
         package=get_content_package(job["id"]);variants=get_job_variants(job["id"])
         con=db();pub=con.execute("SELECT * FROM publishing_queue WHERE job_id=? ORDER BY updated_at DESC LIMIT 1",
                                  (job["id"],)).fetchone();con.close()
-        items.append({"job":job,"package":package.get("package_record"),"package_status":package.get("status"),
+        package_record=package.get("package_record")
+        variant_count=int((variants.get("summary") or {}).get("variants") or 0)
+        review_ready=bool(package_record and package_record.get("status")=="ready" and variant_count>0)
+        items.append({"job":job,"package":package_record,"package_status":package.get("status"),
                       "variants":variants,"preview":_latest_render_preview(job["id"]),
                       "history":get_approval_history(job["id"],20),"variant_diff":get_variant_diff(job["id"]),
-                      "publish":_publish_item(pub)})
+                      "publish":_publish_item(pub),"review_ready":review_ready,
+                      "legacy_incomplete":bool(not package_record or variant_count==0)})
     return {"summary":{"items":len(items),
                        "waiting":sum(1 for x in items if x["job"]["status"]=="waiting_approval"),
                        "approved":sum(1 for x in items if x["job"]["status"]=="approved"),
@@ -5814,11 +5845,14 @@ def agent_detail(agent_name:str):
                                             LEFT JOIN jobs j ON j.id=s.job_id
                                             WHERE s.agent=? ORDER BY s.started_at DESC LIMIT 120""",(agent_name,)).fetchall()]
     con2.close()
+    jobs=get_jobs()
+    selected_job_id=current_selected(jobs)
+    selected_result=(get_job_worker_results(selected_job_id).get(agent_name) if selected_job_id else None)
     return {
         "name":agent_name,
         "spec":AGENT_SPECS.get(agent_name,{}),
         "dependencies":AGENT_DEPENDENCIES.get(agent_name,[]),
-        "state":agent_states(get_jobs()).get(agent_name,"idle"),
+        "state":agent_states(jobs).get(agent_name,"idle"),
         "metrics":get_agent_metrics(agent_name),
         "progress":get_agent_progress_snapshot(agent_name),
         "mcp":get_agent_mcp_connections(agent_name),
@@ -5826,6 +5860,8 @@ def agent_detail(agent_name:str):
         "runs":runs,
         "artifacts":artifacts,
         "memory":get_agent_memory(agent_name),
+        "selected_job_id":selected_job_id,
+        "selected_job_result":selected_result,
         "providerMode":"demo" if CONNECTIONS.get("LLM",{}).get("state")=="demo" else "live"
     }
 
