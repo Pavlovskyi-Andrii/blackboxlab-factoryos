@@ -2691,7 +2691,8 @@ def select_production_variant(job_id,variant_id):
     _save_variant_piece("Editor",job_id,None,chosen["batch_id"],variant_id,"selected","Selected production variant",(chosen.get("optimized_hook") or chosen.get("hook") or "")+"\n\n"+chosen.get("edited_script",""),{"selected":True,"manual_selection":True})
     _save_variant_piece("Fact Checker",job_id,None,chosen["batch_id"],variant_id,"selected_factcheck","Selected variant fact check",json.dumps(chosen.get("fact_check") or {},ensure_ascii=False,indent=2),{"selected":True,"manual_selection":True})
     _mark_content_package_stale(job_id,f"Selected production variant changed to variant {chosen['ordinal']}.")
-    event(job_id,f"Variant {chosen['ordinal']} selected in Variant Studio");return get_job_variants(job_id)
+    con=db();con.execute("UPDATE jobs SET stage='script',status='idle',progress=?,updated_at=? WHERE id=?",(int(STAGES.index("script")/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close()
+    event(job_id,f"Variant {chosen['ordinal']} selected in Variant Studio; Content Package and downstream media require rebuild");return get_job_variants(job_id)
 
 
 CONTENT_PACKAGE_SCHEMA_VERSION="1.0"
@@ -4141,6 +4142,9 @@ def job_content_package(job_id:str):
 async def _manual_package_build(job_id):
     try:
         await generate_content_package(job_id)
+        con=db();con.execute("UPDATE jobs SET stage='visual',status='idle',progress=?,updated_at=? WHERE id=?",(int(STAGES.index("visual")/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close()
+        event(job_id,"Content Package rebuilt; Visual → Voice → Render → QA require rebuild")
+        await broadcast()
     except Exception as exc:
         event(job_id,f"Content Package build failed: {exc}")
         await broadcast({"type":"content_package","jobId":job_id,"status":"failed","error":str(exc)})
