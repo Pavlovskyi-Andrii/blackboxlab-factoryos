@@ -6,6 +6,7 @@ import os
 import hmac
 import hashlib
 import secrets
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -17,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.25"
+APP_VERSION = "v3.30"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -106,6 +107,8 @@ FACTORY_DAILY_BUDGET_USD = float(os.environ.get("FACTORY_DAILY_BUDGET_USD", "10"
 FACTORY_JOB_BUDGET_USD = float(os.environ.get("FACTORY_JOB_BUDGET_USD", "3"))
 AGENT_TIMEOUT_SECONDS = int(os.environ.get("AGENT_TIMEOUT_SECONDS", "180"))
 AGENT_MAX_RETRIES = int(os.environ.get("AGENT_MAX_RETRIES", "1"))
+FACTORY_SIGNAL_FEEDS = [x.strip() for x in os.environ.get("FACTORY_SIGNAL_FEEDS", "").split(",") if x.strip()]
+FACTORY_SIGNAL_COLLECTION_MINUTES = max(5, int(os.environ.get("FACTORY_SIGNAL_COLLECTION_MINUTES", "360")))
 
 def session_token(username: str) -> str:
     return hmac.new(
@@ -650,6 +653,17 @@ def init_db():
     ]:
         if name not in task_cols:
             con.execute(f"ALTER TABLE factory_tasks ADD COLUMN {name} {ddl}")
+    idea_cols={row["name"] for row in con.execute("PRAGMA table_info(content_ideas)").fetchall()}
+    for name,ddl in [
+        ("research_json","TEXT NOT NULL DEFAULT '{}'"),
+        ("strategy_json","TEXT NOT NULL DEFAULT '{}'"),
+        ("verification_json","TEXT NOT NULL DEFAULT '{}'"),
+        ("novelty_evidence","TEXT DEFAULT ''"),
+        ("rejection_reason","TEXT DEFAULT ''"),
+        ("verified_at","TEXT"),
+    ]:
+        if name not in idea_cols:
+            con.execute(f"ALTER TABLE content_ideas ADD COLUMN {name} {ddl}")
     n = con.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
     if n == 0:
         seeds = [
@@ -1087,6 +1101,11 @@ class IdeaGenerateRequest(BaseModel):
     max_ideas: int = 5
     language: str = "English"
 
+class IdeaProcessRequest(BaseModel):
+    idea_ids: list[str] = []
+    max_ideas: int = 3
+    language: str = "English"
+
 def event(job_id, message):
     con=db(); con.execute("INSERT INTO events(job_id,ts,message) VALUES(?,?,?)",(job_id,ts(),message)); con.commit(); con.close()
 
@@ -1176,6 +1195,9 @@ def _idea_dict(row):
     item["source_links"]=_decode_json(item.pop("source_links_json","[]"),[])
     item["risk_flags"]=_decode_json(item.pop("risk_flags_json","[]"),[])
     item["provenance"]=_decode_json(item.pop("provenance_json","{}"),{})
+    item["research"]=_decode_json(item.pop("research_json","{}"),{})
+    item["strategy"]=_decode_json(item.pop("strategy_json","{}"),{})
+    item["verification"]=_decode_json(item.pop("verification_json","{}"),{})
     return item
 
 def get_content_brain(limit=50):
@@ -1198,6 +1220,13 @@ def get_content_brain(limit=50):
             "shortlisted":int(idea_counts.get("shortlisted",0)),
             "selected":int(idea_counts.get("selected",0)),
             "rejected":int(idea_counts.get("rejected",0)),
+            "verified":sum(1 for x in ideas if x.get("verified_at")),
+            "feeds_configured":len(FACTORY_SIGNAL_FEEDS),
+        },
+        "adapters":{
+            "manual":{"enabled":True,"mode":"push"},
+            "rss":{"enabled":bool(FACTORY_SIGNAL_FEEDS),"mode":"scheduled","feeds":len(FACTORY_SIGNAL_FEEDS),
+                   "interval_minutes":FACTORY_SIGNAL_COLLECTION_MINUTES},
         },
         "signals":signals,
         "ideas":ideas,
@@ -1300,6 +1329,281 @@ async def generate_ideas_from_signals(payload):
     except Exception as exc:
         finish_agent_run(run_id,status="failed",error=str(exc),meta={"content_brain":True})
         raise
+
+
+def _parse_json_object(raw):
+    text=(raw or "").strip()
+    if text.startswith("\`\`\`"):
+        lines=text.splitlines()
+        if lines and lines[0].startswith("\`\`\`"):
+            lines=lines[1:]
+        if lines and lines[-1].strip().startswith("\`\`\`"):
+            lines=lines[:-1]
+        text="\n".join(lines).strip()
+    start=text.find("{"); end=text.rfind("}")
+    if start<0 or end<=start:
+        raise ValueError("Worker did not return a JSON object")
+    data=json.loads(text[start:end+1])
+    if not isinstance(data,dict):
+        raise ValueError("Worker response must be a JSON object")
+    return data
+
+def _content_brain_llm(role, system, user, max_output_tokens=900):
+    if not FACTORY_LLM_API_KEY:
+        raise RuntimeError("Live LLM provider is not configured")
+    limit=max(128,min(1200,int(max_output_tokens)))
+    if FACTORY_LLM_API_MODE=="chat_completions":
+        payload={
+            "model":FACTORY_LLM_MODEL,
+            "max_completion_tokens":limit,
+            "messages":[{"role":"system","content":system},{"role":"user","content":user}],
+        }
+    else:
+        payload={
+            "model":FACTORY_LLM_MODEL,"max_output_tokens":limit,
+            "instructions":system,"input":user,"store":False,
+        }
+    req=urlrequest.Request(
+        _llm_endpoint(),
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization":f"Bearer {FACTORY_LLM_API_KEY}","Content-Type":"application/json","Accept":"application/json"},
+        method="POST",
+    )
+    try:
+        with urlrequest.urlopen(req,timeout=max(15,AGENT_TIMEOUT_SECONDS)) as resp:
+            raw=resp.read().decode("utf-8")
+    except urlerror.HTTPError as exc:
+        body=exc.read().decode("utf-8","replace")[:1000]
+        low=body.lower()
+        if exc.code==429 and ("credit_balance_exhausted" in low or "insufficient_quota" in low or "no credits remaining" in low):
+            raise RuntimeError("OpenAI API balance exhausted. Add API credits before continuing Content Brain.") from exc
+        if exc.code==429:
+            raise RuntimeError("OpenAI API rate limit reached. Retry Content Brain after a short wait.") from exc
+        if exc.code in (401,403):
+            raise RuntimeError("OpenAI API authentication failed. Check FACTORY_LLM_API_KEY and permissions.") from exc
+        raise RuntimeError(f"LLM provider HTTP {exc.code}: {body}") from exc
+    result=json.loads(raw)
+    if FACTORY_LLM_API_MODE=="chat_completions":
+        content=result["choices"][0]["message"]["content"]
+        if isinstance(content,list):
+            content="\n".join(x.get("text","") for x in content if isinstance(x,dict) and x.get("text"))
+    else:
+        parts=[]
+        for item in result.get("output") or []:
+            if item.get("type")!="message":
+                continue
+            for part in item.get("content") or []:
+                if part.get("type")=="output_text" and part.get("text"):
+                    parts.append(part["text"])
+        content="\n".join(parts)
+    content=str(content or "").strip()
+    if not content:
+        raise RuntimeError(f"{role} returned empty content")
+    usage=result.get("usage") or {}
+    input_tokens=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    output_tokens=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    cost_usd=(input_tokens*FACTORY_LLM_INPUT_USD_PER_1M/1_000_000 + output_tokens*FACTORY_LLM_OUTPUT_USD_PER_1M/1_000_000)
+    return {"content":content,"model":result.get("model") or FACTORY_LLM_MODEL,
+            "input_tokens":input_tokens,"output_tokens":output_tokens,"cost_usd":cost_usd,
+            "provider_request_id":result.get("id")}
+
+def _content_brain_budget_guard(output_tokens=900):
+    usage=get_usage_summary()
+    reserve=max(128,int(output_tokens))*FACTORY_LLM_OUTPUT_USD_PER_1M/1_000_000
+    if usage["today_cost_usd"] + reserve > FACTORY_DAILY_BUDGET_USD:
+        raise RuntimeError("Daily provider budget would be exceeded by the next Content Brain call")
+    return reserve
+
+def _idea_source_bundle(idea):
+    ids=idea.get("source_signal_ids") or []
+    if not ids:
+        return []
+    con=db()
+    placeholders=",".join("?" for _ in ids)
+    rows=[dict(x) for x in con.execute(
+        f"SELECT id,title,url,content,topic,source_type,created_at FROM source_signals WHERE id IN ({placeholders})",ids
+    ).fetchall()]
+    con.close()
+    by_id={x["id"]:x for x in rows}
+    return [by_id[x] for x in ids if x in by_id]
+
+async def _run_content_brain_worker(agent, idea_id, label, system, user, max_output_tokens=900):
+    _content_brain_budget_guard(max_output_tokens)
+    run_id=start_agent_run(agent,None,"content_brain",model=FACTORY_LLM_MODEL)
+    try:
+        result=await asyncio.wait_for(
+            asyncio.to_thread(_content_brain_llm,agent,system,user,max_output_tokens),
+            timeout=AGENT_TIMEOUT_SECONDS,
+        )
+        parsed=_parse_json_object(result["content"])
+        save_artifact(agent,"analysis",label,result["content"],run_id=run_id,
+                      meta={"content_brain":True,"idea_id":idea_id,"model":result["model"],
+                            "provider_request_id":result.get("provider_request_id")})
+        finish_agent_run(run_id,status="completed",input_tokens=result["input_tokens"],
+                         output_tokens=result["output_tokens"],cost_usd=result["cost_usd"],
+                         meta={"content_brain":True,"idea_id":idea_id})
+        return parsed,run_id,result
+    except Exception as exc:
+        finish_agent_run(run_id,status="failed",error=str(exc),meta={"content_brain":True,"idea_id":idea_id})
+        raise
+
+async def process_content_brain_ideas(payload):
+    if not FACTORY_LLM_API_KEY:
+        raise RuntimeError("Live LLM provider is not configured")
+    max_ideas=max(1,min(5,int(payload.max_ideas or 3)))
+    con=db()
+    if payload.idea_ids:
+        wanted=list(dict.fromkeys(str(x).strip() for x in payload.idea_ids if str(x).strip()))
+        placeholders=",".join("?" for _ in wanted)
+        rows=[_idea_dict(x) for x in con.execute(
+            f"SELECT * FROM content_ideas WHERE id IN ({placeholders}) ORDER BY score DESC,created_at DESC",wanted
+        ).fetchall()] if wanted else []
+    else:
+        rows=[_idea_dict(x) for x in con.execute(
+            "SELECT * FROM content_ideas WHERE status IN ('generated','shortlisted') ORDER BY score DESC,created_at DESC LIMIT ?",
+            (max_ideas,),
+        ).fetchall()]
+    con.close()
+    rows=rows[:max_ideas]
+    if not rows:
+        raise ValueError("No ideas available for Researcher → Strategist → Verifier processing")
+    processed=[]
+    for idea in rows:
+        sources=_idea_source_bundle(idea)
+        source_text="\n\n".join(
+            f"SIGNAL_ID: {x['id']}\nTITLE: {x['title']}\nURL: {x.get('url') or '(none)'}\nTOPIC: {x.get('topic') or '(none)'}\nCONTENT: {_trim_llm_context(x.get('content',''),2200)}"
+            for x in sources
+        ) or "(no persisted source signals)"
+        researcher_system=(
+            "You are the Researcher inside FactoryOS Content Brain. Use only supplied persisted signals. "
+            "Do not invent sources or factual verification. Return JSON only with keys: research_summary, claims, "
+            "source_signal_ids, source_links, missing_evidence. claims must be an array of concise evidence-backed claims."
+        )
+        researcher_user=(
+            f"LANGUAGE: {payload.language}\nIDEA: {json.dumps({k:idea.get(k) for k in ('title','topic','angle','audience','why_now')},ensure_ascii=False)}\n\n"
+            f"PERSISTED SIGNALS:\n{source_text}"
+        )
+        research,research_run,research_usage=await _run_content_brain_worker(
+            "Researcher",idea["id"],"Content Brain research enrichment",researcher_system,researcher_user,850
+        )
+
+        strategist_system=(
+            "You are the Idea Strategist inside FactoryOS. Refine a content idea using the supplied evidence pack. "
+            "Do not add unsupported facts. Return JSON only with keys: title, angle, audience, why_now, novelty_evidence, "
+            "complexity, score, strategy_notes. score must be 0..1."
+        )
+        strategist_user=(
+            f"LANGUAGE: {payload.language}\nORIGINAL IDEA: {json.dumps(idea,ensure_ascii=False)[:6500]}\n"
+            f"RESEARCH: {json.dumps(research,ensure_ascii=False)[:6500]}"
+        )
+        strategy,strategy_run,strategy_usage=await _run_content_brain_worker(
+            "Idea Strategist",idea["id"],"Content Brain strategy refinement",strategist_system,strategist_user,750
+        )
+
+        verifier_system=(
+            "You are the Idea Verifier inside FactoryOS. Judge whether the idea is ready for production based only on "
+            "the supplied research and strategy. Return JSON only with keys: decision, score, risk_flags, "
+            "verification_notes, rejection_reason. decision must be shortlist, reject, or needs_research. "
+            "Never claim that an external fact was verified unless it is supported in the supplied persisted signals."
+        )
+        verifier_user=(
+            f"LANGUAGE: {payload.language}\nRESEARCH: {json.dumps(research,ensure_ascii=False)[:6500]}\n"
+            f"STRATEGY: {json.dumps(strategy,ensure_ascii=False)[:6500]}"
+        )
+        verification,verify_run,verify_usage=await _run_content_brain_worker(
+            "Idea Verifier",idea["id"],"Content Brain verification decision",verifier_system,verifier_user,650
+        )
+        decision=str(verification.get("decision") or "needs_research").strip().lower()
+        if decision not in ("shortlist","reject","needs_research"):
+            decision="needs_research"
+        try:
+            score=max(0.0,min(1.0,float(verification.get("score",strategy.get("score",idea.get("score",0))) or 0)))
+        except Exception:
+            score=float(idea.get("score") or 0)
+        status={"shortlist":"shortlisted","reject":"rejected","needs_research":"generated"}[decision]
+        risks=[str(x).strip() for x in (verification.get("risk_flags") or []) if str(x).strip()]
+        provenance=dict(idea.get("provenance") or {})
+        provenance["content_brain_pipeline"]={
+            "research_run_id":research_run,"strategy_run_id":strategy_run,"verification_run_id":verify_run,
+            "model":FACTORY_LLM_MODEL,"processed_at":ts(),
+        }
+        con=db(); now=ts()
+        con.execute("""UPDATE content_ideas SET
+                       title=?,angle=?,audience=?,why_now=?,score=?,risk_flags_json=?,complexity=?,
+                       research_json=?,strategy_json=?,verification_json=?,novelty_evidence=?,
+                       rejection_reason=?,verified_at=?,status=?,updated_at=?,provenance_json=?
+                       WHERE id=?""",
+                    (str(strategy.get("title") or idea["title"]).strip(),
+                     str(strategy.get("angle") or idea.get("angle") or "").strip(),
+                     str(strategy.get("audience") or idea.get("audience") or "").strip(),
+                     str(strategy.get("why_now") or idea.get("why_now") or "").strip(),
+                     score,json.dumps(risks,ensure_ascii=False),
+                     str(strategy.get("complexity") or idea.get("complexity") or "medium").strip(),
+                     json.dumps(research,ensure_ascii=False),json.dumps(strategy,ensure_ascii=False),
+                     json.dumps(verification,ensure_ascii=False),str(strategy.get("novelty_evidence") or "").strip(),
+                     str(verification.get("rejection_reason") or "").strip(),now,status,now,
+                     json.dumps(provenance,ensure_ascii=False),idea["id"]))
+        con.commit()
+        current=_idea_dict(con.execute("SELECT * FROM content_ideas WHERE id=?",(idea["id"],)).fetchone())
+        con.close()
+        processed.append(current)
+    event(None,f"Content Brain processed {len(processed)} idea(s) through Researcher → Strategist → Verifier")
+    return {"processed":processed,"count":len(processed)}
+
+def _feed_text(node, names):
+    for name in names:
+        child=node.find(name)
+        if child is not None and child.text:
+            return child.text.strip()
+    return ""
+
+def collect_configured_signals(limit_per_feed=20):
+    created=[]; duplicates=0; errors=[]
+    for feed_url in FACTORY_SIGNAL_FEEDS:
+        try:
+            req=urlrequest.Request(feed_url,headers={"User-Agent":"BlackboxLab-FactoryOS-SignalCollector"})
+            with urlrequest.urlopen(req,timeout=20) as resp:
+                raw=resp.read(2_000_000)
+            root=ET.fromstring(raw)
+            entries=root.findall(".//item")
+            if not entries:
+                entries=root.findall(".//{http://www.w3.org/2005/Atom}entry")
+            for node in entries[:max(1,min(50,int(limit_per_feed)))]:
+                title=_feed_text(node,["title","{http://www.w3.org/2005/Atom}title"])
+                link=_feed_text(node,["link"])
+                if not link:
+                    atom_link=node.find("{http://www.w3.org/2005/Atom}link")
+                    if atom_link is not None:
+                        link=(atom_link.attrib.get("href") or "").strip()
+                content=_feed_text(node,[
+                    "description","{http://www.w3.org/2005/Atom}summary","{http://www.w3.org/2005/Atom}content"
+                ])
+                if not title:
+                    continue
+                result=ingest_source_signal(SignalCreate(
+                    title=title,content=content,url=link,source_type="rss",topic=""
+                ))
+                if result["created"]:
+                    created.append(result["signal"])
+                else:
+                    duplicates+=1
+        except Exception as exc:
+            errors.append({"feed":feed_url,"error":str(exc)[:300]})
+    return {"created":created,"created_count":len(created),"duplicates":duplicates,"errors":errors,
+            "feeds_configured":len(FACTORY_SIGNAL_FEEDS)}
+
+async def content_brain_collector_loop():
+    if not FACTORY_SIGNAL_FEEDS:
+        return
+    while True:
+        try:
+            result=await asyncio.to_thread(collect_configured_signals,20)
+            if result["created_count"]:
+                event(None,f"Content Brain collected {result['created_count']} new RSS signal(s)")
+                await broadcast({"type":"content_brain","action":"signals_collected","count":result["created_count"]})
+        except Exception as exc:
+            print(json.dumps({"event":"CONTENT_BRAIN_COLLECTOR_ERROR","error":str(exc)[:400]}),flush=True)
+        await asyncio.sleep(FACTORY_SIGNAL_COLLECTION_MINUTES*60)
 
 def collect_agent_inputs(job_id, agent):
     deps=AGENT_DEPENDENCIES.get(agent,[])
@@ -2830,6 +3134,11 @@ async def start_supervisor():
         event(None,f"Ledger migration: backfilled {backfilled} historical agent runs")
     asyncio.create_task(supervisor_loop())
 
+@app.on_event("startup")
+async def start_content_brain_collector():
+    if FACTORY_SIGNAL_FEEDS:
+        asyncio.create_task(content_brain_collector_loop())
+
 async def broadcast(payload=None):
     dead=[]; msg=json.dumps(payload or {"type":"refresh"})
     for ws in list(clients):
@@ -2892,6 +3201,14 @@ def factory_intelligence():
 def content_brain(limit: int = 50):
     return get_content_brain(max(1,min(200,int(limit))))
 
+@app.post("/api/content-brain/collect")
+async def collect_content_brain_signals():
+    result=await asyncio.to_thread(collect_configured_signals,20)
+    if result["created_count"]:
+        event(None,f"Content Brain collected {result['created_count']} new RSS signal(s)")
+        await broadcast({"type":"content_brain","action":"signals_collected","count":result["created_count"]})
+    return result
+
 @app.post("/api/content-brain/signals")
 async def add_content_signal(payload: SignalCreate):
     try:
@@ -2913,6 +3230,17 @@ async def generate_content_brain(payload: IdeaGenerateRequest):
         raise HTTPException(503,str(exc))
     event(None,f"Content Brain generated {len(result['ideas'])} idea(s)")
     await broadcast({"type":"content_brain","action":"generated","count":len(result["ideas"]),"runId":result["run_id"]})
+    return result
+
+@app.post("/api/content-brain/process")
+async def process_content_brain(payload: IdeaProcessRequest):
+    try:
+        result=await process_content_brain_ideas(payload)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(503,str(exc))
+    await broadcast({"type":"content_brain","action":"processed","count":result["count"]})
     return result
 
 @app.post("/api/content-brain/ideas")
