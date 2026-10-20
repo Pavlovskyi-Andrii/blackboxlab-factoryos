@@ -3158,7 +3158,7 @@ def ingest_discovery_candidate(payload, source="manual"):
         con.execute("""INSERT INTO discovery_candidates(
           id,fingerprint,platform,source_url,external_id,title,creator,thumbnail_url,topic,language,content_type,published_at,
           duration_sec,views,vph,engagement_rate,breakout_score,transcript,status,revideo_project_id,discovered_at,updated_at,metrics_json,provenance_json
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',NULL,?,?,?,?,?)""",(
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',NULL,?,?,?,?)""",(
           cid,fp,platform,source_url,external_id,title,(payload.creator or "")[:300],(payload.thumbnail_url or "")[:2000],
           (payload.topic or "")[:300],(payload.language or "")[:40],(payload.content_type or "")[:40],(payload.published_at or "")[:80],
           payload.duration_sec,payload.views,payload.vph,payload.engagement_rate,payload.breakout_score,(payload.transcript or "")[:30000],
