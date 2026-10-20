@@ -134,11 +134,23 @@
   .pipeline{grid-template-columns:1fr 1fr}
   .metricGrid{grid-template-columns:1fr 1fr}
 }
+
+/* v3.30 Content Brain / Idea Factory */
+.brainShade{position:fixed;inset:0;background:#02070dcc;backdrop-filter:blur(5px);z-index:86;opacity:0;pointer-events:none;transition:.2s}.brainShade.open{opacity:1;pointer-events:auto}
+.brainPage{position:fixed;inset:22px;background:radial-gradient(950px 540px at 15% 0,#173e5b55,transparent 62%),linear-gradient(180deg,#091621,#06101a);border:1px solid #2b5776;border-radius:18px;box-shadow:0 30px 110px #000e;z-index:87;transform:translateY(12px) scale(.985);opacity:0;pointer-events:none;transition:.22s;display:flex;flex-direction:column;overflow:hidden}.brainPage.open{opacity:1;pointer-events:auto;transform:none}
+.brainTop{padding:14px 16px;border-bottom:1px solid #1b354e;display:flex;justify-content:space-between;align-items:center;gap:12px}.brainTop h2{margin:0;font-size:18px}.brainTop p{margin:3px 0 0;font-size:9px;color:#8198ac}.brainBody{padding:14px 16px 24px;overflow:auto}
+.brainSummary{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:10px}.brainStat{padding:10px;border:1px solid #21445f;background:#0a1a29;border-radius:11px}.brainStat b{display:block;font-size:17px;color:#dcf7ff}.brainStat span{font-size:7px;color:#7891a5}
+.brainToolbar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.brainToolbar .brainHint{font-size:7px;color:#738b9f;margin-left:auto}.brainGrid{display:grid;grid-template-columns:minmax(280px,.82fr) minmax(0,1.5fr);gap:10px}.brainPanel{border:1px solid #1d3c56;background:#081724;border-radius:12px;padding:11px;min-width:0}.brainPanel h3{margin:0 0 8px;font-size:11px}.brainComposer{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:9px}.brainComposer input,.brainComposer textarea{background:#06121e;border:1px solid #24445f;color:#eaf7ff;border-radius:8px;padding:8px;font:inherit;font-size:8px}.brainComposer textarea{grid-column:1/-1;min-height:58px;resize:vertical}.brainComposer .wide{grid-column:1/-1}
+.signalList,.ideaList{display:grid;gap:7px}.signalItem{padding:8px;border:1px solid #1c3a53;background:#0a1927;border-radius:9px}.signalItem b{display:block;font-size:8px}.signalItem small{display:block;color:#728a9d;font-size:6px;margin-top:3px}.signalItem span{display:block;color:#91a6b8;font-size:7px;margin-top:4px;line-height:1.4}.signalMeta{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}.brainPill{display:inline-flex;padding:3px 5px;border:1px solid #2b4d66;border-radius:999px;color:#87a0b4;font-size:6px}.brainPill.shortlisted,.brainPill.selected{border-color:#246746;color:#75e1a2}.brainPill.rejected{border-color:#743441;color:#ff9cad}.brainPill.generated{border-color:#2a6088;color:#72d6ff}
+.ideaCard{padding:10px;border:1px solid #21445e;background:linear-gradient(180deg,#0b1c2b,#081723);border-radius:11px}.ideaCard.selected{border-color:#26865a;box-shadow:0 0 0 1px #26865a33}.ideaCard.rejected{border-color:#63323b;opacity:.76}.ideaHead{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.ideaHead b{font-size:10px;line-height:1.35}.ideaScore{font-size:12px;color:#6cdcff;font-weight:900;white-space:nowrap}.ideaAngle{font-size:8px;color:#a7bac9;line-height:1.45;margin-top:6px}.ideaDetail{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px}.ideaDetail div{padding:7px;border:1px solid #17354b;border-radius:8px;background:#07131e}.ideaDetail strong{display:block;font-size:6px;text-transform:uppercase;letter-spacing:.06em;color:#647f94;margin-bottom:3px}.ideaDetail span{display:block;font-size:7px;color:#95a9ba;line-height:1.4}.ideaRisks{font-size:7px;color:#f1bd72;margin-top:6px}.ideaActions{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.ideaActions button{font-size:7px;padding:5px 7px}.brainEmpty{padding:18px;border:1px dashed #24445b;border-radius:10px;color:#71899d;font-size:8px;text-align:center}
+@media(max-width:900px){.brainSummary{grid-template-columns:repeat(3,1fr)}.brainGrid{grid-template-columns:1fr}.brainToolbar .brainHint{width:100%;margin-left:0}.ideaDetail{grid-template-columns:1fr 1fr}}
+@media(max-width:650px){.brainPage{inset:0;border-radius:0}.brainTop{padding:12px}.brainBody{padding:9px 9px 24px}.brainSummary{grid-template-columns:1fr 1fr 1fr}.brainStat{padding:8px}.brainGrid{gap:8px}.brainPanel{padding:9px}.brainComposer{grid-template-columns:1fr}.brainComposer textarea,.brainComposer .wide{grid-column:auto}.ideaDetail{grid-template-columns:1fr}.ideaHead{display:block}.ideaScore{margin-top:5px}.brainToolbar .btn{flex:1 1 auto}}
+
 </style></head>
 <body><div class="shell">
 <aside class="side">
-<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.24</span></small></div></div>
-<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
+<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v3.30</span></small></div></div>
+<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openContentBrain()">✦ &nbsp; <span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
 <div class="foot"><span class="green"></span><span data-i18n="factory.online">Factory online</span><br><span id="runState">No active run</span></div>
 </aside>
 <main class="main">
@@ -189,6 +201,38 @@
 </main></div>
 
 <div class="modal" id="modal"><div class="dialog"><h2 data-i18n="new.title">Create content job</h2><p data-i18n="new.sub">One idea becomes one production job. FactoryOS guides it through every stage.</p><input id="title" data-i18n-placeholder="new.topic" placeholder="Topic / working title"><textarea id="brief" data-i18n-placeholder="new.brief" placeholder="What should the video explain, prove or test?"></textarea><div class="formRow"><select id="presenter"><option>AI presenter</option><option>Digital twin</option><option>Faceless</option><option>Mixed</option></select><select id="format"><option>Long + Shorts</option><option>Short only</option><option>Long video</option></select></div><div class="formRow"><input id="language" value="English"><input id="outputs" type="number" value="8" min="1"></div><div class="dialogActions"><button class="btn" onclick="closeNew()" data-i18n="action.cancel">Cancel</button> <button class="btn primary" onclick="createJob()" data-i18n="new.create">Create Job</button></div></div></div>
+
+<div class="brainShade" id="brainShade" onclick="closeContentBrain()"></div>
+<section class="brainPage" id="brainPage">
+  <div class="brainTop"><div><h2 data-i18n="brain.title">Content Brain / Idea Factory</h2><p data-i18n="brain.sub">Signals → Scout → Researcher → Strategist → Verifier → shortlist, with provenance and measured spend.</p></div><button class="closeX" onclick="closeContentBrain()">×</button></div>
+  <div class="brainBody">
+    <div class="brainSummary" id="brainSummary"></div>
+    <div class="brainToolbar">
+      <button class="btn" onclick="collectBrainSignals()">↻ <span data-i18n="brain.collect">Collect feeds</span></button>
+      <button class="btn primary" onclick="runBrainFull()">▶ <span data-i18n="brain.run">Build shortlist</span></button>
+      <button class="btn" onclick="renderContentBrain()">⟳ <span data-i18n="action.refresh">Refresh</span></button>
+      <span class="brainHint" data-i18n="brain.paidHint">Build shortlist uses paid LLM calls but remains inside FactoryOS budget guards.</span>
+    </div>
+    <div class="brainGrid">
+      <section class="brainPanel">
+        <h3 data-i18n="brain.signals">Signal Collector</h3>
+        <div class="brainComposer">
+          <input id="brainSignalTitle" data-i18n-placeholder="brain.signalTitle" placeholder="Signal title">
+          <input id="brainSignalTopic" data-i18n-placeholder="brain.signalTopic" placeholder="Topic">
+          <input class="wide" id="brainSignalUrl" data-i18n-placeholder="brain.signalUrl" placeholder="Source URL">
+          <textarea id="brainSignalContent" data-i18n-placeholder="brain.signalContent" placeholder="Source note / excerpt"></textarea>
+          <button class="btn primary wide" onclick="addBrainSignal()">+ <span data-i18n="brain.addSignal">Add signal</span></button>
+        </div>
+        <div class="signalList" id="brainSignals"></div>
+      </section>
+      <section class="brainPanel">
+        <h3 data-i18n="brain.ideas">Idea Queue</h3>
+        <div class="ideaList" id="brainIdeas"></div>
+      </section>
+    </div>
+  </div>
+</section>
+
 <div class="taskShade" id="taskShade" onclick="closeBuildProgress()"></div>
 <section class="taskPage" id="taskPage">
   <div class="taskTop"><div><h2 data-i18n="build.title">FactoryOS Build Progress</h2><p data-i18n="build.sub">Transparent roadmap: what is assigned, what is being built, and what is already complete.</p></div><button class="closeX" onclick="closeBuildProgress()">×</button></div>
@@ -223,6 +267,52 @@
 let S=null;const $=s=>document.querySelector(s);const esc=s=>(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const I18N={
  en:{
+  "brain.nav":"Content Brain",
+  "brain.title":"Content Brain / Idea Factory",
+  "brain.sub":"Signals → Scout → Researcher → Strategist → Verifier → shortlist, with provenance and measured spend.",
+  "brain.collect":"Collect feeds",
+  "brain.run":"Build shortlist",
+  "brain.paidHint":"Build shortlist uses paid LLM calls but remains inside FactoryOS budget guards.",
+  "brain.signals":"Signal Collector",
+  "brain.ideas":"Idea Queue",
+  "brain.signalTitle":"Signal title",
+  "brain.signalTopic":"Topic",
+  "brain.signalUrl":"Source URL",
+  "brain.signalContent":"Source note / excerpt",
+  "brain.addSignal":"Add signal",
+  "brain.statSignals":"signals",
+  "brain.statNew":"new",
+  "brain.statIdeas":"ideas",
+  "brain.statShortlist":"shortlisted",
+  "brain.statSelected":"selected",
+  "brain.statVerified":"verified",
+  "brain.noSignals":"No signals yet. Add one manually or configure RSS feeds.",
+  "brain.noIdeas":"No ideas yet. Build a shortlist from the latest signals.",
+  "brain.feedOff":"RSS adapter not configured",
+  "brain.feedOn":"RSS feeds configured: {n}",
+  "brain.source":"source",
+  "brain.research":"Research",
+  "brain.strategy":"Strategy",
+  "brain.verification":"Verification",
+  "brain.novelty":"Novelty",
+  "brain.risks":"Risks",
+  "brain.verifyOne":"Research & verify",
+  "brain.select":"Select",
+  "brain.reject":"Reject",
+  "brain.createJob":"Create production job",
+  "brain.runConfirm":"Build up to 3 ideas through paid Scout + Researcher + Strategist + Verifier calls within FactoryOS budget guards. Continue?",
+  "brain.verifyConfirm":"Run paid Researcher + Strategist + Verifier calls for this idea within FactoryOS budget guards?",
+  "brain.processing":"Content Brain is working…",
+  "brain.complete":"Content Brain shortlist updated",
+  "brain.added":"Signal added",
+  "brain.duplicate":"Signal already exists",
+  "brain.collectDone":"Signal collection complete",
+  "brain.jobCreated":"Production job created",
+  "brain.status.generated":"generated",
+  "brain.status.shortlisted":"shortlisted",
+  "brain.status.selected":"selected",
+  "brain.status.rejected":"rejected",
+  "brain.status.in_production":"in production",
   "nav.qa":"Release QA","qa.title":"Release Readiness / Morning QA","qa.sub":"Live production readiness, safety invariants, known gaps and next priorities — without paid test calls.","qa.loading":"Loading release-readiness snapshot…","qa.loadFailed":"Could not load release readiness","qa.state.ready":"ready","qa.state.ready_with_known_gaps":"ready with known gaps","qa.state.blocked":"blocked","qa.jobs":"jobs","qa.running":"running","qa.failed":"failed","qa.openIncidents":"open incidents","qa.roadmap":"roadmap","qa.todayCost":"today cost","qa.safety":"Safety & runtime checks","qa.blockers":"Known blockers / gaps","qa.noBlockers":"No active blockers detected.","qa.priorities":"Next priorities","qa.pass":"pass","qa.attention":"attention","qa.paidPending":"Paid LLM verification pending","qa.paidClear":"Paid LLM verification complete","qa.note":"This snapshot does not execute paid provider calls.",
   "nav.errors":"Error Center","error.title":"Operations / Error Center","error.sub":"Classified worker incidents, spend-safe recovery and resolved failure history for the selected job.","error.open":"open","error.critical":"critical","error.spendUncertain":"spend uncertain","error.resolved":"resolved","error.selectJob":"Select a job to inspect recovery incidents.","error.noneTitle":"No worker incidents for this job","error.noneSub":"FactoryOS will classify failures here and choose a spend-safe recovery policy.","error.reviewRetry":"Review & retry","error.retryWorker":"Retry worker","error.rebuildFirst":"rebuild dependency first","error.runRecorded":"run {run} · {cost} recorded","error.workerFailure":"Worker failure","error.reviewIncident":"Review incident","error.reviewBeforeRetry":"Review before retry","error.dependencyRequired":"dependency rebuild required","error.retry":"Retry","error.confirmUncertain":"This provider call may already have completed or consumed tokens. Retry only after reviewing the incident. Continue?","error.confirmServer":"Provider outcome is uncertain. Continue with a manual retry?","error.retryStarted":"{agent} recovery rerun started","error.retryFailed":"Could not rerun agent","error.category.unknown":"unknown","error.category.billing":"billing","error.category.configuration":"configuration","error.category.budget":"budget","error.category.dependency":"dependency","error.category.transient":"transient","error.category.transport":"transport","error.category.provider_response":"provider response","error.policy.unknown_failure.title":"Unclassified worker failure","error.policy.unknown_failure.action":"Review the failed run before retrying. The provider outcome may be uncertain.","error.policy.billing_exhausted.title":"Provider balance exhausted","error.policy.billing_exhausted.action":"Add provider credits, then retry this worker.","error.policy.provider_configuration.title":"Provider configuration needs attention","error.policy.provider_configuration.action":"Fix the API key, project permission, model or API mode, then retry.","error.policy.budget_guard.title":"FactoryOS budget guard stopped the call","error.policy.budget_guard.action":"Review job/day spend and budget limits before retrying.","error.policy.dependency_missing.title":"Upstream dependency is missing","error.policy.dependency_missing.action":"Rebuild the missing upstream worker or artifact before retrying this stage.","error.policy.provider_rate_limit.title":"Provider rate limit","error.policy.provider_rate_limit.action":"FactoryOS may safely retry once; if it repeats, wait briefly and retry manually.","error.policy.provider_5xx.title":"Provider service error","error.policy.provider_5xx.action":"Provider outcome may be uncertain. Review the incident before a manual retry.","error.policy.transport_uncertain.title":"Provider outcome is uncertain","error.policy.transport_uncertain.action":"Do not auto-retry. Confirm the provider did not complete the request, then retry manually if needed.","error.policy.provider_response_invalid.title":"Provider returned an unusable response","error.policy.provider_response_invalid.action":"The call may already have consumed tokens. Review the incident before retrying.","worker.title":"Worker Results & Handoffs","worker.sub":"Latest output from every worker, visible handoffs, and current failures for the selected job.","worker.clickHint":"click a worker → full artifact ledger","worker.output":"Output","worker.failed":"Failed","worker.waiting":"Waiting for output","worker.artifactSaved":"Artifact saved","worker.noArtifact":"No artifact for this job yet.","worker.openTrace":"Open trace","worker.noHandoffs":"No handoffs yet — they appear here as workers pass artifacts downstream.","worker.state.idle":"idle","worker.state.working":"working","worker.state.waiting":"waiting","worker.state.done":"done","worker.state.failed":"failed","worker.state.monitoring":"monitoring","trace.title":"Handoff Trace","trace.loadingProvenance":"Loading provenance…","trace.loading":"Loading handoff trace…","trace.exactNote":"Exact persisted artifact consumed by the target worker. No reconstructed or inferred inputs.","trace.sourceWorker":"Source worker","trace.handoff":"Handoff","trace.targetWorker":"Target worker","trace.artifactPassed":"Artifact passed","trace.artifact":"Artifact","trace.output":"output","trace.runProvenance":"Run provenance","trace.sourceRun":"Source run","trace.targetRun":"Target run","trace.loadFailed":"Could not load handoff trace","trace.tokens":"{input} in · {output} out · {cost}","intel.title":"Factory Intelligence","intel.sub":"Measured worker reliability, latency, cost and recent job readiness — no synthetic quality score.","intel.loading":"Loading measured factory data…","intel.loadFailed":"Could not load Factory Intelligence","intel.statRuns":"measured worker runs","intel.statReliability":"run reliability","intel.statTime":"measured worker time","intel.statCost":"persisted provider cost","intel.statCoverage":"recent artifact coverage","intel.workerComparison":"Worker comparison","intel.recentJobs":"Recent jobs","intel.worker":"Worker","intel.reliability":"Reliability","intel.avgTime":"Avg time","intel.tokens":"Tokens","intel.cost":"Cost","intel.fails":"Fails","intel.untitled":"Untitled job","intel.coverage":"coverage","intel.runs":"runs","intel.noJobs":"No jobs measured yet.","intel.insight":"Insight","intel.noneDetected":"none detected","intel.note":"Reliability, latency, token usage and provider cost come from persisted agent runs. Artifact coverage measures pipeline readiness, not subjective content quality.","intel.insight.reliability.title":"{agent} is the current failure hotspot","intel.insight.reliability.detail":"{fails} failed run(s) across {runs} measured run(s); success rate {rate}%.","intel.insight.cost.title":"{agent} drives the most measured provider spend","intel.insight.cost.detail":"{cost}, {share}% of persisted worker cost.","intel.insight.latency.title":"{agent} has the highest average measured run time","intel.insight.latency.detail":"Average {time} across {runs} run(s).","intel.insight.coverage.title":"Recent job {job} is not fully covered","intel.insight.coverage.detail":"Artifact readiness coverage is {coverage}%; stale stages: {stale}.","intel.insight.baseline.title":"No optimization hotspot is measurable yet","intel.insight.baseline.detail":"Run more production jobs to build a useful reliability, latency and cost baseline.",
   "nav.control":"Control Room","nav.newJob":"New Job","nav.jobs":"Jobs","nav.agents":"Agents","nav.supervisor":"Supervisor","nav.pipeline":"Pipeline","nav.build":"Build Progress","nav.outputs":"Outputs","nav.analytics":"Analytics","nav.settings":"Settings",
@@ -250,6 +340,52 @@ const I18N={
   "super.health":"health","super.lastAudit":"Last audit","super.noIncidents":"No active incidents","super.monitoring":"Supervisor is monitoring jobs and agent runtime.","super.improvements":"Process improvements","super.backlog":"Improvement backlog","super.accept":"Accept","super.dismiss":"Dismiss"
  },
  uk:{
+  "brain.nav":"Content Brain",
+  "brain.title":"Content Brain / Фабрика ідей",
+  "brain.sub":"Signals → Scout → Researcher → Strategist → Verifier → shortlist із provenance та виміряними витратами.",
+  "brain.collect":"Зібрати feeds",
+  "brain.run":"Створити shortlist",
+  "brain.paidHint":"Shortlist використовує платні LLM-виклики, але в межах бюджетних обмежень FactoryOS.",
+  "brain.signals":"Збір сигналів",
+  "brain.ideas":"Черга ідей",
+  "brain.signalTitle":"Назва сигналу",
+  "brain.signalTopic":"Тема",
+  "brain.signalUrl":"URL джерела",
+  "brain.signalContent":"Нотатка / уривок джерела",
+  "brain.addSignal":"Додати сигнал",
+  "brain.statSignals":"сигналів",
+  "brain.statNew":"нових",
+  "brain.statIdeas":"ідей",
+  "brain.statShortlist":"у shortlist",
+  "brain.statSelected":"обрано",
+  "brain.statVerified":"перевірено",
+  "brain.noSignals":"Сигналів ще немає. Додайте вручну або налаштуйте RSS feeds.",
+  "brain.noIdeas":"Ідей ще немає. Створіть shortlist з останніх сигналів.",
+  "brain.feedOff":"RSS adapter не налаштовано",
+  "brain.feedOn":"RSS feeds налаштовано: {n}",
+  "brain.source":"джерело",
+  "brain.research":"Дослідження",
+  "brain.strategy":"Стратегія",
+  "brain.verification":"Перевірка",
+  "brain.novelty":"Новизна",
+  "brain.risks":"Ризики",
+  "brain.verifyOne":"Дослідити й перевірити",
+  "brain.select":"Обрати",
+  "brain.reject":"Відхилити",
+  "brain.createJob":"Створити production job",
+  "brain.runConfirm":"Запустити до 3 ідей через платні Scout + Researcher + Strategist + Verifier у межах бюджетів FactoryOS?",
+  "brain.verifyConfirm":"Запустити платні Researcher + Strategist + Verifier для цієї ідеї в межах бюджетів FactoryOS?",
+  "brain.processing":"Content Brain працює…",
+  "brain.complete":"Shortlist Content Brain оновлено",
+  "brain.added":"Сигнал додано",
+  "brain.duplicate":"Такий сигнал уже є",
+  "brain.collectDone":"Збір сигналів завершено",
+  "brain.jobCreated":"Production job створено",
+  "brain.status.generated":"згенеровано",
+  "brain.status.shortlisted":"у shortlist",
+  "brain.status.selected":"обрано",
+  "brain.status.rejected":"відхилено",
+  "brain.status.in_production":"у production",
   "nav.qa":"QA релізу","qa.title":"Готовність релізу / Ранковий QA","qa.sub":"Стан production, інваріанти безпеки, відомі прогалини та наступні пріоритети — без платних тестових викликів.","qa.loading":"Завантаження стану готовності релізу…","qa.loadFailed":"Не вдалося завантажити готовність релізу","qa.state.ready":"готово","qa.state.ready_with_known_gaps":"готово з відомими прогалинами","qa.state.blocked":"заблоковано","qa.jobs":"завдання","qa.running":"в роботі","qa.failed":"помилки","qa.openIncidents":"відкриті інциденти","qa.roadmap":"roadmap","qa.todayCost":"витрати сьогодні","qa.safety":"Безпека та runtime-перевірки","qa.blockers":"Відомі блокери / прогалини","qa.noBlockers":"Активних блокерів не виявлено.","qa.priorities":"Наступні пріоритети","qa.pass":"пройдено","qa.attention":"увага","qa.paidPending":"Платна LLM-перевірка очікує","qa.paidClear":"Платну LLM-перевірку завершено","qa.note":"Цей зріз не запускає платні виклики провайдерів.",
   "nav.errors":"Центр помилок","error.title":"Операції / Центр помилок","error.sub":"Класифіковані інциденти агентів, безпечне відновлення витрат і історія вирішених помилок для вибраного завдання.","error.open":"відкриті","error.critical":"критичні","error.spendUncertain":"невизначені витрати","error.resolved":"вирішені","error.selectJob":"Виберіть завдання, щоб переглянути інциденти відновлення.","error.noneTitle":"Для цього завдання немає інцидентів агентів","error.noneSub":"FactoryOS класифікуватиме помилки тут і обиратиме безпечну політику відновлення.","error.reviewRetry":"Перевірити й повторити","error.retryWorker":"Повторити агента","error.rebuildFirst":"спочатку перебудуйте залежність","error.runRecorded":"запуск {run} · записано {cost}","error.workerFailure":"Помилка агента","error.reviewIncident":"Переглянути інцидент","error.reviewBeforeRetry":"Перевірте перед повтором","error.dependencyRequired":"потрібна перебудова залежності","error.retry":"Повторити","error.confirmUncertain":"Цей виклик провайдера міг уже завершитися або витратити токени. Повторюйте лише після перевірки інциденту. Продовжити?","error.confirmServer":"Результат провайдера невизначений. Продовжити ручний повтор?","error.retryStarted":"Відновлювальний запуск {agent} розпочато","error.retryFailed":"Не вдалося повторно запустити агента","error.category.unknown":"невідомо","error.category.billing":"білінг","error.category.configuration":"конфігурація","error.category.budget":"бюджет","error.category.dependency":"залежність","error.category.transient":"тимчасова","error.category.transport":"мережа","error.category.provider_response":"відповідь провайдера","error.policy.unknown_failure.title":"Некласифікована помилка агента","error.policy.unknown_failure.action":"Перевірте невдалий запуск перед повтором. Результат провайдера може бути невизначеним.","error.policy.billing_exhausted.title":"Баланс провайдера вичерпано","error.policy.billing_exhausted.action":"Поповніть баланс провайдера, потім повторіть цього агента.","error.policy.provider_configuration.title":"Потрібно виправити конфігурацію провайдера","error.policy.provider_configuration.action":"Перевірте API-ключ, права проєкту, модель або режим API, потім повторіть.","error.policy.budget_guard.title":"Ліміт бюджету FactoryOS зупинив виклик","error.policy.budget_guard.action":"Перевірте витрати завдання/дня та бюджетні ліміти перед повтором.","error.policy.dependency_missing.title":"Відсутня вхідна залежність","error.policy.dependency_missing.action":"Перебудуйте відсутнього попереднього агента або артефакт перед повтором цього етапу.","error.policy.provider_rate_limit.title":"Ліміт запитів провайдера","error.policy.provider_rate_limit.action":"FactoryOS може безпечно повторити один раз; якщо помилка повториться, трохи зачекайте й повторіть вручну.","error.policy.provider_5xx.title":"Сервісна помилка провайдера","error.policy.provider_5xx.action":"Результат провайдера може бути невизначеним. Перевірте інцидент перед ручним повтором.","error.policy.transport_uncertain.title":"Результат провайдера невизначений","error.policy.transport_uncertain.action":"Не повторюйте автоматично. Переконайтеся, що провайдер не завершив запит, і лише потім повторіть вручну.","error.policy.provider_response_invalid.title":"Провайдер повернув непридатну відповідь","error.policy.provider_response_invalid.action":"Виклик уже міг витратити токени. Перевірте інцидент перед повтором.","worker.title":"Результати агентів і передачі","worker.sub":"Останній результат кожного агента, видимі передачі та поточні помилки вибраного завдання.","worker.clickHint":"натисніть агента → повний журнал артефактів","worker.output":"Результат","worker.failed":"Помилка","worker.waiting":"Очікування результату","worker.artifactSaved":"Артефакт збережено","worker.noArtifact":"Для цього завдання ще немає артефакту.","worker.openTrace":"Відкрити трасування","worker.noHandoffs":"Передач ще немає — вони з’являться, коли агенти передаватимуть артефакти далі.","worker.state.idle":"очікує","worker.state.working":"працює","worker.state.waiting":"очікує","worker.state.done":"готово","worker.state.failed":"помилка","worker.state.monitoring":"моніторинг","trace.title":"Трасування передачі","trace.loadingProvenance":"Завантаження походження…","trace.loading":"Завантаження трасування передачі…","trace.exactNote":"Точний збережений артефакт, який отримав цільовий агент. Без реконструйованих або вигаданих входів.","trace.sourceWorker":"Агент-джерело","trace.handoff":"Передача","trace.targetWorker":"Цільовий агент","trace.artifactPassed":"Переданий артефакт","trace.artifact":"Артефакт","trace.output":"результат","trace.runProvenance":"Походження запуску","trace.sourceRun":"Вихідний запуск","trace.targetRun":"Цільовий запуск","trace.loadFailed":"Не вдалося завантажити трасування передачі","trace.tokens":"{input} вхід · {output} вихід · {cost}","intel.title":"Factory Intelligence","intel.sub":"Виміряна надійність агентів, затримка, вартість і готовність останніх завдань — без вигаданого рейтингу якості.","intel.loading":"Завантаження виміряних даних фабрики…","intel.loadFailed":"Не вдалося завантажити Factory Intelligence","intel.statRuns":"виміряні запуски агентів","intel.statReliability":"надійність запусків","intel.statTime":"виміряний час агентів","intel.statCost":"зафіксована вартість провайдера","intel.statCoverage":"покриття артефактами останніх завдань","intel.workerComparison":"Порівняння агентів","intel.recentJobs":"Останні завдання","intel.worker":"Агент","intel.reliability":"Надійність","intel.avgTime":"Сер. час","intel.tokens":"Токени","intel.cost":"Вартість","intel.fails":"Помилки","intel.untitled":"Завдання без назви","intel.coverage":"покриття","intel.runs":"запуски","intel.noJobs":"Ще немає виміряних завдань.","intel.insight":"Висновок","intel.noneDetected":"не виявлено","intel.note":"Надійність, затримка, токени та вартість провайдера беруться зі збережених запусків агентів. Покриття артефактами вимірює готовність конвеєра, а не суб’єктивну якість контенту.","intel.insight.reliability.title":"{agent} зараз є головною точкою помилок","intel.insight.reliability.detail":"{fails} невдалих запусків із {runs} виміряних; успішність {rate}%.","intel.insight.cost.title":"{agent} створює найбільшу виміряну витрату провайдера","intel.insight.cost.detail":"{cost}, {share}% зафіксованої вартості агентів.","intel.insight.latency.title":"{agent} має найбільший середній час запуску","intel.insight.latency.detail":"У середньому {time} для {runs} запусків.","intel.insight.coverage.title":"Останнє завдання {job} покрите не повністю","intel.insight.coverage.detail":"Готовність артефактів {coverage}%; застарілі етапи: {stale}.","intel.insight.baseline.title":"Поки немає вимірюваної точки оптимізації","intel.insight.baseline.detail":"Запустіть більше виробничих завдань, щоб сформувати базу надійності, затримки та вартості.",
   "nav.control":"Центр керування","nav.newJob":"Нове завдання","nav.jobs":"Завдання","nav.agents":"Агенти","nav.supervisor":"Супервізор","nav.pipeline":"Конвеєр","nav.build":"Прогрес розробки","nav.outputs":"Результати","nav.analytics":"Аналітика","nav.settings":"Налаштування",
@@ -277,6 +413,52 @@ const I18N={
   "super.health":"здоров'я","super.lastAudit":"Останній аудит","super.noIncidents":"Активних інцидентів немає","super.monitoring":"Супервізор контролює завдання й стан агентів.","super.improvements":"Покращення процесу","super.backlog":"Черга покращень","super.accept":"Прийняти","super.dismiss":"Відхилити"
  },
  ru:{
+  "brain.nav":"Content Brain",
+  "brain.title":"Content Brain / Фабрика идей",
+  "brain.sub":"Signals → Scout → Researcher → Strategist → Verifier → shortlist с provenance и измеримыми затратами.",
+  "brain.collect":"Собрать feeds",
+  "brain.run":"Собрать shortlist",
+  "brain.paidHint":"Shortlist использует платные LLM-вызовы, но остаётся внутри бюджетных ограничений FactoryOS.",
+  "brain.signals":"Сбор сигналов",
+  "brain.ideas":"Очередь идей",
+  "brain.signalTitle":"Название сигнала",
+  "brain.signalTopic":"Тема",
+  "brain.signalUrl":"URL источника",
+  "brain.signalContent":"Заметка / фрагмент источника",
+  "brain.addSignal":"Добавить сигнал",
+  "brain.statSignals":"сигналов",
+  "brain.statNew":"новых",
+  "brain.statIdeas":"идей",
+  "brain.statShortlist":"в shortlist",
+  "brain.statSelected":"выбрано",
+  "brain.statVerified":"проверено",
+  "brain.noSignals":"Сигналов пока нет. Добавьте вручную или настройте RSS feeds.",
+  "brain.noIdeas":"Идей пока нет. Соберите shortlist из последних сигналов.",
+  "brain.feedOff":"RSS adapter не настроен",
+  "brain.feedOn":"RSS feeds настроено: {n}",
+  "brain.source":"источник",
+  "brain.research":"Исследование",
+  "brain.strategy":"Стратегия",
+  "brain.verification":"Проверка",
+  "brain.novelty":"Новизна",
+  "brain.risks":"Риски",
+  "brain.verifyOne":"Исследовать и проверить",
+  "brain.select":"Выбрать",
+  "brain.reject":"Отклонить",
+  "brain.createJob":"Создать production job",
+  "brain.runConfirm":"Прогнать до 3 идей через платные Scout + Researcher + Strategist + Verifier в пределах бюджетов FactoryOS?",
+  "brain.verifyConfirm":"Запустить платные Researcher + Strategist + Verifier для этой идеи в пределах бюджетов FactoryOS?",
+  "brain.processing":"Content Brain работает…",
+  "brain.complete":"Shortlist Content Brain обновлён",
+  "brain.added":"Сигнал добавлен",
+  "brain.duplicate":"Такой сигнал уже существует",
+  "brain.collectDone":"Сбор сигналов завершён",
+  "brain.jobCreated":"Production job создан",
+  "brain.status.generated":"сгенерировано",
+  "brain.status.shortlisted":"в shortlist",
+  "brain.status.selected":"выбрано",
+  "brain.status.rejected":"отклонено",
+  "brain.status.in_production":"в production",
   "nav.qa":"QA релиза","qa.title":"Готовность релиза / Утренний QA","qa.sub":"Состояние production, инварианты безопасности, известные пробелы и следующие приоритеты — без платных тестовых вызовов.","qa.loading":"Загрузка состояния готовности релиза…","qa.loadFailed":"Не удалось загрузить готовность релиза","qa.state.ready":"готово","qa.state.ready_with_known_gaps":"готово с известными пробелами","qa.state.blocked":"заблокировано","qa.jobs":"задачи","qa.running":"в работе","qa.failed":"ошибки","qa.openIncidents":"открытые инциденты","qa.roadmap":"roadmap","qa.todayCost":"расходы сегодня","qa.safety":"Безопасность и runtime-проверки","qa.blockers":"Известные блокеры / пробелы","qa.noBlockers":"Активных блокеров не обнаружено.","qa.priorities":"Следующие приоритеты","qa.pass":"пройдено","qa.attention":"внимание","qa.paidPending":"Платная LLM-проверка ожидает","qa.paidClear":"Платная LLM-проверка завершена","qa.note":"Этот срез не запускает платные вызовы провайдеров.",
   "nav.errors":"Центр ошибок","error.title":"Операции / Центр ошибок","error.sub":"Классифицированные инциденты агентов, безопасное восстановление расходов и история решённых ошибок для выбранной задачи.","error.open":"открытые","error.critical":"критические","error.spendUncertain":"неопределённые расходы","error.resolved":"решённые","error.selectJob":"Выберите задачу, чтобы посмотреть инциденты восстановления.","error.noneTitle":"Для этой задачи нет инцидентов агентов","error.noneSub":"FactoryOS будет классифицировать ошибки здесь и выбирать безопасную политику восстановления.","error.reviewRetry":"Проверить и повторить","error.retryWorker":"Повторить агента","error.rebuildFirst":"сначала перестройте зависимость","error.runRecorded":"запуск {run} · записано {cost}","error.workerFailure":"Ошибка агента","error.reviewIncident":"Посмотреть инцидент","error.reviewBeforeRetry":"Проверьте перед повтором","error.dependencyRequired":"нужна перестройка зависимости","error.retry":"Повторить","error.confirmUncertain":"Этот вызов провайдера мог уже завершиться или потратить токены. Повторяйте только после проверки инцидента. Продолжить?","error.confirmServer":"Результат провайдера неопределён. Продолжить ручной повтор?","error.retryStarted":"Восстановительный запуск {agent} начат","error.retryFailed":"Не удалось повторно запустить агента","error.category.unknown":"неизвестно","error.category.billing":"биллинг","error.category.configuration":"конфигурация","error.category.budget":"бюджет","error.category.dependency":"зависимость","error.category.transient":"временная","error.category.transport":"сеть","error.category.provider_response":"ответ провайдера","error.policy.unknown_failure.title":"Неклассифицированная ошибка агента","error.policy.unknown_failure.action":"Проверьте неудачный запуск перед повтором. Результат провайдера может быть неопределённым.","error.policy.billing_exhausted.title":"Баланс провайдера исчерпан","error.policy.billing_exhausted.action":"Пополните баланс провайдера, затем повторите этого агента.","error.policy.provider_configuration.title":"Нужно исправить конфигурацию провайдера","error.policy.provider_configuration.action":"Проверьте API-ключ, права проекта, модель или режим API, затем повторите.","error.policy.budget_guard.title":"Лимит бюджета FactoryOS остановил вызов","error.policy.budget_guard.action":"Проверьте расходы задачи/дня и лимиты бюджета перед повтором.","error.policy.dependency_missing.title":"Отсутствует входная зависимость","error.policy.dependency_missing.action":"Перестройте отсутствующего предыдущего агента или артефакт перед повтором этого этапа.","error.policy.provider_rate_limit.title":"Лимит запросов провайдера","error.policy.provider_rate_limit.action":"FactoryOS может безопасно повторить один раз; если ошибка повторится, немного подождите и повторите вручную.","error.policy.provider_5xx.title":"Сервисная ошибка провайдера","error.policy.provider_5xx.action":"Результат провайдера может быть неопределён. Проверьте инцидент перед ручным повтором.","error.policy.transport_uncertain.title":"Результат провайдера неопределён","error.policy.transport_uncertain.action":"Не повторяйте автоматически. Убедитесь, что провайдер не завершил запрос, и только затем повторите вручную.","error.policy.provider_response_invalid.title":"Провайдер вернул непригодный ответ","error.policy.provider_response_invalid.action":"Вызов уже мог потратить токены. Проверьте инцидент перед повтором.","worker.title":"Результаты агентов и передачи","worker.sub":"Последний результат каждого агента, видимые передачи и текущие ошибки выбранной задачи.","worker.clickHint":"нажмите агента → полный журнал артефактов","worker.output":"Результат","worker.failed":"Ошибка","worker.waiting":"Ожидание результата","worker.artifactSaved":"Артефакт сохранён","worker.noArtifact":"Для этой задачи пока нет артефакта.","worker.openTrace":"Открыть трассировку","worker.noHandoffs":"Передач пока нет — они появятся, когда агенты начнут передавать артефакты дальше.","worker.state.idle":"ожидает","worker.state.working":"работает","worker.state.waiting":"ожидает","worker.state.done":"готово","worker.state.failed":"ошибка","worker.state.monitoring":"мониторинг","trace.title":"Трассировка передачи","trace.loadingProvenance":"Загрузка происхождения…","trace.loading":"Загрузка трассировки передачи…","trace.exactNote":"Точный сохранённый артефакт, который получил целевой агент. Без реконструированных или придуманных входов.","trace.sourceWorker":"Агент-источник","trace.handoff":"Передача","trace.targetWorker":"Целевой агент","trace.artifactPassed":"Переданный артефакт","trace.artifact":"Артефакт","trace.output":"результат","trace.runProvenance":"Происхождение запуска","trace.sourceRun":"Исходный запуск","trace.targetRun":"Целевой запуск","trace.loadFailed":"Не удалось загрузить трассировку передачи","trace.tokens":"{input} вход · {output} выход · {cost}","intel.title":"Factory Intelligence","intel.sub":"Измеренная надёжность агентов, задержка, стоимость и готовность последних задач — без выдуманного рейтинга качества.","intel.loading":"Загрузка измеренных данных фабрики…","intel.loadFailed":"Не удалось загрузить Factory Intelligence","intel.statRuns":"измеренные запуски агентов","intel.statReliability":"надёжность запусков","intel.statTime":"измеренное время агентов","intel.statCost":"зафиксированная стоимость провайдера","intel.statCoverage":"покрытие артефактами последних задач","intel.workerComparison":"Сравнение агентов","intel.recentJobs":"Последние задачи","intel.worker":"Агент","intel.reliability":"Надёжность","intel.avgTime":"Ср. время","intel.tokens":"Токены","intel.cost":"Стоимость","intel.fails":"Ошибки","intel.untitled":"Задача без названия","intel.coverage":"покрытие","intel.runs":"запуски","intel.noJobs":"Пока нет измеренных задач.","intel.insight":"Вывод","intel.noneDetected":"не обнаружено","intel.note":"Надёжность, задержка, токены и стоимость провайдера берутся из сохранённых запусков агентов. Покрытие артефактами измеряет готовность конвейера, а не субъективное качество контента.","intel.insight.reliability.title":"{agent} сейчас является главной точкой ошибок","intel.insight.reliability.detail":"{fails} неудачных запусков из {runs} измеренных; успешность {rate}%.","intel.insight.cost.title":"{agent} создаёт наибольшие измеренные расходы провайдера","intel.insight.cost.detail":"{cost}, {share}% зафиксированной стоимости агентов.","intel.insight.latency.title":"{agent} имеет самое большое среднее время запуска","intel.insight.latency.detail":"В среднем {time} для {runs} запусков.","intel.insight.coverage.title":"Последняя задача {job} покрыта не полностью","intel.insight.coverage.detail":"Готовность артефактов {coverage}%; устаревшие этапы: {stale}.","intel.insight.baseline.title":"Пока нет измеримой точки оптимизации","intel.insight.baseline.detail":"Запустите больше производственных задач, чтобы сформировать базу надёжности, задержки и стоимости.",
   "nav.control":"Центр управления","nav.newJob":"Новая задача","nav.jobs":"Задачи","nav.agents":"Агенты","nav.supervisor":"Супервизор","nav.pipeline":"Конвейер","nav.build":"Прогресс разработки","nav.outputs":"Результаты","nav.analytics":"Аналитика","nav.settings":"Настройки",
@@ -391,8 +573,9 @@ function stageSub(st){return tr('stagesub.'+st)}
 const icons={inbox:'○',research:'⌕',script:'▤',visual:'▧',voice:'≋',render:'▷',qa:'✓',publish:'⇧',analytics:'▥'};
 const pos={"Scout":[10,43],"Researcher":[26,43],"Tech Verifier":[42,43],"Hook Writer":[58,43],"Scriptwriter":[74,43],"Visual Director":[90,43],"Voice Agent":[10,77],"Render Agent":[26,77],"QA Agent":[42,77],"Publisher":[58,77],"Analyst":[74,77],"Supervisor":[90,77]};
 async function api(u,o){const r=await fetch(u,o);if(!r.ok)throw Error(await r.text());return r.json()}async function refresh(){try{S=await api('/api/status');render()}catch(e){toast(tr('toast.refreshFailed'))}}
-function render(){mission();usage();buildBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8);$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
+function render(){mission();usage();buildBadge();contentBrainBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8);$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
 function buildBadge(){const b=S.buildProgress||{};const el=$('#buildNavPct');if(el)el.textContent=Math.round(Number(b.progress||0))+'%'}
+function contentBrainBadge(){const b=(S&&S.contentBrain)||{},sm=b.summary||{},el=$('#brainNavCount');if(el)el.textContent=Number(sm.shortlisted||0)?String(sm.shortlisted):''}
 function designPartnerState(){const el=$('#designMcpState');if(!el)return;const ready=!!(S&&S.factoryMcpConfigured);el.classList.toggle('ready',ready);el.textContent=ready?tr('design.ready'):tr('design.needsToken')}
 function usage(){const u=S.usage||{};$('#uRuns').textContent=u.runs||0;$('#uTime').textContent=fmtDuration(u.duration_ms||0);$('#uTokens').textContent=fmtTokens((u.input_tokens||0)+(u.output_tokens||0));$('#uCost').textContent=fmtMoney(u.today_cost_usd||0)+' / '+fmtMoney(u.daily_budget_usd||0)}
 function mission(){const j=S.selectedJob;let active=2,title=tr('mission.next'),copy=tr('mission.create');if(j){if(j.status==='waiting_approval'){active=4;title=tr('mission.review');copy=tr('mission.reviewCopy')}else if(j.status==='done'){active=5;title=tr('mission.done');copy=tr('mission.doneCopy')}else if(j.status==='running'){active=3;title=tr('mission.working');copy=tr('mission.workingCopy',{stage:stageLabel(j.stage)})}else{active=3;title=tr('mission.ready');copy=tr('mission.readyCopy',{title:j.title})}}$('#missionTitle').textContent=title;$('#missionCopy').textContent=copy;[1,2,3,4,5].forEach(n=>{const e=$('#step'+n);e.classList.remove('active','done');if(n===active)e.classList.add('active');if(n<active)e.classList.add('done')})}
@@ -484,6 +667,84 @@ async function addMcp(){if(!currentAgentDrawer)return;const name=($('#mcpName')|
 async function discoverMcp(id){if(!currentAgentDrawer)return;const el=$('#mcpTools-'+id);if(el)el.textContent='Checking…';try{const r=await api('/api/agents/'+encodeURIComponent(currentAgentDrawer)+'/mcp/'+encodeURIComponent(id)+'/tools');const names=(r.tools||[]).map(x=>x.name);if(el)el.textContent=tr('drawer.toolsFound')+': '+(names.join(', ')||'—')}catch(e){if(el)el.textContent='Error: '+e.message}}
 async function toggleMcp(id,enabled){if(!currentAgentDrawer)return;try{await api('/api/agents/'+encodeURIComponent(currentAgentDrawer)+'/mcp/'+encodeURIComponent(id)+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});toast(enabled?'MCP enabled':'MCP disabled');openAgent(currentAgentDrawer)}catch(e){toast('Could not update MCP')}}
 async function deleteMcp(id){if(!currentAgentDrawer)return;try{await api('/api/agents/'+encodeURIComponent(currentAgentDrawer)+'/mcp/'+encodeURIComponent(id),{method:'DELETE'});toast('MCP removed');openAgent(currentAgentDrawer)}catch(e){toast('Could not remove MCP')}}
+
+let brainBusy=false;
+function closeContentBrain(){$('#brainShade').classList.remove('open');$('#brainPage').classList.remove('open')}
+async function openContentBrain(){closeAgent();$('#brainShade').classList.add('open');$('#brainPage').classList.add('open');await renderContentBrain()}
+function brainStatusLabel(status){const k='brain.status.'+(status||'generated'),v=tr(k);return v===k?(status||'generated'):v}
+async function renderContentBrain(){
+ const summary=$('#brainSummary'),signalsRoot=$('#brainSignals'),ideasRoot=$('#brainIdeas');if(!summary||!signalsRoot||!ideasRoot)return;
+ try{
+  const d=await api('/api/content-brain?limit=80');if(S)S.contentBrain=d;contentBrainBadge();
+  const sm=d.summary||{},rss=(d.adapters||{}).rss||{};
+  summary.innerHTML=[
+   [sm.signals||0,'brain.statSignals'],[sm.new_signals||0,'brain.statNew'],[sm.ideas||0,'brain.statIdeas'],
+   [sm.shortlisted||0,'brain.statShortlist'],[sm.selected||0,'brain.statSelected'],[sm.verified||0,'brain.statVerified']
+  ].map(x=>'<div class="brainStat"><b>'+Number(x[0])+'</b><span>'+esc(tr(x[1]))+'</span></div>').join('');
+  const signals=d.signals||[];
+  signalsRoot.innerHTML=(rss.enabled?'<div class="tiny" style="margin-bottom:6px">'+esc(tr('brain.feedOn',{n:rss.feeds||0}))+'</div>':'<div class="tiny" style="margin-bottom:6px">'+esc(tr('brain.feedOff'))+'</div>')
+   +(signals.length?signals.slice(0,24).map(x=>'<div class="signalItem"><b>'+esc(x.title)+'</b><small>'+esc(x.source_type||'manual')+' · '+esc((x.created_at||'').replace('T',' ').slice(0,16))+'</small><span>'+esc((x.content||'').slice(0,260))+'</span><div class="signalMeta">'+(x.topic?'<span class="brainPill">'+esc(x.topic)+'</span>':'')+(x.url?'<span class="brainPill">'+esc(tr('brain.source'))+'</span>':'')+'<span class="brainPill '+esc(x.status||'new')+'">'+esc(x.status||'new')+'</span></div></div>').join(''):'<div class="brainEmpty">'+esc(tr('brain.noSignals'))+'</div>');
+  const ideas=d.ideas||[];
+  ideasRoot.innerHTML=ideas.length?ideas.map(ideaCardHtml).join(''):'<div class="brainEmpty">'+esc(tr('brain.noIdeas'))+'</div>';
+ }catch(e){ideasRoot.innerHTML='<div class="finding critical"><strong>'+esc(tr('toast.refreshFailed'))+'</strong><span>'+esc(e.message)+'</span></div>'}
+}
+function ideaCardHtml(i){
+ const status=i.status||'generated',research=i.research||{},strategy=i.strategy||{},verification=i.verification||{};
+ const score=Math.round(Number(i.score||0)*100),risks=i.risk_flags||[];
+ const researchText=research.research_summary||'',verifyText=verification.verification_notes||'',novelty=i.novelty_evidence||strategy.novelty_evidence||'';
+ const reason=i.rejection_reason||verification.rejection_reason||'';
+ const sourceCount=(i.source_signal_ids||[]).length;
+ let actions='';
+ if(status!=='rejected')actions+='<button class="btn" onclick="processBrainIdea(\''+i.id+'\')">◆ '+esc(tr('brain.verifyOne'))+'</button>';
+ if(status!=='selected'&&status!=='in_production')actions+='<button class="btn good" onclick="setBrainIdeaStatus(\''+i.id+'\',\'selected\')">✓ '+esc(tr('brain.select'))+'</button>';
+ if(status!=='rejected')actions+='<button class="btn" onclick="setBrainIdeaStatus(\''+i.id+'\',\'rejected\')">× '+esc(tr('brain.reject'))+'</button>';
+ if(status==='selected'||status==='shortlisted')actions+='<button class="btn primary" onclick="createJobFromBrainIdea(\''+i.id+'\')">▶ '+esc(tr('brain.createJob'))+'</button>';
+ return '<article class="ideaCard '+esc(status)+'"><div class="ideaHead"><div><b>'+esc(i.title||'Untitled')+'</b><div class="signalMeta"><span class="brainPill '+esc(status)+'">'+esc(brainStatusLabel(status))+'</span><span class="brainPill">'+sourceCount+' '+esc(tr('brain.source'))+'</span><span class="brainPill">'+esc(i.complexity||'medium')+'</span></div></div><div class="ideaScore">'+score+'%</div></div>'
+  +'<div class="ideaAngle">'+esc(i.angle||i.why_now||'')+'</div>'
+  +'<div class="ideaDetail">'
+  +'<div><strong>'+esc(tr('brain.research'))+'</strong><span>'+esc(researchText||'—')+'</span></div>'
+  +'<div><strong>'+esc(tr('brain.verification'))+'</strong><span>'+esc(verifyText||reason||'—')+'</span></div>'
+  +'<div><strong>'+esc(tr('brain.novelty'))+'</strong><span>'+esc(novelty||'—')+'</span></div>'
+  +'<div><strong>'+esc(tr('brain.strategy'))+'</strong><span>'+esc(strategy.strategy_notes||i.why_now||'—')+'</span></div>'
+  +'</div>'+(risks.length?'<div class="ideaRisks">⚠ '+esc(tr('brain.risks'))+': '+esc(risks.join(' · '))+'</div>':'')
+  +'<div class="ideaActions">'+actions+'</div></article>';
+}
+async function addBrainSignal(){
+ const title=($('#brainSignalTitle')||{}).value||'',topic=($('#brainSignalTopic')||{}).value||'',url=($('#brainSignalUrl')||{}).value||'',content=($('#brainSignalContent')||{}).value||'';
+ if(!title.trim()){toast(tr('brain.signalTitle'));return}
+ try{const r=await api('/api/content-brain/signals',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,topic,url,content,source_type:url?'url':'manual'})});toast(r.duplicate?tr('brain.duplicate'):tr('brain.added'));if(!r.duplicate){['brainSignalTitle','brainSignalTopic','brainSignalUrl','brainSignalContent'].forEach(id=>{const el=$('#'+id);if(el)el.value=''})}await renderContentBrain();await refresh()}catch(e){toast(e.message)}
+}
+async function collectBrainSignals(){
+ if(brainBusy)return;brainBusy=true;toast(tr('brain.processing'));
+ try{const r=await api('/api/content-brain/collect',{method:'POST'});toast(tr('brain.collectDone')+' · +'+Number(r.created_count||0));await renderContentBrain();await refresh()}catch(e){toast(e.message)}finally{brainBusy=false}
+}
+async function runBrainFull(){
+ if(brainBusy)return;if(!confirm(tr('brain.runConfirm')))return;brainBusy=true;toast(tr('brain.processing'));
+ try{
+   const g=await api('/api/content-brain/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({signal_ids:[],max_ideas:3,language:LANG==='uk'?'Ukrainian':LANG==='ru'?'Russian':'English'})});
+   const ids=(g.ideas||[]).map(x=>x.id).slice(0,3);
+   if(ids.length)await api('/api/content-brain/process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idea_ids:ids,max_ideas:3,language:LANG==='uk'?'Ukrainian':LANG==='ru'?'Russian':'English'})});
+   toast(tr('brain.complete'));await renderContentBrain();await refresh();
+ }catch(e){toast(e.message)}finally{brainBusy=false}
+}
+async function processBrainIdea(id){
+ if(brainBusy)return;if(!confirm(tr('brain.verifyConfirm')))return;brainBusy=true;toast(tr('brain.processing'));
+ try{await api('/api/content-brain/process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idea_ids:[id],max_ideas:1,language:LANG==='uk'?'Ukrainian':LANG==='ru'?'Russian':'English'})});toast(tr('brain.complete'));await renderContentBrain();await refresh()}catch(e){toast(e.message)}finally{brainBusy=false}
+}
+async function setBrainIdeaStatus(id,status){
+ try{await api('/api/content-brain/ideas/'+encodeURIComponent(id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});await renderContentBrain();await refresh()}catch(e){toast(e.message)}
+}
+async function createJobFromBrainIdea(id){
+ try{
+  const d=await api('/api/content-brain?limit=100'),i=(d.ideas||[]).find(x=>x.id===id);if(!i)throw Error('Idea not found');
+  const research=(i.research||{}).research_summary||'',verify=(i.verification||{}).verification_notes||'';
+  const brief=[i.angle,i.why_now,research,verify].filter(Boolean).join('\n\n').slice(0,6000);
+  await api('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:i.title,brief,presenter:'Faceless',format:'Short only',language:LANG==='uk'?'Ukrainian':LANG==='ru'?'Russian':'English',outputs:1})});
+  await api('/api/content-brain/ideas/'+encodeURIComponent(id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'in_production'})});
+  toast(tr('brain.jobCreated'));closeContentBrain();await refresh();document.querySelector('.jobs').scrollIntoView({behavior:'smooth'});
+ }catch(e){toast(e.message)}
+}
+
 let buildPollTimer=null;
 async function openBuildProgress(){closeAgent();$('#taskShade').classList.add('open');$('#taskPage').classList.add('open');await renderBuildProgress();clearInterval(buildPollTimer);buildPollTimer=setInterval(()=>{if($('#taskPage').classList.contains('open'))renderBuildProgress()},10000)}
 function closeBuildProgress(){clearInterval(buildPollTimer);buildPollTimer=null;$('#taskShade').classList.remove('open');$('#taskPage').classList.remove('open')}
