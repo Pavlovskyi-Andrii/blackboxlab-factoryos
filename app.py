@@ -2168,10 +2168,16 @@ def finish_agent_run(run_id, status="completed", input_tokens=0, output_tokens=0
 
 def save_artifact(agent, kind, title, content="", job_id=None, run_id=None, url=None, mime_type=None, meta=None):
     artifact_id=str(uuid.uuid4())
+    if isinstance(content,str):
+        stored_content=content
+    elif content is None:
+        stored_content=""
+    else:
+        stored_content=json.dumps(content,ensure_ascii=False,indent=2,default=str)
     con=db()
     con.execute("""INSERT INTO artifacts(id,run_id,job_id,agent,kind,title,content,url,mime_type,created_at,meta_json)
                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                (artifact_id,run_id,job_id,agent,kind,title,content,url,mime_type,ts(),json.dumps(meta or {})))
+                (artifact_id,run_id,job_id,agent,kind,str(title or ""),stored_content,url,mime_type,ts(),json.dumps(meta or {},ensure_ascii=False,default=str)))
     con.commit(); con.close()
     return artifact_id
 
