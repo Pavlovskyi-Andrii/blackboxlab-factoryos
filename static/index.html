@@ -207,11 +207,20 @@
 .revideoCompare pre{white-space:pre-wrap;max-height:320px;overflow:auto}
 .revideoGuard{margin-top:8px;font-size:10px;color:#91aabd;line-height:1.5}
 @media(max-width:700px){.revideoComposer,.revideoCompare{grid-template-columns:1fr}.revideoComposer .wide{grid-column:auto}}
+
+.discoveryComposer{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.discoveryComposer .wide{grid-column:1/-1}
+.discoveryComposer input,.discoveryComposer textarea,.discoveryComposer select{box-sizing:border-box;width:100%;background:#071521;color:#dceaf4;border:1px solid #23445b;border-radius:9px;padding:10px;font:inherit}
+.discoveryComposer textarea{min-height:95px;resize:vertical}
+.discoveryThumb{width:100%;max-height:220px;object-fit:cover;border-radius:10px;border:1px solid rgba(109,130,152,.28);margin-bottom:8px}
+.metricGrid{display:flex;gap:6px;flex-wrap:wrap;margin:7px 0}
+.metricGrid span{font-size:10px;border:1px solid rgba(109,130,152,.35);border-radius:999px;padding:4px 7px;color:#a9bfd3}
+@media(max-width:700px){.discoveryComposer{grid-template-columns:1fr}.discoveryComposer .wide{grid-column:auto}}
 </style></head>
 <body><div class="shell">
 <aside class="side">
-<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v4.3</span></small></div></div>
-<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openApprovalStudio()">✓ &nbsp; <span data-i18n="approval.nav">Review</span></button><button onclick="openPublishingStudio()">⇧ &nbsp; <span data-i18n="publishing.nav">Publish</span></button><button onclick="openAutonomousFactory()">∞ &nbsp; <span data-i18n="cycle.nav">Autopilot</span></button><button onclick="openPerformanceStudio()">↗ &nbsp; <span data-i18n="performance.nav">Performance</span></button><button onclick="openExperimentLab()">⌘ &nbsp; <span data-i18n="experiment.nav">Experiments</span></button><button onclick="openContentBrain()">✦ &nbsp; <span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="openRevideoStudio()">⟳ &nbsp; <span data-i18n="revideo.nav">Revideo</span> <span id="revideoNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openVariantStudio():toast(tr('toast.selectJob'))">◇ &nbsp; <span data-i18n="variant.nav">Variants</span> <span id="variantNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openPackageStudio():toast(tr('toast.selectJob'))">▤ &nbsp; <span data-i18n="package.nav">Package</span> <span id="packageNavState" style="float:right;color:#63d9ff"></span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
+<div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v4.4</span></small></div></div>
+<nav class="nav"><button class="active">▣ &nbsp; <span data-i18n="nav.control">Control Room</span></button><button onclick="openApprovalStudio()">✓ &nbsp; <span data-i18n="approval.nav">Review</span></button><button onclick="openPublishingStudio()">⇧ &nbsp; <span data-i18n="publishing.nav">Publish</span></button><button onclick="openAutonomousFactory()">∞ &nbsp; <span data-i18n="cycle.nav">Autopilot</span></button><button onclick="openPerformanceStudio()">↗ &nbsp; <span data-i18n="performance.nav">Performance</span></button><button onclick="openExperimentLab()">⌘ &nbsp; <span data-i18n="experiment.nav">Experiments</span></button><button onclick="openContentBrain()">✦ &nbsp; <span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="openDiscoveryStudio()">⌁ &nbsp; <span data-i18n="discovery.nav">Discovery</span> <span id="discoveryNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="openRevideoStudio()">⟳ &nbsp; <span data-i18n="revideo.nav">Revideo</span> <span id="revideoNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openVariantStudio():toast(tr('toast.selectJob'))">◇ &nbsp; <span data-i18n="variant.nav">Variants</span> <span id="variantNavCount" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openPackageStudio():toast(tr('toast.selectJob'))">▤ &nbsp; <span data-i18n="package.nav">Package</span> <span id="packageNavState" style="float:right;color:#63d9ff"></span></button><button onclick="openNew()">＋ &nbsp; <span data-i18n="nav.newJob">New Job</span></button><button onclick="document.querySelector('.jobs').scrollIntoView()">▤ &nbsp; <span data-i18n="nav.jobs">Jobs</span></button><button onclick="openAgentDirectory()">◉ &nbsp; <span data-i18n="nav.agents">Agents</span></button><button onclick="document.querySelector('.supervisor').scrollIntoView()">◆ &nbsp; <span data-i18n="nav.supervisor">Supervisor</span></button><button onclick="document.querySelector('.errorCenterCard').scrollIntoView()">⚠ &nbsp; <span data-i18n="nav.errors">Error Center</span></button><button onclick="document.querySelector('.pipelineCard').scrollIntoView()">⌁ &nbsp; <span data-i18n="nav.pipeline">Pipeline</span></button><button onclick="openBuildProgress()">☑ &nbsp; <span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))">▦ &nbsp; <span data-i18n="nav.outputs">Outputs</span></button><button onclick="openFactoryIntelligence()">▥ &nbsp; <span data-i18n="nav.analytics">Analytics</span></button><button onclick="openReleaseReadiness()">✓ &nbsp; <span data-i18n="nav.qa">Release QA</span></button><button>⚙ &nbsp; <span data-i18n="nav.settings">Settings</span></button></nav>
 <div class="foot"><span class="green"></span><span data-i18n="factory.online">Factory online</span><br><span id="runState">No active run</span></div>
 </aside>
 <main class="main">
@@ -267,6 +276,8 @@
 
 <div class="flowShade" id="cycleShade" onclick="closeAutonomousFactory()"></div>
 <section class="flowPage" id="cyclePage"><div class="flowTop"><div><h2 class="helpable" data-help="help.cycle" data-i18n="cycle.title">Autonomous Content Factory / Cycle Control</h2><p data-i18n="cycle.sub">Signals → ideas → production → human approval → publishing → real analytics → learning, with no manual data handoff.</p></div><button class="closeX" onclick="closeAutonomousFactory()">×</button></div><div class="flowBody" id="cycleBody"></div></section>
+<div class="flowShade" id="discoveryShade" onclick="closeDiscoveryStudio()"></div>
+<section class="flowPage" id="discoveryPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.discovery" data-i18n="discovery.title">Viral Discovery / Outlier Inbox</h2><p data-i18n="discovery.sub">Store real breakout candidates, compare public metrics and send the best source into Revideo without copying it.</p></div><button class="closeX" onclick="closeDiscoveryStudio()">×</button></div><div class="flowBody" id="discoveryBody"></div></section>
 <div class="flowShade" id="revideoShade" onclick="closeRevideoStudio()"></div>
 <section class="flowPage" id="revideoPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.revideo" data-i18n="revideo.title">Revideo / Original Rewrite Studio</h2><p data-i18n="revideo.sub">Analyze a successful public video/topic, extract reusable structure, create an original evidence-bounded rewrite, then send it into FactoryOS production.</p></div><button class="closeX" onclick="closeRevideoStudio()">×</button></div><div class="flowBody" id="revideoBody"></div></section>
 <div class="flowShade" id="approvalShade" onclick="closeApprovalStudio()"></div>
@@ -380,6 +391,18 @@ function helpTitle(key){const v=tr(key);return v===key?'':v}
 
 const I18N={
  en:{
+  "discovery.nav":"Discovery","discovery.title":"Viral Discovery / Outlier Inbox","discovery.sub":"Store real breakout candidates, compare public metrics and send the best source into Revideo without copying it.",
+  "help.discovery":"Discovery stores factual public performance signals such as views, VPH, engagement and breakout score from a connected source. It does not invent a quality score and does not publish anything.",
+  "discovery.candidates":"candidates","discovery.new":"new","discovery.revideo":"sent to Revideo","discovery.adapter":"adapter",
+  "discovery.manual":"Manual candidate","discovery.url":"Public video URL","discovery.titleField":"Video title","discovery.creator":"Creator / channel",
+  "discovery.topic":"Topic","discovery.externalId":"Platform video ID","discovery.transcript":"Transcript (optional but useful)",
+  "discovery.views":"Views","discovery.vph":"Views/hour","discovery.engagement":"Engagement rate","discovery.breakout":"Breakout score",
+  "discovery.save":"Save candidate","discovery.collect":"Collect from provider","discovery.toRevideo":"Create Revideo","discovery.openRevideo":"Open Revideo",
+  "discovery.noCandidates":"No discovery candidates yet.","discovery.notConfigured":"Discovery webhook is not configured. Manual intake works, and external discovery connectors can feed candidates.",
+  "discovery.metricsNote":"Metrics are displayed only when supplied by the discovery source; FactoryOS does not synthesize missing values.",
+  "discovery.loading":"Loading discovery candidates…","discovery.saved":"Discovery candidate saved","discovery.collected":"Discovery collection finished",
+  "discovery.revideoCreated":"Revideo project created","discovery.language":"Language","discovery.contentType":"Format","discovery.short":"Short",
+
   "revideo.nav":"Revideo","revideo.title":"Revideo / Original Rewrite Studio","revideo.sub":"Analyze a successful public video/topic, extract reusable structure, create an original evidence-bounded rewrite, then send it into FactoryOS production.",
   "help.revideo":"Revideo learns structure, hook mechanics and pacing from a public source, then creates materially original wording and a new production job. It does not default to copying/re-uploading source footage or imitating creator identity/voice.",
   "revideo.projects":"projects","revideo.ready":"ready","revideo.production":"in production","revideo.videoProvider":"video provider",
@@ -600,6 +623,18 @@ const I18N={
   "super.health":"health","super.lastAudit":"Last audit","super.noIncidents":"No active incidents","super.monitoring":"Supervisor is monitoring jobs and agent runtime.","super.improvements":"Process improvements","super.backlog":"Improvement backlog","super.accept":"Accept","super.dismiss":"Dismiss"
  },
  uk:{
+  "discovery.nav":"Discovery","discovery.title":"Viral Discovery / Inbox аутлаєрів","discovery.sub":"Зберігає реальні breakout-кандидати, порівнює публічні метрики і відправляє найкраще джерело в Revideo без копіювання.",
+  "help.discovery":"Discovery зберігає фактичні публічні метрики — views, VPH, engagement, breakout score — з підключеного джерела. Не вигадує quality score і нічого не публікує.",
+  "discovery.candidates":"кандидати","discovery.new":"нові","discovery.revideo":"відправлено в Revideo","discovery.adapter":"адаптер",
+  "discovery.manual":"Ручний кандидат","discovery.url":"URL публічного відео","discovery.titleField":"Назва відео","discovery.creator":"Автор / канал",
+  "discovery.topic":"Тема","discovery.externalId":"ID відео на платформі","discovery.transcript":"Транскрипт (необов’язково, але корисно)",
+  "discovery.views":"Перегляди","discovery.vph":"Переглядів/год","discovery.engagement":"Engagement rate","discovery.breakout":"Breakout score",
+  "discovery.save":"Зберегти кандидата","discovery.collect":"Зібрати з provider","discovery.toRevideo":"Створити Revideo","discovery.openRevideo":"Відкрити Revideo",
+  "discovery.noCandidates":"Discovery-кандидатів ще немає.","discovery.notConfigured":"Discovery webhook не налаштовано. Ручний intake працює, а зовнішні discovery connectors можуть передавати кандидатів.",
+  "discovery.metricsNote":"Метрики показуються лише якщо їх надав discovery source; FactoryOS не вигадує відсутні значення.",
+  "discovery.loading":"Завантаження discovery-кандидатів…","discovery.saved":"Discovery-кандидата збережено","discovery.collected":"Discovery collection завершено",
+  "discovery.revideoCreated":"Revideo-проєкт створено","discovery.language":"Мова","discovery.contentType":"Формат","discovery.short":"Short",
+
   "revideo.nav":"Revideo","revideo.title":"Revideo / Студія оригінального рерайту","revideo.sub":"Аналізує успішне публічне відео/тему, виділяє механіку структури й hook та створює оригінальний evidence-bounded рерайт для FactoryOS.",
   "help.revideo":"Revideo вивчає структуру, механіку hook і темп публічного джерела, а потім створює суттєво оригінальний текст і новий production job. За замовчуванням не копіює/перезаливає чуже відео і не імітує особу чи голос автора.",
   "revideo.projects":"проєкти","revideo.ready":"готові","revideo.production":"у production","revideo.videoProvider":"video provider",
@@ -820,6 +855,18 @@ const I18N={
   "super.health":"здоров'я","super.lastAudit":"Останній аудит","super.noIncidents":"Активних інцидентів немає","super.monitoring":"Супервізор контролює завдання й стан агентів.","super.improvements":"Покращення процесу","super.backlog":"Черга покращень","super.accept":"Прийняти","super.dismiss":"Відхилити"
  },
  ru:{
+  "discovery.nav":"Discovery","discovery.title":"Viral Discovery / Inbox аутлаеров","discovery.sub":"Хранит реальные breakout-кандидаты, сравнивает публичные метрики и отправляет лучший источник в Revideo без копирования.",
+  "help.discovery":"Discovery хранит фактические публичные метрики — views, VPH, engagement, breakout score — из подключённого источника. Не выдумывает quality score и ничего не публикует.",
+  "discovery.candidates":"кандидаты","discovery.new":"новые","discovery.revideo":"отправлено в Revideo","discovery.adapter":"адаптер",
+  "discovery.manual":"Ручной кандидат","discovery.url":"URL публичного видео","discovery.titleField":"Название видео","discovery.creator":"Автор / канал",
+  "discovery.topic":"Тема","discovery.externalId":"ID видео на платформе","discovery.transcript":"Транскрипт (необязательно, но полезно)",
+  "discovery.views":"Просмотры","discovery.vph":"Просмотров/час","discovery.engagement":"Engagement rate","discovery.breakout":"Breakout score",
+  "discovery.save":"Сохранить кандидата","discovery.collect":"Собрать из provider","discovery.toRevideo":"Создать Revideo","discovery.openRevideo":"Открыть Revideo",
+  "discovery.noCandidates":"Discovery-кандидатов пока нет.","discovery.notConfigured":"Discovery webhook не настроен. Ручной intake работает, а внешние discovery connectors могут передавать кандидатов.",
+  "discovery.metricsNote":"Метрики показываются только если их дал discovery source; FactoryOS не выдумывает отсутствующие значения.",
+  "discovery.loading":"Загрузка discovery-кандидатов…","discovery.saved":"Discovery-кандидат сохранён","discovery.collected":"Discovery collection завершён",
+  "discovery.revideoCreated":"Revideo-проект создан","discovery.language":"Язык","discovery.contentType":"Формат","discovery.short":"Short",
+
   "revideo.nav":"Revideo","revideo.title":"Revideo / Студия оригинального рерайта","revideo.sub":"Анализирует успешное публичное видео/тему, выделяет механику структуры и hook и создаёт оригинальный evidence-bounded рерайт для FactoryOS.",
   "help.revideo":"Revideo изучает структуру, механику hook и темп публичного источника, затем создаёт существенно оригинальный текст и новый production job. По умолчанию не копирует/перезаливает чужое видео и не имитирует личность или голос автора.",
   "revideo.projects":"проекты","revideo.ready":"готовы","revideo.production":"в production","revideo.videoProvider":"video provider",
@@ -1128,7 +1175,7 @@ function stageSub(st){return tr('stagesub.'+st)}
 const icons={inbox:'○',research:'⌕',script:'▤',visual:'▧',voice:'≋',render:'▷',qa:'✓',publish:'⇧',analytics:'▥'};
 const pos={"Scout":[7,39],"Researcher":[20,39],"Tech Verifier":[33,39],"Angle Strategist":[46,39],"Hook Generator":[59,39],"Scriptwriter":[72,39],"Fact Checker":[85,39],"Hook Optimizer":[20,75],"Editor":[33,75],"Visual Director":[46,75],"Voice Agent":[59,75],"Render Agent":[72,75],"QA Agent":[85,75],"Publisher":[59,91],"Analyst":[72,91],"Supervisor":[92,91],"Hook Writer":[7,91],"Content Packager":[46,91]};
 async function api(u,o){const r=await fetch(u,o);if(!r.ok)throw Error(await r.text());return r.json()}async function refresh(){try{S=await api('/api/status');render()}catch(e){toast(tr('toast.refreshFailed'))}}
-function render(){mission();usage();buildBadge();contentBrainBadge();revideoNavBadge();variantBadge();packageBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8);$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
+function render(){mission();usage();buildBadge();contentBrainBadge();discoveryNavBadge();revideoNavBadge();variantBadge();packageBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8);$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
 function buildBadge(){const b=S.buildProgress||{};const el=$('#buildNavPct');if(el)el.textContent=Math.round(Number(b.progress||0))+'%'}
 function contentBrainBadge(){const b=(S&&S.contentBrain)||{},sm=b.summary||{},el=$('#brainNavCount');if(el)el.textContent=Number(sm.shortlisted||0)?String(sm.shortlisted):''}
 function variantBadge(){const b=(S&&S.selectedJobVariants)||{},sm=b.summary||{},el=$('#variantNavCount');if(el)el.textContent=Number(sm.variants||0)?String(sm.variants):''}
@@ -1466,6 +1513,35 @@ function initials(name){return name.split(' ').map(x=>x[0]).join('').slice(0,2).
 
 function _openFlow(name){$('#'+name+'Shade').classList.add('open');$('#'+name+'Page').classList.add('open')}
 function _closeFlow(name){$('#'+name+'Shade').classList.remove('open');$('#'+name+'Page').classList.remove('open')}
+
+function discoveryNavBadge(){const el=$('#discoveryNavCount');if(!el||!S)return;const n=Number(((S.discoverySummary||{}).new)||0);el.textContent=n?String(n):''}
+async function openDiscoveryStudio(){_openFlow('discovery');$('#discoveryBody').innerHTML='<div class="flowEmpty">'+esc(tr('discovery.loading'))+'</div>';await renderDiscoveryStudio()}
+function closeDiscoveryStudio(){_closeFlow('discovery')}
+function discoveryLanguage(){return LANG==='uk'?'uk':LANG==='ru'?'ru':'en'}
+async function renderDiscoveryStudio(){
+ const root=$('#discoveryBody');if(!root)return;
+ try{
+  const d=await api('/api/discovery?limit=100'),sm=d.summary||{},items=d.candidates||[],ad=d.adapter||{};
+  let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.candidates||0)+'</b><span>'+esc(tr('discovery.candidates'))+'</span></div><div class="flowStat"><b>'+Number(sm.new||0)+'</b><span>'+esc(tr('discovery.new'))+'</span></div><div class="flowStat"><b>'+Number(sm.sent_to_revideo||0)+'</b><span>'+esc(tr('discovery.revideo'))+'</span></div><div class="flowStat"><b>'+(ad.configured?'ON':'OFF')+'</b><span>'+esc(tr('discovery.adapter'))+'</span></div></div>';
+  out+='<article class="flowCard"><h3>'+esc(tr('discovery.manual'))+'</h3><p>'+esc(d.measurement_note||tr('discovery.metricsNote'))+'</p><div class="discoveryComposer"><input class="wide" id="dcUrl" placeholder="'+esc(tr('discovery.url'))+'"><input id="dcTitle" placeholder="'+esc(tr('discovery.titleField'))+'"><input id="dcCreator" placeholder="'+esc(tr('discovery.creator'))+'"><input id="dcTopic" placeholder="'+esc(tr('discovery.topic'))+'"><input id="dcExt" placeholder="'+esc(tr('discovery.externalId'))+'"><input id="dcViews" type="number" min="0" placeholder="'+esc(tr('discovery.views'))+'"><input id="dcVph" type="number" step="0.01" min="0" placeholder="'+esc(tr('discovery.vph'))+'"><input id="dcEng" type="number" step="0.0001" min="0" placeholder="'+esc(tr('discovery.engagement'))+'"><input id="dcBreakout" type="number" step="0.01" min="0" placeholder="'+esc(tr('discovery.breakout'))+'"><textarea class="wide" id="dcTranscript" placeholder="'+esc(tr('discovery.transcript'))+'"></textarea><button class="btn primary wide" onclick="saveDiscoveryCandidate()">+ '+esc(tr('discovery.save'))+'</button></div>'
+   +'<div class="flowActions" style="margin-top:8px"><button class="btn" '+(ad.configured?'':'disabled')+' onclick="collectDiscovery()">↻ '+esc(tr('discovery.collect'))+'</button></div>'
+   +(!ad.configured?'<div class="revideoGuard">'+esc(tr('discovery.notConfigured'))+'</div>':'')+'</article>';
+  if(!items.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('discovery.noCandidates'))+'</div>';return}
+  out+='<div class="flowGrid" style="margin-top:10px">'+items.map(x=>{
+    const metrics=[];if(x.views!=null)metrics.push(tr('discovery.views')+' '+Number(x.views).toLocaleString());if(x.vph!=null)metrics.push(tr('discovery.vph')+' '+Number(x.vph).toFixed(2));if(x.engagement_rate!=null)metrics.push(tr('discovery.engagement')+' '+(Number(x.engagement_rate)*100).toFixed(2)+'%');if(x.breakout_score!=null)metrics.push(tr('discovery.breakout')+' '+Number(x.breakout_score).toFixed(2));
+    const actions=x.revideo_project_id?'<button class="btn" onclick="openRevideoStudio();closeDiscoveryStudio()">↗ '+esc(tr('discovery.openRevideo'))+'</button>':'<button class="btn good" onclick="candidateToRevideo(\''+x.id+'\')">⟳ '+esc(tr('discovery.toRevideo'))+'</button>';
+    return '<article class="flowCard">'+(x.thumbnail_url?'<img class="discoveryThumb" src="'+esc(x.thumbnail_url)+'" alt="'+esc(x.title)+'">':'')+'<h3>'+esc(x.title)+'</h3><div class="flowMeta"><span class="flowPill">'+esc(x.platform||'')+'</span><span class="flowPill">'+esc(x.content_type||'')+'</span><span class="flowPill '+(x.status==='new'?'warn':'good')+'">'+esc(x.status||'new')+'</span></div><p>'+esc(x.creator||'')+'</p><div class="metricGrid">'+metrics.map(m=>'<span>'+esc(m)+'</span>').join('')+'</div><a class="mediaLink" target="_blank" rel="noopener" href="'+esc(x.source_url)+'">'+esc(x.source_url)+'</a>'+(x.transcript?'<div class="packageSection"><strong>'+esc(tr('discovery.transcript'))+'</strong><pre>'+esc(textValue(x.transcript).slice(0,1200))+'</pre></div>':'')+'<div class="flowActions">'+actions+'</div></article>';
+  }).join('')+'</div>';root.innerHTML=out;
+ }catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}
+}
+async function saveDiscoveryCandidate(){
+ const url=$('#dcUrl').value.trim(),title=$('#dcTitle').value.trim();if(!url||!title){toast(tr('discovery.url'));return}
+ const num=id=>{const v=$(id).value.trim();return v===''?null:Number(v)};
+ const payload={platform:'youtube',source_url:url,external_id:$('#dcExt').value.trim(),title,creator:$('#dcCreator').value.trim(),topic:$('#dcTopic').value.trim(),language:discoveryLanguage(),content_type:'short',views:num('#dcViews'),vph:num('#dcVph'),engagement_rate:num('#dcEng'),breakout_score:num('#dcBreakout'),transcript:$('#dcTranscript').value.trim(),metrics:{},provenance:{source:'manual_ui'}};
+ try{await api('/api/discovery/candidates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});toast(tr('discovery.saved'));await refresh();renderDiscoveryStudio()}catch(e){toast(e.message)}
+}
+async function collectDiscovery(){try{const r=await api('/api/discovery/collect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:'AI automation tools',limit:10,content_type:'short',language:discoveryLanguage()})});toast(tr('discovery.collected')+' · '+Number(r.created_count||0));await refresh();renderDiscoveryStudio()}catch(e){toast(e.message)}}
+async function candidateToRevideo(id){try{const r=await api('/api/discovery/'+id+'/revideo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({language:revideoLanguage()})});toast(tr('discovery.revideoCreated'));await refresh();renderDiscoveryStudio()}catch(e){toast(e.message)}}
 
 let revideoBusy=false;
 function revideoStatusLabel(status){const k='revideo.status.'+(status||'draft'),v=tr(k);return v===k?(status||'draft'):v}
@@ -1826,5 +1902,5 @@ function artifactHtml(a){
 }
 
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2300)}
-const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.onopen=()=>ws.send('v4.3');ws.onmessage=()=>refresh();applyLanguage();refresh();
+const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.onopen=()=>ws.send('v4.4');ws.onmessage=()=>refresh();applyLanguage();refresh();
 </script></body></html>

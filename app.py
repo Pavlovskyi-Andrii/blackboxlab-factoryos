@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.3"
+APP_VERSION = "v4.4"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -148,6 +148,12 @@ FACTORY_TRANSCRIPT_ENDPOINT = os.environ.get("FACTORY_TRANSCRIPT_ENDPOINT", "").
 FACTORY_TRANSCRIPT_TOKEN = os.environ.get("FACTORY_TRANSCRIPT_TOKEN", "").strip()
 FACTORY_VIDEO_ENDPOINT = os.environ.get("FACTORY_VIDEO_ENDPOINT", "").strip()
 FACTORY_VIDEO_TOKEN = os.environ.get("FACTORY_VIDEO_TOKEN", "").strip()
+FACTORY_DISCOVERY_ENDPOINT = os.environ.get("FACTORY_DISCOVERY_ENDPOINT", "").strip()
+FACTORY_DISCOVERY_TOKEN = os.environ.get("FACTORY_DISCOVERY_TOKEN", "").strip()
+FACTORY_DISCOVERY_TOPICS = [x.strip() for x in os.environ.get("FACTORY_DISCOVERY_TOPICS", "").split(",") if x.strip()]
+FACTORY_DISCOVERY_INTERVAL_MINUTES = max(15, int(os.environ.get("FACTORY_DISCOVERY_INTERVAL_MINUTES", "360")))
+FACTORY_DISCOVERY_SEED_JSON = os.environ.get("FACTORY_DISCOVERY_SEED_JSON", "").strip()
+FACTORY_DISCOVERY_SEED_AUTO_REVIDEO = os.environ.get("FACTORY_DISCOVERY_SEED_AUTO_REVIDEO", "").strip().lower() in ("1","true","yes","on")
 
 def session_token(username: str) -> str:
     return hmac.new(
@@ -833,6 +839,34 @@ def init_db():
       meta_json TEXT NOT NULL DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_factory_cycle_events_cycle ON factory_cycle_events(cycle_id, id DESC);
+    CREATE TABLE IF NOT EXISTS discovery_candidates(
+      id TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL UNIQUE,
+      platform TEXT NOT NULL DEFAULT 'youtube',
+      source_url TEXT NOT NULL,
+      external_id TEXT DEFAULT '',
+      title TEXT NOT NULL,
+      creator TEXT DEFAULT '',
+      thumbnail_url TEXT DEFAULT '',
+      topic TEXT DEFAULT '',
+      language TEXT DEFAULT '',
+      content_type TEXT DEFAULT '',
+      published_at TEXT DEFAULT '',
+      duration_sec REAL,
+      views INTEGER,
+      vph REAL,
+      engagement_rate REAL,
+      breakout_score REAL,
+      transcript TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'new',
+      revideo_project_id TEXT,
+      discovered_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      metrics_json TEXT NOT NULL DEFAULT '{}',
+      provenance_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_discovery_status ON discovery_candidates(status, discovered_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_discovery_breakout ON discovery_candidates(breakout_score DESC, vph DESC);
     CREATE TABLE IF NOT EXISTS revideo_projects(
       id TEXT PRIMARY KEY,
       source_url TEXT NOT NULL,
@@ -1428,6 +1462,35 @@ class FactoryCycleCreate(BaseModel):
 class FactoryCycleRunRequest(BaseModel):
     confirm_cost: bool = False
     max_ideas: int = 3
+    language: str = "English"
+
+class DiscoveryCandidateCreate(BaseModel):
+    platform: str = "youtube"
+    source_url: str
+    external_id: str = ""
+    title: str
+    creator: str = ""
+    thumbnail_url: str = ""
+    topic: str = ""
+    language: str = ""
+    content_type: str = "short"
+    published_at: str = ""
+    duration_sec: Optional[float] = None
+    views: Optional[int] = None
+    vph: Optional[float] = None
+    engagement_rate: Optional[float] = None
+    breakout_score: Optional[float] = None
+    transcript: str = ""
+    metrics: dict = {}
+    provenance: dict = {}
+
+class DiscoveryCollectRequest(BaseModel):
+    topic: str = ""
+    limit: int = 10
+    content_type: str = "short"
+    language: str = "en"
+
+class DiscoveryToRevideoRequest(BaseModel):
     language: str = "English"
 
 class RevideoCreateRequest(BaseModel):
@@ -3019,6 +3082,186 @@ def select_production_variant(job_id,variant_id):
     event(job_id,f"Variant {chosen['ordinal']} selected in Variant Studio; Content Package and downstream media require rebuild");return get_job_variants(job_id)
 
 
+# v4.4 — Viral Discovery / outlier intake.
+# Discovery persists factual public metrics supplied by a connector/webhook; FactoryOS does not invent performance.
+def _discovery_dict(row):
+    if not row:return None
+    d=dict(row)
+    d["metrics"]=_decode_json(d.pop("metrics_json","{}"),{})
+    d["provenance"]=_decode_json(d.pop("provenance_json","{}"),{})
+    return d
+
+def _discovery_fingerprint(platform,source_url,external_id=""):
+    raw=f"{(platform or 'unknown').strip().lower()}|{(external_id or '').strip()}|{(source_url or '').strip()}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+def ingest_discovery_candidate(payload, source="manual"):
+    source_url=(payload.source_url or "").strip()
+    if not _valid_public_url(source_url):raise ValueError("A valid http/https source URL is required")
+    title=" ".join(str(payload.title or "").split()).strip()
+    if not title:raise ValueError("Discovery candidate title is required")
+    platform=(payload.platform or "unknown").strip().lower()[:40]
+    external_id=(payload.external_id or "").strip()[:240]
+    fp=_discovery_fingerprint(platform,source_url,external_id)
+    now=ts()
+    metrics=dict(payload.metrics or {})
+    for key,value in {
+        "views":payload.views,"vph":payload.vph,"engagement_rate":payload.engagement_rate,
+        "breakout_score":payload.breakout_score,"duration_sec":payload.duration_sec,
+    }.items():
+        if value is not None:metrics[key]=value
+    provenance=dict(payload.provenance or {})
+    provenance.setdefault("source",source);provenance.setdefault("ingested_at",now)
+    con=db();existing=con.execute("SELECT * FROM discovery_candidates WHERE fingerprint=?",(fp,)).fetchone()
+    if existing:
+        cid=existing["id"]
+        con.execute("""UPDATE discovery_candidates SET title=?,creator=?,thumbnail_url=?,topic=?,language=?,content_type=?,
+                       published_at=?,duration_sec=?,views=?,vph=?,engagement_rate=?,breakout_score=?,transcript=?,
+                       metrics_json=?,provenance_json=?,updated_at=? WHERE id=?""",(
+            title,(payload.creator or "")[:300],(payload.thumbnail_url or "")[:2000],(payload.topic or "")[:300],
+            (payload.language or "")[:40],(payload.content_type or "")[:40],(payload.published_at or "")[:80],
+            payload.duration_sec,payload.views,payload.vph,payload.engagement_rate,payload.breakout_score,
+            (payload.transcript or "")[:30000],json.dumps(metrics,ensure_ascii=False),json.dumps(provenance,ensure_ascii=False),now,cid
+        ))
+        created=False
+    else:
+        cid=str(uuid.uuid4())
+        con.execute("""INSERT INTO discovery_candidates(
+          id,fingerprint,platform,source_url,external_id,title,creator,thumbnail_url,topic,language,content_type,published_at,
+          duration_sec,views,vph,engagement_rate,breakout_score,transcript,status,revideo_project_id,discovered_at,updated_at,metrics_json,provenance_json
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',NULL,?,?,?,?,?)""",(
+          cid,fp,platform,source_url,external_id,title,(payload.creator or "")[:300],(payload.thumbnail_url or "")[:2000],
+          (payload.topic or "")[:300],(payload.language or "")[:40],(payload.content_type or "")[:40],(payload.published_at or "")[:80],
+          payload.duration_sec,payload.views,payload.vph,payload.engagement_rate,payload.breakout_score,(payload.transcript or "")[:30000],
+          now,now,json.dumps(metrics,ensure_ascii=False),json.dumps(provenance,ensure_ascii=False)
+        ))
+        created=True
+    con.commit();row=con.execute("SELECT * FROM discovery_candidates WHERE id=?",(cid,)).fetchone();con.close()
+    return {"created":created,"candidate":_discovery_dict(row)}
+
+def get_discovery_candidate(candidate_id):
+    con=db();row=con.execute("SELECT * FROM discovery_candidates WHERE id=?",(candidate_id,)).fetchone();con.close()
+    return _discovery_dict(row)
+
+def get_discovery_candidates(limit=80,status=None):
+    con=db()
+    if status:
+        rows=con.execute("""SELECT * FROM discovery_candidates WHERE status=?
+                            ORDER BY COALESCE(breakout_score,-1) DESC,COALESCE(vph,-1) DESC,discovered_at DESC LIMIT ?""",
+                         (status,max(1,min(300,int(limit))))).fetchall()
+    else:
+        rows=con.execute("""SELECT * FROM discovery_candidates
+                            ORDER BY CASE WHEN status='new' THEN 0 ELSE 1 END,
+                                     COALESCE(breakout_score,-1) DESC,COALESCE(vph,-1) DESC,discovered_at DESC LIMIT ?""",
+                         (max(1,min(300,int(limit))),)).fetchall()
+    con.close();items=[_discovery_dict(x) for x in rows];counts={}
+    for x in items:counts[x["status"]]=counts.get(x["status"],0)+1
+    return {
+      "summary":{"candidates":len(items),**counts},"candidates":items,
+      "adapter":{"configured":bool(FACTORY_DISCOVERY_ENDPOINT),"mode":"webhook" if FACTORY_DISCOVERY_ENDPOINT else "manual_intake",
+                 "topics":FACTORY_DISCOVERY_TOPICS,"interval_minutes":FACTORY_DISCOVERY_INTERVAL_MINUTES},
+      "measurement_note":"views, VPH, engagement and breakout score are stored only when supplied by the discovery source; FactoryOS does not synthesize them."
+    }
+
+def _normalize_discovery_webhook_item(item,topic=""):
+    if not isinstance(item,dict):raise ValueError("Discovery webhook item must be an object")
+    url=str(item.get("source_url") or item.get("url") or item.get("video_url") or "").strip()
+    title=str(item.get("title") or item.get("videoTitle") or "").strip()
+    if not url or not title:raise ValueError("Discovery webhook item needs source_url/url and title")
+    return DiscoveryCandidateCreate(
+      platform=str(item.get("platform") or "youtube"),
+      source_url=url,external_id=str(item.get("external_id") or item.get("videoId") or ""),
+      title=title,creator=str(item.get("creator") or item.get("channelTitle") or ""),
+      thumbnail_url=str(item.get("thumbnail_url") or item.get("videoThumbnail") or ""),
+      topic=str(item.get("topic") or topic or ""),
+      language=str(item.get("language") or item.get("videoTitleLanguage") or ""),
+      content_type=str(item.get("content_type") or item.get("videoType") or "short"),
+      published_at=str(item.get("published_at") or item.get("videoPublishedAt") or ""),
+      duration_sec=item.get("duration_sec",item.get("videoDuration")),
+      views=item.get("views",item.get("viewCount")),vph=item.get("vph"),
+      engagement_rate=item.get("engagement_rate",item.get("engagementRate")),
+      breakout_score=item.get("breakout_score",item.get("breakoutScore")),
+      transcript=str(item.get("transcript") or ""),
+      metrics={k:v for k,v in item.items() if k in ("viewCount","likeCount","commentCount","score","subscriberCount","hasAiLabel")},
+      provenance={"provider_payload_keys":sorted(item.keys())[:80]}
+    )
+
+def collect_discovery_candidates(topic="",limit=10,content_type="short",language="en"):
+    if not FACTORY_DISCOVERY_ENDPOINT:
+        return {"created_count":0,"updated_count":0,"candidates":[],"adapter":"manual_intake",
+                "message":"Discovery webhook is not configured; use manual intake or an external connector such as vidIQ."}
+    payload={"topic":topic,"limit":max(1,min(50,int(limit))),"content_type":content_type,"language":language}
+    result=_external_json(FACTORY_DISCOVERY_ENDPOINT,"POST",payload,FACTORY_DISCOVERY_TOKEN)
+    raw=result.get("candidates") or result.get("videos") or result.get("items") or []
+    if not isinstance(raw,list):raise RuntimeError("Discovery provider response must include candidates/videos/items array")
+    created=updated=0;items=[]
+    for item in raw[:payload["limit"]]:
+        try:
+            normalized=_normalize_discovery_webhook_item(item,topic)
+            out=ingest_discovery_candidate(normalized,source="discovery_webhook")
+            created+=1 if out["created"] else 0;updated+=0 if out["created"] else 1;items.append(out["candidate"])
+        except Exception as exc:
+            event(None,f"Discovery item skipped: {str(exc)[:180]}")
+    return {"created_count":created,"updated_count":updated,"candidates":items,"adapter":"webhook"}
+
+def discovery_candidate_to_revideo(candidate_id,language="English"):
+    candidate=get_discovery_candidate(candidate_id)
+    if not candidate:raise ValueError("Discovery candidate not found")
+    if candidate.get("revideo_project_id"):
+        project=get_revideo_project(candidate["revideo_project_id"])
+        if project:return {"created":False,"project":project,"candidate":candidate}
+    notes="Public performance evidence supplied by discovery source. "
+    facts=[]
+    if candidate.get("views") is not None:facts.append(f"views={candidate['views']}")
+    if candidate.get("vph") is not None:facts.append(f"vph={candidate['vph']}")
+    if candidate.get("engagement_rate") is not None:facts.append(f"engagement_rate={candidate['engagement_rate']}")
+    if candidate.get("breakout_score") is not None:facts.append(f"breakout_score={candidate['breakout_score']}")
+    notes+=(", ".join(facts) if facts else "No performance metrics supplied.")+" Analyze structure only; do not copy source wording, identity, voice or footage."
+    project=create_revideo_project(RevideoCreateRequest(
+      source_url=candidate["source_url"],source_title=candidate["title"],topic=candidate.get("topic") or "",
+      transcript=candidate.get("transcript") or "",source_notes=notes,language=language
+    ))
+    provenance=dict(project.get("provenance") or {})
+    provenance["discovery_candidate_id"]=candidate_id
+    provenance["discovery_metrics"]={k:candidate.get(k) for k in ("views","vph","engagement_rate","breakout_score") if candidate.get(k) is not None}
+    con=db();con.execute("UPDATE revideo_projects SET provenance_json=?,updated_at=? WHERE id=?",
+                         (json.dumps(provenance,ensure_ascii=False),ts(),project["id"]))
+    con.execute("UPDATE discovery_candidates SET status='sent_to_revideo',revideo_project_id=?,updated_at=? WHERE id=?",
+                (project["id"],ts(),candidate_id));con.commit();con.close()
+    return {"created":True,"project":get_revideo_project(project["id"]),"candidate":get_discovery_candidate(candidate_id)}
+
+def import_discovery_seed():
+    if not FACTORY_DISCOVERY_SEED_JSON:return {"imported":0,"projects":0}
+    try:data=json.loads(FACTORY_DISCOVERY_SEED_JSON)
+    except Exception as exc:
+        print(json.dumps({"event":"DISCOVERY_SEED","status":"invalid_json","error":str(exc)[:300]}),flush=True);return {"imported":0,"projects":0}
+    if isinstance(data,dict):data=[data]
+    imported=projects=0
+    for item in (data or [])[:20]:
+        try:
+            payload=_normalize_discovery_webhook_item(item,item.get("topic","") if isinstance(item,dict) else "")
+            out=ingest_discovery_candidate(payload,source="startup_seed")
+            if out["created"]:imported+=1
+            if FACTORY_DISCOVERY_SEED_AUTO_REVIDEO:
+                rev=discovery_candidate_to_revideo(out["candidate"]["id"],"English")
+                if rev.get("created"):projects+=1
+        except Exception as exc:
+            print(json.dumps({"event":"DISCOVERY_SEED","status":"item_error","error":str(exc)[:300]}),flush=True)
+    print(json.dumps({"event":"DISCOVERY_SEED","status":"done","imported":imported,"revideo_projects":projects}),flush=True)
+    return {"imported":imported,"projects":projects}
+
+async def discovery_collector_loop():
+    while True:
+        for topic in FACTORY_DISCOVERY_TOPICS:
+            try:
+                result=await asyncio.to_thread(collect_discovery_candidates,topic,10,"short","en")
+                if result.get("created_count"):
+                    event(None,f"Viral Discovery collected {result['created_count']} new candidate(s) for {topic}")
+                    await broadcast({"type":"discovery","action":"collected","topic":topic,"count":result["created_count"]})
+            except Exception as exc:
+                print(json.dumps({"event":"DISCOVERY_COLLECT_ERROR","topic":topic,"error":str(exc)[:500]}),flush=True)
+        await asyncio.sleep(FACTORY_DISCOVERY_INTERVAL_MINUTES*60)
+
 # v4.3 — Revideo MVP / original rewrite pipeline.
 # The source is used for analysis and provenance; FactoryOS does not default to downloading/reposting source media.
 REVIDEO_REQUIRED_REWRITE_FIELDS=("new_angle","hook_candidates","original_script","originality_note","media_brief","fact_check_notes")
@@ -4331,6 +4574,9 @@ async def start_supervisor():
 async def start_content_brain_collector():
     if FACTORY_SIGNAL_FEEDS:
         asyncio.create_task(content_brain_collector_loop())
+    import_discovery_seed()
+    if FACTORY_DISCOVERY_ENDPOINT and FACTORY_DISCOVERY_TOPICS:
+        asyncio.create_task(discovery_collector_loop())
 
 @app.on_event("startup")
 async def start_factory_cycle_reconciler():
@@ -5815,6 +6061,8 @@ def status():
         "performanceSummary": _performance_summary(),
         "selfImprovementSummary": get_self_improvement_dashboard()["summary"],
         "autonomousCycleSummary": get_factory_cycles(40)["summary"],
+        "discoverySummary": get_discovery_candidates(40)["summary"],
+        "discoveryAdapter": get_discovery_candidates(1)["adapter"],
         "revideoSummary": get_revideo_projects(40)["summary"],
         "revideoAdapters": get_revideo_adapter_registry(),
         "activeWorkflow": _active_workflow_version(),
@@ -6190,6 +6438,31 @@ def handoff_trace(run_id:str, artifact_id:str):
     return data
 
 
+
+@app.get("/api/discovery")
+def discovery_candidates(limit:int=80,status:Optional[str]=None):
+    return get_discovery_candidates(limit,status)
+
+@app.post("/api/discovery/candidates")
+async def add_discovery_candidate(payload:DiscoveryCandidateCreate):
+    try:result=ingest_discovery_candidate(payload,"manual")
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"discovery","action":"candidate","candidateId":result["candidate"]["id"]})
+    return result
+
+@app.post("/api/discovery/collect")
+async def collect_discovery(payload:DiscoveryCollectRequest):
+    try:result=await asyncio.to_thread(collect_discovery_candidates,payload.topic,payload.limit,payload.content_type,payload.language)
+    except RuntimeError as exc:raise HTTPException(503,str(exc))
+    await broadcast({"type":"discovery","action":"collected","count":result.get("created_count",0)})
+    return result
+
+@app.post("/api/discovery/{candidate_id}/revideo")
+async def discovery_to_revideo(candidate_id:str,payload:DiscoveryToRevideoRequest):
+    try:result=discovery_candidate_to_revideo(candidate_id,payload.language)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"discovery","action":"revideo","candidateId":candidate_id,"projectId":result["project"]["id"]})
+    return {"ok":True,**result}
 
 @app.get("/api/revideo")
 def revideo_projects(limit:int=80):
