@@ -1333,11 +1333,11 @@ async def generate_ideas_from_signals(payload):
 
 def _parse_json_object(raw):
     text=(raw or "").strip()
-    if text.startswith("\`\`\`"):
+    if text.startswith("```"):
         lines=text.splitlines()
-        if lines and lines[0].startswith("\`\`\`"):
+        if lines and lines[0].startswith("```"):
             lines=lines[1:]
-        if lines and lines[-1].strip().startswith("\`\`\`"):
+        if lines and lines[-1].strip().startswith("```"):
             lines=lines[:-1]
         text="\n".join(lines).strip()
     start=text.find("{"); end=text.rfind("}")
