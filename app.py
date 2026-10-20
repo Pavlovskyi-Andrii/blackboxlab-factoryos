@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v3.90"
+APP_VERSION = "v4.0"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -713,6 +713,36 @@ def init_db():
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_workflow_rollouts_exp ON workflow_rollouts(experiment_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS factory_cycles(
+      id TEXT PRIMARY KEY,
+      parent_cycle_id TEXT,
+      status TEXT NOT NULL DEFAULT 'ready',
+      phase TEXT NOT NULL DEFAULT 'signals',
+      source_signal_ids_json TEXT NOT NULL DEFAULT '[]',
+      idea_id TEXT,
+      job_id TEXT,
+      publish_id TEXT,
+      workflow_version_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      started_at TEXT,
+      completed_at TEXT,
+      last_error TEXT DEFAULT '',
+      learning_json TEXT NOT NULL DEFAULT '{}',
+      meta_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_factory_cycles_status ON factory_cycles(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_factory_cycles_job ON factory_cycles(job_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_factory_cycles_publish ON factory_cycles(publish_id, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS factory_cycle_events(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cycle_id TEXT NOT NULL,
+      ts TEXT NOT NULL,
+      phase TEXT NOT NULL,
+      message TEXT NOT NULL,
+      meta_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_factory_cycle_events_cycle ON factory_cycle_events(cycle_id, id DESC);
     CREATE TABLE IF NOT EXISTS agent_memory(
       id TEXT PRIMARY KEY,
       agent TEXT NOT NULL,
@@ -1277,6 +1307,17 @@ class IdeaProcessRequest(BaseModel):
     max_ideas: int = 3
     language: str = "English"
 
+class FactoryCycleCreate(BaseModel):
+    signal_ids: list[str] = []
+    idea_id: Optional[str] = None
+    language: str = "English"
+    parent_cycle_id: Optional[str] = None
+
+class FactoryCycleRunRequest(BaseModel):
+    confirm_cost: bool = False
+    max_ideas: int = 3
+    language: str = "English"
+
 def event(job_id, message):
     con=db(); con.execute("INSERT INTO events(job_id,ts,message) VALUES(?,?,?)",(job_id,ts(),message)); con.commit(); con.close()
 
@@ -1774,6 +1815,13 @@ async def content_brain_collector_loop():
             result=await asyncio.to_thread(collect_configured_signals,20)
             if result["created_count"]:
                 event(None,f"Content Brain collected {result['created_count']} new RSS signal(s)")
+                try:
+                    cycle=create_factory_cycle(FactoryCycleCreate(
+                        signal_ids=[x["id"] for x in result["created"]],language="English"
+                    ),source="rss_collector")
+                    cycle_event(cycle["id"],"signals",f"RSS collector attached {result['created_count']} new signal(s) to an autonomous cycle")
+                except Exception as exc:
+                    print(json.dumps({"event":"FACTORY_CYCLE_CREATE_ERROR","error":str(exc)[:300]}),flush=True)
                 await broadcast({"type":"content_brain","action":"signals_collected","count":result["created_count"]})
         except Exception as exc:
             print(json.dumps({"event":"CONTENT_BRAIN_COLLECTOR_ERROR","error":str(exc)[:400]}),flush=True)
@@ -3870,6 +3918,10 @@ async def start_content_brain_collector():
     if FACTORY_SIGNAL_FEEDS:
         asyncio.create_task(content_brain_collector_loop())
 
+@app.on_event("startup")
+async def start_factory_cycle_reconciler():
+    asyncio.create_task(factory_cycle_reconcile_loop())
+
 async def broadcast(payload=None):
     dead=[]; msg=json.dumps(payload or {"type":"refresh"})
     for ws in list(clients):
@@ -4494,6 +4546,358 @@ def _publish_via_adapter(item):
             "external_post_id":result.get("external_post_id") or result.get("id"),
             "external_url":result.get("external_url") or result.get("url"),"raw":result}
 
+# v4.0 — Autonomous Content Factory coordinator.
+# It automates handoffs and production up to the human review gate. It never auto-approves or auto-publishes.
+FACTORY_CYCLE_MAX_SIGNALS=max(1,min(20,int(os.environ.get("FACTORY_CYCLE_MAX_SIGNALS","8"))))
+active_factory_cycles=set()
+
+def cycle_event(cycle_id,phase,message,meta=None):
+    con=db();con.execute("""INSERT INTO factory_cycle_events(cycle_id,ts,phase,message,meta_json)
+                            VALUES(?,?,?,?,?)""",(cycle_id,ts(),phase,message,json.dumps(meta or {},ensure_ascii=False)))
+    con.commit();con.close()
+
+def _cycle_dict(row):
+    if not row:return None
+    d=dict(row)
+    d["source_signal_ids"]=_decode_json(d.pop("source_signal_ids_json","[]"),[])
+    d["learning"]=_decode_json(d.pop("learning_json","{}"),{})
+    d["meta"]=_decode_json(d.pop("meta_json","{}"),{})
+    return d
+
+def get_factory_cycle(cycle_id,hydrate=False):
+    con=db();row=con.execute("SELECT * FROM factory_cycles WHERE id=?",(cycle_id,)).fetchone();con.close()
+    cycle=_cycle_dict(row)
+    if not cycle or not hydrate:return cycle
+    con=db()
+    signals=[]
+    if cycle["source_signal_ids"]:
+        placeholders=",".join("?" for _ in cycle["source_signal_ids"])
+        rows=con.execute(f"SELECT * FROM source_signals WHERE id IN ({placeholders})",cycle["source_signal_ids"]).fetchall()
+        by_id={x["id"]:dict(x) for x in rows};signals=[by_id[x] for x in cycle["source_signal_ids"] if x in by_id]
+    idea=_idea_dict(con.execute("SELECT * FROM content_ideas WHERE id=?",(cycle["idea_id"],)).fetchone()) if cycle.get("idea_id") else None
+    events=[dict(x) for x in con.execute("SELECT * FROM factory_cycle_events WHERE cycle_id=? ORDER BY id DESC LIMIT 30",(cycle_id,)).fetchall()]
+    for e in events:e["meta"]=_decode_json(e.pop("meta_json","{}"),{})
+    con.close()
+    job=get_job(cycle.get("job_id")) if cycle.get("job_id") else None
+    publish=None;performance=None
+    if cycle.get("publish_id"):
+        con=db();pr=con.execute("SELECT * FROM publishing_queue WHERE id=?",(cycle["publish_id"],)).fetchone();con.close()
+        publish=_publish_item(pr)
+        if publish and publish.get("status")=="published":performance=_performance_item(publish)
+    return {**cycle,"signals":signals,"idea":idea,"job":job,"publish":publish,"performance":performance,"events":events,
+            "workflow":_workflow_version(cycle.get("workflow_version_id")) if cycle.get("workflow_version_id") else None}
+
+def get_factory_cycles(limit=80):
+    con=db();rows=con.execute("SELECT * FROM factory_cycles ORDER BY updated_at DESC LIMIT ?",
+                              (max(1,min(200,int(limit))),)).fetchall();con.close()
+    cycles=[get_factory_cycle(x["id"],True) for x in rows]
+    counts={}
+    for c in cycles:counts[c["status"]]=counts.get(c["status"],0)+1
+    return {"summary":{"cycles":len(cycles),"active":sum(1 for x in cycles if x["status"] in ("ready","running","waiting_approval","approved","scheduled","published","measured")),
+                       **counts},"cycles":cycles,
+            "safety_note":"Autopilot stops at human approval. Publishing remains a separate explicit action and paid model work requires cost confirmation."}
+
+def _new_signal_ids(limit=None):
+    con=db();rows=con.execute("""SELECT id FROM source_signals WHERE status='new'
+                                 ORDER BY created_at DESC LIMIT ?""",(int(limit or FACTORY_CYCLE_MAX_SIGNALS),)).fetchall();con.close()
+    return [x["id"] for x in rows]
+
+def create_factory_cycle(payload,source="owner"):
+    signal_ids=list(dict.fromkeys(str(x).strip() for x in (payload.signal_ids or []) if str(x).strip()))
+    if not signal_ids and not payload.idea_id:
+        signal_ids=_new_signal_ids()
+    con=db()
+    if signal_ids:
+        placeholders=",".join("?" for _ in signal_ids)
+        found={x["id"] for x in con.execute(f"SELECT id FROM source_signals WHERE id IN ({placeholders})",signal_ids).fetchall()}
+        missing=[x for x in signal_ids if x not in found]
+        if missing:con.close();raise ValueError("Unknown source signal id(s): "+", ".join(missing))
+    idea_id=(payload.idea_id or "").strip() or None
+    if idea_id and not con.execute("SELECT id FROM content_ideas WHERE id=?",(idea_id,)).fetchone():
+        con.close();raise ValueError("Idea not found")
+    parent=(payload.parent_cycle_id or "").strip() or None
+    if parent and not con.execute("SELECT id FROM factory_cycles WHERE id=?",(parent,)).fetchone():
+        con.close();raise ValueError("Parent cycle not found")
+    cycle_id=str(uuid.uuid4());now=ts();active=_active_workflow_version()
+    meta={"created_by":source,"language":(payload.language or "English").strip(),"approval_gate":"required",
+          "publisher_execution":"explicit","paid_generation":"confirmation_required"}
+    con.execute("""INSERT INTO factory_cycles(
+        id,parent_cycle_id,status,phase,source_signal_ids_json,idea_id,job_id,publish_id,workflow_version_id,
+        created_at,updated_at,started_at,completed_at,last_error,learning_json,meta_json
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
+        cycle_id,parent,"ready","idea" if idea_id else "signals",json.dumps(signal_ids),idea_id,None,None,active["id"],
+        now,now,None,None,"","{}",json.dumps(meta,ensure_ascii=False)
+    ))
+    con.commit();con.close()
+    cycle_event(cycle_id,"signals",f"Factory cycle created with {len(signal_ids)} signal(s)"+(" and a preselected idea" if idea_id else ""),
+                {"workflow_version_id":active["id"],"source":source})
+    return get_factory_cycle(cycle_id,True)
+
+def _cycle_update(cycle_id,**fields):
+    allowed={"status","phase","idea_id","job_id","publish_id","workflow_version_id","started_at","completed_at","last_error","learning_json","meta_json","source_signal_ids_json"}
+    clean={k:v for k,v in fields.items() if k in allowed}
+    if not clean:return get_factory_cycle(cycle_id)
+    clean["updated_at"]=ts()
+    sets=",".join(f"{k}=?" for k in clean)
+    con=db();con.execute(f"UPDATE factory_cycles SET {sets} WHERE id=?",(*clean.values(),cycle_id));con.commit();con.close()
+    return get_factory_cycle(cycle_id,True)
+
+def _cycle_for_job(job_id):
+    if not job_id:return None
+    con=db();row=con.execute("SELECT * FROM factory_cycles WHERE job_id=? ORDER BY updated_at DESC LIMIT 1",(job_id,)).fetchone();con.close()
+    return _cycle_dict(row)
+
+def _cycle_for_publish(publish_id):
+    if not publish_id:return None
+    con=db();row=con.execute("SELECT * FROM factory_cycles WHERE publish_id=? ORDER BY updated_at DESC LIMIT 1",(publish_id,)).fetchone();con.close()
+    return _cycle_dict(row)
+
+def _idea_job_brief(idea):
+    research=idea.get("research") or {};verification=idea.get("verification") or {}
+    source_lines=[str(x) for x in (idea.get("source_links") or []) if str(x).strip()]
+    claims=research.get("claims") or []
+    return "\n".join([
+        f"ANGLE: {idea.get('angle') or ''}",
+        f"AUDIENCE: {idea.get('audience') or ''}",
+        f"WHY NOW: {idea.get('why_now') or ''}",
+        f"RESEARCH SUMMARY: {research.get('research_summary') or ''}",
+        "EVIDENCE-BOUND CLAIMS: "+("; ".join(str(x) for x in claims[:8]) if claims else "Use persisted source signals and state uncertainty."),
+        "SOURCE LINKS: "+(" | ".join(source_lines[:10]) if source_lines else "See linked source signals in Content Brain."),
+        f"VERIFICATION: {verification.get('verification_notes') or ''}",
+        "PROVENANCE: Created directly from FactoryOS Content Brain. Preserve source boundaries and human approval before publish.",
+    ]).strip()
+
+def create_job_from_idea(idea_id,language="English"):
+    con=db();idea=_idea_dict(con.execute("SELECT * FROM content_ideas WHERE id=?",(idea_id,)).fetchone())
+    if not idea:con.close();raise ValueError("Idea not found")
+    existing=con.execute("""SELECT j.* FROM job_idea_links l JOIN jobs j ON j.id=l.job_id
+                            WHERE l.idea_id=? ORDER BY l.created_at DESC LIMIT 1""",(idea_id,)).fetchone()
+    if existing:
+        con.close();return {"created":False,"job":dict(existing),"idea":idea}
+    if idea.get("status")=="rejected":
+        con.close();raise ValueError("Rejected idea cannot enter production")
+    if idea.get("verified_at") is None and FACTORY_LLM_API_KEY:
+        con.close();raise ValueError("Live-mode idea must pass Content Brain verification before production")
+    jid=str(uuid.uuid4());now=ts();title=idea.get("title") or "FactoryOS content idea"
+    brief=_idea_job_brief(idea)
+    con.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        (jid,title,brief,"inbox","Faceless","Short only",language or "English",1,"idle",0,now,now))
+    con.execute("""INSERT INTO job_idea_links(job_id,idea_id,created_at) VALUES(?,?,?)
+                   ON CONFLICT(job_id) DO UPDATE SET idea_id=excluded.idea_id,created_at=excluded.created_at""",
+                (jid,idea_id,now))
+    provenance=dict(idea.get("provenance") or {});provenance["production_job_id"]=jid;provenance["production_started_at"]=now
+    con.execute("UPDATE content_ideas SET status='in_production',provenance_json=?,updated_at=? WHERE id=?",
+                (json.dumps(provenance,ensure_ascii=False),now,idea_id))
+    con.commit();con.close()
+    event(jid,f"Created directly from Content Brain idea {idea_id}")
+    global selected_job_id;selected_job_id=jid
+    return {"created":True,"job":get_job(jid),"idea":{**idea,"status":"in_production","provenance":provenance}}
+
+def estimate_factory_cycle_cost(cycle_id,max_ideas=3):
+    cycle=get_factory_cycle(cycle_id,True)
+    if not cycle:raise ValueError("Factory cycle not found")
+    if not FACTORY_LLM_API_KEY:
+        return {"estimated_max_usd":0.0,"paid_calls_possible":False,"note":"Demo mode uses deterministic zero-spend workers."}
+    # Conservative reserve: Scout + 3 Content Brain workers per idea + production worker set.
+    idea_count=max(1,min(3,int(max_ideas or 3)))
+    content_calls=0 if cycle.get("idea_id") else 1+(3*idea_count)
+    production_calls=0 if cycle.get("job") and cycle["job"].get("status")=="waiting_approval" else max(1,len(LLM_LIVE_AGENTS))
+    calls=content_calls+production_calls
+    per_call=(5000*FACTORY_LLM_INPUT_USD_PER_1M + FACTORY_LLM_MAX_OUTPUT_TOKENS*FACTORY_LLM_OUTPUT_USD_PER_1M)/1_000_000
+    estimate=round(calls*per_call,6)
+    return {"estimated_max_usd":estimate,"paid_calls_possible":True,"estimated_calls":calls,
+            "note":"Conservative ceiling for confirmation only; real provider usage is recorded per worker and hard daily/job budgets still apply."}
+
+def _select_cycle_idea(candidates):
+    usable=[x for x in candidates if x.get("status")=="shortlisted" and not x.get("rejection_reason")]
+    if not usable:usable=[x for x in candidates if x.get("status")=="shortlisted"]
+    if not usable:return None
+    usable.sort(key=lambda x:(float(x.get("score") or 0),x.get("verified_at") or ""),reverse=True)
+    return usable[0]
+
+async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
+    active_factory_cycles.add(cycle_id)
+    try:
+        cycle=get_factory_cycle(cycle_id,True)
+        if not cycle:raise ValueError("Factory cycle not found")
+        if cycle.get("job") and cycle["job"].get("status")=="waiting_approval":
+            _cycle_update(cycle_id,status="waiting_approval",phase="approval",last_error="")
+            return
+        _cycle_update(cycle_id,status="running",started_at=cycle.get("started_at") or ts(),last_error="")
+        cycle_event(cycle_id,cycle.get("phase") or "signals","Autopilot run started",{"language":language})
+
+        signal_ids=cycle.get("source_signal_ids") or []
+        if not signal_ids and not cycle.get("idea_id"):
+            collected=await asyncio.to_thread(collect_configured_signals,FACTORY_CYCLE_MAX_SIGNALS) if FACTORY_SIGNAL_FEEDS else {"created":[]}
+            signal_ids=[x["id"] for x in collected.get("created") or []] or _new_signal_ids()
+            if not signal_ids:raise RuntimeError("No source signals are available. Add a signal or configure RSS feeds.")
+            _cycle_update(cycle_id,source_signal_ids_json=json.dumps(signal_ids),phase="ideas")
+            cycle_event(cycle_id,"signals",f"Attached {len(signal_ids)} available signal(s)")
+
+        idea_id=cycle.get("idea_id")
+        if not idea_id:
+            _cycle_update(cycle_id,phase="ideas")
+            generated=await generate_ideas_from_signals(IdeaGenerateRequest(signal_ids=signal_ids,max_ideas=max_ideas,language=language))
+            generated_ids=[x["id"] for x in generated.get("ideas") or []]
+            if not generated_ids:raise RuntimeError("Content Brain generated no usable ideas")
+            cycle_event(cycle_id,"ideas",f"Scout generated {len(generated_ids)} idea candidate(s)",
+                        {"run_id":generated.get("run_id"),"cost_usd":generated.get("cost_usd")})
+            processed=await process_content_brain_ideas(IdeaProcessRequest(idea_ids=generated_ids,max_ideas=max_ideas,language=language))
+            chosen=_select_cycle_idea(processed.get("processed") or [])
+            if not chosen:raise RuntimeError("Idea Verifier did not shortlist a production-ready idea")
+            idea_id=chosen["id"]
+            con=db();con.execute("UPDATE content_ideas SET status='selected',updated_at=? WHERE id=?",(ts(),idea_id));con.commit();con.close()
+            _cycle_update(cycle_id,idea_id=idea_id,phase="production")
+            cycle_event(cycle_id,"ideas",f"Verified idea selected: {chosen['title']}",{"idea_id":idea_id,"score":chosen.get("score")})
+        else:
+            con=db();idea=_idea_dict(con.execute("SELECT * FROM content_ideas WHERE id=?",(idea_id,)).fetchone());con.close()
+            if not idea:raise RuntimeError("Cycle idea no longer exists")
+            if FACTORY_LLM_API_KEY and not idea.get("verified_at"):
+                processed=await process_content_brain_ideas(IdeaProcessRequest(idea_ids=[idea_id],max_ideas=1,language=language))
+                chosen=_select_cycle_idea(processed.get("processed") or [])
+                if not chosen:raise RuntimeError("Preselected idea did not pass verification")
+                con=db();con.execute("UPDATE content_ideas SET status='selected',updated_at=? WHERE id=?",(ts(),idea_id));con.commit();con.close()
+
+        bridge=create_job_from_idea(idea_id,language)
+        job=bridge["job"];workflow=_workflow_context(job["id"],lock=True)["version"]
+        _cycle_update(cycle_id,job_id=job["id"],workflow_version_id=workflow["id"],phase="production")
+        cycle_event(cycle_id,"production","Content Brain → production handoff completed",
+                    {"job_id":job["id"],"idea_id":idea_id,"workflow_version_id":workflow["id"]})
+        running_jobs.add(job["id"])
+        await run_until_review(job["id"])
+        job=get_job(job["id"])
+        if not job or job.get("status")!="waiting_approval":
+            raise RuntimeError("Production did not reach the human approval gate")
+        _cycle_update(cycle_id,status="waiting_approval",phase="approval",last_error="")
+        cycle_event(cycle_id,"approval","Production package is ready; Autopilot stopped at the human approval gate",
+                    {"job_id":job["id"]})
+        await broadcast({"type":"factory_cycle","action":"waiting_approval","cycleId":cycle_id,"jobId":job["id"]})
+    except Exception as exc:
+        _cycle_update(cycle_id,status="failed",last_error=str(exc)[:1200])
+        cycle_event(cycle_id,"error",f"Autopilot failed: {str(exc)[:500]}")
+        await broadcast({"type":"factory_cycle","action":"failed","cycleId":cycle_id,"error":str(exc)[:500]})
+    finally:
+        active_factory_cycles.discard(cycle_id)
+
+def _cycle_metric_baseline(current_item,metric):
+    platform=(current_item.get("publish") or {}).get("platform")
+    current_publish=(current_item.get("publish") or {}).get("id")
+    values=[]
+    for item in get_performance_dashboard(200).get("items") or []:
+        if (item.get("publish") or {}).get("id")==current_publish:continue
+        if platform and (item.get("publish") or {}).get("platform")!=platform:continue
+        value=((item.get("latest") or {}).get("metrics") or {}).get(metric)
+        if isinstance(value,(int,float)):values.append(float(value))
+    return round(sum(values)/len(values),4) if values else None,len(values)
+
+def derive_cycle_learning(cycle_id):
+    cycle=get_factory_cycle(cycle_id,True)
+    if not cycle:raise ValueError("Factory cycle not found")
+    perf=cycle.get("performance")
+    if not perf or not perf.get("latest"):
+        return {"ready":False,"reason":"No real performance snapshot exists for this cycle yet."}
+    metrics=(perf["latest"].get("metrics") or {})
+    metric=next((x for x in ("retention_pct","completion_rate_pct","views") if isinstance(metrics.get(x),(int,float))),None)
+    current=float(metrics[metric]) if metric else None
+    baseline,count=_cycle_metric_baseline(perf,metric) if metric else (None,0)
+    delta_pct=None
+    if current is not None and baseline not in (None,0):delta_pct=round((current-baseline)/abs(baseline)*100,2)
+    selected=_selected_production_variant(cycle["job_id"]) if cycle.get("job_id") else None
+    learning={
+        "generated_at":ts(),"publish_id":cycle.get("publish_id"),"job_id":cycle.get("job_id"),
+        "primary_observed_metric":metric,"current_value":current,"comparable_baseline":baseline,
+        "comparable_items":count,"observed_delta_pct":delta_pct,
+        "production_cost_usd":perf.get("attribution",{}).get("production_cost_usd"),
+        "angle":perf.get("attribution",{}).get("angle"),"hook":perf.get("attribution",{}).get("hook"),
+        "workflow_version_id":perf.get("attribution",{}).get("workflow_version_id"),
+        "statement":"Observed platform performance is stored as evidence. It is not treated as causal proof; workflow changes still require a controlled experiment."
+    }
+    recommendation="Collect more comparable real performance before proposing a workflow change."
+    proposal_id=None
+    if metric in ("retention_pct","completion_rate_pct") and baseline is not None and count>=2 and delta_pct is not None:
+        hook=(perf.get("attribution",{}).get("hook") or "").strip()
+        if delta_pct>=5 and hook:
+            recommendation=f"Observed {metric} is {delta_pct:.1f}% above the comparable baseline. Test this hook structure in a controlled experiment before rollout."
+            proposal=create_improvement_proposal(ImprovementProposalCreate(
+                title=f"Test measured hook pattern from cycle {cycle_id[:8]}",
+                rationale=recommendation,
+                hypothesis=f"A hook structure based on the measured cycle may improve {metric} by at least 5% versus the active control workflow.",
+                change={"hook_pattern":f"Test a structurally similar opening to this measured hook while preserving evidence boundaries: {hook[:500]}"},
+                evidence=[{"type":"performance_snapshot","publish_id":cycle.get("publish_id"),"metric":metric,
+                           "current":current,"baseline":baseline,"comparable_items":count,"observed_delta_pct":delta_pct}]
+            ))
+            con=db();con.execute("UPDATE improvement_proposals SET source='Factory Intelligence' WHERE id=?",(proposal["id"],));con.commit();con.close()
+            proposal_id=proposal["id"]
+        elif delta_pct<=-5:
+            recommendation=f"Observed {metric} is {abs(delta_pct):.1f}% below the comparable baseline. Test a stronger mechanism-first opening rather than promoting the current pattern."
+            proposal=create_improvement_proposal(ImprovementProposalCreate(
+                title=f"Test hook recovery after cycle {cycle_id[:8]}",
+                rationale=recommendation,
+                hypothesis=f"A clearer mechanism-first opening should recover at least 5% of {metric} versus the current active workflow.",
+                change={"hook_pattern":"Test a concrete mechanism-first opening in the first 1–3 seconds; avoid vague setup and preserve evidence boundaries."},
+                evidence=[{"type":"performance_snapshot","publish_id":cycle.get("publish_id"),"metric":metric,
+                           "current":current,"baseline":baseline,"comparable_items":count,"observed_delta_pct":delta_pct}]
+            ))
+            con=db();con.execute("UPDATE improvement_proposals SET source='Factory Intelligence' WHERE id=?",(proposal["id"],));con.commit();con.close()
+            proposal_id=proposal["id"]
+    learning["recommendation"]=recommendation;learning["improvement_proposal_id"]=proposal_id
+    _cycle_update(cycle_id,status="learning_ready",phase="learning",learning_json=json.dumps(learning,ensure_ascii=False),completed_at=ts())
+    save_artifact("Analyst","cycle_learning",f"Factory Cycle learning · {cycle_id[:8]}",
+                  json.dumps(learning,ensure_ascii=False,indent=2),job_id=cycle.get("job_id"),
+                  meta={"cycle_id":cycle_id,"publish_id":cycle.get("publish_id"),"proposal_id":proposal_id})
+    cycle_event(cycle_id,"learning",recommendation,{"proposal_id":proposal_id})
+    return {"ready":True,"learning":learning}
+
+def sync_factory_cycle(cycle_id,derive_learning_if_possible=True):
+    cycle=get_factory_cycle(cycle_id,True)
+    if not cycle:return None
+    job=cycle.get("job")
+    publish=cycle.get("publish")
+    if cycle.get("job_id") and not publish:
+        con=db();row=con.execute("SELECT * FROM publishing_queue WHERE job_id=? ORDER BY updated_at DESC LIMIT 1",(cycle["job_id"],)).fetchone();con.close()
+        if row:
+            publish=_publish_item(row);_cycle_update(cycle_id,publish_id=publish["id"])
+    status=cycle.get("status");phase=cycle.get("phase")
+    if job:
+        if job.get("status")=="waiting_approval":status,phase="waiting_approval","approval"
+        elif job.get("status")=="approved":status,phase="approved","publishing"
+        elif job.get("status")=="rejected":status,phase="rejected","approval"
+        elif job.get("status")=="failed":status,phase="failed","production"
+    if publish:
+        pstatus=publish.get("status")
+        if pstatus=="scheduled":status,phase="scheduled","publishing"
+        elif pstatus=="publishing":status,phase="approved","publishing"
+        elif pstatus=="published":status,phase="published","analytics"
+        elif pstatus=="failed":status,phase="failed","publishing"
+    con=db();snap=None
+    if publish:snap=con.execute("SELECT id FROM performance_snapshots WHERE publish_id=? ORDER BY captured_at DESC LIMIT 1",(publish["id"],)).fetchone()
+    con.close()
+    if snap:status,phase="measured","analytics"
+    _cycle_update(cycle_id,status=status,phase=phase,publish_id=(publish or {}).get("id") or cycle.get("publish_id"))
+    if snap and derive_learning_if_possible:
+        try:derive_cycle_learning(cycle_id)
+        except Exception as exc:cycle_event(cycle_id,"learning",f"Learning derivation deferred: {str(exc)[:300]}")
+    return get_factory_cycle(cycle_id,True)
+
+def sync_cycle_for_job(job_id):
+    cycle=_cycle_for_job(job_id)
+    return sync_factory_cycle(cycle["id"]) if cycle else None
+
+def sync_cycle_for_publish(publish_id):
+    cycle=_cycle_for_publish(publish_id)
+    return sync_factory_cycle(cycle["id"]) if cycle else None
+
+async def factory_cycle_reconcile_loop():
+    while True:
+        try:
+            con=db();rows=con.execute("""SELECT id FROM factory_cycles
+                                        WHERE status NOT IN ('failed','rejected','learning_ready','completed')
+                                        ORDER BY updated_at DESC LIMIT 100""").fetchall();con.close()
+            for row in rows:sync_factory_cycle(row["id"],True)
+        except Exception as exc:
+            print(json.dumps({"event":"FACTORY_CYCLE_RECONCILE_ERROR","error":str(exc)[:400]}),flush=True)
+        await asyncio.sleep(60)
+
 def _approval_summary():
     con=db()
     waiting=int(con.execute("SELECT COUNT(*) c FROM jobs WHERE status='waiting_approval'").fetchone()["c"] or 0)
@@ -4550,7 +4954,8 @@ def _performance_item(publish):
                  "sources":((package or {}).get("package") or {}).get("source_list") or [],
                  "production_cost_usd":cost,
                  "workflow_version_id":(workflow or {}).get("workflow_version_id"),
-                 "experiment_id":(workflow or {}).get("experiment_id"),"experiment_arm":(workflow or {}).get("arm")}
+                 "experiment_id":(workflow or {}).get("experiment_id"),"experiment_arm":(workflow or {}).get("arm"),
+                 "factory_cycle_id":((_cycle_for_job(publish["job_id"]) or {}).get("id"))}
     return {"publish":publish,"snapshots":snapshots,"latest":latest,"attribution":attribution,"cost_per_1k_views_usd":cpk}
 
 def get_performance_dashboard(limit=100):
@@ -4596,7 +5001,68 @@ def record_performance_snapshot(payload):
                   json.dumps(metrics,ensure_ascii=False,indent=2),job_id=pub["job_id"],
                   meta={"publish_id":pub["id"],"source":payload.source or "manual"})
     event(pub["job_id"],f"Performance snapshot recorded: {pub['platform']} · {', '.join(metrics.keys())}")
+    sync_cycle_for_publish(pub["id"])
     return {"id":snapshot_id,"publish_id":pub["id"],"metrics":metrics,"captured_at":captured}
+
+@app.get("/api/factory-cycles")
+def factory_cycles(limit:int=80):
+    return get_factory_cycles(limit)
+
+@app.get("/api/factory-cycles/{cycle_id}")
+def factory_cycle_detail(cycle_id:str):
+    cycle=sync_factory_cycle(cycle_id,True)
+    if not cycle:raise HTTPException(404,"Factory cycle not found")
+    return cycle
+
+@app.post("/api/factory-cycles")
+async def new_factory_cycle(payload:FactoryCycleCreate):
+    try:cycle=create_factory_cycle(payload)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"factory_cycle","action":"created","cycleId":cycle["id"]})
+    return {"ok":True,"cycle":cycle}
+
+@app.get("/api/factory-cycles/{cycle_id}/quote")
+def factory_cycle_quote(cycle_id:str,max_ideas:int=3):
+    try:return estimate_factory_cycle_cost(cycle_id,max_ideas)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+
+@app.post("/api/factory-cycles/{cycle_id}/run")
+async def run_factory_cycle_api(cycle_id:str,payload:FactoryCycleRunRequest):
+    cycle=get_factory_cycle(cycle_id,True)
+    if not cycle:raise HTTPException(404,"Factory cycle not found")
+    if cycle_id in active_factory_cycles:return {"ok":True,"message":"Factory cycle is already running"}
+    try:quote=estimate_factory_cycle_cost(cycle_id,payload.max_ideas)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    if quote["paid_calls_possible"] and not payload.confirm_cost:
+        return {"ok":False,"requiresCostConfirmation":True,"quote":quote,
+                "message":"Confirm the conservative paid-work ceiling before Autopilot starts. Daily/job budgets remain hard limits."}
+    asyncio.create_task(_run_factory_cycle_to_review(cycle_id,payload.max_ideas,payload.language))
+    return {"ok":True,"started":True,"quote":quote,
+            "message":"Autopilot started and will stop at the human approval gate."}
+
+@app.post("/api/factory-cycles/{cycle_id}/sync")
+async def sync_factory_cycle_api(cycle_id:str):
+    cycle=sync_factory_cycle(cycle_id,True)
+    if not cycle:raise HTTPException(404,"Factory cycle not found")
+    await broadcast({"type":"factory_cycle","action":"synced","cycleId":cycle_id})
+    return {"ok":True,"cycle":cycle}
+
+@app.post("/api/factory-cycles/{cycle_id}/learn")
+async def learn_factory_cycle(cycle_id:str):
+    try:result=derive_cycle_learning(cycle_id)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"factory_cycle","action":"learning","cycleId":cycle_id})
+    return result
+
+@app.post("/api/factory-cycles/{cycle_id}/next")
+async def next_factory_cycle(cycle_id:str):
+    parent=get_factory_cycle(cycle_id,True)
+    if not parent:raise HTTPException(404,"Factory cycle not found")
+    child=create_factory_cycle(FactoryCycleCreate(language=(parent.get("meta") or {}).get("language","English"),parent_cycle_id=cycle_id))
+    cycle_event(child["id"],"signals","Next cycle created using the currently active, owner-approved workflow",
+                {"parent_cycle_id":cycle_id,"workflow_version_id":child.get("workflow_version_id")})
+    await broadcast({"type":"factory_cycle","action":"next","cycleId":child["id"],"parentCycleId":cycle_id})
+    return {"ok":True,"cycle":child}
 
 @app.get("/api/approval")
 def approval_studio(job_id: Optional[str]=None):
@@ -4628,6 +5094,7 @@ async def reject_job(job_id:str,payload:ApprovalRejectRequest):
     _record_approval(job_id,"rejected",reason)
     con=db();con.execute("UPDATE jobs SET status='rejected',stage='qa',updated_at=? WHERE id=?",(ts(),job_id));con.commit();con.close()
     event(job_id,f"Approval Studio: rejected — {reason[:180]}")
+    sync_cycle_for_job(job_id)
     await broadcast({"type":"approval","jobId":job_id,"decision":"rejected"})
     return {"ok":True,"status":"rejected"}
 
@@ -4681,6 +5148,7 @@ async def schedule_publishing(publish_id:str,payload:PublishScheduleRequest):
                    WHERE id=?""",(target,platform,when,ts(),publish_id))
     con.commit();updated=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
     event(row["job_id"],f"Publishing scheduled: {platform} · {when}")
+    sync_cycle_for_publish(publish_id)
     await broadcast({"type":"publishing","publishId":publish_id,"status":"scheduled"})
     return {"ok":True,"item":_publish_item(updated)}
 
@@ -4734,6 +5202,7 @@ async def confirm_manual_publish(publish_id:str,payload:PublishConfirmRequest):
                   job_id=row["job_id"],meta={"publish_id":publish_id,"idempotency_key":row["idempotency_key"]})
     con=db();con.execute("UPDATE jobs SET stage='publish',status='published',progress=90,updated_at=? WHERE id=?",(ts(),row["job_id"]));con.commit();con.close()
     event(row["job_id"],f"Manual publish confirmed: {row['platform']} · {external}")
+    sync_cycle_for_publish(publish_id)
     await broadcast({"type":"publishing","publishId":publish_id,"status":"published"})
     return {"ok":True,"status":"published"}
 
@@ -4826,6 +5295,7 @@ def status():
         "publishingSummary": _publishing_summary(),
         "performanceSummary": _performance_summary(),
         "selfImprovementSummary": get_self_improvement_dashboard()["summary"],
+        "autonomousCycleSummary": get_factory_cycles(40)["summary"],
         "activeWorkflow": _active_workflow_version(),
         "publisherAdapters": get_publisher_adapter_registry(),
         "analyticsAdapters": get_analytics_adapter_registry(),
@@ -5016,6 +5486,7 @@ async def approve(job_id:str):
     except ValueError as exc:return {"ok":False,"message":str(exc)}
     con=db();con.execute("UPDATE jobs SET status='approved',stage='qa',progress=75,updated_at=? WHERE id=?",(ts(),job_id));con.commit();con.close()
     event(job_id,"Approval Studio: approved; added to publishing queue; no publish action executed")
+    sync_cycle_for_job(job_id)
     await broadcast({"type":"approval","jobId":job_id,"decision":"approved","publishId":item["id"]})
     return {"ok":True,"status":"approved","publish":item,
             "message":"Approved and queued. Publishing still requires a separate schedule/publish action."}
