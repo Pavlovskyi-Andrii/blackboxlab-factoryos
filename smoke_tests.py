@@ -24,7 +24,7 @@ require("paid_verification" in health,"paid verification health summary missing"
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
 state=app.status()
-for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","activeWorkflow","publisherAdapters,"analyticsAdapters","runtimePolicy"):
+for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
     require(key in state,f"status missing {key}")
 require(state["factory"]=="online","factory must report online")
 
