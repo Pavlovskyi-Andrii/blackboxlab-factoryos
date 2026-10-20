@@ -14,6 +14,17 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v3.90 — Self-Improving Factory — 2026-10-20
+- Added evidence-backed improvement proposals with explicit hypotheses and concrete, allowlisted workflow changes.
+- Added immutable workflow versions and locked job-level control/treatment assignment before the first worker run.
+- Added controlled experiment objects that compare factual published outcomes plus measured production cost and duration; missing metrics remain absent.
+- Added a production workflow fence: Supervisor proposals never auto-promote, safety/spend/publishing controls are not experiment-editable, and model changes are restricted to an explicit allowlist.
+- Added manual owner-approved rollout, explicit reject decisions and rollback to the pre-rollout workflow version.
+- Added Experiment Lab in EN / UK / RU for proposals, workflow diffs, arm assignment, measured comparison, rollout and rollback history.
+- Added workflow/experiment attribution to published performance records so a result can be traced to the exact tested workflow version.
+- Zero-spend CI run `39402528845` passed compile, deterministic control/treatment production, factual metric attribution, measured recommendation, manual rollout/rollback, HTML and JavaScript checks.
+- Production commit `c9ef037db619b4e475bf9b66ed1c32442573a805` is LIVE on Render deploy `dep-dbbjeo1srm7s7389md60` with clean startup, configured LLM provider and repeated `/health 200 OK`.
+
 ### v3.80 — Performance Feedback Loop — 2026-10-20
 - Added persisted time-series performance snapshots for views, reach, watch time, retention, completion, engagement and follower delta without fabricating unavailable metrics.
 - Added published-content identity mapping and traceable attribution back to idea, Content Package, selected variant, angle/hook, variant worker run IDs, source evidence and measured production cost.

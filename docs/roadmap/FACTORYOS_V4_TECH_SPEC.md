@@ -150,7 +150,7 @@ signals / trends / sources
 | v3.60 | Approval Studio | DONE | удобное мобильное редакторское одобрение |
 | v3.70 | Publishing Engine | DONE | очередь и контролируемая публикация |
 | v3.80 | Feedback Loop | DONE | реальные performance-метрики возвращаются в FactoryOS |
-| v3.90 | Self-Improving Factory | TODO | evidence-based оптимизация workers/prompts/models |
+| v3.90 | Self-Improving Factory | DONE | evidence-based оптимизация workers/prompts/models |
 | v4.0 | Autonomous Content Factory | TODO | полный замкнутый production loop |
 
 ---
@@ -664,61 +664,86 @@ Approved Content Package можно безопасно запланироват�
 
 # 12. v3.90 — Self-Improving Factory
 
-**Status: TODO**
+**Status: DONE**
 
 ## Цель
 
-Factory Supervisor должен использовать накопленные реальные данные для evidence-based улучшений.
+Factory Supervisor использует накопленные реальные данные для evidence-based улучшений, но ни одно изменение workflow не может попасть в production без изолированного эксперимента и ручного решения владельца.
 
 ## Supervisor может предлагать
 
 - изменить prompt;
-- сменить model tier;
-- убрать бесполезный worker step;
-- добавить verification step;
+- сменить model tier только внутри явного allowlist;
 - изменить количество candidates;
 - изменить hook pattern;
-- изменить production routing;
-- оптимизировать cost/latency.
+- предложить production routing;
+- предложить cost/latency optimization;
+- связать предложение с конкретными findings и measured evidence.
 
 ## Supervisor НЕ может
 
-Самостоятельно без контролируемого процесса:
+Самостоятельно:
 
 - менять safety invariants;
 - отключать approval;
 - увеличивать spend limits;
 - публиковать;
-- применять непроверенные prompt/workflow изменения прямо в production.
+- применять непроверенные prompt/workflow изменения прямо в production;
+- автоматически активировать treatment после эксперимента.
 
 ## Experiment framework
 
-Каждое улучшение:
-
 ```text
-proposal
+proposal + evidence
 → hypothesis
-→ controlled experiment
-→ measured result
-→ accept / reject
-→ production rollout
+→ immutable control / treatment workflow versions
+→ pre-run job assignment
+→ controlled production
+→ real published/performance measurements
+→ outcome + cost comparison
+→ owner accept / reject
+→ manual production rollout
+→ optional rollback
 ```
 
 ## Tasks
 
-- [ ] Improvement proposal schema.
-- [ ] Evidence links.
-- [ ] Experiment object.
-- [ ] Control / treatment workflow versions.
-- [ ] Outcome comparison.
-- [ ] Cost comparison.
-- [ ] Manual approval for rollout.
-- [ ] Rollback support.
-- [ ] Experiment history UI.
+- [x] Improvement proposal schema.
+- [x] Evidence links.
+- [x] Experiment object.
+- [x] Control / treatment workflow versions.
+- [x] Outcome comparison.
+- [x] Cost comparison.
+- [x] Manual approval for rollout.
+- [x] Rollback support.
+- [x] Experiment history UI.
+
+## Реализовано
+
+- Improvement proposal хранит hypothesis, evidence и конкретный allowlisted workflow patch.
+- Workflow versions immutable для уже назначенных jobs; experiment arm назначается до первого worker run.
+- Runtime может экспериментально менять только ограниченный набор production-параметров: candidate count, worker prompt addenda, allowlisted model, hook pattern и routing notes.
+- Human approval, publishing gate, spend limits и прочие safety controls не являются изменяемыми experiment parameters.
+- Published performance attribution теперь содержит workflow version, experiment ID и control/treatment arm.
+- Evaluation использует только реально сохранённые platform metrics. Для отсутствующей метрики значение не придумывается.
+- Experiment comparison показывает primary outcome, sample counts, observed effect, average measured production cost и duration.
+- Treatment не активируется автоматически даже при положительном результате. Rollout требует явного owner confirmation.
+- Rollback возвращает предыдущую production workflow version и оставляет audit trail.
+- Experiment Lab добавлен в EN / UK / RU и показывает proposals, diffs, assignments, measurements, recommendation, rollout и rollback actions.
+- CI regression проходит полный deterministic zero-spend сценарий control (3 candidates) vs treatment (4 candidates), factual performance snapshots, recommendation, confirmation fence, rollout и rollback.
+
+## Production evidence
+
+- Functional commit: `c9ef037db619b4e475bf9b66ed1c32442573a805`.
+- GitHub CI: `39402528845` — PASS.
+- Render deploy: `dep-dbbjeo1srm7s7389md60` — LIVE.
+- Production startup: clean; Builder bridge ready; LLM provider configured.
+- Repeated production `/health`: 200 OK.
+- Release verification remained zero-spend; no real social post or paid experiment was triggered.
 
 ## Definition of Done
 
-FactoryOS умеет доказательно показать: какое изменение workflow улучшило результат и почему его стоит принять.
+FactoryOS доказательно связывает measured result с конкретной control/treatment workflow version, показывает outcome/cost comparison, не применяет treatment автоматически, требует owner approval для rollout и умеет безопасно вернуться на предыдущую production version.
 
 ---
 
@@ -825,6 +850,19 @@ signal
 
 Новые записи добавлять сверху.
 
+## 2026-10-20 — v3.90 Self-Improving Factory DONE
+
+- Proposal schema расширена hypothesis, evidence и concrete allowlisted workflow patch.
+- Добавлены immutable workflow versions и job-level control/treatment assignments до первого worker run.
+- Добавлены factual outcome/cost/duration comparison и workflow attribution в performance feedback.
+- Treatment promotion отделён от experiment result: rollout требует owner confirmation; reject и rollback сохраняют audit trail.
+- Safety/spend/approval/publish invariants нельзя менять через experiment patch.
+- Добавлен mobile-friendly Experiment Lab с EN / UK / RU интерфейсом.
+- CI `39402528845` — PASS, включая zero-spend полный control/treatment → metrics → recommendation → rollout → rollback regression.
+- Production `c9ef037db619b4e475bf9b66ed1c32442573a805` / Render `dep-dbbjeo1srm7s7389md60` — LIVE; startup clean, repeated `/health 200 OK`.
+- Следующий milestone: v4.0 Autonomous Content Factory acceptance/closure.
+
+
 ## 2026-10-20 — v3.60 → v3.80 release train DONE
 
 - v3.60 Approval Studio: mobile review queue, preview/evidence, approve/reject, reject reasons, audit history, variant diff, scoped regeneration and cost-before-rerun.
@@ -898,6 +936,6 @@ signal
 
 # 17. Current Next Action
 
-**NEXT: v3.90 — Self-Improving Factory**
+**NEXT: v4.0 — Autonomous Content Factory**
 
-v3.60 Approval Studio, v3.70 Publishing Engine и v3.80 Performance Feedback Loop завершены и live. NEXT: improvement proposal schema → evidence links → controlled experiments → control/treatment workflow versions → outcome/cost comparison → manual rollout approval → rollback → experiment history UI.
+v3.90 Self-Improving Factory завершён и live. Следующий этап — не добавление ещё одного изолированного модуля, а финальная сборка и acceptance полного замкнутого пути: automatic signals → shortlist → production variants → Content Package → human approval → publishing queue → real analytics → measured learning → controlled workflow improvement. Нужно провести интеграционный audit, закрыть оставшиеся handoff gaps и подтвердить mobile end-to-end сценарий без ручного переноса данных между системами.

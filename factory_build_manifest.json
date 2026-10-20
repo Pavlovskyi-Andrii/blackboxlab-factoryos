@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-20T08:12:00.000Z",
+  "updated_at": "2026-10-20T09:43:23.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -707,6 +707,37 @@
           "paid_release_test": "not executed; release regression remained zero-spend",
           "features": "time-series metrics, identity mapping, attribution graph, performance dashboard, cost/outcome, angle cohorts",
           "measurement_rule": "missing platform metrics remain absent"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v3.90-self-improving-factory": {
+      "status": "done",
+      "meta": {
+        "title": "v3.90 — Self-Improving Factory",
+        "description": "Evidence-backed workflow improvement proposals, isolated control/treatment versions, factual outcome/cost comparison, owner-approved rollout and rollback.",
+        "category": "intelligence",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 280,
+        "evidence": {
+          "production_commit": "c9ef037db619b4e475bf9b66ed1c32442573a805",
+          "ci_run": "39402528845",
+          "ci": "passed",
+          "render_deploy": "dep-dbbjeo1srm7s7389md60",
+          "deploy": "live",
+          "health": "clean application startup; configured LLM provider; repeated /health 200 OK",
+          "release_test": "zero-spend deterministic control/treatment → publish receipt fixture → performance snapshots → measured recommendation → owner rollout → rollback",
+          "safety": "Supervisor cannot auto-promote workflow changes; approval/publish/spend invariants are not experiment-editable; rollout and rollback require owner confirmation",
+          "ui": "Experiment Lab EN/UK/RU"
         }
       },
       "steps": {
