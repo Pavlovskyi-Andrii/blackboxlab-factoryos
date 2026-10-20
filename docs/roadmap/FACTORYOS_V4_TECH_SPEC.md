@@ -145,7 +145,7 @@ signals / trends / sources
 |---|---|---|---|
 | v3.25 | Baseline Closure | DONE | чистый и проверенный production baseline |
 | v3.30 | Content Brain / Idea Factory | DONE | FactoryOS сам находит и ранжирует темы |
-| v3.40 | Production Pipeline 2.0 | TODO | многоступенчатое производство качественного сценария |
+| v3.40 | Production Pipeline 2.0 | DONE | многоступенчатое производство качественного сценария |
 | v3.50 | Content Package / Shorts Factory | TODO | готовый production package для ролика |
 | v3.60 | Approval Studio | TODO | удобное мобильное редакторское одобрение |
 | v3.70 | Publishing Engine | TODO | очередь и контролируемая публикация |
@@ -299,7 +299,7 @@ Idea Queue должна показывать:
 
 # 7. v3.40 — Production Pipeline 2.0
 
-**Status: TODO**
+**Status: DONE**
 
 ## Цель
 
@@ -353,22 +353,37 @@ QA должен возвращать не абстрактный score, а ко�
 
 ## Tasks
 
-- [ ] Angle Strategist.
-- [ ] Hook Generator.
-- [ ] Multiple candidate artifacts.
-- [ ] Candidate comparison.
-- [ ] Fact Checker.
-- [ ] Structured QA schema.
-- [ ] Partial rerun.
-- [ ] Downstream invalidation.
-- [ ] Variant provenance.
-- [ ] Variant cost comparison.
-- [ ] Pipeline visualization update.
-- [ ] Regression tests.
+- [x] Angle Strategist.
+- [x] Hook Generator.
+- [x] Multiple candidate artifacts.
+- [x] Candidate comparison.
+- [x] Fact Checker.
+- [x] Structured QA schema.
+- [x] Partial rerun.
+- [x] Downstream invalidation.
+- [x] Variant provenance.
+- [x] Variant cost comparison.
+- [x] Pipeline visualization update.
+- [x] Regression tests.
 
 ## Definition of Done
 
 Одна idea может породить несколько production variants, а система умеет показать, почему выбран/отклонён каждый вариант.
+
+### Реализовано
+
+- По умолчанию создаётся batch из 3 production variants.
+- Каждый variant хранит angle, hook, script, fact-check, optimized hook, edited script, structured QA, decision reason и provenance.
+- Structured QA использует конкретные findings вместо выдуманного общего quality score.
+- Variant Studio показывает сравнение вариантов, причины выбора/отклонения, findings и распределённую измеренную стоимость.
+- Shared batch model cost распределяется между вариантами только для comparison; фактический общий provider spend остаётся точным в `agent_runs`.
+- Partial rerun поддерживает angle / hook / script / factcheck / optimize / editor / QA и переводит job обратно в `script`, чтобы downstream stages не использовали устаревший результат.
+- Выбранный variant становится свежим Editor + Fact Checker handoff для Visual/Voice/Render/QA.
+- Zero-spend CI создаёт demo batch из трёх вариантов и проверяет selection, structured findings, artifacts и manual winner switch.
+- Production commit: `0410358433509703b5ae26f8e0246f625d967298`.
+- CI: `39380515484` PASS.
+- Render: `dep-dbbgkaei0phs738fog7g` LIVE, startup clean, `/health` = 200.
+- Controlled paid variant generation не запускалась в release verification; live calls остаются explicit и защищены job/day budgets.
 
 ---
 
@@ -762,6 +777,18 @@ signal
 
 Новые записи добавлять сверху.
 
+## 2026-10-20 — v3.40 Production Pipeline 2.0 DONE
+
+- Linear script stage заменён на competing-variant workflow.
+- Добавлены Angle Strategist, Hook Generator, Fact Checker, Hook Optimizer и Editor.
+- Production batch создаёт 3 angle/hook/script variants и сохраняет отдельные artifacts/provenance.
+- Fact Checker и structured QA сохраняют конкретные findings: unsupported claim, weak hook, duplicated angle, missing source, slow intro, unclear CTA, excessive length, unsafe/sensitive claim и fact conflict.
+- Variant Studio доступен на desktop/mobile: comparison, findings, decision reason, cost, manual selection и partial rerun.
+- Partial rerun fence возвращает job к script stage и инвалидирует downstream path.
+- CI `39380515484` — PASS; zero-spend variant regression прошёл без provider calls.
+- Render deploy `dep-dbbgkaei0phs738fog7g` — LIVE; application startup clean, provider configured, repeated health checks 200.
+- Следующий milestone: v3.50 Content Package / Shorts Factory.
+
 ## 2026-10-20 — v3.30 Content Brain DONE / v3.40 next
 
 - Завершена цепочка Signal Collector → Scout → Researcher → Idea Strategist → Idea Verifier → Idea Queue.
@@ -800,6 +827,6 @@ signal
 
 # 17. Current Next Action
 
-**NEXT: v3.40 — Production Pipeline 2.0**
+**NEXT: v3.50 — Content Package / Shorts Factory**
 
-v3.30 Content Brain завершён и live. NEXT: Angle Strategist → Hook Generator → multiple candidates → Fact Checker → structured QA → partial rerun/downstream invalidation → variant comparison.
+v3.40 Production Pipeline 2.0 завершён и live. NEXT: ContentPackage schema → selected variant → scene breakdown → VO → subtitles/SRT → title/description/CTA/hashtags → thumbnail concept → media brief → provider adapter layer → preview/export.

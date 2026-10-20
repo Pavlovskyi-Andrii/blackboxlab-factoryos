@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-20T06:15:30.000Z",
+  "updated_at": "2026-10-20T06:30:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -544,6 +544,42 @@
           "pipeline": "Signal Collector → Scout → Researcher → Idea Strategist → Idea Verifier → Idea Queue",
           "mobile_ui": true,
           "paid_release_test": "not executed; release verification remained zero-spend"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v3.40-production-pipeline-2": {
+      "status": "done",
+      "meta": {
+        "title": "v3.40 — Production Pipeline 2.0",
+        "description": "Generate competing evidence-grounded angle/hook/script variants, fact-check and edit them, compare structured QA findings, preserve provenance/cost, and support targeted partial reruns with downstream invalidation.",
+        "category": "workflow",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 230,
+        "evidence": {
+          "production_commit": "0410358433509703b5ae26f8e0246f625d967298",
+          "ci_run": "39380515484",
+          "ci": "passed",
+          "render_deploy": "dep-dbbgkaei0phs738fog7g",
+          "deploy": "live",
+          "health": "200 OK",
+          "pipeline": "Angle Strategist → Hook Generator → Scriptwriter → Fact Checker → Hook Optimizer → Editor → structured QA",
+          "default_variants": 3,
+          "variant_studio": true,
+          "partial_rerun": true,
+          "downstream_invalidation": true,
+          "provenance": true,
+          "allocated_cost_comparison": true,
+          "paid_release_test": "not executed; CI verification used zero-spend demo variants"
         }
       },
       "steps": {

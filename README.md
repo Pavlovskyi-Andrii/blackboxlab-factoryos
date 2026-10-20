@@ -14,6 +14,17 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v3.40 — Production Pipeline 2.0 — 2026-10-20
+- Replaced the single script path with a three-variant production workflow: Angle Strategist → Hook Generator → Scriptwriter → Fact Checker → Hook Optimizer → Editor → structured QA.
+- Added persisted production-variant batches with separate angle, hook, script, fact-check, edited-script, QA, decision and provenance data.
+- Added structured QA findings instead of a synthetic quality score: unsupported claim, weak hook, duplicated angle, missing source, slow intro, unclear CTA, excessive length, unsafe/sensitive claim and fact conflict.
+- Added automatic evidence-based recommendation plus manual winner selection in a mobile-first Variant Studio.
+- Added targeted partial reruns for angle/hook/script/fact-check/hook optimization/editor/QA; reruns fence the job back to the script stage so stale downstream media cannot silently continue.
+- Added variant cost comparison. Shared batch-run spend is allocated evenly for comparison while exact provider spend remains measured in the agent-run ledger.
+- Updated pipeline/Agent Office visibility for the new worker graph and fixed live script-stage worker visualization.
+- Extended zero-spend CI to generate and compare a three-variant demo batch without provider calls.
+- Verified live: CI run `39380515484` passed; production commit `0410358433509703b5ae26f8e0246f625d967298`; Render deploy `dep-dbbgkaei0phs738fog7g` is live with clean startup and health checks.
+
 ### v3.30 — Content Brain / Idea Factory — 2026-10-20
 - Added persistent source signals, idea storage, fingerprint deduplication and traceable provenance.
 - Added manual/URL ingestion plus a configurable scheduled RSS source adapter through `FACTORY_SIGNAL_FEEDS`.
