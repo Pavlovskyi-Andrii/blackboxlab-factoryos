@@ -1,7 +1,9 @@
 """FactoryOS zero-spend smoke/regression checks."""
 import asyncio
+import json
 import os
 import tempfile
+import uuid
 from pathlib import Path
 if not os.environ.get("DATA_DIR"):
     os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="factoryos-smoke-")
