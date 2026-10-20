@@ -14,6 +14,20 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v4.0 — Autonomous Content Factory — 2026-10-20
+- Added persistent Factory Cycles that carry source signals, the selected idea, production job, workflow version, publishing receipt, factual performance and learning as one traceable lineage.
+- Added a direct Content Brain → production bridge: verified ideas create linked production jobs without manual copy/paste, while preserving source provenance and the exact pinned workflow version.
+- Added Autopilot orchestration that can collect/attach signals, generate and verify ideas, build production variants and a Content Package, and then **stops at the human approval gate**.
+- Added explicit paid-work confirmation before Autopilot can start live model calls. Existing daily/job budget guards remain hard limits.
+- Scheduled RSS collection can create a ready Factory Cycle from newly discovered signals, but never starts paid generation automatically.
+- Approval, publishing state, real publish receipts and performance snapshots now synchronize back into the originating Factory Cycle.
+- Added evidence-bounded cycle learning from real persisted metrics. Observed performance is never treated as causal proof; any workflow improvement becomes a controlled v3.90 experiment rather than an automatic production change.
+- Added next-cycle lineage: a learned cycle can spawn a child cycle using only the currently owner-approved active workflow.
+- Added mobile Autopilot / Cycle Control in EN / UK / RU.
+- Zero-spend CI run `39406148458` passed the full deterministic closed-loop acceptance: signal → idea → production → package → human approval → publishing receipt fixture → real persisted metrics → learning → next cycle, plus compile/HTML/JavaScript checks.
+- Functional commit `c02c568f3ad976286a7e8da5e7282013f06b4654`; production head `3cd54bba6aeaf0be33af863525ec3202b4aab7aa`; Render deploy `dep-dbbjsohsrm7s738a5bc0` is LIVE with clean startup and repeated `/health 200 OK`.
+- No paid v4 production cycle and no real social post were executed as part of release verification.
+
 ### v3.90 — Self-Improving Factory — 2026-10-20
 - Added evidence-backed improvement proposals with explicit hypotheses and concrete, allowlisted workflow changes.
 - Added immutable workflow versions and locked job-level control/treatment assignment before the first worker run.

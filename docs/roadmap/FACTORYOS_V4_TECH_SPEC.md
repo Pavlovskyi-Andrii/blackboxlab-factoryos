@@ -151,7 +151,7 @@ signals / trends / sources
 | v3.70 | Publishing Engine | DONE | очередь и контролируемая публикация |
 | v3.80 | Feedback Loop | DONE | реальные performance-метрики возвращаются в FactoryOS |
 | v3.90 | Self-Improving Factory | DONE | evidence-based оптимизация workers/prompts/models |
-| v4.0 | Autonomous Content Factory | TODO | полный замкнутый production loop |
+| v4.0 | Autonomous Content Factory | DONE | полный замкнутый production loop |
 
 ---
 
@@ -749,30 +749,87 @@ FactoryOS доказательно связывает measured result с кон�
 
 # 13. v4.0 — Autonomous Content Factory
 
-**Status: TODO**
+**Status: DONE**
 
 ## Цель
 
-Замкнуть полный production loop.
+Замкнуть полный production loop так, чтобы данные между Content Brain, production, approval, publishing, analytics и learning передавались внутри FactoryOS без ручного copy/paste, при сохранении human approval и spend controls.
 
 ## v4.0 acceptance scenario
 
-На телефоне пользователь должен иметь возможность:
+На телефоне пользователь может:
 
-1. открыть FactoryOS;
-2. увидеть автоматически найденные signals;
-3. увидеть shortlist идей;
-4. открыть готовые content variants;
-5. просмотреть источники и QA;
-6. одобрить лучший материал;
-7. отправить его в publishing queue;
-8. позже увидеть реальные performance metrics;
-9. увидеть рекомендации Factory Intelligence/Supervisor;
-10. запустить следующий улучшенный cycle.
+1. открыть FactoryOS и Autopilot / Cycle Control;
+2. увидеть автоматически собранные signals или создать cycle из доступных signals;
+3. получить shortlist и verified idea через Content Brain;
+4. без ручного переноса создать связанный production job;
+5. получить competing variants + Content Package + QA/source provenance;
+6. дойти до `waiting_approval`, где Autopilot обязательно останавливается;
+7. вручную Approve и получить idempotent publishing queue item;
+8. выполнить отдельное явное schedule/publish действие и сохранить реальный external receipt;
+9. получить только реально пришедшие performance metrics;
+10. связать metrics обратно с cycle / idea / job / package / variant / workflow;
+11. сформировать evidence-bounded learning;
+12. при достаточном evidence создать improvement proposal для controlled experiment;
+13. запустить следующий child cycle с текущим owner-approved workflow.
+
+## Реализовано
+
+- Persistent `factory_cycles` + cycle event ledger.
+- Полная lineage: source signals → idea → job → workflow version → publish ID → performance → learning.
+- Content Brain → production bridge без ручного copy/paste.
+- Autopilot coordinator для signal/idea/production/package пути.
+- Scheduled RSS collector создаёт готовый cycle из реально новых signals, но не запускает платную генерацию автоматически.
+- Live Autopilot требует явного cost confirmation до paid LLM work; day/job budget guards остаются hard limits.
+- Autopilot всегда останавливается на HUMAN APPROVAL.
+- Approval не публикует: он только создаёт duplicate-safe publishing queue item.
+- Publish receipt и performance snapshots автоматически синхронизируются в originating cycle.
+- Learning строится только из persisted platform metrics; отсутствующие metrics не придумываются.
+- Observed performance не считается causal proof. Улучшение workflow только создаёт proposal для v3.90 controlled experiment.
+- Next cycle хранит `parent_cycle_id` и использует текущую owner-approved active workflow version.
+- Mobile Autopilot / Cycle Control добавлен в EN / UK / RU.
+
+## Acceptance evidence
+
+Zero-spend CI acceptance реально прошёл полный deterministic путь:
+
+```text
+persisted signal
+→ selected / verified idea fixture
+→ Factory Cycle
+→ linked production job
+→ Production Pipeline 2.0 variants
+→ Content Package
+→ QA / waiting_approval
+→ explicit human approval
+→ idempotent publishing queue
+→ manual factual publish receipt fixture
+→ persisted views / retention / completion metrics
+→ cycle learning
+→ next child cycle
+```
+
+Проверено дополнительно:
+
+- до approval у cycle отсутствует publish ID;
+- manual publisher требует внешний post ID/receipt;
+- performance attribution содержит exact Factory Cycle ID и workflow version;
+- next cycle не получает непроверенный treatment автоматически;
+- smoke/CI не совершает платных LLM-вызовов.
+
+## Production evidence
+
+- Functional commit: `c02c568f3ad976286a7e8da5e7282013f06b4654`.
+- Final production head: `3cd54bba6aeaf0be33af863525ec3202b4aab7aa`.
+- GitHub CI: `39406148458` — PASS.
+- Render deploy: `dep-dbbjsohsrm7s738a5bc0` — LIVE.
+- Production startup: clean; Builder bridge ready; LLM provider configured.
+- Repeated production `/health`: 200 OK.
+- Release acceptance remained zero-spend: real paid v4 Autopilot and real social publishing were intentionally not triggered.
 
 ## Definition of Done
 
-v4.0 считается готовой, когда без ручного переноса данных между системами работает полный путь:
+**DONE.** Без ручного переноса данных между внутренними модулями FactoryOS работает traceable путь:
 
 ```text
 signal
@@ -780,11 +837,15 @@ signal
 → research
 → production
 → content package
-→ approval
-→ publishing
-→ analytics
+→ HUMAN APPROVAL
+→ publishing queue
+→ factual publish receipt
+→ real analytics
 → learning
+→ controlled improvement proposal / next cycle
 ```
+
+Human approval, explicit publishing, spend budgets, evidence boundaries и controlled workflow rollout сохранены.
 
 ---
 
@@ -849,6 +910,21 @@ signal
 # 16. Progress Log
 
 Новые записи добавлять сверху.
+
+## 2026-10-20 — v4.0 Autonomous Content Factory DONE
+
+- Добавлена persistent Factory Cycle lineage: signals → idea → job → workflow → publish → performance → learning.
+- Закрыт главный handoff gap: verified Content Brain idea создаёт production job внутри FactoryOS без ручного переноса brief/source data.
+- Autopilot ведёт cycle до готового Content Package/QA и обязательно останавливается на human approval.
+- Live paid Autopilot запускается только после explicit cost confirmation; RSS collection может подготовить cycle, но не тратить provider budget автоматически.
+- Approval/publishing/performance автоматически синхронизируются обратно в originating cycle.
+- Learning использует только реальные persisted metrics и при достаточном evidence создаёт лишь controlled-experiment proposal, а не auto-rollout.
+- Добавлен parent/child next-cycle lineage и mobile Autopilot / Cycle Control (EN/UK/RU).
+- CI `39406148458` — PASS: полный zero-spend closed-loop acceptance + compile + HTML + JS.
+- Functional commit `c02c568f3ad976286a7e8da5e7282013f06b4654`; final production head `3cd54bba6aeaf0be33af863525ec3202b4aab7aa`.
+- Render `dep-dbbjsohsrm7s738a5bc0` — LIVE; clean startup, configured LLM provider, repeated `/health 200 OK`.
+- Реальный paid v4 cycle и реальная соцсеть в release acceptance не запускались намеренно.
+
 
 ## 2026-10-20 — v3.90 Self-Improving Factory DONE
 
@@ -936,6 +1012,8 @@ signal
 
 # 17. Current Next Action
 
-**NEXT: v4.0 — Autonomous Content Factory**
+**NEXT: v4.x — Production Operations & First Real Closed-Loop Cycle**
 
-v3.90 Self-Improving Factory завершён и live. Следующий этап — не добавление ещё одного изолированного модуля, а финальная сборка и acceptance полного замкнутого пути: automatic signals → shortlist → production variants → Content Package → human approval → publishing queue → real analytics → measured learning → controlled workflow improvement. Нужно провести интеграционный audit, закрыть оставшиеся handoff gaps и подтвердить mobile end-to-end сценарий без ручного переноса данных между системами.
+v4.0 product loop завершён и live. Следующий шаг — не новый архитектурный milestone, а production operation: настроить/проверить реальные RSS/signal feeds, выбрать реальные media/publisher/analytics adapters, затем запустить первый owner-approved paid Factory Cycle с небольшим budget cap. После human review и реальной публикации собрать platform metrics, убедиться что learning/proposal сформированы из фактических данных, и только после достаточной выборки запускать controlled experiments.
+
+До этого момента release считается функционально закрытым, но реальный external closed-loop proof остаётся отдельной операционной проверкой, чтобы не тратить деньги и не публиковать контент без явного решения владельца.

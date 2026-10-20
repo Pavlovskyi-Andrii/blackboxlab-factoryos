@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-20T09:43:23.000Z",
+  "updated_at": "2026-10-20T10:13:21.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -738,6 +738,39 @@
           "release_test": "zero-spend deterministic control/treatment → publish receipt fixture → performance snapshots → measured recommendation → owner rollout → rollback",
           "safety": "Supervisor cannot auto-promote workflow changes; approval/publish/spend invariants are not experiment-editable; rollout and rollback require owner confirmation",
           "ui": "Experiment Lab EN/UK/RU"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v4.0-autonomous-content-factory": {
+      "status": "done",
+      "meta": {
+        "title": "v4.0 — Autonomous Content Factory",
+        "description": "Persistent closed-loop Factory Cycles connect signals, verified ideas, production, human approval, controlled publishing, factual analytics, evidence-bounded learning and the next cycle without manual data transfer.",
+        "category": "workflow",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 290,
+        "evidence": {
+          "functional_commit": "c02c568f3ad976286a7e8da5e7282013f06b4654",
+          "production_commit": "3cd54bba6aeaf0be33af863525ec3202b4aab7aa",
+          "ci_run": "39406148458",
+          "ci": "passed",
+          "render_deploy": "dep-dbbjsohsrm7s738a5bc0",
+          "deploy": "live",
+          "health": "clean application startup; Builder bridge ready; configured LLM provider; repeated /health 200 OK",
+          "acceptance": "zero-spend deterministic signal → idea → linked job → variants/package → human approval → manual factual publish receipt fixture → real persisted metrics → learning → child cycle",
+          "safety": "Autopilot stops at human approval; publishing remains explicit; live paid work requires cost confirmation and hard budgets; learning can only propose controlled experiments",
+          "ui": "Autopilot / Cycle Control mobile workspace in EN/UK/RU",
+          "paid_release_test": "not executed; no real social post and no paid v4 production cycle were triggered"
         }
       },
       "steps": {
