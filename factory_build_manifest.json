@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-20T06:52:00.000Z",
+  "updated_at": "2026-10-20T08:12:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -616,6 +616,97 @@
           "mobile_ui": "Package Studio",
           "downstream_invalidation": true,
           "paid_release_test": "not executed; CI package generation ran in deterministic zero-spend demo mode"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v3.60-approval-studio": {
+      "status": "done",
+      "meta": {
+        "title": "v3.60 — Approval Studio",
+        "description": "Mobile editorial approval with evidence, scoped regeneration, cost confirmation, rejection reasons and audit history.",
+        "category": "workflow",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 250,
+        "evidence": {
+          "production_commit": "e94cfff4094221acaf4f61b8c10ba9e7adfa1c01",
+          "ci_run": "39391145024",
+          "ci": "passed",
+          "render_deploy": "dep-dbbi2m6k1f9s73bs9rk0",
+          "deploy": "live",
+          "health": "application startup complete; configured LLM provider; repeated /health 200 OK",
+          "paid_release_test": "not executed; release regression remained zero-spend",
+          "features": "approval queue, mobile preview, targeted hook/script/caption/voice rerun, variant diff, reject reasons, approval history"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v3.70-publishing-engine": {
+      "status": "done",
+      "meta": {
+        "title": "v3.70 — Publishing Engine",
+        "description": "Controlled post-approval queue with scheduling, idempotency, factual publish receipts and safe retry.",
+        "category": "connectors",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 260,
+        "evidence": {
+          "production_commit": "e94cfff4094221acaf4f61b8c10ba9e7adfa1c01",
+          "ci_run": "39391145024",
+          "ci": "passed",
+          "render_deploy": "dep-dbbi2m6k1f9s73bs9rk0",
+          "deploy": "live",
+          "health": "application startup complete; configured LLM provider; repeated /health 200 OK",
+          "paid_release_test": "not executed; release regression remained zero-spend",
+          "features": "publishing queue, schedule, stable idempotency key, manual real receipt, webhook adapter, uncertainty-safe retry"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v3.80-feedback-loop": {
+      "status": "done",
+      "meta": {
+        "title": "v3.80 — Performance Feedback Loop",
+        "description": "Persist factual performance snapshots and trace outcomes back through publishing, package, variant, workers and sources.",
+        "category": "analytics",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 270,
+        "evidence": {
+          "production_commit": "e94cfff4094221acaf4f61b8c10ba9e7adfa1c01",
+          "ci_run": "39391145024",
+          "ci": "passed",
+          "render_deploy": "dep-dbbi2m6k1f9s73bs9rk0",
+          "deploy": "live",
+          "health": "application startup complete; configured LLM provider; repeated /health 200 OK",
+          "paid_release_test": "not executed; release regression remained zero-spend",
+          "features": "time-series metrics, identity mapping, attribution graph, performance dashboard, cost/outcome, angle cohorts",
+          "measurement_rule": "missing platform metrics remain absent"
         }
       },
       "steps": {

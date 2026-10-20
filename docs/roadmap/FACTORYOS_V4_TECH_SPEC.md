@@ -147,9 +147,9 @@ signals / trends / sources
 | v3.30 | Content Brain / Idea Factory | DONE | FactoryOS сам находит и ранжирует темы |
 | v3.40 | Production Pipeline 2.0 | DONE | многоступенчатое производство качественного сценария |
 | v3.50 | Content Package / Shorts Factory | DONE | готовый production package для ролика |
-| v3.60 | Approval Studio | TODO | удобное мобильное редакторское одобрение |
-| v3.70 | Publishing Engine | TODO | очередь и контролируемая публикация |
-| v3.80 | Feedback Loop | TODO | реальные performance-метрики возвращаются в FactoryOS |
+| v3.60 | Approval Studio | DONE | удобное мобильное редакторское одобрение |
+| v3.70 | Publishing Engine | DONE | очередь и контролируемая публикация |
+| v3.80 | Feedback Loop | DONE | реальные performance-метрики возвращаются в FactoryOS |
 | v3.90 | Self-Improving Factory | TODO | evidence-based оптимизация workers/prompts/models |
 | v4.0 | Autonomous Content Factory | TODO | полный замкнутый production loop |
 
@@ -465,7 +465,7 @@ QA должен возвращать не абстрактный score, а ко�
 
 # 9. v3.60 — Approval Studio
 
-**Status: TODO**
+**Status: DONE**
 
 ## Цель
 
@@ -502,25 +502,36 @@ Partial regeneration не должна заново оплачивать вес�
 
 ## Tasks
 
-- [ ] Approval queue.
-- [ ] Mobile-first preview.
-- [ ] Partial regeneration actions.
-- [ ] Cost-before-rerun confirmation.
-- [ ] Variant diff.
-- [ ] Reject reason persistence.
-- [ ] Approval history.
-- [ ] Audit log.
-- [ ] Regression tests.
+- [x] Approval queue.
+- [x] Mobile-first preview.
+- [x] Partial regeneration actions.
+- [x] Cost-before-rerun confirmation.
+- [x] Variant diff.
+- [x] Reject reason persistence.
+- [x] Approval history.
+- [x] Audit log.
+- [x] Regression tests.
 
 ## Definition of Done
 
 Владелец может полноценно управлять production approval с телефона без просмотра технических логов.
 
+### Реализовано
+
+- Approval queue агрегирует job, свежий Content Package, выбранный variant, render preview, provenance, QA/fact warnings, measured cost/duration, publish state и decision history.
+- Approve и Reject сохраняются в отдельном audit ledger; reject требует причину.
+- Approve больше не запускает публикацию: он только создаёт controlled publishing queue item.
+- Targeted regeneration поддерживает hook/script/caption/voice; hook/script используют существующий partial-rerun fence, caption перестраивает только publishing metadata, voice инвалидирует Render → QA.
+- До платного model rerun UI/API возвращают консервативную estimate; фактическая стоимость остаётся в agent run accounting.
+- Variant diff показывает конкретно изменившиеся поля без synthetic quality score.
+- Mobile-first Approval Studio доступен из основной навигации.
+- Zero-spend CI `39391145024` PASS; production commit `e94cfff4094221acaf4f61b8c10ba9e7adfa1c01` / Render `dep-dbbi2m6k1f9s73bs9rk0` LIVE.
+
 ---
 
 # 10. v3.70 — Publishing Engine
 
-**Status: TODO**
+**Status: DONE**
 
 ## Цель
 
@@ -551,25 +562,36 @@ draft
 
 ## Tasks
 
-- [ ] Publisher adapter interface.
-- [ ] Publishing queue.
-- [ ] Schedule model.
-- [ ] Idempotent publish action.
-- [ ] Publish history.
-- [ ] Failure/retry policy.
-- [ ] Mobile queue UI.
-- [ ] Integration with selected publisher.
-- [ ] Regression tests.
+- [x] Publisher adapter interface.
+- [x] Publishing queue.
+- [x] Schedule model.
+- [x] Idempotent publish action.
+- [x] Publish history.
+- [x] Failure/retry policy.
+- [x] Mobile queue UI.
+- [x] Integration with selected publisher.
+- [x] Regression tests.
 
 ## Definition of Done
 
 Approved Content Package можно безопасно запланировать и опубликовать, а FactoryOS знает фактический publish status.
 
+### Реализовано
+
+- Persisted publishing queue использует state flow `approved → scheduled → publishing → published / failed`.
+- Queue item создаётся только после human approval и связан с конкретным fresh package + selected variant.
+- Stable SHA-256 idempotency key предотвращает duplicate publish для одного package/variant; повтор действия для published item возвращает idempotent result.
+- Manual publisher adapter является безопасным baseline: FactoryOS не выдумывает факт публикации и требует реальный external post ID перед `published`.
+- Provider-neutral webhook adapter поддерживает внешнего publisher; timeout/network outcome помечается uncertain и требует подтверждения перед retry.
+- Сохраняются schedule, attempt count, failure, external post ID/URL, published timestamp и publish receipt artifact.
+- Mobile Publishing workspace позволяет планировать, запускать/retry и подтверждать реальный post.
+- Zero-spend regression проверяет schedule → manual handoff → real receipt → duplicate-safe повтор.
+
 ---
 
 # 11. v3.80 — Performance Feedback Loop
 
-**Status: TODO**
+**Status: DONE**
 
 ## Цель
 
@@ -611,21 +633,32 @@ Approved Content Package можно безопасно запланироват�
 
 ## Tasks
 
-- [ ] Analytics adapter.
-- [ ] Published-content identity mapping.
-- [ ] Metrics persistence.
-- [ ] Time-series snapshots.
-- [ ] Attribution graph.
-- [ ] Content performance dashboard.
-- [ ] Cost vs outcome comparison.
-- [ ] Hook/angle cohort comparison.
-- [ ] Regression tests.
+- [x] Analytics adapter.
+- [x] Published-content identity mapping.
+- [x] Metrics persistence.
+- [x] Time-series snapshots.
+- [x] Attribution graph.
+- [x] Content performance dashboard.
+- [x] Cost vs outcome comparison.
+- [x] Hook/angle cohort comparison.
+- [x] Regression tests.
 
 ## Definition of Done
 
 Можно открыть опубликованный ролик и пройти цепочку:
 
 `performance → content package → script → hook → worker runs → source signals`.
+
+### Реализовано
+
+- Performance snapshots хранят time-series значения только для реально пришедших/введённых метрик; отсутствующие поля не создаются.
+- Поддерживаются views, reach, watch time, retention, completion, likes, comments, shares, saves, follower delta и content duration.
+- Attribution связывает publish item → job → originating idea → package → selected variant → angle/hook → variant provenance/run IDs → source list → measured production cost.
+- Cost per 1k views вычисляется только при наличии views > 0.
+- Angle cohort comparison усредняет retention/completion только по строкам, где эти метрики реально существуют.
+- Manual analytics entry работает без внешнего провайдера; generic webhook adapter готов для platform analytics.
+- Mobile Performance workspace показывает published/measured counts, real views, attribution и cohorts.
+- CI fixture доказала, что snapshot с `views + retention + likes` сохраняет ровно эти три метрики и не дорисовывает остальные.
 
 ---
 
@@ -792,6 +825,17 @@ signal
 
 Новые записи добавлять сверху.
 
+## 2026-10-20 — v3.60 → v3.80 release train DONE
+
+- v3.60 Approval Studio: mobile review queue, preview/evidence, approve/reject, reject reasons, audit history, variant diff, scoped regeneration and cost-before-rerun.
+- v3.70 Publishing Engine: human approval separated from publish, persisted queue/schedule, stable idempotency keys, manual real-receipt baseline, webhook adapter and uncertainty-safe retry.
+- v3.80 Performance Feedback Loop: real metric snapshots, published identity mapping, end-to-end attribution, cost/outcome and angle cohorts without invented metrics.
+- GitHub CI `39391145024` — PASS: compile, zero-spend runtime regression, HTML structure and JavaScript syntax.
+- Production commit `e94cfff4094221acaf4f61b8c10ba9e7adfa1c01`.
+- Render deploy `dep-dbbi2m6k1f9s73bs9rk0` — LIVE; clean application startup, configured LLM provider and repeated `/health 200 OK`.
+- Release verification did not execute paid LLM generation or real social publishing.
+- Следующий milestone: v3.90 Self-Improving Factory.
+
 ## 2026-10-20 — v3.50 Content Package / Shorts Factory DONE
 
 - Добавлен отдельный Content Package schema v1.0 и persistent storage.
@@ -854,6 +898,6 @@ signal
 
 # 17. Current Next Action
 
-**NEXT: v3.60 — Approval Studio**
+**NEXT: v3.90 — Self-Improving Factory**
 
-v3.50 Content Package / Shorts Factory завершён и live. NEXT: approval queue → mobile preview → approve/reject → targeted regeneration → cost-before-rerun → variant/package diff → reject reason → approval history → audit log.
+v3.60 Approval Studio, v3.70 Publishing Engine и v3.80 Performance Feedback Loop завершены и live. NEXT: improvement proposal schema → evidence links → controlled experiments → control/treatment workflow versions → outcome/cost comparison → manual rollout approval → rollback → experiment history UI.

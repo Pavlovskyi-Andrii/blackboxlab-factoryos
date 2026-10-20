@@ -14,6 +14,27 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v3.80 — Performance Feedback Loop — 2026-10-20
+- Added persisted time-series performance snapshots for views, reach, watch time, retention, completion, engagement and follower delta without fabricating unavailable metrics.
+- Added published-content identity mapping and traceable attribution back to idea, Content Package, selected variant, angle/hook, variant worker run IDs, source evidence and measured production cost.
+- Added cost-per-1k-views only when real views exist plus angle cohort comparisons using only available retention/completion values.
+- Added manual analytics input and a provider-neutral webhook analytics adapter; missing provider metrics remain absent.
+- Added mobile Performance workspace for factual metrics, attribution and cohort comparison.
+
+### v3.70 — Publishing Engine — 2026-10-20
+- Approval no longer publishes automatically. It creates one idempotent publishing queue item tied to the approved package/variant.
+- Added approved → scheduled → publishing → published/failed state handling, schedule model, publish attempt count, stable idempotency keys and external publish receipts.
+- Added manual publisher confirmation as the safe baseline plus a provider-neutral webhook adapter for an external publisher.
+- Uncertain external outcomes are persisted and require explicit confirmation before retrying the same idempotency key.
+- Added mobile Publishing workspace for queue, scheduling, retry/history and real post confirmation.
+
+### v3.60 — Approval Studio — 2026-10-20
+- Added mobile-first Approval Studio with package preview context, final script/hook, source evidence, fact/QA warnings, measured cost, duration, variants, provenance and publish-target state.
+- Added approve/reject with persisted reasons, approval history/audit records and variant comparison/diff context.
+- Added targeted hook/script/caption/voice regeneration paths. Model regeneration shows a pre-call cost estimate; downstream invalidation remains scoped to affected components.
+- Human approval is now explicitly separated from publishing.
+- Release verification stayed zero-spend: CI `39391145024` passed compile, runtime regressions, HTML and JavaScript checks; production commit `e94cfff4094221acaf4f61b8c10ba9e7adfa1c01` is LIVE on Render deploy `dep-dbbi2m6k1f9s73bs9rk0` with clean startup and repeated `/health 200`.
+
 ### v3.50 — Content Package / Shorts Factory — 2026-10-20
 - Added a persisted Content Package schema linked to the selected production variant and job.
 - Packages now contain the final script, 1–3 second hook, scene breakdown, voice-over, generated SRT subtitles, title, description, CTA, hashtags, thumbnail concept, media brief, source list, fact-check report, structured QA, estimated duration and measured production cost.
