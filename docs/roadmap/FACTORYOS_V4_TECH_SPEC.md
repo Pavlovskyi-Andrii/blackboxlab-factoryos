@@ -146,7 +146,7 @@ signals / trends / sources
 | v3.25 | Baseline Closure | DONE | чистый и проверенный production baseline |
 | v3.30 | Content Brain / Idea Factory | DONE | FactoryOS сам находит и ранжирует темы |
 | v3.40 | Production Pipeline 2.0 | DONE | многоступенчатое производство качественного сценария |
-| v3.50 | Content Package / Shorts Factory | TODO | готовый production package для ролика |
+| v3.50 | Content Package / Shorts Factory | DONE | готовый production package для ролика |
 | v3.60 | Approval Studio | TODO | удобное мобильное редакторское одобрение |
 | v3.70 | Publishing Engine | TODO | очередь и контролируемая публикация |
 | v3.80 | Feedback Loop | TODO | реальные performance-метрики возвращаются в FactoryOS |
@@ -389,7 +389,7 @@ QA должен возвращать не абстрактный score, а ко�
 
 # 8. v3.50 — Content Package / Shorts Factory
 
-**Status: TODO**
+**Status: DONE**
 
 ## Цель
 
@@ -429,22 +429,37 @@ QA должен возвращать не абстрактный score, а ко�
 
 ## Tasks
 
-- [ ] ContentPackage schema.
-- [ ] Script → scene breakdown.
-- [ ] VO artifact.
-- [ ] Subtitle/SRT generation.
-- [ ] Caption/title/description package.
-- [ ] Thumbnail concept.
-- [ ] Media brief.
-- [ ] Provider adapter interface.
-- [ ] Package preview UI.
-- [ ] Cost aggregation.
-- [ ] Download/export package.
-- [ ] Regression tests.
+- [x] ContentPackage schema.
+- [x] Script → scene breakdown.
+- [x] VO artifact.
+- [x] Subtitle/SRT generation.
+- [x] Caption/title/description package.
+- [x] Thumbnail concept.
+- [x] Media brief.
+- [x] Provider adapter interface.
+- [x] Package preview UI.
+- [x] Cost aggregation.
+- [x] Download/export package.
+- [x] Regression tests.
 
 ## Definition of Done
 
 Для approved script FactoryOS создаёт единый traceable Content Package, достаточный для сборки short-form video.
+
+### Реализовано
+
+- Content Package schema v1.0 хранится отдельно от обычных artifacts и связан с job + selected variant.
+- Package содержит final script, hook, scene breakdown, voice-over, SRT, title, description, CTA, hashtags, thumbnail concept, media brief, source list, fact-check, structured QA, duration и measured cost.
+- Source list строится только из persisted Researcher / Tech Verifier artifacts, URL и fact-check evidence — новые источники не выдумываются.
+- SRT и estimated duration формируются локально и детерминированно из voice-over.
+- Live package generation использует один explicit Content Packager model call внутри job/day budget guards; CI использует zero-spend deterministic mode.
+- Generic media adapter contract отделяет business logic от провайдера: TTS, image, video, stock и manual upload path конфигурируются независимо.
+- Visual Director и Voice Agent получают Content Packager manifest как upstream dependency.
+- Package Studio работает на desktop/mobile и показывает script, hook, VO, SRT, scenes, metadata, thumbnail/media brief, sources, fact-check и adapter readiness.
+- Экспорт доступен как ZIP bundle и JSON; ZIP содержит script, VO, SRT, scenes, metadata, sources, fact-check и media brief.
+- Если selected variant меняется, package становится stale и job возвращается на script stage; если package перестраивается вручную, downstream возвращается на visual stage.
+- CI `39382663013` — PASS.
+- Production commit `54c17937242219d35c2df93f339a9dfba55802da`, Render deploy `dep-dbbgu2rm8hqs738tvkog` — LIVE.
 
 ---
 
@@ -777,6 +792,18 @@ signal
 
 Новые записи добавлять сверху.
 
+## 2026-10-20 — v3.50 Content Package / Shorts Factory DONE
+
+- Добавлен отдельный Content Package schema v1.0 и persistent storage.
+- Selected production variant автоматически преобразуется в scenes, VO, SRT, title/description/CTA/hashtags, thumbnail concept и media brief.
+- Source/fact-check provenance и measured provider/job cost сохраняются в package.
+- Добавлен provider-neutral media adapter registry для TTS/image/video/stock/manual.
+- Добавлен mobile-first Package Studio и ZIP/JSON export.
+- Downstream dependency переведён на Content Packager manifest; stale package/media защищены invalidation fence.
+- Zero-spend CI `39382663013` прошёл compile, runtime regression, HTML и JS.
+- Production `54c17937242219d35c2df93f339a9dfba55802da` / `dep-dbbgu2rm8hqs738tvkog` — LIVE.
+- Следующий milestone: v3.60 Approval Studio.
+
 ## 2026-10-20 — v3.40 Production Pipeline 2.0 DONE
 
 - Linear script stage заменён на competing-variant workflow.
@@ -827,6 +854,6 @@ signal
 
 # 17. Current Next Action
 
-**NEXT: v3.50 — Content Package / Shorts Factory**
+**NEXT: v3.60 — Approval Studio**
 
-v3.40 Production Pipeline 2.0 завершён и live. NEXT: ContentPackage schema → selected variant → scene breakdown → VO → subtitles/SRT → title/description/CTA/hashtags → thumbnail concept → media brief → provider adapter layer → preview/export.
+v3.50 Content Package / Shorts Factory завершён и live. NEXT: approval queue → mobile preview → approve/reject → targeted regeneration → cost-before-rerun → variant/package diff → reject reason → approval history → audit log.

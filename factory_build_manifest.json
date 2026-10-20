@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-20T06:30:00.000Z",
+  "updated_at": "2026-10-20T06:52:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -580,6 +580,42 @@
           "provenance": true,
           "allocated_cost_comparison": true,
           "paid_release_test": "not executed; CI verification used zero-spend demo variants"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v3.50-content-package": {
+      "status": "done",
+      "meta": {
+        "title": "v3.50 — Content Package / Shorts Factory",
+        "description": "Turn the selected verified production variant into a traceable short-form Content Package with scenes, voice-over, SRT subtitles, publishing metadata, thumbnail/media brief, sources, fact-check, measured cost and exports.",
+        "category": "production",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 240,
+        "evidence": {
+          "production_commit": "54c17937242219d35c2df93f339a9dfba55802da",
+          "ci_commit": "de1ff8a746b17fd9824e004d2763135660255b23",
+          "ci_run": "39382663013",
+          "ci": "passed",
+          "render_deploy": "dep-dbbgu2rm8hqs738tvkog",
+          "deploy": "live",
+          "health": "startup clean / provider configured",
+          "schema_version": "1.0",
+          "package_contents": "final script, 1–3s hook, scenes, voice-over, SRT, title, description, CTA, hashtags, thumbnail concept, media brief, sources, fact-check, duration, cost",
+          "exports": "ZIP + JSON",
+          "provider_adapter_contract": "TTS + image + video + stock + manual",
+          "mobile_ui": "Package Studio",
+          "downstream_invalidation": true,
+          "paid_release_test": "not executed; CI package generation ran in deterministic zero-spend demo mode"
         }
       },
       "steps": {

@@ -14,6 +14,17 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v3.50 — Content Package / Shorts Factory — 2026-10-20
+- Added a persisted Content Package schema linked to the selected production variant and job.
+- Packages now contain the final script, 1–3 second hook, scene breakdown, voice-over, generated SRT subtitles, title, description, CTA, hashtags, thumbnail concept, media brief, source list, fact-check report, structured QA, estimated duration and measured production cost.
+- Added the Content Packager worker. Live package creation uses one explicit budget-guarded LLM call; CI and release regression use deterministic zero-spend package generation.
+- Added provider-neutral media adapter contracts for TTS, image, video, stock/B-roll and manual media without hardcoding vendors into production workflow logic.
+- Visual Director and Voice Agent now consume the selected Content Package manifest rather than raw script output.
+- Added mobile-first Package Studio with scene/script/VO/SRT/source/fact-check/provider visibility.
+- Added downloadable ZIP and JSON exports. ZIP bundles script, VO, subtitles, scenes, publishing metadata, sources, fact-check and media brief.
+- Added stale-output fences: changing the selected variant invalidates the package and downstream pipeline; rebuilding a package invalidates Visual → Voice → Render → QA.
+- Verified zero-spend CI run `39382663013` and production commit `54c17937242219d35c2df93f339a9dfba55802da` on Render deploy `dep-dbbgu2rm8hqs738tvkog`.
+
 ### v3.40 — Production Pipeline 2.0 — 2026-10-20
 - Replaced the single script path with a three-variant production workflow: Angle Strategist → Hook Generator → Scriptwriter → Fact Checker → Hook Optimizer → Editor → structured QA.
 - Added persisted production-variant batches with separate angle, hook, script, fact-check, edited-script, QA, decision and provenance data.
