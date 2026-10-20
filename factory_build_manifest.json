@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-20T13:56:03.000Z",
+  "updated_at": "2026-10-20T14:46:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -885,6 +885,42 @@
         "test": "done",
         "deploy": "done",
         "verify": "done"
+      }
+    },
+    "v4.4-real-media-provider": {
+      "status": "in_progress",
+      "meta": {
+        "title": "v4.4 — Real Media Provider Foundation",
+        "description": "Persist and observe asynchronous video provider jobs, verify real Descript composition/publish, then bind and verify a real Runway generation job through FactoryOS before closing the milestone.",
+        "category": "production",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 330,
+        "evidence": {
+          "production_head": "7edec23c0d0258abb4978fcfbeab272d4260b97c",
+          "ci_run": "39441923218",
+          "ci": "passed",
+          "render_deploy": "dep-dbbnsjpsrm7s738fqbj0",
+          "deploy": "live",
+          "health": "clean startup; repeated /health 200 OK",
+          "async_media_jobs": true,
+          "media_states": "queued → submitted → processing → ready/failed",
+          "provider_polling": "FACTORY_VIDEO_STATUS_ENDPOINT",
+          "provider_callback": "FACTORY_VIDEO_CALLBACK_TOKEN",
+          "worker_evidence": "ready media persists as Render Agent video artifact",
+          "descript_pilot": "passed: 8s 1080x1920 30fps composition + real 1080p published video",
+          "runway_runtime": "verify_pending",
+          "publishing_guard": "human approval remains required; no automatic social publishing"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "in_progress"
       }
     }
   }
