@@ -14,6 +14,25 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v4.3 — Revideo / Original Rewrite MVP — 2026-10-20
+- Added a dedicated Revideo workspace: source URL + transcript/source text → structure analysis → original rewrite → production job.
+- Added persistent Revideo provenance and specialized Transcript Agent, Structure Analyzer and Rewrite Strategist worker evidence.
+- Added originality guardrails: no blind source-media re-upload, no creator identity/voice imitation by default, no close-copy rewrite, and evidence boundaries remain explicit.
+- Revideo output includes a new angle, hook candidates, rewritten script, caption, voice-over, originality notes and media brief.
+- Revideo can hand off into the existing Variant → Content Package → Approval pipeline while preserving the source URL and worker artifacts.
+- Added provider-neutral transcript and video webhook contracts. External video generation requires explicit confirmation and a fresh Content Package; no provider is hardcoded.
+- If a configured video provider returns a real media URL, FactoryOS persists it as a Render Agent video artifact visible in Worker Evidence.
+- No Revideo action publishes automatically.
+- CI `39434473401` PASS; production commit `f7d7245db3f303f90a395377e44c360bbeb9fa34`; Render `dep-dbbn5aui0phs738nl4pg` LIVE with clean startup and repeated `/health 200 OK`.
+
+### v4.2 — UX Clarity / i18n / Worker Transparency — 2026-10-20
+- Added explanatory tooltips/help across Approval, Cycle Control, Content Brain, Variants, Package, Publishing, Performance, Experiments and Worker Results.
+- Expanded EN / UK / RU product copy so workflow states and actions are understandable without reading technical logs.
+- Worker cards now surface the selected-job result, output preview, mode/model, handoffs, token/cost accounting and artifact count; worker detail prioritizes the selected-job artifact.
+- Approval Studio now explains what is being approved and distinguishes legacy/incomplete packages from current review-ready packages.
+- Hardened UI rendering against non-string backend values and normalized structured artifact payloads before SQLite persistence.
+- CI `39433576856` PASS; production commit `776266595cfd7a78d87490b4c9c6590006589fe1`; Render `dep-dbbn2h8473hc73dpqiig` was LIVE and then superseded by v4.3.
+
 ### v4.1 — Production Hardening / First Real LLM Pilot — 2026-10-20
 - Ran the first fenced paid Factory Cycle on two real public source signals (Reuters + OpenAI) with one idea and a hard cumulative pilot ceiling of $0.75.
 - Conservative preflight quote was $0.4636. The one-shot verification fence was persisted before the first provider call, preventing a restart from silently creating a second paid cycle.

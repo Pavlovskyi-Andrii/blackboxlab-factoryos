@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-20  
 **Owner:** Factory Builder  
-**Status:** ACTIVE  
+**Status:** DONE — v4.2 and v4.3 MVP verified live  
 **Source:** owner review of the live v4.1 UI after the first real LLM pilot.
 
 ## Why this exists
@@ -116,6 +116,18 @@ Legacy verification jobs without a Content Package should be visually labelled *
 - Approval Studio clearly shows the real pilot package and labels legacy incomplete items.
 - No paid provider calls in CI.
 
+### v4.2 implementation evidence
+
+- Type-safe UI rendering now coerces strings/numbers/objects safely; Content Brain date/content previews no longer call string methods on arbitrary values.
+- Explanatory help/tooltips were added to the core operational workspaces and worker surfaces.
+- EN / UK / RU copy was expanded for the new explanatory UX and dynamic workflow states.
+- Worker Results now expose selected-job artifact preview, mode/model, accounting, handoffs and artifact count; worker detail starts with the selected-job result.
+- Approval Studio distinguishes real review-ready packages from legacy/incomplete verification items and explains hook/script/sources/QA/variant/publish actions.
+- Structured artifact content is normalized to JSON before SQLite persistence so worker evidence can safely contain objects/lists.
+- Final v4.2 commit: `776266595cfd7a78d87490b4c9c6590006589fe1`.
+- CI: `39433576856` — PASS.
+- Render: `dep-dbbn2h8473hc73dpqiig` — LIVE before v4.3 superseded it.
+
 ---
 
 # v4.3 — Revideo MVP / Original Rewrite Pipeline
@@ -197,3 +209,19 @@ A dedicated **Revideo** workspace:
 - No media is auto-published.
 - If a video provider is configured, generated media becomes a real artifact; if not, UI explicitly says provider is not configured.
 - CI remains zero-spend.
+
+### v4.3 MVP implementation evidence
+
+- Added persistent `revideo_projects` with source URL, supplied/provider transcript, structure analysis, rewrite, job linkage, media result and provenance.
+- Added Transcript Agent, Structure Analyzer and Rewrite Strategist as observable specialized workers.
+- Revideo analysis extracts source hook/structure/pacing patterns and carries explicit originality risks/prohibited-copy notes.
+- Rewrite Strategist creates a materially original angle, hook candidates, script, caption, VO and media brief while preserving source/evidence boundaries.
+- A Revideo project can create a normal FactoryOS production job; Researcher / Tech Verifier / Scriptwriter artifacts are persisted so the existing Variant → Package → Approval workflow remains traceable.
+- Added generic transcript webhook contract plus a generic external video webhook contract. Provider names/tokens remain environment configuration.
+- Video generation requires an explicit confirmation, a fresh Content Package and a configured provider; returned video URL becomes a real Render Agent artifact.
+- No Revideo path auto-publishes; human approval and publishing queue rules remain unchanged.
+- Added dedicated Revideo workspace in EN / UK / RU and fixed the remaining Content Brain unsafe date/content rendering paths.
+- Zero-spend Revideo regression covers URL + supplied transcript → analysis/rewrite → production job/evidence without network/provider calls.
+- Final v4.3 commit: `f7d7245db3f303f90a395377e44c360bbeb9fa34`.
+- CI: `39434473401` — PASS.
+- Render: `dep-dbbn5aui0phs738nl4pg` — LIVE; startup clean, LLM provider configured, repeated `/health 200 OK`.

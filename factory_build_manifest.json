@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-20T12:49:00.000Z",
+  "updated_at": "2026-10-20T13:56:03.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -813,6 +813,68 @@
           "resume_deploy": "dep-dbbm5j0ae00c7399k3t0",
           "deploy": "live",
           "safety": "Same cycle resumed with cumulative original spend window; Autopilot stopped at human approval; no publishing queue item was created."
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v4.2-ux-worker-transparency": {
+      "status": "done",
+      "meta": {
+        "title": "v4.2 — UX Clarity / i18n / Worker Transparency",
+        "description": "Explain operational UI, remove unsafe mixed-value rendering, complete the new EN/UK/RU copy, and surface the actual selected-job result for every worker.",
+        "category": "product",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 310,
+        "evidence": {
+          "production_commit": "776266595cfd7a78d87490b4c9c6590006589fe1",
+          "ci_run": "39433576856",
+          "ci": "passed",
+          "render_deploy": "dep-dbbn2h8473hc73dpqiig",
+          "deploy": "live_then_superseded_by_v4.3",
+          "features": "tooltips/help; selected-job worker evidence; media links; approval explanations; legacy/incomplete package labeling; type-safe rendering; EN/UK/RU",
+          "paid_release_test": "not executed; CI remained zero-spend"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "done",
+        "deploy": "done",
+        "verify": "done"
+      }
+    },
+    "v4.3-revideo-mvp": {
+      "status": "done",
+      "meta": {
+        "title": "v4.3 — Revideo / Original Rewrite MVP",
+        "description": "Analyze a public source URL/transcript for reusable structure, generate a materially original evidence-bounded rewrite, hand it into normal production, and expose a provider-neutral video-generation hook.",
+        "category": "production",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 320,
+        "evidence": {
+          "production_commit": "f7d7245db3f303f90a395377e44c360bbeb9fa34",
+          "ci_run": "39434473401",
+          "ci": "passed",
+          "render_deploy": "dep-dbbn5aui0phs738nl4pg",
+          "deploy": "live",
+          "health": "clean startup; configured LLM provider; repeated /health 200 OK",
+          "pipeline": "source URL + transcript → Structure Analyzer → originality guard → Rewrite Strategist → production job → Variant/Package/Approval",
+          "adapters": "manual/generic transcript webhook + generic external video webhook",
+          "copyright_guard": "source media reuse disabled by default; no creator identity/voice imitation; materially original rewrite",
+          "publishing_guard": "no automatic publishing; existing human approval and queue rules preserved",
+          "paid_release_test": "not executed; Revideo regression is deterministic zero-spend"
         }
       },
       "steps": {

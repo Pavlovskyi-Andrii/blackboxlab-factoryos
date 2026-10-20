@@ -152,6 +152,9 @@ signals / trends / sources
 | v3.80 | Feedback Loop | DONE | реальные performance-метрики возвращаются в FactoryOS |
 | v3.90 | Self-Improving Factory | DONE | evidence-based оптимизация workers/prompts/models |
 | v4.0 | Autonomous Content Factory | DONE | полный замкнутый production loop |
+| v4.1 | Production Hardening / Real Pilot | DONE | первый real paid cycle + production hardening |
+| v4.2 | UX Clarity / Worker Transparency | DONE | понятный UI, tooltips, i18n и реальные outputs workers |
+| v4.3 | Revideo / Original Rewrite MVP | DONE | URL/transcript → original rewrite → production + video adapter hook |
 
 ---
 
@@ -911,6 +914,22 @@ Human approval, explicit publishing, spend budgets, evidence boundaries и contr
 
 Новые записи добавлять сверху.
 
+## 2026-10-20 — v4.2 + v4.3 DONE / Revideo MVP LIVE
+
+- По итогам owner-review интерфейса зафиксировано отдельное ТЗ `FACTORYOS_V4_2_V4_3_SPEC.md`.
+- v4.2: исправлена небезопасная обработка non-string UI values, расширены EN/UK/RU переводы и explanatory tooltips.
+- Worker Results/Agent drawer теперь показывают фактический selected-job output, артефакт, run accounting, handoffs, media URL и provenance.
+- Approval Studio объясняет Hook / Script / Sources / QA / Variant diff / Publish target / regeneration и отделяет legacy incomplete jobs от реальных review-ready packages.
+- v4.2 commit `776266595cfd7a78d87490b4c9c6590006589fe1`; CI `39433576856` PASS.
+- v4.3: добавлен Revideo workspace и persistence: source URL/transcript → structure analysis → originality guard → original rewrite → production job.
+- Добавлены Transcript Agent, Structure Analyzer, Rewrite Strategist и provider-neutral transcript/video webhook contracts.
+- Revideo не перезаливает source media по умолчанию, не имитирует identity/voice автора и не обходит human approval.
+- External video generation разрешается только явно и только при configured provider + fresh Content Package; реальный URL сохраняется как Render Agent media artifact.
+- v4.3 commit `f7d7245db3f303f90a395377e44c360bbeb9fa34`; CI `39434473401` PASS.
+- Render `dep-dbbn5aui0phs738nl4pg` — LIVE; startup clean, provider configured, repeated `/health 200 OK`.
+- Следующий этап: подключить реального video provider и провести один controlled Revideo media pilot без автоматической публикации.
+
+
 ## 2026-10-20 — v4.1 First Real LLM Pilot DONE / waiting for owner review
 
 - Запущен первый real-world paid Factory Cycle на двух публичных source signals: Reuters + OpenAI.
@@ -1029,8 +1048,10 @@ Human approval, explicit publishing, spend budgets, evidence boundaries и contr
 
 # 17. Current Next Action
 
-**NEXT: Human review of the first real v4.1 pilot**
+**NEXT: v4.4 — Real Media Provider + controlled Revideo pilot**
 
-Первый real paid production cycle уже дошёл до `waiting_approval`. Следующий шаг — открыть Approval Studio для job `d0eeac5e-3fea-4fd2-bd22-2f15878101c2` и проверить generated script, selected variant, Content Package, source provenance, fact-check/QA findings и measured cost.
+v4.2 и v4.3 MVP завершены и live. Следующий практический шаг — подключить реального video generation/composition provider к уже существующему generic adapter contract и провести один controlled Revideo media pilot:
 
-После owner approval разрешён отдельный publishing step. До явного approval ничего не планируется и не публикуется. После фактической публикации нужно получить platform receipt + реальные analytics, синхронизировать их в originating Factory Cycle и только затем проверить learning/proposal path на реальных outcome-данных.
+`public source URL + transcript → original rewrite → production variants → fresh Content Package → explicit video generation → Render Agent media artifact → human review`.
+
+Публикация остаётся отдельным действием после human approval. До подключения provider credentials FactoryOS должен честно показывать `video provider not configured`, а не симулировать готовый ролик.
