@@ -219,10 +219,12 @@ publish_before=app._publishing_summary()
 orig_finish_endpoint=app.FACTORY_MEDIA_FINISHER_ENDPOINT
 orig_external_json=app._external_json
 app.FACTORY_MEDIA_FINISHER_ENDPOINT="https://ci.invalid/finish"
+finisher_payloads=[]
 def fake_finisher_provider(url,method="GET",payload=None,token=""):
     require(method=="POST","Media Finisher CI provider must receive POST")
     require(payload["guardrails"]["no_auto_publish"] is True,"Media Finisher guardrail missing")
     require(payload["profile"]["config"]["captions"]["max_words"]==3,"profile config not sent to finisher")
+    finisher_payloads.append(payload)
     return {"id":"ci-finisher-task-1","status":"processing"}
 app._external_json=fake_finisher_provider
 try:
@@ -252,6 +254,27 @@ try:
     require(app._publishing_summary()==publish_before,"Media Finisher must not create a publish item")
     rerun=app.rerun_media_finisher_stage(edit_id,"captions")
     require(rerun["edit_job"]["parent_edit_job_id"]==edit_id and rerun["edit_job"]["rerun_stage"]=="captions","targeted Media Finisher rerun lineage regression")
+
+    # Direct user upload must be finishable without first building a Content Package.
+    manual_job_id=str(uuid.uuid4())
+    con=app.db()
+    con.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",(
+        manual_job_id,"Manual raw v4.5 test","Direct uploaded talking-head video","render",
+        "Human","Short only","English",1,"idle",65,app.ts(),app.ts()
+    ))
+    con.commit();con.close()
+    manual_url="https://factory.example/media-source/manual-ci?token="+app._media_upload_signature("manual-ci")
+    app.save_artifact("AI Media Finisher","video","Raw video upload","",job_id=manual_job_id,url=manual_url,
+                      mime_type="video/mp4",meta={"component":"raw_upload","upload_id":"manual-ci","fixture":True})
+    direct=app.start_media_finisher(manual_job_id,app.MediaFinisherStartRequest(
+        profile_id="talking_head_fast",profile_version=1,platform="reels",input_url="",confirm_external_cost=True
+    ))
+    require(direct["edit_job"]["status"]=="processing","direct raw upload Media Finisher submit regression")
+    direct_payload=finisher_payloads[-1]
+    require(direct_payload["package_mode"]=="manual_raw_upload","direct upload must use manual raw package mode")
+    require(direct_payload["content_package"]["_factoryos_manual_raw"] is True,"direct upload marker missing")
+    require(direct_payload["guardrails"]["manual_raw_upload_transcript_exact_graphics"] is True,
+            "direct upload graphics must be constrained to exact transcript words")
 finally:
     app._external_json=orig_external_json
     app.FACTORY_MEDIA_FINISHER_ENDPOINT=orig_finish_endpoint
