@@ -38,6 +38,9 @@ MAX_DOWNLOAD_BYTES = int(os.environ.get("FINISHER_MAX_DOWNLOAD_BYTES", str(750 *
 ENABLE_PILOT_FIXTURE = os.environ.get("FINISHER_ENABLE_PILOT_FIXTURE", "").strip().lower() in ("1","true","yes","on")
 LOW_MEMORY_MODE = os.environ.get("FINISHER_LOW_MEMORY_MODE", "").strip().lower() in ("1","true","yes","on")
 MAX_RECOVERY_ATTEMPTS = max(1, int(os.environ.get("FINISHER_MAX_RECOVERY_ATTEMPTS", "3")))
+RECOVER_INTERRUPTED = os.environ.get("FINISHER_RECOVER_INTERRUPTED", "").strip().lower() in ("1","true","yes","on")
+if str(DATA_DIR).startswith("/tmp/") and "FINISHER_RECOVER_INTERRUPTED" not in os.environ:
+    RECOVER_INTERRUPTED=False
 
 app = FastAPI(title="FactoryOS AI Media Finisher", version=APP_VERSION)
 _state_lock = threading.Lock()
@@ -715,6 +718,9 @@ def startup_pilot_fixture():
 
 @app.on_event("startup")
 def recover_interrupted_jobs():
+    if not RECOVER_INTERRUPTED:
+        print(json.dumps({"event":"MEDIA_FINISHER_RECOVERY_DISABLED","data_dir":str(DATA_DIR),"reason":"main FactoryOS owns retry/recovery for ephemeral workers"}),flush=True)
+        return
     recovered=0
     for state_path in DATA_DIR.glob("*/state.json"):
         try:
