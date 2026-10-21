@@ -1,0 +1,12 @@
+{
+  "name": "factoryos-media-finisher-remotion",
+  "private": true,
+  "version": "4.5.0",
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "@remotion/media": "^4.0.0",
+    "remotion": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

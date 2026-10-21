@@ -14,9 +14,13 @@ jobs:
         with:
           python-version: "3.13"
       - name: Compile Python
-        run: python -m py_compile app.py smoke_tests.py
+        run: python -m py_compile app.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py
       - name: Install runtime dependencies
         run: python -m pip install -r requirements.txt
+      - name: Media Finisher planner unit tests
+        env:
+          FINISHER_DATA_DIR: /tmp/factoryos-finisher-ci
+        run: python media_finisher_worker/test_planner.py
       - name: Runtime smoke and regression suite
         env:
           DATA_DIR: /tmp/factoryos-ci
@@ -45,6 +49,9 @@ jobs:
           grep -q '"error.confirmUncertain"' static/index.html
           grep -q '"trace.title"' static/index.html
           grep -q '"intel.note"' static/index.html
+          grep -q 'data-i18n="finisher.nav"' static/index.html
+          test -f media_finisher_worker/Dockerfile
+          test -f media_finisher_worker/remotion/src/index.tsx
       - name: Validate dashboard document structure
         run: |
           python - <<'PY'
