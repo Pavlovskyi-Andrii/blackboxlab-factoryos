@@ -3838,7 +3838,9 @@ def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,
             con.execute("""INSERT INTO artifacts(id,run_id,job_id,agent,kind,title,content,url,mime_type,created_at,meta_json)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",(save_id,None,job_id,"AI Media Finisher",kind,title,json.dumps(content,ensure_ascii=False,indent=2,default=str),None,"application/json" if kind=="json" else None,now,json.dumps({"edit_job_id":edit_job_id,"profile_id":profile_id,"profile_version":profile_version,"component":key,"mode":"external_finisher"},ensure_ascii=False)))
     con.commit();con.close()
-    if output_url:
+    edit_options=((report.get("edit_summary") or {}).get("options") or {}) if isinstance(report,dict) else {}
+    full_video_enabled=bool(edit_options.get("edit_full_video",True))
+    if output_url and full_video_enabled:
         con=db();existing=con.execute("SELECT id FROM artifacts WHERE job_id=? AND agent='AI Media Finisher' AND kind='video' AND url=?",(job_id,output_url)).fetchone();con.close()
         if existing:return existing["id"]
         return save_artifact("AI Media Finisher","video","Finished video",job_id=job_id,url=output_url,mime_type="video/mp4",meta={"edit_job_id":edit_job_id,"profile_id":profile_id,"profile_version":profile_version,"component":"final_render","mode":"external_finisher","human_approval_required":True})
