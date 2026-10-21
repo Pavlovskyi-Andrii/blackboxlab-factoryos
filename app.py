@@ -157,6 +157,8 @@ FACTORY_MEDIA_FINISHER_ENDPOINT = os.environ.get("FACTORY_MEDIA_FINISHER_ENDPOIN
 FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT = os.environ.get("FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT", "").strip()
 FACTORY_MEDIA_FINISHER_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_TOKEN", "").strip()
 FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN", "").strip()
+FACTORY_MEDIA_FINISHER_PILOT_TAG = os.environ.get("FACTORY_MEDIA_FINISHER_PILOT_TAG", "").strip()
+FACTORY_MEDIA_FINISHER_PILOT_SOURCE_URL = os.environ.get("FACTORY_MEDIA_FINISHER_PILOT_SOURCE_URL", "").strip()
 FACTORY_DISCOVERY_ENDPOINT = os.environ.get("FACTORY_DISCOVERY_ENDPOINT", "").strip()
 FACTORY_DISCOVERY_TOKEN = os.environ.get("FACTORY_DISCOVERY_TOKEN", "").strip()
 FACTORY_DISCOVERY_TOPICS = [x.strip() for x in os.environ.get("FACTORY_DISCOVERY_TOPICS", "").split(",") if x.strip()]
@@ -3888,6 +3890,156 @@ def rerun_media_finisher_stage(edit_job_id,stage):
     payload=MediaFinisherStartRequest(profile_id=original["profile_id"],profile_version=original["profile_version"],platform=original["platform"],input_url=original["input_url"],confirm_external_cost=True)
     return start_media_finisher(original["production_job_id"],payload,parent_edit_job_id=edit_job_id,rerun_stage=stage)
 
+def get_media_finisher_pilot(tag=None):
+    tag=(tag if tag is not None else FACTORY_MEDIA_FINISHER_PILOT_TAG).strip()
+    if not tag:
+        return {"tag":"","status":"disabled","job_id":None,"edit_job_id":None,"output_url":"","approval_gate_reached":False}
+    row=get_paid_verification(tag)
+    detail=_decode_json(row.get("detail") or "{}",{}) if row else {}
+    return {
+        "tag":tag,"status":row.get("status","pending"),"job_id":row.get("job_id") or detail.get("job_id"),
+        "edit_job_id":detail.get("edit_job_id"),"output_url":detail.get("output_url") or "",
+        "approval_gate_reached":bool(detail.get("approval_gate_reached")),
+        "evidence_kinds":detail.get("evidence_kinds") or [],
+        "duration_before_sec":detail.get("duration_before_sec"),
+        "duration_after_sec":detail.get("duration_after_sec"),
+        "removed_segments":detail.get("removed_segments"),
+        "caption_events":detail.get("caption_events"),
+        "error":detail.get("error"),
+    }
+
+def _seed_media_finisher_pilot_job(tag,source_url):
+    now=ts()
+    job_id=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:{tag}:job"))
+    variant_id=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:{tag}:variant"))
+    batch_id=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:{tag}:batch"))
+    package_id=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:{tag}:package"))
+    script="FactoryOS finds the pauses. Then it cuts the dead air, adds captions, and sends the finished video back for human approval."
+    con=db()
+    existing=con.execute("SELECT id FROM jobs WHERE id=?",(job_id,)).fetchone()
+    if not existing:
+        con.execute("""INSERT INTO jobs(id,title,brief,stage,presenter,format,language,outputs,status,progress,created_at,updated_at)
+                       VALUES(?,?,?,'render','Faceless','Short only','English',1,'idle',65,?,?)""",
+                    (job_id,"v4.5 AI Media Finisher real pilot",
+                     "Controlled zero-publish runtime proof for FFmpeg + Whisper + Remotion finishing.",now,now))
+        con.execute("""INSERT INTO production_variants(
+            id,batch_id,job_id,ordinal,status,angle,angle_reason,hook,hook_rationale,script,optimized_hook,edited_script,
+            fact_check_json,qa_json,decision_reason,allocated_cost_usd,provenance_json,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
+            variant_id,batch_id,job_id,1,"selected","Show the deterministic edit pipeline",
+            "Controlled runtime proof","Watch dead air become a finished short.","Original pilot hook",script,
+            "Watch dead air become a finished short.",script,
+            json.dumps({"findings":[],"fact_summary":"Synthetic FactoryOS pilot contains no external factual claims."}),
+            json.dumps({"decision":"keep","reason":"Controlled integration fixture","findings":[]}),
+            "Controlled v4.5 integration fixture.",0.0,json.dumps({"mode":"v4.5_real_pilot","tag":tag}),now,now
+        ))
+        package={
+            "schema_version":CONTENT_PACKAGE_SCHEMA_VERSION,"package_id":package_id,"job_id":job_id,"variant_id":variant_id,
+            "variant_batch_id":batch_id,"final_script":script,"hook":"Watch dead air become a finished short.",
+            "scenes":[
+                {"scene":1,"narration":"FactoryOS finds the pauses.","visual":"Raw vertical pilot source.","on_screen_text":"FIND THE PAUSE","duration_sec":3},
+                {"scene":2,"narration":"Then it cuts the dead air and adds captions.","visual":"Show the edit transformation.","on_screen_text":"CUT → CAPTION","duration_sec":5},
+                {"scene":3,"narration":"And sends the finished video back for human approval.","visual":"Show approval boundary.","on_screen_text":"HUMAN APPROVAL","duration_sec":4}
+            ],
+            "voice_over":script,"subtitles_srt":"","title":"FactoryOS AI Media Finisher pilot",
+            "description":"Controlled integration proof for the v4.5 deterministic editing pipeline.",
+            "cta":"Human review before publish.","hashtags":["#FactoryOS","#AIVideo"],
+            "thumbnail_concept":{"headline":"AI MEDIA FINISHER","composition":"9:16 safe"},
+            "media_brief":{"format":"vertical short-form","aspect_ratio":"9:16","style":"clean deterministic pilot"},
+            "source_list":[{"type":"pilot_fixture","value":source_url}],
+            "fact_check_report":{"findings":[]},"structured_qa":{"decision":"keep","findings":[]},
+            "estimated_duration_sec":12,
+            "production_cost":{"package_generation_usd":0.0,"selected_variant_allocated_usd":0.0,"job_total_measured_usd":0.0},
+            "provider_adapters":get_media_adapter_registry(),
+            "provenance":{"mode":"v4.5_real_pilot","tag":tag,"generated_at":now}
+        }
+        con.execute("""INSERT INTO content_packages(id,job_id,variant_id,status,package_json,srt_text,generation_cost_usd,created_at,updated_at)
+                       VALUES(?,?,?,'ready',?,'',0,?,?)""",(package_id,job_id,variant_id,json.dumps(package,ensure_ascii=False),now,now))
+        con.commit();con.close()
+        save_artifact("Render Agent","video","v4.5 pilot raw vertical source","",job_id=job_id,url=source_url,mime_type="video/mp4",
+                      meta={"mode":"v4.5_real_pilot","tag":tag,"component":"raw_media"})
+        _save_package_artifacts(job_id,None,package_id,package)
+        event(job_id,"v4.5 Media Finisher real pilot fixture created; no publish action allowed")
+    else:
+        con.close()
+    return job_id
+
+async def run_media_finisher_pilot_once():
+    tag=FACTORY_MEDIA_FINISHER_PILOT_TAG
+    source_url=FACTORY_MEDIA_FINISHER_PILOT_SOURCE_URL
+    if not tag or not source_url or not FACTORY_MEDIA_FINISHER_ENDPOINT:
+        return
+    con=db();existing=con.execute("SELECT * FROM system_verifications WHERE tag=?",(tag,)).fetchone();con.close()
+    if existing and existing["status"] in ("passed","failed"):
+        print(json.dumps({"event":"V45_MEDIA_FINISHER_PILOT","tag":tag,"status":"skip_existing","existing_status":existing["status"]}),flush=True)
+        return
+    started=existing["started_at"] if existing else ts()
+    if not existing:
+        con=db();con.execute("""INSERT INTO system_verifications(tag,status,started_at,detail)
+                               VALUES(?,?,?,?)""",(tag,"started",started,json.dumps({
+                                   "phase":"fenced","source_url":source_url,"approval_gate_reached":False
+                               })));con.commit();con.close()
+    job_id=None;edit_job_id=None
+    try:
+        job_id=_seed_media_finisher_pilot_job(tag,source_url)
+        old=get_paid_verification(tag);detail=_decode_json(old.get("detail") or "{}",{})
+        edit_job_id=detail.get("edit_job_id")
+        if not edit_job_id:
+            result=await asyncio.to_thread(start_media_finisher,job_id,MediaFinisherStartRequest(
+                profile_id="talking_head_fast",profile_version=1,platform="reels",
+                input_url=source_url,confirm_external_cost=True
+            ))
+            edit_job_id=result["edit_job"]["id"]
+            detail.update({"phase":"processing","job_id":job_id,"edit_job_id":edit_job_id,"source_url":source_url})
+            _verification_update(tag,{"job_id":job_id,"detail":json.dumps(detail,ensure_ascii=False)})
+            print(json.dumps({"event":"V45_MEDIA_FINISHER_PILOT","tag":tag,"status":"submitted","job_id":job_id,"edit_job_id":edit_job_id}),flush=True)
+        deadline=time.monotonic()+1800
+        while time.monotonic()<deadline:
+            current=get_edit_job(edit_job_id)
+            if not current:raise RuntimeError("Pilot edit job disappeared")
+            if current["status"] in ("ready","failed"):break
+            try:
+                current=await asyncio.to_thread(refresh_edit_job,edit_job_id)
+            except Exception as exc:
+                print(json.dumps({"event":"V45_MEDIA_FINISHER_PILOT","tag":tag,"status":"poll_retry","error":str(exc)[:300]}),flush=True)
+            if current.get("status") in ("ready","failed"):break
+            await asyncio.sleep(10)
+        current=get_edit_job(edit_job_id)
+        if not current or current.get("status")!="ready":
+            raise RuntimeError("Media Finisher pilot did not reach ready: "+str((current or {}).get("error") or (current or {}).get("status") or "timeout"))
+        report=current.get("report") or {};summary=report.get("edit_summary") or {}
+        evidence_kinds=sorted({x.get("kind") for x in current.get("artifacts") or [] if x.get("kind")})
+        job=get_job(job_id)
+        con=db()
+        publish_count=int(con.execute("SELECT COUNT(*) c FROM publishing_queue WHERE job_id=?",(job_id,)).fetchone()["c"] or 0)
+        fin_art=con.execute("""SELECT id,url FROM artifacts WHERE job_id=? AND agent='AI Media Finisher' AND kind='video'
+                              ORDER BY created_at DESC LIMIT 1""",(job_id,)).fetchone()
+        con.close()
+        required={"transcript_words","cut_list","caption_timeline","audio_report","safe_zone_report","edit_summary"}
+        approval_gate=bool(job and job.get("status")=="waiting_approval")
+        passed=bool(required.issubset(set(evidence_kinds)) and fin_art and fin_art["url"] and approval_gate and publish_count==0)
+        detail={
+            "phase":"waiting_approval" if approval_gate else "verification_failed","job_id":job_id,"edit_job_id":edit_job_id,
+            "source_url":source_url,"output_url":current.get("output_url") or "","approval_gate_reached":approval_gate,
+            "publish_count":publish_count,"evidence_kinds":evidence_kinds,
+            "duration_before_sec":summary.get("duration_before_sec"),"duration_after_sec":summary.get("duration_after_sec"),
+            "removed_segments":summary.get("removed_segments"),"removed_seconds":summary.get("removed_seconds"),
+            "caption_events":len(report.get("caption_timeline") or []),
+            "graphics_engine":summary.get("graphics_engine"),"safe_zone_method":(report.get("safe_zone_report") or {}).get("method"),
+            "human_visual_review_required":True
+        }
+        status="passed" if passed else "failed"
+        if not passed:detail["error"]="Required evidence, final video, zero-publish boundary or waiting_approval gate missing"
+        _verification_update(tag,{"status":status,"job_id":job_id,"finished_at":ts(),"detail":json.dumps(detail,ensure_ascii=False)})
+        print(json.dumps({"event":"V45_MEDIA_FINISHER_PILOT","tag":tag,"status":status,**{k:detail.get(k) for k in ("job_id","edit_job_id","output_url","approval_gate_reached","duration_before_sec","duration_after_sec","removed_segments","caption_events","graphics_engine")}},ensure_ascii=False),flush=True)
+    except Exception as exc:
+        old=get_paid_verification(tag);detail=_decode_json(old.get("detail") or "{}",{})
+        detail.update({"phase":"failed","job_id":job_id or detail.get("job_id"),"edit_job_id":edit_job_id or detail.get("edit_job_id"),
+                       "approval_gate_reached":False,"error":str(exc)[:1200]})
+        _verification_update(tag,{"status":"failed","job_id":job_id or detail.get("job_id"),"finished_at":ts(),"detail":json.dumps(detail,ensure_ascii=False)})
+        print(json.dumps({"event":"V45_MEDIA_FINISHER_PILOT","tag":tag,"status":"failed","job_id":job_id,"edit_job_id":edit_job_id,"error":str(exc)[:700]}),flush=True)
+
+
 def get_revideo_adapter_registry():
     return {
         "transcript":{"selected":FACTORY_TRANSCRIPT_ADAPTER,"configured":bool(FACTORY_TRANSCRIPT_ENDPOINT),
@@ -5015,6 +5167,7 @@ async def start_content_brain_collector():
 async def start_factory_cycle_reconciler():
     asyncio.create_task(factory_cycle_reconcile_loop())
     asyncio.create_task(run_real_world_pilot_once())
+    asyncio.create_task(run_media_finisher_pilot_once())
 
 async def broadcast(payload=None):
     dead=[]; msg=json.dumps(payload or {"type":"refresh"})
@@ -6498,7 +6651,7 @@ def status():
         "discoveryAdapter": get_discovery_candidates(1)["adapter"],
         "revideoSummary": get_revideo_projects(40)["summary"],
         "revideoAdapters": get_revideo_adapter_registry(),
-        "mediaFinisher": {"adapter":get_media_finisher_registry(),"summary":get_edit_jobs(80)["summary"]},
+        "mediaFinisher": {"adapter":get_media_finisher_registry(),"summary":get_edit_jobs(80)["summary"],"pilot":get_media_finisher_pilot()},
         "activeWorkflow": _active_workflow_version(),
         "publisherAdapters": get_publisher_adapter_registry(),
         "analyticsAdapters": get_analytics_adapter_registry(),

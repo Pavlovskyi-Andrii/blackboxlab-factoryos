@@ -199,6 +199,7 @@ require(talking["config"]["captions"]["min_words"]==1 and talking["config"]["cap
 require(talking["config"]["safe_zones"]["top"]==0.12 and talking["config"]["safe_zones"]["bottom"]==0.20 and talking["config"]["safe_zones"]["right"]==0.12,"guide safe-zone profile regression")
 fin_registry=app.get_media_finisher_registry()
 require(fin_registry["configured"] is False and fin_registry["async_jobs"] is True,"CI must not claim a live Media Finisher provider")
+require(app.get_media_finisher_pilot()["status"]=="disabled","CI must never auto-run the real v4.5 Media Finisher pilot")
 
 raw_video=app.save_artifact("Render Agent","video","CI raw media","",job_id=job_id,url="https://example.com/raw-ci.mp4",mime_type="video/mp4",meta={"fixture":True})
 publish_before=app._publishing_summary()
