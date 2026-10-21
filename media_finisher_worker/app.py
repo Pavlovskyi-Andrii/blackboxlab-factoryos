@@ -16,7 +16,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-APP_VERSION = "v4.5.1-worker-rc3"
+APP_VERSION = "v4.5.2-worker-rc1"
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("FINISHER_DATA_DIR", "/var/data/media-finisher"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -667,7 +667,7 @@ def create_job(payload: JobRequest, background: BackgroundTasks, request: Reques
     job_id=(payload.edit_job_id or str(uuid.uuid4())).strip()
     if _state_path(job_id).exists():
         return _read_state(job_id)
-    state={"id":job_id,"status":"queued","stage":"queued","percent":0,"request":payload.model_dump(),
+    state={"id":job_id,"status":"queued","stage":"queued","percent":1,"request":payload.model_dump(),
            "callback_url":payload.callback_url,"created_at":time.time(),"updated_at":time.time(),
            "final_url":"","error":"","report":{}}
     _write_state(job_id,replace=state)
