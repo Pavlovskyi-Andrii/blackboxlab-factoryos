@@ -229,10 +229,16 @@ def fake_finisher_provider(url,method="GET",payload=None,token=""):
 app._external_json=fake_finisher_provider
 try:
     started=app.start_media_finisher(job_id,app.MediaFinisherStartRequest(
-        profile_id="talking_head_fast",profile_version=1,platform="reels",input_url="https://example.com/raw-ci.mp4",confirm_external_cost=True
+        profile_id="talking_head_fast",profile_version=1,platform="reels",input_url="https://example.com/raw-ci.mp4",
+        edit_full_video=True,split_shortform=True,add_captions=True,add_animation=True,smart_graphics=True,max_short_clips=3,
+        confirm_external_cost=True
     ))
     edit_id=started["edit_job"]["id"]
     require(started["edit_job"]["status"]=="processing" and started["edit_job"]["provider_job_id"]=="ci-finisher-task-1","Media Finisher submit lifecycle regression")
+    submitted_opts=finisher_payloads[-1]["options"]
+    require(submitted_opts["edit_full_video"] is True and submitted_opts["split_shortform"] is True,"Media Finisher full/short output options regression")
+    require(submitted_opts["add_captions"] is True and submitted_opts["add_animation"] is True and submitted_opts["smart_graphics"] is True,"Media Finisher editing option regression")
+    require(submitted_opts["shortform_targets"]==["youtube_shorts","instagram_reels"],"Media Finisher Shorts/Reels targets regression")
     report={
       "transcript_words":[{"word":"Hello","start":0.0,"end":0.3,"confidence":0.99}],
       "transcript_corrections":[],
@@ -240,13 +246,24 @@ try:
       "caption_timeline":[{"start":0.0,"end":0.7,"words":["Hello","world"]}],
       "motion_timeline":[{"start":0.0,"type":"push_in","zoom":1.08}],
       "graphics_timeline":[{"start":1.2,"end":2.2,"text":"KEY POINT"}],
+      "shorts_manifest":{"enabled":True,"selector":"transcript_density_v1","human_review_required":True,
+                         "clips":[{"index":1,"start_sec":0.0,"end_sec":9.8,"duration_sec":9.8,
+                                   "url":"https://example.com/short-01.mp4","targets":["youtube_shorts","instagram_reels"]}]},
       "audio_report":{"voice_lufs":-14.0,"music_relative_db":-20.0},
       "safe_zone_report":{"violations":[],"top":0.12,"bottom":0.20,"right":0.12},
       "edit_summary":{"duration_before_sec":12.0,"duration_after_sec":9.8,"human_review_required":True}
     }
     ready=app._finalize_edit_job(edit_id,"completed","https://example.com/final-ci.mp4","ci-finisher-task-1","",{"status":"completed"},report,0.0,9.8)
     require(ready["status"]=="ready" and ready["output_url"].endswith("final-ci.mp4"),"Media Finisher ready lifecycle regression")
-    require({x["kind"] for x in ready["artifacts"]}>={"cut_list","caption_timeline","audio_report","safe_zone_report"},"Media Finisher evidence persistence regression")
+    require({x["kind"] for x in ready["artifacts"]}>={"cut_list","caption_timeline","shorts_manifest","audio_report","safe_zone_report"},"Media Finisher evidence persistence regression")
+    con=app.db()
+    persisted_video_rows=[dict(x) for x in con.execute("SELECT * FROM artifacts WHERE job_id=? AND kind='video' ORDER BY created_at DESC",(job_id,)).fetchall()]
+    qa_row=con.execute("SELECT * FROM artifacts WHERE job_id=? AND agent='QA Agent' AND title='Media Finisher QA gate' ORDER BY created_at DESC LIMIT 1",(job_id,)).fetchone()
+    con.close()
+    require(any(x.get("url")=="https://example.com/short-01.mp4" for x in persisted_video_rows),"Shorts/Reels clip artifact persistence regression")
+    require(qa_row is not None,"Media Finisher must hand finished media to QA Agent")
+    safe_latest=app._latest_job_video_artifact(job_id)
+    require(safe_latest and safe_latest.get("url") not in {"https://example.com/final-ci.mp4","https://example.com/short-01.mp4"},"finished outputs must never become the next automatic input buffer")
     finished_worker=app.get_job_worker_results(job_id).get("AI Media Finisher")
     require(finished_worker and finished_worker["kind"]=="video" and finished_worker["url"].endswith("final-ci.mp4"),"finished media must be visible in Worker Evidence")
     review_job=app.get_job(job_id)
@@ -275,6 +292,14 @@ try:
     require(direct_payload["content_package"]["_factoryos_manual_raw"] is True,"direct upload marker missing")
     require(direct_payload["guardrails"]["manual_raw_upload_transcript_exact_graphics"] is True,
             "direct upload graphics must be constrained to exact transcript words")
+
+    unused_upload=app.save_artifact("AI Media Finisher","video","Unused raw upload","",job_id=manual_job_id,
+                                    url="https://factory.example/media-source/unused-ci?token=fake",mime_type="video/mp4",
+                                    meta={"component":"raw_upload","upload_id":"unused-ci","filename":"unused.mp4"})
+    deleted=asyncio.run(app.delete_video_artifact(unused_upload))
+    require(deleted["ok"] is True,"unused raw video delete endpoint regression")
+    con=app.db();deleted_row=con.execute("SELECT id FROM artifacts WHERE id=?",(unused_upload,)).fetchone();con.close()
+    require(deleted_row is None,"deleted raw video artifact must leave the active buffer")
 finally:
     app._external_json=orig_external_json
     app.FACTORY_MEDIA_FINISHER_ENDPOINT=orig_finish_endpoint
