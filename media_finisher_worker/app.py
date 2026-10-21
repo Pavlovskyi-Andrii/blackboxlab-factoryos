@@ -16,7 +16,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-APP_VERSION = "v4.5-worker-rc2"
+APP_VERSION = "v4.5.1-worker-rc3"
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("FINISHER_DATA_DIR", "/var/data/media-finisher"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -52,6 +52,7 @@ class JobRequest(BaseModel):
     profile: dict[str, Any]
     platform: str = "reels"
     content_package: dict[str, Any] = {}
+    options: dict[str, Any] = {}
     rerun_stage: str = ""
     callback_url: str = ""
     guardrails: dict[str, Any] = {}
@@ -433,6 +434,46 @@ def _safe_zone_report(profile: dict, captions: list[dict], graphics: list[dict])
     }
 
 
+def _short_clip_windows(words: list[dict], duration: float, max_clips: int = 3) -> list[dict]:
+    max_clips=max(1,min(8,int(max_clips or 3)))
+    if duration<=0:return []
+    target=min(45.0,max(18.0,duration if duration<45 else 35.0))
+    if duration<=target+2:
+        return [{"start_sec":0.0,"end_sec":round(duration,3),"score":1.0}]
+    step=max(10.0,target/2)
+    candidates=[];start=0.0
+    while start<duration-8:
+        end=min(duration,start+target)
+        selected=[w for w in words if float(w.get("start",0))>=start and float(w.get("end",0))<=end]
+        tokens=[re.sub(r"[^\w']+","",str(w.get("word") or "").lower()) for w in selected]
+        tokens=[x for x in tokens if x]
+        unique=len(set(tokens));density=len(tokens)/max(1.0,end-start)
+        lexical=sum(1 for x in set(tokens) if len(x)>=6)
+        score=density*12+unique*.18+lexical*.35
+        candidates.append({"start_sec":round(start,3),"end_sec":round(end,3),"score":round(score,3)})
+        start+=step
+    chosen=[]
+    for cand in sorted(candidates,key=lambda x:x["score"],reverse=True):
+        center=(cand["start_sec"]+cand["end_sec"])/2
+        if any(abs(center-(x["start_sec"]+x["end_sec"])/2)<target*.7 for x in chosen):
+            continue
+        chosen.append(cand)
+        if len(chosen)>=max_clips:break
+    return sorted(chosen,key=lambda x:x["start_sec"])
+
+
+def _render_short_clips(final: Path, job_dir: Path, words: list[dict], duration: float, max_clips: int) -> dict:
+    clips=[]
+    for i,window in enumerate(_short_clip_windows(words,duration,max_clips),1):
+        filename=f"short-{i:02d}.mp4";dest=job_dir/filename
+        length=max(.5,float(window["end_sec"])-float(window["start_sec"]))
+        _run(["ffmpeg","-y","-ss",f"{float(window['start_sec']):.3f}","-i",str(final),"-t",f"{length:.3f}",
+              "-c","copy","-avoid_negative_ts","make_zero",str(dest)],timeout=900)
+        clips.append({**window,"index":i,"duration_sec":round(length,3),"url":_public_file(job_dir.name,filename),
+                      "targets":["youtube_shorts","instagram_reels"],"selector":"transcript_density_v1"})
+    return {"enabled":True,"selector":"transcript_density_v1","clips":clips,"human_review_required":True}
+
+
 def _public_file(job_id: str, filename: str) -> str:
     return f"{PUBLIC_BASE_URL}/files/{job_id}/{filename}"
 
@@ -460,65 +501,76 @@ def _callback(state: dict) -> None:
         pass
 
 
-def _stage(job_id: str, stage: str, **extra) -> dict:
+def _stage(job_id: str, stage: str, percent: int | None = None, **extra) -> dict:
     patch={"stage":stage}
+    if percent is not None:patch["percent"]=max(0,min(100,int(percent)))
     if extra:patch["progress"]=extra
     state=_write_state(job_id,patch)
-    print(json.dumps({"event":"MEDIA_FINISHER_STAGE","job_id":job_id,"status":state.get("status"),"stage":stage,**extra},ensure_ascii=False),flush=True)
+    print(json.dumps({"event":"MEDIA_FINISHER_STAGE","job_id":job_id,"status":state.get("status"),"stage":stage,"percent":state.get("percent",0),**extra},ensure_ascii=False),flush=True)
     return state
 
 
 def _process(job_id: str) -> None:
     started=time.time();state=_read_state(job_id);payload=state["request"];job_dir=_job_dir(job_id)
     try:
-        _write_state(job_id,{"status":"processing","stage":"download","error":""})
-        print(json.dumps({"event":"MEDIA_FINISHER_STAGE","job_id":job_id,"status":"processing","stage":"download"}),flush=True)
+        options=payload.get("options") or {}
+        _write_state(job_id,{"status":"processing","stage":"download","percent":3,"error":""})
+        print(json.dumps({"event":"MEDIA_FINISHER_STAGE","job_id":job_id,"status":"processing","stage":"download","percent":3}),flush=True)
         src=job_dir/"source.bin"
         if not src.exists() or src.stat().st_size<1024:_download(payload["input_url"],src)
         profile=(payload.get("profile") or {}).get("config") or {}
+        _stage(job_id,"normalize",10)
         normalized=job_dir/"normalized.mp4";_normalize_input(src,normalized,profile)
         before=_probe(normalized);duration=float(before["duration"])
-        _stage(job_id,"transcript")
+        _stage(job_id,"transcript",22)
         wav=job_dir/"audio.wav";_extract_audio(normalized,wav)
         words,asr_meta=_transcribe_words(wav)
         cleanup=profile.get("speech_cleanup") or {};threshold=float(cleanup.get("pause_threshold_sec",0.4))
         silences=_detect_silences(normalized,threshold)
         cuts=build_cut_list(silences,words,duration,profile)
-        _stage(job_id,"cleanup",words=len(words),cuts=len(cuts))
+        _stage(job_id,"cleanup",42,words=len(words),cuts=len(cuts))
         clean=job_dir/"clean.mp4";_apply_cuts(normalized,clean,duration,cuts)
         after_clean=_probe(clean);out_duration=float(after_clean["duration"])
         mapped_words=map_words_after_cuts(words,cuts)
         boundaries=_cut_output_boundaries(cuts)
-        captions=group_captions(mapped_words,profile,boundaries)
+        captions=group_captions(mapped_words,profile,boundaries) if options.get("add_captions",True) else []
         srt=job_dir/"captions.srt";_write_srt(captions,srt)
-        motion=_motion_timeline(out_duration,cuts,profile)
-        graphics=_graphics_timeline(payload.get("content_package") or {},out_duration,profile,mapped_words)
-        _stage(job_id,"graphics",captions=len(captions),motion=len(motion),graphics=len(graphics))
+        motion=_motion_timeline(out_duration,cuts,profile) if options.get("add_animation",True) else []
+        graphics=_graphics_timeline(payload.get("content_package") or {},out_duration,profile,mapped_words) if options.get("smart_graphics",True) else []
+        _stage(job_id,"graphics",62,captions=len(captions),motion=len(motion),graphics=len(graphics))
         composed=job_dir/"composed.mp4";engine=GRAPHICS_ENGINE
+        _stage(job_id,"render",70)
         if engine=="remotion":
             _render_with_remotion(clean,composed,captions,motion,graphics,profile,out_duration,job_dir)
         elif engine=="ffmpeg":
-            _render_ffmpeg_fallback(clean,composed,srt);engine="ffmpeg_captions_only"
+            if captions:_render_ffmpeg_fallback(clean,composed,srt)
+            else:shutil.copy2(clean,composed)
+            engine="ffmpeg_captions_only" if captions else "ffmpeg_passthrough"
         else:
             raise RuntimeError("Unsupported FINISHER_GRAPHICS_ENGINE; use remotion or ffmpeg")
-        _stage(job_id,"audio")
+        _stage(job_id,"audio",84)
         final=job_dir/"final.mp4";audio_report=_audio_finish(composed,final,profile)
         final_probe=_probe(final);safe=_safe_zone_report(profile,captions,graphics)
+        shorts_manifest={"enabled":False,"clips":[]}
+        if options.get("split_shortform",False):
+            _stage(job_id,"shorts_reels",92)
+            shorts_manifest=_render_short_clips(final,job_dir,mapped_words,float(final_probe["duration"]),int(options.get("max_short_clips") or 3))
         report={
             "transcript_words":mapped_words,"transcript_corrections":[],"asr":asr_meta,"cut_list":cuts,
             "caption_timeline":captions,"motion_timeline":motion if engine=="remotion" else [],
-            "graphics_timeline":graphics if engine=="remotion" else [],"audio_report":audio_report,"safe_zone_report":safe,
+            "graphics_timeline":graphics if engine=="remotion" else [],"shorts_manifest":shorts_manifest,
+            "audio_report":audio_report,"safe_zone_report":safe,
             "edit_summary":{
                 "duration_before_sec":round(duration,3),"duration_after_sec":round(float(final_probe["duration"]),3),
                 "removed_segments":len(cuts),"removed_seconds":round(sum(float(x["end"])-float(x["start"]) for x in cuts),3),
                 "graphics_engine":engine,"profile_id":(payload.get("profile") or {}).get("id"),
                 "profile_version":(payload.get("profile") or {}).get("version"),"platform":payload.get("platform"),
                 "rerun_stage":payload.get("rerun_stage") or "full","human_review_required":True,
-                "output_target":_effective_target(profile),"low_memory_mode":LOW_MEMORY_MODE,
+                "options":options,"output_target":_effective_target(profile),"low_memory_mode":LOW_MEMORY_MODE,
                 "visual_checks_required":["face/object obstruction","caption readability","cut naturalness"]
             }
         }
-        state=_write_state(job_id,{"status":"ready","stage":"done","final_url":_public_file(job_id,"final.mp4"),"report":report,
+        state=_write_state(job_id,{"status":"ready","stage":"done","percent":100,"final_url":_public_file(job_id,"final.mp4"),"report":report,
                                    "graphics_engine":engine,"wall_duration_sec":round(time.time()-started,3),"error":""})
         print(json.dumps({"event":"MEDIA_FINISHER_DONE","job_id":job_id,"status":"ready","wall_duration_sec":state.get("wall_duration_sec"),"final_url":state.get("final_url")},ensure_ascii=False),flush=True)
         _callback(state)
@@ -619,7 +671,7 @@ def create_job(payload: JobRequest, background: BackgroundTasks, request: Reques
     job_id=(payload.edit_job_id or str(uuid.uuid4())).strip()
     if _state_path(job_id).exists():
         return _read_state(job_id)
-    state={"id":job_id,"status":"queued","stage":"queued","request":payload.model_dump(),
+    state={"id":job_id,"status":"queued","stage":"queued","percent":0,"request":payload.model_dump(),
            "callback_url":payload.callback_url,"created_at":time.time(),"updated_at":time.time(),
            "final_url":"","error":"","report":{}}
     _write_state(job_id,replace=state)
@@ -636,8 +688,8 @@ def job_status(job_id: str, request: Request):
 
 @app.get("/files/{job_id}/{filename}")
 def file(job_id: str, filename: str):
-    if filename not in {"final.mp4","captions.srt","remotion-props.json"}:
-        raise HTTPException(404,"File not exposed")
+    allowed=filename in {"final.mp4","captions.srt","remotion-props.json"} or bool(re.fullmatch(r"short-\d{2}\.mp4",filename))
+    if not allowed:raise HTTPException(404,"File not exposed")
     path=_job_dir(job_id)/filename
     if not path.exists():raise HTTPException(404,"File not found")
     media="video/mp4" if filename.endswith(".mp4") else "text/plain"
