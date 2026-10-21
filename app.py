@@ -7304,6 +7304,8 @@ async def media_finisher_upload(job_id:str,request:Request,file:UploadFile=File(
     event(job_id,f"Media Finisher raw video uploaded: {filename} · {round(total/1024/1024,1)} MB")
     return {"ok":True,"upload_id":upload_id,"url":source_url,"artifact_id":artifact_id,"bytes":total,"filename":filename}
 
+ASR_REPAIR_GENERATION="whisper-single-thread-v1"
+
 def _recent_edit_timestamp(value,minutes=120):
     try:
         stamp=datetime.fromisoformat(str(value or "").replace("Z","+00:00"))
@@ -7312,11 +7314,31 @@ def _recent_edit_timestamp(value,minutes=120):
     except Exception:
         return False
 
+def _is_media_finisher_pilot_request(raw_request):
+    request=_decode_json(raw_request or "{}",{}) if not isinstance(raw_request,dict) else raw_request
+    input_url=str(request.get("input_url") or "")
+    package=request.get("content_package") or {}
+    provenance=package.get("provenance") or {}
+    return "/pilot/source.mp4" in input_url or provenance.get("mode")=="v4.5_real_pilot" or package.get("_factoryos_pilot") is True
+
+def _retire_legacy_media_finisher_pilots():
+    con=db();rows=con.execute("""SELECT id,request_json FROM edit_jobs
+                                WHERE status IN ('queued','submitted','processing')
+                                ORDER BY created_at DESC LIMIT 100""").fetchall()
+    retired=0;now=ts()
+    for row in rows:
+        if not _is_media_finisher_pilot_request(row["request_json"]):continue
+        con.execute("""UPDATE edit_jobs SET status='failed',error='Legacy pilot recovery retired; user media jobs have priority.',
+                       updated_at=?,completed_at=? WHERE id=?""",(now,now,row["id"]))
+        retired+=1
+    con.commit();con.close()
+    if retired:print(json.dumps({"event":"MEDIA_FINISHER_PILOT_RECOVERY_RETIRED","count":retired}),flush=True)
+
 def _recover_active_media_finisher_jobs():
     time.sleep(2)
-    con=db();rows=con.execute("""SELECT id,updated_at FROM edit_jobs WHERE status IN ('queued','submitted','processing')
+    con=db();rows=con.execute("""SELECT id,updated_at,request_json FROM edit_jobs WHERE status IN ('queued','submitted','processing')
                                 ORDER BY created_at DESC LIMIT 30""").fetchall();con.close()
-    rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],120)]
+    rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],120) and not _is_media_finisher_pilot_request(row["request_json"])]
     checked=0
     for row in rows:
         try:refresh_edit_job(row["id"]);checked+=1
@@ -7327,25 +7349,29 @@ def _recover_active_media_finisher_jobs():
 def _recover_recent_failed_asr_jobs():
     con=db();rows=con.execute("""SELECT id,updated_at,error,request_json FROM edit_jobs
                                 WHERE status='failed' AND (error LIKE '%transcribe_runner%' OR error LIKE 'Whisper subprocess failed%')
-                                ORDER BY updated_at DESC LIMIT 10""").fetchall();con.close()
+                                ORDER BY updated_at DESC LIMIT 20""").fetchall();con.close()
     recovered=0
     for row in rows:
-        if not _recent_edit_timestamp(row["updated_at"],30):continue
+        if not _recent_edit_timestamp(row["updated_at"],60):continue
         request=_decode_json(row["request_json"] or "{}",{})
-        attempts=int(request.get("_auto_asr_retry_count") or 0)
-        if attempts>=2:continue
-        request["_auto_asr_retry_count"]=attempts+1
-        response={"status":"queued","stage":"waking_worker","percent":1,"auto_asr_retry":True,"auto_asr_retry_attempt":attempts+1}
+        if _is_media_finisher_pilot_request(request):continue
+        if request.get("_asr_repair_generation")==ASR_REPAIR_GENERATION:continue
+        attempts=int(request.get("_auto_asr_retry_count") or 0)+1
+        request["_auto_asr_retry_count"]=attempts
+        request["_asr_repair_generation"]=ASR_REPAIR_GENERATION
+        response={"status":"queued","stage":"waking_worker","percent":1,"auto_asr_retry":True,
+                  "auto_asr_retry_attempt":attempts,"asr_repair_generation":ASR_REPAIR_GENERATION}
         con=db();con.execute("""UPDATE edit_jobs SET provider_job_id='',status='queued',error='',request_json=?,response_json=?,updated_at=?,completed_at=NULL WHERE id=?""",
                              (json.dumps(request,ensure_ascii=False,default=str),json.dumps(response,ensure_ascii=False),ts(),row["id"]));con.commit();con.close()
         _spawn_media_finisher_submit(row["id"]);recovered+=1
-    if recovered:print(json.dumps({"event":"MEDIA_FINISHER_ASR_AUTO_RETRY","recovered":recovered}),flush=True)
+    if recovered:print(json.dumps({"event":"MEDIA_FINISHER_ASR_AUTO_RETRY","recovered":recovered,"generation":ASR_REPAIR_GENERATION}),flush=True)
 
 @app.on_event("startup")
 def recover_pending_media_finisher_submits():
-    con=db();rows=con.execute("""SELECT id,updated_at FROM edit_jobs WHERE status IN ('queued','submitted','processing')
+    _retire_legacy_media_finisher_pilots()
+    con=db();rows=con.execute("""SELECT id,updated_at,request_json FROM edit_jobs WHERE status IN ('queued','submitted','processing')
                                 AND COALESCE(provider_job_id,'')='' ORDER BY created_at DESC LIMIT 30""").fetchall();con.close()
-    rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],120)]
+    rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],120) and not _is_media_finisher_pilot_request(row["request_json"])]
     for row in rows:_spawn_media_finisher_submit(row["id"])
     _recover_recent_failed_asr_jobs()
     threading.Thread(target=_recover_active_media_finisher_jobs,daemon=True,name="finisher-status-recovery").start()
