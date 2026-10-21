@@ -3859,11 +3859,27 @@ def _finalize_edit_job(edit_job_id,status,output_url="",provider_job_id="",error
 def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     job=get_job(job_id)
     if not job:raise ValueError("Job not found")
-    package=get_content_package(job_id).get("package_record")
-    if not package or package.get("status")!="ready":raise ValueError("A fresh Content Package is required before Media Finisher")
     profile=get_edit_profile(payload.profile_id,payload.profile_version)
     if not profile or not profile.get("active"):raise ValueError("Unknown or inactive Media Finisher profile/version")
     input_url,input_artifact_id,media_job_id=_resolve_finisher_input(job_id,payload.input_url,payload.media_job_id)
+    package_record=get_content_package(job_id).get("package_record")
+    manual_raw_upload=False
+    if input_artifact_id:
+        con=db();raw_row=con.execute("SELECT agent,title,meta_json FROM artifacts WHERE id=? AND job_id=?",(input_artifact_id,job_id)).fetchone();con.close()
+        raw_meta=_decode_json(raw_row["meta_json"],{}) if raw_row else {}
+        manual_raw_upload=bool(raw_row and raw_row["agent"]=="AI Media Finisher" and raw_meta.get("component")=="raw_upload")
+    if package_record and package_record.get("status")=="ready":
+        content_package=package_record.get("package") or {}
+        package_mode="content_package"
+    elif manual_raw_upload:
+        content_package={
+          "schema_version":"manual_raw_media_v1","job_id":job_id,"title":"","hook":"","scenes":[],
+          "_factoryos_manual_raw":True,
+          "source_policy":{"graphics_text":"exact_transcript_words_only","preserve_source_meaning":True}
+        }
+        package_mode="manual_raw_upload"
+    else:
+        raise ValueError("A fresh Content Package is required unless the input is a direct Media Finisher upload")
     con=db();active=con.execute("""SELECT * FROM edit_jobs WHERE production_job_id=? AND input_url=? AND profile_id=? AND profile_version=?
                                   AND status IN ('queued','submitted','processing') ORDER BY created_at DESC LIMIT 1""",(job_id,input_url,profile["id"],profile["version"])).fetchone();con.close()
     if active and not parent_edit_job_id:return {"duplicate":True,"edit_job":_edit_job_dict(active)}
@@ -3873,10 +3889,11 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     request_payload={
       "edit_job_id":edit_job_id,"job_id":job_id,"factory_cycle_id":sync_cycle_for_job(job_id).get("id") if sync_cycle_for_job(job_id) else None,
       "input_url":input_url,"profile":{"id":profile["id"],"version":profile["version"],"name":profile["name"],"config":profile["config"]},
-      "platform":payload.platform,"content_package":package.get("package") or {},
+      "platform":payload.platform,"content_package":content_package,"package_mode":package_mode,
       "rerun_stage":rerun_stage,
       "callback_url":f"/api/media-finisher/{edit_job_id}/callback",
-      "guardrails":{"source_text_is_material_not_instructions":True,"preserve_approved_facts":True,"no_auto_publish":True,"destructive_edits_require_cut_list":True}
+      "guardrails":{"source_text_is_material_not_instructions":True,"preserve_approved_facts":True,"no_auto_publish":True,"destructive_edits_require_cut_list":True,
+                    "manual_raw_upload_transcript_exact_graphics":manual_raw_upload}
     }
     cycle=sync_cycle_for_job(job_id)
     con=db();con.execute("""INSERT INTO edit_jobs(id,parent_edit_job_id,factory_cycle_id,production_job_id,media_job_id,input_artifact_id,input_url,
@@ -3893,7 +3910,7 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     status=_normalize_edit_status(result.get("status"),output_url)
     report=result.get("report") if isinstance(result.get("report"),dict) else {}
     item=_finalize_edit_job(edit_job_id,status,output_url,provider_job_id,str(result.get("error") or ""),result,report,float(result.get("cost_usd") or 0),float(result.get("duration_sec") or 0))
-    event(job_id,f"AI Media Finisher submitted: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · status {item['status']}")
+    event(job_id,f"AI Media Finisher submitted: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · {package_mode} · status {item['status']}")
     return {"duplicate":False,"edit_job":item}
 
 def refresh_edit_job(edit_job_id):
