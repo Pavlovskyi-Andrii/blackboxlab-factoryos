@@ -7346,7 +7346,7 @@ def _recover_active_media_finisher_jobs():
             print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY_ERROR","edit_job_id":row["id"],"error":str(exc)[:400]}),flush=True)
     if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked}),flush=True)
 
-REAL_MEDIA_REPAIR_GENERATION="manual-raw-v45-free-worker-1"
+REAL_MEDIA_REPAIR_GENERATION="manual-raw-v45-free-worker-2"
 
 def _recover_recent_real_media_failures():
     con=db();rows=con.execute("""SELECT id,production_job_id,updated_at,error,request_json FROM edit_jobs
