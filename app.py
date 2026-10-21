@@ -7346,6 +7346,28 @@ def _recover_active_media_finisher_jobs():
             print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY_ERROR","edit_job_id":row["id"],"error":str(exc)[:400]}),flush=True)
     if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked}),flush=True)
 
+REAL_MEDIA_REPAIR_GENERATION="manual-raw-v45-free-worker-1"
+
+def _recover_recent_real_media_failures():
+    con=db();rows=con.execute("""SELECT id,production_job_id,updated_at,error,request_json FROM edit_jobs
+                                WHERE status='failed' ORDER BY updated_at DESC LIMIT 40""").fetchall();con.close()
+    recovered=0;seen_jobs=set()
+    for row in rows:
+        if row["production_job_id"] in seen_jobs:continue
+        request=_decode_json(row["request_json"] or "{}",{})
+        if _is_media_finisher_pilot_request(request):continue
+        if request.get("package_mode")!="manual_raw_upload":continue
+        if not _recent_edit_timestamp(row["updated_at"],120):continue
+        seen_jobs.add(row["production_job_id"])
+        if request.get("_real_media_repair_generation")==REAL_MEDIA_REPAIR_GENERATION:continue
+        request["_real_media_repair_generation"]=REAL_MEDIA_REPAIR_GENERATION
+        response={"status":"queued","stage":"waking_worker","percent":1,"real_media_repair":True,
+                  "repair_generation":REAL_MEDIA_REPAIR_GENERATION}
+        con=db();con.execute("""UPDATE edit_jobs SET provider_job_id='',status='queued',error='',request_json=?,response_json=?,updated_at=?,completed_at=NULL WHERE id=?""",
+                             (json.dumps(request,ensure_ascii=False,default=str),json.dumps(response,ensure_ascii=False),ts(),row["id"]));con.commit();con.close()
+        _spawn_media_finisher_submit(row["id"]);recovered+=1
+    if recovered:print(json.dumps({"event":"MEDIA_FINISHER_REAL_MEDIA_REPAIR","recovered":recovered,"generation":REAL_MEDIA_REPAIR_GENERATION}),flush=True)
+
 def _recover_recent_failed_asr_jobs():
     con=db();rows=con.execute("""SELECT id,updated_at,error,request_json FROM edit_jobs
                                 WHERE status='failed' AND (error LIKE '%transcribe_runner%' OR error LIKE 'Whisper subprocess failed%')
@@ -7373,6 +7395,7 @@ def recover_pending_media_finisher_submits():
                                 AND COALESCE(provider_job_id,'')='' ORDER BY created_at DESC LIMIT 30""").fetchall();con.close()
     rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],120) and not _is_media_finisher_pilot_request(row["request_json"])]
     for row in rows:_spawn_media_finisher_submit(row["id"])
+    _recover_recent_real_media_failures()
     _recover_recent_failed_asr_jobs()
     threading.Thread(target=_recover_active_media_finisher_jobs,daemon=True,name="finisher-status-recovery").start()
     if rows:print(json.dumps({"event":"MEDIA_FINISHER_SUBMIT_RECOVERY","queued":len(rows)}),flush=True)
