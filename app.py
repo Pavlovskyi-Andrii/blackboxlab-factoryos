@@ -7304,7 +7304,7 @@ async def media_finisher_upload(job_id:str,request:Request,file:UploadFile=File(
     event(job_id,f"Media Finisher raw video uploaded: {filename} · {round(total/1024/1024,1)} MB")
     return {"ok":True,"upload_id":upload_id,"url":source_url,"artifact_id":artifact_id,"bytes":total,"filename":filename}
 
-ASR_REPAIR_GENERATION="whisper-single-thread-v1"
+ASR_REPAIR_GENERATION="pyav17-whisper-v2"
 
 def _recent_edit_timestamp(value,minutes=120):
     try:
@@ -7374,7 +7374,7 @@ def _recover_recent_failed_asr_jobs():
                                 ORDER BY updated_at DESC LIMIT 20""").fetchall();con.close()
     recovered=0
     for row in rows:
-        if not _recent_edit_timestamp(row["updated_at"],60):continue
+        if not _recent_edit_timestamp(row["updated_at"],360):continue
         request=_decode_json(row["request_json"] or "{}",{})
         if _is_media_finisher_pilot_request(request):continue
         if request.get("_asr_repair_generation")==ASR_REPAIR_GENERATION:continue
