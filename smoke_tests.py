@@ -293,6 +293,23 @@ try:
     require(direct_payload["guardrails"]["manual_raw_upload_transcript_exact_graphics"] is True,
             "direct upload graphics must be constrained to exact transcript words")
 
+    direct_id=direct["edit_job"]["id"]
+    split_only_report={
+      "caption_timeline":[],"graphics_timeline":[],"safe_zone_report":{"violations":[]},
+      "shorts_manifest":{"enabled":True,"clips":[{"index":1,"start_sec":0.0,"end_sec":8.0,"url":"https://example.com/manual-short-01.mp4"}]},
+      "edit_summary":{"duration_before_sec":30.0,"duration_after_sec":28.0,
+                      "options":{"edit_full_video":False,"split_shortform":True}}
+    }
+    app._finalize_edit_job(direct_id,"completed","https://example.com/internal-master.mp4","ci-finisher-task-1","",
+                           {"status":"completed"},split_only_report,0.0,28.0)
+    con=app.db()
+    internal_master_artifact=con.execute("SELECT id FROM artifacts WHERE job_id=? AND url='https://example.com/internal-master.mp4'",(manual_job_id,)).fetchone()
+    split_clip_artifact=con.execute("SELECT id FROM artifacts WHERE job_id=? AND url='https://example.com/manual-short-01.mp4'",(manual_job_id,)).fetchone()
+    split_qa=con.execute("SELECT id FROM artifacts WHERE job_id=? AND agent='QA Agent' AND title='Media Finisher QA gate'",(manual_job_id,)).fetchone()
+    con.close()
+    require(internal_master_artifact is None,"split-only mode must not expose the internal master as a deliverable")
+    require(split_clip_artifact is not None and split_qa is not None,"split-only Shorts/Reels must persist clips and hand them to QA")
+
     unused_upload=app.save_artifact("AI Media Finisher","video","Unused raw upload","",job_id=manual_job_id,
                                     url="https://factory.example/media-source/unused-ci?token=fake",mime_type="video/mp4",
                                     meta={"component":"raw_upload","upload_id":"unused-ci","filename":"unused.mp4"})
