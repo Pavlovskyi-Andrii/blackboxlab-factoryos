@@ -1644,7 +1644,8 @@ async function renderMediaFinisher(){
   const sm=jobsData.summary||{},jobs=jobsData.jobs||[];
   let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.total||0)+'</b><span>'+esc(tr('finisher.jobs'))+'</span></div><div class="flowStat"><b>'+Number(sm.active||0)+'</b><span>'+esc(tr('finisher.active'))+'</span></div><div class="flowStat"><b>'+Number(sm.ready||0)+'</b><span>'+esc(tr('finisher.ready'))+'</span></div><div class="flowStat"><b>'+(adapter.configured?'ON':'OFF')+'</b><span>'+esc(tr('finisher.adapter'))+'</span></div></div>';
   if(!selected){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('finisher.noJob'))+'</div>';return}
-  const opts=profiles.filter(p=>p.active!==false).map(p=>'<option value="'+esc(p.id)+'@'+Number(p.version||1)+'">'+esc(p.name||p.id)+' · v'+Number(p.version||1)+'</option>').join('');
+  const activeProfiles=profiles.filter(p=>p.active!==false).sort((a,b)=>(a.id==='talking_head_fast'?-1:0)-(b.id==='talking_head_fast'?-1:0));
+  const opts=activeProfiles.map(p=>'<option value="'+esc(p.id)+'@'+Number(p.version||1)+'">'+esc(p.name||p.id)+' · v'+Number(p.version||1)+'</option>').join('');
   out+='<article class="flowCard" data-help="help.finisher" title="'+esc(helpTitle('help.finisher'))+'"><h3>'+esc(tr('finisher.title'))+'</h3><p>'+esc(tr('finisher.humanGate'))+'</p><div class="finisherComposer"><select id="finisherProfile">'+opts+'</select><select id="finisherPlatform"><option value="reels">Reels</option><option value="tiktok">TikTok</option><option value="shorts">YouTube Shorts</option></select><input class="wide" id="finisherInputUrl" placeholder="'+esc(tr('finisher.inputUrl'))+'"><input class="wide" id="finisherInputFile" type="file" accept="video/*"><small class="wide" style="color:var(--muted)">'+esc(tr('finisher.uploadHint'))+'</small><button class="btn primary wide" '+(adapter.configured?'':'disabled')+' onclick="startMediaFinisher()">✂ '+esc(tr('finisher.start'))+'</button></div>'+(adapter.configured?'':'<div class="revideoGuard">'+esc(tr('finisher.unconfigured'))+'</div>')+'</article>';
   if(!jobs.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('finisher.noJobs'))+'</div>';return}
   out+='<div class="flowGrid" style="margin-top:10px">'+jobs.map(j=>{
@@ -1670,7 +1671,7 @@ async function startMediaFinisher(){
  if(!confirm(tr('finisher.costConfirm')))return;finisherBusy=true;
  try{
   const file=fileInput&&fileInput.files&&fileInput.files[0];
-  if(file){toast(tr('finisher.uploading'));const fd=new FormData();fd.append('file',file,file.name);const up=await api('/api/jobs/'+S.selectedJobId+'/media-finisher/upload',{method:'POST',body:fd});input=up.url||'';$('#finisherInputUrl').value=input}
+  if(file){toast(tr('finisher.uploading'));const fd=new FormData();fd.append('file',file,file.name);const up=await api('/api/jobs/'+S.selectedJobId+'/media-finisher/upload',{method:'POST',body:fd});input=up.url||'';$('#finisherInputUrl').value=input;fileInput.value=''}
   const payload={profile_id:profile[0]||'revideo_finish',profile_version:Number(profile[1]||1),platform,input_url:input,confirm_external_cost:true};
   const r=await api('/api/jobs/'+S.selectedJobId+'/media-finisher',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   toast(r.ok?tr('finisher.submitted'):(r.message||'blocked'));await refresh();renderMediaFinisher()
