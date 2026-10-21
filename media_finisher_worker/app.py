@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -104,6 +105,11 @@ def _run(cmd: list[str], *, capture: bool = True, cwd: Path | None = None, timeo
 
 
 def _download(url: str, dest: Path) -> None:
+    if url.rstrip("/") == (PUBLIC_BASE_URL + "/pilot/source.mp4").rstrip("/"):
+        local=_ensure_pilot_fixture()
+        if not local:raise RuntimeError("Pilot fixture is unavailable")
+        shutil.copy2(local,dest)
+        return
     req = urlrequest.Request(url, headers={"User-Agent": "FactoryOS-MediaFinisher/4.5"})
     total = 0
     with urlrequest.urlopen(req, timeout=120) as resp, dest.open("wb") as fh:
@@ -147,31 +153,15 @@ def _extract_audio(src: Path, wav: Path) -> None:
     _run(["ffmpeg", "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)])
 
 
-def _get_whisper():
-    global _whisper_model
-    if _whisper_model is None:
-        from faster_whisper import WhisperModel
-        _whisper_model = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE)
-    return _whisper_model
-
-
 def _transcribe_words(wav: Path) -> tuple[list[dict], dict]:
-    model = _get_whisper()
-    segments, info = model.transcribe(str(wav), word_timestamps=True, vad_filter=True)
-    words: list[dict] = []
-    for segment in segments:
-        for word in segment.words or []:
-            token = str(word.word or "").strip()
-            if not token or word.start is None or word.end is None:
-                continue
-            words.append({
-                "word": token,
-                "start": round(float(word.start), 3),
-                "end": round(float(word.end), 3),
-                "confidence": round(float(word.probability or 0), 4),
-            })
-    meta = {"language": getattr(info, "language", None), "language_probability": getattr(info, "language_probability", None), "model": WHISPER_MODEL}
-    return words, meta
+    """Run ASR in a child process so Whisper memory is released before Remotion/Chromium starts."""
+    output=wav.with_name("transcript-raw.json")
+    _run([
+        sys.executable,"-m","media_finisher_worker.transcribe_runner",
+        str(wav),str(output),WHISPER_MODEL,WHISPER_DEVICE,WHISPER_COMPUTE_TYPE
+    ],timeout=1200)
+    data=json.loads(output.read_text(encoding="utf-8"))
+    return list(data.get("words") or []),dict(data.get("meta") or {})
 
 
 def _detect_silences(src: Path, threshold: float, noise_db: float = -35.0) -> list[dict]:
@@ -445,21 +435,31 @@ def _callback(state: dict) -> None:
         pass
 
 
+def _stage(job_id: str, stage: str, **extra) -> dict:
+    patch={"stage":stage}
+    if extra:patch["progress"]=extra
+    state=_write_state(job_id,patch)
+    print(json.dumps({"event":"MEDIA_FINISHER_STAGE","job_id":job_id,"status":state.get("status"),"stage":stage,**extra},ensure_ascii=False),flush=True)
+    return state
+
+
 def _process(job_id: str) -> None:
     started=time.time();state=_read_state(job_id);payload=state["request"];job_dir=_job_dir(job_id)
     try:
-        _write_state(job_id,{"status":"processing","stage":"download"})
-        src=job_dir/"source.bin";_download(payload["input_url"],src)
+        _write_state(job_id,{"status":"processing","stage":"download","error":""})
+        print(json.dumps({"event":"MEDIA_FINISHER_STAGE","job_id":job_id,"status":"processing","stage":"download"}),flush=True)
+        src=job_dir/"source.bin"
+        if not src.exists() or src.stat().st_size<1024:_download(payload["input_url"],src)
         profile=(payload.get("profile") or {}).get("config") or {}
         normalized=job_dir/"normalized.mp4";_normalize_input(src,normalized,profile)
         before=_probe(normalized);duration=float(before["duration"])
-        _write_state(job_id,{"stage":"transcript"})
+        _stage(job_id,"transcript")
         wav=job_dir/"audio.wav";_extract_audio(normalized,wav)
         words,asr_meta=_transcribe_words(wav)
         cleanup=profile.get("speech_cleanup") or {};threshold=float(cleanup.get("pause_threshold_sec",0.4))
         silences=_detect_silences(normalized,threshold)
         cuts=build_cut_list(silences,words,duration,profile)
-        _write_state(job_id,{"stage":"cleanup","progress":{"words":len(words),"cuts":len(cuts)}})
+        _stage(job_id,"cleanup",words=len(words),cuts=len(cuts))
         clean=job_dir/"clean.mp4";_apply_cuts(normalized,clean,duration,cuts)
         after_clean=_probe(clean);out_duration=float(after_clean["duration"])
         mapped_words=map_words_after_cuts(words,cuts)
@@ -468,7 +468,7 @@ def _process(job_id: str) -> None:
         srt=job_dir/"captions.srt";_write_srt(captions,srt)
         motion=_motion_timeline(out_duration,cuts,profile)
         graphics=_graphics_timeline(payload.get("content_package") or {},out_duration,profile)
-        _write_state(job_id,{"stage":"graphics","progress":{"captions":len(captions),"motion":len(motion),"graphics":len(graphics)}})
+        _stage(job_id,"graphics",captions=len(captions),motion=len(motion),graphics=len(graphics))
         composed=job_dir/"composed.mp4";engine=GRAPHICS_ENGINE
         if engine=="remotion":
             _render_with_remotion(clean,composed,captions,motion,graphics,profile,out_duration,job_dir)
@@ -476,7 +476,7 @@ def _process(job_id: str) -> None:
             _render_ffmpeg_fallback(clean,composed,srt);engine="ffmpeg_captions_only"
         else:
             raise RuntimeError("Unsupported FINISHER_GRAPHICS_ENGINE; use remotion or ffmpeg")
-        _write_state(job_id,{"stage":"audio"})
+        _stage(job_id,"audio")
         final=job_dir/"final.mp4";audio_report=_audio_finish(composed,final,profile)
         final_probe=_probe(final);safe=_safe_zone_report(profile,captions,graphics)
         report={
@@ -494,9 +494,11 @@ def _process(job_id: str) -> None:
         }
         state=_write_state(job_id,{"status":"ready","stage":"done","final_url":_public_file(job_id,"final.mp4"),"report":report,
                                    "graphics_engine":engine,"wall_duration_sec":round(time.time()-started,3),"error":""})
+        print(json.dumps({"event":"MEDIA_FINISHER_DONE","job_id":job_id,"status":"ready","wall_duration_sec":state.get("wall_duration_sec"),"final_url":state.get("final_url")},ensure_ascii=False),flush=True)
         _callback(state)
     except Exception as exc:
         state=_write_state(job_id,{"status":"failed","stage":"failed","error":str(exc)[:1500],"wall_duration_sec":round(time.time()-started,3)})
+        print(json.dumps({"event":"MEDIA_FINISHER_DONE","job_id":job_id,"status":"failed","error":state.get("error"),"wall_duration_sec":state.get("wall_duration_sec")},ensure_ascii=False),flush=True)
         _callback(state)
 
 
@@ -538,6 +540,24 @@ def startup_pilot_fixture():
             print(json.dumps({"event":"FINISHER_PILOT_FIXTURE","status":"ready","path":str(path)}),flush=True)
         except Exception as exc:
             print(json.dumps({"event":"FINISHER_PILOT_FIXTURE","status":"failed","error":str(exc)[:900]}),flush=True)
+
+
+@app.on_event("startup")
+def recover_interrupted_jobs():
+    recovered=0
+    for state_path in DATA_DIR.glob("*/state.json"):
+        try:
+            state=json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if state.get("status") not in ("queued","processing"):
+            continue
+        job_id=str(state.get("id") or state_path.parent.name)
+        recovered+=1
+        print(json.dumps({"event":"MEDIA_FINISHER_RECOVER","job_id":job_id,"previous_stage":state.get("stage")}),flush=True)
+        threading.Thread(target=_process,args=(job_id,),daemon=True,name=f"recover-{job_id[:8]}").start()
+    if recovered:
+        print(json.dumps({"event":"MEDIA_FINISHER_RECOVERY_SUMMARY","recovered":recovered}),flush=True)
 
 
 @app.get("/pilot/source.mp4")
