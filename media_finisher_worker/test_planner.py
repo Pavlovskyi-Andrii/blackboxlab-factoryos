@@ -1,4 +1,4 @@
-from media_finisher_worker.app import build_cut_list, map_words_after_cuts, group_captions
+from media_finisher_worker.app import build_cut_list, map_words_after_cuts, group_captions, _graphics_timeline
 
 profile={
   "speech_cleanup":{"silence_trim":True,"pre_handle_sec":0.1,"post_handle_sec":0.15,"semantic_duplicate_planner":True},
@@ -16,4 +16,9 @@ mapped=map_words_after_cuts(words,cuts)
 assert len(mapped)==4 and mapped[2]["start"]<1.1
 caps=group_captions(mapped,profile,[0.8])
 assert caps and all(1<=len(x["words"])<=3 for x in caps)
+manual={"_factoryos_manual_raw":True,"scenes":[],"title":""}
+graphics=_graphics_timeline(manual,8.0,{"graphics":{"emphasis_max":3,"duration_max_sec":2.0}},mapped)
+assert graphics and all(x["type"]=="transcript_exact_emphasis" for x in graphics)
+source_words={x["word"] for x in mapped}
+assert all(x["text"] in source_words for x in graphics), "manual raw graphics must use exact transcript words"
 print("Media Finisher planner tests passed")
