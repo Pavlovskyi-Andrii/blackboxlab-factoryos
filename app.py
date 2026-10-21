@@ -3787,9 +3787,14 @@ def _normalize_edit_status(value,output_url=""):
     return mapping.get(status,"processing" if status else "submitted")
 
 def _latest_job_video_artifact(job_id):
-    con=db();row=con.execute("""SELECT * FROM artifacts WHERE job_id=? AND kind='video' AND COALESCE(url,'')!=''
-                               ORDER BY created_at DESC LIMIT 1""",(job_id,)).fetchone();con.close()
-    return dict(row) if row else None
+    con=db();rows=con.execute("""SELECT * FROM artifacts WHERE job_id=? AND kind='video' AND COALESCE(url,'')!=''
+                                ORDER BY created_at DESC LIMIT 40""",(job_id,)).fetchall();con.close()
+    for row in rows:
+        item=dict(row);meta=_decode_json(item.get("meta_json") or "{}",{})
+        if item.get("agent")=="AI Media Finisher" and meta.get("component") in ("final_render","short_render"):
+            continue
+        return item
+    return None
 
 def _resolve_finisher_input(job_id,input_url="",media_job_id=""):
     input_url=str(input_url or "").strip()
