@@ -613,11 +613,7 @@ def _ensure_pilot_fixture() -> Path | None:
 @app.on_event("startup")
 def startup_pilot_fixture():
     if ENABLE_PILOT_FIXTURE:
-        try:
-            path=_ensure_pilot_fixture()
-            print(json.dumps({"event":"FINISHER_PILOT_FIXTURE","status":"ready","path":str(path)}),flush=True)
-        except Exception as exc:
-            print(json.dumps({"event":"FINISHER_PILOT_FIXTURE","status":"failed","error":str(exc)[:900]}),flush=True)
+        print(json.dumps({"event":"FINISHER_PILOT_FIXTURE","status":"lazy","note":"generated only when /pilot/source.mp4 is requested"}),flush=True)
 
 
 @app.on_event("startup")
