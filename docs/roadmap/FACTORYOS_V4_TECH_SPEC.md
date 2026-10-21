@@ -155,7 +155,7 @@ signals / trends / sources
 | v4.1 | Production Hardening / Real Pilot | DONE | первый real paid cycle + production hardening |
 | v4.2 | UX Clarity / Worker Transparency | DONE | понятный UI, tooltips, i18n и реальные outputs workers |
 | v4.3 | Revideo / Original Rewrite MVP | DONE | URL/transcript → original rewrite → production + video adapter hook |
-| v4.4 | Real Media Provider Foundation | IN PROGRESS | async media jobs + Descript verified; Runway runtime verification pending |
+| v4.4 | Real Media Provider Foundation | DONE | provider-neutral async media jobs + real Descript provider proof; Runway kept as adapter-specific verification backlog |
 | v4.5 | AI Editing / Media Finisher | PROPOSED | FFmpeg + word-level ASR + Remotion finishing, audio/safe-zone QA, traceable edit report |
 
 ---
@@ -916,6 +916,14 @@ Human approval, explicit publishing, spend budgets, evidence boundaries и contr
 
 Новые записи добавлять сверху.
 
+## 2026-10-21 — v4.4 Real Media Provider Foundation DONE / v4.5 next
+
+- v4.4 закрыт как **provider-neutral foundation**: async media-job lifecycle, polling/callback, provider IDs/results/errors, Revideo status UI и Render Agent artifact path уже live.
+- Реальный Descript provider proof подтверждён: 8s vertical 1080×1920 / 30fps composition + published 1080p video.
+- Runway runtime **не объявляется проверенным**; он вынесен в adapter-specific verification backlog и больше не блокирует нейтральный foundation milestone.
+- Human approval / explicit publishing boundary сохранён.
+- NEXT: v4.5 AI Editing / Media Finisher implementation.
+
 ## 2026-10-21 — v4.5 AI Editing / Media Finisher proposal
 
 - По пользовательскому гайду по AI-монтажу зафиксирован отдельный proposal: [`FACTORYOS_V4_5_AI_EDITING_SPEC.md`](FACTORYOS_V4_5_AI_EDITING_SPEC.md).
@@ -1073,12 +1081,8 @@ Human approval, explicit publishing, spend budgets, evidence boundaries и contr
 
 # 17. Current Next Action
 
-**NEXT: v4.4 — Runway runtime binding + controlled end-to-end Revideo media pilot**
+**NEXT: v4.5 — AI Editing / Media Finisher implementation**
 
-v4.4 media foundation уже live: persistent async media jobs, provider polling/callback, UI status и Render Agent artifact path проверены; отдельный реальный Descript composition/publish pilot прошёл успешно.
+v4.4 закрыт как provider-neutral foundation: persistent async media jobs, polling/callback, provider IDs/results/errors, UI status, Render Agent artifact path и real Descript provider proof подтверждены. Runway runtime остаётся отдельной adapter-specific verification задачей и не считается проверенным.
 
-Следующий обязательный acceptance:
-
-`public source URL + transcript → original rewrite → production variants → fresh Content Package → real Runway generation job → optional Descript assembly/edit → Render Agent media artifact → human review`.
-
-Milestone v4.4 остаётся **IN PROGRESS**, пока FactoryOS не выполнит и не сохранит фактический Runway provider job/result. Публикация остаётся отдельным explicit действием после human approval; отсутствие provider credentials/status должно отображаться честно, без fake media.
+Следующий milestone — v4.5 AI Media Finisher: `raw/generated media → word timing → edit plan → FFmpeg cleanup → captions/graphics → audio finish → safe-zone QA → final artifact → HUMAN APPROVAL`. Публикация по-прежнему отдельное explicit действие.

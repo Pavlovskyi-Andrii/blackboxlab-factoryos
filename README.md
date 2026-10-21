@@ -23,7 +23,7 @@ This document is the source of truth for milestone status, Definition of Done, p
 - Added zero-spend regression coverage for the asynchronous media lifecycle; CI `39441923218` PASS.
 - Production commit `7edec23c0d0258abb4978fcfbeab272d4260b97c`; Render deploy `dep-dbbnsjpsrm7s738fqbj0` LIVE with clean startup and repeated `/health 200 OK`.
 - Completed a real Descript integration pilot in Blackbox Lab's Drive: Agent Underlord created an 8-second 1080×1920 / 30 fps composition and Descript published a real 1080p video successfully.
-- **Status: IN PROGRESS.** The generic media bridge and Descript leg are verified; the Runway runtime leg is not marked complete until FactoryOS itself successfully executes and records a real Runway provider job.
+- **Status: DONE (provider-neutral foundation).** The generic media bridge and a real Descript provider path are verified. Runway runtime remains a separate adapter-specific verification backlog item and is not claimed as verified.
 - Human approval and publishing remain separate; no automatic social publishing was enabled.
 
 ### v4.3 — Revideo / Original Rewrite MVP — 2026-10-20

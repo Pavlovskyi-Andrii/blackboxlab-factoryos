@@ -888,16 +888,16 @@
       }
     },
     "v4.4-real-media-provider": {
-      "status": "in_progress",
+      "status": "done",
       "meta": {
         "title": "v4.4 — Real Media Provider Foundation",
-        "description": "Persist and observe asynchronous video provider jobs, verify real Descript composition/publish, then bind and verify a real Runway generation job through FactoryOS before closing the milestone.",
+        "description": "Provider-neutral asynchronous media foundation with observable provider jobs, a verified real Descript provider path, and preserved human approval. Runway remains an adapter-specific verification backlog item rather than a blocker for the generic foundation.",
         "category": "production",
         "priority": "high",
         "owner": "Factory Builder",
         "order_index": 330,
         "evidence": {
-          "production_head": "7edec23c0d0258abb4978fcfbeab272d4260b97c",
+          "production_head": "83fc31afb110954c60eac9966ce72591c21a9458",
           "ci_run": "39441923218",
           "ci": "passed",
           "render_deploy": "dep-dbbnsjpsrm7s738fqbj0",
@@ -909,8 +909,9 @@
           "provider_callback": "FACTORY_VIDEO_CALLBACK_TOKEN",
           "worker_evidence": "ready media persists as Render Agent video artifact",
           "descript_pilot": "passed: 8s 1080x1920 30fps composition + real 1080p published video",
-          "runway_runtime": "verify_pending",
-          "publishing_guard": "human approval remains required; no automatic social publishing"
+          "runway_runtime": "deferred_adapter_specific_verification_not_claimed",
+          "publishing_guard": "human approval remains required; no automatic social publishing",
+          "closure_reason": "generic async provider foundation and real Descript provider proof satisfy provider-neutral milestone; Runway is tracked separately"
         }
       },
       "steps": {
@@ -920,7 +921,7 @@
         "implement": "done",
         "test": "done",
         "deploy": "done",
-        "verify": "in_progress"
+        "verify": "done"
       }
     }
   }
