@@ -30,6 +30,7 @@ WHISPER_COMPUTE_TYPE = os.environ.get("FINISHER_WHISPER_COMPUTE_TYPE", "int8").s
 GRAPHICS_ENGINE = os.environ.get("FINISHER_GRAPHICS_ENGINE", "remotion").strip().lower()
 REMOTION_BROWSER = os.environ.get("REMOTION_BROWSER_EXECUTABLE", "/usr/bin/chromium").strip()
 MAX_DOWNLOAD_BYTES = int(os.environ.get("FINISHER_MAX_DOWNLOAD_BYTES", str(750 * 1024 * 1024)))
+ENABLE_PILOT_FIXTURE = os.environ.get("FINISHER_ENABLE_PILOT_FIXTURE", "").strip().lower() in ("1","true","yes","on")
 
 app = FastAPI(title="FactoryOS AI Media Finisher", version=APP_VERSION)
 _state_lock = threading.Lock()
@@ -490,6 +491,56 @@ def _process(job_id: str) -> None:
     except Exception as exc:
         state=_write_state(job_id,{"status":"failed","stage":"failed","error":str(exc)[:1500],"wall_duration_sec":round(time.time()-started,3)})
         _callback(state)
+
+
+
+def _ensure_pilot_fixture() -> Path | None:
+    if not ENABLE_PILOT_FIXTURE:
+        return None
+    pilot_dir = DATA_DIR / "_pilot"
+    pilot_dir.mkdir(parents=True, exist_ok=True)
+    source = pilot_dir / "source.mp4"
+    if source.exists() and source.stat().st_size > 10000:
+        return source
+    first = pilot_dir / "first.wav"
+    second = pilot_dir / "second.wav"
+    silence = pilot_dir / "silence.wav"
+    speech = pilot_dir / "speech.wav"
+    _run(["espeak-ng","-s","155","-v","en-us","-w",str(first),"Factory OS finds the pauses."])
+    _run(["espeak-ng","-s","155","-v","en-us","-w",str(second),"Then it cuts the dead air. Adds captions. Adds captions. And sends the final video back for human approval."])
+    _run(["ffmpeg","-y","-f","lavfi","-i","anullsrc=r=22050:cl=mono","-t","0.85","-c:a","pcm_s16le",str(silence)])
+    _run([
+        "ffmpeg","-y","-i",str(first),"-i",str(silence),"-i",str(second),
+        "-filter_complex",
+        "[0:a]aresample=48000[a0];[1:a]aresample=48000[a1];[2:a]aresample=48000[a2];[a0][a1][a2]concat=n=3:v=0:a=1[out]",
+        "-map","[out]","-c:a","pcm_s16le",str(speech)
+    ])
+    _run([
+        "ffmpeg","-y","-f","lavfi","-i","color=c=0x111827:s=1080x1920:r=30",
+        "-i",str(speech),"-shortest","-c:v","libx264","-preset","veryfast","-crf","22",
+        "-pix_fmt","yuv420p","-c:a","aac","-b:a","160k","-ar","48000","-movflags","+faststart",str(source)
+    ])
+    return source
+
+
+@app.on_event("startup")
+def startup_pilot_fixture():
+    if ENABLE_PILOT_FIXTURE:
+        try:
+            path=_ensure_pilot_fixture()
+            print(json.dumps({"event":"FINISHER_PILOT_FIXTURE","status":"ready","path":str(path)}),flush=True)
+        except Exception as exc:
+            print(json.dumps({"event":"FINISHER_PILOT_FIXTURE","status":"failed","error":str(exc)[:900]}),flush=True)
+
+
+@app.get("/pilot/source.mp4")
+def pilot_source():
+    if not ENABLE_PILOT_FIXTURE:
+        raise HTTPException(404,"Pilot fixture is disabled")
+    path=_ensure_pilot_fixture()
+    if not path or not path.exists():
+        raise HTTPException(503,"Pilot fixture is not ready")
+    return FileResponse(path,media_type="video/mp4",filename="factoryos-v45-pilot-source.mp4")
 
 
 @app.get("/health")
