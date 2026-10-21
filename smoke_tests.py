@@ -218,14 +218,20 @@ require(resolved_url==signed_ci_url and resolved_artifact==signed_artifact,"uplo
 publish_before=app._publishing_summary()
 orig_finish_endpoint=app.FACTORY_MEDIA_FINISHER_ENDPOINT
 orig_external_json=app._external_json
+orig_finisher_spawn=app._spawn_media_finisher_submit
 app.FACTORY_MEDIA_FINISHER_ENDPOINT="https://ci.invalid/finish"
+app._spawn_media_finisher_submit=lambda edit_job_id: None
 finisher_payloads=[]
+finisher_attempts=[0]
 def fake_finisher_provider(url,method="GET",payload=None,token=""):
     require(method=="POST","Media Finisher CI provider must receive POST")
+    finisher_attempts[0]+=1
+    if finisher_attempts[0]==1:
+        raise TimeoutError("synthetic cold start")
     require(payload["guardrails"]["no_auto_publish"] is True,"Media Finisher guardrail missing")
     require(payload["profile"]["config"]["captions"]["max_words"]==3,"profile config not sent to finisher")
     finisher_payloads.append(payload)
-    return {"id":"ci-finisher-task-1","status":"processing"}
+    return {"id":"ci-finisher-task-1","status":"processing","stage":"queued","percent":1}
 app._external_json=fake_finisher_provider
 try:
     started=app.start_media_finisher(job_id,app.MediaFinisherStartRequest(
@@ -234,7 +240,16 @@ try:
         confirm_external_cost=True
     ))
     edit_id=started["edit_job"]["id"]
-    require(started["edit_job"]["status"]=="processing" and started["edit_job"]["provider_job_id"]=="ci-finisher-task-1","Media Finisher submit lifecycle regression")
+    require(started["edit_job"]["status"]=="queued" and not started["edit_job"]["provider_job_id"],"Media Finisher must return immediately while worker wakes")
+    require((started["edit_job"]["response"] or {}).get("stage")=="waking_worker" and int((started["edit_job"]["response"] or {}).get("percent") or 0)>=1,
+            "Media Finisher queued response must expose visible startup progress")
+    orig_sleep=app.time.sleep
+    app.time.sleep=lambda _seconds: None
+    try:app._submit_media_finisher_background(edit_id)
+    finally:app.time.sleep=orig_sleep
+    submitted=app.get_edit_job(edit_id)
+    require(submitted["status"]=="processing" and submitted["provider_job_id"]=="ci-finisher-task-1","Media Finisher background submit lifecycle regression")
+    require(finisher_attempts[0]>=2,"Media Finisher cold-start timeout must retry automatically")
     submitted_opts=finisher_payloads[-1]["options"]
     require(submitted_opts["edit_full_video"] is True and submitted_opts["split_shortform"] is True,"Media Finisher full/short output options regression")
     require(submitted_opts["add_captions"] is True and submitted_opts["add_animation"] is True and submitted_opts["smart_graphics"] is True,"Media Finisher editing option regression")
@@ -286,14 +301,17 @@ try:
     direct=app.start_media_finisher(manual_job_id,app.MediaFinisherStartRequest(
         profile_id="talking_head_fast",profile_version=1,platform="reels",input_url="",confirm_external_cost=True
     ))
-    require(direct["edit_job"]["status"]=="processing","direct raw upload Media Finisher submit regression")
+    require(direct["edit_job"]["status"]=="queued","direct raw upload must queue immediately while submit runs asynchronously")
+    direct_id=direct["edit_job"]["id"]
+    app._submit_media_finisher_background(direct_id)
+    direct= {"edit_job":app.get_edit_job(direct_id)}
+    require(direct["edit_job"]["status"]=="processing","direct raw upload Media Finisher background submit regression")
     direct_payload=finisher_payloads[-1]
     require(direct_payload["package_mode"]=="manual_raw_upload","direct upload must use manual raw package mode")
     require(direct_payload["content_package"]["_factoryos_manual_raw"] is True,"direct upload marker missing")
     require(direct_payload["guardrails"]["manual_raw_upload_transcript_exact_graphics"] is True,
             "direct upload graphics must be constrained to exact transcript words")
 
-    direct_id=direct["edit_job"]["id"]
     split_only_report={
       "caption_timeline":[],"graphics_timeline":[],"safe_zone_report":{"violations":[]},
       "shorts_manifest":{"enabled":True,"clips":[{"index":1,"start_sec":0.0,"end_sec":8.0,"url":"https://example.com/manual-short-01.mp4"}]},
@@ -319,6 +337,7 @@ try:
     require(deleted_row is None,"deleted raw video artifact must leave the active buffer")
 finally:
     app._external_json=orig_external_json
+    app._spawn_media_finisher_submit=orig_finisher_spawn
     app.FACTORY_MEDIA_FINISHER_ENDPOINT=orig_finish_endpoint
 
 exports=app._package_export_files(package_result["package_record"])
