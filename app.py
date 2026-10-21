@@ -7304,11 +7304,23 @@ async def media_finisher_upload(job_id:str,request:Request,file:UploadFile=File(
     event(job_id,f"Media Finisher raw video uploaded: {filename} · {round(total/1024/1024,1)} MB")
     return {"ok":True,"upload_id":upload_id,"url":source_url,"artifact_id":artifact_id,"bytes":total,"filename":filename}
 
+def _recover_active_media_finisher_jobs():
+    time.sleep(2)
+    con=db();rows=con.execute("""SELECT id FROM edit_jobs WHERE status IN ('queued','submitted','processing')
+                                ORDER BY created_at DESC LIMIT 20""").fetchall();con.close()
+    checked=0
+    for row in rows:
+        try:refresh_edit_job(row["id"]);checked+=1
+        except Exception as exc:
+            print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY_ERROR","edit_job_id":row["id"],"error":str(exc)[:400]}),flush=True)
+    if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked}),flush=True)
+
 @app.on_event("startup")
 def recover_pending_media_finisher_submits():
     con=db();rows=con.execute("""SELECT id FROM edit_jobs WHERE status IN ('queued','submitted','processing')
                                 AND COALESCE(provider_job_id,'')='' ORDER BY created_at DESC LIMIT 20""").fetchall();con.close()
     for row in rows:_spawn_media_finisher_submit(row["id"])
+    threading.Thread(target=_recover_active_media_finisher_jobs,daemon=True,name="finisher-status-recovery").start()
     if rows:print(json.dumps({"event":"MEDIA_FINISHER_SUBMIT_RECOVERY","queued":len(rows)}),flush=True)
 
 @app.get("/api/media-finisher/profiles")
