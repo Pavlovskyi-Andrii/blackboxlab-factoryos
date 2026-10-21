@@ -4046,7 +4046,21 @@ def refresh_edit_job(edit_job_id):
     status_base=_media_finisher_status_base()
     if not status_base:raise RuntimeError("Media Finisher status endpoint is not configured")
     endpoint=status_base.rstrip("/")+"/"+urlparse.quote(item["provider_job_id"],safe="")
-    result=_external_json(endpoint,"GET",None,FACTORY_MEDIA_FINISHER_TOKEN)
+    try:
+        result=_external_json(endpoint,"GET",None,FACTORY_MEDIA_FINISHER_TOKEN)
+    except urlerror.HTTPError as exc:
+        if int(getattr(exc,"code",0) or 0)==404:
+            response=dict(item.get("response") or {})
+            response.update({"status":"queued","stage":"waking_worker","percent":max(1,int(response.get("percent") or 1)),
+                             "recovered_after_worker_restart":True})
+            con=db();con.execute("""UPDATE edit_jobs SET provider_job_id='',status='queued',error='',response_json=?,updated_at=? WHERE id=?""",
+                                 (json.dumps(response,ensure_ascii=False,default=str),ts(),edit_job_id));con.commit();con.close()
+            event(item["production_job_id"],f"AI Media Finisher worker state was lost after restart; auto-resubmitting {edit_job_id[:8]}")
+            _spawn_media_finisher_submit(edit_job_id)
+            return get_edit_job(edit_job_id)
+        raise
+    except (TimeoutError,urlerror.URLError):
+        return item
     output_url=str(result.get("final_url") or result.get("output_url") or result.get("url") or "").strip()
     report=result.get("report") if isinstance(result.get("report"),dict) else {}
     return _finalize_edit_job(edit_job_id,result.get("status"),output_url,str(result.get("id") or result.get("job_id") or item.get("provider_job_id") or ""),str(result.get("error") or ""),result,report,float(result.get("cost_usd") or item.get("measured_cost_usd") or 0),float(result.get("duration_sec") or item.get("measured_duration_sec") or 0))
