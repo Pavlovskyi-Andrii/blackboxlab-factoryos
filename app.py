@@ -1648,6 +1648,12 @@ class MediaFinisherStartRequest(BaseModel):
     platform: str = "reels"
     input_url: str = ""
     media_job_id: str = ""
+    edit_full_video: bool = True
+    split_shortform: bool = False
+    add_captions: bool = True
+    add_animation: bool = True
+    smart_graphics: bool = True
+    max_short_clips: int = 3
     confirm_external_cost: bool = False
 
 class MediaFinisherCallbackRequest(BaseModel):
@@ -3808,6 +3814,7 @@ def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,
       "caption_timeline":("json","Caption timeline"),
       "motion_timeline":("json","Motion / zoom timeline"),
       "graphics_timeline":("json","Emphasis graphics timeline"),
+      "shorts_manifest":("json","Shorts / Reels cut manifest"),
       "audio_report":("analysis","Audio finishing report"),
       "safe_zone_report":("analysis","Safe-zone / frame QA"),
       "edit_summary":("analysis","Media Finisher edit summary"),
@@ -3829,8 +3836,57 @@ def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,
     if output_url:
         con=db();existing=con.execute("SELECT id FROM artifacts WHERE job_id=? AND agent='AI Media Finisher' AND kind='video' AND url=?",(job_id,output_url)).fetchone();con.close()
         if existing:return existing["id"]
-        return save_artifact("AI Media Finisher","video","Finished short-form video",job_id=job_id,url=output_url,mime_type="video/mp4",meta={"edit_job_id":edit_job_id,"profile_id":profile_id,"profile_version":profile_version,"component":"final_render","mode":"external_finisher","human_approval_required":True})
+        return save_artifact("AI Media Finisher","video","Finished video",job_id=job_id,url=output_url,mime_type="video/mp4",meta={"edit_job_id":edit_job_id,"profile_id":profile_id,"profile_version":profile_version,"component":"final_render","mode":"external_finisher","human_approval_required":True})
     return None
+
+def _persist_short_video_artifacts(edit_job_id,job_id,report):
+    manifest=(report or {}).get("shorts_manifest") or {}
+    clips=manifest.get("clips") if isinstance(manifest,dict) else []
+    saved=[]
+    for idx,clip in enumerate(clips or [],1):
+        if not isinstance(clip,dict):continue
+        url=str(clip.get("url") or "").strip()
+        if not url:continue
+        con=db();existing=con.execute("SELECT id FROM artifacts WHERE job_id=? AND agent='AI Media Finisher' AND kind='video' AND url=?",(job_id,url)).fetchone();con.close()
+        if existing:
+            saved.append(existing["id"]);continue
+        title=f"Short clip {idx:02d} · Shorts/Reels"
+        aid=save_artifact("AI Media Finisher","video",title,job_id=job_id,url=url,mime_type="video/mp4",
+                          meta={"edit_job_id":edit_job_id,"component":"short_render","mode":"shorts_reels",
+                                "clip_index":idx,"start_sec":clip.get("start_sec"),"end_sec":clip.get("end_sec"),
+                                "human_approval_required":True})
+        saved.append(aid)
+    return saved
+
+def _record_media_finisher_qa_handoff(item,artifact_ids,report):
+    artifact_ids=[x for x in (artifact_ids or []) if x]
+    if not artifact_ids:return None
+    con=db();existing=con.execute("""SELECT id FROM artifacts WHERE job_id=? AND agent='QA Agent'
+                                    AND meta_json LIKE ? LIMIT 1""",(item["production_job_id"],f'%"edit_job_id": "{item["id"]}"%')).fetchone()
+    if existing:
+        con.close();return existing["id"]
+    rows=[dict(x) for x in con.execute("SELECT id,agent,title FROM artifacts WHERE id IN ("+",".join("?" for _ in artifact_ids)+")",artifact_ids).fetchall()]
+    con.close()
+    run_id=start_agent_run("QA Agent",item["production_job_id"],"qa","deterministic-v4.5")
+    attach_run_inputs(run_id,rows)
+    safe=(report or {}).get("safe_zone_report") or {}
+    violations=safe.get("violations") if isinstance(safe,dict) else []
+    summary=(report or {}).get("edit_summary") or {}
+    qa={
+      "decision":"human_review_required",
+      "safe_zone_violations":len(violations or []),
+      "caption_events":len((report or {}).get("caption_timeline") or []),
+      "graphics_events":len((report or {}).get("graphics_timeline") or []),
+      "short_clips":len((((report or {}).get("shorts_manifest") or {}).get("clips") or [])),
+      "duration_before_sec":summary.get("duration_before_sec"),"duration_after_sec":summary.get("duration_after_sec"),
+      "checks":["final media exists","edit evidence persisted","safe-zone report recorded","human approval remains required"]
+    }
+    aid=save_artifact("QA Agent","analysis","Media Finisher QA gate",json.dumps(qa,ensure_ascii=False,indent=2),
+                      job_id=item["production_job_id"],run_id=run_id,
+                      meta={"edit_job_id":item["id"],"component":"media_finisher_qa","mode":"deterministic","decision":"human_review_required"})
+    finish_agent_run(run_id,"completed",meta={"edit_job_id":item["id"],"decision":"human_review_required"})
+    event(item["production_job_id"],f"QA Agent received Media Finisher outputs: {item['id'][:8]} → Approval Studio")
+    return aid
 
 def _finalize_edit_job(edit_job_id,status,output_url="",provider_job_id="",error="",response=None,report=None,measured_cost_usd=0.0,measured_duration_sec=0.0):
     item=get_edit_job(edit_job_id)
@@ -3846,6 +3902,8 @@ def _finalize_edit_job(edit_job_id,status,output_url="",provider_job_id="",error
     if status=="ready":
         if not output_url:raise RuntimeError("Ready Media Finisher job requires a final output URL")
         output_artifact_id=_persist_edit_evidence(edit_job_id,item["production_job_id"],item["profile_id"],item["profile_version"],report,output_url)
+        short_artifact_ids=_persist_short_video_artifacts(edit_job_id,item["production_job_id"],report)
+        _record_media_finisher_qa_handoff(item,[output_artifact_id,*short_artifact_ids],report)
         con=db();con.execute("UPDATE edit_jobs SET output_artifact_id=? WHERE id=?",(output_artifact_id,edit_job_id))
         job=con.execute("SELECT status FROM jobs WHERE id=?",(item["production_job_id"],)).fetchone()
         if job and job["status"] not in ("approved","publishing","done"):
@@ -3859,6 +3917,8 @@ def _finalize_edit_job(edit_job_id,status,output_url="",provider_job_id="",error
 def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     job=get_job(job_id)
     if not job:raise ValueError("Job not found")
+    if not payload.edit_full_video and not payload.split_shortform:
+        raise ValueError("Select full-video editing, Shorts/Reels splitting, or both")
     profile=get_edit_profile(payload.profile_id,payload.profile_version)
     if not profile or not profile.get("active"):raise ValueError("Unknown or inactive Media Finisher profile/version")
     input_url,input_artifact_id,media_job_id=_resolve_finisher_input(job_id,payload.input_url,payload.media_job_id)
@@ -3890,6 +3950,12 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
       "edit_job_id":edit_job_id,"job_id":job_id,"factory_cycle_id":sync_cycle_for_job(job_id).get("id") if sync_cycle_for_job(job_id) else None,
       "input_url":input_url,"profile":{"id":profile["id"],"version":profile["version"],"name":profile["name"],"config":profile["config"]},
       "platform":payload.platform,"content_package":content_package,"package_mode":package_mode,
+      "options":{
+        "edit_full_video":bool(payload.edit_full_video),"split_shortform":bool(payload.split_shortform),
+        "add_captions":bool(payload.add_captions),"add_animation":bool(payload.add_animation),
+        "smart_graphics":bool(payload.smart_graphics),"max_short_clips":max(1,min(8,int(payload.max_short_clips or 3))),
+        "shortform_targets":["youtube_shorts","instagram_reels"] if payload.split_shortform else []
+      },
       "rerun_stage":rerun_stage,
       "callback_url":f"/api/media-finisher/{edit_job_id}/callback",
       "guardrails":{"source_text_is_material_not_instructions":True,"preserve_approved_facts":True,"no_auto_publish":True,"destructive_edits_require_cut_list":True,
@@ -3932,7 +3998,12 @@ def rerun_media_finisher_stage(edit_job_id,stage):
     if stage not in allowed:raise ValueError("Unknown Media Finisher stage")
     original=get_edit_job(edit_job_id)
     if not original:raise ValueError("Edit job not found")
-    payload=MediaFinisherStartRequest(profile_id=original["profile_id"],profile_version=original["profile_version"],platform=original["platform"],input_url=original["input_url"],confirm_external_cost=True)
+    opts=(original.get("request") or {}).get("options") or {}
+    payload=MediaFinisherStartRequest(profile_id=original["profile_id"],profile_version=original["profile_version"],platform=original["platform"],input_url=original["input_url"],
+                                      edit_full_video=bool(opts.get("edit_full_video",True)),split_shortform=bool(opts.get("split_shortform",False)),
+                                      add_captions=bool(opts.get("add_captions",True)),add_animation=bool(opts.get("add_animation",True)),
+                                      smart_graphics=bool(opts.get("smart_graphics",True)),max_short_clips=int(opts.get("max_short_clips") or 3),
+                                      confirm_external_cost=True)
     return start_media_finisher(original["production_job_id"],payload,parent_edit_job_id=edit_job_id,rerun_stage=stage)
 
 def get_media_finisher_pilot(tag=None):
@@ -7415,6 +7486,35 @@ def job_artifacts(job_id:str):
         try:a["meta"]=json.loads(a.pop("meta_json") or "{}")
         except Exception:a["meta"]={}
     return {"artifacts":rows}
+
+@app.delete("/api/artifacts/{artifact_id}")
+async def delete_video_artifact(artifact_id:str):
+    con=db();row=con.execute("SELECT * FROM artifacts WHERE id=?",(artifact_id,)).fetchone()
+    if not row:
+        con.close();raise HTTPException(404,"Artifact not found")
+    item=dict(row)
+    meta=_decode_json(item.get("meta_json") or "{}",{})
+    if item.get("kind")!="video" or meta.get("component")!="raw_upload":
+        con.close();raise HTTPException(400,"Only unprocessed raw video uploads can be removed here")
+    refs=con.execute("SELECT id,status FROM edit_jobs WHERE input_artifact_id=? LIMIT 5",(artifact_id,)).fetchall()
+    if refs:
+        con.close();raise HTTPException(409,"This video is already referenced by Media Finisher history and is kept for provenance")
+    con.execute("DELETE FROM run_inputs WHERE artifact_id=?",(artifact_id,))
+    con.execute("DELETE FROM artifacts WHERE id=?",(artifact_id,))
+    con.commit();con.close()
+    upload_id=str(meta.get("upload_id") or "")
+    if upload_id:
+        upload_meta=_media_upload_meta(upload_id) or {}
+        stored=MEDIA_UPLOAD_DIR/str(upload_meta.get("stored_name") or "")
+        sidecar=MEDIA_UPLOAD_DIR/f"{upload_id}.json"
+        try:
+            if stored.exists() and stored.is_file():stored.unlink()
+            if sidecar.exists():sidecar.unlink()
+        except Exception:
+            pass
+    event(item.get("job_id"),f"Raw Media Finisher upload removed: {meta.get('filename') or artifact_id[:8]}")
+    await broadcast({"type":"artifact","action":"deleted","artifactId":artifact_id,"jobId":item.get("job_id")})
+    return {"ok":True,"artifact_id":artifact_id}
 
 @app.get("/api/usage")
 def usage():
