@@ -7336,15 +7336,29 @@ def _retire_legacy_media_finisher_pilots():
 
 def _recover_active_media_finisher_jobs():
     time.sleep(2)
-    con=db();rows=con.execute("""SELECT id,updated_at,request_json FROM edit_jobs WHERE status IN ('queued','submitted','processing')
+    con=db();rows=con.execute("""SELECT id,updated_at,request_json,provider_job_id,status FROM edit_jobs WHERE status IN ('queued','submitted','processing')
                                 ORDER BY created_at DESC LIMIT 30""").fetchall();con.close()
-    rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],120) and not _is_media_finisher_pilot_request(row["request_json"])]
+    rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],360) and not _is_media_finisher_pilot_request(row["request_json"])]
     checked=0
     for row in rows:
-        try:refresh_edit_job(row["id"]);checked+=1
+        try:
+            if not str(row["provider_job_id"] or "").strip():
+                _spawn_media_finisher_submit(row["id"])
+            else:
+                refresh_edit_job(row["id"])
+            checked+=1
         except Exception as exc:
             print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY_ERROR","edit_job_id":row["id"],"error":str(exc)[:400]}),flush=True)
     if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked}),flush=True)
+
+def _media_finisher_watchdog_loop():
+    time.sleep(8)
+    while True:
+        try:
+            _recover_active_media_finisher_jobs()
+        except Exception as exc:
+            print(json.dumps({"event":"MEDIA_FINISHER_WATCHDOG_ERROR","error":str(exc)[:500]}),flush=True)
+        time.sleep(15)
 
 REAL_MEDIA_REPAIR_GENERATION="manual-raw-v45-free-worker-2"
 
@@ -7397,7 +7411,7 @@ def recover_pending_media_finisher_submits():
     for row in rows:_spawn_media_finisher_submit(row["id"])
     _recover_recent_real_media_failures()
     _recover_recent_failed_asr_jobs()
-    threading.Thread(target=_recover_active_media_finisher_jobs,daemon=True,name="finisher-status-recovery").start()
+    threading.Thread(target=_media_finisher_watchdog_loop,daemon=True,name="finisher-watchdog").start()
     if rows:print(json.dumps({"event":"MEDIA_FINISHER_SUBMIT_RECOVERY","queued":len(rows)}),flush=True)
 
 @app.get("/api/media-finisher/profiles")
