@@ -1,4 +1,4 @@
-from media_finisher_worker.app import build_cut_list, map_words_after_cuts, group_captions, _graphics_timeline
+from media_finisher_worker.app import build_cut_list, map_words_after_cuts, group_captions, _graphics_timeline, _short_clip_windows
 
 profile={
   "speech_cleanup":{"silence_trim":True,"pre_handle_sec":0.1,"post_handle_sec":0.15,"semantic_duplicate_planner":True},
@@ -21,4 +21,14 @@ graphics=_graphics_timeline(manual,8.0,{"graphics":{"emphasis_max":3,"duration_m
 assert graphics and all(x["type"]=="transcript_exact_emphasis" for x in graphics)
 source_words={x["word"] for x in mapped}
 assert all(x["text"] in source_words for x in graphics), "manual raw graphics must use exact transcript words"
+
+long_words=[]
+for i in range(240):
+    start=i*0.5
+    token=("important" if i%9==0 else "context" if i%5==0 else "word")+str(i)
+    long_words.append({"word":token,"start":start,"end":start+0.3,"confidence":1})
+shorts=_short_clip_windows(long_words,120.0,3)
+assert 1<=len(shorts)<=3
+assert all(0<=x["start_sec"]<x["end_sec"]<=120.0 for x in shorts)
+assert shorts==sorted(shorts,key=lambda x:x["start_sec"])
 print("Media Finisher planner tests passed")
