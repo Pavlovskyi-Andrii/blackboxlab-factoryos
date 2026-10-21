@@ -9,6 +9,7 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 The living technical specification and progress tracker for the next major product cycle is here:
 
 - [FactoryOS v4.0 — Technical Specification & Roadmap](docs/roadmap/FACTORYOS_V4_TECH_SPEC.md)
+- [FactoryOS v4.5 — AI Editing / Media Finisher proposal](docs/roadmap/FACTORYOS_V4_5_AI_EDITING_SPEC.md) — proposed deterministic post-production layer: FFmpeg + word-level ASR + Remotion + audio/safe-zone QA. **Design only; not implemented yet.**
 
 This document is the source of truth for milestone status, Definition of Done, progress checkboxes, known gaps and the next action from v3.25 through v4.0.
 
