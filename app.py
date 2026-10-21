@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.4"
+APP_VERSION = "v4.5"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -72,7 +72,7 @@ AGENT_MAP = {
     "publish": ["Publisher"],
     "analytics": ["Analyst"],
 }
-AGENTS = list(dict.fromkeys([a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Hook Writer","Content Packager","Supervisor","Design Partner"]))
+AGENTS = list(dict.fromkeys([a for stage in STAGES for a in AGENT_MAP.get(stage, [])] + ["Hook Writer","Content Packager","AI Media Finisher","Supervisor","Design Partner"]))
 
 AGENT_DEPENDENCIES = {
     "Scout": [],
@@ -86,6 +86,7 @@ AGENT_DEPENDENCIES = {
     "Hook Optimizer": ["Hook Generator","Fact Checker"],
     "Editor": ["Scriptwriter","Hook Optimizer","Fact Checker"],
     "Content Packager": ["Editor","Fact Checker"],
+    "AI Media Finisher": ["Content Packager","Render Agent"],
     "Visual Director": ["Content Packager"],
     "Voice Agent": ["Content Packager"],
     "Render Agent": ["Visual Director","Voice Agent"],
@@ -108,6 +109,7 @@ AGENT_SPECS = {
     "Hook Optimizer": {"stage":"script","role":"Hook optimizer","goal":"Tighten hooks after fact checking without adding unsupported claims."},
     "Editor": {"stage":"script","role":"Content editor","goal":"Produce the clean final script for each variant while preserving verified claims and optimized hooks."},
     "Content Packager": {"stage":"package","role":"Short-form content packager","goal":"Turn the selected verified variant into one traceable package containing scenes, voice-over, subtitles, publishing metadata, thumbnail concept and media brief."},
+    "AI Media Finisher": {"stage":"post-production","role":"Deterministic short-form media finisher","goal":"Turn raw/generated media into a traceable finished short using word timing, cut plans, captions, motion, audio finishing and safe-zone QA without changing approved facts."},
     "Visual Director": {"stage":"visual","role":"Visual director","goal":"Translate the selected Content Package into shots, screen recordings, graphics and image prompts."},
     "Voice Agent": {"stage":"voice","role":"Voice producer","goal":"Prepare narration, delivery notes and final voice assets from the selected variant."},
     "Render Agent": {"stage":"render","role":"Video producer","goal":"Assemble scenes, captions, timing and final video renders."},
@@ -150,6 +152,11 @@ FACTORY_VIDEO_ENDPOINT = os.environ.get("FACTORY_VIDEO_ENDPOINT", "").strip()
 FACTORY_VIDEO_TOKEN = os.environ.get("FACTORY_VIDEO_TOKEN", "").strip()
 FACTORY_VIDEO_STATUS_ENDPOINT = os.environ.get("FACTORY_VIDEO_STATUS_ENDPOINT", "").strip()
 FACTORY_VIDEO_CALLBACK_TOKEN = os.environ.get("FACTORY_VIDEO_CALLBACK_TOKEN", "").strip()
+FACTORY_MEDIA_FINISHER_ADAPTER = (os.environ.get("FACTORY_MEDIA_FINISHER_ADAPTER", "webhook").strip().lower() or "webhook")
+FACTORY_MEDIA_FINISHER_ENDPOINT = os.environ.get("FACTORY_MEDIA_FINISHER_ENDPOINT", "").strip()
+FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT = os.environ.get("FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT", "").strip()
+FACTORY_MEDIA_FINISHER_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_TOKEN", "").strip()
+FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN", "").strip()
 FACTORY_DISCOVERY_ENDPOINT = os.environ.get("FACTORY_DISCOVERY_ENDPOINT", "").strip()
 FACTORY_DISCOVERY_TOKEN = os.environ.get("FACTORY_DISCOVERY_TOKEN", "").strip()
 FACTORY_DISCOVERY_TOPICS = [x.strip() for x in os.environ.get("FACTORY_DISCOVERY_TOPICS", "").split(",") if x.strip()]
@@ -909,6 +916,53 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_media_jobs_project ON media_jobs(revideo_project_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_media_jobs_job ON media_jobs(job_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_media_jobs_status ON media_jobs(status, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS edit_profiles(
+      id TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      name TEXT NOT NULL,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(id,version)
+    );
+    CREATE TABLE IF NOT EXISTS edit_jobs(
+      id TEXT PRIMARY KEY,
+      parent_edit_job_id TEXT,
+      factory_cycle_id TEXT,
+      production_job_id TEXT NOT NULL,
+      media_job_id TEXT,
+      input_artifact_id TEXT,
+      input_url TEXT NOT NULL,
+      output_artifact_id TEXT,
+      output_url TEXT DEFAULT '',
+      profile_id TEXT NOT NULL,
+      profile_version INTEGER NOT NULL DEFAULT 1,
+      platform TEXT NOT NULL DEFAULT 'reels',
+      provider TEXT NOT NULL DEFAULT 'webhook',
+      provider_job_id TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'queued',
+      rerun_stage TEXT DEFAULT '',
+      request_json TEXT NOT NULL DEFAULT '{}',
+      response_json TEXT NOT NULL DEFAULT '{}',
+      report_json TEXT NOT NULL DEFAULT '{}',
+      error TEXT DEFAULT '',
+      measured_cost_usd REAL NOT NULL DEFAULT 0,
+      measured_duration_sec REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_edit_jobs_job ON edit_jobs(production_job_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_edit_jobs_status ON edit_jobs(status, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS edit_artifacts(
+      id TEXT PRIMARY KEY,
+      edit_job_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      content_json TEXT NOT NULL DEFAULT '{}',
+      url TEXT DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_edit_artifacts_job ON edit_artifacts(edit_job_id, created_at);
     CREATE TABLE IF NOT EXISTS agent_memory(
       id TEXT PRIMARY KEY,
       agent TEXT NOT NULL,
@@ -1031,6 +1085,48 @@ def init_db():
     ]:
         if name not in idea_cols:
             con.execute(f"ALTER TABLE content_ideas ADD COLUMN {name} {ddl}")
+    default_edit_profiles={
+      "talking_head_fast":{
+        "name":"Talking Head Fast","version":1,
+        "config":{
+          "target":{"width":1080,"height":1920,"fps":30},
+          "speech_cleanup":{"silence_trim":True,"pause_threshold_sec":0.4,"pre_handle_sec":0.1,"post_handle_sec":0.15,"semantic_duplicate_planner":True,"start_on_speech":True},
+          "captions":{"enabled":True,"min_words":1,"max_words":3,"burn_in":True,"dark_plate":True,"emphasize_keyword":True,"never_cross_cut":True},
+          "motion":{"jump_cut_mask_zoom_min":0.07,"jump_cut_mask_zoom_max":0.10,"push_in_interval_sec":6.0,"opening_motion_deadline_sec":3.0},
+          "graphics":{"emphasis_min":3,"emphasis_max":5,"duration_min_sec":1.0,"duration_max_sec":2.0,"approved_text_only":True},
+          "audio":{"voice_target_lufs":-14.0,"music_relative_db":-20.0,"music_requires_approved_asset":True},
+          "safe_zones":{"top":0.12,"bottom":0.20,"right":0.12,"left":0.0}
+        }
+      },
+      "generated_visual":{
+        "name":"Generated Visual","version":1,
+        "config":{
+          "target":{"width":1080,"height":1920,"fps":30},
+          "speech_cleanup":{"silence_trim":False,"semantic_duplicate_planner":False},
+          "captions":{"enabled":True,"min_words":1,"max_words":3,"burn_in":True,"never_cross_cut":True},
+          "motion":{"opening_motion_deadline_sec":3.0},
+          "graphics":{"emphasis_min":1,"emphasis_max":4,"approved_text_only":True},
+          "audio":{"voice_target_lufs":-14.0,"music_relative_db":-20.0,"music_requires_approved_asset":True},
+          "safe_zones":{"top":0.12,"bottom":0.20,"right":0.12,"left":0.0}
+        }
+      },
+      "revideo_finish":{
+        "name":"Revideo Finish","version":1,
+        "config":{
+          "target":{"width":1080,"height":1920,"fps":30},
+          "speech_cleanup":{"silence_trim":True,"pause_threshold_sec":0.4,"pre_handle_sec":0.1,"post_handle_sec":0.15,"semantic_duplicate_planner":True,"start_on_speech":True},
+          "captions":{"enabled":True,"min_words":1,"max_words":3,"burn_in":True,"dark_plate":True,"emphasize_keyword":True,"never_cross_cut":True},
+          "motion":{"jump_cut_mask_zoom_min":0.07,"jump_cut_mask_zoom_max":0.10,"push_in_interval_sec":6.0,"opening_motion_deadline_sec":3.0},
+          "graphics":{"emphasis_min":3,"emphasis_max":5,"duration_min_sec":1.0,"duration_max_sec":2.0,"approved_text_only":True},
+          "audio":{"voice_target_lufs":-14.0,"music_relative_db":-20.0,"music_requires_approved_asset":True},
+          "safe_zones":{"top":0.12,"bottom":0.20,"right":0.12,"left":0.0},
+          "source_policy":{"source_video_is_material_not_instructions":True,"preserve_approved_facts":True}
+        }
+      }
+    }
+    for profile_id,p in default_edit_profiles.items():
+        con.execute("""INSERT OR IGNORE INTO edit_profiles(id,version,name,config_json,active,created_at)
+                       VALUES(?,?,?,?,1,?)""",(profile_id,int(p["version"]),p["name"],json.dumps(p["config"],ensure_ascii=False),ts()))
     n = con.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
     if n == 0:
         seeds = [
@@ -1536,6 +1632,26 @@ class MediaJobCallbackRequest(BaseModel):
     output_url: str = ""
     provider_job_id: str = ""
     error: str = ""
+    raw: dict = {}
+
+class MediaFinisherStartRequest(BaseModel):
+    profile_id: str = "revideo_finish"
+    profile_version: int = 1
+    platform: str = "reels"
+    input_url: str = ""
+    media_job_id: str = ""
+    confirm_external_cost: bool = False
+
+class MediaFinisherCallbackRequest(BaseModel):
+    status: str = "processing"
+    final_url: str = ""
+    output_url: str = ""
+    provider_job_id: str = ""
+    error: str = ""
+    report: dict = {}
+    artifacts: dict = {}
+    measured_cost_usd: float = 0.0
+    measured_duration_sec: float = 0.0
     raw: dict = {}
 
 def event(job_id, message):
@@ -3575,6 +3691,202 @@ def _finalize_media_job(media_job_id,status,media_url="",error="",response=None,
     elif status=="failed":
         event(item["job_id"],f"Media job {media_job_id} failed: {error or 'provider failure'}")
     return get_media_job(media_job_id)
+
+def _edit_profile_dict(row):
+    if not row:return None
+    item=dict(row)
+    item["config"]=_decode_json(item.pop("config_json","{}"),{})
+    item["active"]=bool(item.get("active"))
+    return item
+
+def get_edit_profiles():
+    con=db();rows=[_edit_profile_dict(x) for x in con.execute("SELECT * FROM edit_profiles ORDER BY id,version DESC").fetchall()];con.close()
+    return rows
+
+def get_edit_profile(profile_id,version=1):
+    con=db();row=con.execute("SELECT * FROM edit_profiles WHERE id=? AND version=?",(profile_id,int(version))).fetchone();con.close()
+    return _edit_profile_dict(row)
+
+def _edit_job_dict(row,include_artifacts=True):
+    if not row:return None
+    item=dict(row)
+    item["request"]=_decode_json(item.pop("request_json","{}"),{})
+    item["response"]=_decode_json(item.pop("response_json","{}"),{})
+    item["report"]=_decode_json(item.pop("report_json","{}"),{})
+    if include_artifacts:
+        con=db();arts=[dict(x) for x in con.execute("SELECT * FROM edit_artifacts WHERE edit_job_id=? ORDER BY created_at",(item["id"],)).fetchall()];con.close()
+        for a in arts:a["content"]=_decode_json(a.pop("content_json","{}"),{})
+        item["artifacts"]=arts
+    return item
+
+def get_edit_job(edit_job_id):
+    con=db();row=con.execute("SELECT * FROM edit_jobs WHERE id=?",(edit_job_id,)).fetchone();con.close()
+    return _edit_job_dict(row)
+
+def get_edit_jobs(limit=80,job_id=None):
+    con=db()
+    if job_id:
+        rows=con.execute("SELECT * FROM edit_jobs WHERE production_job_id=? ORDER BY updated_at DESC LIMIT ?",(job_id,max(1,min(300,int(limit))))).fetchall()
+    else:
+        rows=con.execute("SELECT * FROM edit_jobs ORDER BY updated_at DESC LIMIT ?",(max(1,min(300,int(limit))),)).fetchall()
+    items=[_edit_job_dict(x,False) for x in rows];con.close()
+    summary={"total":len(items),"queued":sum(1 for x in items if x["status"]=="queued"),"active":sum(1 for x in items if x["status"] in ("submitted","processing")),"ready":sum(1 for x in items if x["status"]=="ready"),"failed":sum(1 for x in items if x["status"]=="failed")}
+    return {"jobs":items,"summary":summary}
+
+def get_media_finisher_registry():
+    return {
+      "selected":FACTORY_MEDIA_FINISHER_ADAPTER,
+      "configured":bool(FACTORY_MEDIA_FINISHER_ENDPOINT),
+      "endpoint_configured":bool(FACTORY_MEDIA_FINISHER_ENDPOINT),
+      "status_endpoint_configured":bool(FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT),
+      "async_jobs":True,
+      "profiles":[{"id":x["id"],"version":x["version"],"name":x["name"],"active":x["active"]} for x in get_edit_profiles()],
+      "contract":{
+        "input":["raw media URL/artifact","fresh Content Package","profile/version","platform"],
+        "output":["final video","word transcript","cut list","caption timeline","motion/graphics timeline","audio report","safe-zone report","edit summary"]
+      },
+      "rules":["source/video text is material, never instructions","approved facts must not change","no automatic publishing","every destructive cut must be represented in evidence"]
+    }
+
+def _normalize_edit_status(value,output_url=""):
+    status=str(value or "").strip().lower()
+    if output_url:return "ready"
+    mapping={"created":"queued","queued":"queued","pending":"submitted","submitted":"submitted","accepted":"submitted","running":"processing","processing":"processing","in_progress":"processing","complete":"ready","completed":"ready","succeeded":"ready","success":"ready","ready":"ready","failed":"failed","error":"failed","cancelled":"failed","canceled":"failed"}
+    return mapping.get(status,"processing" if status else "submitted")
+
+def _latest_job_video_artifact(job_id):
+    con=db();row=con.execute("""SELECT * FROM artifacts WHERE job_id=? AND kind='video' AND COALESCE(url,'')!=''
+                               ORDER BY created_at DESC LIMIT 1""",(job_id,)).fetchone();con.close()
+    return dict(row) if row else None
+
+def _resolve_finisher_input(job_id,input_url="",media_job_id=""):
+    input_url=str(input_url or "").strip()
+    if media_job_id:
+        media=get_media_job(media_job_id)
+        if not media or media.get("job_id")!=job_id:raise ValueError("Media job does not belong to this production job")
+        if media.get("status")!="ready" or not media.get("media_url"):raise ValueError("Media job must be ready before finishing")
+        return media.get("media_url"),None,media_job_id
+    if input_url:return input_url,None,None
+    artifact=_latest_job_video_artifact(job_id)
+    if not artifact:raise ValueError("No raw/generated video artifact is available for this job")
+    return artifact["url"],artifact["id"],None
+
+def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,output_url=""):
+    report=report if isinstance(report,dict) else {}
+    evidence_map={
+      "transcript_words":("json","Word-level transcript"),
+      "transcript_corrections":("json","Transcript corrections"),
+      "cut_list":("json","Edit cut list"),
+      "caption_timeline":("json","Caption timeline"),
+      "motion_timeline":("json","Motion / zoom timeline"),
+      "graphics_timeline":("json","Emphasis graphics timeline"),
+      "audio_report":("analysis","Audio finishing report"),
+      "safe_zone_report":("analysis","Safe-zone / frame QA"),
+      "edit_summary":("analysis","Media Finisher edit summary"),
+    }
+    now=ts();con=db()
+    for key,(kind,title) in evidence_map.items():
+        if key not in report:continue
+        value=report.get(key)
+        content=value if isinstance(value,dict) else {"items":value} if isinstance(value,list) else {"value":value}
+        eid=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:{edit_job_id}:{key}"))
+        con.execute("""INSERT OR REPLACE INTO edit_artifacts(id,edit_job_id,kind,content_json,url,created_at)
+                       VALUES(?,?,?,?,?,?)""",(eid,edit_job_id,key,json.dumps(content,ensure_ascii=False,default=str),"",now))
+        existing=con.execute("SELECT id FROM artifacts WHERE job_id=? AND agent='AI Media Finisher' AND title=? AND meta_json LIKE ?",(job_id,title,f'%"edit_job_id": "{edit_job_id}"%')).fetchone()
+        if not existing:
+            save_id=str(uuid.uuid4())
+            con.execute("""INSERT INTO artifacts(id,run_id,job_id,agent,kind,title,content,url,mime_type,created_at,meta_json)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?)""",(save_id,None,job_id,"AI Media Finisher",kind,title,json.dumps(content,ensure_ascii=False,indent=2,default=str),None,"application/json" if kind=="json" else None,now,json.dumps({"edit_job_id":edit_job_id,"profile_id":profile_id,"profile_version":profile_version,"component":key,"mode":"external_finisher"},ensure_ascii=False)))
+    con.commit();con.close()
+    if output_url:
+        con=db();existing=con.execute("SELECT id FROM artifacts WHERE job_id=? AND agent='AI Media Finisher' AND kind='video' AND url=?",(job_id,output_url)).fetchone();con.close()
+        if existing:return existing["id"]
+        return save_artifact("AI Media Finisher","video","Finished short-form video",job_id=job_id,url=output_url,mime_type="video/mp4",meta={"edit_job_id":edit_job_id,"profile_id":profile_id,"profile_version":profile_version,"component":"final_render","mode":"external_finisher","human_approval_required":True})
+    return None
+
+def _finalize_edit_job(edit_job_id,status,output_url="",provider_job_id="",error="",response=None,report=None,measured_cost_usd=0.0,measured_duration_sec=0.0):
+    item=get_edit_job(edit_job_id)
+    if not item:raise ValueError("Edit job not found")
+    output_url=str(output_url or item.get("output_url") or "").strip()
+    status=_normalize_edit_status(status,output_url)
+    now=ts();report=report if isinstance(report,dict) else item.get("report") or {}
+    response=response if isinstance(response,dict) else item.get("response") or {}
+    completed=now if status in ("ready","failed") else None
+    con=db();con.execute("""UPDATE edit_jobs SET provider_job_id=COALESCE(NULLIF(?,''),provider_job_id),status=?,output_url=?,
+                           error=?,response_json=?,report_json=?,measured_cost_usd=?,measured_duration_sec=?,updated_at=?,completed_at=?
+                           WHERE id=?""",(provider_job_id,status,output_url,str(error or ""),json.dumps(response,ensure_ascii=False,default=str),json.dumps(report,ensure_ascii=False,default=str),max(0,float(measured_cost_usd or 0)),max(0,float(measured_duration_sec or 0)),now,completed,edit_job_id));con.commit();con.close()
+    if status=="ready":
+        if not output_url:raise RuntimeError("Ready Media Finisher job requires a final output URL")
+        output_artifact_id=_persist_edit_evidence(edit_job_id,item["production_job_id"],item["profile_id"],item["profile_version"],report,output_url)
+        con=db();con.execute("UPDATE edit_jobs SET output_artifact_id=? WHERE id=?",(output_artifact_id,edit_job_id))
+        job=con.execute("SELECT status FROM jobs WHERE id=?",(item["production_job_id"],)).fetchone()
+        if job and job["status"] not in ("approved","publishing","done"):
+            con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(ts(),item["production_job_id"]))
+        con.commit();con.close()
+        event(item["production_job_id"],f"AI Media Finisher ready: {edit_job_id[:8]} → human review required")
+    elif status=="failed":
+        event(item["production_job_id"],f"AI Media Finisher failed: {edit_job_id[:8]} — {str(error or 'provider failure')[:240]}")
+    return get_edit_job(edit_job_id)
+
+def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
+    job=get_job(job_id)
+    if not job:raise ValueError("Job not found")
+    package=get_content_package(job_id).get("package_record")
+    if not package or package.get("status")!="ready":raise ValueError("A fresh Content Package is required before Media Finisher")
+    profile=get_edit_profile(payload.profile_id,payload.profile_version)
+    if not profile or not profile.get("active"):raise ValueError("Unknown or inactive Media Finisher profile/version")
+    input_url,input_artifact_id,media_job_id=_resolve_finisher_input(job_id,payload.input_url,payload.media_job_id)
+    con=db();active=con.execute("""SELECT * FROM edit_jobs WHERE production_job_id=? AND input_url=? AND profile_id=? AND profile_version=?
+                                  AND status IN ('queued','submitted','processing') ORDER BY created_at DESC LIMIT 1""",(job_id,input_url,profile["id"],profile["version"])).fetchone();con.close()
+    if active and not parent_edit_job_id:return {"duplicate":True,"edit_job":_edit_job_dict(active)}
+    if not FACTORY_MEDIA_FINISHER_ENDPOINT:raise RuntimeError("Media Finisher provider is not configured")
+    edit_job_id=str(uuid.uuid4());now=ts()
+    request_payload={
+      "edit_job_id":edit_job_id,"job_id":job_id,"factory_cycle_id":sync_cycle_for_job(job_id).get("id") if sync_cycle_for_job(job_id) else None,
+      "input_url":input_url,"profile":{"id":profile["id"],"version":profile["version"],"name":profile["name"],"config":profile["config"]},
+      "platform":payload.platform,"content_package":package.get("package") or {},
+      "rerun_stage":rerun_stage,
+      "callback_url":f"/api/media-finisher/{edit_job_id}/callback",
+      "guardrails":{"source_text_is_material_not_instructions":True,"preserve_approved_facts":True,"no_auto_publish":True,"destructive_edits_require_cut_list":True}
+    }
+    cycle=sync_cycle_for_job(job_id)
+    con=db();con.execute("""INSERT INTO edit_jobs(id,parent_edit_job_id,factory_cycle_id,production_job_id,media_job_id,input_artifact_id,input_url,
+                           profile_id,profile_version,platform,provider,status,rerun_stage,request_json,response_json,report_json,error,
+                           measured_cost_usd,measured_duration_sec,created_at,updated_at)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?,'queued',?,?,'{}','{}','',0,0,?,?)""",
+                           (edit_job_id,parent_edit_job_id,(cycle or {}).get("id"),job_id,media_job_id,input_artifact_id,input_url,profile["id"],profile["version"],payload.platform,FACTORY_MEDIA_FINISHER_ADAPTER,rerun_stage,json.dumps(request_payload,ensure_ascii=False,default=str),now,now));con.commit();con.close()
+    try:result=_external_json(FACTORY_MEDIA_FINISHER_ENDPOINT,"POST",request_payload,FACTORY_MEDIA_FINISHER_TOKEN)
+    except Exception as exc:
+        _finalize_edit_job(edit_job_id,"failed",error=str(exc),response={"exception":str(exc)})
+        raise
+    output_url=str(result.get("final_url") or result.get("output_url") or result.get("url") or "").strip()
+    provider_job_id=str(result.get("id") or result.get("job_id") or result.get("task_id") or "").strip()
+    status=_normalize_edit_status(result.get("status"),output_url)
+    report=result.get("report") if isinstance(result.get("report"),dict) else {}
+    item=_finalize_edit_job(edit_job_id,status,output_url,provider_job_id,str(result.get("error") or ""),result,report,float(result.get("cost_usd") or 0),float(result.get("duration_sec") or 0))
+    event(job_id,f"AI Media Finisher submitted: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · status {item['status']}")
+    return {"duplicate":False,"edit_job":item}
+
+def refresh_edit_job(edit_job_id):
+    item=get_edit_job(edit_job_id)
+    if not item:raise ValueError("Edit job not found")
+    if item["status"] in ("ready","failed"):return item
+    if not item.get("provider_job_id"):raise RuntimeError("Media Finisher provider job id is not available yet")
+    if not FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT:raise RuntimeError("Media Finisher status endpoint is not configured")
+    endpoint=FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT.rstrip("/")+"/"+urlparse.quote(item["provider_job_id"],safe="")
+    result=_external_json(endpoint,"GET",None,FACTORY_MEDIA_FINISHER_TOKEN)
+    output_url=str(result.get("final_url") or result.get("output_url") or result.get("url") or "").strip()
+    report=result.get("report") if isinstance(result.get("report"),dict) else {}
+    return _finalize_edit_job(edit_job_id,result.get("status"),output_url,str(result.get("id") or result.get("job_id") or item.get("provider_job_id") or ""),str(result.get("error") or ""),result,report,float(result.get("cost_usd") or item.get("measured_cost_usd") or 0),float(result.get("duration_sec") or item.get("measured_duration_sec") or 0))
+
+def rerun_media_finisher_stage(edit_job_id,stage):
+    allowed={"transcript","cleanup","captions","motion","graphics","audio","safe_zone","render"}
+    stage=str(stage or "").strip().lower()
+    if stage not in allowed:raise ValueError("Unknown Media Finisher stage")
+    original=get_edit_job(edit_job_id)
+    if not original:raise ValueError("Edit job not found")
+    payload=MediaFinisherStartRequest(profile_id=original["profile_id"],profile_version=original["profile_version"],platform=original["platform"],input_url=original["input_url"],confirm_external_cost=True)
+    return start_media_finisher(original["production_job_id"],payload,parent_edit_job_id=edit_job_id,rerun_stage=stage)
 
 def get_revideo_adapter_registry():
     return {
@@ -6186,6 +6498,7 @@ def status():
         "discoveryAdapter": get_discovery_candidates(1)["adapter"],
         "revideoSummary": get_revideo_projects(40)["summary"],
         "revideoAdapters": get_revideo_adapter_registry(),
+        "mediaFinisher": {"adapter":get_media_finisher_registry(),"summary":get_edit_jobs(80)["summary"]},
         "activeWorkflow": _active_workflow_version(),
         "publisherAdapters": get_publisher_adapter_registry(),
         "analyticsAdapters": get_analytics_adapter_registry(),
@@ -6583,6 +6896,61 @@ async def discovery_to_revideo(candidate_id:str,payload:DiscoveryToRevideoReques
     try:result=discovery_candidate_to_revideo(candidate_id,payload.language)
     except ValueError as exc:raise HTTPException(400,str(exc))
     await broadcast({"type":"discovery","action":"revideo","candidateId":candidate_id,"projectId":result["project"]["id"]})
+    return {"ok":True,**result}
+
+@app.get("/api/media-finisher/profiles")
+def media_finisher_profiles():
+    return {"profiles":get_edit_profiles(),"adapter":get_media_finisher_registry()}
+
+@app.get("/api/media-finisher")
+def media_finisher_jobs(limit:int=80,job_id:Optional[str]=None):
+    return get_edit_jobs(limit,job_id)
+
+@app.get("/api/media-finisher/{edit_job_id}")
+def media_finisher_detail(edit_job_id:str):
+    item=get_edit_job(edit_job_id)
+    if not item:raise HTTPException(404,"Edit job not found")
+    return item
+
+@app.post("/api/jobs/{job_id}/media-finisher")
+async def media_finisher_start(job_id:str,payload:MediaFinisherStartRequest):
+    if FACTORY_MEDIA_FINISHER_ENDPOINT and not payload.confirm_external_cost:
+        return {"ok":False,"requiresExternalCostConfirmation":True,
+                "message":"Media Finisher may use external compute/provider resources. Confirm before starting."}
+    try:result=await asyncio.to_thread(start_media_finisher,job_id,payload)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    except RuntimeError as exc:raise HTTPException(503,str(exc))
+    await broadcast({"type":"media_finisher","action":"submitted","jobId":job_id,"editJobId":result["edit_job"]["id"],"status":result["edit_job"]["status"]})
+    return {"ok":True,**result}
+
+@app.post("/api/media-finisher/{edit_job_id}/refresh")
+async def media_finisher_refresh(edit_job_id:str):
+    try:item=await asyncio.to_thread(refresh_edit_job,edit_job_id)
+    except ValueError as exc:raise HTTPException(404,str(exc))
+    except RuntimeError as exc:raise HTTPException(503,str(exc))
+    await broadcast({"type":"media_finisher","action":"updated","editJobId":edit_job_id,"status":item["status"]})
+    return {"ok":True,"edit_job":item}
+
+@app.post("/api/media-finisher/{edit_job_id}/callback")
+async def media_finisher_callback(edit_job_id:str,payload:MediaFinisherCallbackRequest,request:Request):
+    if FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN:
+        supplied=(request.headers.get("authorization") or "").replace("Bearer ","",1).strip()
+        if not hmac.compare_digest(supplied,FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN):raise HTTPException(401,"Invalid Media Finisher callback token")
+    try:
+        output_url=(payload.final_url or payload.output_url or "").strip()
+        item=_finalize_edit_job(edit_job_id,payload.status,output_url,payload.provider_job_id,payload.error,payload.raw,payload.report,payload.measured_cost_usd,payload.measured_duration_sec)
+    except ValueError as exc:raise HTTPException(404,str(exc))
+    await broadcast({"type":"media_finisher","action":"callback","editJobId":edit_job_id,"status":item["status"]})
+    return {"ok":True,"edit_job":item}
+
+@app.post("/api/media-finisher/{edit_job_id}/rerun/{stage}")
+async def media_finisher_rerun(edit_job_id:str,stage:str,payload:MediaFinisherStartRequest):
+    if not payload.confirm_external_cost:
+        return {"ok":False,"requiresExternalCostConfirmation":True,"message":"Targeted Media Finisher rerun may incur external compute cost. Confirm first."}
+    try:result=await asyncio.to_thread(rerun_media_finisher_stage,edit_job_id,stage)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    except RuntimeError as exc:raise HTTPException(503,str(exc))
+    await broadcast({"type":"media_finisher","action":"rerun","editJobId":result["edit_job"]["id"],"stage":stage})
     return {"ok":True,**result}
 
 @app.get("/api/revideo")

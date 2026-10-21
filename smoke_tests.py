@@ -21,13 +21,13 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v4.4","version mismatch")
+require(health["version"]==app.APP_VERSION=="v4.5","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
 require("real_pilot" in health and health["real_pilot"]["status"]=="disabled","CI must never auto-run the real paid pilot")
 state=app.status()
-for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","discoverySummary","discoveryAdapter","revideoSummary","revideoAdapters","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
+for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","discoverySummary","discoveryAdapter","revideoSummary","revideoAdapters","mediaFinisher","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
     require(key in state,f"status missing {key}")
 require(state["factory"]=="online","factory must report online")
 
@@ -50,7 +50,7 @@ require(obj["decision"]=="shortlist","Content Brain JSON object parser regressio
 brain=app.get_content_brain()
 require("adapters" in brain and "rss" in brain["adapters"],"source adapter registry missing")
 require("verified" in brain["summary"] and "feeds_configured" in brain["summary"],"Content Brain summary fields missing")
-for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/reject","POST"),("/api/approval","GET"),("/api/jobs/{job_id}/approval/history","GET"),("/api/jobs/{job_id}/approval/quote/{component}","GET"),("/api/jobs/{job_id}/approval/regenerate","POST"),("/api/jobs/{job_id}/idea-link/{idea_id}","POST"),("/api/publisher-adapters","GET"),("/api/publishing","GET"),("/api/publishing/{publish_id}/schedule","POST"),("/api/publishing/{publish_id}/publish","POST"),("/api/publishing/{publish_id}/confirm","POST"),("/api/publishing/run-due","POST"),("/api/analytics-adapters","GET"),("/api/performance","GET"),("/api/performance/{publish_id}","GET"),("/api/performance/snapshots","POST"),("/api/performance/{publish_id}/sync","POST"),("/api/self-improvement","GET"),("/api/workflow/active","GET"),("/api/experiments","GET"),("/api/improvements","POST"),("/api/improvements/{proposal_id}/experiment","POST"),("/api/experiments/{experiment_id}/assign","POST"),("/api/experiments/{experiment_id}/evaluate","POST"),("/api/experiments/{experiment_id}/rollout","POST"),("/api/experiments/{experiment_id}/rollback","POST"),("/api/experiments/{experiment_id}/reject","POST"),("/api/factory-cycles","GET"),("/api/factory-cycles","POST"),("/api/factory-cycles/{cycle_id}","GET"),("/api/factory-cycles/{cycle_id}/quote","GET"),("/api/factory-cycles/{cycle_id}/run","POST"),("/api/factory-cycles/{cycle_id}/sync","POST"),("/api/factory-cycles/{cycle_id}/learn","POST"),("/api/factory-cycles/{cycle_id}/next","POST"),("/api/discovery","GET"),("/api/discovery/candidates","POST"),("/api/discovery/collect","POST"),("/api/discovery/{candidate_id}/revideo","POST"),("/api/revideo","GET"),("/api/revideo","POST"),("/api/revideo/adapters","GET"),("/api/revideo/{project_id}","GET"),("/api/revideo/{project_id}/quote","GET"),("/api/revideo/{project_id}/analyze","POST"),("/api/revideo/{project_id}/create-job","POST"),("/api/revideo/{project_id}/render","POST"),("/api/media-jobs","GET"),("/api/media-jobs/{media_job_id}","GET"),("/api/media-jobs/{media_job_id}/refresh","POST"),("/api/media-jobs/{media_job_id}/callback","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
+for path,method in (("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/reject","POST"),("/api/approval","GET"),("/api/jobs/{job_id}/approval/history","GET"),("/api/jobs/{job_id}/approval/quote/{component}","GET"),("/api/jobs/{job_id}/approval/regenerate","POST"),("/api/jobs/{job_id}/idea-link/{idea_id}","POST"),("/api/publisher-adapters","GET"),("/api/publishing","GET"),("/api/publishing/{publish_id}/schedule","POST"),("/api/publishing/{publish_id}/publish","POST"),("/api/publishing/{publish_id}/confirm","POST"),("/api/publishing/run-due","POST"),("/api/analytics-adapters","GET"),("/api/performance","GET"),("/api/performance/{publish_id}","GET"),("/api/performance/snapshots","POST"),("/api/performance/{publish_id}/sync","POST"),("/api/self-improvement","GET"),("/api/workflow/active","GET"),("/api/experiments","GET"),("/api/improvements","POST"),("/api/improvements/{proposal_id}/experiment","POST"),("/api/experiments/{experiment_id}/assign","POST"),("/api/experiments/{experiment_id}/evaluate","POST"),("/api/experiments/{experiment_id}/rollout","POST"),("/api/experiments/{experiment_id}/rollback","POST"),("/api/experiments/{experiment_id}/reject","POST"),("/api/factory-cycles","GET"),("/api/factory-cycles","POST"),("/api/factory-cycles/{cycle_id}","GET"),("/api/factory-cycles/{cycle_id}/quote","GET"),("/api/factory-cycles/{cycle_id}/run","POST"),("/api/factory-cycles/{cycle_id}/sync","POST"),("/api/factory-cycles/{cycle_id}/learn","POST"),("/api/factory-cycles/{cycle_id}/next","POST"),("/api/discovery","GET"),("/api/discovery/candidates","POST"),("/api/discovery/collect","POST"),("/api/discovery/{candidate_id}/revideo","POST"),("/api/revideo","GET"),("/api/revideo","POST"),("/api/revideo/adapters","GET"),("/api/revideo/{project_id}","GET"),("/api/revideo/{project_id}/quote","GET"),("/api/revideo/{project_id}/analyze","POST"),("/api/revideo/{project_id}/create-job","POST"),("/api/revideo/{project_id}/render","POST"),("/api/media-jobs","GET"),("/api/media-jobs/{media_job_id}","GET"),("/api/media-jobs/{media_job_id}/refresh","POST"),("/api/media-jobs/{media_job_id}/callback","POST"),("/api/media-finisher/profiles","GET"),("/api/media-finisher","GET"),("/api/media-finisher/{edit_job_id}","GET"),("/api/jobs/{job_id}/media-finisher","POST"),("/api/media-finisher/{edit_job_id}/refresh","POST"),("/api/media-finisher/{edit_job_id}/callback","POST"),("/api/media-finisher/{edit_job_id}/rerun/{stage}","POST"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
     require(route_exists(path,method),f"route missing: {method} {path}")
 
 created=asyncio.run(app.create_job(app.JobCreate(title="CI smoke job",brief="Zero-spend regression fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))
@@ -188,6 +188,60 @@ visual_inputs=app.collect_agent_inputs(job_id,"Visual Director")
 require(not visual_inputs["missing"] and visual_inputs["artifacts"][0]["agent"]=="Content Packager","downstream visual stage must consume the Content Package manifest")
 adapters=app.get_media_adapter_registry()
 require({x["kind"] for x in adapters["adapters"]}=={"tts","image","video","stock","manual"},"media adapter contract regression")
+
+# v4.5 AI Media Finisher — zero-spend async contract, guide-derived profile and approval boundary.
+profiles=app.get_edit_profiles()
+profile_ids={x["id"] for x in profiles}
+require({"talking_head_fast","generated_visual","revideo_finish"}.issubset(profile_ids),"Media Finisher default profiles missing")
+talking=app.get_edit_profile("talking_head_fast",1)
+require(talking["config"]["speech_cleanup"]["pause_threshold_sec"]==0.4,"guide pause threshold profile regression")
+require(talking["config"]["captions"]["min_words"]==1 and talking["config"]["captions"]["max_words"]==3,"guide caption grouping regression")
+require(talking["config"]["safe_zones"]["top"]==0.12 and talking["config"]["safe_zones"]["bottom"]==0.20 and talking["config"]["safe_zones"]["right"]==0.12,"guide safe-zone profile regression")
+fin_registry=app.get_media_finisher_registry()
+require(fin_registry["configured"] is False and fin_registry["async_jobs"] is True,"CI must not claim a live Media Finisher provider")
+
+raw_video=app.save_artifact("Render Agent","video","CI raw media","",job_id=job_id,url="https://example.com/raw-ci.mp4",mime_type="video/mp4",meta={"fixture":True})
+publish_before=app._publishing_summary()
+orig_finish_endpoint=app.FACTORY_MEDIA_FINISHER_ENDPOINT
+orig_external_json=app._external_json
+app.FACTORY_MEDIA_FINISHER_ENDPOINT="https://ci.invalid/finish"
+def fake_finisher_provider(url,method="GET",payload=None,token=""):
+    require(method=="POST","Media Finisher CI provider must receive POST")
+    require(payload["guardrails"]["no_auto_publish"] is True,"Media Finisher guardrail missing")
+    require(payload["profile"]["config"]["captions"]["max_words"]==3,"profile config not sent to finisher")
+    return {"id":"ci-finisher-task-1","status":"processing"}
+app._external_json=fake_finisher_provider
+try:
+    started=app.start_media_finisher(job_id,app.MediaFinisherStartRequest(
+        profile_id="talking_head_fast",profile_version=1,platform="reels",input_url="https://example.com/raw-ci.mp4",confirm_external_cost=True
+    ))
+    edit_id=started["edit_job"]["id"]
+    require(started["edit_job"]["status"]=="processing" and started["edit_job"]["provider_job_id"]=="ci-finisher-task-1","Media Finisher submit lifecycle regression")
+    report={
+      "transcript_words":[{"word":"Hello","start":0.0,"end":0.3,"confidence":0.99}],
+      "transcript_corrections":[],
+      "cut_list":[{"start":1.0,"end":1.7,"reason":"silence>0.4s","pre_handle":0.1,"post_handle":0.15}],
+      "caption_timeline":[{"start":0.0,"end":0.7,"words":["Hello","world"]}],
+      "motion_timeline":[{"start":0.0,"type":"push_in","zoom":1.08}],
+      "graphics_timeline":[{"start":1.2,"end":2.2,"text":"KEY POINT"}],
+      "audio_report":{"voice_lufs":-14.0,"music_relative_db":-20.0},
+      "safe_zone_report":{"violations":[],"top":0.12,"bottom":0.20,"right":0.12},
+      "edit_summary":{"duration_before_sec":12.0,"duration_after_sec":9.8,"human_review_required":True}
+    }
+    ready=app._finalize_edit_job(edit_id,"completed","https://example.com/final-ci.mp4","ci-finisher-task-1","",{"status":"completed"},report,0.0,9.8)
+    require(ready["status"]=="ready" and ready["output_url"].endswith("final-ci.mp4"),"Media Finisher ready lifecycle regression")
+    require({x["kind"] for x in ready["artifacts"]}>={"cut_list","caption_timeline","audio_report","safe_zone_report"},"Media Finisher evidence persistence regression")
+    finished_worker=app.get_job_worker_results(job_id).get("AI Media Finisher")
+    require(finished_worker and finished_worker["kind"]=="video" and finished_worker["url"].endswith("final-ci.mp4"),"finished media must be visible in Worker Evidence")
+    review_job=app.get_job(job_id)
+    require(review_job["status"]=="waiting_approval","finished media must return to human approval gate")
+    require(app._publishing_summary()==publish_before,"Media Finisher must not create a publish item")
+    rerun=app.rerun_media_finisher_stage(edit_id,"captions")
+    require(rerun["edit_job"]["parent_edit_job_id"]==edit_id and rerun["edit_job"]["rerun_stage"]=="captions","targeted Media Finisher rerun lineage regression")
+finally:
+    app._external_json=orig_external_json
+    app.FACTORY_MEDIA_FINISHER_ENDPOINT=orig_finish_endpoint
+
 exports=app._package_export_files(package_result["package_record"])
 for name in ("content-package.json","final-script.txt","voice-over.txt","subtitles.srt","scenes.json","publishing-metadata.json","sources.json","fact-check.json","media-brief.md"):
     require(name in exports,f"package export missing {name}")
@@ -475,10 +529,10 @@ require("const esc=s=>(s||'').replace" not in html,"unsafe frontend escape funct
 require("workerSelectedResult" in html and "selected_job_result" in Path("app.py").read_text(encoding="utf-8"),"selected-job worker evidence UI/API missing")
 require('data-help="help.approval"' in html and 'data-help="help.brain"' in html and 'data-help="help.worker"' in html,"help tooltip coverage missing")
 require("legacyBanner" in html and "approval.legacyHelp" in html,"legacy approval clarity missing")
-require('<span class="version">v4.4</span>' in html,"visible UI version mismatch")
+require('<span class="version">v4.5</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
 for key in ("approval.nav","approval.title","approval.statWaiting","approval.approveQueue","approval.legacyHelp","help.approval","help.brain","help.worker","help.revideo","revideo.nav","revideo.title","revideo.analyze","revideo.originalRewrite","help.discovery","discovery.nav","discovery.title","discovery.toRevideo","publishing.nav","publishing.title","publishing.statQueue","performance.nav","performance.title","performance.statPublished","experiment.nav","experiment.title","experiment.sub","cycle.nav","cycle.title","cycle.sub","cycle.run","cycle.review","cycle.next","cycle.statCycles","cycle.status.waiting_approval","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","worker.selectedResult","worker.purpose.renderagent","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v4.4 smoke/regression suite passed without paid provider calls; async media lifecycle verified")
+print("FactoryOS v4.5 smoke/regression suite passed without paid provider calls; AI Media Finisher contract/evidence verified")
