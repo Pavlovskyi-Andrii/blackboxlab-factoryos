@@ -27,6 +27,9 @@ def main() -> int:
                 "end":round(float(word.end),3),
                 "confidence":round(float(word.probability or 0),4),
             })
+        seg_end=getattr(segment,"end",None)
+        if seg_end is not None:
+            print(f"PROGRESS {float(seg_end):.3f}",flush=True)
     payload={
         "words":words,
         "meta":{
