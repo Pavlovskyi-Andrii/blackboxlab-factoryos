@@ -36,6 +36,8 @@ GRAPHICS_ENGINE = os.environ.get("FINISHER_GRAPHICS_ENGINE", "remotion").strip()
 REMOTION_BROWSER = os.environ.get("REMOTION_BROWSER_EXECUTABLE", "/usr/bin/chromium").strip()
 MAX_DOWNLOAD_BYTES = int(os.environ.get("FINISHER_MAX_DOWNLOAD_BYTES", str(750 * 1024 * 1024)))
 ENABLE_PILOT_FIXTURE = os.environ.get("FINISHER_ENABLE_PILOT_FIXTURE", "").strip().lower() in ("1","true","yes","on")
+LOW_MEMORY_MODE = os.environ.get("FINISHER_LOW_MEMORY_MODE", "").strip().lower() in ("1","true","yes","on")
+MAX_RECOVERY_ATTEMPTS = max(1, int(os.environ.get("FINISHER_MAX_RECOVERY_ATTEMPTS", "3")))
 
 app = FastAPI(title="FactoryOS AI Media Finisher", version=APP_VERSION)
 _state_lock = threading.Lock()
@@ -138,13 +140,22 @@ def _probe(path: Path) -> dict:
     }
 
 
+def _effective_target(profile: dict) -> dict:
+    target=dict(profile.get("target") or {})
+    width,height,fps=int(target.get("width") or 1080),int(target.get("height") or 1920),int(target.get("fps") or 30)
+    if LOW_MEMORY_MODE and (width>720 or height>1280):
+        scale=min(720/width,1280/height)
+        width=max(2,int(width*scale)//2*2);height=max(2,int(height*scale)//2*2)
+    return {"width":width,"height":height,"fps":fps}
+
+
 def _normalize_input(src: Path, dest: Path, profile: dict) -> None:
-    target = profile.get("target") or {}
-    width, height, fps = int(target.get("width") or 1080), int(target.get("height") or 1920), int(target.get("fps") or 30)
+    target=_effective_target(profile)
+    width,height,fps=target["width"],target["height"],target["fps"]
     vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},fps={fps}"
     _run([
-        "ffmpeg", "-y", "-i", str(src), "-vf", vf,
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "ffmpeg", "-y", "-threads", "1", "-i", str(src), "-vf", vf,
+        "-c:v", "libx264", "-threads", "1", "-preset", "veryfast", "-crf", "20",
         "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", str(dest)
     ])
 
@@ -255,8 +266,8 @@ def _apply_cuts(src: Path, dest: Path, duration: float, cuts: list[dict]) -> Non
         parts.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]")
         labels.append(f"[v{i}][a{i}]")
     filt = ";".join(parts) + ";" + "".join(labels) + f"concat=n={len(keep)}:v=1:a=1[outv][outa]"
-    _run(["ffmpeg","-y","-i",str(src),"-filter_complex",filt,"-map","[outv]","-map","[outa]",
-          "-c:v","libx264","-preset","veryfast","-crf","20","-c:a","aac","-b:a","160k","-movflags","+faststart",str(dest)])
+    _run(["ffmpeg","-y","-threads","1","-i",str(src),"-filter_complex",filt,"-map","[outv]","-map","[outa]",
+          "-c:v","libx264","-threads","1","-preset","veryfast","-crf","20","-c:a","aac","-b:a","160k","-movflags","+faststart",str(dest)])
 
 
 def _removed_before(t: float, cuts: list[dict]) -> float:
@@ -331,9 +342,9 @@ def _motion_timeline(output_duration: float, cuts: list[dict], profile: dict) ->
     return sorted(events,key=lambda x:x["start"])
 
 
-def _graphics_timeline(content_package: dict, output_duration: float, profile: dict) -> list[dict]:
+def _graphics_timeline(content_package: dict, output_duration: float, profile: dict, transcript_words: list[dict] | None = None) -> list[dict]:
     cfg=profile.get("graphics") or {};limit=max(0,min(5,int(cfg.get("emphasis_max",5))))
-    texts=[]
+    texts=[];source_type="approved_emphasis"
     for scene in content_package.get("scenes") or []:
         text=str((scene or {}).get("on_screen_text") or "").strip()
         if text and text not in texts:
@@ -341,10 +352,25 @@ def _graphics_timeline(content_package: dict, output_duration: float, profile: d
     if not texts:
         title=str(content_package.get("title") or "").strip()
         if title:texts.append(title)
+    if not texts and content_package.get("_factoryos_manual_raw"):
+        candidates=[];seen=set()
+        for item in transcript_words or []:
+            raw=str((item or {}).get("word") or "").strip()
+            key=re.sub(r"[^\w]+","",raw.lower(),flags=re.UNICODE)
+            if len(key)<4 or key in seen:
+                continue
+            seen.add(key);candidates.append(raw)
+        if candidates:
+            if len(candidates)<=limit:
+                texts=candidates
+            else:
+                idx=[round(i*(len(candidates)-1)/max(1,limit-1)) for i in range(limit)]
+                texts=[candidates[i] for i in idx]
+            source_type="transcript_exact_emphasis"
     texts=texts[:limit]
     if not texts:return []
     step=max(2.0,output_duration/(len(texts)+1));duration=max(1.0,min(2.0,float(cfg.get("duration_max_sec",2.0))))
-    return [{"start":round(min(max(.1,output_duration-.5),(i+1)*step),2),"end":round(min(output_duration,(i+1)*step+duration),2),"text":text[:70],"type":"approved_emphasis"} for i,text in enumerate(texts)]
+    return [{"start":round(min(max(.1,output_duration-.5),(i+1)*step),2),"end":round(min(output_duration,(i+1)*step+duration),2),"text":text[:70],"type":source_type} for i,text in enumerate(texts)]
 
 
 def _write_srt(captions: list[dict], path: Path) -> None:
@@ -361,16 +387,15 @@ def _render_with_remotion(clean: Path, dest: Path, captions: list[dict], motion:
     remotion_dir=BASE/"remotion";public_jobs=remotion_dir/"public"/"jobs"/job_dir.name
     public_jobs.mkdir(parents=True,exist_ok=True)
     shutil.copy2(clean,public_jobs/"clean.mp4")
-    fps=int((profile.get("target") or {}).get("fps") or 30)
+    target=_effective_target(profile);fps=target["fps"]
     props={
         "videoPath":f"jobs/{job_dir.name}/clean.mp4","captions":captions,"motion":motion,"graphics":graphics,
         "safeZones":profile.get("safe_zones") or {},"fps":fps,
         "durationInFrames":max(1,int(math.ceil(duration*fps))),
-        "width":int((profile.get("target") or {}).get("width") or 1080),
-        "height":int((profile.get("target") or {}).get("height") or 1920),
+        "width":target["width"],"height":target["height"],
     }
     props_path=job_dir/"remotion-props.json";props_path.write_text(json.dumps(props,ensure_ascii=False),encoding="utf-8")
-    cmd=["npx","remotion","render","src/index.tsx","MediaFinish",str(dest),"--props",str(props_path),"--codec","h264","--concurrency","2"]
+    cmd=["npx","remotion","render","src/index.tsx","MediaFinish",str(dest),"--props",str(props_path),"--codec","h264","--concurrency","1" if LOW_MEMORY_MODE else "2"]
     if REMOTION_BROWSER and Path(REMOTION_BROWSER).exists():
         cmd.extend(["--browser-executable",REMOTION_BROWSER])
     _run(cmd,cwd=remotion_dir,timeout=3600)
@@ -467,7 +492,7 @@ def _process(job_id: str) -> None:
         captions=group_captions(mapped_words,profile,boundaries)
         srt=job_dir/"captions.srt";_write_srt(captions,srt)
         motion=_motion_timeline(out_duration,cuts,profile)
-        graphics=_graphics_timeline(payload.get("content_package") or {},out_duration,profile)
+        graphics=_graphics_timeline(payload.get("content_package") or {},out_duration,profile,mapped_words)
         _stage(job_id,"graphics",captions=len(captions),motion=len(motion),graphics=len(graphics))
         composed=job_dir/"composed.mp4";engine=GRAPHICS_ENGINE
         if engine=="remotion":
@@ -489,6 +514,7 @@ def _process(job_id: str) -> None:
                 "graphics_engine":engine,"profile_id":(payload.get("profile") or {}).get("id"),
                 "profile_version":(payload.get("profile") or {}).get("version"),"platform":payload.get("platform"),
                 "rerun_stage":payload.get("rerun_stage") or "full","human_review_required":True,
+                "output_target":_effective_target(profile),"low_memory_mode":LOW_MEMORY_MODE,
                 "visual_checks_required":["face/object obstruction","caption readability","cut naturalness"]
             }
         }
@@ -553,8 +579,14 @@ def recover_interrupted_jobs():
         if state.get("status") not in ("queued","processing"):
             continue
         job_id=str(state.get("id") or state_path.parent.name)
+        recovery_count=int(state.get("recovery_count") or 0)+1
+        if recovery_count>MAX_RECOVERY_ATTEMPTS:
+            _write_state(job_id,{"status":"failed","stage":"failed","error":"Processing was interrupted repeatedly; manual retry required.","recovery_count":recovery_count})
+            print(json.dumps({"event":"MEDIA_FINISHER_RECOVER_GIVEUP","job_id":job_id,"attempts":recovery_count}),flush=True)
+            continue
+        _write_state(job_id,{"recovery_count":recovery_count})
         recovered+=1
-        print(json.dumps({"event":"MEDIA_FINISHER_RECOVER","job_id":job_id,"previous_stage":state.get("stage")}),flush=True)
+        print(json.dumps({"event":"MEDIA_FINISHER_RECOVER","job_id":job_id,"previous_stage":state.get("stage"),"attempt":recovery_count}),flush=True)
         threading.Thread(target=_process,args=(job_id,),daemon=True,name=f"recover-{job_id[:8]}").start()
     if recovered:
         print(json.dumps({"event":"MEDIA_FINISHER_RECOVERY_SUMMARY","recovered":recovered}),flush=True)
@@ -573,7 +605,7 @@ def pilot_source():
 @app.get("/health")
 def health():
     return {"ok":True,"version":APP_VERSION,"graphics_engine":GRAPHICS_ENGINE,"whisper_model":WHISPER_MODEL,
-            "callback_configured":bool(FACTORYOS_CALLBACK_BASE_URL),"auth_configured":bool(API_TOKEN)}
+            "low_memory_mode":LOW_MEMORY_MODE,"callback_configured":bool(FACTORYOS_CALLBACK_BASE_URL),"auth_configured":bool(API_TOKEN)}
 
 
 @app.post("/jobs")
