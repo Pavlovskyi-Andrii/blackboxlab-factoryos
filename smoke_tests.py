@@ -208,6 +208,7 @@ require(app._media_finisher_status_base()=="http://finisher.internal:10000/jobs"
 app.FACTORY_MEDIA_FINISHER_ENDPOINT,app.FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT=orig_finisher_base,orig_finisher_status
 require(len(app._media_upload_signature("ci-upload"))==64,"Media source signature regression")
 require(app.get_media_finisher_pilot()["status"]=="disabled","CI must never auto-run the real v4.5 Media Finisher pilot")
+require(callable(app.time.monotonic),"v4.5 pilot clock dependency regression")
 
 raw_video=app.save_artifact("Render Agent","video","CI raw media","",job_id=job_id,url="https://example.com/raw-ci.mp4",mime_type="video/mp4",meta={"fixture":True})
 signed_ci_url="https://factory.example/media-source/ci-upload?token="+app._media_upload_signature("ci-upload")
