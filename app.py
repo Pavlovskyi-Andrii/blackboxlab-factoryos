@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+import threading
 import sqlite3
 import uuid
 import os
@@ -3921,6 +3922,61 @@ def _finalize_edit_job(edit_job_id,status,output_url="",provider_job_id="",error
         event(item["production_job_id"],f"AI Media Finisher failed: {edit_job_id[:8]} — {str(error or 'provider failure')[:240]}")
     return get_edit_job(edit_job_id)
 
+MEDIA_FINISHER_SUBMIT_RETRIES=max(1,min(8,int(os.environ.get("FACTORY_MEDIA_FINISHER_SUBMIT_RETRIES","5"))))
+_media_finisher_submit_active=set()
+_media_finisher_submit_lock=threading.Lock()
+
+def _set_media_finisher_submit_progress(edit_job_id,stage="waking_worker",percent=1,attempt=1,last_error=""):
+    item=get_edit_job(edit_job_id)
+    if not item:return None
+    response=dict(item.get("response") or {})
+    response.update({"status":"queued","stage":stage,"percent":max(1,min(9,int(percent))),"submit_attempt":int(attempt)})
+    if last_error:response["last_submit_error"]=str(last_error)[:500]
+    con=db();con.execute("""UPDATE edit_jobs SET status='queued',error='',response_json=?,updated_at=? WHERE id=?""",
+                         (json.dumps(response,ensure_ascii=False,default=str),ts(),edit_job_id));con.commit();con.close()
+    return get_edit_job(edit_job_id)
+
+def _submit_media_finisher_background(edit_job_id):
+    with _media_finisher_submit_lock:
+        if edit_job_id in _media_finisher_submit_active:return
+        _media_finisher_submit_active.add(edit_job_id)
+    try:
+        item=get_edit_job(edit_job_id)
+        if not item or item.get("status") in ("ready","failed") or item.get("provider_job_id"):return
+        submit_endpoint=_media_finisher_submit_endpoint()
+        if not submit_endpoint:
+            _finalize_edit_job(edit_job_id,"failed",error="Media Finisher provider is not configured",response={"stage":"submit","percent":1})
+            return
+        payload=item.get("request") or {}
+        retry_delays=[0,3,6,12,20,30,45,60]
+        last_error=""
+        for attempt in range(1,MEDIA_FINISHER_SUBMIT_RETRIES+1):
+            _set_media_finisher_submit_progress(edit_job_id,"waking_worker",min(8,attempt+1),attempt,last_error)
+            if attempt>1:time.sleep(retry_delays[min(attempt-1,len(retry_delays)-1)])
+            try:
+                result=_external_json(submit_endpoint,"POST",payload,FACTORY_MEDIA_FINISHER_TOKEN)
+            except Exception as exc:
+                last_error=str(exc)
+                event(item["production_job_id"],f"AI Media Finisher worker wake/submit retry {attempt}/{MEDIA_FINISHER_SUBMIT_RETRIES}: {last_error[:180]}")
+                if attempt<MEDIA_FINISHER_SUBMIT_RETRIES:
+                    continue
+                _finalize_edit_job(edit_job_id,"failed",error=f"Worker did not become ready after {attempt} attempts: {last_error}",
+                                   response={"status":"failed","stage":"submit","percent":1,"submit_attempt":attempt,"exception":last_error})
+                return
+            output_url=str(result.get("final_url") or result.get("output_url") or result.get("url") or "").strip()
+            provider_job_id=str(result.get("id") or result.get("job_id") or result.get("task_id") or edit_job_id).strip()
+            status=_normalize_edit_status(result.get("status"),output_url)
+            report=result.get("report") if isinstance(result.get("report"),dict) else {}
+            done=_finalize_edit_job(edit_job_id,status,output_url,provider_job_id,str(result.get("error") or ""),result,report,
+                                    float(result.get("cost_usd") or 0),float(result.get("duration_sec") or 0))
+            event(item["production_job_id"],f"AI Media Finisher worker accepted: {edit_job_id[:8]} · status {done['status']}")
+            return
+    finally:
+        with _media_finisher_submit_lock:_media_finisher_submit_active.discard(edit_job_id)
+
+def _spawn_media_finisher_submit(edit_job_id):
+    threading.Thread(target=_submit_media_finisher_background,args=(edit_job_id,),daemon=True,name=f"finisher-submit-{edit_job_id[:8]}").start()
+
 def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     job=get_job(job_id)
     if not job:raise ValueError("Job not found")
@@ -3974,23 +4030,19 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
                            measured_cost_usd,measured_duration_sec,created_at,updated_at)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?,'queued',?,?,'{}','{}','',0,0,?,?)""",
                            (edit_job_id,parent_edit_job_id,(cycle or {}).get("id"),job_id,media_job_id,input_artifact_id,input_url,profile["id"],profile["version"],payload.platform,FACTORY_MEDIA_FINISHER_ADAPTER,rerun_stage,json.dumps(request_payload,ensure_ascii=False,default=str),now,now));con.commit();con.close()
-    try:result=_external_json(submit_endpoint,"POST",request_payload,FACTORY_MEDIA_FINISHER_TOKEN)
-    except Exception as exc:
-        _finalize_edit_job(edit_job_id,"failed",error=str(exc),response={"exception":str(exc)})
-        raise
-    output_url=str(result.get("final_url") or result.get("output_url") or result.get("url") or "").strip()
-    provider_job_id=str(result.get("id") or result.get("job_id") or result.get("task_id") or "").strip()
-    status=_normalize_edit_status(result.get("status"),output_url)
-    report=result.get("report") if isinstance(result.get("report"),dict) else {}
-    item=_finalize_edit_job(edit_job_id,status,output_url,provider_job_id,str(result.get("error") or ""),result,report,float(result.get("cost_usd") or 0),float(result.get("duration_sec") or 0))
-    event(job_id,f"AI Media Finisher submitted: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · {package_mode} · status {item['status']}")
+    _set_media_finisher_submit_progress(edit_job_id,"waking_worker",1,1)
+    _spawn_media_finisher_submit(edit_job_id)
+    item=get_edit_job(edit_job_id)
+    event(job_id,f"AI Media Finisher queued: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · {package_mode} · worker wake-up is automatic")
     return {"duplicate":False,"edit_job":item}
 
 def refresh_edit_job(edit_job_id):
     item=get_edit_job(edit_job_id)
     if not item:raise ValueError("Edit job not found")
     if item["status"] in ("ready","failed"):return item
-    if not item.get("provider_job_id"):raise RuntimeError("Media Finisher provider job id is not available yet")
+    if not item.get("provider_job_id"):
+        if item.get("status") in ("queued","submitted","processing"):return item
+        raise RuntimeError("Media Finisher provider job id is not available yet")
     status_base=_media_finisher_status_base()
     if not status_base:raise RuntimeError("Media Finisher status endpoint is not configured")
     endpoint=status_base.rstrip("/")+"/"+urlparse.quote(item["provider_job_id"],safe="")
@@ -7237,6 +7289,13 @@ async def media_finisher_upload(job_id:str,request:Request,file:UploadFile=File(
                               mime_type=meta["content_type"],meta={"component":"raw_upload","upload_id":upload_id,"bytes":total,"filename":filename})
     event(job_id,f"Media Finisher raw video uploaded: {filename} · {round(total/1024/1024,1)} MB")
     return {"ok":True,"upload_id":upload_id,"url":source_url,"artifact_id":artifact_id,"bytes":total,"filename":filename}
+
+@app.on_event("startup")
+def recover_pending_media_finisher_submits():
+    con=db();rows=con.execute("""SELECT id FROM edit_jobs WHERE status IN ('queued','submitted','processing')
+                                AND COALESCE(provider_job_id,'')='' ORDER BY created_at DESC LIMIT 20""").fetchall();con.close()
+    for row in rows:_spawn_media_finisher_submit(row["id"])
+    if rows:print(json.dumps({"event":"MEDIA_FINISHER_SUBMIT_RECOVERY","queued":len(rows)}),flush=True)
 
 @app.get("/api/media-finisher/profiles")
 def media_finisher_profiles():
