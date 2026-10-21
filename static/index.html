@@ -1670,55 +1670,101 @@ async function openRevideoJob(id){await api('/api/jobs/'+id+'/select',{method:'P
 async function renderRevideoVideo(id){if(!confirm(tr('revideo.videoCostConfirm')))return;try{const r=await api('/api/revideo/'+id+'/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_external_cost:true})}),mj=r.media_job||{};toast(r.ok?(mj.status==='ready'?tr('revideo.mediaReady'):tr('revideo.mediaQueued')):(r.message||'blocked'));renderRevideoStudio();await refresh()}catch(e){toast(e.message)}}
 async function refreshRevideoMedia(id){try{const r=await api('/api/media-jobs/'+id+'/refresh',{method:'POST'}),mj=r.media_job||{};toast(mj.status==='ready'?tr('revideo.mediaReady'):(mj.status==='failed'?tr('revideo.mediaFailed'):tr('revideo.mediaQueued')));renderRevideoStudio();await refresh()}catch(e){toast(e.message)}}
 
-let finisherBusy=false;
+let finisherBusy=false,finisherPollTimer=null;
 function finisherStateClass(x){return x==='ready'?'good':x==='failed'?'bad':(['queued','submitted','processing'].includes(x)?'warn':'')}
-async function openMediaFinisher(){_openFlow('finisher');const root=$('#finisherBody');root.innerHTML='<div class="flowEmpty">'+esc(tr('finisher.loading'))+'</div>';await renderMediaFinisher()}
-function closeMediaFinisher(){_closeFlow('finisher')}
-async function renderMediaFinisher(){
+function finisherStageLabel(stage){const k='finisher.stage.'+(stage||'queued'),v=tr(k);return v===k?(stage||'queued'):v}
+function finisherPercent(j){if(j.status==='ready'||j.status==='failed')return 100;const r=j.response||{},p=Number(r.percent);if(Number.isFinite(p)&&p>=0)return Math.min(99,p);return j.status==='queued'?2:j.status==='submitted'?5:18}
+async function openMediaFinisher(){
+ _openFlow('finisher');const root=$('#finisherBody');root.innerHTML='<div class="flowEmpty">'+esc(tr('finisher.loading'))+'</div>';
+ await renderMediaFinisher();clearInterval(finisherPollTimer);finisherPollTimer=setInterval(pollMediaFinisher,2200)
+}
+function closeMediaFinisher(){clearInterval(finisherPollTimer);finisherPollTimer=null;_closeFlow('finisher')}
+async function pollMediaFinisher(){
+ if(!$('#finisherPage').classList.contains('open')||finisherBusy||!S||!S.selectedJobId)return;
+ try{
+  const d=await api('/api/media-finisher?limit=8&job_id='+encodeURIComponent(S.selectedJobId));
+  const active=(d.jobs||[]).filter(j=>['queued','submitted','processing'].includes(j.status)).slice(0,2);
+  for(const j of active)await api('/api/media-finisher/'+encodeURIComponent(j.id)+'/refresh',{method:'POST'});
+  if(active.length)await renderMediaFinisher(true)
+ }catch(e){}
+}
+function updateFinisherFileChoice(input){
+ const el=$('#finisherFileState'),file=input&&input.files&&input.files[0];
+ if(el&&file)el.textContent=tr('finisher.fileChosen',{name:file.name})
+}
+async function renderMediaFinisher(silent=false){
  const root=$('#finisherBody');if(!root)return;
  try{
-  const selected=(S&&S.selectedJobId)||'',profilesData=await api('/api/media-finisher/profiles'),adapter=profilesData.adapter||{},profiles=profilesData.profiles||[];
-  let jobsData={jobs:[],summary:{total:0,active:0,ready:0}};
-  if(selected)jobsData=await api('/api/media-finisher?limit=80&job_id='+encodeURIComponent(selected));
-  const sm=jobsData.summary||{},jobs=jobsData.jobs||[];
-  let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.total||0)+'</b><span>'+esc(tr('finisher.jobs'))+'</span></div><div class="flowStat"><b>'+Number(sm.active||0)+'</b><span>'+esc(tr('finisher.active'))+'</span></div><div class="flowStat"><b>'+Number(sm.ready||0)+'</b><span>'+esc(tr('finisher.ready'))+'</span></div><div class="flowStat"><b>'+(adapter.configured?'ON':'OFF')+'</b><span>'+esc(tr('finisher.adapter'))+'</span></div></div>';
-  if(!selected){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('finisher.noJob'))+'</div>';return}
+  const selected=(S&&S.selectedJobId)||'';
+  if(!selected){root.innerHTML='<div class="flowEmpty">'+esc(tr('finisher.noJob'))+'</div>';return}
+  const [profilesData,jobsData,artifactData]=await Promise.all([
+   api('/api/media-finisher/profiles'),
+   api('/api/media-finisher?limit=80&job_id='+encodeURIComponent(selected)),
+   api('/api/jobs/'+encodeURIComponent(selected)+'/artifacts')
+  ]);
+  const adapter=profilesData.adapter||{},profiles=profilesData.profiles||[],sm=jobsData.summary||{},jobs=jobsData.jobs||[];
+  const allVideos=(artifactData.artifacts||[]).filter(a=>a.kind==='video'&&a.url);
+  const inputVideos=allVideos.filter(a=>!(a.agent==='AI Media Finisher'&&a.meta&&['final_render','short_render'].includes(a.meta.component)));
+  const latest=inputVideos[0]||null;
   const activeProfiles=profiles.filter(p=>p.active!==false).sort((a,b)=>(a.id==='talking_head_fast'?-1:0)-(b.id==='talking_head_fast'?-1:0));
-  const opts=activeProfiles.map(p=>'<option value="'+esc(p.id)+'@'+Number(p.version||1)+'">'+esc(p.name||p.id)+' · v'+Number(p.version||1)+'</option>').join('');
-  out+='<article class="flowCard" data-help="help.finisher" title="'+esc(helpTitle('help.finisher'))+'"><h3>'+esc(tr('finisher.title'))+'</h3><p>'+esc(tr('finisher.humanGate'))+'</p><div class="finisherComposer"><select id="finisherProfile">'+opts+'</select><select id="finisherPlatform"><option value="reels">Reels</option><option value="tiktok">TikTok</option><option value="shorts">YouTube Shorts</option></select><input class="wide" id="finisherInputUrl" placeholder="'+esc(tr('finisher.inputUrl'))+'"><input class="wide" id="finisherInputFile" type="file" accept="video/*"><small class="wide" style="color:var(--muted)">'+esc(tr('finisher.uploadHint'))+'</small><button class="btn primary wide" '+(adapter.configured?'':'disabled')+' onclick="startMediaFinisher()">✂ '+esc(tr('finisher.start'))+'</button></div>'+(adapter.configured?'':'<div class="revideoGuard">'+esc(tr('finisher.unconfigured'))+'</div>')+'</article>';
+  const profileOpts=activeProfiles.map(p=>'<option value="'+esc(p.id)+'@'+Number(p.version||1)+'">'+esc(p.name||p.id)+' · v'+Number(p.version||1)+'</option>').join('');
+  const bufferName=latest?((latest.meta&&latest.meta.filename)||latest.title||'video'):'';
+  const rawDelete=latest&&latest.meta&&latest.meta.component==='raw_upload'?'<button class="artifactDelete" title="Remove" onclick="deleteVideoArtifact(\''+esc(latest.id)+'\',\''+esc(selected)+'\')">×</button>':'';
+  const buffer=latest
+   ?'<div class="finisherBuffer"><div class="finisherBufferTop"><div class="finisherBufferTitle"><span class="finisherBufferIcon">🎬</span><div><b>'+esc(bufferName)+'</b><small>✓ '+esc(tr('finisher.bufferUsing'))+' · '+safeDate(latest.created_at)+'</small></div></div>'+rawDelete+'</div></div>'
+   :'<div class="finisherBuffer"><div class="finisherBufferTitle"><span class="finisherBufferIcon">＋</span><div><b>'+esc(tr('finisher.bufferEmpty'))+'</b><small>'+esc(tr('finisher.chooseNew'))+'</small></div></div></div>';
+  let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.total||0)+'</b><span>'+esc(tr('finisher.jobs'))+'</span></div><div class="flowStat"><b>'+Number(sm.active||0)+'</b><span>'+esc(tr('finisher.active'))+'</span></div><div class="flowStat"><b>'+Number(sm.ready||0)+'</b><span>'+esc(tr('finisher.ready'))+'</span></div><div class="flowStat"><b>'+(adapter.configured?'ON':'OFF')+'</b><span>'+esc(tr('finisher.adapter'))+'</span></div></div>';
+  out+='<article class="flowCard" data-help="help.finisher"><h3>'+esc(tr('finisher.buffer'))+'</h3>'+buffer+
+   '<div class="finisherComposer"><select id="finisherProfile">'+profileOpts+'</select><select id="finisherPlatform"><option value="reels">Instagram Reels</option><option value="shorts">YouTube Shorts</option><option value="tiktok">TikTok</option></select>'+
+   '<div class="wide finisherFileChoice"><input id="finisherInputFile" type="file" accept="video/*" onchange="updateFinisherFileChoice(this)"></div><small id="finisherFileState" class="wide" style="color:var(--muted)">'+esc(tr('finisher.chooseNew'))+'</small>'+
+   '<details class="wide finisherAdvanced"><summary>Advanced: video URL</summary><input id="finisherInputUrl" placeholder="'+esc(tr('finisher.inputUrl'))+'"></details></div>'+
+   '<div class="packageSection"><strong>'+esc(tr('finisher.options'))+'</strong><div class="finisherOptions">'+
+    '<label class="finisherOption"><input id="finisherFullEdit" type="checkbox" checked><span><b>'+esc(tr('finisher.fullEdit'))+'</b><small>'+esc(tr('finisher.fullEditSub'))+'</small></span></label>'+
+    '<label class="finisherOption"><input id="finisherSplitShorts" type="checkbox"><span><b>'+esc(tr('finisher.splitShorts'))+'</b><small>'+esc(tr('finisher.splitShortsSub'))+'</small></span></label>'+
+    '<label class="finisherOption"><input id="finisherCaptions" type="checkbox" checked><span><b>'+esc(tr('finisher.captions'))+'</b><small>'+esc(tr('finisher.captionsSub'))+'</small></span></label>'+
+    '<label class="finisherOption"><input id="finisherAnimation" type="checkbox" checked><span><b>'+esc(tr('finisher.animation'))+'</b><small>'+esc(tr('finisher.animationSub'))+'</small></span></label>'+
+   '</div></div>'+
+   '<div class="packageSection"><strong>'+esc(tr('finisher.route'))+'</strong><div class="finisherRoute"><span class="finisherNode">🎬 Video</span><span class="finisherArrow">→</span><span class="finisherNode agent">✂ AI Media Finisher</span><span class="finisherArrow">→</span><span class="finisherNode">'+esc(tr('finisher.routeMaster'))+'</span><span class="finisherNode">'+esc(tr('finisher.routeShorts'))+'</span><span class="finisherArrow">→</span><span class="finisherNode agent">✓ '+esc(tr('finisher.routeQa'))+'</span><span class="finisherArrow">→</span><span class="finisherNode">Human Approval</span></div></div>'+
+   '<button class="btn primary" style="width:100%;margin-top:9px" '+(adapter.configured?'':'disabled')+' onclick="startMediaFinisher()">✂ '+esc(tr('finisher.start'))+'</button>'+
+   (adapter.configured?'':'<div class="revideoGuard">'+esc(tr('finisher.unconfigured'))+'</div>')+'</article>';
   if(!jobs.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('finisher.noJobs'))+'</div>';return}
-  out+='<div class="flowGrid" style="margin-top:10px">'+jobs.map(j=>{
-   const report=j.report||{},summary=report.edit_summary||{},audio=report.audio_report||{},safe=report.safe_zone_report||{},arts=j.artifacts||[];
+  out+='<div class="flowGrid" style="margin-top:10px">'+jobs.slice(0,10).map(j=>{
+   const report=j.report||{},summary=report.edit_summary||{},request=j.request||{},jobOpts=request.options||{},shorts=report.shorts_manifest||{},clips=shorts.clips||[];
+   const stage=String((j.response||{}).stage||j.status||'queued'),pct=finisherPercent(j);
    let actions='';
    if(['queued','submitted','processing'].includes(j.status))actions+='<button class="btn" onclick="refreshMediaFinisher(\''+esc(j.id)+'\')">↻ '+esc(tr('finisher.refresh'))+'</button>';
-   if(j.status==='ready'){actions+='<button class="btn" onclick="rerunMediaFinisher(\''+esc(j.id)+'\',\'captions\')">'+esc(tr('finisher.rerunCaptions'))+'</button><button class="btn" onclick="rerunMediaFinisher(\''+esc(j.id)+'\',\'audio\')">'+esc(tr('finisher.rerunAudio'))+'</button><button class="btn" onclick="rerunMediaFinisher(\''+esc(j.id)+'\',\'safe_zone\')">'+esc(tr('finisher.rerunSafeZone'))+'</button><button class="btn" onclick="rerunMediaFinisher(\''+esc(j.id)+'\',\'render\')">'+esc(tr('finisher.rerunRender'))+'</button><button class="btn good" onclick="closeMediaFinisher();openApprovalStudio()">✓ '+esc(tr('finisher.openReview'))+'</button>'}
-   const ev=arts.length?arts.map(a=>'<span>'+esc(a.kind)+'</span>').join(''):'<span>—</span>';
+   if(j.status==='ready')actions+='<button class="btn" onclick="rerunMediaFinisher(\''+esc(j.id)+'\',\'captions\')">'+esc(tr('finisher.rerunCaptions'))+'</button><button class="btn" onclick="rerunMediaFinisher(\''+esc(j.id)+'\',\'render\')">'+esc(tr('finisher.rerunRender'))+'</button><button class="btn good" onclick="closeMediaFinisher();openApprovalStudio()">✓ '+esc(tr('finisher.openReview'))+'</button>';
+   const progress=['queued','submitted','processing'].includes(j.status)?'<div class="finisherProgressCard"><div class="finisherProgressTop"><b>'+esc(tr('finisher.progress'))+' · '+esc(finisherStageLabel(stage))+'</b><span>'+pct+'%</span></div><div class="finisherProgressTrack"><i style="width:'+pct+'%"></i></div></div>':'';
    const before=summary.duration_before_sec!=null?Number(summary.duration_before_sec).toFixed(1)+'s':'—',after=summary.duration_after_sec!=null?Number(summary.duration_after_sec).toFixed(1)+'s':'—';
-   const safeText=Array.isArray(safe.violations)?String(safe.violations.length)+' violation(s)':(Object.keys(safe).length?'recorded':'—');
-   const audioText=audio.voice_lufs!=null?Number(audio.voice_lufs).toFixed(1)+' LUFS':(audio.target_voice_lufs!=null?'target '+Number(audio.target_voice_lufs).toFixed(1)+' LUFS':'—');
-   const stage=String((j.response||{}).stage||'');
-   const cuts=Array.isArray(report.cut_list)?report.cut_list.length:0,captions=Array.isArray(report.caption_timeline)?report.caption_timeline.length:0,graphics=Array.isArray(report.graphics_timeline)?report.graphics_timeline.length:0,removed=summary.removed_seconds!=null?Number(summary.removed_seconds).toFixed(1)+'s':'—';
-   const rawVideo=j.input_url?'<div><strong>'+esc(tr('finisher.raw'))+'</strong><video controls playsinline preload="metadata" src="'+esc(j.input_url)+'" style="width:100%;max-height:440px;background:#000;border-radius:12px;margin-top:8px"></video><a class="mediaLink" href="'+esc(j.input_url)+'" target="_blank" rel="noopener">'+esc(tr('finisher.openMedia'))+'</a></div>':'';
-   const finalVideo=j.output_url?'<div><strong>'+esc(tr('finisher.output'))+'</strong><video controls playsinline preload="metadata" src="'+esc(j.output_url)+'" style="width:100%;max-height:440px;background:#000;border-radius:12px;margin-top:8px"></video><a class="mediaLink" href="'+esc(j.output_url)+'" target="_blank" rel="noopener">'+esc(tr('finisher.openMedia'))+'</a></div>':'<div><strong>'+esc(tr('finisher.output'))+'</strong><div class="flowEmpty">'+esc(tr('finisher.processingPreview'))+'</div></div>';
-   return '<article class="flowCard"><h3>✂ '+esc(j.profile_id)+' · v'+Number(j.profile_version||1)+'</h3><div class="flowMeta"><span class="flowPill '+finisherStateClass(j.status)+'">'+esc(tr('finisher.status'))+': '+esc(j.status)+'</span>'+(stage?'<span class="flowPill">stage: '+esc(stage)+'</span>':'')+'<span class="flowPill">'+esc(j.platform||'reels')+'</span><span class="flowPill">'+esc(tr('finisher.duration'))+': '+Number(j.measured_duration_sec||0).toFixed(1)+'s</span><span class="flowPill">'+esc(tr('finisher.cost'))+': '+fmtMoney(j.measured_cost_usd||0)+'</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:10px">'+rawVideo+finalVideo+'</div><div class="finisherReport"><div><strong>Before → after</strong><small>'+esc(before)+' → '+esc(after)+' · removed '+esc(removed)+'</small></div><div><strong>Cut / caption / graphics</strong><small>'+cuts+' / '+captions+' / '+graphics+'</small></div><div><strong>Audio / safe-zone QA</strong><small>'+esc(audioText)+' · '+esc(safeText)+'</small></div></div><div class="packageSection"><strong>'+esc(tr('finisher.evidence'))+'</strong><div class="finisherEvidence">'+ev+'</div></div><div class="flowActions">'+actions+'</div></article>';
+   const cuts=Array.isArray(report.cut_list)?report.cut_list.length:0,captions=Array.isArray(report.caption_timeline)?report.caption_timeline.length:0,graphics=Array.isArray(report.graphics_timeline)?report.graphics_timeline.length:0;
+   let links='';if(j.output_url)links+='<a href="'+esc(j.output_url)+'" target="_blank" rel="noopener">▶ '+esc(tr('finisher.readyLink'))+'</a>';clips.forEach((x,i)=>{if(x.url)links+='<a href="'+esc(x.url)+'" target="_blank" rel="noopener">▸ '+esc(tr('finisher.shortLink',{n:i+1}))+'</a>'});
+   const finalVideo=j.output_url?'<video controls playsinline preload="metadata" src="'+esc(j.output_url)+'" style="width:100%;max-height:300px;background:#000;border-radius:10px;margin-top:8px"></video>':'';
+   const err=j.error?'<div class="finding critical"><strong>Media Finisher</strong><span>'+esc(j.error)+'</span></div>':'';
+   return '<article class="flowCard"><h3>✂ '+esc(j.profile_id)+' · v'+Number(j.profile_version||1)+'</h3><div class="flowMeta"><span class="flowPill '+finisherStateClass(j.status)+'">'+esc(j.status)+'</span><span class="flowPill">'+esc(finisherStageLabel(stage))+'</span>'+(jobOpts.split_shortform?'<span class="flowPill good">Shorts + Reels</span>':'')+'</div>'+progress+err+finalVideo+(links?'<div class="finisherResultLinks">'+links+'</div>':'')+'<div class="finisherReport"><div><strong>Before → after</strong><small>'+esc(before)+' → '+esc(after)+'</small></div><div><strong>Cut / captions / graphics</strong><small>'+cuts+' / '+captions+' / '+graphics+'</small></div><div><strong>Short clips</strong><small>'+clips.length+'</small></div></div><div class="finisherRoute"><span class="finisherNode agent">AI Media Finisher</span><span class="finisherArrow">→</span><span class="finisherNode agent">'+esc(tr('finisher.routeQa'))+'</span><span class="finisherArrow">→</span><span class="finisherNode">Approval Studio</span></div><div class="flowActions">'+actions+'</div></article>'
   }).join('')+'</div>';root.innerHTML=out
  }catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}
 }
 async function startMediaFinisher(){
  if(finisherBusy||!S||!S.selectedJobId)return;
- const profile=textValue($('#finisherProfile').value).split('@'),platform=$('#finisherPlatform').value,fileInput=$('#finisherInputFile');let input=$('#finisherInputUrl').value.trim();
+ const profile=textValue($('#finisherProfile').value).split('@'),platform=$('#finisherPlatform').value,fileInput=$('#finisherInputFile');
+ const full=!!$('#finisherFullEdit').checked,split=!!$('#finisherSplitShorts').checked,captions=!!$('#finisherCaptions').checked,animation=!!$('#finisherAnimation').checked;
+ let input=$('#finisherInputUrl')?$('#finisherInputUrl').value.trim():'';
+ if(!full&&!split){toast(tr('finisher.needOutput'));return}
  if(!confirm(tr('finisher.costConfirm')))return;finisherBusy=true;
  try{
   const file=fileInput&&fileInput.files&&fileInput.files[0];
-  if(file){toast(tr('finisher.uploading'));const fd=new FormData();fd.append('file',file,file.name);const up=await api('/api/jobs/'+S.selectedJobId+'/media-finisher/upload',{method:'POST',body:fd});input=up.url||'';$('#finisherInputUrl').value=input;fileInput.value=''}
-  const payload={profile_id:profile[0]||'revideo_finish',profile_version:Number(profile[1]||1),platform,input_url:input,confirm_external_cost:true};
+  if(file){
+   toast(tr('finisher.uploading'));const fd=new FormData();fd.append('file',file,file.name);
+   const up=await api('/api/jobs/'+S.selectedJobId+'/media-finisher/upload',{method:'POST',body:fd});input=up.url||'';fileInput.value='';delete jobMediaCache[S.selectedJobId]
+  }
+  const payload={profile_id:profile[0]||'talking_head_fast',profile_version:Number(profile[1]||1),platform,input_url:input,
+   edit_full_video:full,split_shortform:split,add_captions:captions,add_animation:animation,smart_graphics:animation,max_short_clips:3,confirm_external_cost:true};
   const r=await api('/api/jobs/'+S.selectedJobId+'/media-finisher',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-  toast(r.ok?tr('finisher.submitted'):(r.message||'blocked'));await refresh();renderMediaFinisher()
+  toast(r.ok?tr('finisher.submitted'):(r.message||'blocked'));await refresh();await renderMediaFinisher()
  }catch(e){toast(e.message)}finally{finisherBusy=false}
 }
 async function refreshMediaFinisher(id){try{const r=await api('/api/media-finisher/'+id+'/refresh',{method:'POST'});toast((r.edit_job||{}).status||'updated');await refresh();renderMediaFinisher()}catch(e){toast(e.message)}}
 async function rerunMediaFinisher(id,stage){if(!confirm(tr('finisher.costConfirm')))return;try{const r=await api('/api/media-finisher/'+id+'/rerun/'+stage,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_external_cost:true})});toast(r.ok?tr('finisher.rerunSubmitted'):(r.message||'blocked'));await refresh();renderMediaFinisher()}catch(e){toast(e.message)}}
-
 
 let cyclePollTimer=null;
 async function openAutonomousFactory(){_openFlow('cycle');const root=$('#cycleBody');root.innerHTML='<div class="flowEmpty">Loading autonomous cycles…</div>';await renderAutonomousFactory();clearInterval(cyclePollTimer);cyclePollTimer=setInterval(()=>{if($('#cyclePage').classList.contains('open'))renderAutonomousFactory(true)},5000)}
