@@ -226,7 +226,9 @@ def _transcribe_words(job_id: str, wav: Path) -> tuple[list[dict], dict]:
         if pct>last_pct:
             last_pct=pct;_stage(job_id,"transcript",pct,transcribed_sec=round(elapsed,1),duration_sec=round(duration,1))
     stderr=proc.stderr.read() if proc.stderr is not None else "";rc=proc.wait()
-    if rc!=0:raise subprocess.CalledProcessError(rc,cmd,stderr=stderr)
+    if rc!=0:
+        detail=(stderr or "").strip()[-1600:]
+        raise RuntimeError("Whisper subprocess failed"+(": "+detail if detail else f" with exit code {rc}"))
     _stage(job_id,"transcript",40,duration_sec=round(duration,1))
     data=json.loads(output.read_text(encoding="utf-8"))
     return list(data.get("words") or []),dict(data.get("meta") or {})
