@@ -1692,6 +1692,11 @@ function updateFinisherFileChoice(input){
  const el=$('#finisherFileState'),file=input&&input.files&&input.files[0];
  if(el&&file)el.textContent=tr('finisher.fileChosen',{name:file.name})
 }
+function updateFinisherRoutePreview(){
+ const full=$('#finisherFullEdit'),split=$('#finisherSplitShorts'),master=$('#finisherRouteMaster'),shorts=$('#finisherRouteShorts');
+ if(master)master.style.display=full&&full.checked?'inline-flex':'none';
+ if(shorts)shorts.style.display=split&&split.checked?'inline-flex':'none'
+}
 async function renderMediaFinisher(silent=false){
  const root=$('#finisherBody');if(!root)return;
  try{
@@ -1719,12 +1724,12 @@ async function renderMediaFinisher(silent=false){
    '<div class="wide finisherFileChoice"><input id="finisherInputFile" type="file" accept="video/*" onchange="updateFinisherFileChoice(this)"></div><small id="finisherFileState" class="wide" style="color:var(--muted)">'+esc(tr('finisher.chooseNew'))+'</small>'+
    '<details class="wide finisherAdvanced"><summary>Advanced: video URL</summary><input id="finisherInputUrl" placeholder="'+esc(tr('finisher.inputUrl'))+'"></details></div>'+
    '<div class="packageSection"><strong>'+esc(tr('finisher.options'))+'</strong><div class="finisherOptions">'+
-    '<label class="finisherOption"><input id="finisherFullEdit" type="checkbox" checked><span><b>'+esc(tr('finisher.fullEdit'))+'</b><small>'+esc(tr('finisher.fullEditSub'))+'</small></span></label>'+
-    '<label class="finisherOption"><input id="finisherSplitShorts" type="checkbox"><span><b>'+esc(tr('finisher.splitShorts'))+'</b><small>'+esc(tr('finisher.splitShortsSub'))+'</small></span></label>'+
+    '<label class="finisherOption"><input id="finisherFullEdit" type="checkbox" checked onchange="updateFinisherRoutePreview()"><span><b>'+esc(tr('finisher.fullEdit'))+'</b><small>'+esc(tr('finisher.fullEditSub'))+'</small></span></label>'+
+    '<label class="finisherOption"><input id="finisherSplitShorts" type="checkbox" onchange="updateFinisherRoutePreview()"><span><b>'+esc(tr('finisher.splitShorts'))+'</b><small>'+esc(tr('finisher.splitShortsSub'))+'</small></span></label>'+
     '<label class="finisherOption"><input id="finisherCaptions" type="checkbox" checked><span><b>'+esc(tr('finisher.captions'))+'</b><small>'+esc(tr('finisher.captionsSub'))+'</small></span></label>'+
     '<label class="finisherOption"><input id="finisherAnimation" type="checkbox" checked><span><b>'+esc(tr('finisher.animation'))+'</b><small>'+esc(tr('finisher.animationSub'))+'</small></span></label>'+
    '</div></div>'+
-   '<div class="packageSection"><strong>'+esc(tr('finisher.route'))+'</strong><div class="finisherRoute"><span class="finisherNode">🎬 Video</span><span class="finisherArrow">→</span><span class="finisherNode agent">✂ AI Media Finisher</span><span class="finisherArrow">→</span><span class="finisherNode">'+esc(tr('finisher.routeMaster'))+'</span><span class="finisherNode">'+esc(tr('finisher.routeShorts'))+'</span><span class="finisherArrow">→</span><span class="finisherNode agent">✓ '+esc(tr('finisher.routeQa'))+'</span><span class="finisherArrow">→</span><span class="finisherNode">Human Approval</span></div></div>'+
+   '<div class="packageSection"><strong>'+esc(tr('finisher.route'))+'</strong><div class="finisherRoute"><span class="finisherNode">🎬 Video</span><span class="finisherArrow">→</span><span class="finisherNode agent">✂ AI Media Finisher</span><span class="finisherArrow">→</span><span id="finisherRouteMaster" class="finisherNode">'+esc(tr('finisher.routeMaster'))+'</span><span id="finisherRouteShorts" class="finisherNode" style="display:none">'+esc(tr('finisher.routeShorts'))+'</span><span class="finisherArrow">→</span><span class="finisherNode agent">✓ '+esc(tr('finisher.routeQa'))+'</span><span class="finisherArrow">→</span><span class="finisherNode">Human Approval</span></div></div>'+
    '<button class="btn primary" style="width:100%;margin-top:9px" '+(adapter.configured?'':'disabled')+' onclick="startMediaFinisher()">✂ '+esc(tr('finisher.start'))+'</button>'+
    (adapter.configured?'':'<div class="revideoGuard">'+esc(tr('finisher.unconfigured'))+'</div>')+'</article>';
   if(!jobs.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('finisher.noJobs'))+'</div>';return}
@@ -1737,8 +1742,9 @@ async function renderMediaFinisher(silent=false){
    const progress=['queued','submitted','processing'].includes(j.status)?'<div class="finisherProgressCard"><div class="finisherProgressTop"><b>'+esc(tr('finisher.progress'))+' · '+esc(finisherStageLabel(stage))+'</b><span>'+pct+'%</span></div><div class="finisherProgressTrack"><i style="width:'+pct+'%"></i></div></div>':'';
    const before=summary.duration_before_sec!=null?Number(summary.duration_before_sec).toFixed(1)+'s':'—',after=summary.duration_after_sec!=null?Number(summary.duration_after_sec).toFixed(1)+'s':'—';
    const cuts=Array.isArray(report.cut_list)?report.cut_list.length:0,captions=Array.isArray(report.caption_timeline)?report.caption_timeline.length:0,graphics=Array.isArray(report.graphics_timeline)?report.graphics_timeline.length:0;
-   let links='';if(j.output_url)links+='<a href="'+esc(j.output_url)+'" target="_blank" rel="noopener">▶ '+esc(tr('finisher.readyLink'))+'</a>';clips.forEach((x,i)=>{if(x.url)links+='<a href="'+esc(x.url)+'" target="_blank" rel="noopener">▸ '+esc(tr('finisher.shortLink',{n:i+1}))+'</a>'});
-   const finalVideo=j.output_url?'<video controls playsinline preload="metadata" src="'+esc(j.output_url)+'" style="width:100%;max-height:300px;background:#000;border-radius:10px;margin-top:8px"></video>':'';
+   const fullDeliverable=jobOpts.edit_full_video!==false;
+   let links='';if(j.output_url&&fullDeliverable)links+='<a href="'+esc(j.output_url)+'" target="_blank" rel="noopener">▶ '+esc(tr('finisher.readyLink'))+'</a>';clips.forEach((x,i)=>{if(x.url)links+='<a href="'+esc(x.url)+'" target="_blank" rel="noopener">▸ '+esc(tr('finisher.shortLink',{n:i+1}))+'</a>'});
+   const finalVideo=j.output_url&&fullDeliverable?'<video controls playsinline preload="metadata" src="'+esc(j.output_url)+'" style="width:100%;max-height:300px;background:#000;border-radius:10px;margin-top:8px"></video>':'';
    const err=j.error?'<div class="finding critical"><strong>Media Finisher</strong><span>'+esc(j.error)+'</span></div>':'';
    return '<article class="flowCard"><h3>✂ '+esc(j.profile_id)+' · v'+Number(j.profile_version||1)+'</h3><div class="flowMeta"><span class="flowPill '+finisherStateClass(j.status)+'">'+esc(j.status)+'</span><span class="flowPill">'+esc(finisherStageLabel(stage))+'</span>'+(jobOpts.split_shortform?'<span class="flowPill good">Shorts + Reels</span>':'')+'</div>'+progress+err+finalVideo+(links?'<div class="finisherResultLinks">'+links+'</div>':'')+'<div class="finisherReport"><div><strong>Before → after</strong><small>'+esc(before)+' → '+esc(after)+'</small></div><div><strong>Cut / captions / graphics</strong><small>'+cuts+' / '+captions+' / '+graphics+'</small></div><div><strong>Short clips</strong><small>'+clips.length+'</small></div></div><div class="finisherRoute"><span class="finisherNode agent">AI Media Finisher</span><span class="finisherArrow">→</span><span class="finisherNode agent">'+esc(tr('finisher.routeQa'))+'</span><span class="finisherArrow">→</span><span class="finisherNode">Approval Studio</span></div><div class="flowActions">'+actions+'</div></article>'
   }).join('')+'</div>';root.innerHTML=out
