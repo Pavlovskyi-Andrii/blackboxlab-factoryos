@@ -625,7 +625,7 @@ def _stage(job_id: str, stage: str, percent: int | None = None, **extra) -> dict
     return state
 
 
-def _process(job_id: str) -> None:
+def _process_one(job_id: str) -> None:
     started=time.time();state=_read_state(job_id);payload=state["request"];job_dir=_job_dir(job_id)
     try:
         options=payload.get("options") or {}
@@ -695,6 +695,24 @@ def _process(job_id: str) -> None:
         state=_write_state(job_id,{"status":"failed","stage":"failed","error":str(exc)[:1500],"wall_duration_sec":round(time.time()-started,3)})
         print(json.dumps({"event":"MEDIA_FINISHER_DONE","job_id":job_id,"status":"failed","error":state.get("error"),"wall_duration_sec":state.get("wall_duration_sec")},ensure_ascii=False),flush=True)
         _callback(state)
+
+
+_PROCESS_LOCK=threading.Lock()
+
+def _process(job_id: str) -> None:
+    queued=False
+    if not _PROCESS_LOCK.acquire(blocking=False):
+        queued=True
+        _write_state(job_id,{"status":"queued","stage":"worker_queue","percent":2,"error":""})
+        print(json.dumps({"event":"MEDIA_FINISHER_STAGE","job_id":job_id,"status":"queued","stage":"worker_queue","percent":2,
+                          "reason":"single-heavy-job-worker"}),flush=True)
+        _PROCESS_LOCK.acquire()
+    try:
+        if queued:
+            print(json.dumps({"event":"MEDIA_FINISHER_QUEUE_RELEASE","job_id":job_id}),flush=True)
+        _process_one(job_id)
+    finally:
+        _PROCESS_LOCK.release()
 
 
 
