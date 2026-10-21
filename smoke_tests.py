@@ -200,6 +200,12 @@ require(talking["config"]["safe_zones"]["top"]==0.12 and talking["config"]["safe
 fin_registry=app.get_media_finisher_registry()
 require(fin_registry["configured"] is False and fin_registry["async_jobs"] is True,"CI must not claim a live Media Finisher provider")
 require(fin_registry["uploads_enabled"] is True and fin_registry["upload_max_bytes"]>=10*1024*1024,"Media Finisher upload contract regression")
+orig_finisher_base,orig_finisher_status=app.FACTORY_MEDIA_FINISHER_ENDPOINT,app.FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT
+app.FACTORY_MEDIA_FINISHER_ENDPOINT="finisher.internal:10000"
+app.FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT=""
+require(app._media_finisher_submit_endpoint()=="http://finisher.internal:10000/jobs","Render private host submit endpoint normalization regression")
+require(app._media_finisher_status_base()=="http://finisher.internal:10000/jobs","Render private host status fallback regression")
+app.FACTORY_MEDIA_FINISHER_ENDPOINT,app.FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT=orig_finisher_base,orig_finisher_status
 require(len(app._media_upload_signature("ci-upload"))==64,"Media source signature regression")
 require(app.get_media_finisher_pilot()["status"]=="disabled","CI must never auto-run the real v4.5 Media Finisher pilot")
 

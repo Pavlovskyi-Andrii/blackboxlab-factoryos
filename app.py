@@ -158,8 +158,9 @@ FACTORY_VIDEO_CALLBACK_TOKEN = os.environ.get("FACTORY_VIDEO_CALLBACK_TOKEN", ""
 FACTORY_MEDIA_FINISHER_ADAPTER = (os.environ.get("FACTORY_MEDIA_FINISHER_ADAPTER", "webhook").strip().lower() or "webhook")
 FACTORY_MEDIA_FINISHER_ENDPOINT = os.environ.get("FACTORY_MEDIA_FINISHER_ENDPOINT", "").strip()
 FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT = os.environ.get("FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT", "").strip()
-FACTORY_MEDIA_FINISHER_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_TOKEN", "").strip()
-FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN", "").strip()
+FACTORY_MEDIA_FINISHER_SHARED_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_SHARED_TOKEN", "").strip()
+FACTORY_MEDIA_FINISHER_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_TOKEN", "").strip() or FACTORY_MEDIA_FINISHER_SHARED_TOKEN
+FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN", "").strip() or FACTORY_MEDIA_FINISHER_SHARED_TOKEN
 FACTORY_MEDIA_FINISHER_PILOT_TAG = os.environ.get("FACTORY_MEDIA_FINISHER_PILOT_TAG", "").strip()
 FACTORY_MEDIA_FINISHER_PILOT_SOURCE_URL = os.environ.get("FACTORY_MEDIA_FINISHER_PILOT_SOURCE_URL", "").strip()
 FACTORY_DISCOVERY_ENDPOINT = os.environ.get("FACTORY_DISCOVERY_ENDPOINT", "").strip()
@@ -3739,12 +3740,28 @@ def get_edit_jobs(limit=80,job_id=None):
     summary={"total":len(items),"queued":sum(1 for x in items if x["status"]=="queued"),"active":sum(1 for x in items if x["status"] in ("submitted","processing")),"ready":sum(1 for x in items if x["status"]=="ready"),"failed":sum(1 for x in items if x["status"]=="failed")}
     return {"jobs":items,"summary":summary}
 
+
+def _normalize_service_endpoint(value):
+    value=str(value or "").strip().rstrip("/")
+    if value and "://" not in value:value="http://"+value
+    return value
+
+def _media_finisher_submit_endpoint():
+    base=_normalize_service_endpoint(FACTORY_MEDIA_FINISHER_ENDPOINT)
+    if not base:return ""
+    return base if base.endswith("/jobs") else base+"/jobs"
+
+def _media_finisher_status_base():
+    explicit=_normalize_service_endpoint(FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT)
+    if explicit:return explicit
+    return _media_finisher_submit_endpoint()
+
 def get_media_finisher_registry():
     return {
       "selected":FACTORY_MEDIA_FINISHER_ADAPTER,
-      "configured":bool(FACTORY_MEDIA_FINISHER_ENDPOINT),
-      "endpoint_configured":bool(FACTORY_MEDIA_FINISHER_ENDPOINT),
-      "status_endpoint_configured":bool(FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT),
+      "configured":bool(_media_finisher_submit_endpoint()),
+      "endpoint_configured":bool(_media_finisher_submit_endpoint()),
+      "status_endpoint_configured":bool(_media_finisher_status_base()),
       "async_jobs":True,
       "uploads_enabled":True,
       "upload_max_bytes":FACTORY_MEDIA_UPLOAD_MAX_BYTES,
@@ -3849,7 +3866,8 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     con=db();active=con.execute("""SELECT * FROM edit_jobs WHERE production_job_id=? AND input_url=? AND profile_id=? AND profile_version=?
                                   AND status IN ('queued','submitted','processing') ORDER BY created_at DESC LIMIT 1""",(job_id,input_url,profile["id"],profile["version"])).fetchone();con.close()
     if active and not parent_edit_job_id:return {"duplicate":True,"edit_job":_edit_job_dict(active)}
-    if not FACTORY_MEDIA_FINISHER_ENDPOINT:raise RuntimeError("Media Finisher provider is not configured")
+    submit_endpoint=_media_finisher_submit_endpoint()
+    if not submit_endpoint:raise RuntimeError("Media Finisher provider is not configured")
     edit_job_id=str(uuid.uuid4());now=ts()
     request_payload={
       "edit_job_id":edit_job_id,"job_id":job_id,"factory_cycle_id":sync_cycle_for_job(job_id).get("id") if sync_cycle_for_job(job_id) else None,
@@ -3865,7 +3883,7 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
                            measured_cost_usd,measured_duration_sec,created_at,updated_at)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?,'queued',?,?,'{}','{}','',0,0,?,?)""",
                            (edit_job_id,parent_edit_job_id,(cycle or {}).get("id"),job_id,media_job_id,input_artifact_id,input_url,profile["id"],profile["version"],payload.platform,FACTORY_MEDIA_FINISHER_ADAPTER,rerun_stage,json.dumps(request_payload,ensure_ascii=False,default=str),now,now));con.commit();con.close()
-    try:result=_external_json(FACTORY_MEDIA_FINISHER_ENDPOINT,"POST",request_payload,FACTORY_MEDIA_FINISHER_TOKEN)
+    try:result=_external_json(submit_endpoint,"POST",request_payload,FACTORY_MEDIA_FINISHER_TOKEN)
     except Exception as exc:
         _finalize_edit_job(edit_job_id,"failed",error=str(exc),response={"exception":str(exc)})
         raise
@@ -3882,8 +3900,9 @@ def refresh_edit_job(edit_job_id):
     if not item:raise ValueError("Edit job not found")
     if item["status"] in ("ready","failed"):return item
     if not item.get("provider_job_id"):raise RuntimeError("Media Finisher provider job id is not available yet")
-    if not FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT:raise RuntimeError("Media Finisher status endpoint is not configured")
-    endpoint=FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT.rstrip("/")+"/"+urlparse.quote(item["provider_job_id"],safe="")
+    status_base=_media_finisher_status_base()
+    if not status_base:raise RuntimeError("Media Finisher status endpoint is not configured")
+    endpoint=status_base.rstrip("/")+"/"+urlparse.quote(item["provider_job_id"],safe="")
     result=_external_json(endpoint,"GET",None,FACTORY_MEDIA_FINISHER_TOKEN)
     output_url=str(result.get("final_url") or result.get("output_url") or result.get("url") or "").strip()
     report=result.get("report") if isinstance(result.get("report"),dict) else {}

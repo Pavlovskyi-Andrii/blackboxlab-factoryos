@@ -22,7 +22,7 @@ This document is the source of truth for milestone status, Definition of Done, p
 - Added direct raw-video upload to a selected production job. Uploads are stored as signed, unguessable source artifacts so the external Finisher worker can fetch them without weakening the private FactoryOS session boundary.
 - Added in-dashboard Before/After video previews plus removed time, cut/caption/graphics counts, render stage and audio/safe-zone summary.
 - Fixed the external Finisher callback path so token-authenticated callbacks can reach the endpoint without requiring the browser session cookie.
-- CI remains zero-spend. **Status: VERIFY** until one real user-recorded clip is processed end-to-end and visually reviewed.
+- CI remains zero-spend. Render Blueprint now defines the isolated 1c/2GB Docker Finisher service, shared token wiring and persistent media disk. **Status: VERIFY** until the Blueprint/service is activated and one real user-recorded clip is processed end-to-end and visually reviewed.
 
 ### v4.4 — Real Media Provider Foundation — 2026-10-20
 - Added persistent asynchronous media jobs for Revideo with `queued → submitted → processing → ready/failed` lifecycle, provider job IDs, response/error persistence and duplicate-safe render visibility.

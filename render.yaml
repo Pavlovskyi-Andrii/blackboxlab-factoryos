@@ -1,3 +1,9 @@
+envVarGroups:
+  - name: factoryos-media-finisher-shared
+    envVars:
+      - key: FACTORY_MEDIA_FINISHER_SHARED_TOKEN
+        generateValue: true
+
 services:
   - type: web
     name: blackboxlab-factoryos
@@ -17,7 +23,46 @@ services:
         sync: false
       - key: FACTORY_SECRET
         generateValue: true
+      - key: FACTORY_MEDIA_FINISHER_ADAPTER
+        value: render-media-finisher
+      - key: FACTORY_MEDIA_FINISHER_ENDPOINT
+        fromService:
+          type: web
+          name: blackboxlab-media-finisher
+          property: hostport
+      - fromGroup: factoryos-media-finisher-shared
     disk:
       name: factory-data
       mountPath: /var/data
       sizeGB: 1
+
+  - type: web
+    name: blackboxlab-media-finisher
+    runtime: docker
+    region: frankfurt
+    plan: 1c-2g
+    dockerfilePath: ./media_finisher_worker/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: FINISHER_DATA_DIR
+        value: /var/data/media-finisher
+      - key: FINISHER_WHISPER_MODEL
+        value: small
+      - key: FINISHER_WHISPER_DEVICE
+        value: cpu
+      - key: FINISHER_WHISPER_COMPUTE_TYPE
+        value: int8
+      - key: FINISHER_GRAPHICS_ENGINE
+        value: remotion
+      - key: FACTORYOS_CALLBACK_BASE_URL
+        fromService:
+          type: web
+          name: blackboxlab-factoryos
+          property: hostport
+      - fromGroup: factoryos-media-finisher-shared
+    disk:
+      name: media-finisher-data
+      mountPath: /var/data
+      sizeGB: 5

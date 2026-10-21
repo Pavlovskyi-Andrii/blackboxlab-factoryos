@@ -20,10 +20,14 @@ BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("FINISHER_DATA_DIR", "/var/data/media-finisher"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 PORT = int(os.environ.get("PORT", "10000"))
-PUBLIC_BASE_URL = (os.environ.get("FINISHER_PUBLIC_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or f"http://localhost:{PORT}").rstrip("/")
-API_TOKEN = os.environ.get("FINISHER_API_TOKEN", "").strip()
+_render_external_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "").strip()
+PUBLIC_BASE_URL = (os.environ.get("FINISHER_PUBLIC_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or (f"https://{_render_external_hostname}" if _render_external_hostname else f"http://localhost:{PORT}")).rstrip("/")
+SHARED_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_SHARED_TOKEN", "").strip()
+API_TOKEN = os.environ.get("FINISHER_API_TOKEN", "").strip() or SHARED_TOKEN
 FACTORYOS_CALLBACK_BASE_URL = os.environ.get("FACTORYOS_CALLBACK_BASE_URL", "").rstrip("/")
-FACTORYOS_CALLBACK_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN", "").strip()
+if FACTORYOS_CALLBACK_BASE_URL and "://" not in FACTORYOS_CALLBACK_BASE_URL:
+    FACTORYOS_CALLBACK_BASE_URL = "http://" + FACTORYOS_CALLBACK_BASE_URL
+FACTORYOS_CALLBACK_TOKEN = os.environ.get("FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN", "").strip() or SHARED_TOKEN
 WHISPER_MODEL = os.environ.get("FINISHER_WHISPER_MODEL", "small").strip() or "small"
 WHISPER_DEVICE = os.environ.get("FINISHER_WHISPER_DEVICE", "cpu").strip() or "cpu"
 WHISPER_COMPUTE_TYPE = os.environ.get("FINISHER_WHISPER_COMPUTE_TYPE", "int8").strip() or "int8"
@@ -548,7 +552,8 @@ def pilot_source():
 
 @app.get("/health")
 def health():
-    return {"ok":True,"version":APP_VERSION,"graphics_engine":GRAPHICS_ENGINE,"whisper_model":WHISPER_MODEL}
+    return {"ok":True,"version":APP_VERSION,"graphics_engine":GRAPHICS_ENGINE,"whisper_model":WHISPER_MODEL,
+            "callback_configured":bool(FACTORYOS_CALLBACK_BASE_URL),"auth_configured":bool(API_TOKEN)}
 
 
 @app.post("/jobs")
