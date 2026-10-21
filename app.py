@@ -4701,7 +4701,12 @@ def get_job_worker_results(job_id):
     con=db()
     rows=[dict(x) for x in con.execute(
         """SELECT id,run_id,agent,kind,title,content,url,mime_type,created_at,meta_json
-           FROM artifacts WHERE job_id=? ORDER BY created_at DESC""",(job_id,)
+           FROM artifacts WHERE job_id=?
+           ORDER BY CASE
+             WHEN agent='AI Media Finisher' AND meta_json LIKE '%"component": "final_render"%' THEN 0
+             WHEN agent='AI Media Finisher' AND meta_json LIKE '%"component": "short_render"%' THEN 2
+             ELSE 1
+           END, created_at DESC""",(job_id,)
     ).fetchall()]
     counts={x["agent"]:int(x["c"] or 0) for x in con.execute(
         "SELECT agent,COUNT(*) c FROM artifacts WHERE job_id=? GROUP BY agent",(job_id,)
