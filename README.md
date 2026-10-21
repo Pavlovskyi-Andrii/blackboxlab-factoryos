@@ -9,11 +9,20 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 The living technical specification and progress tracker for the next major product cycle is here:
 
 - [FactoryOS v4.0 — Technical Specification & Roadmap](docs/roadmap/FACTORYOS_V4_TECH_SPEC.md)
-- [FactoryOS v4.5 — AI Editing / Media Finisher proposal](docs/roadmap/FACTORYOS_V4_5_AI_EDITING_SPEC.md) — proposed deterministic post-production layer: FFmpeg + word-level ASR + Remotion + audio/safe-zone QA. **Design only; not implemented yet.**
+- [FactoryOS v4.5 — AI Editing / Media Finisher](docs/roadmap/FACTORYOS_V4_5_AI_EDITING_SPEC.md) — implemented candidate: FFmpeg + word-level ASR + Remotion + audio/safe-zone QA, raw-file upload, traceable evidence and human-review return path. **Real user-video production pilot still required before DONE.**
 
 This document is the source of truth for milestone status, Definition of Done, progress checkboxes, known gaps and the next action from v3.25 through v4.0.
 
 ## Product changelog
+
+### v4.5 — AI Media Finisher implementation candidate — 2026-10-21
+- Added a separate Docker Media Finisher worker using FFmpeg, faster-whisper and Remotion for deterministic short-form post-production.
+- Added word timing, pause/duplicate cleanup, persisted cut lists, 1–3 word captions, jump-cut masking/push-ins, approved-text emphasis graphics, LUFS audio finishing and safe-zone evidence.
+- Added traceable edit jobs/evidence in FactoryOS, stage reruns with parent lineage, final-video artifacts and forced return to HUMAN APPROVAL with no automatic publishing.
+- Added direct raw-video upload to a selected production job. Uploads are stored as signed, unguessable source artifacts so the external Finisher worker can fetch them without weakening the private FactoryOS session boundary.
+- Added in-dashboard Before/After video previews plus removed time, cut/caption/graphics counts, render stage and audio/safe-zone summary.
+- Fixed the external Finisher callback path so token-authenticated callbacks can reach the endpoint without requiring the browser session cookie.
+- CI remains zero-spend. **Status: VERIFY** until one real user-recorded clip is processed end-to-end and visually reviewed.
 
 ### v4.4 — Real Media Provider Foundation — 2026-10-20
 - Added persistent asynchronous media jobs for Revideo with `queued → submitted → processing → ready/failed` lifecycle, provider job IDs, response/error persistence and duplicate-safe render visibility.

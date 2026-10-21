@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 from urllib import request as urlrequest, error as urlerror, parse as urlparse
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request, Form
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request, Form, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -61,6 +61,9 @@ LLM_LIVE_AGENTS = {
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB = DATA_DIR / "factory.db"
+MEDIA_UPLOAD_DIR = DATA_DIR / "media_uploads"
+MEDIA_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+FACTORY_MEDIA_UPLOAD_MAX_BYTES = max(10 * 1024 * 1024, int(os.environ.get("FACTORY_MEDIA_UPLOAD_MAX_BYTES", str(500 * 1024 * 1024))))
 STAGES = ["inbox","research","script","visual","voice","render","qa","publish","analytics"]
 AGENT_MAP = {
     "research": ["Scout","Researcher","Tech Verifier"],
@@ -182,8 +185,9 @@ def request_is_authed(request: Request) -> bool:
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/health", "/mcp"}
-    public_prefixes = ("/static/", "/.well-known/")
-    if request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/")
+    finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     if not request_is_authed(request):
         if request.url.path.startswith("/api/"):
@@ -3742,6 +3746,8 @@ def get_media_finisher_registry():
       "endpoint_configured":bool(FACTORY_MEDIA_FINISHER_ENDPOINT),
       "status_endpoint_configured":bool(FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT),
       "async_jobs":True,
+      "uploads_enabled":True,
+      "upload_max_bytes":FACTORY_MEDIA_UPLOAD_MAX_BYTES,
       "profiles":[{"id":x["id"],"version":x["version"],"name":x["name"],"active":x["active"]} for x in get_edit_profiles()],
       "contract":{
         "input":["raw media URL/artifact","fresh Content Package","profile/version","platform"],
@@ -3768,7 +3774,9 @@ def _resolve_finisher_input(job_id,input_url="",media_job_id=""):
         if not media or media.get("job_id")!=job_id:raise ValueError("Media job does not belong to this production job")
         if media.get("status")!="ready" or not media.get("media_url"):raise ValueError("Media job must be ready before finishing")
         return media.get("media_url"),None,media_job_id
-    if input_url:return input_url,None,None
+    if input_url:
+        con=db();row=con.execute("SELECT id FROM artifacts WHERE job_id=? AND kind='video' AND url=? ORDER BY created_at DESC LIMIT 1",(job_id,input_url)).fetchone();con.close()
+        return input_url,(row["id"] if row else None),None
     artifact=_latest_job_video_artifact(job_id)
     if not artifact:raise ValueError("No raw/generated video artifact is available for this job")
     return artifact["url"],artifact["id"],None
@@ -7050,6 +7058,65 @@ async def discovery_to_revideo(candidate_id:str,payload:DiscoveryToRevideoReques
     except ValueError as exc:raise HTTPException(400,str(exc))
     await broadcast({"type":"discovery","action":"revideo","candidateId":candidate_id,"projectId":result["project"]["id"]})
     return {"ok":True,**result}
+
+
+def _media_upload_signature(upload_id):
+    return hmac.new(FACTORY_SECRET.encode("utf-8"),f"media-source:{upload_id}".encode("utf-8"),hashlib.sha256).hexdigest()
+
+def _media_upload_meta(upload_id):
+    path=MEDIA_UPLOAD_DIR/f"{upload_id}.json"
+    if not path.exists():return None
+    return _decode_json(path.read_text(encoding="utf-8"),None)
+
+@app.get("/media-source/{upload_id}",name="media_finisher_uploaded_source")
+def media_finisher_uploaded_source(upload_id:str,token:str=""):
+    expected=_media_upload_signature(upload_id)
+    if not token or not hmac.compare_digest(token,expected):raise HTTPException(403,"Invalid media source token")
+    meta=_media_upload_meta(upload_id)
+    if not meta:raise HTTPException(404,"Media source not found")
+    path=MEDIA_UPLOAD_DIR/str(meta.get("stored_name") or "")
+    if not path.exists():raise HTTPException(404,"Media source file missing")
+    return FileResponse(path,media_type=meta.get("content_type") or "application/octet-stream",filename=meta.get("filename") or path.name)
+
+@app.post("/api/jobs/{job_id}/media-finisher/upload")
+async def media_finisher_upload(job_id:str,request:Request,file:UploadFile=File(...)):
+    if not get_job(job_id):raise HTTPException(404,"Job not found")
+    filename=Path(file.filename or "upload.mp4").name
+    ext=Path(filename).suffix.lower()
+    allowed_ext={".mp4",".mov",".m4v",".webm",".mpeg",".mpg"}
+    content_type=(file.content_type or "").lower()
+    if ext not in allowed_ext or (content_type and not content_type.startswith("video/")):
+        raise HTTPException(400,"Upload a supported video file")
+    upload_id=str(uuid.uuid4())
+    stored_name=upload_id+ext
+    dest=MEDIA_UPLOAD_DIR/stored_name
+    total=0
+    try:
+        with dest.open("wb") as fh:
+            while True:
+                chunk=await file.read(1024*1024)
+                if not chunk:break
+                total+=len(chunk)
+                if total>FACTORY_MEDIA_UPLOAD_MAX_BYTES:
+                    raise HTTPException(413,f"Video exceeds upload limit of {FACTORY_MEDIA_UPLOAD_MAX_BYTES//(1024*1024)} MB")
+                fh.write(chunk)
+    except Exception:
+        if dest.exists():dest.unlink()
+        raise
+    finally:
+        await file.close()
+    if total<1024:
+        if dest.exists():dest.unlink()
+        raise HTTPException(400,"Uploaded video is empty or too small")
+    meta={"upload_id":upload_id,"job_id":job_id,"filename":filename,"stored_name":stored_name,
+          "content_type":content_type or "video/mp4","bytes":total,"created_at":ts()}
+    (MEDIA_UPLOAD_DIR/f"{upload_id}.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+    token=_media_upload_signature(upload_id)
+    source_url=str(request.url_for("media_finisher_uploaded_source",upload_id=upload_id))+"?token="+urlparse.quote(token,safe="")
+    artifact_id=save_artifact("AI Media Finisher","video","Raw video upload","",job_id=job_id,url=source_url,
+                              mime_type=meta["content_type"],meta={"component":"raw_upload","upload_id":upload_id,"bytes":total,"filename":filename})
+    event(job_id,f"Media Finisher raw video uploaded: {filename} · {round(total/1024/1024,1)} MB")
+    return {"ok":True,"upload_id":upload_id,"url":source_url,"artifact_id":artifact_id,"bytes":total,"filename":filename}
 
 @app.get("/api/media-finisher/profiles")
 def media_finisher_profiles():

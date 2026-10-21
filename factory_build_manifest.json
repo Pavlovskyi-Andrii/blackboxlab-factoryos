@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-20T14:46:00.000Z",
+  "updated_at": "2026-10-21T08:31:00.000Z",
   "tasks": {
     "worker-progress": {
       "status": "done",
@@ -922,6 +922,36 @@
         "test": "done",
         "deploy": "done",
         "verify": "done"
+      }
+    },
+    "v4.5-ai-media-finisher": {
+      "status": "verify",
+      "meta": {
+        "title": "v4.5 — AI Media Finisher",
+        "description": "Raw/generated video → word timing → deterministic cuts → captions/motion/graphics → audio/safe-zone QA → final video → human approval.",
+        "category": "production",
+        "priority": "high",
+        "owner": "Factory Builder",
+        "order_index": 340,
+        "evidence": {
+          "implementation_head": "pending_this_commit",
+          "worker": "FFmpeg + faster-whisper + Remotion",
+          "raw_upload": true,
+          "before_after_preview": true,
+          "callback_auth_fixed": true,
+          "ci": "pending",
+          "real_user_video_pilot": "pending",
+          "publishing_guard": "no automatic publishing; final media returns to human approval"
+        }
+      },
+      "steps": {
+        "understand": "done",
+        "inspect": "done",
+        "plan": "done",
+        "implement": "done",
+        "test": "pending",
+        "deploy": "pending",
+        "verify": "pending"
       }
     }
   }

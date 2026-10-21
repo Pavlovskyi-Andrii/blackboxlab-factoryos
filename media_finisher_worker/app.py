@@ -15,7 +15,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-APP_VERSION = "v4.5-worker-1"
+APP_VERSION = "v4.5-worker-rc2"
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("FINISHER_DATA_DIR", "/var/data/media-finisher"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -396,7 +396,10 @@ def _audio_finish(src: Path, dest: Path, profile: dict) -> dict:
     if match:
         try:measured=json.loads(match[-1])
         except Exception:measured={}
-    return {"target_voice_lufs":target,"measured":measured,"music_applied":False,"music_policy":"No approved music asset was supplied; none was added."}
+    voice_lufs=measured.get("output_i") if isinstance(measured,dict) else None
+    try:voice_lufs=float(voice_lufs) if voice_lufs not in (None,"") else None
+    except Exception:voice_lufs=None
+    return {"target_voice_lufs":target,"voice_lufs":voice_lufs,"measured":measured,"music_applied":False,"music_policy":"No approved music asset was supplied; none was added."}
 
 
 def _safe_zone_report(profile: dict, captions: list[dict], graphics: list[dict]) -> dict:
@@ -406,7 +409,7 @@ def _safe_zone_report(profile: dict, captions: list[dict], graphics: list[dict])
         "top":float(zones.get("top",0.12)),"bottom":float(zones.get("bottom",0.20)),
         "right":float(zones.get("right",0.12)),"left":float(zones.get("left",0.0)),
         "caption_events":len(captions),"graphics_events":len(graphics),"violations":[],
-        "frame_sampling":"not_yet_computer_vision_verified",
+        "frame_sampling":"not_yet_computer_vision_verified","visual_review_required":True,
         "note":"Deterministic overlay coordinates were checked; human review is still required for face/object obstruction."
     }
 

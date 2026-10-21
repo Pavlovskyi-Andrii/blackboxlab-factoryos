@@ -1,6 +1,6 @@
 # FactoryOS v4.5 — AI Editing / Media Finisher
 
-**Status:** PROPOSED / DESIGN  
+**Status:** IMPLEMENTED / VERIFY — real user-video pilot pending  
 **Source:** analysis of the user-provided “AI монтаж v2” guide + current FactoryOS v4.4 media architecture  
 **Goal:** turn raw talking-head or generated video into a finished short-form asset with deterministic cuts, captions, motion graphics, audio normalization, safe-zone checks, QA evidence and full provenance.
 
@@ -356,39 +356,40 @@ Avoid fake “quality scores”. Report concrete findings.
 ## 10. Rollout plan
 
 ### v4.5-A — Contract + observability
-- [ ] Persist `edit_jobs` / edit artifact types.
-- [ ] Add provider-neutral Media Finisher adapter contract.
-- [ ] Add status/result display in Worker Evidence.
-- [ ] Add deterministic fake-worker regression.
+- [x] Persist `edit_jobs` / edit artifact types.
+- [x] Add provider-neutral Media Finisher adapter contract.
+- [x] Add status/result display in Worker Evidence.
+- [x] Add deterministic fake-worker regression.
 
 ### v4.5-B — Real speech cleanup engine
-- [ ] FFmpeg worker.
-- [ ] word-level ASR.
-- [ ] pause detection from audio energy.
-- [ ] cut-list generation and render.
-- [ ] before/after report.
+- [x] FFmpeg worker.
+- [x] word-level ASR.
+- [x] pause detection from audio energy.
+- [x] cut-list generation and render.
+- [x] before/after report.
 
 ### v4.5-C — Remotion graphics
-- [ ] caption renderer;
-- [ ] zoom / push-in events;
-- [ ] emphasis cards;
-- [ ] reusable style profiles;
-- [ ] 1080×1920 render.
+- [x] caption renderer;
+- [x] zoom / push-in events;
+- [x] emphasis cards;
+- [x] reusable style profiles;
+- [x] 1080×1920 render.
 
 ### v4.5-D — Audio + frame QA
-- [ ] LUFS normalization / measurement;
+- [x] LUFS normalization / measurement;
 - [ ] music ducking;
-- [ ] safe-zone checks;
+- [x] safe-zone layout-contract checks;
 - [ ] frame sampling around cuts/graphics;
-- [ ] final QA artifact.
+- [x] final QA artifact.
 
 ### v4.5-E — controlled pilot
-- [ ] one real talking-head clip;
+- [x] fenced pilot fixture + startup verification path;
+- [ ] one real user-recorded talking-head clip;
 - [ ] one Revideo/generated clip;
 - [ ] compare manual vs Finisher time;
 - [ ] inspect cuts/captions/safe zones;
 - [ ] owner approval;
-- [ ] no auto-publish.
+- [x] no auto-publish.
 
 ---
 
@@ -426,3 +427,8 @@ with:
 **Do not copy literally:** “run everything on the user's PC” as the product architecture, fixed style values for every channel, or a single opaque prompt that performs untraceable destructive edits.
 
 For FactoryOS, this should become a **versioned, observable Media Finisher worker** that complements Descript / Runway / future video generators rather than replacing them.
+
+
+## 13. Implementation verification note — 2026-10-21
+
+The code path is implemented and CI-covered. The remaining release gate is a real user-recorded clip processed through the deployed worker. Visual review must explicitly confirm cut naturalness, caption readability, graphics placement and face/object obstruction. Safe-zone evidence is currently deterministic layout validation, not computer-vision proof. Targeted rerun lineage is persisted; the worker may recompute deterministic upstream stages to preserve correctness.
