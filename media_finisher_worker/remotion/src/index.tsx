@@ -39,9 +39,12 @@ const MediaFinish:React.FC<Props>=(p)=>{
     })}
     {(p.graphics||[]).map((g,i)=>{
       const from=Math.max(0,Math.floor(g.start*p.fps)),dur=Math.max(1,Math.ceil((g.end-g.start)*p.fps));
+      const local=Math.max(0,frame-from),edge=Math.max(1,Math.min(8,Math.floor(dur*.28)));
+      const enter=Math.min(1,local/edge),exit=Math.min(1,Math.max(0,(dur-local)/edge)),visible=Math.min(enter,exit);
+      const slideY=(1-visible)*-34,pulse=1+(Math.sin(local*.55)*.012*visible);
       return <Sequence key={"g"+i} from={from} durationInFrames={dur}>
         <AbsoluteFill style={{justifyContent:'flex-start',alignItems:'flex-start',paddingTop:(top*100+4)+'%',paddingLeft:'8%',paddingRight:'14%',pointerEvents:'none'}}>
-          <div style={{backgroundColor:'rgba(5,18,28,.88)',border:'2px solid rgba(112,229,255,.6)',borderRadius:14,padding:'12px 18px',fontFamily:'DejaVu Sans, sans-serif',fontWeight:800,fontSize:38,color:'#eafaff',boxShadow:'0 12px 34px rgba(0,0,0,.45)'}}>{g.text}</div>
+          <div style={{opacity:visible,transform:"translateY("+slideY+"px) scale("+pulse+")",backgroundColor:'rgba(5,18,28,.88)',border:'2px solid rgba(112,229,255,.6)',borderRadius:14,padding:'12px 18px',fontFamily:'DejaVu Sans, sans-serif',fontWeight:800,fontSize:38,color:'#eafaff',boxShadow:'0 12px 34px rgba(0,0,0,.45)',letterSpacing:1}}>{g.text}</div>
         </AbsoluteFill>
       </Sequence>
     })}
