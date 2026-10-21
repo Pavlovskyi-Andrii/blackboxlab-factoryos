@@ -16,7 +16,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-APP_VERSION = "v4.5.2-worker-rc1"
+APP_VERSION = "v4.5.2-worker-rc2"
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("FINISHER_DATA_DIR", "/var/data/media-finisher"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -107,6 +107,37 @@ def _run(cmd: list[str], *, capture: bool = True, cwd: Path | None = None, timeo
     )
 
 
+def _run_ffmpeg_progress(job_id: str, cmd: list[str], duration: float, start_pct: int, end_pct: int, stage: str, timeout: int = 1800) -> subprocess.CompletedProcess:
+    full=[cmd[0],"-hide_banner","-loglevel","error","-nostats","-progress","pipe:1",*cmd[1:]]
+    proc=subprocess.Popen(full,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    started=time.time();last_pct=max(0,int(start_pct))
+    try:
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            if time.time()-started>timeout:
+                proc.kill();raise subprocess.TimeoutExpired(full,timeout)
+            line=raw.strip()
+            if not line.startswith("out_time_ms=") or duration<=0:
+                continue
+            try:elapsed=max(0.0,float(line.split("=",1)[1])/1_000_000.0)
+            except Exception:continue
+            ratio=max(0.0,min(1.0,elapsed/max(.001,duration)))
+            pct=int(round(start_pct+(end_pct-start_pct)*ratio))
+            if pct>last_pct:
+                last_pct=pct;_stage(job_id,stage,pct,elapsed_sec=round(elapsed,1),duration_sec=round(duration,1))
+        stderr=proc.stderr.read() if proc.stderr is not None else ""
+        rc=proc.wait(timeout=max(1,int(timeout-(time.time()-started))))
+    except Exception:
+        proc.kill()
+        try:proc.wait(timeout=5)
+        except Exception:pass
+        raise
+    if rc!=0:
+        raise subprocess.CalledProcessError(rc,full,output="",stderr=stderr)
+    if end_pct>last_pct:_stage(job_id,stage,end_pct,duration_sec=round(duration,1))
+    return subprocess.CompletedProcess(full,rc,"",stderr)
+
+
 def _download(url: str, dest: Path) -> None:
     if url.rstrip("/") == (PUBLIC_BASE_URL + "/pilot/source.mp4").rstrip("/"):
         local=_ensure_pilot_fixture()
@@ -132,46 +163,71 @@ def _probe(path: Path) -> dict:
     ])
     data = json.loads(result.stdout or "{}")
     video = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
-    duration = float((data.get("format") or {}).get("duration") or video.get("duration") or 0)
+    audio = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), {})
+    duration = float((data.get("format") or {}).get("duration") or video.get("duration") or audio.get("duration") or 0)
     return {
         "duration": duration,
         "width": int(video.get("width") or 0),
         "height": int(video.get("height") or 0),
         "fps": video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/1",
+        "video_codec":str(video.get("codec_name") or ""),
+        "audio_codec":str(audio.get("codec_name") or ""),
     }
 
 
 def _effective_target(profile: dict) -> dict:
     target=dict(profile.get("target") or {})
     width,height,fps=int(target.get("width") or 1080),int(target.get("height") or 1920),int(target.get("fps") or 30)
-    if LOW_MEMORY_MODE and (width>720 or height>1280):
-        scale=min(720/width,1280/height)
+    if LOW_MEMORY_MODE and (width>540 or height>960):
+        scale=min(540/width,960/height)
         width=max(2,int(width*scale)//2*2);height=max(2,int(height*scale)//2*2)
+        fps=min(fps,24)
     return {"width":width,"height":height,"fps":fps}
 
 
-def _normalize_input(src: Path, dest: Path, profile: dict) -> None:
+def _normalize_input(job_id: str, src: Path, dest: Path, profile: dict) -> None:
+    # On the constrained Render worker, defer the expensive scale/encode until the cut pass.
+    # This avoids encoding the full source twice before overlays.
+    if LOW_MEMORY_MODE:
+        shutil.copy2(src,dest)
+        _stage(job_id,"normalize",20,mode="deferred_scale_fast")
+        return
+    source=_probe(src);duration=float(source.get("duration") or 0)
     target=_effective_target(profile)
     width,height,fps=target["width"],target["height"],target["fps"]
     vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},fps={fps}"
-    _run([
+    _run_ffmpeg_progress(job_id,[
         "ffmpeg", "-y", "-threads", "1", "-i", str(src), "-vf", vf,
         "-c:v", "libx264", "-threads", "1", "-preset", "veryfast", "-crf", "20",
         "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", str(dest)
-    ])
+    ],duration,10,21,"normalize")
 
 
 def _extract_audio(src: Path, wav: Path) -> None:
     _run(["ffmpeg", "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)])
 
 
-def _transcribe_words(wav: Path) -> tuple[list[dict], dict]:
-    """Run ASR in a child process so Whisper memory is released before Remotion/Chromium starts."""
-    output=wav.with_name("transcript-raw.json")
-    _run([
-        sys.executable,"-m","media_finisher_worker.transcribe_runner",
-        str(wav),str(output),WHISPER_MODEL,WHISPER_DEVICE,WHISPER_COMPUTE_TYPE
-    ],timeout=1200)
+def _transcribe_words(job_id: str, wav: Path) -> tuple[list[dict], dict]:
+    """Run ASR in a child process and stream segment progress back to FactoryOS."""
+    output=wav.with_name("transcript-raw.json");duration=float(_probe(wav).get("duration") or 0)
+    cmd=[sys.executable,"-m","media_finisher_worker.transcribe_runner",
+         str(wav),str(output),WHISPER_MODEL,WHISPER_DEVICE,WHISPER_COMPUTE_TYPE]
+    proc=subprocess.Popen(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    started=time.time();last_pct=22
+    assert proc.stdout is not None
+    for raw in proc.stdout:
+        if time.time()-started>1200:
+            proc.kill();raise subprocess.TimeoutExpired(cmd,1200)
+        line=raw.strip()
+        if not line.startswith("PROGRESS ") or duration<=0:continue
+        try:elapsed=float(line.split(" ",1)[1])
+        except Exception:continue
+        pct=int(round(22+18*max(0.0,min(1.0,elapsed/max(.001,duration)))))
+        if pct>last_pct:
+            last_pct=pct;_stage(job_id,"transcript",pct,transcribed_sec=round(elapsed,1),duration_sec=round(duration,1))
+    stderr=proc.stderr.read() if proc.stderr is not None else "";rc=proc.wait()
+    if rc!=0:raise subprocess.CalledProcessError(rc,cmd,stderr=stderr)
+    _stage(job_id,"transcript",40,duration_sec=round(duration,1))
     data=json.loads(output.read_text(encoding="utf-8"))
     return list(data.get("words") or []),dict(data.get("meta") or {})
 
@@ -255,21 +311,26 @@ def _keep_ranges(duration: float, cuts: list[dict]) -> list[tuple[float,float]]:
     return keep or [(0.0, duration)]
 
 
-def _apply_cuts(src: Path, dest: Path, duration: float, cuts: list[dict]) -> None:
+def _apply_cuts(job_id: str, src: Path, dest: Path, duration: float, cuts: list[dict], profile: dict) -> None:
+    target=_effective_target(profile);width,height,fps=target["width"],target["height"],target["fps"]
+    scale_filter=f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},fps={fps}"
+    preset="ultrafast" if LOW_MEMORY_MODE else "veryfast";crf="26" if LOW_MEMORY_MODE else "20"
     if not cuts:
-        shutil.copy2(src, dest)
+        _run_ffmpeg_progress(job_id,["ffmpeg","-y","-threads","1","-i",str(src),"-vf",scale_filter,
+             "-c:v","libx264","-threads","1","-preset",preset,"-crf",crf,"-c:a","aac","-b:a","128k","-movflags","+faststart",str(dest)],
+             duration,42,60,"cleanup")
         return
     keep = _keep_ranges(duration, cuts)
-    parts = []
-    labels = []
+    parts = [];labels = []
     for i, (a,b) in enumerate(keep):
         parts.append(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}]")
         parts.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]")
         labels.append(f"[v{i}][a{i}]")
-    filt = ";".join(parts) + ";" + "".join(labels) + f"concat=n={len(keep)}:v=1:a=1[outv][outa]"
-    _run(["ffmpeg","-y","-threads","1","-i",str(src),"-filter_complex",filt,"-map","[outv]","-map","[outa]",
-          "-c:v","libx264","-threads","1","-preset","veryfast","-crf","20","-c:a","aac","-b:a","160k","-movflags","+faststart",str(dest)])
-
+    filt = ";".join(parts) + ";" + "".join(labels) + f"concat=n={len(keep)}:v=1:a=1[joinv][outa];[joinv]{scale_filter}[outv]"
+    output_duration=max(.1,duration-sum(max(0.0,float(x["end"])-float(x["start"])) for x in cuts))
+    _run_ffmpeg_progress(job_id,["ffmpeg","-y","-threads","1","-i",str(src),"-filter_complex",filt,"-map","[outv]","-map","[outa]",
+          "-c:v","libx264","-threads","1","-preset",preset,"-crf",crf,"-c:a","aac","-b:a","128k","-movflags","+faststart",str(dest)],
+          output_duration,42,60,"cleanup")
 
 def _removed_before(t: float, cuts: list[dict]) -> float:
     removed = 0.0
@@ -382,6 +443,38 @@ def _write_srt(captions: list[dict], path: Path) -> None:
     for i,caption in enumerate(captions,1):
         lines.extend([str(i),f"{stamp(caption['start'])} --> {stamp(caption['end'])}",caption["text"],""])
     path.write_text("\n".join(lines),encoding="utf-8")
+
+
+def _ass_stamp(value: float) -> str:
+    cs=max(0,int(round(float(value)*100)));h,rem=divmod(cs,360000);m,rem=divmod(rem,6000);s,cs=divmod(rem,100)
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+def _ass_text(value: str) -> str:
+    return str(value or "").replace("\\","\\\\").replace("{","(").replace("}",")").replace("\n","\\N")
+
+def _write_ass_overlays(captions: list[dict], graphics: list[dict], path: Path, width: int, height: int) -> None:
+    cap_size=max(26,int(width*.062));gfx_size=max(22,int(width*.052))
+    lines=[
+      "[Script Info]",f"PlayResX: {width}",f"PlayResY: {height}","WrapStyle: 2","ScaledBorderAndShadow: yes","",
+      "[V4+ Styles]",
+      "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
+      f"Style: Caption,DejaVu Sans,{cap_size},&H00FFFFFF,&H0000FFFF,&H80000000,&H70000000,-1,0,0,0,100,100,0,0,3,2,0,2,35,35,{int(height*.18)},1",
+      f"Style: Graphic,DejaVu Sans,{gfx_size},&H00EAFBFF,&H00EAFBFF,&H80306070,&H9005121C,-1,0,0,0,100,100,1,0,3,2,0,8,42,42,{int(height*.10)},1","",
+      "[Events]","Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text"
+    ]
+    for x in captions:
+        text=_ass_text(x.get("text") or " ".join(x.get("words") or []))
+        lines.append(f"Dialogue: 0,{_ass_stamp(x.get('start',0))},{_ass_stamp(x.get('end',0))},Caption,,0,0,0,,{{\\fad(70,70)}}{text}")
+    for x in graphics:
+        text=_ass_text(x.get("text") or "")
+        lines.append(f"Dialogue: 1,{_ass_stamp(x.get('start',0))},{_ass_stamp(x.get('end',0))},Graphic,,0,0,0,,{{\\fad(140,140)\\fscx88\\fscy88\\t(0,240,\\fscx100\\fscy100)}}{text}")
+    path.write_text("\n".join(lines),encoding="utf-8")
+
+def _render_ffmpeg_fast(job_id: str, clean: Path, dest: Path, captions: list[dict], graphics: list[dict], profile: dict, duration: float, job_dir: Path) -> None:
+    target=_effective_target(profile);ass=job_dir/"overlays.ass";_write_ass_overlays(captions,graphics,ass,target["width"],target["height"])
+    _run_ffmpeg_progress(job_id,["ffmpeg","-y","-threads","1","-i",str(clean),"-vf",f"ass={ass}",
+        "-c:v","libx264","-threads","1","-preset","ultrafast","-crf","26","-c:a","copy","-movflags","+faststart",str(dest)],
+        duration,70,83,"render")
 
 
 def _render_with_remotion(clean: Path, dest: Path, captions: list[dict], motion: list[dict], graphics: list[dict], profile: dict, duration: float, job_dir: Path) -> None:
@@ -520,16 +613,16 @@ def _process(job_id: str) -> None:
         if not src.exists() or src.stat().st_size<1024:_download(payload["input_url"],src)
         profile=(payload.get("profile") or {}).get("config") or {}
         _stage(job_id,"normalize",10)
-        normalized=job_dir/"normalized.mp4";_normalize_input(src,normalized,profile)
+        normalized=job_dir/"normalized.mp4";_normalize_input(job_id,src,normalized,profile)
         before=_probe(normalized);duration=float(before["duration"])
         _stage(job_id,"transcript",22)
         wav=job_dir/"audio.wav";_extract_audio(normalized,wav)
-        words,asr_meta=_transcribe_words(wav)
+        words,asr_meta=_transcribe_words(job_id,wav)
         cleanup=profile.get("speech_cleanup") or {};threshold=float(cleanup.get("pause_threshold_sec",0.4))
         silences=_detect_silences(normalized,threshold)
         cuts=build_cut_list(silences,words,duration,profile)
         _stage(job_id,"cleanup",42,words=len(words),cuts=len(cuts))
-        clean=job_dir/"clean.mp4";_apply_cuts(normalized,clean,duration,cuts)
+        clean=job_dir/"clean.mp4";_apply_cuts(job_id,normalized,clean,duration,cuts,profile)
         after_clean=_probe(clean);out_duration=float(after_clean["duration"])
         mapped_words=map_words_after_cuts(words,cuts)
         boundaries=_cut_output_boundaries(cuts)
@@ -538,9 +631,11 @@ def _process(job_id: str) -> None:
         motion=_motion_timeline(out_duration,cuts,profile) if options.get("add_animation",True) else []
         graphics=_graphics_timeline(payload.get("content_package") or {},out_duration,profile,mapped_words) if options.get("smart_graphics",True) else []
         _stage(job_id,"graphics",62,captions=len(captions),motion=len(motion),graphics=len(graphics))
-        composed=job_dir/"composed.mp4";engine=GRAPHICS_ENGINE
+        composed=job_dir/"composed.mp4";engine="ffmpeg_fast" if LOW_MEMORY_MODE else GRAPHICS_ENGINE
         _stage(job_id,"render",70)
-        if engine=="remotion":
+        if engine=="ffmpeg_fast":
+            _render_ffmpeg_fast(job_id,clean,composed,captions,graphics,profile,out_duration,job_dir)
+        elif engine=="remotion":
             _render_with_remotion(clean,composed,captions,motion,graphics,profile,out_duration,job_dir)
         elif engine=="ffmpeg":
             if captions:_render_ffmpeg_fallback(clean,composed,srt)
