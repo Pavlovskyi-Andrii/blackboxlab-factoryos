@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib import request as urlrequest
+from urllib import request as urlrequest, error as urlerror
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -147,17 +147,34 @@ def _download(url: str, dest: Path) -> None:
         if not local:raise RuntimeError("Pilot fixture is unavailable")
         shutil.copy2(local,dest)
         return
-    req = urlrequest.Request(url, headers={"User-Agent": "FactoryOS-MediaFinisher/4.5"})
-    total = 0
-    with urlrequest.urlopen(req, timeout=120) as resp, dest.open("wb") as fh:
-        while True:
-            chunk = resp.read(1024 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > MAX_DOWNLOAD_BYTES:
-                raise RuntimeError("Input media exceeds FINISHER_MAX_DOWNLOAD_BYTES")
-            fh.write(chunk)
+    delays=[0,2,4,8,12,20]
+    last=None
+    part=dest.with_suffix(dest.suffix+".part")
+    for attempt,delay in enumerate(delays,1):
+        if delay:time.sleep(delay)
+        try:
+            if part.exists():part.unlink()
+            req=urlrequest.Request(url,headers={"User-Agent":"FactoryOS-MediaFinisher/4.5"})
+            total=0
+            with urlrequest.urlopen(req,timeout=120) as resp,part.open("wb") as fh:
+                while True:
+                    chunk=resp.read(1024*1024)
+                    if not chunk:break
+                    total+=len(chunk)
+                    if total>MAX_DOWNLOAD_BYTES:raise RuntimeError("Input media exceeds FINISHER_MAX_DOWNLOAD_BYTES")
+                    fh.write(chunk)
+            if total<=0:raise RuntimeError("Input media download returned an empty body")
+            part.replace(dest)
+            return
+        except urlerror.HTTPError as exc:
+            last=exc
+            if int(getattr(exc,"code",0) or 0) not in (408,425,429,500,502,503,504) or attempt>=len(delays):raise
+        except (urlerror.URLError,TimeoutError,ConnectionError) as exc:
+            last=exc
+            if attempt>=len(delays):raise
+        print(json.dumps({"event":"MEDIA_FINISHER_DOWNLOAD_RETRY","attempt":attempt,"next_attempt":attempt+1,
+                          "error":str(last)[:400]}),flush=True)
+    raise RuntimeError(f"Input media download failed after retries: {last}")
 
 
 def _probe(path: Path) -> dict:
