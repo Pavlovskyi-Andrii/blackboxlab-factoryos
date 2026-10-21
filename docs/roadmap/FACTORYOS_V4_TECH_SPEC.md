@@ -156,6 +156,7 @@ signals / trends / sources
 | v4.2 | UX Clarity / Worker Transparency | DONE | понятный UI, tooltips, i18n и реальные outputs workers |
 | v4.3 | Revideo / Original Rewrite MVP | DONE | URL/transcript → original rewrite → production + video adapter hook |
 | v4.4 | Real Media Provider Foundation | IN PROGRESS | async media jobs + Descript verified; Runway runtime verification pending |
+| v4.5 | AI Editing / Media Finisher | PROPOSED | FFmpeg + word-level ASR + Remotion finishing, audio/safe-zone QA, traceable edit report |
 
 ---
 
@@ -914,6 +915,16 @@ Human approval, explicit publishing, spend budgets, evidence boundaries и contr
 # 16. Progress Log
 
 Новые записи добавлять сверху.
+
+## 2026-10-21 — v4.5 AI Editing / Media Finisher proposal
+
+- По пользовательскому гайду по AI-монтажу зафиксирован отдельный proposal: [`FACTORYOS_V4_5_AI_EDITING_SPEC.md`](FACTORYOS_V4_5_AI_EDITING_SPEC.md).
+- Предлагаемый слой не заменяет Descript / Runway / будущие генераторы, а завершает их output: word-level transcript → edit plan → FFmpeg cuts → Remotion captions/graphics → audio finishing → safe-zone/frame QA → final artifact.
+- Базовые правила из гайда перенесены как **настраиваемые style/platform profiles**, а не жёсткие глобальные константы.
+- Архитектурно Media Finisher предлагается как отдельный async worker/service, чтобы не нагружать текущий lightweight FactoryOS web process.
+- Все cuts/captions/graphics/audio checks должны сохраняться как traceable Worker Evidence и поддерживать targeted rerun.
+- Статус: **PROPOSED / DESIGN ONLY**. Никакой функционал v4.5 этим docs-коммитом не считается реализованным.
+
 
 ## 2026-10-20 — v4.4 media foundation LIVE / Descript pilot PASS / Runway VERIFY pending
 
