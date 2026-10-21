@@ -7333,9 +7333,9 @@ def _recover_recent_failed_asr_jobs():
         if not _recent_edit_timestamp(row["updated_at"],30):continue
         request=_decode_json(row["request_json"] or "{}",{})
         attempts=int(request.get("_auto_asr_retry_count") or 0)
-        if attempts>=1:continue
+        if attempts>=2:continue
         request["_auto_asr_retry_count"]=attempts+1
-        response={"status":"queued","stage":"waking_worker","percent":1,"auto_asr_retry":True}
+        response={"status":"queued","stage":"waking_worker","percent":1,"auto_asr_retry":True,"auto_asr_retry_attempt":attempts+1}
         con=db();con.execute("""UPDATE edit_jobs SET provider_job_id='',status='queued',error='',request_json=?,response_json=?,updated_at=?,completed_at=NULL WHERE id=?""",
                              (json.dumps(request,ensure_ascii=False,default=str),json.dumps(response,ensure_ascii=False),ts(),row["id"]));con.commit();con.close()
         _spawn_media_finisher_submit(row["id"]);recovered+=1
