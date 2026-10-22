@@ -9,20 +9,23 @@ FactoryOS orchestrates specialized AI workers through a visible production pipel
 The living technical specification and progress tracker for the next major product cycle is here:
 
 - [FactoryOS v4.0 — Technical Specification & Roadmap](docs/roadmap/FACTORYOS_V4_TECH_SPEC.md)
-- [FactoryOS v4.5 — AI Editing / Media Finisher](docs/roadmap/FACTORYOS_V4_5_AI_EDITING_SPEC.md) — implemented candidate: FFmpeg + word-level ASR + Remotion + audio/safe-zone QA, raw-file upload, traceable evidence and human-review return path. **Real user-video production pilot still required before DONE.**
+- [FactoryOS v4.5 — AI Editing / Media Finisher](docs/roadmap/FACTORYOS_V4_5_AI_EDITING_SPEC.md) — **DONE**: real uploaded-video production pilot verified end-to-end, with word-level ASR, deterministic cuts, captions/graphics, audio finishing, QA frame samples, traceable artifacts and return to HUMAN APPROVAL.
 
 This document is the source of truth for milestone status, Definition of Done, progress checkboxes, known gaps and the next action from v3.25 through v4.0.
 
 ## Product changelog
 
-### v4.5 — AI Media Finisher implementation candidate — 2026-10-21
-- Added a separate Docker Media Finisher worker using FFmpeg, faster-whisper and Remotion for deterministic short-form post-production.
+### v4.5 — AI Media Finisher — DONE — 2026-10-21 / 2026-10-22
+- Added a separate Docker Media Finisher worker using FFmpeg, faster-whisper and a Remotion-capable renderer for deterministic short-form post-production; constrained workers use a CPU-safe FFmpeg overlay path.
 - Added word timing, pause/duplicate cleanup, persisted cut lists, 1–3 word captions, jump-cut masking/push-ins, approved-text emphasis graphics, LUFS audio finishing and safe-zone evidence.
 - Added traceable edit jobs/evidence in FactoryOS, stage reruns with parent lineage, final-video artifacts and forced return to HUMAN APPROVAL with no automatic publishing.
 - Added direct raw-video upload to a selected production job. Uploads are stored as signed, unguessable source artifacts so the external Finisher worker can fetch them without weakening the private FactoryOS session boundary.
 - Added in-dashboard Before/After video previews plus removed time, cut/caption/graphics counts, render stage and audio/safe-zone summary.
-- Fixed the external Finisher callback path so token-authenticated callbacks can reach the endpoint without requiring the browser session cookie.
-- CI remains zero-spend. Render Blueprint now defines the isolated 1c/2GB Docker Finisher service, shared token wiring and persistent media disk. **Status: VERIFY** until the Blueprint/service is activated and one real user-recorded clip is processed end-to-end and visually reviewed.
+- Added deterministic QA frame sampling around selected cut boundaries and graphics moments; sample images are persisted with the edit report for visual review.
+- Fixed callback/auth, cold-start recovery, source-download retry, Whisper/PyAV compatibility, server-side watchdog recovery and single-heavy-job serialization for the constrained Render worker.
+- **Production pilot verified:** real uploaded source **349.7 s** → approximately **232 s** finished output, **126 cuts**, **103 caption groups**, **5 graphics**, edit job `1806649b-ca4f-4a0c-a9cd-5a7e7744328e` READY in **1592.41 s**, callback **HTTP 200**.
+- A second serialized real-media job `1f276df4-a8c4-41e6-b29d-28ed3adebb12` also reached READY with callback HTTP 200, validating queue serialization and recovery.
+- Human visual approval remains mandatory for each asset before publishing; v4.5 completion does not enable or bypass automatic publishing.
 
 ### v4.4 — Real Media Provider Foundation — 2026-10-20
 - Added persistent asynchronous media jobs for Revideo with `queued → submitted → processing → ready/failed` lifecycle, provider job IDs, response/error persistence and duplicate-safe render visibility.
