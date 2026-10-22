@@ -16,7 +16,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-APP_VERSION = "v4.5.2-worker-rc2"
+APP_VERSION = "v4.5.3-worker"
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("FINISHER_DATA_DIR", "/var/data/media-finisher"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -537,15 +537,51 @@ def _audio_finish(src: Path, dest: Path, profile: dict) -> dict:
     return {"target_voice_lufs":target,"voice_lufs":voice_lufs,"measured":measured,"music_applied":False,"music_policy":"No approved music asset was supplied; none was added."}
 
 
-def _safe_zone_report(profile: dict, captions: list[dict], graphics: list[dict]) -> dict:
+def _frame_sampling_report(final: Path, cuts: list[dict], graphics: list[dict], duration: float, job_dir: Path) -> dict:
+    """Persist lightweight visual QA samples around edit boundaries and graphics moments."""
+    candidates=[{"time_sec":0.5,"reason":"opening"},{"time_sec":max(0.0,duration-0.5),"reason":"ending"}]
+    boundaries=_cut_output_boundaries(cuts)
+    if boundaries:
+        step=max(1,len(boundaries)//4)
+        for t in boundaries[::step][:4]:
+            candidates.append({"time_sec":max(0.0,min(duration,float(t)+0.08)),"reason":"post_cut"})
+    for item in (graphics or [])[:4]:
+        mid=(float(item.get("start",0))+float(item.get("end",0)))/2
+        candidates.append({"time_sec":max(0.0,min(duration,mid)),"reason":"graphic"})
+    unique=[];seen=set()
+    for item in candidates:
+        key=round(float(item["time_sec"]),1)
+        if key in seen:continue
+        seen.add(key);unique.append(item)
+        if len(unique)>=10:break
+    samples=[]
+    for i,item in enumerate(unique,1):
+        name=f"qa-frame-{i:02d}.jpg";dest=job_dir/name
+        try:
+            _run(["ffmpeg","-y","-ss",f"{float(item['time_sec']):.3f}","-i",str(final),"-frames:v","1",
+                  "-vf","scale=360:-2","-q:v","4",str(dest)],timeout=120)
+            samples.append({"index":i,"time_sec":round(float(item["time_sec"]),3),"reason":item["reason"],
+                            "url":_public_file(job_dir.name,name),"status":"captured"})
+        except Exception as exc:
+            samples.append({"index":i,"time_sec":round(float(item["time_sec"]),3),"reason":item["reason"],
+                            "status":"failed","error":str(exc)[:240]})
+    return {
+        "method":"deterministic_frame_sampling_v1","requested":len(unique),
+        "captured":sum(1 for x in samples if x.get("status")=="captured"),
+        "samples":samples,"visual_review_required":True
+    }
+
+
+def _safe_zone_report(profile: dict, captions: list[dict], graphics: list[dict], frame_sampling: dict | None = None) -> dict:
     zones=profile.get("safe_zones") or {}
+    frame_sampling=frame_sampling or {"method":"not_run","captured":0,"samples":[],"visual_review_required":True}
     return {
         "method":"layout_contract",
         "top":float(zones.get("top",0.12)),"bottom":float(zones.get("bottom",0.20)),
         "right":float(zones.get("right",0.12)),"left":float(zones.get("left",0.0)),
         "caption_events":len(captions),"graphics_events":len(graphics),"violations":[],
-        "frame_sampling":"not_yet_computer_vision_verified","visual_review_required":True,
-        "note":"Deterministic overlay coordinates were checked; human review is still required for face/object obstruction."
+        "frame_sampling":frame_sampling,"visual_review_required":True,
+        "note":"Overlay coordinates are deterministic; sampled frames are persisted for human review of readability and face/object obstruction."
     }
 
 
@@ -667,7 +703,9 @@ def _process_one(job_id: str) -> None:
             raise RuntimeError("Unsupported FINISHER_GRAPHICS_ENGINE; use remotion or ffmpeg")
         _stage(job_id,"audio",84)
         final=job_dir/"final.mp4";audio_report=_audio_finish(composed,final,profile)
-        final_probe=_probe(final);safe=_safe_zone_report(profile,captions,graphics)
+        final_probe=_probe(final)
+        frame_sampling=_frame_sampling_report(final,cuts,graphics,float(final_probe["duration"]),job_dir)
+        safe=_safe_zone_report(profile,captions,graphics,frame_sampling)
         shorts_manifest={"enabled":False,"clips":[]}
         if options.get("split_shortform",False):
             _stage(job_id,"shorts_reels",92)
@@ -822,9 +860,9 @@ def job_status(job_id: str, request: Request):
 
 @app.get("/files/{job_id}/{filename}")
 def file(job_id: str, filename: str):
-    allowed=filename in {"final.mp4","captions.srt","remotion-props.json"} or bool(re.fullmatch(r"short-\d{2}\.mp4",filename))
+    allowed=filename in {"final.mp4","captions.srt","remotion-props.json"} or bool(re.fullmatch(r"short-\d{2}\.mp4",filename)) or bool(re.fullmatch(r"qa-frame-\d{2}\.jpg",filename))
     if not allowed:raise HTTPException(404,"File not exposed")
     path=_job_dir(job_id)/filename
     if not path.exists():raise HTTPException(404,"File not found")
-    media="video/mp4" if filename.endswith(".mp4") else "text/plain"
+    media="video/mp4" if filename.endswith(".mp4") else ("image/jpeg" if filename.endswith(".jpg") else "text/plain")
     return FileResponse(path,media_type=media,filename=filename)
