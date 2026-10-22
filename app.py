@@ -25,7 +25,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.9.2"
+APP_VERSION = "v4.9.3"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -146,7 +146,9 @@ FACTORY_SECRET = os.environ.get("FACTORY_SECRET", secrets.token_hex(32))
 FACTORY_LOCAL_BOOSTER_TOKEN = (os.environ.get("FACTORY_LOCAL_BOOSTER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest())
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
-FACTORY_GOOGLE_ALLOWED_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_EMAILS","").split(",") if x.strip()}
+FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS","").split(",") if x.strip()}
+FACTORY_GOOGLE_VIEWER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_VIEWER_EMAILS","").split(",") if x.strip()}
+FACTORY_GOOGLE_ALLOWED_EMAILS = ({x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_EMAILS","").split(",") if x.strip()} | FACTORY_GOOGLE_OWNER_EMAILS | FACTORY_GOOGLE_VIEWER_EMAILS)
 FACTORY_GOOGLE_ALLOWED_DOMAINS = {x.strip().lower().lstrip("@") for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_DOMAINS","").split(",") if x.strip()}
 FACTORY_LOCAL_BOOSTER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_LOCAL_BOOSTER_TTL_SECONDS","45"))))
 local_booster_runtime={"last_seen":0.0,"node":{},"active_job_id":"","last_error":""}
@@ -201,28 +203,59 @@ def session_token(username: str) -> str:
         hashlib.sha256,
     ).hexdigest()
 
-def request_is_authed(request: Request) -> bool:
+def _role_session_token(role: str, email: str) -> str:
+    role=(role or "viewer").strip().lower()
+    email=(email or "").strip().lower()
+    payload=f"v2|{role}|{email}"
+    sig=hmac.new(FACTORY_SECRET.encode("utf-8"),payload.encode("utf-8"),hashlib.sha256).hexdigest()
+    return payload+"|"+sig
+
+def _identity_from_session_token(token: str):
+    token=(token or "").strip()
+    if not token:
+        return None
+    if hmac.compare_digest(token,session_token(FACTORY_USER)):
+        return {"role":"owner","email":"","provider":"password"}
+    parts=token.split("|")
+    if len(parts)!=4 or parts[0]!="v2" or parts[1] not in ("owner","viewer"):
+        return None
+    payload="|".join(parts[:3])
+    expected=hmac.new(FACTORY_SECRET.encode("utf-8"),payload.encode("utf-8"),hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(parts[3],expected):
+        return None
+    return {"role":parts[1],"email":parts[2],"provider":"google"}
+
+def request_identity(request: Request):
     if not FACTORY_PASSWORD:
-        return True
-    token = request.cookies.get(COOKIE_NAME, "")
-    return hmac.compare_digest(token, session_token(FACTORY_USER))
+        return {"role":"owner","email":"","provider":"open"}
+    return _identity_from_session_token(request.cookies.get(COOKIE_NAME,""))
+
+def request_is_authed(request: Request) -> bool:
+    return bool(request_identity(request))
 
 def _google_login_enabled() -> bool:
     return bool(FACTORY_GOOGLE_CLIENT_ID and (FACTORY_GOOGLE_ALLOWED_EMAILS or FACTORY_GOOGLE_ALLOWED_DOMAINS))
 
-def _google_identity_allowed(email: str) -> bool:
+def _google_identity_role(email: str):
     email=(email or "").strip().lower()
     if not email:
-        return False
+        return None
+    if email in FACTORY_GOOGLE_OWNER_EMAILS:
+        return "owner"
+    if email in FACTORY_GOOGLE_VIEWER_EMAILS:
+        return "viewer"
     if email in FACTORY_GOOGLE_ALLOWED_EMAILS:
-        return True
+        return "viewer"
     domain=email.rsplit("@",1)[-1] if "@" in email else ""
-    return bool(domain and domain in FACTORY_GOOGLE_ALLOWED_DOMAINS)
+    return "viewer" if domain and domain in FACTORY_GOOGLE_ALLOWED_DOMAINS else None
 
-def _auth_cookie_response(target: str) -> RedirectResponse:
+def _google_identity_allowed(email: str) -> bool:
+    return bool(_google_identity_role(email))
+
+def _auth_cookie_response(target: str, role: str="owner", email: str="") -> RedirectResponse:
     response=RedirectResponse(target,status_code=303)
     response.set_cookie(
-        COOKIE_NAME,session_token(FACTORY_USER),httponly=True,
+        COOKIE_NAME,_role_session_token(role,email),httponly=True,
         secure=bool(os.environ.get("RENDER")),samesite="lax",max_age=60*60*24*30,
     )
     return response
@@ -244,12 +277,18 @@ async def auth_middleware(request: Request, call_next):
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
     if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
-    if not request_is_authed(request):
+    identity=request_identity(request)
+    if not identity:
         if request.url.path.startswith("/api/"):
-            return JSONResponse({"detail": "authentication required"}, status_code=401)
+            return JSONResponse({"detail":"authentication required"},status_code=401)
         seg=request.url.path.strip("/").split("/",1)[0]
         lang=seg if seg in ("en","uk","ru") else "en"
-        return RedirectResponse(f"/login?lang={lang}", status_code=303)
+        return RedirectResponse(f"/login?lang={lang}",status_code=303)
+    if identity.get("role")=="viewer":
+        if request.url.path in ("/api/local-booster/token","/api/local-booster/package.zip"):
+            return JSONResponse({"detail":"viewer access is read-only"},status_code=403)
+        if request.method.upper() not in ("GET","HEAD","OPTIONS") and request.url.path!="/logout":
+            return JSONResponse({"detail":"viewer access is read-only"},status_code=403)
     return await call_next(request)
 
 @app.get("/login", response_class=HTMLResponse)
@@ -311,7 +350,7 @@ def login(username: str = Form(...), password: str = Form(...), lang: str = Form
         msg={"en":"Invalid username or password","uk":"Невірний логін або пароль","ru":"Неверный логин или пароль"}[lang]
         retry={"en":"Try again","uk":"Спробувати ще раз","ru":"Попробовать снова"}[lang]
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>{retry}</a>", status_code=401)
-    return _auth_cookie_response(f"/{lang}")
+    return _auth_cookie_response(f"/{lang}","owner","")
 
 @app.post("/auth/google")
 def google_login(credential: str = Form(...), lang: str = Form("en")):
@@ -324,11 +363,12 @@ def google_login(credential: str = Form(...), lang: str = Form("en")):
         msg={"en":"Google sign-in failed","uk":"Не вдалося увійти через Google","ru":"Не удалось войти через Google"}[lang]
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>←</a>",status_code=401)
     email=str(claims.get("email") or "").strip().lower()
-    if not bool(claims.get("email_verified")) or not _google_identity_allowed(email):
+    role=_google_identity_role(email)
+    if not bool(claims.get("email_verified")) or not role:
         msg={"en":"This Google account is not allowed","uk":"Цей Google-акаунт не має доступу","ru":"У этого Google-аккаунта нет доступа"}[lang]
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>←</a>",status_code=403)
-    print(json.dumps({"event":"GOOGLE_LOGIN","email":email,"status":"success"}),flush=True)
-    return _auth_cookie_response(f"/{lang}")
+    print(json.dumps({"event":"GOOGLE_LOGIN","email":email,"role":role,"status":"success"}),flush=True)
+    return _auth_cookie_response(f"/{lang}",role,email)
 
 @app.post("/logout")
 def logout():
@@ -7529,12 +7569,15 @@ def version():
     return {"version":APP_VERSION,"build_sha":BUILD_SHA,"service":"factoryos"}
 
 @app.get("/api/status")
-def status():
+def status(request: Request):
+    identity=request_identity(request) or {"role":"owner","email":"","provider":"open"}
     jobs=get_jobs(); sid=current_selected(jobs); selected=next((j for j in jobs if j["id"]==sid),None)
     con=db(); ev=[dict(x) for x in con.execute("SELECT * FROM events ORDER BY id DESC LIMIT 60").fetchall()]; con.close()
     report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
     return {
-        "factory":"online","version":APP_VERSION,"buildSha":BUILD_SHA,"factoryMcpConfigured":bool(FACTORY_MCP_TOKEN),"jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
+        "factory":"online","version":APP_VERSION,"buildSha":BUILD_SHA,"factoryMcpConfigured":bool(FACTORY_MCP_TOKEN),
+        "auth":{"role":identity.get("role","owner"),"email":identity.get("email",""),"provider":identity.get("provider",""),"readOnly":identity.get("role")=="viewer"},
+        "jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
         "selectedJobQuality": get_job_quality(sid) if sid else None,
         "selectedJobWorkerResults": get_job_worker_results(sid),
         "selectedJobHandoffs": get_job_handoffs(sid),
@@ -8914,11 +8957,9 @@ async def run_supervisor_now():
 
 @app.websocket("/ws")
 async def ws(ws:WebSocket):
-    if FACTORY_PASSWORD:
-        token = ws.cookies.get(COOKIE_NAME, "")
-        if not hmac.compare_digest(token, session_token(FACTORY_USER)):
-            await ws.close(code=4401)
-            return
+    if FACTORY_PASSWORD and not _identity_from_session_token(ws.cookies.get(COOKIE_NAME,"")):
+        await ws.close(code=4401)
+        return
     await ws.accept(); clients.add(ws)
     try:
         while True: await ws.receive_text()
