@@ -7569,8 +7569,8 @@ def version():
     return {"version":APP_VERSION,"build_sha":BUILD_SHA,"service":"factoryos"}
 
 @app.get("/api/status")
-def status(request: Request):
-    identity=request_identity(request) or {"role":"owner","email":"","provider":"open"}
+def status(request: Request=None):
+    identity=(request_identity(request) if request is not None else None) or {"role":"owner","email":"","provider":"open"}
     jobs=get_jobs(); sid=current_selected(jobs); selected=next((j for j in jobs if j["id"]==sid),None)
     con=db(); ev=[dict(x) for x in con.execute("SELECT * FROM events ORDER BY id DESC LIMIT 60").fetchall()]; con.close()
     report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
