@@ -21,7 +21,7 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v4.9.2","version mismatch")
+require(health["version"]==app.APP_VERSION=="v4.9.3","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -788,3 +788,9 @@ for key in ("approval.nav","approval.title","approval.statWaiting","approval.app
 print("FactoryOS v4.8.1 smoke/regression suite passed without paid provider calls; signed durable media access verified")
 
 require(hasattr(app,"FACTORY_GOOGLE_CLIENT_ID") and hasattr(app,"FACTORY_GOOGLE_ALLOWED_EMAILS"),"Google auth config missing")
+
+owner_token=app._role_session_token("owner","owner@example.com")
+viewer_token=app._role_session_token("viewer","viewer@example.com")
+require(app._identity_from_session_token(owner_token)["role"]=="owner","owner role session regression")
+require(app._identity_from_session_token(viewer_token)["role"]=="viewer","viewer role session regression")
+require(app._identity_from_session_token(viewer_token)["email"]=="viewer@example.com","viewer email session regression")
