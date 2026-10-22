@@ -289,6 +289,10 @@ try:
     require(app._publishing_summary()==publish_before,"Media Finisher must not create a publish item")
     rerun=app.rerun_media_finisher_stage(edit_id,"captions")
     require(rerun["edit_job"]["parent_edit_job_id"]==edit_id and rerun["edit_job"]["rerun_stage"]=="captions","targeted Media Finisher rerun lineage regression")
+    rerun_id=rerun["edit_job"]["id"]
+    rerun_ready=app._finalize_edit_job(rerun_id,"completed","https://example.com/final-ci-rerun.mp4","ci-finisher-task-2","",
+                                       {"status":"completed"},report,0.0,9.8)
+    require(rerun_ready["status"]=="ready","targeted rerun must complete before the newer render can be approved")
 
     # Direct user upload must be finishable without first building a Content Package.
     manual_job_id=str(uuid.uuid4())
@@ -362,7 +366,7 @@ require(approval["ok"] is True and approval["status"]=="approved","approval deci
 require(app.get_approval_history(job_id)[0]["decision"]=="approved","approval history must persist")
 pub=approval["publish"]
 require(pub["status"]=="approved" and pub["idempotency_key"],"approval must create idempotent queue item")
-require((pub.get("media") or {}).get("url")=="https://example.com/final-ci.mp4","approved publish item must bind the exact final Media Finisher video")
+require((pub.get("media") or {}).get("url")=="https://example.com/final-ci-rerun.mp4","approved publish item must bind the exact final Media Finisher video")
 require((pub.get("meta") or {}).get("media_artifact_id"),"publish provenance must persist the final media artifact id")
 
 orig_pub_adapter,orig_pub_endpoint,orig_pub_external=app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_PUBLISHER_ENDPOINT,app._external_json
@@ -374,7 +378,7 @@ app.FACTORY_PUBLISHER_ADAPTER="webhook";app.FACTORY_PUBLISHER_ENDPOINT="https://
 try:
     adapter_result=app._publish_via_adapter(pub)
     require(adapter_result["manual"] is False,"configured publisher adapter must use webhook path")
-    require((captured_publish.get("payload") or {}).get("media_url")=="https://example.com/final-ci.mp4","publisher payload must carry the approved final video URL")
+    require((captured_publish.get("payload") or {}).get("media_url")=="https://example.com/final-ci-rerun.mp4","publisher payload must carry the approved final video URL")
     require(((captured_publish.get("payload") or {}).get("content") or {}).get("title"),"publisher payload must carry Content Package metadata")
 finally:
     app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_PUBLISHER_ENDPOINT,app._external_json=orig_pub_adapter,orig_pub_endpoint,orig_pub_external
