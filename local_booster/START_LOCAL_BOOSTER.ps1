@@ -1,4 +1,4 @@
-param([string]$FactoryUrl="https://blackboxlab-factoryos.onrender.com",[string]$Token="",[int]$Port=10000)
+param([string]$FactoryUrl="https://blackboxlab-factoryos.onrender.com",[string]$Token="",[int]$Port=10000,[switch]$Rebuild)
 $ErrorActionPreference="Stop"
 Write-Host "FactoryOS Local Render Booster" -ForegroundColor Cyan
 
@@ -47,9 +47,14 @@ Set-Location $root
 $data=Join-Path $root ".factoryos-local-media"
 New-Item -ItemType Directory -Force -Path $data | Out-Null
 
-Write-Host "Building local Media Finisher image..." -ForegroundColor Cyan
-docker build -f media_finisher_worker/Dockerfile -t factoryos-media-finisher-local .
-if($LASTEXITCODE -ne 0) { throw "Docker image build failed" }
+$imageExists=(docker image inspect factoryos-media-finisher-local:latest --format "{{.Id}}" 2>$null)
+if($Rebuild -or [string]::IsNullOrWhiteSpace($imageExists)) {
+  Write-Host "Building local Media Finisher image..." -ForegroundColor Cyan
+  docker build -f media_finisher_worker/Dockerfile -t factoryos-media-finisher-local .
+  if($LASTEXITCODE -ne 0) { throw "Docker image build failed" }
+} else {
+  Write-Host "Using existing local Media Finisher image. Pass -Rebuild to rebuild it." -ForegroundColor Green
+}
 
 $existing=docker ps -a --filter "name=^/factoryos-media-finisher-local$" --format "{{.Names}}" 2>$null
 if($existing -eq "factoryos-media-finisher-local") {
@@ -59,7 +64,7 @@ if($existing -eq "factoryos-media-finisher-local") {
 
 $threads=[Math]::Max(2,[Math]::Min(12,[Environment]::ProcessorCount-2))
 Write-Host "Starting local worker on port $Port with $threads CPU threads..." -ForegroundColor Cyan
-docker run -d --name factoryos-media-finisher-local -p "\${Port}:10000" -v "\${data}:/var/data/media-finisher" -e FINISHER_DATA_DIR=/var/data/media-finisher -e FINISHER_WHISPER_MODEL=small -e FINISHER_WHISPER_DEVICE=cpu -e FINISHER_WHISPER_COMPUTE_TYPE=int8 -e FINISHER_CPU_THREADS=$threads -e FINISHER_GRAPHICS_ENGINE=remotion -e FINISHER_LOW_MEMORY_MODE=0 factoryos-media-finisher-local
+docker run -d --name factoryos-media-finisher-local -p "${Port}:10000" -v "${data}:/var/data/media-finisher" -e FINISHER_DATA_DIR=/var/data/media-finisher -e FINISHER_WHISPER_MODEL=small -e FINISHER_WHISPER_DEVICE=cpu -e FINISHER_WHISPER_COMPUTE_TYPE=int8 -e FINISHER_CPU_THREADS=$threads -e FINISHER_GRAPHICS_ENGINE=remotion -e FINISHER_LOW_MEMORY_MODE=0 factoryos-media-finisher-local
 if($LASTEXITCODE -ne 0) { throw "Local worker container failed to start" }
 
 py -m pip install -q -r local_booster/requirements.txt
