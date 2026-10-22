@@ -10,10 +10,19 @@ The living technical specification and progress tracker for the next major produ
 
 - [FactoryOS v4.0 — Technical Specification & Roadmap](docs/roadmap/FACTORYOS_V4_TECH_SPEC.md)
 - [FactoryOS v4.5 — AI Editing / Media Finisher](docs/roadmap/FACTORYOS_V4_5_AI_EDITING_SPEC.md) — **DONE**: real uploaded-video production pilot verified end-to-end, with word-level ASR, deterministic cuts, captions/graphics, audio finishing, QA frame samples, traceable artifacts and return to HUMAN APPROVAL.
+- [FactoryOS v4.6 — Video → Approval → Publishing](docs/roadmap/FACTORYOS_V4_6_VIDEO_PUBLISH_SPEC.md) — **IN PROGRESS**: bind the exact final Media Finisher artifact to approval, publishing, real platform receipt and analytics.
 
 This document is the source of truth for milestone status, Definition of Done, progress checkboxes, known gaps and the next action from v3.25 through v4.0.
 
 ## Product changelog
+
+### v4.6 — Video → Approval → Publishing — IN PROGRESS — 2026-10-22
+- Approval Studio now resolves the finished AI Media Finisher video as the primary review asset when an edit job exists, and blocks approval until the latest edit is READY.
+- Publishing queue provenance is bound to the exact Content Package, selected variant and final media artifact; the media artifact participates in the duplicate-safe idempotency key.
+- Publisher webhook payloads now include the approved final video URL/artifact plus title, description, CTA, hashtags and thumbnail concept from the Content Package.
+- Manual and adapter publication paths persist Publisher receipts with external post ID/URL and final-media provenance, then synchronize the production job / Factory Cycle into published state.
+- Publishing Engine now previews the actual bound video and exposes the real post URL; an optional due-item scheduler is available but remains disabled by default.
+- Human approval remains mandatory. Real provider publication is not claimed until CI, deployment and one owner-approved external post are verified.
 
 ### v4.5 — AI Media Finisher — DONE — 2026-10-21 / 2026-10-22
 - Added a separate Docker Media Finisher worker using FFmpeg, faster-whisper and a Remotion-capable renderer for deterministic short-form post-production; constrained workers use a CPU-safe FFmpeg overlay path.
