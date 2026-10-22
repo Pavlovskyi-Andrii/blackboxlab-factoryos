@@ -21,7 +21,7 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v4.6.2","version mismatch")
+require(health["version"]==app.APP_VERSION=="v4.7","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -320,6 +320,11 @@ try:
             "direct upload graphics must be constrained to exact transcript words")
 
     split_only_report={
+      "transcript_words":[
+        {"word":"This","start":0.0,"end":0.2},{"word":"is","start":0.2,"end":0.3},
+        {"word":"the","start":0.3,"end":0.4},{"word":"owner","start":0.4,"end":0.7},
+        {"word":"uploaded","start":0.7,"end":1.0},{"word":"video","start":1.0,"end":1.3}
+      ],
       "caption_timeline":[],"graphics_timeline":[],"safe_zone_report":{"violations":[]},
       "shorts_manifest":{"enabled":True,"clips":[{"index":1,"start_sec":0.0,"end_sec":8.0,"url":"https://example.com/manual-short-01.mp4"}]},
       "edit_summary":{"duration_before_sec":30.0,"duration_after_sec":28.0,
@@ -334,6 +339,23 @@ try:
     con.close()
     require(internal_master_artifact is None,"split-only mode must not expose the internal master as a deliverable")
     require(split_clip_artifact is not None and split_qa is not None,"split-only Shorts/Reels must persist clips and hand them to QA")
+    manual_package=app.get_content_package(manual_job_id)
+    require(manual_package["status"]=="ready" and manual_package["package"]["_factoryos_manual_raw"] is True,
+            "direct raw upload must auto-create a zero-spend publish/approval package")
+    require(manual_package["package"]["final_script"].startswith("This is the owner uploaded video"),
+            "manual raw publish pack must derive script text from persisted transcript evidence")
+    manual_variants=app.get_job_variants(manual_job_id)
+    require(manual_variants["summary"]["selected"]==1 and manual_variants["summary"]["variants"]==1,
+            "direct raw upload must create one traceable selected source variant")
+    manual_review=app._media_review_state(manual_job_id)
+    require(manual_review["ready"] is True and (manual_review["artifact"] or {}).get("url")=="https://example.com/manual-short-01.mp4",
+            "split-only raw upload must surface the exact short clip at approval")
+    manual_approval=asyncio.run(app.approve(manual_job_id))
+    require(manual_approval["ok"] is True,"direct raw upload must be approvable without running the normal idea/variant/package LLM pipeline")
+    require((manual_approval["publish"].get("media") or {}).get("url")=="https://example.com/manual-short-01.mp4",
+            "direct raw upload approval must bind the exact Shorts/Reels artifact")
+    require((manual_approval["publish"].get("content_snapshot") or {}).get("title")=="Manual raw v4.5 test",
+            "direct raw upload approval must freeze deterministic owner/job publishing metadata")
 
     unused_upload=app.save_artifact("AI Media Finisher","video","Unused raw upload","",job_id=manual_job_id,
                                     url="https://factory.example/media-source/unused-ci?token=fake",mime_type="video/mp4",
@@ -694,10 +716,10 @@ require("const esc=s=>(s||'').replace" not in html,"unsafe frontend escape funct
 require("workerSelectedResult" in html and "selected_job_result" in Path("app.py").read_text(encoding="utf-8"),"selected-job worker evidence UI/API missing")
 require('data-help="help.approval"' in html and 'data-help="help.brain"' in html and 'data-help="help.worker"' in html and 'data-help="help.finisher"' in html,"help tooltip coverage missing")
 require("legacyBanner" in html and "approval.legacyHelp" in html,"legacy approval clarity missing")
-require('<span class="version">v4.6.2</span>' in html,"visible UI version mismatch")
+require('<span class="version">v4.7</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
 for key in ("approval.nav","approval.title","approval.statWaiting","approval.approveQueue","approval.legacyHelp","help.approval","help.brain","help.worker","help.revideo","help.finisher","revideo.nav","revideo.title","revideo.analyze","revideo.originalRewrite","finisher.nav","finisher.title","finisher.start","finisher.unconfigured","finisher.rerunCaptions","finisher.humanGate","help.discovery","discovery.nav","discovery.title","discovery.toRevideo","publishing.nav","publishing.title","publishing.statQueue","performance.nav","performance.title","performance.statPublished","experiment.nav","experiment.title","experiment.sub","cycle.nav","cycle.title","cycle.sub","cycle.run","cycle.review","cycle.next","cycle.statCycles","cycle.status.waiting_approval","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","worker.selectedResult","worker.purpose.renderagent","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v4.6.2 smoke/regression suite passed without paid provider calls; immutable approved publish snapshot verified")
+print("FactoryOS v4.7 smoke/regression suite passed without paid provider calls; direct raw video → publish pack → approval verified")

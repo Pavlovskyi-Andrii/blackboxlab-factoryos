@@ -11,10 +11,19 @@ The living technical specification and progress tracker for the next major produ
 - [FactoryOS v4.0 — Technical Specification & Roadmap](docs/roadmap/FACTORYOS_V4_TECH_SPEC.md)
 - [FactoryOS v4.5 — AI Editing / Media Finisher](docs/roadmap/FACTORYOS_V4_5_AI_EDITING_SPEC.md) — **DONE**: real uploaded-video production pilot verified end-to-end, with word-level ASR, deterministic cuts, captions/graphics, audio finishing, QA frame samples, traceable artifacts and return to HUMAN APPROVAL.
 - [FactoryOS v4.6 — Video → Approval → Publishing](docs/roadmap/FACTORYOS_V4_6_VIDEO_PUBLISH_SPEC.md) — **IN PROGRESS**: bind the exact final Media Finisher artifact to approval, publishing, real platform receipt and analytics.
+- [FactoryOS v4.7 — Direct Raw Video → Publishing](docs/roadmap/FACTORYOS_V4_7_RAW_VIDEO_PUBLISH_SPEC.md) — **IN PROGRESS**: carry direct owner-uploaded video through Media Finisher, zero-spend publish pack, approval and the same immutable publishing boundary.
 
 This document is the source of truth for milestone status, Definition of Done, progress checkboxes, known gaps and the next action from v3.25 through v4.0.
 
 ## Product changelog
+
+### v4.7 — Direct Raw Video → Publish Pack — 2026-10-22
+- A video uploaded directly into AI Media Finisher no longer dead-ends at Approval Studio because it lacks the normal AI-generated Variant/Content Package.
+- When a direct raw upload finishes successfully, FactoryOS creates a deterministic **zero-LLM-spend** source variant and Content Package from persisted transcript evidence plus owner-supplied job title/brief.
+- The generated pack explicitly marks spoken claims as **not independently verified**, keeps CTA/hashtags empty by default, and never invents a thumbnail claim.
+- Split-only jobs bind the actual Shorts/Reels clip — not the internal master — into human approval and the publishing queue.
+- Direct raw uploads now follow one traceable path: upload → Media Finisher → QA → zero-spend publish pack → HUMAN APPROVAL → immutable publish snapshot → schedule → publisher.
+- Existing jobs with partial normal production state are not silently overwritten by the synthetic raw-media pack.
 
 ### v4.6.2 — Immutable Approval → Publish Snapshot — 2026-10-22
 - Approval now freezes the exact publishing metadata (title, description, CTA, hashtags and thumbnail concept) alongside the exact approved video artifact.

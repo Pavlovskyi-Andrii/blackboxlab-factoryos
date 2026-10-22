@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.6.2"
+APP_VERSION = "v4.7"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -3898,6 +3898,104 @@ def _record_media_finisher_qa_handoff(item,artifact_ids,report):
     event(item["production_job_id"],f"QA Agent received Media Finisher outputs: {item['id'][:8]} → Approval Studio")
     return aid
 
+def _manual_raw_transcript(report):
+    report=report if isinstance(report,dict) else {}
+    words=[]
+    for item in report.get("transcript_words") or []:
+        if isinstance(item,dict):
+            token=str(item.get("word") or item.get("text") or "").strip()
+            if token:words.append(token)
+    if words:return " ".join(words).strip()
+    groups=[]
+    for item in report.get("caption_timeline") or []:
+        if not isinstance(item,dict):continue
+        raw=item.get("words")
+        if isinstance(raw,list):
+            text=" ".join(str(x).strip() for x in raw if str(x).strip())
+        else:
+            text=str(item.get("text") or "").strip()
+        if text:groups.append(text)
+    return " ".join(groups).strip()
+
+def _ensure_manual_raw_publish_package(edit_job_id):
+    edit=get_edit_job(edit_job_id)
+    if not edit:return None
+    req=edit.get("request") or {}
+    if str(req.get("package_mode") or "")!="manual_raw_upload":return get_content_package(edit["production_job_id"]).get("package_record")
+    job_id=edit["production_job_id"];job=get_job(job_id)
+    if not job:return None
+    existing=get_content_package(job_id).get("package_record")
+    selected=_selected_production_variant(job_id)
+    if existing and existing.get("status")=="ready" and selected:return existing
+    if existing or selected:
+        event(job_id,"Manual raw-media auto publish pack skipped because this job already has partial production state")
+        return existing
+    report=edit.get("report") or {}
+    script=_manual_raw_transcript(report)
+    if not script:
+        script=(job.get("brief") or job.get("title") or "Manual uploaded video").strip()
+    words=script.split();hook=" ".join(words[:18]).strip()
+    summary=report.get("edit_summary") if isinstance(report.get("edit_summary"),dict) else {}
+    duration=float(summary.get("duration_after_sec") or edit.get("measured_duration_sec") or _package_duration_seconds(script) or 6)
+    duration=max(1.0,duration)
+    title=(job.get("title") or "Manual uploaded video").strip()
+    description=(job.get("brief") or "").strip() or (script[:280].strip()+("…" if len(script)>280 else ""))
+    batch_id=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:{edit_job_id}:manual-raw-batch"))
+    variant_id=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:{edit_job_id}:manual-raw-variant"))
+    package_id=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:{edit_job_id}:manual-raw-package"))
+    now=ts()
+    fact_check={"status":"source_only","findings":[],
+                "verification_notes":"Manual uploaded media: spoken claims were not independently verified by FactoryOS."}
+    qa={"decision":"human_review_required","findings":[],
+        "reason":"Manual raw-media publish pack preserves uploaded content and requires owner review before publishing."}
+    provenance={"mode":"manual_raw_upload","edit_job_id":edit_job_id,
+                "input_artifact_id":edit.get("input_artifact_id"),"source":"owner_uploaded_media"}
+    payload={
+      "schema_version":CONTENT_PACKAGE_SCHEMA_VERSION,"package_id":package_id,"job_id":job_id,"variant_id":variant_id,
+      "_factoryos_manual_raw":True,"source_mode":"manual_raw_upload",
+      "final_script":script,"hook":hook,
+      "scenes":[{"scene":1,"start_sec":0.0,"end_sec":round(duration,2),"narration":script,
+                 "visual":"Existing uploaded video — preserve the approved edit.","on_screen_text":""}],
+      "voice_over":script,"subtitles_srt":_build_srt(script,duration),
+      "title":title,"description":description,"cta":"","hashtags":[],
+      "thumbnail_concept":{"mode":"owner_review","note":"No automatic thumbnail claim generated for manual raw media."},
+      "media_brief":{"mode":"existing_video","edit_job_id":edit_job_id,"do_not_replace_media":True,
+                     "platform":edit.get("platform") or "reels"},
+      "source_list":[{"type":"uploaded_media","artifact_id":edit.get("input_artifact_id"),"edit_job_id":edit_job_id}],
+      "fact_check_report":fact_check,"structured_qa":qa,
+      "estimated_duration_sec":round(duration,2),
+      "production_cost":{"package_generation_usd":0.0,
+                         "media_finisher_usd":round(float(edit.get("measured_cost_usd") or 0),6),
+                         "job_total_measured_usd":round(get_job_cost(job_id)+float(edit.get("measured_cost_usd") or 0),6)},
+    }
+    con=db()
+    current=con.execute("SELECT id FROM content_packages WHERE job_id=? AND status='ready' ORDER BY created_at DESC LIMIT 1",(job_id,)).fetchone()
+    selected_row=con.execute("SELECT id FROM production_variants WHERE job_id=? AND status='selected' ORDER BY updated_at DESC LIMIT 1",(job_id,)).fetchone()
+    if current or selected_row:
+        row=con.execute("SELECT * FROM content_packages WHERE id=?",(current["id"],)).fetchone() if current else None
+        con.close()
+        return _content_package_dict(row)
+    con.execute("""INSERT OR IGNORE INTO production_variants(
+        id,batch_id,job_id,ordinal,status,angle,angle_reason,hook,hook_rationale,script,optimized_hook,edited_script,
+        fact_check_json,qa_json,decision_reason,allocated_cost_usd,provenance_json,created_at,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
+        variant_id,batch_id,job_id,1,"selected","Manual uploaded video","Owner-provided source media",
+        hook,"Opening words from the uploaded-media transcript",script,hook,script,
+        json.dumps(fact_check,ensure_ascii=False),json.dumps(qa,ensure_ascii=False),
+        "Manual raw-media publish pack",0.0,json.dumps(provenance,ensure_ascii=False),now,now
+    ))
+    con.execute("""INSERT OR IGNORE INTO content_packages(
+        id,job_id,variant_id,status,package_json,srt_text,generation_cost_usd,created_at,updated_at
+    ) VALUES(?,?,?,'ready',?,?,0,?,?)""",(
+        package_id,job_id,variant_id,json.dumps(payload,ensure_ascii=False,default=str),payload["subtitles_srt"],now,now
+    ))
+    con.commit();row=con.execute("SELECT * FROM content_packages WHERE id=?",(package_id,)).fetchone();con.close()
+    if row:
+        _save_package_artifacts(job_id,None,package_id,payload)
+        event(job_id,f"Manual raw-media publish pack created: {package_id[:8]} · no LLM spend · owner review required")
+        return _content_package_dict(row)
+    return get_content_package(job_id).get("package_record")
+
 def _finalize_edit_job(edit_job_id,status,output_url="",provider_job_id="",error="",response=None,report=None,measured_cost_usd=0.0,measured_duration_sec=0.0):
     item=get_edit_job(edit_job_id)
     if not item:raise ValueError("Edit job not found")
@@ -3914,6 +4012,7 @@ def _finalize_edit_job(edit_job_id,status,output_url="",provider_job_id="",error
         output_artifact_id=_persist_edit_evidence(edit_job_id,item["production_job_id"],item["profile_id"],item["profile_version"],report,output_url)
         short_artifact_ids=_persist_short_video_artifacts(edit_job_id,item["production_job_id"],report)
         _record_media_finisher_qa_handoff(item,[output_artifact_id,*short_artifact_ids],report)
+        _ensure_manual_raw_publish_package(edit_job_id)
         con=db();con.execute("UPDATE edit_jobs SET output_artifact_id=? WHERE id=?",(output_artifact_id,edit_job_id))
         job=con.execute("SELECT status FROM jobs WHERE id=?",(item["production_job_id"],)).fetchone()
         if job and job["status"] not in ("approved","publishing","done"):
