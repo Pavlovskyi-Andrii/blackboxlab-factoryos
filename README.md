@@ -16,6 +16,14 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v4.7 — Direct Raw Video → Publish Pack — 2026-10-22
+- A video uploaded directly into AI Media Finisher no longer dead-ends at Approval Studio because it lacks the normal AI-generated Variant/Content Package.
+- When a direct raw upload finishes successfully, FactoryOS creates a deterministic **zero-LLM-spend** source variant and Content Package from persisted transcript evidence plus owner-supplied job title/brief.
+- The generated pack explicitly marks spoken claims as **not independently verified**, keeps CTA/hashtags empty by default, and never invents a thumbnail claim.
+- Split-only jobs bind the actual Shorts/Reels clip — not the internal master — into human approval and the publishing queue.
+- Direct raw uploads now follow one traceable path: upload → Media Finisher → QA → zero-spend publish pack → HUMAN APPROVAL → immutable publish snapshot → schedule → publisher.
+- Existing jobs with partial normal production state are not silently overwritten by the synthetic raw-media pack.
+
 ### v4.6.2 — Immutable Approval → Publish Snapshot — 2026-10-22
 - Approval now freezes the exact publishing metadata (title, description, CTA, hashtags and thumbnail concept) alongside the exact approved video artifact.
 - The frozen snapshot is hashed and linked to the approval decision; post-approval Content Package edits can no longer drift into the publisher payload.
