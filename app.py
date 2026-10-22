@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.5"
+APP_VERSION = "v4.6.1"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -5859,21 +5859,93 @@ def _latest_publishable_media(job_id):
     item=dict(row);item["meta"]=_decode_json(item.pop("meta_json","{}"),{})
     return item
 
+def _artifact_for_edit_job(edit):
+    if not edit:return None
+    job_id=edit.get("production_job_id")
+    edit_job_id=edit.get("id")
+    artifact_id=edit.get("output_artifact_id")
+    con=db()
+    if artifact_id:
+        row=con.execute("""SELECT id,agent,kind,title,content,url,mime_type,created_at,meta_json FROM artifacts
+                           WHERE id=? AND job_id=? AND kind='video' AND COALESCE(url,'')!=''""",
+                        (artifact_id,job_id)).fetchone()
+        if row:
+            con.close()
+            item=dict(row);item["meta"]=_decode_json(item.pop("meta_json","{}"),{})
+            return item
+    rows=con.execute("""SELECT id,agent,kind,title,content,url,mime_type,created_at,meta_json FROM artifacts
+                        WHERE job_id=? AND kind='video' AND agent='AI Media Finisher' AND COALESCE(url,'')!=''
+                        ORDER BY created_at DESC LIMIT 100""",(job_id,)).fetchall()
+    con.close()
+    matches=[]
+    for row in rows:
+        item=dict(row);item["meta"]=_decode_json(item.pop("meta_json","{}"),{})
+        if (item.get("meta") or {}).get("edit_job_id")!=edit_job_id:continue
+        component=(item.get("meta") or {}).get("component")
+        priority=0 if component=="final_render" else 1 if component=="short_render" else 2
+        matches.append((priority,item))
+    if not matches:return None
+    matches.sort(key=lambda x:x[0])
+    return matches[0][1]
+
 def _latest_render_preview(job_id):
+    con=db()
+    row=con.execute("""SELECT * FROM edit_jobs WHERE production_job_id=?
+                       ORDER BY updated_at DESC,created_at DESC,id DESC LIMIT 1""",(job_id,)).fetchone()
+    con.close()
+    if row:
+        exact=_artifact_for_edit_job(_edit_job_dict(row,False))
+        if exact:return exact
     return _latest_publishable_media(job_id)
 
 def _media_review_state(job_id):
     con=db()
-    row=con.execute("""SELECT id,status,output_artifact_id,output_url,profile_id,profile_version,updated_at
-                       FROM edit_jobs WHERE production_job_id=? ORDER BY updated_at DESC LIMIT 1""",(job_id,)).fetchone()
+    row=con.execute("""SELECT * FROM edit_jobs WHERE production_job_id=?
+                       ORDER BY updated_at DESC,created_at DESC,id DESC LIMIT 1""",(job_id,)).fetchone()
     con.close()
-    media=_latest_publishable_media(job_id)
     if not row:
-        return {"required":False,"ready":True,"edit_job":None,"artifact":media}
-    edit=dict(row)
-    ready=bool(edit.get("status")=="ready" and media and media.get("url"))
+        return {"required":False,"ready":True,"edit_job":None,"artifact":_latest_publishable_media(job_id),
+                "source_binding_ok":True,"binding":{},"reason":""}
+    edit=_edit_job_dict(row,False)
+    media=_artifact_for_edit_job(edit)
+    request=edit.get("request") or {}
+    package_mode=str(request.get("package_mode") or "").strip()
+    source_package=request.get("content_package") if isinstance(request.get("content_package"),dict) else {}
+    source_package_id=source_package.get("package_id")
+    source_variant_id=source_package.get("variant_id")
+    current_package=get_content_package(job_id).get("package_record")
+    current_variant=_selected_production_variant(job_id)
+    binding={
+        "package_mode":package_mode,
+        "source_package_id":source_package_id,
+        "source_variant_id":source_variant_id,
+        "current_package_id":(current_package or {}).get("id"),
+        "current_variant_id":(current_variant or {}).get("id"),
+    }
+    source_binding_ok=True
+    stale_reason=""
+    if package_mode=="content_package":
+        source_binding_ok=bool(
+            current_package and current_package.get("status")=="ready" and current_variant
+            and source_package_id and source_variant_id
+            and source_package_id==current_package.get("id")
+            and source_variant_id==current_variant.get("id")
+        )
+        if not source_binding_ok:
+            stale_reason="Finished media was produced from an older Content Package or selected variant. Rerun Media Finisher before approval."
+    status_ready=edit.get("status")=="ready"
+    media_ready=bool(media and media.get("url"))
+    ready=bool(status_ready and media_ready and source_binding_ok)
+    if ready:
+        reason=""
+    elif not status_ready:
+        reason="Latest Media Finisher output is not ready for human approval."
+    elif not media_ready:
+        reason="Latest Media Finisher run has no publishable video artifact."
+    else:
+        reason=stale_reason or "Finished media is not bound to the current approved production inputs."
     return {"required":True,"ready":ready,"edit_job":edit,"artifact":media,
-            "reason":"" if ready else "Latest Media Finisher output is not ready for human approval."}
+            "source_binding_ok":source_binding_ok,"binding":binding,"reason":reason}
 
 def get_variant_diff(job_id):
     data=get_job_variants(job_id); variants=data.get("variants") or []
