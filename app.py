@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.7"
+APP_VERSION = "v4.8"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -66,6 +66,16 @@ DB = DATA_DIR / "factory.db"
 MEDIA_UPLOAD_DIR = DATA_DIR / "media_uploads"
 MEDIA_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 FACTORY_MEDIA_UPLOAD_MAX_BYTES = max(10 * 1024 * 1024, int(os.environ.get("FACTORY_MEDIA_UPLOAD_MAX_BYTES", str(500 * 1024 * 1024))))
+MEDIA_ARCHIVE_DIR = DATA_DIR / "media_archive"
+MEDIA_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+FACTORY_MEDIA_ARCHIVE_MAX_BYTES = max(10 * 1024 * 1024, int(os.environ.get("FACTORY_MEDIA_ARCHIVE_MAX_BYTES", str(600 * 1024 * 1024))))
+FACTORY_PUBLIC_BASE_URL = (os.environ.get("FACTORY_PUBLIC_BASE_URL", "https://blackboxlab-factoryos.onrender.com").strip().rstrip("/")
+                           or "https://blackboxlab-factoryos.onrender.com")
+FACTORY_MEDIA_FINISHER_EPHEMERAL_HOSTS = {
+    x.strip().lower() for x in os.environ.get(
+        "FACTORY_MEDIA_FINISHER_EPHEMERAL_HOSTS","blackboxlab-media-finisher.onrender.com"
+    ).split(",") if x.strip()
+}
 STAGES = ["inbox","research","script","visual","voice","render","qa","publish","analytics"]
 AGENT_MAP = {
     "research": ["Scout","Researcher","Tech Verifier"],
@@ -3813,6 +3823,174 @@ def _resolve_finisher_input(job_id,input_url="",media_job_id=""):
     if not artifact:raise ValueError("No raw/generated video artifact is available for this job")
     return artifact["url"],artifact["id"],None
 
+def _media_archive_signature(archive_id):
+    return hmac.new(FACTORY_SECRET.encode("utf-8"),f"media-archive:{archive_id}".encode("utf-8"),hashlib.sha256).hexdigest()
+
+def _media_archive_meta(archive_id):
+    path=MEDIA_ARCHIVE_DIR/f"{archive_id}.json"
+    if not path.exists():return None
+    return _decode_json(path.read_text(encoding="utf-8"),None)
+
+@app.get("/media-archive/{archive_id}",name="media_archive_source")
+def media_archive_source(archive_id:str,token:str=""):
+    expected=_media_archive_signature(archive_id)
+    if not token or not hmac.compare_digest(token,expected):raise HTTPException(403,"Invalid media archive token")
+    meta=_media_archive_meta(archive_id)
+    if not meta:raise HTTPException(404,"Archived media not found")
+    path=MEDIA_ARCHIVE_DIR/str(meta.get("stored_name") or "")
+    if not path.exists():raise HTTPException(404,"Archived media file missing")
+    return FileResponse(path,media_type=meta.get("content_type") or "video/mp4",filename=meta.get("filename") or path.name)
+
+def _is_ephemeral_finisher_url(value):
+    raw=str(value or "").strip()
+    if not raw:return False
+    try:
+        parsed=urlparse.urlparse(raw)
+        host=(parsed.hostname or "").lower()
+        path=parsed.path or ""
+    except Exception:
+        return False
+    return bool(host in FACTORY_MEDIA_FINISHER_EPHEMERAL_HOSTS and path.startswith("/files/"))
+
+def _download_media_to_path(source_url,dest):
+    req=urlrequest.Request(source_url,headers={"User-Agent":f"FactoryOS/{APP_VERSION} durable-media-archive"})
+    total=0;digest=hashlib.sha256();content_type="video/mp4"
+    try:
+        with urlrequest.urlopen(req,timeout=180) as resp, dest.open("wb") as fh:
+            content_type=str(resp.headers.get("Content-Type") or "video/mp4").split(";")[0].strip() or "video/mp4"
+            length=str(resp.headers.get("Content-Length") or "").strip()
+            if length and int(length)>FACTORY_MEDIA_ARCHIVE_MAX_BYTES:
+                raise RuntimeError(f"Finished media exceeds durable archive limit of {FACTORY_MEDIA_ARCHIVE_MAX_BYTES//(1024*1024)} MB")
+            while True:
+                chunk=resp.read(1024*1024)
+                if not chunk:break
+                total+=len(chunk)
+                if total>FACTORY_MEDIA_ARCHIVE_MAX_BYTES:
+                    raise RuntimeError(f"Finished media exceeds durable archive limit of {FACTORY_MEDIA_ARCHIVE_MAX_BYTES//(1024*1024)} MB")
+                fh.write(chunk);digest.update(chunk)
+    except Exception:
+        if dest.exists():dest.unlink()
+        raise
+    if total<1024:
+        if dest.exists():dest.unlink()
+        raise RuntimeError("Finished media archive download was empty or too small")
+    return {"bytes":total,"sha256":digest.hexdigest(),"content_type":content_type}
+
+def _replace_media_url(value,old,new):
+    if isinstance(value,dict):return {k:_replace_media_url(v,old,new) for k,v in value.items()}
+    if isinstance(value,list):return [_replace_media_url(v,old,new) for v in value]
+    if isinstance(value,str) and value==old:return new
+    return value
+
+def _archive_media_artifact(artifact_id):
+    con=db();row=con.execute("SELECT * FROM artifacts WHERE id=? AND kind='video'",(artifact_id,)).fetchone();con.close()
+    if not row:return None
+    artifact=dict(row);meta=_decode_json(artifact.get("meta_json") or "{}",{})
+    source_url=str(artifact.get("url") or "").strip()
+    if not source_url:return None
+    if meta.get("durable_media") and "/media-archive/" in source_url:
+        return {"artifact_id":artifact_id,"url":source_url,"already_archived":True}
+    if not _is_ephemeral_finisher_url(source_url):
+        return {"artifact_id":artifact_id,"url":source_url,"archive_required":False}
+    archive_id=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:durable-media:{artifact_id}:{source_url}"))
+    ext=Path(urlparse.urlparse(source_url).path).suffix.lower()
+    if ext not in {".mp4",".mov",".m4v",".webm",".mpeg",".mpg"}:ext=".mp4"
+    stored_name=archive_id+ext;dest=MEDIA_ARCHIVE_DIR/stored_name
+    archive_meta=_media_archive_meta(archive_id)
+    if not (archive_meta and dest.exists()):
+        result=_download_media_to_path(source_url,dest)
+        archive_meta={
+          "archive_id":archive_id,"artifact_id":artifact_id,"job_id":artifact.get("job_id"),
+          "edit_job_id":meta.get("edit_job_id"),"source_url":source_url,"stored_name":stored_name,
+          "filename":Path(urlparse.urlparse(source_url).path).name or stored_name,
+          "content_type":result["content_type"],"bytes":result["bytes"],"sha256":result["sha256"],
+          "created_at":ts()
+        }
+        (MEDIA_ARCHIVE_DIR/f"{archive_id}.json").write_text(json.dumps(archive_meta,ensure_ascii=False,indent=2),encoding="utf-8")
+    token=_media_archive_signature(archive_id)
+    durable_url=f"{FACTORY_PUBLIC_BASE_URL}/media-archive/{archive_id}?token={urlparse.quote(token,safe='')}"
+    updated_meta={**meta,"durable_media":True,"archive_id":archive_id,"archive_bytes":archive_meta.get("bytes"),
+                  "archive_sha256":archive_meta.get("sha256"),"source_url":source_url,"archived_at":ts()}
+    edit_job_id=meta.get("edit_job_id")
+    con=db()
+    con.execute("UPDATE artifacts SET url=?,mime_type=?,meta_json=? WHERE id=?",
+                (durable_url,archive_meta.get("content_type") or artifact.get("mime_type") or "video/mp4",
+                 json.dumps(updated_meta,ensure_ascii=False,default=str),artifact_id))
+    if edit_job_id:
+        edit_row=con.execute("SELECT output_url,report_json FROM edit_jobs WHERE id=?",(edit_job_id,)).fetchone()
+        if edit_row:
+            output_url=durable_url if str(edit_row["output_url"] or "")==source_url else edit_row["output_url"]
+            report=_decode_json(edit_row["report_json"] or "{}",{})
+            report=_replace_media_url(report,source_url,durable_url)
+            con.execute("UPDATE edit_jobs SET output_url=?,report_json=?,updated_at=? WHERE id=?",
+                        (output_url,json.dumps(report,ensure_ascii=False,default=str),ts(),edit_job_id))
+    con.commit();con.close()
+    if artifact.get("job_id"):event(artifact["job_id"],f"Durable media archived: {artifact_id[:8]} · {round(float(archive_meta.get('bytes') or 0)/1024/1024,1)} MB")
+    return {"artifact_id":artifact_id,"url":durable_url,"archive_id":archive_id,
+            "bytes":archive_meta.get("bytes"),"sha256":archive_meta.get("sha256"),"archive_required":True}
+
+_media_archive_active=set()
+_media_archive_lock=threading.Lock()
+
+def _set_media_archive_state(edit_job_id,status,error="",items=None):
+    item=get_edit_job(edit_job_id)
+    if not item:return None
+    response=dict(item.get("response") or {})
+    response["durable_media_status"]=status
+    response["durable_media_items"]=items or []
+    if error:response["durable_media_error"]=str(error)[:700]
+    elif "durable_media_error" in response:response.pop("durable_media_error",None)
+    con=db();con.execute("UPDATE edit_jobs SET response_json=?,updated_at=? WHERE id=?",
+                         (json.dumps(response,ensure_ascii=False,default=str),ts(),edit_job_id));con.commit();con.close()
+    return get_edit_job(edit_job_id)
+
+def _archive_edit_media(edit_job_id):
+    edit=get_edit_job(edit_job_id)
+    if not edit:return {"status":"missing","items":[]}
+    con=db();rows=con.execute("""SELECT id,url,meta_json FROM artifacts
+                                WHERE job_id=? AND agent='AI Media Finisher' AND kind='video'
+                                ORDER BY created_at""",(edit["production_job_id"],)).fetchall();con.close()
+    targets=[]
+    for row in rows:
+        meta=_decode_json(row["meta_json"] or "{}",{})
+        if meta.get("edit_job_id")!=edit_job_id:continue
+        if meta.get("component") not in ("final_render","short_render"):continue
+        if _is_ephemeral_finisher_url(row["url"]):targets.append(row["id"])
+    if not targets:
+        _set_media_archive_state(edit_job_id,"not_required",items=[])
+        return {"status":"not_required","items":[]}
+    _set_media_archive_state(edit_job_id,"archiving",items=[])
+    items=[]
+    try:
+        for artifact_id in targets:items.append(_archive_media_artifact(artifact_id))
+        _set_media_archive_state(edit_job_id,"ready",items=items)
+        event(edit["production_job_id"],f"Durable media ready: {edit_job_id[:8]} · {len(items)} deliverable(s)")
+        return {"status":"ready","items":items}
+    except Exception as exc:
+        _set_media_archive_state(edit_job_id,"failed",error=str(exc),items=items)
+        event(edit["production_job_id"],f"Durable media archive failed: {edit_job_id[:8]} · {str(exc)[:180]}")
+        return {"status":"failed","items":items,"error":str(exc)}
+
+def _archive_edit_media_background(edit_job_id):
+    with _media_archive_lock:
+        if edit_job_id in _media_archive_active:return
+        _media_archive_active.add(edit_job_id)
+    try:_archive_edit_media(edit_job_id)
+    finally:
+        with _media_archive_lock:_media_archive_active.discard(edit_job_id)
+
+def _queue_durable_media_archive(edit_job_id):
+    edit=get_edit_job(edit_job_id)
+    if not edit:return False
+    media=_artifact_for_edit_job(edit)
+    if not media or not _is_ephemeral_finisher_url(media.get("url")):
+        _set_media_archive_state(edit_job_id,"not_required",items=[])
+        return False
+    _set_media_archive_state(edit_job_id,"queued",items=[])
+    threading.Thread(target=_archive_edit_media_background,args=(edit_job_id,),daemon=True,
+                     name=f"media-archive-{edit_job_id[:8]}").start()
+    return True
+
 def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,output_url=""):
     report=report if isinstance(report,dict) else {}
     evidence_map={
@@ -4018,7 +4196,8 @@ def _finalize_edit_job(edit_job_id,status,output_url="",provider_job_id="",error
         if job and job["status"] not in ("approved","publishing","done"):
             con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(ts(),item["production_job_id"]))
         con.commit();con.close()
-        event(item["production_job_id"],f"AI Media Finisher ready: {edit_job_id[:8]} → human review required")
+        _queue_durable_media_archive(edit_job_id)
+        event(item["production_job_id"],f"AI Media Finisher ready: {edit_job_id[:8]} → durable media check → human review")
     elif status=="failed":
         event(item["production_job_id"],f"AI Media Finisher failed: {edit_job_id[:8]} — {str(error or 'provider failure')[:240]}")
     return get_edit_job(edit_job_id)
@@ -6034,17 +6213,27 @@ def _media_review_state(job_id):
             stale_reason="Finished media was produced from an older Content Package or selected variant. Rerun Media Finisher before approval."
     status_ready=edit.get("status")=="ready"
     media_ready=bool(media and media.get("url"))
-    ready=bool(status_ready and media_ready and source_binding_ok)
+    media_meta=(media or {}).get("meta") or {}
+    archive_status=str((edit.get("response") or {}).get("durable_media_status") or "")
+    durability_required=bool(media_ready and _is_ephemeral_finisher_url((media or {}).get("url")))
+    durability_ready=bool(media_ready and (not durability_required or media_meta.get("durable_media") or "/media-archive/" in str((media or {}).get("url") or "")))
+    ready=bool(status_ready and media_ready and durability_ready and source_binding_ok)
     if ready:
         reason=""
     elif not status_ready:
         reason="Latest Media Finisher output is not ready for human approval."
     elif not media_ready:
         reason="Latest Media Finisher run has no publishable video artifact."
+    elif not durability_ready and archive_status=="failed":
+        reason="Finished media could not be copied to durable FactoryOS storage. Retry Media Finisher or the archive before approval."
+    elif not durability_ready:
+        reason="Finished media is being copied to durable FactoryOS storage before approval."
     else:
         reason=stale_reason or "Finished media is not bound to the current approved production inputs."
     return {"required":True,"ready":ready,"edit_job":edit,"artifact":media,
-            "source_binding_ok":source_binding_ok,"binding":binding,"reason":reason}
+            "source_binding_ok":source_binding_ok,"binding":binding,"reason":reason,
+            "durability_required":durability_required,"durability_ready":durability_ready,
+            "durable_media_status":archive_status}
 
 def get_variant_diff(job_id):
     data=get_job_variants(job_id); variants=data.get("variants") or []
