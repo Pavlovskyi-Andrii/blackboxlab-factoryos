@@ -147,6 +147,8 @@ FACTORY_MEDIA_ADAPTERS = {
 FACTORY_PUBLISHER_ADAPTER = (os.environ.get("FACTORY_PUBLISHER_ADAPTER", "manual").strip().lower() or "manual")
 FACTORY_PUBLISHER_ENDPOINT = os.environ.get("FACTORY_PUBLISHER_ENDPOINT", "").strip()
 FACTORY_PUBLISHER_TOKEN = os.environ.get("FACTORY_PUBLISHER_TOKEN", "").strip()
+FACTORY_PUBLISHER_SCHEDULER_ENABLED = os.environ.get("FACTORY_PUBLISHER_SCHEDULER_ENABLED", "0").strip().lower() in ("1","true","yes","on")
+FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC = max(15,min(600,int(os.environ.get("FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC","60"))))
 FACTORY_ANALYTICS_ADAPTER = (os.environ.get("FACTORY_ANALYTICS_ADAPTER", "manual").strip().lower() or "manual")
 FACTORY_ANALYTICS_ENDPOINT = os.environ.get("FACTORY_ANALYTICS_ENDPOINT", "").strip()
 FACTORY_ANALYTICS_TOKEN = os.environ.get("FACTORY_ANALYTICS_TOKEN", "").strip()
@@ -5360,6 +5362,8 @@ async def start_content_brain_collector():
 @app.on_event("startup")
 async def start_factory_cycle_reconciler():
     asyncio.create_task(factory_cycle_reconcile_loop())
+    if FACTORY_PUBLISHER_SCHEDULER_ENABLED:
+        asyncio.create_task(publisher_scheduler_loop())
     asyncio.create_task(run_real_world_pilot_once())
     asyncio.create_task(run_media_finisher_pilot_once())
 
@@ -5840,13 +5844,36 @@ def get_approval_history(job_id,limit=80):
     con.close()
     return [_json_row(x) for x in rows]
 
-def _latest_render_preview(job_id):
+def _latest_publishable_media(job_id):
     con=db()
-    row=con.execute("""SELECT id,title,content,url,created_at FROM artifacts
-                       WHERE job_id=? AND agent='Render Agent'
-                       ORDER BY created_at DESC LIMIT 1""",(job_id,)).fetchone()
+    row=con.execute("""SELECT id,agent,kind,title,content,url,mime_type,created_at,meta_json FROM artifacts
+                       WHERE job_id=? AND kind='video' AND COALESCE(url,'')!=''
+                       ORDER BY CASE
+                         WHEN agent='AI Media Finisher' AND meta_json LIKE '%final_render%' THEN 0
+                         WHEN agent='AI Media Finisher' THEN 1
+                         WHEN agent='Render Agent' THEN 2
+                         ELSE 3
+                       END, created_at DESC LIMIT 1""",(job_id,)).fetchone()
     con.close()
-    return dict(row) if row else None
+    if not row:return None
+    item=dict(row);item["meta"]=_decode_json(item.pop("meta_json","{}"),{})
+    return item
+
+def _latest_render_preview(job_id):
+    return _latest_publishable_media(job_id)
+
+def _media_review_state(job_id):
+    con=db()
+    row=con.execute("""SELECT id,status,output_artifact_id,output_url,profile_id,profile_version,updated_at
+                       FROM edit_jobs WHERE production_job_id=? ORDER BY updated_at DESC LIMIT 1""",(job_id,)).fetchone()
+    con.close()
+    media=_latest_publishable_media(job_id)
+    if not row:
+        return {"required":False,"ready":True,"edit_job":None,"artifact":media}
+    edit=dict(row)
+    ready=bool(edit.get("status")=="ready" and media and media.get("url"))
+    return {"required":True,"ready":ready,"edit_job":edit,"artifact":media,
+            "reason":"" if ready else "Latest Media Finisher output is not ready for human approval."}
 
 def get_variant_diff(job_id):
     data=get_job_variants(job_id); variants=data.get("variants") or []
@@ -5921,12 +5948,14 @@ def link_job_idea(job_id,idea_id):
 def get_publisher_adapter_registry():
     webhook=bool(FACTORY_PUBLISHER_ENDPOINT)
     return {"selected":FACTORY_PUBLISHER_ADAPTER,
+            "scheduler_enabled":FACTORY_PUBLISHER_SCHEDULER_ENABLED,
+            "scheduler_interval_sec":FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC,
             "adapters":[
                 {"kind":"manual","configured":True,"status":"ready","execution":"explicit external confirmation"},
                 {"kind":"webhook","configured":webhook,"status":"configured" if webhook else "not_configured","execution":"idempotent POST"},
             ],
             "secrets_exposed":False,
-            "note":"Approval never publishes directly. Retries reuse one stable idempotency key."}
+            "note":"Approval never publishes directly. Retries reuse one stable idempotency key bound to the approved package, variant and final media artifact."}
 
 def get_analytics_adapter_registry():
     webhook=bool(FACTORY_ANALYTICS_ENDPOINT)
@@ -5939,23 +5968,41 @@ def get_analytics_adapter_registry():
             "note":"Only metrics actually supplied by the platform/owner are persisted."}
 
 def _publish_item(row):
-    return _json_row(row) if row else None
+    item=_json_row(row) if row else None
+    if not item:return None
+    meta=item.get("meta") or {}
+    item["media"]={
+        "artifact_id":meta.get("media_artifact_id"),"url":meta.get("media_url") or "",
+        "title":meta.get("media_title") or "","mime_type":meta.get("media_mime_type") or "",
+        "edit_job_id":meta.get("media_edit_job_id")
+    } if meta.get("media_artifact_id") or meta.get("media_url") else None
+    return item
 
 def _ensure_publish_item(job_id):
     package=get_content_package(job_id).get("package_record")
     variant=_selected_production_variant(job_id)
     if not package or package.get("status")!="ready":raise ValueError("A fresh Content Package is required before publishing")
     if not variant:raise ValueError("A selected production variant is required before publishing")
-    idem=hashlib.sha256(f"{job_id}:{package['id']}:{variant['id']}".encode("utf-8")).hexdigest()
+    media_state=_media_review_state(job_id)
+    if media_state.get("required") and not media_state.get("ready"):
+        raise ValueError(media_state.get("reason") or "Finished media is not ready for approval")
+    media=media_state.get("artifact") or {}
+    media_meta=media.get("meta") or {}
+    media_key=media.get("id") or "no-media"
+    idem=hashlib.sha256(f"{job_id}:{package['id']}:{variant['id']}:{media_key}".encode("utf-8")).hexdigest()
     con=db();existing=con.execute("SELECT * FROM publishing_queue WHERE idempotency_key=?",(idem,)).fetchone()
     if existing:con.close();return _publish_item(existing)
     pid=str(uuid.uuid4());now=ts()
+    meta={"variant_id":variant["id"],"approval_required":True,
+          "media_artifact_id":media.get("id"),"media_url":media.get("url") or "",
+          "media_title":media.get("title") or "","media_mime_type":media.get("mime_type") or "",
+          "media_edit_job_id":media_meta.get("edit_job_id")}
     con.execute("""INSERT INTO publishing_queue(
         id,job_id,package_id,status,target,platform,scheduled_at,idempotency_key,attempt_count,
         external_post_id,external_url,last_error,created_at,updated_at,published_at,meta_json
     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
         pid,job_id,package["id"],"approved","manual","unspecified",None,idem,0,
-        None,None,None,now,now,None,json.dumps({"variant_id":variant["id"],"approval_required":True})
+        None,None,None,now,now,None,json.dumps(meta,ensure_ascii=False)
     ))
     con.commit();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(pid,)).fetchone();con.close()
     return _publish_item(row)
@@ -5976,12 +6023,35 @@ def _external_json(url,method="GET",payload=None,token=""):
     with urlrequest.urlopen(req,timeout=25) as response:
         return json.loads(response.read().decode("utf-8","replace") or "{}")
 
+def _publish_receipt(item,external_post_id,external_url="",published_at=None,source="adapter"):
+    published_at=published_at or ts()
+    con=db();existing=con.execute("""SELECT id FROM artifacts WHERE job_id=? AND agent='Publisher'
+                                    AND kind='publish_receipt' AND meta_json LIKE ? LIMIT 1""",
+                                  (item["job_id"],f'%"publish_id": "{item["id"]}"%')).fetchone();con.close()
+    if not existing:
+        save_artifact("Publisher","publish_receipt",f"Published · {item['platform']}",
+                      json.dumps({"external_post_id":external_post_id,"external_url":external_url,
+                                  "published_at":published_at,"platform":item["platform"],"media":item.get("media")},ensure_ascii=False,indent=2),
+                      job_id=item["job_id"],meta={"publish_id":item["id"],"idempotency_key":item["idempotency_key"],
+                                                 "platform":item["platform"],"source":source,
+                                                 "media_artifact_id":((item.get("media") or {}).get("artifact_id"))})
+    con=db();con.execute("UPDATE jobs SET stage='publish',status='published',progress=90,updated_at=? WHERE id=?",(ts(),item["job_id"]));con.commit();con.close()
+    event(item["job_id"],f"Publish confirmed: {item['platform']} · {external_post_id}")
+    sync_cycle_for_publish(item["id"])
+
 def _publish_via_adapter(item):
     if FACTORY_PUBLISHER_ADAPTER=="manual" or not FACTORY_PUBLISHER_ENDPOINT:
         return {"manual":True,"status":"publishing"}
+    package_record=get_content_package(item["job_id"]).get("package_record") or {}
+    package=package_record.get("package") or {}
+    media=item.get("media") or {}
     payload={"idempotency_key":item["idempotency_key"],"publish_id":item["id"],"job_id":item["job_id"],
              "package_id":item["package_id"],"target":item["target"],"platform":item["platform"],
-             "scheduled_at":item.get("scheduled_at")}
+             "scheduled_at":item.get("scheduled_at"),"media_url":media.get("url") or "",
+             "media_artifact_id":media.get("artifact_id"),"media":media,
+             "content":{"title":package.get("title") or "","description":package.get("description") or "",
+                        "cta":package.get("cta") or "","hashtags":package.get("hashtags") or [],
+                        "thumbnail_concept":package.get("thumbnail_concept") or ""}}
     result=_external_json(FACTORY_PUBLISHER_ENDPOINT,"POST",payload,FACTORY_PUBLISHER_TOKEN)
     return {"manual":False,"status":str(result.get("status") or "publishing"),
             "external_post_id":result.get("external_post_id") or result.get("id"),
@@ -6466,9 +6536,10 @@ def get_approval_queue(limit=60):
                                  (job["id"],)).fetchone();con.close()
         package_record=package.get("package_record")
         variant_count=int((variants.get("summary") or {}).get("variants") or 0)
-        review_ready=bool(package_record and package_record.get("status")=="ready" and variant_count>0)
+        media_review=_media_review_state(job["id"])
+        review_ready=bool(package_record and package_record.get("status")=="ready" and variant_count>0 and media_review.get("ready"))
         items.append({"job":job,"package":package_record,"package_status":package.get("status"),
-                      "variants":variants,"preview":_latest_render_preview(job["id"]),
+                      "variants":variants,"preview":_latest_render_preview(job["id"]),"media_review":media_review,
                       "history":get_approval_history(job["id"],20),"variant_diff":get_variant_diff(job["id"]),
                       "publish":_publish_item(pub),"review_ready":review_ready,
                       "legacy_incomplete":bool(not package_record or variant_count==0)})
@@ -6722,9 +6793,15 @@ async def publish_scheduled_item(publish_id:str,confirm_uncertain:bool=False):
         con=db();con.execute("""UPDATE publishing_queue SET status=?,external_post_id=?,external_url=?,published_at=?,updated_at=?,meta_json=?
                                WHERE id=?""",(status,result.get("external_post_id"),result.get("external_url"),published_at,ts(),
                                json.dumps({**meta,"adapter_result":result.get("raw",{})},ensure_ascii=False),publish_id))
-        con.commit();con.close();event(item["job_id"],f"Publishing result: {status} · {item['platform']}")
+        con.commit();updated=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
+        item=_publish_item(updated)
+        if status=="published":
+            _publish_receipt(item,result.get("external_post_id"),result.get("external_url") or "",published_at,"adapter")
+        else:
+            event(item["job_id"],f"Publishing result: {status} · {item['platform']}")
+            sync_cycle_for_publish(publish_id)
         await broadcast({"type":"publishing","publishId":publish_id,"status":status})
-        return {"ok":True,"status":status}
+        return {"ok":True,"status":status,"item":item}
     except Exception as exc:
         uncertain=isinstance(exc,(TimeoutError,urlerror.URLError))
         con=db();con.execute("UPDATE publishing_queue SET status='failed',last_error=?,updated_at=?,meta_json=? WHERE id=?",
@@ -6741,15 +6818,10 @@ async def confirm_manual_publish(publish_id:str,payload:PublishConfirmRequest):
     published_at=payload.published_at or ts()
     con.execute("""UPDATE publishing_queue SET status='published',external_post_id=?,external_url=?,published_at=?,updated_at=?,last_error=NULL
                    WHERE id=?""",(external,(payload.external_url or "").strip(),published_at,ts(),publish_id))
-    con.commit();con.close()
-    save_artifact("Publisher","publish_receipt",f"Published · {row['platform']}",
-                  json.dumps({"external_post_id":external,"external_url":payload.external_url,"published_at":published_at},ensure_ascii=False,indent=2),
-                  job_id=row["job_id"],meta={"publish_id":publish_id,"idempotency_key":row["idempotency_key"]})
-    con=db();con.execute("UPDATE jobs SET stage='publish',status='published',progress=90,updated_at=? WHERE id=?",(ts(),row["job_id"]));con.commit();con.close()
-    event(row["job_id"],f"Manual publish confirmed: {row['platform']} · {external}")
-    sync_cycle_for_publish(publish_id)
+    con.commit();updated=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
+    _publish_receipt(_publish_item(updated),external,(payload.external_url or "").strip(),published_at,"manual")
     await broadcast({"type":"publishing","publishId":publish_id,"status":"published"})
-    return {"ok":True,"status":"published"}
+    return {"ok":True,"status":"published","item":_publish_item(updated)}
 
 @app.post("/api/publishing/run-due")
 async def run_due_publishing():
@@ -6758,6 +6830,14 @@ async def run_due_publishing():
     results=[]
     for row in rows:results.append(await publish_scheduled_item(row["id"],False))
     return {"ok":True,"processed":len(results),"results":results}
+
+async def publisher_scheduler_loop():
+    while True:
+        try:
+            await run_due_publishing()
+        except Exception as exc:
+            print(json.dumps({"event":"PUBLISHER_SCHEDULER_ERROR","error":str(exc)[:500]}),flush=True)
+        await asyncio.sleep(FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC)
 
 @app.get("/api/analytics-adapters")
 def analytics_adapters():
@@ -7031,7 +7111,12 @@ async def approve(job_id:str):
     package=get_content_package(job_id).get("package_record")
     if not package or package.get("status")!="ready":
         return {"ok":False,"message":"A fresh Content Package is required before approval"}
-    _record_approval(job_id,"approved","Approved in Approval Studio")
+    media_review=_media_review_state(job_id)
+    if media_review.get("required") and not media_review.get("ready"):
+        return {"ok":False,"message":media_review.get("reason") or "Finished media is not ready for approval"}
+    _record_approval(job_id,"approved","Approved in Approval Studio",
+                     meta={"media_artifact_id":((media_review.get("artifact") or {}).get("id")),
+                           "media_edit_job_id":(((media_review.get("edit_job") or {}).get("id")))})
     try:item=_ensure_publish_item(job_id)
     except ValueError as exc:return {"ok":False,"message":str(exc)}
     con=db();con.execute("UPDATE jobs SET status='approved',stage='qa',progress=75,updated_at=? WHERE id=?",(ts(),job_id));con.commit();con.close()
