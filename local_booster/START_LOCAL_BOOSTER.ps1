@@ -67,10 +67,16 @@ Write-Host "Starting local worker on port $Port with $threads CPU threads..." -F
 docker run -d --name factoryos-media-finisher-local -p "${Port}:10000" -v "${data}:/var/data/media-finisher" -e FINISHER_DATA_DIR=/var/data/media-finisher -e FINISHER_WHISPER_MODEL=small -e FINISHER_WHISPER_DEVICE=cpu -e FINISHER_WHISPER_COMPUTE_TYPE=int8 -e FINISHER_CPU_THREADS=$threads -e FINISHER_GRAPHICS_ENGINE=remotion -e FINISHER_LOW_MEMORY_MODE=0 factoryos-media-finisher-local
 if($LASTEXITCODE -ne 0) { throw "Local worker container failed to start" }
 
-py -m pip install -q -r local_booster/requirements.txt
-if($LASTEXITCODE -ne 0) { throw "Python dependency install failed" }
-$env:FACTORYOS_URL=$FactoryUrl
-$env:FACTORYOS_LOCAL_BOOSTER_TOKEN=$Token
-$env:FACTORYOS_LOCAL_WORKER_URL="http://127.0.0.1:$Port"
-Write-Host "Booster ONLINE. Keep this window open while FactoryOS should use this PC." -ForegroundColor Green
-py local_booster/booster.py
+$clientExisting=docker ps -a --filter "name=^/factoryos-local-booster-client$" --format "{{.Names}}" 2>$null
+if($clientExisting -eq "factoryos-local-booster-client") {
+  docker rm -f factoryos-local-booster-client | Out-Null
+}
+$boosterDir=Join-Path $root "local_booster"
+Write-Host "Starting booster client in Docker. Host Python is not required." -ForegroundColor Cyan
+docker run --rm -it --name factoryos-local-booster-client `
+  -v "${boosterDir}:/booster:ro" `
+  -e FACTORYOS_URL="$FactoryUrl" `
+  -e FACTORYOS_LOCAL_BOOSTER_TOKEN="$Token" `
+  -e FACTORYOS_LOCAL_WORKER_URL="http://host.docker.internal:$Port" `
+  factoryos-media-finisher-local `
+  sh -lc "pip install -q requests && python /booster/booster.py"
