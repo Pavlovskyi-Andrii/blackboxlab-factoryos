@@ -4019,6 +4019,76 @@ def _archive_edit_media(edit_job_id):
         event(edit["production_job_id"],f"Durable media archive failed: {edit_job_id[:8]} · {str(exc)[:180]}")
         return {"status":"failed","items":items,"error":str(exc)}
 
+def _patch_edit_job_response(edit_job_id,patch):
+    item=get_edit_job(edit_job_id)
+    if not item:return None
+    response=dict(item.get("response") or {});response.update(patch or {})
+    con=db();con.execute("UPDATE edit_jobs SET response_json=?,updated_at=? WHERE id=?",
+                         (json.dumps(response,ensure_ascii=False,default=str),ts(),edit_job_id));con.commit();con.close()
+    return get_edit_job(edit_job_id)
+
+def _recoverable_persistent_finisher_input(edit):
+    if not edit:return False
+    raw=str(edit.get("input_url") or "").strip()
+    try:
+        source=urlparse.urlparse(raw);public=urlparse.urlparse(FACTORY_PUBLIC_BASE_URL)
+    except Exception:
+        return False
+    if not source.hostname or not public.hostname or source.hostname.lower()!=public.hostname.lower():
+        return False
+    if not source.path.startswith("/media-source/"):
+        return False
+    upload_id=source.path.rsplit("/",1)[-1]
+    meta=_media_upload_meta(upload_id)
+    if not meta:return False
+    path=MEDIA_UPLOAD_DIR/str(meta.get("stored_name") or "")
+    return bool(path.exists() and path.stat().st_size>=1024)
+
+def _latest_ready_edit_for_job(production_job_id):
+    con=db();row=con.execute("""SELECT id FROM edit_jobs
+                                WHERE production_job_id=? AND status='ready'
+                                ORDER BY COALESCE(completed_at,updated_at) DESC,created_at DESC,id DESC LIMIT 1""",
+                             (production_job_id,)).fetchone();con.close()
+    return row["id"] if row else ""
+
+def _maybe_repair_lost_ephemeral_media(edit_job_id,result):
+    error=str((result or {}).get("error") or "")
+    if "404" not in error:return None
+    edit=get_edit_job(edit_job_id)
+    if not edit or edit.get("status")!="ready":return None
+    response=dict(edit.get("response") or {})
+    if response.get("lost_media_repair_status") in ("queued","processing","done","skipped","failed"):
+        return response.get("lost_media_repair_child_id")
+    if _latest_ready_edit_for_job(edit["production_job_id"])!=edit_job_id:
+        _patch_edit_job_response(edit_job_id,{"lost_media_repair_status":"skipped",
+                                             "lost_media_repair_reason":"superseded_ready_edit",
+                                             "lost_media_repair_at":ts()})
+        print(json.dumps({"event":"LOST_MEDIA_REPAIR","edit_job_id":edit_job_id,"status":"skipped","reason":"superseded"}),flush=True)
+        return None
+    if not _recoverable_persistent_finisher_input(edit):
+        _patch_edit_job_response(edit_job_id,{"lost_media_repair_status":"failed",
+                                             "lost_media_repair_reason":"persistent_raw_source_unavailable",
+                                             "lost_media_repair_at":ts()})
+        print(json.dumps({"event":"LOST_MEDIA_REPAIR","edit_job_id":edit_job_id,"status":"failed","reason":"raw_source_unavailable"}),flush=True)
+        return None
+    _patch_edit_job_response(edit_job_id,{"lost_media_repair_status":"processing",
+                                         "lost_media_repair_reason":"ephemeral_output_404",
+                                         "lost_media_repair_at":ts()})
+    try:
+        rerun=rerun_media_finisher_stage(edit_job_id,"render")
+        child=((rerun or {}).get("edit_job") or {}).get("id") or ""
+        _patch_edit_job_response(edit_job_id,{"lost_media_repair_status":"queued",
+                                             "lost_media_repair_child_id":child})
+        event(edit["production_job_id"],f"Lost temporary Media Finisher output auto-repair queued: {edit_job_id[:8]} → {child[:8]}")
+        print(json.dumps({"event":"LOST_MEDIA_REPAIR","edit_job_id":edit_job_id,"status":"queued","child_edit_job_id":child}),flush=True)
+        return child
+    except Exception as exc:
+        _patch_edit_job_response(edit_job_id,{"lost_media_repair_status":"failed",
+                                             "lost_media_repair_reason":str(exc)[:500]})
+        event(edit["production_job_id"],f"Lost media auto-repair failed to queue: {edit_job_id[:8]} · {str(exc)[:160]}")
+        print(json.dumps({"event":"LOST_MEDIA_REPAIR","edit_job_id":edit_job_id,"status":"failed","error":str(exc)[:400]}),flush=True)
+        return None
+
 def _archive_edit_media_background(edit_job_id):
     with _media_archive_lock:
         if edit_job_id in _media_archive_active:return
@@ -4027,6 +4097,8 @@ def _archive_edit_media_background(edit_job_id):
         result=_archive_edit_media(edit_job_id)
         print(json.dumps({"event":"DURABLE_MEDIA_ARCHIVE","edit_job_id":edit_job_id,"status":result.get("status"),
                           "items":len(result.get("items") or []),"error":str(result.get("error") or "")[:300]}),flush=True)
+        if result.get("status")=="failed":
+            _maybe_repair_lost_ephemeral_media(edit_job_id,result)
     finally:
         with _media_archive_lock:_media_archive_active.discard(edit_job_id)
 

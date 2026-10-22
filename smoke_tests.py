@@ -326,6 +326,21 @@ try:
     con.execute("UPDATE artifacts SET url=? WHERE id=?",(short_ephemeral,short_row["id"]));con.commit();con.close()
     require(short_row["id"] in app._edit_media_archive_targets(edit_id),
             "short clips must still be discovered for durable archival after the master is already durable")
+    # Lost temporary output repair is allowed only when the original raw upload still exists on FactoryOS persistent storage.
+    upload_id="ci-repair-upload";stored_name=upload_id+".mp4"
+    repair_payload=b"factoryos-persistent-raw"*100
+    (app.MEDIA_UPLOAD_DIR/stored_name).write_bytes(repair_payload)
+    (app.MEDIA_UPLOAD_DIR/f"{upload_id}.json").write_text(json.dumps({
+        "upload_id":upload_id,"job_id":job_id,"filename":"repair.mp4","stored_name":stored_name,
+        "content_type":"video/mp4","bytes":len(repair_payload),"created_at":app.ts()
+    }),encoding="utf-8")
+    repair_input=f"{app.FACTORY_PUBLIC_BASE_URL}/media-source/{upload_id}?token="+app._media_upload_signature(upload_id)
+    con=app.db();con.execute("UPDATE edit_jobs SET input_url=? WHERE id=?",(repair_input,edit_id));con.commit();con.close()
+    repair_edit=app.get_edit_job(edit_id)
+    require(app._recoverable_persistent_finisher_input(repair_edit) is True,
+            "lost-output repair must recognize a persistent signed raw upload")
+    require(app._latest_ready_edit_for_job(job_id)==edit_id,
+            "lost-output repair must identify the latest ready edit for a production job")
 
     rerun=app.rerun_media_finisher_stage(edit_id,"captions")
     require(rerun["edit_job"]["parent_edit_job_id"]==edit_id and rerun["edit_job"]["rerun_stage"]=="captions","targeted Media Finisher rerun lineage regression")
