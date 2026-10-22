@@ -319,6 +319,13 @@ try:
     archive_meta=json.loads(archive_art["meta_json"])
     require(archive_meta["durable_media"] is True and archive_meta["source_url"]==ephemeral_url and len(archive_meta["archive_sha256"])==64,
             "durable archive provenance/hash regression")
+    require(app._edit_media_archive_targets(edit_id)==[],"durable archive target discovery must clear archived master")
+    short_ephemeral="https://blackboxlab-media-finisher.onrender.com/files/ci-archive/short-01.mp4"
+    con=app.db()
+    short_row=con.execute("SELECT id FROM artifacts WHERE job_id=? AND agent='AI Media Finisher' AND meta_json LIKE '%short_render%' ORDER BY created_at DESC LIMIT 1",(job_id,)).fetchone()
+    con.execute("UPDATE artifacts SET url=? WHERE id=?",(short_ephemeral,short_row["id"]));con.commit();con.close()
+    require(short_row["id"] in app._edit_media_archive_targets(edit_id),
+            "short clips must still be discovered for durable archival after the master is already durable")
 
     rerun=app.rerun_media_finisher_stage(edit_id,"captions")
     require(rerun["edit_job"]["parent_edit_job_id"]==edit_id and rerun["edit_job"]["rerun_stage"]=="captions","targeted Media Finisher rerun lineage regression")
@@ -736,6 +743,8 @@ require("openExperimentLab" in html and "evaluateExperiment" in html and "rollou
 require("openAutonomousFactory" in html and "runFactoryCycle" in html and "nextFactoryCycle" in html,"Autonomous Cycle controls missing")
 require("openRevideoStudio" in html and "analyzeRevideo" in html and "createRevideoJob" in html and "renderRevideoVideo" in html,"Revideo controls missing")
 require("openMediaFinisher" in html and "startMediaFinisher" in html and "refreshMediaFinisher" in html and "rerunMediaFinisher" in html,"Media Finisher controls missing")
+require("serviceIcon(k)" in html and "worker.downloadMedia" in html and "copyArtifactLink" in html,"v4.6 branded connections/artifact actions missing")
+require("/api/artifacts/" in html and "/media" in html,"artifact UI must route media through stable FactoryOS endpoints")
 require('data-i18n="finisher.nav"' in html,"Media Finisher navigation missing")
 require("openDiscoveryStudio" in html and "saveDiscoveryCandidate" in html and "candidateToRevideo" in html,"Discovery controls missing")
 require('onclick="openPackageStudio()"' in html,"Content Package action missing")

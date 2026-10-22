@@ -3839,7 +3839,49 @@ def media_archive_source(archive_id:str,token:str=""):
     if not meta:raise HTTPException(404,"Archived media not found")
     path=MEDIA_ARCHIVE_DIR/str(meta.get("stored_name") or "")
     if not path.exists():raise HTTPException(404,"Archived media file missing")
-    return FileResponse(path,media_type=meta.get("content_type") or "video/mp4",filename=meta.get("filename") or path.name)
+    return FileResponse(path,media_type=meta.get("content_type") or "video/mp4",
+                        filename=meta.get("filename") or path.name,content_disposition_type="inline")
+
+def _artifact_media_row(artifact_id):
+    con=db();row=con.execute("SELECT * FROM artifacts WHERE id=?",(artifact_id,)).fetchone();con.close()
+    return dict(row) if row else None
+
+def _artifact_archive_file(artifact):
+    meta=_decode_json(artifact.get("meta_json") or "{}",{})
+    archive_id=str(meta.get("archive_id") or "").strip()
+    if not archive_id:
+        raw=str(artifact.get("url") or "")
+        match=re.search(r"/media-archive/([^?/#]+)",raw)
+        archive_id=match.group(1) if match else ""
+    if not archive_id:return None,None
+    archive_meta=_media_archive_meta(archive_id)
+    if not archive_meta:return None,None
+    path=MEDIA_ARCHIVE_DIR/str(archive_meta.get("stored_name") or "")
+    if not path.exists():return None,None
+    return path,archive_meta
+
+@app.get("/api/artifacts/{artifact_id}/media",name="artifact_media")
+def artifact_media(artifact_id:str,download:bool=False):
+    artifact=_artifact_media_row(artifact_id)
+    if not artifact:raise HTTPException(404,"Artifact not found")
+    path,archive_meta=_artifact_archive_file(artifact)
+    if not path and artifact.get("kind")=="video" and _is_ephemeral_finisher_url(artifact.get("url")):
+        try:
+            _archive_media_artifact(artifact_id)
+            artifact=_artifact_media_row(artifact_id) or artifact
+            path,archive_meta=_artifact_archive_file(artifact)
+        except Exception as exc:
+            if not str(artifact.get("url") or ""):
+                raise HTTPException(410,f"Media is no longer available: {str(exc)[:220]}")
+    if path and archive_meta:
+        return FileResponse(path,media_type=archive_meta.get("content_type") or artifact.get("mime_type") or "application/octet-stream",
+                            filename=archive_meta.get("filename") or path.name,
+                            content_disposition_type="attachment" if download else "inline")
+    source_url=str(artifact.get("url") or "").strip()
+    if not source_url:raise HTTPException(404,"Artifact has no media URL")
+    if _is_ephemeral_finisher_url(source_url):
+        raise HTTPException(410,"This temporary Media Finisher file expired before durable archival. Rerun the Media Finisher output to restore it.")
+    return RedirectResponse(source_url,status_code=307)
 
 def _is_ephemeral_finisher_url(value):
     raw=str(value or "").strip()
@@ -3944,9 +3986,9 @@ def _set_media_archive_state(edit_job_id,status,error="",items=None):
                          (json.dumps(response,ensure_ascii=False,default=str),ts(),edit_job_id));con.commit();con.close()
     return get_edit_job(edit_job_id)
 
-def _archive_edit_media(edit_job_id):
+def _edit_media_archive_targets(edit_job_id):
     edit=get_edit_job(edit_job_id)
-    if not edit:return {"status":"missing","items":[]}
+    if not edit:return []
     con=db();rows=con.execute("""SELECT id,url,meta_json FROM artifacts
                                 WHERE job_id=? AND agent='AI Media Finisher' AND kind='video'
                                 ORDER BY created_at""",(edit["production_job_id"],)).fetchall();con.close()
@@ -3956,6 +3998,12 @@ def _archive_edit_media(edit_job_id):
         if meta.get("edit_job_id")!=edit_job_id:continue
         if meta.get("component") not in ("final_render","short_render"):continue
         if _is_ephemeral_finisher_url(row["url"]):targets.append(row["id"])
+    return targets
+
+def _archive_edit_media(edit_job_id):
+    edit=get_edit_job(edit_job_id)
+    if not edit:return {"status":"missing","items":[]}
+    targets=_edit_media_archive_targets(edit_job_id)
     if not targets:
         _set_media_archive_state(edit_job_id,"not_required",items=[])
         return {"status":"not_required","items":[]}
@@ -3975,15 +4023,18 @@ def _archive_edit_media_background(edit_job_id):
     with _media_archive_lock:
         if edit_job_id in _media_archive_active:return
         _media_archive_active.add(edit_job_id)
-    try:_archive_edit_media(edit_job_id)
+    try:
+        result=_archive_edit_media(edit_job_id)
+        print(json.dumps({"event":"DURABLE_MEDIA_ARCHIVE","edit_job_id":edit_job_id,"status":result.get("status"),
+                          "items":len(result.get("items") or []),"error":str(result.get("error") or "")[:300]}),flush=True)
     finally:
         with _media_archive_lock:_media_archive_active.discard(edit_job_id)
 
 def _queue_durable_media_archive(edit_job_id):
     edit=get_edit_job(edit_job_id)
     if not edit:return False
-    media=_artifact_for_edit_job(edit)
-    if not media or not _is_ephemeral_finisher_url(media.get("url")):
+    targets=_edit_media_archive_targets(edit_job_id)
+    if not targets:
         _set_media_archive_state(edit_job_id,"not_required",items=[])
         return False
     _set_media_archive_state(edit_job_id,"queued",items=[])
@@ -3997,8 +4048,7 @@ def _recover_ready_durable_media():
     queued=0
     for row in rows:
         try:
-            edit=get_edit_job(row["id"]);media=_artifact_for_edit_job(edit)
-            if media and _is_ephemeral_finisher_url(media.get("url")):
+            if _edit_media_archive_targets(row["id"]):
                 if _queue_durable_media_archive(row["id"]):queued+=1
         except Exception as exc:
             print(json.dumps({"event":"DURABLE_MEDIA_RECOVERY_ERROR","edit_job_id":row["id"],"error":str(exc)[:400]}),flush=True)
