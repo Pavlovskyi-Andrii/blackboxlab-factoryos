@@ -199,6 +199,8 @@ require(talking["config"]["captions"]["min_words"]==1 and talking["config"]["cap
 require(talking["config"]["safe_zones"]["top"]==0.12 and talking["config"]["safe_zones"]["bottom"]==0.20 and talking["config"]["safe_zones"]["right"]==0.12,"guide safe-zone profile regression")
 fin_registry=app.get_media_finisher_registry()
 require(fin_registry["configured"] is False and fin_registry["async_jobs"] is True,"CI must not claim a live Media Finisher provider")
+require("local_booster" in fin_registry and fin_registry["local_booster"]["online"] is False,"Local Booster registry contract regression")
+require(app.MediaFinisherStartRequest().compute_target=="auto","Media Finisher compute target default regression")
 require(fin_registry["uploads_enabled"] is True and fin_registry["upload_max_bytes"]>=10*1024*1024,"Media Finisher upload contract regression")
 orig_finisher_base,orig_finisher_status=app.FACTORY_MEDIA_FINISHER_ENDPOINT,app.FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT
 app.FACTORY_MEDIA_FINISHER_ENDPOINT="finisher.internal:10000"
@@ -759,6 +761,7 @@ require("openAutonomousFactory" in html and "runFactoryCycle" in html and "nextF
 require("openRevideoStudio" in html and "analyzeRevideo" in html and "createRevideoJob" in html and "renderRevideoVideo" in html,"Revideo controls missing")
 require("openMediaFinisher" in html and "startMediaFinisher" in html and "refreshMediaFinisher" in html and "rerunMediaFinisher" in html,"Media Finisher controls missing")
 require("serviceIcon(k)" in html and "worker.downloadMedia" in html and "copyArtifactLink" in html,"v4.6 branded connections/artifact actions missing")
+require("finisherCompute" in html and "copyLocalBoosterToken" in html and "/api/local-booster/status" in html,"v4.9 Local Render Booster UI missing")
 require("/api/artifacts/" in html and "/media" in html,"artifact UI must route media through stable FactoryOS endpoints")
 require('data-i18n="finisher.nav"' in html,"Media Finisher navigation missing")
 require("openDiscoveryStudio" in html and "saveDiscoveryCandidate" in html and "candidateToRevideo" in html,"Discovery controls missing")

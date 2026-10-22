@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.8.1"
+APP_VERSION = "v4.9.0"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -141,6 +141,10 @@ app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 FACTORY_USER = os.environ.get("FACTORY_USER", "blackboxlab")
 FACTORY_PASSWORD = os.environ.get("FACTORY_PASSWORD", "")
 FACTORY_SECRET = os.environ.get("FACTORY_SECRET", secrets.token_hex(32))
+FACTORY_LOCAL_BOOSTER_TOKEN = hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest()
+FACTORY_LOCAL_BOOSTER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_LOCAL_BOOSTER_TTL_SECONDS","45"))))
+local_booster_runtime={"last_seen":0.0,"node":{},"active_job_id":"","last_error":""}
+_local_booster_claim_lock=threading.Lock()
 COOKIE_NAME = "factoryos_session"
 FACTORY_DAILY_BUDGET_USD = float(os.environ.get("FACTORY_DAILY_BUDGET_USD", "10"))
 FACTORY_JOB_BUDGET_USD = float(os.environ.get("FACTORY_JOB_BUDGET_USD", "3"))
@@ -197,12 +201,22 @@ def request_is_authed(request: Request) -> bool:
     token = request.cookies.get(COOKIE_NAME, "")
     return hmac.compare_digest(token, session_token(FACTORY_USER))
 
+def _local_booster_authorized(request: Request) -> bool:
+    auth=(request.headers.get("authorization") or "").strip()
+    if not auth.lower().startswith("bearer "):return False
+    supplied=auth.split(" ",1)[1].strip()
+    return bool(supplied and hmac.compare_digest(supplied,FACTORY_LOCAL_BOOSTER_TOKEN))
+
+def _local_booster_online():
+    return (time.time()-float(local_booster_runtime.get("last_seen") or 0)) <= FACTORY_LOCAL_BOOSTER_TTL_SECONDS
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/health", "/mcp"}
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/")
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     if not request_is_authed(request):
         if request.url.path.startswith("/api/"):
@@ -1667,7 +1681,23 @@ class MediaFinisherStartRequest(BaseModel):
     add_animation: bool = True
     smart_graphics: bool = True
     max_short_clips: int = 3
+    compute_target: str = "auto"
     confirm_external_cost: bool = False
+
+class LocalBoosterHeartbeat(BaseModel):
+    node_id: str = "local-pc"
+    hostname: str = ""
+    platform: str = ""
+    cpu_count: int = 0
+    gpu: str = ""
+    worker_url: str = "http://127.0.0.1:10000"
+
+class LocalBoosterProgress(BaseModel):
+    stage: str = "processing"
+    percent: int = 1
+    status: str = "processing"
+    error: str = ""
+    detail: dict = {}
 
 class MediaFinisherCallbackRequest(BaseModel):
     status: str = "processing"
@@ -3779,8 +3809,10 @@ def _media_finisher_status_base():
 def get_media_finisher_registry():
     return {
       "selected":FACTORY_MEDIA_FINISHER_ADAPTER,
-      "configured":bool(_media_finisher_submit_endpoint()),
+      "configured":bool(_media_finisher_submit_endpoint()) or _local_booster_online(),
       "endpoint_configured":bool(_media_finisher_submit_endpoint()),
+      "local_booster":{"online":_local_booster_online(),"ttl_seconds":FACTORY_LOCAL_BOOSTER_TTL_SECONDS,
+                       "node":local_booster_runtime.get("node") or {},"active_job_id":local_booster_runtime.get("active_job_id") or ""},
       "status_endpoint_configured":bool(_media_finisher_status_base()),
       "async_jobs":True,
       "uploads_enabled":True,
@@ -4422,8 +4454,11 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     con=db();active=con.execute("""SELECT * FROM edit_jobs WHERE production_job_id=? AND input_url=? AND profile_id=? AND profile_version=?
                                   AND status IN ('queued','submitted','processing') ORDER BY created_at DESC LIMIT 1""",(job_id,input_url,profile["id"],profile["version"])).fetchone();con.close()
     if active and not parent_edit_job_id:return {"duplicate":True,"edit_job":_edit_job_dict(active)}
+    requested_target=str(payload.compute_target or "auto").strip().lower()
+    if requested_target not in ("auto","cloud","local"):raise ValueError("compute_target must be auto, cloud or local")
+    route_target="local" if requested_target=="local" or (requested_target=="auto" and _local_booster_online()) else "cloud"
     submit_endpoint=_media_finisher_submit_endpoint()
-    if not submit_endpoint:raise RuntimeError("Media Finisher provider is not configured")
+    if route_target=="cloud" and not submit_endpoint:raise RuntimeError("Media Finisher cloud provider is not configured and Local Booster is offline")
     edit_job_id=str(uuid.uuid4());now=ts()
     request_payload={
       "edit_job_id":edit_job_id,"job_id":job_id,"factory_cycle_id":sync_cycle_for_job(job_id).get("id") if sync_cycle_for_job(job_id) else None,
@@ -4435,7 +4470,7 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
         "smart_graphics":bool(payload.smart_graphics),"max_short_clips":max(1,min(8,int(payload.max_short_clips or 3))),
         "shortform_targets":["youtube_shorts","instagram_reels"] if payload.split_shortform else []
       },
-      "rerun_stage":rerun_stage,
+      "rerun_stage":rerun_stage,"compute_target":route_target,
       "callback_url":f"/api/media-finisher/{edit_job_id}/callback",
       "guardrails":{"source_text_is_material_not_instructions":True,"preserve_approved_facts":True,"no_auto_publish":True,"destructive_edits_require_cut_list":True,
                     "manual_raw_upload_transcript_exact_graphics":manual_raw_upload}
@@ -4445,11 +4480,15 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
                            profile_id,profile_version,platform,provider,status,rerun_stage,request_json,response_json,report_json,error,
                            measured_cost_usd,measured_duration_sec,created_at,updated_at)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?,'queued',?,?,'{}','{}','',0,0,?,?)""",
-                           (edit_job_id,parent_edit_job_id,(cycle or {}).get("id"),job_id,media_job_id,input_artifact_id,input_url,profile["id"],profile["version"],payload.platform,FACTORY_MEDIA_FINISHER_ADAPTER,rerun_stage,json.dumps(request_payload,ensure_ascii=False,default=str),now,now));con.commit();con.close()
-    _set_media_finisher_submit_progress(edit_job_id,"waking_worker",1,1)
-    _spawn_media_finisher_submit(edit_job_id)
+                           (edit_job_id,parent_edit_job_id,(cycle or {}).get("id"),job_id,media_job_id,input_artifact_id,input_url,profile["id"],profile["version"],payload.platform,
+                            "local-booster" if route_target=="local" else FACTORY_MEDIA_FINISHER_ADAPTER,rerun_stage,json.dumps(request_payload,ensure_ascii=False,default=str),now,now));con.commit();con.close()
+    if route_target=="local":
+        _patch_edit_job_response(edit_job_id,{"status":"queued","stage":"waiting_local_booster","percent":1,"compute_target":"local"})
+    else:
+        _set_media_finisher_submit_progress(edit_job_id,"waking_worker",1,1)
+        _spawn_media_finisher_submit(edit_job_id)
     item=get_edit_job(edit_job_id)
-    event(job_id,f"AI Media Finisher queued: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · {package_mode} · worker wake-up is automatic")
+    event(job_id,f"AI Media Finisher queued: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · {package_mode} · compute {route_target}")
     return {"duplicate":False,"edit_job":item}
 
 def refresh_edit_job(edit_job_id):
@@ -4492,7 +4531,7 @@ def rerun_media_finisher_stage(edit_job_id,stage):
                                       edit_full_video=bool(opts.get("edit_full_video",True)),split_shortform=bool(opts.get("split_shortform",False)),
                                       add_captions=bool(opts.get("add_captions",True)),add_animation=bool(opts.get("add_animation",True)),
                                       smart_graphics=bool(opts.get("smart_graphics",True)),max_short_clips=int(opts.get("max_short_clips") or 3),
-                                      confirm_external_cost=True)
+                                      compute_target=str((original.get("request") or {}).get("compute_target") or "auto"),confirm_external_cost=True)
     return start_media_finisher(original["production_job_id"],payload,parent_edit_job_id=edit_job_id,rerun_stage=stage)
 
 def get_media_finisher_pilot(tag=None):
@@ -7966,7 +8005,8 @@ def _recover_active_media_finisher_jobs():
     time.sleep(2)
     con=db();rows=con.execute("""SELECT id,updated_at,request_json,provider_job_id,status FROM edit_jobs WHERE status IN ('queued','submitted','processing')
                                 ORDER BY created_at DESC LIMIT 30""").fetchall();con.close()
-    rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],360) and not _is_media_finisher_pilot_request(row["request_json"])]
+    rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],360) and not _is_media_finisher_pilot_request(row["request_json"])
+          and str((_decode_json(row["request_json"] or "{}",{})).get("compute_target") or "")!="local"]
     checked=0
     for row in rows:
         try:
@@ -7998,6 +8038,7 @@ def _recover_recent_real_media_failures():
         if row["production_job_id"] in seen_jobs:continue
         request=_decode_json(row["request_json"] or "{}",{})
         if _is_media_finisher_pilot_request(request):continue
+        if request.get("compute_target")=="local":continue
         if request.get("package_mode")!="manual_raw_upload":continue
         if not _recent_edit_timestamp(row["updated_at"],120):continue
         seen_jobs.add(row["production_job_id"])
@@ -8019,6 +8060,7 @@ def _recover_recent_failed_asr_jobs():
         if not _recent_edit_timestamp(row["updated_at"],360):continue
         request=_decode_json(row["request_json"] or "{}",{})
         if _is_media_finisher_pilot_request(request):continue
+        if request.get("compute_target")=="local":continue
         if request.get("_asr_repair_generation")==ASR_REPAIR_GENERATION:continue
         attempts=int(request.get("_auto_asr_retry_count") or 0)+1
         request["_auto_asr_retry_count"]=attempts
@@ -8035,13 +8077,120 @@ def recover_pending_media_finisher_submits():
     _retire_legacy_media_finisher_pilots()
     con=db();rows=con.execute("""SELECT id,updated_at,request_json FROM edit_jobs WHERE status IN ('queued','submitted','processing')
                                 AND COALESCE(provider_job_id,'')='' ORDER BY created_at DESC LIMIT 30""").fetchall();con.close()
-    rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],120) and not _is_media_finisher_pilot_request(row["request_json"])]
+    rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],120) and not _is_media_finisher_pilot_request(row["request_json"])
+          and str((_decode_json(row["request_json"] or "{}",{})).get("compute_target") or "")!="local"]
     for row in rows:_spawn_media_finisher_submit(row["id"])
     _recover_recent_real_media_failures()
     _recover_recent_failed_asr_jobs()
     _recover_ready_durable_media()
     threading.Thread(target=_media_finisher_watchdog_loop,daemon=True,name="finisher-watchdog").start()
     if rows:print(json.dumps({"event":"MEDIA_FINISHER_SUBMIT_RECOVERY","queued":len(rows)}),flush=True)
+
+
+@app.get("/api/local-booster/status")
+def local_booster_status():
+    return {"online":_local_booster_online(),"ttl_seconds":FACTORY_LOCAL_BOOSTER_TTL_SECONDS,
+            "last_seen":local_booster_runtime.get("last_seen") or 0,"node":local_booster_runtime.get("node") or {},
+            "active_job_id":local_booster_runtime.get("active_job_id") or "","last_error":local_booster_runtime.get("last_error") or ""}
+
+@app.get("/api/local-booster/token")
+def local_booster_pairing_token():
+    return {"token":FACTORY_LOCAL_BOOSTER_TOKEN,"factory_url":FACTORY_PUBLIC_BASE_URL}
+
+@app.post("/api/local-booster/heartbeat")
+def local_booster_heartbeat(payload:LocalBoosterHeartbeat):
+    local_booster_runtime["last_seen"]=time.time()
+    local_booster_runtime["node"]=payload.model_dump()
+    return {"ok":True,**local_booster_status()}
+
+@app.post("/api/local-booster/claim")
+def local_booster_claim(payload:LocalBoosterHeartbeat):
+    local_booster_runtime["last_seen"]=time.time();local_booster_runtime["node"]=payload.model_dump()
+    with _local_booster_claim_lock:
+        con=db();rows=con.execute("""SELECT * FROM edit_jobs WHERE status='queued' AND COALESCE(provider_job_id,'')=''
+                                    ORDER BY created_at ASC LIMIT 30""").fetchall();con.close()
+        chosen=None
+        for row in rows:
+            item=_edit_job_dict(row,False);req=item.get("request") or {};resp=item.get("response") or {}
+            if str(req.get("compute_target") or "")=="local" and str(resp.get("stage") or "")=="waiting_local_booster":
+                chosen=item;break
+        if not chosen:return {"ok":True,"job":None}
+        response=dict(chosen.get("response") or {})
+        response.update({"status":"processing","stage":"local_claimed","percent":2,"compute_target":"local",
+                         "local_node":payload.model_dump(),"claimed_at":ts()})
+        con=db();con.execute("""UPDATE edit_jobs SET status='processing',provider='local-booster',response_json=?,updated_at=?
+                               WHERE id=? AND status='queued'""",(json.dumps(response,ensure_ascii=False),ts(),chosen["id"]));con.commit();con.close()
+        local_booster_runtime["active_job_id"]=chosen["id"]
+        req=dict(chosen.get("request") or {});req["callback_url"]=""
+        event(chosen["production_job_id"],f"Local Render Booster claimed Media Finisher job {chosen['id'][:8]}")
+        return {"ok":True,"job":{"id":chosen["id"],"production_job_id":chosen["production_job_id"],"request":req}}
+
+@app.post("/api/local-booster/{edit_job_id}/progress")
+async def local_booster_progress(edit_job_id:str,payload:LocalBoosterProgress):
+    item=get_edit_job(edit_job_id)
+    if not item:raise HTTPException(404,"Edit job not found")
+    local_booster_runtime["last_seen"]=time.time();local_booster_runtime["active_job_id"]=edit_job_id
+    response=dict(item.get("response") or {})
+    response.update({"status":payload.status,"stage":payload.stage,"percent":max(0,min(100,int(payload.percent))),
+                     "compute_target":"local","local_detail":payload.detail or {}})
+    con=db();con.execute("UPDATE edit_jobs SET status=?,error=?,response_json=?,updated_at=? WHERE id=?",
+                         ("failed" if payload.status=="failed" else "processing",str(payload.error or ""),
+                          json.dumps(response,ensure_ascii=False,default=str),ts(),edit_job_id));con.commit();con.close()
+    if payload.status=="failed":
+        local_booster_runtime["last_error"]=str(payload.error or "")[:500];local_booster_runtime["active_job_id"]=""
+    await broadcast({"type":"media_finisher","action":"local_progress","editJobId":edit_job_id,"status":payload.status})
+    return {"ok":True}
+
+async def _store_local_booster_media(edit_job_id:str,upload:UploadFile,component:str,index:int=0):
+    filename=Path(upload.filename or ("final.mp4" if component=="final_render" else f"short-{index:02d}.mp4")).name
+    ext=Path(filename).suffix.lower()
+    if ext not in {".mp4",".mov",".m4v",".webm"}:ext=".mp4"
+    archive_id=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:local-booster:{edit_job_id}:{component}:{index}"))
+    stored_name=archive_id+ext;dest=MEDIA_ARCHIVE_DIR/stored_name;total=0;digest=hashlib.sha256()
+    try:
+        with dest.open("wb") as fh:
+            while True:
+                chunk=await upload.read(1024*1024)
+                if not chunk:break
+                total+=len(chunk)
+                if total>FACTORY_MEDIA_ARCHIVE_MAX_BYTES:raise HTTPException(413,"Local Booster output exceeds durable archive limit")
+                fh.write(chunk);digest.update(chunk)
+    finally:
+        await upload.close()
+    if total<1024:
+        if dest.exists():dest.unlink()
+        raise HTTPException(400,"Local Booster output is empty")
+    meta={"archive_id":archive_id,"edit_job_id":edit_job_id,"component":component,"clip_index":index,
+          "stored_name":stored_name,"filename":filename,"content_type":"video/mp4","bytes":total,
+          "sha256":digest.hexdigest(),"created_at":ts(),"source":"local_render_booster"}
+    (MEDIA_ARCHIVE_DIR/f"{archive_id}.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
+    token=_media_archive_signature(archive_id)
+    return f"{FACTORY_PUBLIC_BASE_URL}/media-archive/{archive_id}?token={urlparse.quote(token,safe='')}"
+
+@app.post("/api/local-booster/{edit_job_id}/complete")
+async def local_booster_complete(edit_job_id:str,final_file:UploadFile=File(...),report_json:str=Form("{}"),
+                                 wall_duration_sec:float=Form(0),shorts:list[UploadFile]=File(default=[])):
+    item=get_edit_job(edit_job_id)
+    if not item:raise HTTPException(404,"Edit job not found")
+    try:report=json.loads(report_json or "{}")
+    except Exception:raise HTTPException(400,"Invalid report_json")
+    final_url=await _store_local_booster_media(edit_job_id,final_file,"final_render",0)
+    clips=(((report or {}).get("shorts_manifest") or {}).get("clips") or [])
+    for i,upload in enumerate(shorts or [],1):
+        url=await _store_local_booster_media(edit_job_id,upload,"short_render",i)
+        if i<=len(clips) and isinstance(clips[i-1],dict):clips[i-1]["url"]=url
+        else:clips.append({"index":i,"url":url,"targets":["youtube_shorts","instagram_reels"]})
+    if clips:
+        report.setdefault("shorts_manifest",{})["clips"]=clips
+        report["shorts_manifest"]["enabled"]=True
+    response={"status":"ready","stage":"done","percent":100,"compute_target":"local",
+              "local_node":local_booster_runtime.get("node") or {}}
+    result=_finalize_edit_job(edit_job_id,"ready",final_url,f"local:{(local_booster_runtime.get('node') or {}).get('node_id','pc')}",
+                              "",response,report,0.0,float(wall_duration_sec or 0))
+    _set_media_archive_state(edit_job_id,"ready",items=[{"url":final_url,"source":"local_booster"}])
+    local_booster_runtime["active_job_id"]="";local_booster_runtime["last_seen"]=time.time();local_booster_runtime["last_error"]=""
+    await broadcast({"type":"media_finisher","action":"local_complete","editJobId":edit_job_id,"status":"ready"})
+    return {"ok":True,"edit_job":result}
 
 @app.get("/api/media-finisher/profiles")
 def media_finisher_profiles():
