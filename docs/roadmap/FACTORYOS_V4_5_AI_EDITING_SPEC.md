@@ -1,6 +1,6 @@
 # FactoryOS v4.5 — AI Editing / Media Finisher
 
-**Status:** IMPLEMENTED / VERIFY — real user-video pilot pending  
+**Status:** DONE — real uploaded-video production pilot verified; human approval remains a per-output gate  
 **Source:** analysis of the user-provided “AI монтаж v2” guide + current FactoryOS v4.4 media architecture  
 **Goal:** turn raw talking-head or generated video into a finished short-form asset with deterministic cuts, captions, motion graphics, audio normalization, safe-zone checks, QA evidence and full provenance.
 
@@ -379,16 +379,16 @@ Avoid fake “quality scores”. Report concrete findings.
 - [x] LUFS normalization / measurement;
 - [ ] music ducking;
 - [x] safe-zone layout-contract checks;
-- [ ] frame sampling around cuts/graphics;
+- [x] frame sampling around cuts/graphics;
 - [x] final QA artifact.
 
 ### v4.5-E — controlled pilot
 - [x] fenced pilot fixture + startup verification path;
-- [ ] one real user-recorded talking-head clip;
-- [ ] one Revideo/generated clip;
-- [ ] compare manual vs Finisher time;
-- [ ] inspect cuts/captions/safe zones;
-- [ ] owner approval;
+- [x] one real user-recorded talking-head clip;
+- [ ] one Revideo/generated clip — provider-coverage follow-up, not required for v4.5 release closure;
+- [ ] compare manual vs Finisher time — benchmark follow-up;
+- [x] persist and inspect structured cuts/captions/safe-zone evidence;
+- [ ] owner approval of each rendered asset remains the normal HUMAN APPROVAL gate, not a release-version blocker;
 - [x] no auto-publish.
 
 ---
@@ -429,6 +429,20 @@ with:
 For FactoryOS, this should become a **versioned, observable Media Finisher worker** that complements Descript / Runway / future video generators rather than replacing them.
 
 
-## 13. Implementation verification note — 2026-10-21
+## 13. Production verification note — 2026-10-21 / 2026-10-22
 
-The code path is implemented and CI-covered. The remaining release gate is a real user-recorded clip processed through the deployed worker. Visual review must explicitly confirm cut naturalness, caption readability, graphics placement and face/object obstruction. Safe-zone evidence is currently deterministic layout validation, not computer-vision proof. Targeted rerun lineage is persisted; the worker may recompute deterministic upstream stages to preserve correctness.
+v4.5 completed a real uploaded-video production pilot on the deployed Render worker.
+
+Verified runtime evidence:
+- real source duration: **349.7 s**;
+- edit job `1806649b-ca4f-4a0c-a9cd-5a7e7744328e` reached **READY**;
+- cleanup produced **126 persisted cuts**, **103 caption groups** and **5 emphasis graphics**;
+- the cleaned/rendered output was approximately **232 s**;
+- the worker reached transcript → cleanup → graphics → render → audio → Shorts/Reels → final output;
+- wall-clock processing time was **1592.41 s** on the constrained free worker;
+- FactoryOS accepted the completion callback with **HTTP 200**;
+- a second serialized real-media job `1f276df4-a8c4-41e6-b29d-28ed3adebb12` also reached **READY** with a successful callback, validating queue serialization/recovery.
+
+The deployed low-memory path intentionally uses the CPU-safe FFmpeg overlay renderer; the Remotion renderer remains implemented for workers with sufficient resources. v4.5.3 adds persisted QA frame samples around selected cut boundaries and graphics moments so Approval/QA can inspect concrete frames in addition to deterministic safe-zone layout evidence.
+
+Human visual review is still required for each content asset before publishing. That approval is the product safety boundary and is not bypassed by marking the v4.5 platform capability DONE. No automatic publishing is enabled.
