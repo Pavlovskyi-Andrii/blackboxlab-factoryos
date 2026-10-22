@@ -16,7 +16,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-APP_VERSION = "v4.5.3-worker"
+APP_VERSION = "v4.5.4-worker"
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("FINISHER_DATA_DIR", "/var/data/media-finisher"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -37,6 +37,8 @@ REMOTION_BROWSER = os.environ.get("REMOTION_BROWSER_EXECUTABLE", "/usr/bin/chrom
 MAX_DOWNLOAD_BYTES = int(os.environ.get("FINISHER_MAX_DOWNLOAD_BYTES", str(750 * 1024 * 1024)))
 ENABLE_PILOT_FIXTURE = os.environ.get("FINISHER_ENABLE_PILOT_FIXTURE", "").strip().lower() in ("1","true","yes","on")
 LOW_MEMORY_MODE = os.environ.get("FINISHER_LOW_MEMORY_MODE", "").strip().lower() in ("1","true","yes","on")
+_default_threads = 1 if LOW_MEMORY_MODE else max(2,min(8,int(os.cpu_count() or 4)))
+CPU_THREADS = max(1,min(16,int(os.environ.get("FINISHER_CPU_THREADS",str(_default_threads)))))
 MAX_RECOVERY_ATTEMPTS = max(1, int(os.environ.get("FINISHER_MAX_RECOVERY_ATTEMPTS", "3")))
 RECOVER_INTERRUPTED = os.environ.get("FINISHER_RECOVER_INTERRUPTED", "").strip().lower() in ("1","true","yes","on")
 if str(DATA_DIR).startswith("/tmp/") and "FINISHER_RECOVER_INTERRUPTED" not in os.environ:
@@ -217,8 +219,8 @@ def _normalize_input(job_id: str, src: Path, dest: Path, profile: dict) -> None:
     width,height,fps=target["width"],target["height"],target["fps"]
     vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},fps={fps}"
     _run_ffmpeg_progress(job_id,[
-        "ffmpeg", "-y", "-threads", "1", "-i", str(src), "-vf", vf,
-        "-c:v", "libx264", "-threads", "1", "-preset", "veryfast", "-crf", "20",
+        "ffmpeg", "-y", "-threads", str(CPU_THREADS), "-i", str(src), "-vf", vf,
+        "-c:v", "libx264", "-threads", str(CPU_THREADS), "-preset", "veryfast", "-crf", "20",
         "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", str(dest)
     ],duration,10,21,"normalize")
 
@@ -288,6 +290,30 @@ def _semantic_duplicate_cuts(words: list[dict]) -> list[dict]:
     return cuts
 
 
+def _filler_word_cuts(words: list[dict], profile: dict) -> list[dict]:
+    """Remove isolated hesitation tokens using ASR word timings without deleting semantic words."""
+    cleanup=profile.get("speech_cleanup") or {}
+    configured=cleanup.get("filler_words")
+    fillers=set(configured or ["э","ээ","эээ","эм","эмм","мм","ммм","м-м","uh","umm","um","erm","er","eh","hmm","hm"])
+    max_duration=max(.12,float(cleanup.get("filler_max_duration_sec",1.35)))
+    cuts=[]
+    for i,item in enumerate(words):
+        raw=str(item.get("word") or "").strip().lower()
+        token=re.sub(r"[^\wа-яёіїєґ'-]+","",raw,flags=re.UNICODE)
+        if token not in fillers:
+            continue
+        start=float(item.get("start") or 0);end=float(item.get("end") or 0)
+        if end<=start or end-start>max_duration:
+            continue
+        prev_end=float(words[i-1].get("end") or start) if i>0 else start
+        next_start=float(words[i+1].get("start") or end) if i+1<len(words) else end
+        left_room=max(0.0,start-prev_end);right_room=max(0.0,next_start-end)
+        pad_before=min(.055,left_room*.48);pad_after=min(.075,right_room*.48)
+        cuts.append({"start":round(max(0,start-pad_before),3),"end":round(end+pad_after,3),
+                     "reason":"filler_word:"+token})
+    return cuts
+
+
 def _merge_ranges(ranges: list[dict], duration: float) -> list[dict]:
     prepared = sorted([
         {"start": max(0.0, float(x["start"])), "end": min(duration, float(x["end"])), "reason": x.get("reason","edit")}
@@ -315,6 +341,8 @@ def build_cut_list(silences: list[dict], words: list[dict], duration: float, pro
             end = float(silence["end"]) - post
             if end - start >= 0.08:
                 cuts.append({"start": start, "end": end, "reason": silence.get("reason","silence")})
+    if cleanup.get("filler_trim", True):
+        cuts.extend(_filler_word_cuts(words,profile))
     if cleanup.get("semantic_duplicate_planner", True):
         cuts.extend(_semantic_duplicate_cuts(words))
     return _merge_ranges(cuts, duration)
@@ -338,8 +366,8 @@ def _apply_cuts(job_id: str, src: Path, dest: Path, duration: float, cuts: list[
     scale_filter=f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},fps={fps}"
     preset="ultrafast" if LOW_MEMORY_MODE else "veryfast";crf="26" if LOW_MEMORY_MODE else "20"
     if not cuts:
-        _run_ffmpeg_progress(job_id,["ffmpeg","-y","-threads","1","-i",str(src),"-vf",scale_filter,
-             "-c:v","libx264","-threads","1","-preset",preset,"-crf",crf,"-c:a","aac","-b:a","128k","-movflags","+faststart",str(dest)],
+        _run_ffmpeg_progress(job_id,["ffmpeg","-y","-threads",str(CPU_THREADS),"-i",str(src),"-vf",scale_filter,
+             "-c:v","libx264","-threads",str(CPU_THREADS),"-preset",preset,"-crf",crf,"-c:a","aac","-b:a","128k","-movflags","+faststart",str(dest)],
              duration,42,60,"cleanup")
         return
     keep = _keep_ranges(duration, cuts)
@@ -350,8 +378,8 @@ def _apply_cuts(job_id: str, src: Path, dest: Path, duration: float, cuts: list[
         labels.append(f"[v{i}][a{i}]")
     filt = ";".join(parts) + ";" + "".join(labels) + f"concat=n={len(keep)}:v=1:a=1[joinv][outa];[joinv]{scale_filter}[outv]"
     output_duration=max(.1,duration-sum(max(0.0,float(x["end"])-float(x["start"])) for x in cuts))
-    _run_ffmpeg_progress(job_id,["ffmpeg","-y","-threads","1","-i",str(src),"-filter_complex",filt,"-map","[outv]","-map","[outa]",
-          "-c:v","libx264","-threads","1","-preset",preset,"-crf",crf,"-c:a","aac","-b:a","128k","-movflags","+faststart",str(dest)],
+    _run_ffmpeg_progress(job_id,["ffmpeg","-y","-threads",str(CPU_THREADS),"-i",str(src),"-filter_complex",filt,"-map","[outv]","-map","[outa]",
+          "-c:v","libx264","-threads",str(CPU_THREADS),"-preset",preset,"-crf",crf,"-c:a","aac","-b:a","128k","-movflags","+faststart",str(dest)],
           output_duration,42,60,"cleanup")
 
 def _removed_before(t: float, cuts: list[dict]) -> float:
@@ -427,35 +455,43 @@ def _motion_timeline(output_duration: float, cuts: list[dict], profile: dict) ->
 
 
 def _graphics_timeline(content_package: dict, output_duration: float, profile: dict, transcript_words: list[dict] | None = None) -> list[dict]:
-    cfg=profile.get("graphics") or {};limit=max(0,min(5,int(cfg.get("emphasis_max",5))))
-    texts=[];source_type="approved_emphasis"
+    cfg=profile.get("graphics") or {};limit=max(0,min(6,int(cfg.get("emphasis_max",5))))
+    entries=[];source_type="approved_emphasis"
     for scene in content_package.get("scenes") or []:
         text=str((scene or {}).get("on_screen_text") or "").strip()
-        if text and text not in texts:
-            texts.append(text)
-    if not texts:
+        if text and all(x["text"]!=text for x in entries):
+            entries.append({"text":text,"start":None})
+    if not entries:
         title=str(content_package.get("title") or "").strip()
-        if title:texts.append(title)
-    if not texts and content_package.get("_factoryos_manual_raw"):
-        candidates=[];seen=set()
+        if title:
+            entries.append({"text":title,"start":None})
+    if not entries and content_package.get("_factoryos_manual_raw"):
+        seen=set();candidates=[]
         for item in transcript_words or []:
             raw=str((item or {}).get("word") or "").strip()
             key=re.sub(r"[^\w]+","",raw.lower(),flags=re.UNICODE)
             if len(key)<4 or key in seen:
                 continue
-            seen.add(key);candidates.append(raw)
+            seen.add(key);candidates.append({"text":raw,"start":float((item or {}).get("start") or 0)})
         if candidates:
-            if len(candidates)<=limit:
-                texts=candidates
-            else:
+            if len(candidates)>limit:
                 idx=[round(i*(len(candidates)-1)/max(1,limit-1)) for i in range(limit)]
-                texts=[candidates[i] for i in idx]
-            source_type="transcript_exact_emphasis"
-    texts=texts[:limit]
-    if not texts:return []
-    step=max(2.0,output_duration/(len(texts)+1));duration=max(1.0,min(2.0,float(cfg.get("duration_max_sec",2.0))))
-    return [{"start":round(min(max(.1,output_duration-.5),(i+1)*step),2),"end":round(min(output_duration,(i+1)*step+duration),2),"text":text[:70],"type":source_type} for i,text in enumerate(texts)]
-
+                candidates=[candidates[i] for i in idx]
+            entries=candidates;source_type="transcript_exact_emphasis"
+    entries=entries[:limit]
+    if not entries:
+        return []
+    step=max(2.0,output_duration/(len(entries)+1))
+    duration=max(1.15,min(2.4,float(cfg.get("duration_max_sec",2.0))+0.25))
+    variants=["kinetic_title","lower_third","callout","badge"]
+    out=[]
+    for i,item in enumerate(entries):
+        anchor=item.get("start")
+        start=float(anchor) if anchor is not None else (i+1)*step
+        start=min(max(.15,start-.18),max(.15,output_duration-.55))
+        out.append({"start":round(start,2),"end":round(min(output_duration,start+duration),2),
+                    "text":str(item["text"])[:70],"type":source_type,"variant":variants[i%len(variants)]})
+    return out
 
 def _write_srt(captions: list[dict], path: Path) -> None:
     def stamp(value:float)->str:
@@ -494,8 +530,8 @@ def _write_ass_overlays(captions: list[dict], graphics: list[dict], path: Path, 
 
 def _render_ffmpeg_fast(job_id: str, clean: Path, dest: Path, captions: list[dict], graphics: list[dict], profile: dict, duration: float, job_dir: Path) -> None:
     target=_effective_target(profile);ass=job_dir/"overlays.ass";_write_ass_overlays(captions,graphics,ass,target["width"],target["height"])
-    _run_ffmpeg_progress(job_id,["ffmpeg","-y","-threads","1","-i",str(clean),"-vf",f"ass={ass}",
-        "-c:v","libx264","-threads","1","-preset","ultrafast","-crf","26","-c:a","copy","-movflags","+faststart",str(dest)],
+    _run_ffmpeg_progress(job_id,["ffmpeg","-y","-threads",str(CPU_THREADS),"-i",str(clean),"-vf",f"ass={ass}",
+        "-c:v","libx264","-threads",str(CPU_THREADS),"-preset","ultrafast","-crf","26","-c:a","copy","-movflags","+faststart",str(dest)],
         duration,70,83,"render")
 
 
@@ -511,7 +547,8 @@ def _render_with_remotion(clean: Path, dest: Path, captions: list[dict], motion:
         "width":target["width"],"height":target["height"],
     }
     props_path=job_dir/"remotion-props.json";props_path.write_text(json.dumps(props,ensure_ascii=False),encoding="utf-8")
-    cmd=["npx","remotion","render","src/index.tsx","MediaFinish",str(dest),"--props",str(props_path),"--codec","h264","--concurrency","1" if LOW_MEMORY_MODE else "2"]
+    concurrency="1" if LOW_MEMORY_MODE else str(max(2,min(4,CPU_THREADS//2 or 1)))
+    cmd=["npx","remotion","render","src/index.tsx","MediaFinish",str(dest),"--props",str(props_path),"--codec","h264","--concurrency",concurrency]
     if REMOTION_BROWSER and Path(REMOTION_BROWSER).exists():
         cmd.extend(["--browser-executable",REMOTION_BROWSER])
     _run(cmd,cwd=remotion_dir,timeout=3600)
@@ -718,6 +755,7 @@ def _process_one(job_id: str) -> None:
             "edit_summary":{
                 "duration_before_sec":round(duration,3),"duration_after_sec":round(float(final_probe["duration"]),3),
                 "removed_segments":len(cuts),"removed_seconds":round(sum(float(x["end"])-float(x["start"]) for x in cuts),3),
+                "filler_segments_removed":sum(1 for x in cuts if "filler_word:" in str(x.get("reason") or "")),
                 "graphics_engine":engine,"profile_id":(payload.get("profile") or {}).get("id"),
                 "profile_version":(payload.get("profile") or {}).get("version"),"platform":payload.get("platform"),
                 "rerun_stage":payload.get("rerun_stage") or "full","human_review_required":True,
@@ -829,7 +867,8 @@ def pilot_source():
 @app.get("/health")
 def health():
     return {"ok":True,"version":APP_VERSION,"graphics_engine":GRAPHICS_ENGINE,"whisper_model":WHISPER_MODEL,
-            "low_memory_mode":LOW_MEMORY_MODE,"callback_configured":bool(FACTORYOS_CALLBACK_BASE_URL),"auth_configured":bool(API_TOKEN)}
+            "low_memory_mode":LOW_MEMORY_MODE,"cpu_threads":CPU_THREADS,
+            "callback_configured":bool(FACTORYOS_CALLBACK_BASE_URL),"auth_configured":bool(API_TOKEN)}
 
 
 @app.post("/jobs")

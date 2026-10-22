@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.9.0"
+APP_VERSION = "v4.9.1"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -8096,6 +8096,24 @@ def local_booster_status():
 @app.get("/api/local-booster/token")
 def local_booster_pairing_token():
     return {"token":FACTORY_LOCAL_BOOSTER_TOKEN,"factory_url":FACTORY_PUBLIC_BASE_URL}
+
+@app.get("/api/local-booster/package.zip")
+def local_booster_package():
+    buf=io.BytesIO()
+    with zipfile.ZipFile(buf,"w",zipfile.ZIP_DEFLATED) as zf:
+        for folder_name in ("media_finisher_worker","local_booster"):
+            root=BASE/folder_name
+            if not root.exists():
+                continue
+            for path in root.rglob("*"):
+                if not path.is_file() or "__pycache__" in path.parts or path.suffix in (".pyc",".pyo"):
+                    continue
+                zf.write(path,path.relative_to(BASE).as_posix())
+    payload=buf.getvalue()
+    return Response(payload,media_type="application/zip",headers={
+        "Content-Disposition":'attachment; filename="factoryos-local-booster-v1.zip"',
+        "Cache-Control":"no-store"
+    })
 
 @app.post("/api/local-booster/heartbeat")
 def local_booster_heartbeat(payload:LocalBoosterHeartbeat):

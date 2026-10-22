@@ -11,8 +11,9 @@ New-Item -ItemType Directory -Force -Path $data | Out-Null
 Write-Host "Building local Media Finisher image..." -ForegroundColor Cyan
 docker build -f media_finisher_worker/Dockerfile -t factoryos-media-finisher-local . | Out-Host
 docker rm -f factoryos-media-finisher-local 2>$null | Out-Null
-Write-Host "Starting local worker on port $Port..." -ForegroundColor Cyan
-docker run -d --name factoryos-media-finisher-local -p "\${Port}:10000" -v "\${data}:/var/data/media-finisher" -e FINISHER_DATA_DIR=/var/data/media-finisher -e FINISHER_WHISPER_MODEL=small -e FINISHER_WHISPER_DEVICE=cpu -e FINISHER_WHISPER_COMPUTE_TYPE=int8 -e FINISHER_GRAPHICS_ENGINE=remotion -e FINISHER_LOW_MEMORY_MODE=0 factoryos-media-finisher-local | Out-Host
+$threads=[Math]::Max(2,[Math]::Min(12,[Environment]::ProcessorCount-2))
+Write-Host "Starting local worker on port $Port with $threads CPU threads..." -ForegroundColor Cyan
+docker run -d --name factoryos-media-finisher-local -p "\${Port}:10000" -v "\${data}:/var/data/media-finisher" -e FINISHER_DATA_DIR=/var/data/media-finisher -e FINISHER_WHISPER_MODEL=small -e FINISHER_WHISPER_DEVICE=cpu -e FINISHER_WHISPER_COMPUTE_TYPE=int8 -e FINISHER_CPU_THREADS=$threads -e FINISHER_GRAPHICS_ENGINE=remotion -e FINISHER_LOW_MEMORY_MODE=0 factoryos-media-finisher-local | Out-Host
 py -m pip install -q -r local_booster/requirements.txt
 $env:FACTORYOS_URL=$FactoryUrl
 $env:FACTORYOS_LOCAL_BOOSTER_TOKEN=$Token

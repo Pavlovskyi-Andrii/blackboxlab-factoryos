@@ -22,6 +22,18 @@ assert graphics and all(x["type"]=="transcript_exact_emphasis" for x in graphics
 source_words={x["word"] for x in mapped}
 assert all(x["text"] in source_words for x in graphics), "manual raw graphics must use exact transcript words"
 
+assert all(x.get("variant") in {"kinetic_title","lower_third","callout","badge"} for x in graphics), "motion graphic variants missing"
+
+filler_words=[
+ {"word":"Привет","start":0.0,"end":0.35,"confidence":.99},
+ {"word":"э","start":0.42,"end":0.67,"confidence":.97},
+ {"word":"мир","start":0.75,"end":1.05,"confidence":.99},
+ {"word":"эм","start":1.18,"end":1.42,"confidence":.96},
+ {"word":"дальше","start":1.50,"end":1.9,"confidence":.99},
+]
+filler_cuts=build_cut_list([],filler_words,2.2,{"speech_cleanup":{"silence_trim":False,"filler_trim":True,"semantic_duplicate_planner":False}})
+assert len(filler_cuts)==2 and all("filler_word:" in x["reason"] for x in filler_cuts), "filler-word cleanup regression"
+
 long_words=[]
 for i in range(240):
     start=i*0.5
