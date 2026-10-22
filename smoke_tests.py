@@ -21,7 +21,7 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v4.6.1","version mismatch")
+require(health["version"]==app.APP_VERSION=="v4.6.2","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -390,6 +390,13 @@ pub=approval["publish"]
 require(pub["status"]=="approved" and pub["idempotency_key"],"approval must create idempotent queue item")
 require((pub.get("media") or {}).get("url")=="https://example.com/final-ci-current.mp4","approved publish item must bind the exact final Media Finisher video")
 require((pub.get("meta") or {}).get("media_artifact_id"),"publish provenance must persist the final media artifact id")
+require(pub.get("approval_decision_id"),"publish item must link to the exact approval decision")
+require(isinstance(pub.get("content_snapshot"),dict) and pub["content_snapshot"].get("title"),"approved publishing metadata snapshot missing")
+require(len(pub.get("content_snapshot_hash") or "")==64,"approved publishing metadata snapshot hash missing")
+approved_title=pub["content_snapshot"]["title"]
+con=app.db();pkg_row=con.execute("SELECT package_json FROM content_packages WHERE id=?",(pub["package_id"],)).fetchone()
+mutated_pkg=json.loads(pkg_row["package_json"]);mutated_pkg["title"]="MUTATED AFTER APPROVAL — MUST NOT PUBLISH"
+con.execute("UPDATE content_packages SET package_json=?,updated_at=? WHERE id=?",(json.dumps(mutated_pkg,ensure_ascii=False),app.ts(),pub["package_id"]));con.commit();con.close()
 
 orig_pub_adapter,orig_pub_endpoint,orig_pub_external=app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_PUBLISHER_ENDPOINT,app._external_json
 captured_publish={}
@@ -401,11 +408,19 @@ try:
     adapter_result=app._publish_via_adapter(pub)
     require(adapter_result["manual"] is False,"configured publisher adapter must use webhook path")
     require((captured_publish.get("payload") or {}).get("media_url")=="https://example.com/final-ci-current.mp4","publisher payload must carry the approved final video URL")
-    require(((captured_publish.get("payload") or {}).get("content") or {}).get("title"),"publisher payload must carry Content Package metadata")
+    require(((captured_publish.get("payload") or {}).get("content") or {}).get("title")==approved_title,
+            "publisher must use the metadata frozen at approval, not a later package mutation")
+    require(((captured_publish.get("payload") or {}).get("content") or {}).get("title")!="MUTATED AFTER APPROVAL — MUST NOT PUBLISH",
+            "post-approval package edits must not drift into the publisher payload")
+    require((captured_publish.get("payload") or {}).get("content_snapshot_hash")==pub["content_snapshot_hash"],
+            "publisher payload must carry the approved content snapshot hash")
 finally:
     app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_PUBLISHER_ENDPOINT,app._external_json=orig_pub_adapter,orig_pub_endpoint,orig_pub_external
 
 # v3.70 Publishing Engine — no duplicate publish and no invented external receipt.
+unscheduled=asyncio.run(app.publish_scheduled_item(pub["id"]))
+require(unscheduled["ok"] is False and "scheduling" in unscheduled["message"].lower(),
+        "approved item must not publish before an explicit scheduling action")
 scheduled=asyncio.run(app.schedule_publishing(pub["id"],app.PublishScheduleRequest(target="manual",platform="youtube_shorts",scheduled_at=app.ts())))
 require(scheduled["item"]["status"]=="scheduled","publishing schedule regression")
 started=asyncio.run(app.publish_scheduled_item(pub["id"]))
@@ -415,6 +430,8 @@ require(confirmed["status"]=="published","manual publish confirmation regression
 require(app.get_job(job_id)["status"]=="published","publish receipt must close the production job as published")
 con=app.db();receipt=con.execute("SELECT * FROM artifacts WHERE job_id=? AND agent='Publisher' AND kind='publish_receipt' ORDER BY created_at DESC LIMIT 1",(job_id,)).fetchone();con.close()
 require(receipt is not None and "media_artifact_id" in (receipt["meta_json"] or ""),"publish receipt must preserve final media provenance")
+require("content_snapshot_hash" in (receipt["meta_json"] or "") and "approval_decision_id" in (receipt["meta_json"] or ""),
+        "publish receipt must preserve approved content/decision provenance")
 again=asyncio.run(app.publish_scheduled_item(pub["id"]))
 require(again.get("idempotent") is True,"published item must be duplicate-safe")
 
@@ -677,10 +694,10 @@ require("const esc=s=>(s||'').replace" not in html,"unsafe frontend escape funct
 require("workerSelectedResult" in html and "selected_job_result" in Path("app.py").read_text(encoding="utf-8"),"selected-job worker evidence UI/API missing")
 require('data-help="help.approval"' in html and 'data-help="help.brain"' in html and 'data-help="help.worker"' in html and 'data-help="help.finisher"' in html,"help tooltip coverage missing")
 require("legacyBanner" in html and "approval.legacyHelp" in html,"legacy approval clarity missing")
-require('<span class="version">v4.6.1</span>' in html,"visible UI version mismatch")
+require('<span class="version">v4.6.2</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
 for key in ("approval.nav","approval.title","approval.statWaiting","approval.approveQueue","approval.legacyHelp","help.approval","help.brain","help.worker","help.revideo","help.finisher","revideo.nav","revideo.title","revideo.analyze","revideo.originalRewrite","finisher.nav","finisher.title","finisher.start","finisher.unconfigured","finisher.rerunCaptions","finisher.humanGate","help.discovery","discovery.nav","discovery.title","discovery.toRevideo","publishing.nav","publishing.title","publishing.statQueue","performance.nav","performance.title","performance.statPublished","experiment.nav","experiment.title","experiment.sub","cycle.nav","cycle.title","cycle.sub","cycle.run","cycle.review","cycle.next","cycle.statCycles","cycle.status.waiting_approval","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","worker.selectedResult","worker.purpose.renderagent","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v4.6.1 smoke/regression suite passed without paid provider calls; exact final-media approval/publish binding verified")
+print("FactoryOS v4.6.2 smoke/regression suite passed without paid provider calls; immutable approved publish snapshot verified")
