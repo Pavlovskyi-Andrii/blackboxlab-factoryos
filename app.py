@@ -7817,7 +7817,8 @@ def media_finisher_uploaded_source(upload_id:str,token:str=""):
     if not meta:raise HTTPException(404,"Media source not found")
     path=MEDIA_UPLOAD_DIR/str(meta.get("stored_name") or "")
     if not path.exists():raise HTTPException(404,"Media source file missing")
-    return FileResponse(path,media_type=meta.get("content_type") or "application/octet-stream",filename=meta.get("filename") or path.name)
+    return FileResponse(path,media_type=meta.get("content_type") or "application/octet-stream",
+                        filename=meta.get("filename") or path.name,content_disposition_type="inline")
 
 @app.post("/api/jobs/{job_id}/media-finisher/upload")
 async def media_finisher_upload(job_id:str,request:Request,file:UploadFile=File(...)):
