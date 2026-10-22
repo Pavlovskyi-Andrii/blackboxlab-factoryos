@@ -23,6 +23,14 @@ services:
         sync: false
       - key: FACTORY_SECRET
         generateValue: true
+      - key: FACTORY_LOCAL_BOOSTER_TOKEN
+        sync: false
+      - key: FACTORY_GOOGLE_CLIENT_ID
+        sync: false
+      - key: FACTORY_GOOGLE_ALLOWED_EMAILS
+        sync: false
+      - key: FACTORY_GOOGLE_ALLOWED_DOMAINS
+        sync: false
       - key: FACTORY_MEDIA_FINISHER_ADAPTER
         value: render-media-finisher
       - key: FACTORY_MEDIA_FINISHER_ENDPOINT

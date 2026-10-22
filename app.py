@@ -21,9 +21,11 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Requ
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.9.1"
+APP_VERSION = "v4.9.2"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -141,7 +143,11 @@ app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 FACTORY_USER = os.environ.get("FACTORY_USER", "blackboxlab")
 FACTORY_PASSWORD = os.environ.get("FACTORY_PASSWORD", "")
 FACTORY_SECRET = os.environ.get("FACTORY_SECRET", secrets.token_hex(32))
-FACTORY_LOCAL_BOOSTER_TOKEN = hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest()
+FACTORY_LOCAL_BOOSTER_TOKEN = (os.environ.get("FACTORY_LOCAL_BOOSTER_TOKEN","").strip()
+    or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest())
+FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
+FACTORY_GOOGLE_ALLOWED_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_EMAILS","").split(",") if x.strip()}
+FACTORY_GOOGLE_ALLOWED_DOMAINS = {x.strip().lower().lstrip("@") for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_DOMAINS","").split(",") if x.strip()}
 FACTORY_LOCAL_BOOSTER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_LOCAL_BOOSTER_TTL_SECONDS","45"))))
 local_booster_runtime={"last_seen":0.0,"node":{},"active_job_id":"","last_error":""}
 _local_booster_claim_lock=threading.Lock()
@@ -201,6 +207,26 @@ def request_is_authed(request: Request) -> bool:
     token = request.cookies.get(COOKIE_NAME, "")
     return hmac.compare_digest(token, session_token(FACTORY_USER))
 
+def _google_login_enabled() -> bool:
+    return bool(FACTORY_GOOGLE_CLIENT_ID and (FACTORY_GOOGLE_ALLOWED_EMAILS or FACTORY_GOOGLE_ALLOWED_DOMAINS))
+
+def _google_identity_allowed(email: str) -> bool:
+    email=(email or "").strip().lower()
+    if not email:
+        return False
+    if email in FACTORY_GOOGLE_ALLOWED_EMAILS:
+        return True
+    domain=email.rsplit("@",1)[-1] if "@" in email else ""
+    return bool(domain and domain in FACTORY_GOOGLE_ALLOWED_DOMAINS)
+
+def _auth_cookie_response(target: str) -> RedirectResponse:
+    response=RedirectResponse(target,status_code=303)
+    response.set_cookie(
+        COOKIE_NAME,session_token(FACTORY_USER),httponly=True,
+        secure=bool(os.environ.get("RENDER")),samesite="lax",max_age=60*60*24*30,
+    )
+    return response
+
 def _local_booster_authorized(request: Request) -> bool:
     auth=(request.headers.get("authorization") or "").strip()
     if not auth.lower().startswith("bearer "):return False
@@ -212,7 +238,7 @@ def _local_booster_online():
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/health", "/mcp"}
+    public_paths = {"/login", "/auth/google", "/health", "/mcp"}
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/")
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
@@ -232,10 +258,27 @@ def login_page(request: Request, lang: str = "en"):
     if request_is_authed(request):
         return RedirectResponse(f"/{lang}", status_code=303)
     copy={
-      "en":{"sub":"Private AI content production control room","user":"Username","password":"Password","enter":"Enter FactoryOS"},
-      "uk":{"sub":"Приватний центр керування AI-виробництвом контенту","user":"Користувач","password":"Пароль","enter":"Увійти до FactoryOS"},
-      "ru":{"sub":"Приватный центр управления AI-производством контента","user":"Пользователь","password":"Пароль","enter":"Войти в FactoryOS"},
+      "en":{"sub":"Private AI content production control room","user":"Username","password":"Password","enter":"Enter FactoryOS","or":"or"},
+      "uk":{"sub":"Приватний центр керування AI-виробництвом контенту","user":"Користувач","password":"Пароль","enter":"Увійти до FactoryOS","or":"або"},
+      "ru":{"sub":"Приватный центр управления AI-производством контента","user":"Пользователь","password":"Пароль","enter":"Войти в FactoryOS","or":"или"},
     }[lang]
+    google_html=""
+    google_script=""
+    if _google_login_enabled():
+        google_html=f"""<div class='sep'><span>{copy["or"]}</span></div>
+        <div id='g_id_onload' data-client_id='{FACTORY_GOOGLE_CLIENT_ID}' data-callback='factoryGoogleCredential'
+             data-auto_prompt='false' data-context='signin'></div>
+        <div class='g_id_signin' data-type='standard' data-shape='rectangular' data-theme='filled_black'
+             data-text='signin_with' data-size='large' data-logo_alignment='left' data-width='354'></div>"""
+        google_script=f"""<script src='https://accounts.google.com/gsi/client' async defer></script>
+        <script>
+        function factoryGoogleCredential(r){{
+          var f=document.createElement('form');f.method='post';f.action='/auth/google';
+          var c=document.createElement('input');c.type='hidden';c.name='credential';c.value=r.credential||'';f.appendChild(c);
+          var l=document.createElement('input');l.type='hidden';l.name='lang';l.value='{lang}';f.appendChild(l);
+          document.body.appendChild(f);f.submit();
+        }}
+        </script>"""
     return HTMLResponse(f"""<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>
     <meta name='viewport' content='width=device-width,initial-scale=1'>
     <title>Blackbox Lab — FactoryOS Login</title>
@@ -247,13 +290,19 @@ def login_page(request: Request, lang: str = "en"):
     button{{width:100%;margin-top:10px;padding:12px;border:0;border-radius:10px;background:linear-gradient(135deg,#1677ff,#0db7f5);color:#fff;font-weight:800;cursor:pointer}}
     .cube{{width:42px;height:42px;border:2px solid #16bdf6;transform:rotate(30deg);border-radius:7px;margin-bottom:18px;box-shadow:0 0 24px #16bdf655}}
     .langs{{display:flex;gap:5px;justify-content:flex-end;margin-bottom:14px}}.langs a{{font-size:10px;color:#8297ac;text-decoration:none;border:1px solid #294761;padding:5px 7px;border-radius:7px}}.langs a.active{{color:#fff;background:#153b63}}
-    </style></head><body><form class='box' method='post' action='/login'>
+    .sep{{display:flex;align-items:center;gap:10px;color:#6f8599;font-size:11px;margin:16px 0 12px}}.sep:before,.sep:after{{content:'';height:1px;background:#234158;flex:1}}
+    .googleWrap{{display:flex;justify-content:center}}
+    </style>{google_script}</head><body><div class='box'>
     <div class='langs'><a href='/login?lang=en' class='{"active" if lang=="en" else ""}'>EN</a><a href='/login?lang=uk' class='{"active" if lang=="uk" else ""}'>УКР</a><a href='/login?lang=ru' class='{"active" if lang=="ru" else ""}'>RU</a></div>
     <div class='cube'></div><h1>Blackbox Lab — FactoryOS</h1><div class='sub'>{copy["sub"]}</div>
-    <input type='hidden' name='lang' value='{lang}'>
-    <input name='username' placeholder='{copy["user"]}' autocomplete='username' required>
-    <input name='password' type='password' placeholder='{copy["password"]}' autocomplete='current-password' required>
-    <button type='submit'>{copy["enter"]}</button></form></body></html>""")
+    <form method='post' action='/login'>
+      <input type='hidden' name='lang' value='{lang}'>
+      <input name='username' placeholder='{copy["user"]}' autocomplete='username' required>
+      <input name='password' type='password' placeholder='{copy["password"]}' autocomplete='current-password' required>
+      <button type='submit'>{copy["enter"]}</button>
+    </form>
+    <div class='googleWrap'>{google_html}</div>
+    </div></body></html>""")
 
 @app.post("/login")
 def login(username: str = Form(...), password: str = Form(...), lang: str = Form("en")):
@@ -262,16 +311,24 @@ def login(username: str = Form(...), password: str = Form(...), lang: str = Form
         msg={"en":"Invalid username or password","uk":"Невірний логін або пароль","ru":"Неверный логин или пароль"}[lang]
         retry={"en":"Try again","uk":"Спробувати ще раз","ru":"Попробовать снова"}[lang]
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>{retry}</a>", status_code=401)
-    response = RedirectResponse(f"/{lang}", status_code=303)
-    response.set_cookie(
-        COOKIE_NAME,
-        session_token(FACTORY_USER),
-        httponly=True,
-        secure=bool(os.environ.get("RENDER")),
-        samesite="lax",
-        max_age=60 * 60 * 24 * 30,
-    )
-    return response
+    return _auth_cookie_response(f"/{lang}")
+
+@app.post("/auth/google")
+def google_login(credential: str = Form(...), lang: str = Form("en")):
+    lang=lang if lang in ("en","uk","ru") else "en"
+    if not _google_login_enabled():
+        raise HTTPException(503,"Google sign-in is not configured")
+    try:
+        claims=google_id_token.verify_oauth2_token(credential,google_requests.Request(),FACTORY_GOOGLE_CLIENT_ID)
+    except Exception:
+        msg={"en":"Google sign-in failed","uk":"Не вдалося увійти через Google","ru":"Не удалось войти через Google"}[lang]
+        return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>←</a>",status_code=401)
+    email=str(claims.get("email") or "").strip().lower()
+    if not bool(claims.get("email_verified")) or not _google_identity_allowed(email):
+        msg={"en":"This Google account is not allowed","uk":"Цей Google-акаунт не має доступу","ru":"У этого Google-аккаунта нет доступа"}[lang]
+        return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>←</a>",status_code=403)
+    print(json.dumps({"event":"GOOGLE_LOGIN","email":email,"status":"success"}),flush=True)
+    return _auth_cookie_response(f"/{lang}")
 
 @app.post("/logout")
 def logout():

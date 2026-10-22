@@ -21,7 +21,7 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v4.9.1","version mismatch")
+require(health["version"]==app.APP_VERSION=="v4.9.2","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -786,3 +786,5 @@ require("#agentBadges{position:relative;display:grid" in html,"mobile worker gri
 for key in ("approval.nav","approval.title","approval.statWaiting","approval.approveQueue","approval.legacyHelp","help.approval","help.brain","help.worker","help.revideo","help.finisher","revideo.nav","revideo.title","revideo.analyze","revideo.originalRewrite","finisher.nav","finisher.title","finisher.start","finisher.unconfigured","finisher.rerunCaptions","finisher.humanGate","help.discovery","discovery.nav","discovery.title","discovery.toRevideo","publishing.nav","publishing.title","publishing.statQueue","performance.nav","performance.title","performance.statPublished","experiment.nav","experiment.title","experiment.sub","cycle.nav","cycle.title","cycle.sub","cycle.run","cycle.review","cycle.next","cycle.statCycles","cycle.status.waiting_approval","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","worker.selectedResult","worker.purpose.renderagent","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
 print("FactoryOS v4.8.1 smoke/regression suite passed without paid provider calls; signed durable media access verified")
+
+require(hasattr(app,"FACTORY_GOOGLE_CLIENT_ID") and hasattr(app,"FACTORY_GOOGLE_ALLOWED_EMAILS"),"Google auth config missing")
