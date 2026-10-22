@@ -21,7 +21,7 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v4.5","version mismatch")
+require(health["version"]==app.APP_VERSION=="v4.6.1","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -361,12 +361,34 @@ con=app.db();con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',p
 queue=app.get_approval_queue()
 require(any(x["job"]["id"]==job_id for x in queue["items"]),"approval queue must include waiting job")
 require("estimated_model_cost_usd" in app._estimated_regeneration_cost("hook"),"cost-before-rerun quote missing")
+stale_media=app._media_review_state(job_id)
+require(stale_media["required"] is True and stale_media["ready"] is False and stale_media["source_binding_ok"] is False,
+        "changing selected variant/package must invalidate previously finished media for approval")
+blocked_stale=asyncio.run(app.approve(job_id))
+require(blocked_stale["ok"] is False and "older Content Package" in blocked_stale["message"],
+        "approval must block stale final media after package/variant change")
+orig_rebind_endpoint,orig_rebind_spawn=app.FACTORY_MEDIA_FINISHER_ENDPOINT,app._spawn_media_finisher_submit
+app.FACTORY_MEDIA_FINISHER_ENDPOINT="https://ci.invalid/finish"
+app._spawn_media_finisher_submit=lambda edit_job_id: None
+try:
+    rebound=app.rerun_media_finisher_stage(rerun_id,"render")
+    rebound_id=rebound["edit_job"]["id"]
+    rebound_ready=app._finalize_edit_job(rebound_id,"completed","https://example.com/final-ci-current.mp4","ci-finisher-task-3","",
+                                         {"status":"completed"},report,0.0,9.8)
+    require(rebound_ready["status"]=="ready","current package/variant rerun must finish before approval")
+finally:
+    app.FACTORY_MEDIA_FINISHER_ENDPOINT,app._spawn_media_finisher_submit=orig_rebind_endpoint,orig_rebind_spawn
+current_media=app._media_review_state(job_id)
+require(current_media["ready"] is True and current_media["source_binding_ok"] is True,
+        "latest ready Media Finisher render must bind to the current package/variant")
+require((current_media["artifact"] or {}).get("url")=="https://example.com/final-ci-current.mp4",
+        "approval must resolve the exact latest bound Media Finisher artifact")
 approval=asyncio.run(app.approve(job_id))
 require(approval["ok"] is True and approval["status"]=="approved","approval decision regression")
 require(app.get_approval_history(job_id)[0]["decision"]=="approved","approval history must persist")
 pub=approval["publish"]
 require(pub["status"]=="approved" and pub["idempotency_key"],"approval must create idempotent queue item")
-require((pub.get("media") or {}).get("url")=="https://example.com/final-ci-rerun.mp4","approved publish item must bind the exact final Media Finisher video")
+require((pub.get("media") or {}).get("url")=="https://example.com/final-ci-current.mp4","approved publish item must bind the exact final Media Finisher video")
 require((pub.get("meta") or {}).get("media_artifact_id"),"publish provenance must persist the final media artifact id")
 
 orig_pub_adapter,orig_pub_endpoint,orig_pub_external=app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_PUBLISHER_ENDPOINT,app._external_json
@@ -378,7 +400,7 @@ app.FACTORY_PUBLISHER_ADAPTER="webhook";app.FACTORY_PUBLISHER_ENDPOINT="https://
 try:
     adapter_result=app._publish_via_adapter(pub)
     require(adapter_result["manual"] is False,"configured publisher adapter must use webhook path")
-    require((captured_publish.get("payload") or {}).get("media_url")=="https://example.com/final-ci-rerun.mp4","publisher payload must carry the approved final video URL")
+    require((captured_publish.get("payload") or {}).get("media_url")=="https://example.com/final-ci-current.mp4","publisher payload must carry the approved final video URL")
     require(((captured_publish.get("payload") or {}).get("content") or {}).get("title"),"publisher payload must carry Content Package metadata")
 finally:
     app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_PUBLISHER_ENDPOINT,app._external_json=orig_pub_adapter,orig_pub_endpoint,orig_pub_external
@@ -655,10 +677,10 @@ require("const esc=s=>(s||'').replace" not in html,"unsafe frontend escape funct
 require("workerSelectedResult" in html and "selected_job_result" in Path("app.py").read_text(encoding="utf-8"),"selected-job worker evidence UI/API missing")
 require('data-help="help.approval"' in html and 'data-help="help.brain"' in html and 'data-help="help.worker"' in html and 'data-help="help.finisher"' in html,"help tooltip coverage missing")
 require("legacyBanner" in html and "approval.legacyHelp" in html,"legacy approval clarity missing")
-require('<span class="version">v4.5</span>' in html,"visible UI version mismatch")
+require('<span class="version">v4.6.1</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
 for key in ("approval.nav","approval.title","approval.statWaiting","approval.approveQueue","approval.legacyHelp","help.approval","help.brain","help.worker","help.revideo","help.finisher","revideo.nav","revideo.title","revideo.analyze","revideo.originalRewrite","finisher.nav","finisher.title","finisher.start","finisher.unconfigured","finisher.rerunCaptions","finisher.humanGate","help.discovery","discovery.nav","discovery.title","discovery.toRevideo","publishing.nav","publishing.title","publishing.statQueue","performance.nav","performance.title","performance.statPublished","experiment.nav","experiment.title","experiment.sub","cycle.nav","cycle.title","cycle.sub","cycle.run","cycle.review","cycle.next","cycle.statCycles","cycle.status.waiting_approval","brain.nav","brain.title","brain.run","brain.verifyOne","brain.createJob","variant.nav","variant.title","variant.build","variant.select","variant.rerun","package.nav","package.title","package.build","package.scenes","package.adapters","nav.errors","error.title","error.confirmUncertain","worker.title","worker.noHandoffs","worker.selectedResult","worker.purpose.renderagent","trace.title","trace.loadFailed","intel.title","intel.workerComparison","intel.note","nav.qa","qa.title","qa.loading"):
     require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
-print("FactoryOS v4.5 smoke/regression suite passed without paid provider calls; AI Media Finisher contract/evidence verified")
+print("FactoryOS v4.6.1 smoke/regression suite passed without paid provider calls; exact final-media approval/publish binding verified")
