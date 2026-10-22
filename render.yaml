@@ -29,6 +29,10 @@ services:
         sync: false
       - key: FACTORY_GOOGLE_ALLOWED_EMAILS
         sync: false
+      - key: FACTORY_GOOGLE_OWNER_EMAILS
+        sync: false
+      - key: FACTORY_GOOGLE_VIEWER_EMAILS
+        sync: false
       - key: FACTORY_GOOGLE_ALLOWED_DOMAINS
         sync: false
       - key: FACTORY_MEDIA_FINISHER_ADAPTER
