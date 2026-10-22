@@ -25,7 +25,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.9.3"
+APP_VERSION = "v4.9.4"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -150,6 +150,7 @@ FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTOR
 FACTORY_GOOGLE_VIEWER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_VIEWER_EMAILS","").split(",") if x.strip()}
 FACTORY_GOOGLE_ALLOWED_EMAILS = ({x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_EMAILS","").split(",") if x.strip()} | FACTORY_GOOGLE_OWNER_EMAILS | FACTORY_GOOGLE_VIEWER_EMAILS)
 FACTORY_GOOGLE_ALLOWED_DOMAINS = {x.strip().lower().lstrip("@") for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_DOMAINS","").split(",") if x.strip()}
+FACTORY_VIEWER_INVITE_TOKEN = os.environ.get("FACTORY_VIEWER_INVITE_TOKEN","").strip()
 FACTORY_LOCAL_BOOSTER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_LOCAL_BOOSTER_TTL_SECONDS","45"))))
 local_booster_runtime={"last_seen":0.0,"node":{},"active_job_id":"","last_error":""}
 _local_booster_claim_lock=threading.Lock()
@@ -223,7 +224,7 @@ def _identity_from_session_token(token: str):
     expected=hmac.new(FACTORY_SECRET.encode("utf-8"),payload.encode("utf-8"),hashlib.sha256).hexdigest()
     if not hmac.compare_digest(parts[3],expected):
         return None
-    return {"role":parts[1],"email":parts[2],"provider":"google"}
+    return {"role":parts[1],"email":parts[2],"provider":"guest" if parts[2]=="guest" else "google"}
 
 def request_identity(request: Request):
     if not FACTORY_PASSWORD:
@@ -271,7 +272,7 @@ def _local_booster_online():
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/auth/google", "/health", "/mcp"}
+    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp"}
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/")
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
@@ -285,7 +286,7 @@ async def auth_middleware(request: Request, call_next):
         lang=seg if seg in ("en","uk","ru") else "en"
         return RedirectResponse(f"/login?lang={lang}",status_code=303)
     if identity.get("role")=="viewer":
-        if request.url.path in ("/api/local-booster/token","/api/local-booster/package.zip"):
+        if request.url.path in ("/api/local-booster/token","/api/local-booster/package.zip","/api/viewer-invite"):
             return JSONResponse({"detail":"viewer access is read-only"},status_code=403)
         if request.method.upper() not in ("GET","HEAD","OPTIONS") and request.url.path!="/logout":
             return JSONResponse({"detail":"viewer access is read-only"},status_code=403)
@@ -369,6 +370,23 @@ def google_login(credential: str = Form(...), lang: str = Form("en")):
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>←</a>",status_code=403)
     print(json.dumps({"event":"GOOGLE_LOGIN","email":email,"role":role,"status":"success"}),flush=True)
     return _auth_cookie_response(f"/{lang}",role,email)
+
+@app.get("/guest")
+def guest_login(token: str="", lang: str="ru"):
+    lang=lang if lang in ("en","uk","ru") else "ru"
+    if not FACTORY_VIEWER_INVITE_TOKEN or not token or not hmac.compare_digest(token,FACTORY_VIEWER_INVITE_TOKEN):
+        return HTMLResponse("Guest link is invalid or expired.",status_code=403)
+    return _auth_cookie_response(f"/{lang}","viewer","guest")
+
+@app.get("/api/viewer-invite")
+def viewer_invite(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":
+        raise HTTPException(403,"Owner access required")
+    if not FACTORY_VIEWER_INVITE_TOKEN:
+        raise HTTPException(503,"Viewer invite is not configured")
+    token=urlparse.quote(FACTORY_VIEWER_INVITE_TOKEN,safe="")
+    return {"url":f"{FACTORY_PUBLIC_BASE_URL}/guest?token={token}&lang=ru","role":"viewer","read_only":True}
 
 @app.post("/logout")
 def logout():
