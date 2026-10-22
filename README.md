@@ -16,6 +16,14 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v4.6.2 — Immutable Approval → Publish Snapshot — 2026-10-22
+- Approval now freezes the exact publishing metadata (title, description, CTA, hashtags and thumbnail concept) alongside the exact approved video artifact.
+- The frozen snapshot is hashed and linked to the approval decision; post-approval Content Package edits can no longer drift into the publisher payload.
+- Publishing idempotency now includes the approved metadata snapshot hash in addition to job, package, variant and media artifact.
+- Publisher receipts preserve approval-decision, content-snapshot and final-media provenance.
+- The publish endpoint now refuses unscheduled items; an explicit schedule action is mandatory before any manual or external publisher execution.
+- Publishing Engine shows the approved metadata snapshot, snapshot hash, approval decision and exact approved media before execution.
+
 ### v4.6.1 — Exact Media Binding Hardening — 2026-10-22
 - Runtime/UI version advanced from v4.5 to v4.6.1.
 - Approval now resolves the video artifact from the latest exact Media Finisher edit job instead of choosing an arbitrary recent video.
