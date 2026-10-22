@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.6.1"
+APP_VERSION = "v4.6.2"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -6039,6 +6039,20 @@ def get_analytics_adapter_registry():
             "secrets_exposed":False,
             "note":"Only metrics actually supplied by the platform/owner are persisted."}
 
+def _publish_content_snapshot(package_record):
+    package=(package_record or {}).get("package") or {}
+    return {
+        "title":str(package.get("title") or ""),
+        "description":str(package.get("description") or ""),
+        "cta":str(package.get("cta") or ""),
+        "hashtags":[str(x) for x in (package.get("hashtags") or []) if str(x).strip()],
+        "thumbnail_concept":package.get("thumbnail_concept") or "",
+    }
+
+def _publish_snapshot_hash(snapshot):
+    canonical=json.dumps(snapshot or {},ensure_ascii=False,sort_keys=True,separators=(",",":"),default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
 def _publish_item(row):
     item=_json_row(row) if row else None
     if not item:return None
@@ -6048,9 +6062,13 @@ def _publish_item(row):
         "title":meta.get("media_title") or "","mime_type":meta.get("media_mime_type") or "",
         "edit_job_id":meta.get("media_edit_job_id")
     } if meta.get("media_artifact_id") or meta.get("media_url") else None
+    item["content_snapshot"]=meta.get("content_snapshot") if isinstance(meta.get("content_snapshot"),dict) else None
+    item["content_snapshot_hash"]=str(meta.get("content_snapshot_hash") or "")
+    item["approval_decision_id"]=meta.get("approval_decision_id")
+    item["approved_at"]=meta.get("approved_at")
     return item
 
-def _ensure_publish_item(job_id):
+def _ensure_publish_item(job_id,approval_decision_id=None):
     package=get_content_package(job_id).get("package_record")
     variant=_selected_production_variant(job_id)
     if not package or package.get("status")!="ready":raise ValueError("A fresh Content Package is required before publishing")
@@ -6061,11 +6079,15 @@ def _ensure_publish_item(job_id):
     media=media_state.get("artifact") or {}
     media_meta=media.get("meta") or {}
     media_key=media.get("id") or "no-media"
-    idem=hashlib.sha256(f"{job_id}:{package['id']}:{variant['id']}:{media_key}".encode("utf-8")).hexdigest()
+    content_snapshot=_publish_content_snapshot(package)
+    snapshot_hash=_publish_snapshot_hash(content_snapshot)
+    idem=hashlib.sha256(f"{job_id}:{package['id']}:{variant['id']}:{media_key}:{snapshot_hash}".encode("utf-8")).hexdigest()
     con=db();existing=con.execute("SELECT * FROM publishing_queue WHERE idempotency_key=?",(idem,)).fetchone()
     if existing:con.close();return _publish_item(existing)
     pid=str(uuid.uuid4());now=ts()
     meta={"variant_id":variant["id"],"approval_required":True,
+          "approval_decision_id":approval_decision_id,"approved_at":now,
+          "content_snapshot":content_snapshot,"content_snapshot_hash":snapshot_hash,
           "media_artifact_id":media.get("id"),"media_url":media.get("url") or "",
           "media_title":media.get("title") or "","media_mime_type":media.get("mime_type") or "",
           "media_edit_job_id":media_meta.get("edit_job_id")}
@@ -6097,15 +6119,20 @@ def _external_json(url,method="GET",payload=None,token=""):
 
 def _publish_receipt(item,external_post_id,external_url="",published_at=None,source="adapter"):
     published_at=published_at or ts()
+    content_snapshot=item.get("content_snapshot") or {}
     con=db();existing=con.execute("""SELECT id FROM artifacts WHERE job_id=? AND agent='Publisher'
                                     AND kind='publish_receipt' AND meta_json LIKE ? LIMIT 1""",
                                   (item["job_id"],f'%"publish_id": "{item["id"]}"%')).fetchone();con.close()
     if not existing:
         save_artifact("Publisher","publish_receipt",f"Published · {item['platform']}",
                       json.dumps({"external_post_id":external_post_id,"external_url":external_url,
-                                  "published_at":published_at,"platform":item["platform"],"media":item.get("media")},ensure_ascii=False,indent=2),
+                                  "published_at":published_at,"platform":item["platform"],"media":item.get("media"),
+                                  "content_snapshot":content_snapshot,
+                                  "content_snapshot_hash":item.get("content_snapshot_hash") or ""},ensure_ascii=False,indent=2),
                       job_id=item["job_id"],meta={"publish_id":item["id"],"idempotency_key":item["idempotency_key"],
                                                  "platform":item["platform"],"source":source,
+                                                 "approval_decision_id":item.get("approval_decision_id"),
+                                                 "content_snapshot_hash":item.get("content_snapshot_hash") or "",
                                                  "media_artifact_id":((item.get("media") or {}).get("artifact_id"))})
     con=db();con.execute("UPDATE jobs SET stage='publish',status='published',progress=90,updated_at=? WHERE id=?",(ts(),item["job_id"]));con.commit();con.close()
     event(item["job_id"],f"Publish confirmed: {item['platform']} · {external_post_id}")
@@ -6114,16 +6141,19 @@ def _publish_receipt(item,external_post_id,external_url="",published_at=None,sou
 def _publish_via_adapter(item):
     if FACTORY_PUBLISHER_ADAPTER=="manual" or not FACTORY_PUBLISHER_ENDPOINT:
         return {"manual":True,"status":"publishing"}
-    package_record=get_content_package(item["job_id"]).get("package_record") or {}
-    package=package_record.get("package") or {}
+    content=item.get("content_snapshot")
+    if not isinstance(content,dict):
+        con=db();row=con.execute("SELECT * FROM content_packages WHERE id=? AND job_id=?",(item["package_id"],item["job_id"])).fetchone();con.close()
+        package_record=_content_package_dict(row) if row else None
+        if not package_record:raise RuntimeError("Approved Content Package snapshot is unavailable")
+        content=_publish_content_snapshot(package_record)
     media=item.get("media") or {}
     payload={"idempotency_key":item["idempotency_key"],"publish_id":item["id"],"job_id":item["job_id"],
-             "package_id":item["package_id"],"target":item["target"],"platform":item["platform"],
+             "package_id":item["package_id"],"approval_decision_id":item.get("approval_decision_id"),
+             "content_snapshot_hash":item.get("content_snapshot_hash") or _publish_snapshot_hash(content),
+             "target":item["target"],"platform":item["platform"],
              "scheduled_at":item.get("scheduled_at"),"media_url":media.get("url") or "",
-             "media_artifact_id":media.get("artifact_id"),"media":media,
-             "content":{"title":package.get("title") or "","description":package.get("description") or "",
-                        "cta":package.get("cta") or "","hashtags":package.get("hashtags") or [],
-                        "thumbnail_concept":package.get("thumbnail_concept") or ""}}
+             "media_artifact_id":media.get("artifact_id"),"media":media,"content":content}
     result=_external_json(FACTORY_PUBLISHER_ENDPOINT,"POST",payload,FACTORY_PUBLISHER_TOKEN)
     return {"manual":False,"status":str(result.get("status") or "publishing"),
             "external_post_id":result.get("external_post_id") or result.get("id"),
@@ -6831,7 +6861,14 @@ async def schedule_publishing(publish_id:str,payload:PublishScheduleRequest):
     con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone()
     if not row:con.close();raise HTTPException(404,"Publish item not found")
     if row["status"]=="published":con.close();return {"ok":True,"item":_publish_item(row)}
-    when=payload.scheduled_at or ts();target=(payload.target or "manual").strip();platform=(payload.platform or "unspecified").strip()
+    if row["status"] not in ("approved","scheduled","failed"):
+        con.close();return {"ok":False,"message":"Only an approved or retryable publish item can be scheduled"}
+    when=(payload.scheduled_at or ts()).strip();target=(payload.target or "manual").strip();platform=(payload.platform or "unspecified").strip()
+    try:
+        parsed=datetime.fromisoformat(when.replace("Z","+00:00"))
+        if parsed.tzinfo is None:raise ValueError("timezone required")
+    except Exception:
+        con.close();return {"ok":False,"message":"scheduled_at must be an ISO-8601 timestamp with timezone"}
     con.execute("""UPDATE publishing_queue SET status='scheduled',target=?,platform=?,scheduled_at=?,updated_at=?,last_error=NULL
                    WHERE id=?""",(target,platform,when,ts(),publish_id))
     con.commit();updated=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
@@ -6846,11 +6883,20 @@ async def publish_scheduled_item(publish_id:str,confirm_uncertain:bool=False):
     if not row:con.close();raise HTTPException(404,"Publish item not found")
     item=_publish_item(row);meta=item.get("meta") or {}
     if item["status"]=="published":con.close();return {"ok":True,"item":item,"idempotent":True}
+    if not item.get("scheduled_at") or item["status"] not in ("scheduled","failed"):
+        con.close();return {"ok":False,"message":"Explicit scheduling is required before publishing"}
     if meta.get("outcome_uncertain") and not confirm_uncertain:
         con.close();return {"ok":False,"requiresConfirmation":True,
                             "message":"Previous external publish outcome is uncertain. Confirm before retrying the same idempotency key."}
-    if item.get("scheduled_at") and item["scheduled_at"]>ts():
-        con.close();return {"ok":False,"message":"Publish item is scheduled for a future time"}
+    try:
+        scheduled_dt=datetime.fromisoformat(str(item["scheduled_at"]).replace("Z","+00:00"))
+        if scheduled_dt.tzinfo is None:raise ValueError("timezone required")
+        if scheduled_dt.astimezone(timezone.utc)>datetime.now(timezone.utc):
+            con.close();return {"ok":False,"message":"Publish item is scheduled for a future time"}
+    except ValueError:
+        con.close();return {"ok":False,"message":"Publish item has an invalid scheduled timestamp"}
+    if item.get("media") and not (item.get("media") or {}).get("url"):
+        con.close();return {"ok":False,"message":"Approved media URL is missing"}
     con.execute("UPDATE publishing_queue SET status='publishing',attempt_count=attempt_count+1,updated_at=?,last_error=NULL WHERE id=?",
                 (ts(),publish_id));con.commit();con.close()
     try:
@@ -7186,10 +7232,10 @@ async def approve(job_id:str):
     media_review=_media_review_state(job_id)
     if media_review.get("required") and not media_review.get("ready"):
         return {"ok":False,"message":media_review.get("reason") or "Finished media is not ready for approval"}
-    _record_approval(job_id,"approved","Approved in Approval Studio",
+    approval_decision_id=_record_approval(job_id,"approved","Approved in Approval Studio",
                      meta={"media_artifact_id":((media_review.get("artifact") or {}).get("id")),
                            "media_edit_job_id":(((media_review.get("edit_job") or {}).get("id")))})
-    try:item=_ensure_publish_item(job_id)
+    try:item=_ensure_publish_item(job_id,approval_decision_id)
     except ValueError as exc:return {"ok":False,"message":str(exc)}
     con=db();con.execute("UPDATE jobs SET status='approved',stage='qa',progress=75,updated_at=? WHERE id=?",(ts(),job_id));con.commit();con.close()
     event(job_id,"Approval Studio: approved; added to publishing queue; no publish action executed")

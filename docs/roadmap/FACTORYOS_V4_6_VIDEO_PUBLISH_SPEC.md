@@ -1,6 +1,6 @@
 # FactoryOS v4.6 — Video → Approval → Publishing
 
-**Status:** IN PROGRESS — code path implemented on `factoryos-v4.6-video-publish`; CI + real publisher verification still required  
+**Status:** IN PROGRESS — v4.6/v4.6.1 are live; v4.6.2 hardens immutable approval → publish provenance. Real publisher verification is still required.  
 **Goal:** carry the exact Media Finisher output through human approval into a duplicate-safe publishing action, persist the real platform receipt, and expose the same asset throughout Approval Studio and Publishing Engine.
 
 ## Pipeline
@@ -37,7 +37,7 @@ Text-only / legacy jobs that never entered Media Finisher preserve the existing 
 The idempotency key now includes:
 
 ```text
-job + content package + selected variant + final media artifact
+job + content package + selected variant + final media artifact + approved metadata snapshot hash
 ```
 
 A new render therefore creates a distinct publish identity instead of accidentally reusing a queue item tied to an older video.
@@ -46,7 +46,12 @@ The queue persists:
 - media artifact ID;
 - media URL;
 - media title / MIME type;
-- Media Finisher edit-job ID.
+- Media Finisher edit-job ID;
+- approval decision ID and approval timestamp;
+- immutable publishing metadata snapshot;
+- SHA-256 hash of that approved metadata snapshot.
+
+If the selected variant or Content Package changes after Media Finisher renders, the older render is no longer approval-ready. The video must be rerun against the current package/variant before approval.
 
 ### 3. Publisher adapter receives the real media
 
@@ -54,7 +59,7 @@ The webhook contract now carries:
 - `media_url`;
 - media artifact provenance;
 - platform / target / schedule;
-- package publishing metadata: title, description, CTA, hashtags, thumbnail concept;
+- the **approved snapshot** of title, description, CTA, hashtags and thumbnail concept (never a later mutable package state);
 - stable idempotency key.
 
 FactoryOS still does not invent a platform receipt. A publish is only considered complete when the adapter returns a real external post ID, or the owner explicitly confirms a manual post.
@@ -66,7 +71,8 @@ Both webhook and manual confirmation paths create a Publisher `publish_receipt` 
 - external URL;
 - published time;
 - platform;
-- final media provenance.
+- final media provenance;
+- approval decision ID and approved content-snapshot hash.
 
 The production job moves to `published`, and the Factory Cycle is synchronized into the analytics phase.
 
@@ -88,6 +94,7 @@ Approval Studio:
 
 Publishing Engine:
 - shows the bound final video;
+- shows the immutable approved metadata snapshot, snapshot hash and approval decision;
 - shows adapter / scheduler state;
 - exposes real external post URL after publication.
 
@@ -95,14 +102,14 @@ Publishing Engine:
 
 - [x] final Media Finisher artifact resolves into Approval Studio;
 - [x] approval is blocked while a Media Finisher job is incomplete;
-- [x] publish idempotency includes final media artifact;
+- [x] publish idempotency includes final media artifact + approved content snapshot hash;
 - [x] publisher webhook payload contains final video URL + package metadata;
-- [x] manual and adapter receipts preserve media provenance;
+- [x] manual and adapter receipts preserve media + approval + content snapshot provenance;
 - [x] published receipt updates job and Factory Cycle;
 - [x] UI displays the approved/publish-bound video;
 - [x] regression coverage added;
-- [ ] GitHub CI PASS on the v4.6 branch / PR;
-- [ ] production deployment from `main`;
+- [x] v4.6/v4.6.1 GitHub CI PASS and production deployment from `main`;
+- [ ] v4.6.2 GitHub CI PASS and production deployment from `main`;
 - [ ] real publisher adapter configured;
 - [ ] one owner-approved real social post verified end-to-end with external post ID/URL.
 
@@ -113,6 +120,7 @@ Media Finisher never auto-approves. v4.6 does not change that boundary.
 A scheduled publisher can only act on an item that:
 1. came from a human-approved job;
 2. is bound to a specific package, variant and media artifact;
-3. was explicitly scheduled.
+3. carries the immutable metadata snapshot that was approved;
+4. was explicitly scheduled.
 
 Retries reuse the same idempotency key. Uncertain external outcomes require confirmation before retry.
