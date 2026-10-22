@@ -245,6 +245,193 @@
 .finisherEvidence{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}.finisherEvidence span{font-size:7px;border:1px solid #29485f;border-radius:99px;padding:4px 7px;color:#9bb4c8}
 .finisherReport{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.finisherReport>div{border:1px solid #183b52;background:#081824;border-radius:9px;padding:8px}.finisherReport strong{font-size:8px;display:block;margin-bottom:4px}.finisherReport small{font-size:7px;color:#8ca6b8;line-height:1.45}
 @media(max-width:700px){.finisherComposer,.finisherReport{grid-template-columns:1fr}.finisherComposer .wide{grid-column:auto}}
+
+/* v5 design: illustrated Agent Office, pipeline, jobs, selected job */
+.grid{grid-template-columns:minmax(0,1fr) 320px;align-items:stretch}
+.officeCard{display:flex;flex-direction:column;padding:0;overflow:hidden}
+.officeCard .head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #132a3e}
+.officeCard .head h3{margin:0;font-size:17px;font-weight:800;color:#f3f8ff}
+.officeCard .head h3 [data-i18n="office.title"]{font-size:17px!important;font-weight:800!important}
+.officeCard .head h3 [data-i18n="office.sub"]{font-size:12px;font-weight:400;color:#8ea3b8;margin-left:8px}
+.officeTools{display:flex;gap:8px;align-items:center}
+.officePill{display:inline-flex;align-items:center;gap:2px;font-size:12px;color:#cfe3f3;border:1px solid #23445f;background:#0a1826;border-radius:9px;padding:6px 10px;white-space:nowrap}
+.officePill .green.idleDot{background:#7d93a8;box-shadow:none}
+.btn.ghost{background:#0b1a29;border-color:#23445f;font-size:12px;padding:6px 10px}
+.office{height:auto;flex:1;background:#05090f;overflow:hidden}
+.office:before,.office:after{display:none}
+.officeStage{position:relative;width:100%;aspect-ratio:1600/1100}
+.officeScene{position:absolute;inset:0;width:100%;height:100%;display:block}
+.office #agentBadges{position:absolute;inset:0;display:block;pointer-events:none;z-index:4}
+.office .agent{position:absolute;transform:translate(-50%,-100%);width:auto;min-width:0;max-width:none;min-height:0;display:block;padding:3px 8px 4px 7px;border-radius:8px;background:rgba(6,14,24,.86);border:1px solid rgba(70,120,160,.45);box-shadow:0 8px 20px rgba(0,0,0,.45);backdrop-filter:blur(6px);pointer-events:auto;cursor:pointer;transition:transform .15s,border-color .15s,box-shadow .15s;z-index:5;outline:none}
+.office .agent:hover,.office .agent.hot,.office .agent:focus-visible{transform:translate(-50%,-100%) translateY(-3px);border-color:#55d6ff;box-shadow:0 12px 28px rgba(0,0,0,.6),0 0 0 2px rgba(39,202,255,.25);z-index:9}
+.office .agent b{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;line-height:1.25;color:#f1f7ff;white-space:nowrap;overflow:visible}
+.office .agent small{display:flex;align-items:center;gap:4px;font-size:10.5px;line-height:1.25;margin-top:0;white-space:nowrap;overflow:visible}
+.office .agent .dot{width:7px;height:7px;margin:0;flex:0 0 7px}
+.office .agent .stIco{font-size:9px;width:10px;text-align:center}
+.office .agent .agentMiniBar{margin-top:4px;height:3px}
+.office .agent.monitoring{background:rgba(22,15,40,.88);border-color:rgba(140,100,230,.55)}
+.office .agent.failed{background:rgba(40,10,18,.9)}
+.office .agent.waiting{border-color:#d99a2b;box-shadow:0 0 0 2px rgba(255,182,58,.22),0 8px 20px rgba(0,0,0,.45);animation:needsYou 1.6s ease-in-out infinite}
+.office .agent .agentTooltip{bottom:auto;top:calc(100% + 8px);transform:translateX(-50%) translateY(-4px);font-size:12px}
+.office .agent:hover .agentTooltip,.office .agent:focus-visible .agentTooltip{opacity:1;transform:translateX(-50%) translateY(0)}
+.office .agentTooltip b{font-size:12px}.office .agentTooltip span{font-size:11px}
+@keyframes needsYou{50%{box-shadow:0 0 0 5px rgba(255,182,58,.12),0 8px 20px rgba(0,0,0,.45)}}
+/* scene: workstation states */
+.ws{cursor:pointer}
+.ws .wsHit{pointer-events:all}
+.ws .scr{fill:#0a1522}
+.ws .code{opacity:.28}
+.ws .scrMark{fill:none;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;opacity:0}
+.ws .floorGlow{fill:#3b6e99;opacity:.08}
+.ws .monGlow{fill:#2fb5ff;opacity:.05}
+.ws .deskLed{stroke:#2a4a66;opacity:.7}
+.ws .faceGlow{fill:#5fd8ff;opacity:0}
+.ws .logo{fill:none;stroke:#2f8dff;stroke-width:1.5;stroke-linejoin:round}
+.ws .deskLamp{fill:#5fd8ff}
+.ws.working .scr{fill:#062236}
+.ws.working .code{opacity:1;animation:codeScroll 5s linear infinite}
+.ws.working .floorGlow{fill:#34dc7d;opacity:.2}
+.ws.working .monGlow{opacity:.2}
+.ws.working .deskLed{stroke:#34dc7d;opacity:1}
+.ws.working .faceGlow{opacity:.13}
+.ws.working .hand{animation:typeL .34s ease-in-out infinite}
+.ws.working .handR{animation-name:typeR}
+.ws.working .head{animation:headNod 2.6s ease-in-out infinite}
+.ws.done .scr{fill:#06261b}.ws.done .scrOk{opacity:1;stroke:#4ff0a0}
+.ws.done .deskLed{stroke:#2bb36a}.ws.done .floorGlow{fill:#2bb36a;opacity:.1}
+.ws.waiting .scr{fill:#2a1d06}.ws.waiting .scrWarn{opacity:1;stroke:#ffc65f}
+.ws.waiting .deskLed{stroke:#ffb63a;opacity:1}.ws.waiting .floorGlow{fill:#ffb63a;opacity:.22;animation:glowPulse 1.6s ease-in-out infinite}
+.ws.failed .scr{fill:#2b0a12}.ws.failed .scrFail{opacity:1;stroke:#ff667a}
+.ws.failed .deskLed{stroke:#ff667a;opacity:1}.ws.failed .floorGlow{fill:#ff667a;opacity:.2}
+.ws.monitoring .scr{fill:#170f30}.ws.monitoring .code{opacity:.75;animation:codeScroll 9s linear infinite}
+.ws.monitoring .deskLed{stroke:#a67cff;opacity:1}.ws.monitoring .floorGlow{fill:#a67cff;opacity:.18}.ws.monitoring .faceGlow{fill:#b48cff;opacity:.1}
+.ws.idle .person{filter:brightness(.82)}
+.ws:hover .floorGlow,.ws.hot .floorGlow{opacity:.32}
+.ws:hover .deskLed,.ws.hot .deskLed{stroke:#55d6ff;opacity:1}
+.eyes{transform-box:fill-box;transform-origin:center;animation:blink 4.6s infinite}
+.hand,.head{transform-box:fill-box;transform-origin:center bottom}
+@keyframes blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}
+@keyframes typeL{0%,100%{transform:translateY(0)}50%{transform:translateY(-2.6px)}}
+@keyframes typeR{0%,100%{transform:translateY(-2.6px)}50%{transform:translateY(0)}}
+@keyframes headNod{0%,100%{transform:rotate(0)}40%{transform:rotate(-1.6deg)}70%{transform:rotate(1deg)}}
+@keyframes codeScroll{from{transform:translateY(0)}to{transform:translateY(-52px)}}
+@keyframes glowPulse{50%{opacity:.08}}
+#officeFlow .flowEdge{stroke:#1f6f9e;stroke-width:2;opacity:.18;fill:none}
+#officeFlow .flowEdge.done{stroke:#2bb36a;opacity:.3}
+#officeFlow .flowEdge.active{stroke:#4ccfff;stroke-width:3;opacity:.85;stroke-dasharray:10 8;animation:flowDash .8s linear infinite}
+#officeFlow .flowPacket{fill:#bff3ff;filter:url(#ofGlow)}
+@keyframes flowDash{to{stroke-dashoffset:-18}}
+/* connections rail next to the office */
+.rightRail .connections{height:100%}
+/* shared face avatars */
+.face{display:block;width:100%;height:100%}
+.face .faceBg{fill:#1d4a70}
+.face.working .faceBg{fill:#0f3d2a}.face.waiting .faceBg{fill:#4a3410}.face.failed .faceBg{fill:#4a1420}.face.monitoring .faceBg{fill:#2a1f4a}
+.faceStack{display:inline-flex;align-items:center}
+.faceChip{display:block;width:26px;height:26px;border-radius:50%;overflow:hidden;border:2px solid #0b1725;margin-left:-7px;flex:0 0 auto;background:#12304a}
+.faceChip:first-child{margin-left:0}
+.faceMore{margin-left:4px;font-size:11px;color:#8ea3b8}
+.agentAvatar .face{border-radius:inherit}
+/* work area: pipeline + jobs on the left, selected job on the right */
+.workArea{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:12px;margin-top:12px;align-items:start}
+.workMain{display:flex;flex-direction:column;gap:12px;min-width:0}
+.workMain .pipelineCard{margin-top:0}
+.opsGrid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:12px;margin-top:12px;align-items:start}
+.pipelineCard{padding:14px}
+.pipeHead h3{font-size:17px}
+.pipeline{display:flex;align-items:stretch;gap:0;overflow:visible}
+.stage{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:12px 6px 10px;border-radius:12px;background:linear-gradient(180deg,#0f2034,#0b192a);border:1px solid #1d3a56;text-align:center;opacity:1}
+.stage:after{display:none}
+.stage b{font-size:12px;margin-top:2px}
+.stage>span:not(.faceStack){font-size:11px;color:#8ea3b8;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.stage .faceStack{flex-direction:row}
+.stage .faceStack{margin-top:6px}
+.stage .faceChip{width:20px;height:20px;margin-left:-6px;border-width:1.5px}
+.stage .faceChip:first-child{margin-left:0}
+.stIcon{position:relative;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:#0b2238;border:1px solid #21486a;color:#79d3ff}
+.stIcon svg{width:21px;height:21px}
+.stCheck{position:absolute;right:-6px;top:-6px;width:17px;height:17px;border-radius:50%;background:#1fbf6b;color:#04140b;font-style:normal;font-weight:900;font-size:10px;display:grid;place-items:center;box-shadow:0 0 0 2px #0b192a}
+.stage.complete{border-color:#1c5a3d;background:linear-gradient(180deg,#0e2a20,#0a1c16)}
+.stage.complete .stIcon{color:#5fe594;border-color:#22704a;background:#0c2a1c}
+.stage.current{border-color:#27caff;background:linear-gradient(180deg,#0f2d47,#0b1d30);box-shadow:0 0 0 1px #27caff40,0 0 26px #27caff22;animation:none}
+.stage.current .stIcon{color:#fff;background:linear-gradient(135deg,#1677ff,#0db7f5);border-color:transparent;box-shadow:0 0 18px #27caff66}
+.stage.pending{opacity:.62}
+.stage.liveWorking .stIcon{color:#04140b;background:linear-gradient(135deg,#2fe28a,#1fbf6b);border-color:transparent;box-shadow:0 0 18px #34dc7d66;animation:stagePulse 1.5s ease-in-out infinite}
+.stage.stale .stIcon{color:#ffc65f;border-color:#76531d;background:#2a1d0d}
+.stArrow{flex:0 0 16px;display:grid;place-items:center;color:#2f6f99;font-size:20px;font-weight:700}
+.stagePacket{right:-12px;top:30px}
+/* current jobs */
+.jobs{padding:14px}
+.jobs .rowHead h3{font-size:17px}
+.job{grid-template-columns:96px minmax(0,1.3fr) minmax(120px,1fr) auto 78px auto 34px;gap:14px;padding:10px 8px;border-top:1px solid #15304a;border-radius:10px;align-items:center}
+.job:first-child{border-top:0}
+.job.selectedJob{background:linear-gradient(90deg,#10263d,#0b1a29);box-shadow:inset 3px 0 0 var(--cyan)}
+.jobThumb{width:96px;height:54px;border-radius:9px;display:block;border:1px solid #23466a;flex:0 0 auto}
+.job h4{font-size:14px;margin:0 0 6px;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chips span{font-size:11px;color:#a9bdd0;background:#11243a;border:1px solid #1f3f5d;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.jobProgTop{display:flex;justify-content:space-between;font-size:11px;color:#8ea3b8;margin-bottom:5px}
+.jobProgTop b{color:#dbe9f6;font-weight:700}
+.job .bar,.sjNow .bar{height:6px;border-radius:99px;background:#081321;overflow:hidden}
+.job .bar i,.sjNow .bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#2677ff,#27caff)}
+.job.st-done .bar i{background:linear-gradient(90deg,#1fbf6b,#4ff0a0)}
+.job.st-waiting_approval .bar i{background:linear-gradient(90deg,#d99a2b,#ffc65f)}
+.jobAgo{font-size:11px;color:#8ea3b8;white-space:nowrap}
+.job .btn{font-size:12px;white-space:nowrap}
+.btn.icon{padding:6px 0;width:34px;text-align:center;background:transparent;border-color:transparent;color:#8ea3b8}
+.btn.icon:hover{border-color:#23445f;color:#fff}
+/* selected job */
+.selected{padding:14px}
+.selected .rowHead h3{font-size:17px}
+.sjHead{display:grid;grid-template-columns:104px 1fr;gap:12px;align-items:center}
+.sjHead .jobThumb{width:104px;height:58px}
+.sjHead h4{margin:0 0 6px;font-size:14px;line-height:1.3}
+.sjBrief{margin:10px 0 0;font-size:12px;color:#8ea3b8;line-height:1.45}
+.sjBody{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:10px;margin-top:12px}
+.sjTimeline{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.sjTimeline li{display:grid;grid-template-columns:20px 1fr auto;gap:8px;align-items:center;padding:5px 0;position:relative;font-size:12px}
+.sjTimeline li:not(:last-child):after{content:"";position:absolute;left:9.5px;top:24px;height:12px;width:1px;background:#21405e}
+.tlIco{width:19px;height:19px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:900;border:1.5px solid #2c4f70;color:#7d93a8}
+.sjTimeline b{font-weight:600;color:#c9d8e6}
+.sjTimeline em{font-style:normal;font-size:11px;color:#7d93a8;white-space:nowrap}
+.sjTimeline li.done .tlIco{background:#1fbf6b;border-color:#1fbf6b;color:#04140b}
+.sjTimeline li.done em{color:#5fe594}
+.sjTimeline li.current .tlIco{border-color:#27caff;color:#27caff;box-shadow:0 0 10px #27caff55}
+.sjTimeline li.current em{color:#fff;background:#1677ff;border-radius:6px;padding:1px 7px}
+.sjTimeline li.waiting .tlIco{border-color:#ffb63a;color:#ffb63a}
+.sjTimeline li.waiting em{color:#1a1205;background:#ffb63a;border-radius:6px;padding:1px 7px;font-weight:700}
+.sjNow{background:#0b1d30;border:1px solid #1f3f5d;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.sjNow small{font-size:11px;color:#8ea3b8}
+.sjNowHead{display:flex;gap:9px;align-items:center}
+.sjNowHead b{display:block;font-size:13px}
+.sjNowHead span{font-size:11px;color:#8ea3b8}
+.sjNowIco{width:34px;height:34px;flex:0 0 34px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,#1677ff,#0db7f5);color:#fff}
+.sjNowIco svg{width:19px;height:19px}
+.sjPct{font-size:11px;color:#dbe9f6;text-align:right;margin-top:-3px}
+.sjNext{font-size:12px;font-weight:600;line-height:1.4;color:#e5f0fa}
+.sjActions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.selected .qualityBox{margin-top:10px}
+@media (prefers-reduced-motion:reduce){.ws *,.eyes,.office .agent,.stage .stIcon,#officeFlow *{animation:none!important}}
+@media(max-width:1500px){.job{grid-template-columns:88px minmax(0,1.3fr) minmax(110px,1fr) auto auto 34px}.job .jobAgo{display:none}.jobThumb{width:88px;height:50px}}
+@media(max-width:1280px){.grid{grid-template-columns:1fr}.workArea{grid-template-columns:1fr}.opsGrid{grid-template-columns:1fr}.job{grid-template-columns:88px minmax(0,1fr) minmax(110px,.8fr) auto 34px}.job .faceStack{display:none}}
+@media(max-width:900px){.pipeline{overflow-x:auto;padding-bottom:6px}.stage{flex:0 0 104px}}
+@media(max-width:760px){
+ .office{overflow-x:auto;-webkit-overflow-scrolling:touch}
+ .officeStage{width:980px;max-width:none}
+ .office #agentBadges{position:absolute;inset:0;display:block}
+ .office .agent{position:absolute!important;display:block!important;width:auto;min-height:0;transform:translate(-50%,-100%)!important;padding:3px 8px 4px 7px}
+ .office .agent b{font-size:11.5px}.office .agent small{font-size:10.5px}
+ .office .agentTooltip{display:none!important}
+ .officeCard .head{flex-wrap:wrap}
+ .officeCard .head h3 [data-i18n="office.sub"]{display:none}
+ .job{grid-template-columns:72px minmax(0,1fr);gap:10px}
+ .job .jobThumb{width:72px;height:42px}
+ .job .jobProg,.job>.btn{grid-column:1/-1}
+ .job .btn.icon{display:none}
+ .sjBody{grid-template-columns:1fr}
+}
+/* closed slide-in studios sit just off-screen; their shadows bled over the right edge */
+:is(.flowPage,.packagePage,.variantPage,.brainPage,.taskPage,.qaPage,.intelPage):not(.open){box-shadow:none!important}
 </style></head>
 <body><div class="shell">
 <aside class="side">
@@ -271,32 +458,36 @@
 </section>
 
 <section class="grid">
-<div class="card officeCard"><div class="head"><h3><span data-i18n="office.title" style="font-size:13px;color:inherit;font-weight:inherit;margin:0">Agent Office</span> <span data-i18n="office.sub">Your AI team working together</span></h3><div class="tiny"><span class="green"></span><span id="agentCount">12 agents</span> · live</div></div><div class="office"><img src="/static/office_scene.svg?v=313" alt="Agent office"><svg class="flowGraph" id="officeFlow" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg><div id="agentBadges"></div></div></div>
+<div class="card officeCard"><div class="head"><h3><span data-i18n="office.title" style="font-size:13px;color:inherit;font-weight:inherit;margin:0">Agent Office</span> <span data-i18n="office.sub">Your AI team working together</span></h3><div class="officeTools"><span class="officePill"><span class="green" id="officeDot"></span><span id="agentCount">agents</span></span><button class="btn ghost" onclick="openAgentDirectory()">◉ <span data-i18n="nav.agents">Agents</span></button></div></div><div class="office"><div class="officeStage"><svg class="officeScene" id="officeScene" viewBox="0 0 1600 1100" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Agent Office"></svg><div id="agentBadges"></div></div></div></div>
 <div class="rightRail">
   <aside class="card connections"><h3 data-i18n="connections.title">Connections</h3><p data-i18n="connections.sub">Publishing, intelligence and generation services.</p><div id="connections"></div></aside>
+</div>
+</section>
+
+<section class="workArea">
+<div class="workMain">
+<div class="card pipelineCard"><div class="pipeHead"><h3 data-i18n="pipeline.title">Content Pipeline</h3><div class="tiny" data-i18n="pipeline.legend">Green completed · Cyan current · Dim waiting</div></div><div class="pipeline" id="pipeline"></div></div>
+<div class="card jobs"><div class="rowHead"><div><h3 data-i18n="jobs.current">Current Jobs</h3><div class="tiny" id="jobSummary"></div></div><div><button class="btn" onclick="openNew()">+ <span data-i18n="nav.newJob">New Job</span></button> <button class="btn primary" id="runTop" onclick="runSelected()">▶ <span data-i18n="step.run">Run Factory</span></button></div></div><div id="jobs"></div></div>
+</div>
+<aside class="card selected"><div class="rowHead"><h3 data-i18n="jobs.selected">Selected Job</h3><div class="sjTools"><button class="btn ghost" onclick="S&&S.selectedJobId&&openJobOutputs(S.selectedJobId)"><span data-i18n="sj.open">Open</span> →</button> <button class="btn good" id="approveBtn" style="display:none" onclick="openApprovalStudio()" data-i18n="jobs.approve">Review & approve</button></div></div><div id="detail"></div><div class="logs" id="log"></div></aside>
+</section>
+<section class="opsGrid">  <aside class="card supervisor">
+    <div class="supHead" onclick="openAgent('Supervisor')" style="cursor:pointer"><div class="supTitle"><div class="supIcon">◆</div><div><h3 data-i18n="supervisor.title">Factory Supervisor</h3><small data-i18n="supervisor.sub">Monitors agents, detects failures, improves process · click for history</small></div></div><span class="autoheal">● auto-heal</span></div>
+    <div id="supervisorPanel"></div>
+    <button class="btn" style="width:100%;margin-top:8px" onclick="runAudit()"><span data-i18n="supervisor.audit">Run audit now</span></button>
+  </aside>
   <aside class="card designPartner">
     <div class="designHead"><div class="designIdentity"><div class="designIcon">UX</div><div><h3 data-i18n="design.title">Design Partner</h3><small data-i18n="design.sub">Claude-assisted UI/UX reviewer for FactoryOS</small></div></div><span class="designState" id="designMcpState">MCP</span></div>
     <div class="designActions"><button class="btn" onclick="openClaudeFree()">↗ <span data-i18n="design.openClaude">Open Claude</span></button><button class="btn" onclick="copyDesignBrief()">⧉ <span data-i18n="design.copyBrief">Copy brief</span></button><button class="btn primary wide" onclick="openAgent('Design Partner')"><span data-i18n="design.openPartner">Open design workspace</span></button></div>
     <div class="designNote" data-i18n="design.note">Free mode: Claude connects to FactoryOS as a remote MCP client; no paid Claude API is required.</div>
   </aside>
-  <aside class="card supervisor">
-    <div class="supHead" onclick="openAgent('Supervisor')" style="cursor:pointer"><div class="supTitle"><div class="supIcon">◆</div><div><h3 data-i18n="supervisor.title">Factory Supervisor</h3><small data-i18n="supervisor.sub">Monitors agents, detects failures, improves process · click for history</small></div></div><span class="autoheal">● auto-heal</span></div>
-    <div id="supervisorPanel"></div>
-    <button class="btn" style="width:100%;margin-top:8px" onclick="runAudit()"><span data-i18n="supervisor.audit">Run audit now</span></button>
-  </aside>
-</div>
 </section>
 
 <section class="card errorCenterCard"><div class="errorCenterHead"><div><h3 data-i18n="error.title">Operations / Error Center</h3><p data-i18n="error.sub">Classified worker incidents, spend-safe recovery and resolved failure history for the selected job.</p></div><div class="errorSummary" id="errorSummary"></div></div><div class="errorList" id="errorCenter"></div></section>
 
 <section class="card workerFlowCard"><div class="workerFlowHead"><div><h3 class="helpable" data-help="help.worker" data-i18n="worker.title">Worker Results & Handoffs</h3><p data-i18n="worker.sub">Latest output from every worker, visible handoffs, and current failures for the selected job.</p></div><div class="tiny" data-i18n="worker.clickHint">click a worker → full artifact ledger</div></div><div class="factoryErrors" id="factoryErrors"></div><div class="workerResults" id="workerResults"></div><div class="handoffStream" id="handoffStream"></div></section>
 
-<section class="card pipelineCard"><div class="pipeHead"><h3 data-i18n="pipeline.title">Content Pipeline</h3><div class="tiny" data-i18n="pipeline.legend">Green completed · Cyan current · Dim waiting</div></div><div class="pipeline" id="pipeline"></div></section>
 
-<section class="bottom">
-<div class="card jobs"><div class="rowHead"><div><h3 data-i18n="jobs.current">Current Jobs</h3><div class="tiny" id="jobSummary"></div></div><div><button class="btn" onclick="openNew()">+ <span data-i18n="nav.newJob">New Job</span></button> <button class="btn primary" id="runTop" onclick="runSelected()">▶ <span data-i18n="step.run">Run Factory</span></button></div></div><div id="jobs"></div></div>
-<aside class="card selected"><div class="rowHead"><h3 data-i18n="jobs.selected">Selected Job</h3><button class="btn good" id="approveBtn" style="display:none" onclick="openApprovalStudio()" data-i18n="jobs.approve">Review & approve</button></div><div id="detail"></div><div class="logs" id="log"></div></aside>
-</section>
 </main></div>
 
 <div class="modal" id="modal"><div class="dialog"><h2 data-i18n="new.title">Create content job</h2><p data-i18n="new.sub">One idea becomes one production job. FactoryOS guides it through every stage.</p><input id="title" data-i18n-placeholder="new.topic" placeholder="Topic / working title"><textarea id="brief" data-i18n-placeholder="new.brief" placeholder="What should the video explain, prove or test?"></textarea><div class="formRow"><select id="presenter"><option>AI presenter</option><option>Digital twin</option><option>Faceless</option><option>Mixed</option></select><select id="format"><option>Long + Shorts</option><option>Short only</option><option>Long video</option></select></div><div class="formRow"><input id="language" value="English"><input id="outputs" type="number" value="8" min="1"></div><div class="dialogActions"><button class="btn" onclick="closeNew()" data-i18n="action.cancel">Cancel</button> <button class="btn primary" onclick="createJob()" data-i18n="new.create">Create Job</button></div></div></div>
@@ -1225,6 +1416,310 @@ const TASK_COPY={
 function taskCopy(t){const hit=(TASK_COPY[LANG]||TASK_COPY.en)[t.id]||TASK_COPY.en[t.id];return hit?{title:hit[0],description:hit[1]}:{title:t.title,description:t.description||''}}
 const pathLang=location.pathname.replace(/^\//,'').split('/')[0];
 let LANG=['en','uk','ru'].includes(pathLang)?pathLang:(localStorage.getItem('factoryos_lang')||'en');
+/* ---- v5 design: illustrated Agent Office, pipeline, jobs ---- */
+Object.assign(I18N.en,{"office.working":"{n} agents · {w} working","office.standby":"{n} agents · standing by","sj.completed":"Completed","sj.inProgress":"In progress","sj.pending":"Pending","sj.needsYou":"Needs you","sj.currentStage":"Current stage","sj.nextAction":"Next action","sj.open":"Open","jobs.review":"Review","jobs.viewOutputsShort":"View outputs","time.now":"just now","time.min":"{n} min ago","time.hour":"{n} h ago","time.day":"{n} d ago"});
+Object.assign(I18N.uk,{"office.working":"{n} агентів · {w} працюють","office.standby":"{n} агентів · у режимі очікування","sj.completed":"Завершено","sj.inProgress":"Виконується","sj.pending":"Очікує","sj.needsYou":"Потрібні ви","sj.currentStage":"Поточний етап","sj.nextAction":"Наступна дія","sj.open":"Відкрити","jobs.review":"Переглянути","jobs.viewOutputsShort":"Результати","time.now":"щойно","time.min":"{n} хв тому","time.hour":"{n} год тому","time.day":"{n} дн тому"});
+Object.assign(I18N.ru,{"office.working":"{n} агентов · {w} работают","office.standby":"{n} агентов · в режиме ожидания","sj.completed":"Завершено","sj.inProgress":"Выполняется","sj.pending":"Ожидает","sj.needsYou":"Нужны вы","sj.currentStage":"Текущий этап","sj.nextAction":"Следующее действие","sj.open":"Открыть","jobs.review":"Проверить","jobs.viewOutputsShort":"Результаты","time.now":"только что","time.min":"{n} мин назад","time.hour":"{n} ч назад","time.day":"{n} дн назад"});
+
+const OFFICE={w:1600,h:1100,wallY:230,backL:300,backR:1300};
+const OFFICE_ROWS=[{y:390,s:.6},{y:590,s:.74},{y:800,s:.88},{y:1020,s:1}];
+const LOOK_SKIN=['#f2c9a7','#e3b18b','#c98d63','#9a6442','#f6d6bd','#b97c56','#7a4a30'];
+const LOOK_HAIR=['#17110d','#3b2416','#6a3f22','#a8763b','#d8b46c','#2a2a2e','#8d929b','#5a1f1a'];
+const LOOK_STYLE=['short','long','side','bun','curly','buzz','ponytail','bald'];
+const LOOK_HOOD=['#121a25','#18212d','#1c2531','#141d2a','#202a37'];
+const LOOK_FIXED={'Voice Agent':{headset:true},'Analyst':{glasses:true},'Tech Verifier':{glasses:true},'Supervisor':{hood:'#2a2145',style:'side'}};
+let officeSig='',officePos={};
+function hashStr(s){let h=2166136261;for(const c of String(s)){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
+function agentLook(name){
+ const h=hashStr(name),r=hashStr(name+'#'),pick=(a,x)=>a[x%a.length],style=pick(LOOK_STYLE,h);
+ const l={skin:pick(LOOK_SKIN,r),hair:pick(LOOK_HAIR,h>>>8),style,hood:pick(LOOK_HOOD,r>>>8),glasses:(r>>>4)%4===0,beard:['short','buzz','bald','side'].includes(style)&&(h>>>16)%3===0,monitors:['L','R','LR'][(r>>>12)%3],prop:(h>>>20)%4,delay:((r>>>16)%30)/10};
+ return Object.assign(l,LOOK_FIXED[name]||{})
+}
+function officeFloorX(y){const t=(y-OFFICE.wallY)/(OFFICE.h-OFFICE.wallY);return [OFFICE.backL*(1-t),OFFICE.backR+(OFFICE.w-OFFICE.backR)*t]}
+function officeLayout(names){
+ const rows=OFFICE_ROWS.length,base=Math.floor(names.length/rows),extra=names.length%rows,out={};let k=0;
+ OFFICE_ROWS.forEach((row,ri)=>{const c=base+(ri>=rows-extra?1:0);if(!c)return;const [l,r]=officeFloorX(row.y),pad=(r-l)*.025,span=r-l-2*pad;
+  for(let i=0;i<c;i++)out[names[k++]]={x:l+pad+span*(i+.5)/c,y:row.y,s:row.s}});
+ return out
+}
+function wsHair(l,front){
+ const c=l.hair;
+ if(!front){
+  if(l.style==='long')return '<path d="M-16,-104Q-18,-125 0,-125Q18,-125 16,-104L18,-80Q11,-75 8,-84L-8,-84Q-11,-75 -18,-80Z" fill="'+c+'"/>';
+  if(l.style==='ponytail')return '<path d="M10,-116Q25,-112 21,-92Q19,-83 13,-86Q17,-98 8,-108Z" fill="'+c+'"/>';
+  if(l.style==='bun')return '<circle cx="0" cy="-123" r="6.5" fill="'+c+'"/>';
+  return ''
+ }
+ switch(l.style){
+  case 'short':return '<path d="M-14,-103Q-16,-123 0,-123Q16,-123 14,-103Q12,-114 0,-115Q-11,-114 -14,-103Z" fill="'+c+'"/>';
+  case 'side':return '<path d="M-14.5,-101Q-17,-124 2,-124Q17,-122 14.5,-104Q9,-117 -5,-113Q-11,-111 -14.5,-101Z" fill="'+c+'"/>';
+  case 'long':case 'bun':case 'ponytail':return '<path d="M-14,-102Q-15,-121 0,-121Q15,-121 14,-102Q7,-115 -3,-113Q-10,-111 -14,-102Z" fill="'+c+'"/>';
+  case 'curly':{let s='';for(let a=0;a<9;a++){const t=Math.PI*(1.04+a*.92/8);s+='<circle cx="'+(Math.cos(t)*12.5).toFixed(1)+'" cy="'+(-106+Math.sin(t)*14).toFixed(1)+'" r="5.4" fill="'+c+'"/>'}return s}
+  case 'buzz':return '<path d="M-13.6,-103Q-14,-120 0,-120Q14,-120 13.6,-103Q10,-112 0,-113Q-10,-112 -13.6,-103Z" fill="'+c+'" opacity=".78"/>';
+  default:return '<ellipse cx="-4" cy="-114" rx="5" ry="2.4" fill="#fff" opacity=".13"/>'
+ }
+}
+function wsHead(l){
+ const shade='rgba(0,0,0,.2)';
+ let s=wsHair(l,false)
+  +'<rect x="-5.5" y="-91" width="11" height="12" fill="'+l.skin+'"/><rect x="-5.5" y="-91" width="11" height="5" fill="'+shade+'"/>'
+  +'<ellipse cx="-13.4" cy="-101" rx="2.6" ry="4" fill="'+l.skin+'"/><ellipse cx="13.4" cy="-101" rx="2.6" ry="4" fill="'+l.skin+'"/>'
+  +'<ellipse cx="0" cy="-103" rx="13.5" ry="16" fill="'+l.skin+'"/><ellipse class="faceGlow" cx="0" cy="-99" rx="12" ry="13"/>'
+  +'<g class="eyes" style="animation-delay:'+l.delay+'s"><ellipse cx="-5" cy="-103" rx="1.5" ry="1.9" fill="#1b1410"/><ellipse cx="5" cy="-103" rx="1.5" ry="1.9" fill="#1b1410"/></g>'
+  +'<path d="M-8,-108.5q3,-1.6 5.6,-.5M8,-108.5q-3,-1.6 -5.6,-.5" stroke="'+l.hair+'" stroke-width="1.3" fill="none" stroke-linecap="round"/>'
+  +'<path d="M.3,-102q-1.4,4 .9,4.6" stroke="'+shade+'" stroke-width="1" fill="none" stroke-linecap="round"/>'
+  +'<path d="M-3.6,-94.4q3.6,2.2 7.2,0" stroke="#7b3e34" stroke-width="1.15" fill="none" stroke-linecap="round"/>';
+ if(l.beard)s+='<path d="M-13,-101Q-13,-86 0,-85Q13,-86 13,-101Q9,-91 0,-92Q-9,-91 -13,-101Z" fill="'+l.hair+'"/>';
+ s+=wsHair(l,true);
+ if(l.glasses)s+='<g fill="rgba(150,210,255,.14)" stroke="#cfdbe8" stroke-width=".9"><rect x="-10" y="-106.5" width="8" height="6" rx="2"/><rect x="2" y="-106.5" width="8" height="6" rx="2"/><path d="M-2,-104h4"/></g>';
+ if(l.headset)s+='<path d="M-15.5,-104Q-16,-127 0,-127Q16,-127 15.5,-104" stroke="#2c3747" stroke-width="3.2" fill="none"/><rect x="-18.5" y="-107" width="6" height="10" rx="2.5" fill="#33445a"/><rect x="12.5" y="-107" width="6" height="10" rx="2.5" fill="#33445a"/><path d="M-15.5,-98q1,9 10,8.5" stroke="#33445a" stroke-width="1.6" fill="none"/><circle cx="-5" cy="-89.6" r="1.6" fill="#4fd2ff"/>';
+ return s
+}
+function wsBody(l){
+ const hl='rgba(255,255,255,.07)';
+ return '<path d="M-37,-28L-37,-60Q-37,-77 -18,-80L18,-80Q37,-77 37,-60L37,-28Z" fill="'+l.hood+'"/>'
+  +'<path d="M-37,-60Q-37,-77 -18,-80L-11,-80Q-25,-74 -27,-58L-28,-28L-37,-28Z" fill="'+hl+'"/>'
+  +'<path d="M-15,-80Q0,-66 15,-80" stroke="'+hl+'" stroke-width="4" fill="none"/>'
+}
+function wsArms(l){
+ const arm=(m)=>'<path d="M'+(33*m)+',-70Q'+(46*m)+',-52 '+(36*m)+',-34L'+(29*m)+',-31" stroke="'+l.hood+'" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+ return arm(-1)+arm(1)+'<ellipse class="hand handL" cx="-28" cy="-30" rx="5.2" ry="3.6" fill="'+l.skin+'"/><ellipse class="hand handR" cx="28" cy="-30" rx="5.2" ry="3.6" fill="'+l.skin+'"/>'
+}
+function wsCode(seed){
+ const cols=['#4fd2ff','#34dc7d','#8fa8c4','#b48cff','#4fd2ff','#ffcf6a'];let s='';
+ for(let i=0;i<16;i++){const h=hashStr(seed+':'+i),ind=(h%3)*4,w=8+(h>>>3)%24;s+='<rect x="'+(3+ind)+'" y="'+(3+i*6.5)+'" width="'+Math.min(w,36-ind)+'" height="2.2" rx="1" fill="'+cols[(h>>>9)%cols.length]+'"/>'}
+ return '<g clip-path="url(#scrClip)"><g class="code">'+s+'</g></g>'
+}
+function wsMonitor(seed,mirror){
+ const g='<path d="M-112,-118L-62,-106L-62,-52L-112,-58Z" fill="#111923" stroke="#2c3d51" stroke-width="1.5"/>'
+  +'<g transform="matrix(1,.25,0,1,-108,-113)"><rect class="scr" width="42" height="52"/>'+wsCode(seed)
+  +'<path class="scrMark scrOk" d="M12,27l6,6 12,-13"/><path class="scrMark scrWarn" d="M21,14v15M21,35v1"/><path class="scrMark scrFail" d="M14,19l14,14M28,19l-14,14"/></g>'
+  +'<rect x="-90" y="-59" width="6" height="13" fill="#1a2330"/><ellipse cx="-87" cy="-46" rx="12" ry="2.6" fill="#1a2330"/>';
+ return mirror?'<g transform="scale(-1,1)">'+g+'</g>':g
+}
+function wsProp(kind,x){
+ if(kind===0)return '<g transform="translate('+x+',-30)"><rect x="-4.5" y="-10" width="9" height="11" rx="1.6" fill="#d8dee8"/><path d="M4.5,-7q4.5,0 4.5,3t-4.5,3" stroke="#d8dee8" stroke-width="1.6" fill="none"/></g>';
+ if(kind===1)return '<g transform="translate('+x+',-36)"><path d="M-7,0h14l-2,10h-10Z" fill="#2a3442"/><ellipse cx="-4" cy="-8" rx="3.2" ry="9" transform="rotate(-28 -4 -8)" fill="#2f7d4f"/><ellipse cx="4" cy="-9" rx="3.2" ry="9" transform="rotate(24 4 -9)" fill="#27693f"/><ellipse cx="0" cy="-11" rx="3" ry="10" fill="#3a9460"/></g>';
+ if(kind===2)return '<path d="M'+(x-14)+',-40l24,-3l4,13l-24,3Z" fill="#c9d3df" opacity=".72"/><path d="M'+(x-10)+',-35l15,-2M'+(x-9)+',-31l12,-1.5" stroke="#7d8a9a" stroke-width="1"/>';
+ return '<g transform="translate('+x+',-34)"><rect x="-10" y="-3" width="20" height="5" rx="1.5" fill="#26303d"/><rect x="-8" y="-10" width="16" height="7" rx="1.5" fill="#1d2632"/><circle cx="0" cy="-6.5" r="1.4" class="deskLamp"/></g>'
+}
+function workstation(name,p,l){
+ const mons=(l.monitors!=='R'?wsMonitor(name+'L',false):'')+(l.monitors!=='L'?wsMonitor(name+'R',true):'');
+ const propX=l.monitors==='L'?84:l.monitors==='R'?-84:56;
+ return '<g class="ws idle" data-agent="'+esc(name)+'" transform="translate('+p.x.toFixed(1)+','+p.y+') scale('+p.s+')">'
+  +'<ellipse class="floorGlow" cx="0" cy="30" rx="150" ry="24" filter="url(#ofBlur)"/>'
+  +'<rect x="-41" y="-93" width="82" height="66" rx="12" fill="#0b1119" stroke="#1a2635"/>'
+  +'<g class="person">'+wsBody(l)+'<g class="head">'+wsHead(l)+'</g></g>'
+  +'<path d="M-118,-48L118,-48L128,0L-128,0Z" fill="url(#deskTop)"/><path d="M-128,0L128,0" stroke="#3d536b" stroke-width="1.5"/>'
+  +'<rect x="-128" y="0" width="256" height="22" fill="url(#deskFront)"/><path class="deskLed" d="M-122,21H122" stroke-width="2.4"/>'
+  +'<ellipse class="monGlow" cx="0" cy="-36" rx="110" ry="12" filter="url(#ofBlur)"/>'
+  +mons+wsProp(l.prop,propX)+wsArms(l)
+  +'<g class="laptop"><rect x="-27" y="-61" width="54" height="36" rx="3.5" fill="#1b2532" stroke="#34485f" stroke-width="1.2"/><path d="M-30,-25H30L32,-21H-32Z" fill="#283546"/>'
+  +'<path class="logo" d="M0,-49.5L5.5,-46.3V-39.9L0,-36.7L-5.5,-39.9V-46.3ZM0,-43.1L-5.5,-46.3M0,-43.1L5.5,-46.3M0,-43.1V-36.7" filter="url(#ofGlow)"/></g>'
+  +'<rect class="wsHit" x="-130" y="-132" width="260" height="156" fill="transparent"/></g>'
+}
+function officePlant(x,y,s){
+ const leaves=[[-30,-18,-38],[-14,-30,-16],[2,-34,4],[18,-28,22],[30,-16,40],[-22,-8,-58],[24,-6,60],[-6,-22,-8],[10,-20,14]],cols=['#1d5636','#2a7a4c','#174a2f','#246a42'];
+ return '<g transform="translate('+x+','+y+') scale('+s+')"><ellipse cx="0" cy="4" rx="34" ry="8" fill="#000" opacity=".35"/>'
+  +leaves.map((v,i)=>'<ellipse cx="'+v[0]+'" cy="'+(v[1]-40)+'" rx="7" ry="24" transform="rotate('+v[2]+' '+v[0]+' '+(v[1]-40)+')" fill="'+cols[i%4]+'"/>').join('')
+  +'<path d="M-20,-30h40l-5,34h-30Z" fill="#1f2834"/><path d="M-20,-30h40v5h-40Z" fill="#2b3746"/></g>'
+}
+function officeBackdrop(){
+ const W=OFFICE.w,H=OFFICE.h,Y=OFFICE.wallY,L=OFFICE.backL,R=OFFICE.backR;
+ let s='<defs>'
+  +'<linearGradient id="ofWall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#09111b"/><stop offset="1" stop-color="#0f1b29"/></linearGradient>'
+  +'<linearGradient id="ofSideL" x1="0" x2="1"><stop offset="0" stop-color="#05090f"/><stop offset="1" stop-color="#0b141f"/></linearGradient>'
+  +'<linearGradient id="ofSideR" x1="1" x2="0"><stop offset="0" stop-color="#05090f"/><stop offset="1" stop-color="#0b141f"/></linearGradient>'
+  +'<linearGradient id="ofFloor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#101b28"/><stop offset="1" stop-color="#070c13"/></linearGradient>'
+  +'<radialGradient id="ofPool" cx=".5" cy=".45" r=".6"><stop offset="0" stop-color="#1d7fc4" stop-opacity=".2"/><stop offset="1" stop-color="#1d7fc4" stop-opacity="0"/></radialGradient>'
+  +'<radialGradient id="ofVignette" cx=".5" cy=".5" r=".75"><stop offset=".55" stop-color="#02060b" stop-opacity="0"/><stop offset="1" stop-color="#02060b" stop-opacity=".72"/></radialGradient>'
+  +'<linearGradient id="ofSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b2140"/><stop offset="1" stop-color="#162c4a"/></linearGradient>'
+  +'<linearGradient id="deskTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2633"/><stop offset="1" stop-color="#2b394a"/></linearGradient>'
+  +'<linearGradient id="deskFront" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#141d28"/><stop offset="1" stop-color="#0a1018"/></linearGradient>'
+  +'<filter id="ofBlur" x="-50%" y="-80%" width="200%" height="260%"><feGaussianBlur stdDeviation="10"/></filter>'
+  +'<filter id="ofNeon" x="-20%" y="-80%" width="140%" height="260%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
+  +'<filter id="ofGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
+  +'<clipPath id="scrClip"><rect width="42" height="52"/></clipPath>'
+  +'<clipPath id="winClip"><path d="M1352,92L1566,206L1566,500L1352,262Z"/></clipPath>'
+  +'<marker id="flowArrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0L6,3L0,6z" fill="#4ccfff" opacity=".7"/></marker>'
+  +'</defs>';
+ s+='<rect width="'+W+'" height="'+H+'" fill="#05090f"/>'
+  +'<path d="M0,0H'+L+'V'+Y+'L0,'+H+'Z" fill="url(#ofSideL)"/><path d="M'+W+',0H'+R+'V'+Y+'L'+W+','+H+'Z" fill="url(#ofSideR)"/>'
+  +'<rect x="'+L+'" y="0" width="'+(R-L)+'" height="'+Y+'" fill="url(#ofWall)"/>';
+ for(let x=L+20;x<R;x+=40)s+='<path d="M'+x+',0V'+Y+'" stroke="#0c1622" stroke-width="2"/>';
+ s+='<path d="M'+L+',16H'+R+'" stroke="#7fe6ff" stroke-width="3" opacity=".75" filter="url(#ofGlow)"/>';
+ [[322,462],[1138,1278]].forEach(([a,b],side)=>{for(let k=0;k<3;k++){const y=78+k*58;let x=a+6,n=0;s+='<rect x="'+a+'" y="'+y+'" width="'+(b-a)+'" height="4" fill="#1f2c3b"/>';
+  while(x<b-12){const h=hashStr('book'+side+k+n++),w=6+h%7,bh=20+(h>>>4)%16,col=['#1e3a5c','#2a2f4a','#38506a','#173247','#4a3b2a','#23444a','#5a2f3a'][(h>>>9)%7];s+='<rect x="'+x+'" y="'+(y-bh)+'" width="'+w+'" height="'+bh+'" fill="'+col+'"/>';x+=w+1.5+((h>>>13)%6===0?12:0)}}});
+ s+='<rect x="482" y="46" width="636" height="168" rx="8" fill="#08121c" stroke="#163049"/>'
+  +'<text x="800" y="132" text-anchor="middle" font-family="Orbitron,Rajdhani,Inter,Segoe UI,Arial,sans-serif" font-weight="800" font-size="54" letter-spacing="12" fill="#d4f7ff" filter="url(#ofNeon)">BLACKBOX LAB</text>'
+  +'<text x="800" y="182" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-weight="600" font-size="19" letter-spacing="17" fill="#5ad3ff" filter="url(#ofGlow)">FACTORYOS</text>';
+ s+='<path d="M60,200L250,90L250,250L60,470Z" fill="#0d1817" stroke="#2a3a44" stroke-width="6" stroke-linejoin="round"/>'
+  +'<g transform="matrix(1,-.579,0,.98,60,214)" font-family="Caveat,Segoe Print,Bradley Hand,Comic Sans MS,cursive" font-size="25" fill="#dbe6ee" opacity=".82">'
+  +['IDEAS','↓ RESEARCH','↓ SCRIPTS','↓ VIDEOS','↓ GROWTH'].map((t,i)=>'<text x="22" y="'+(40+i*40)+'">'+t+'</text>').join('')+'</g>';
+ s+='<path d="M1352,92L1566,206L1566,500L1352,262Z" fill="url(#ofSky)"/><g clip-path="url(#winClip)">';
+ for(let i=0,x=1346;x<1570;i++){const h=hashStr('city'+i),w=18+h%22,top=150+(h>>>5)%150+(x-1350)*.35;s+='<rect x="'+x+'" y="'+top+'" width="'+w+'" height="420" fill="'+(i%2?'#0a1626':'#0d1b2e')+'"/>';
+  for(let yy=top+8;yy<520;yy+=11)for(let xx=x+4;xx<x+w-4;xx+=6){const hh=hashStr(i+':'+xx+':'+yy);if(hh%5<2)s+='<rect x="'+xx+'" y="'+yy+'" width="2.4" height="3.5" fill="'+(hh%3?'#ffd58a':'#7fd8ff')+'" opacity="'+(.35+(hh>>>8)%5/10)+'"/>'}
+  x+=w+2}
+ s+='</g><path d="M1352,92L1566,206L1566,500L1352,262Z" fill="none" stroke="#22374d" stroke-width="6"/><path d="M1423,130V341M1494,168V420" stroke="#22374d" stroke-width="5"/>';
+ s+='<path d="M'+L+','+Y+'H'+R+'L'+W+','+H+'H0Z" fill="url(#ofFloor)"/><ellipse cx="800" cy="680" rx="740" ry="420" fill="url(#ofPool)"/>';
+ for(let i=0;i<=12;i++)s+='<path d="M'+(L+i*(R-L)/12)+','+Y+'L'+(i*W/12)+','+H+'" stroke="#122030" stroke-width="1.3"/>';
+ for(let i=1;i<10;i++){const y=Y+(H-Y)*Math.pow(i/10,1.5),[a,b]=officeFloorX(y);s+='<path d="M'+a.toFixed(0)+','+y.toFixed(0)+'H'+b.toFixed(0)+'" stroke="#122030" stroke-width="1.3"/>'}
+ s+='<path d="M'+L+','+(Y-1)+'H'+R+'" stroke="#2fc4ff" stroke-width="2.5" filter="url(#ofGlow)"/><path d="M'+L+','+Y+'L0,'+H+'M'+R+','+Y+'L'+W+','+H+'" stroke="#1d7fb3" stroke-width="2" opacity=".55"/>';
+ s+=officePlant(342,262,.9)+officePlant(1258,262,.9)+officePlant(1310,330,.75);
+ return s
+}
+function officeTail(){return officePlant(46,1090,1.55)+officePlant(1554,1090,1.55)+'<rect width="'+OFFICE.w+'" height="'+OFFICE.h+'" fill="url(#ofVignette)" pointer-events="none"/>'}
+function buildOffice(names){
+ const svg=$('#officeScene');if(!svg)return;
+ officePos=officeLayout(names);
+ svg.innerHTML=officeBackdrop()+'<g id="officeFlow"></g><g id="officeDesks">'+names.map(n=>workstation(n,officePos[n],agentLook(n))).join('')+'</g>'+officeTail();
+ svg.onclick=e=>{const g=e.target.closest('.ws');if(g)openAgent(g.dataset.agent)};
+ svg.onmouseover=e=>{const g=e.target.closest('.ws');document.querySelectorAll('#agentBadges .agent.hot').forEach(x=>x.classList.remove('hot'));if(g){const b=document.querySelector('#agentBadges .agent[data-agent="'+CSS.escape(g.dataset.agent)+'"]');if(b)b.classList.add('hot')}};
+ svg.onmouseleave=()=>document.querySelectorAll('#agentBadges .agent.hot').forEach(x=>x.classList.remove('hot'));
+ requestAnimationFrame(()=>{const o=svg.closest('.office');if(o&&o.scrollWidth>o.clientWidth)o.scrollLeft=(o.scrollWidth-o.clientWidth)/2});
+}
+function agentStateKey(state){return state==='working'?'agent.working':state==='waiting'?'agent.waiting':state==='done'?'agent.done':state==='monitoring'?'agent.monitoring':state==='failed'?'agent.failed':'agent.idle'}
+const AGENT_STATE_ICON={working:'●',waiting:'!',done:'✓',monitoring:'◉',failed:'✕',idle:'○'};
+function agents(){
+ const r=$('#agentBadges');if(!r||!S)return;
+ const names=Object.keys(S.agentStates||{}).filter(n=>n!=='Design Partner'),sig=names.join('|');
+ if(sig!==officeSig){officeSig=sig;buildOffice(names)}
+ const results=(S&&S.selectedJobWorkerResults)||{};let working=0;r.innerHTML='';
+ names.forEach(name=>{
+  const state=S.agentStates[name]||'idle',p=officePos[name];if(!p)return;if(state==='working')working++;
+  const ws=document.querySelector('#officeDesks .ws[data-agent="'+CSS.escape(name)+'"]');if(ws)ws.setAttribute('class','ws '+state);
+  const pr=(S.agentProgress||{})[name]||{},res=results[name]||{},run=res.run||{},t=tr(agentStateKey(state));
+  const pct=state==='done'&&Number(pr.progress||0)===0?100:Number(pr.progress||0),step=pr.step&&pr.step!=='Idle'?pr.step:t;
+  const purpose=workerPurpose(name)||((S.agentMap||{})[name]||'');
+  const latest=res.preview?textValue(res.preview).slice(0,260):tr('worker.noArtifact');
+  const selectedMeta=res.id?(fmtTokens(Number(run.input_tokens||0)+Number(run.output_tokens||0))+' tok · '+fmtMoney(run.cost_usd||0)+' · '+Number(res.artifact_count||1)+' '+tr('worker.artifactCount')):'';
+  const d=document.createElement('div');
+  d.className='agent '+state;d.dataset.agent=name;d.dataset.name=name.toLowerCase();
+  d.style.setProperty('left',(p.x/OFFICE.w*100).toFixed(2)+'%','important');d.style.setProperty('top',((p.y-134*p.s)/OFFICE.h*100).toFixed(2)+'%','important');
+  d.tabIndex=0;d.setAttribute('role','button');d.setAttribute('aria-label',name+' — '+t+(pct?' '+pct+'%':''));
+  d.innerHTML='<b><span class="dot"></span>'+esc(name)+'</b><small><span class="stIco">'+AGENT_STATE_ICON[state==='waiting'||state==='done'||state==='monitoring'||state==='failed'||state==='working'?state:'idle']+'</span>'+esc(state==='working'&&pct?pct+'%':t)+'</small>'
+   +(state==='working'?'<div class="agentMiniBar"><i style="width:'+pct+'%"></i></div>':'')
+   +'<div class="agentTooltip"><b>'+esc(name)+' · '+esc(t)+'</b>'
+   +(purpose?'<span><strong>'+esc(tr('worker.role'))+':</strong> '+esc(purpose)+'</span>':'')
+   +'<span>'+esc(tr('agent.currentStep'))+': '+esc(step)+'</span>'
+   +'<span><strong>'+esc(tr('worker.latestResult'))+':</strong> '+esc(latest)+'</span>'
+   +(selectedMeta?'<span>'+esc(selectedMeta)+'</span>':'')
+   +'<span>'+esc(tr('worker.clickFull'))+'</span><span class="hoverPct">'+pct+'% '+esc(tr('agent.complete'))+'</span></div>';
+  d.onclick=()=>openAgent(name);d.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openAgent(name)}};
+  const hot=on=>{const w=document.querySelector('#officeDesks .ws[data-agent="'+CSS.escape(name)+'"]');if(w)w.classList.toggle('hot',on)};
+  d.onmouseenter=()=>hot(true);d.onmouseleave=()=>hot(false);d.onfocus=()=>hot(true);d.onblur=()=>hot(false);
+  r.appendChild(d)
+ });
+ $('#agentCount').textContent=working?tr('office.working',{n:names.length,w:working}):tr('office.standby',{n:names.length});
+ const dot=$('#officeDot');if(dot)dot.classList.toggle('idleDot',!working);
+}
+function officeFlow(){
+ const g=$('#officeFlow');if(!g||!S)return;
+ const deps=S.agentDependencies||{},states=S.agentStates||{},handoffs=S.selectedJobHandoffs||[];let h='';
+ Object.entries(deps).forEach(([target,sources])=>(sources||[]).forEach(source=>{
+  const a=officePos[source],b=officePos[target];if(!a||!b)return;
+  const x1=a.x,y1=a.y+30*a.s,x2=b.x,y2=b.y+30*b.s,targetState=states[target]||'idle';
+  const recent=handoffs.some(x=>x.source_agent===source&&x.target_agent===target);
+  const cls=targetState==='working'?'active':(recent||targetState==='done')?'done':'';
+  h+='<path class="flowEdge '+cls+'" d="M'+x1.toFixed(1)+','+y1.toFixed(1)+'L'+x2.toFixed(1)+','+y2.toFixed(1)+'"'+(cls==='active'?' marker-end="url(#flowArrow)"':'')+'/>';
+  if(targetState==='working')h+='<circle class="flowPacket" r="5" cx="'+x1+'" cy="'+y1+'"><animate attributeName="cx" values="'+x1+';'+x2+'" dur="1.4s" repeatCount="indefinite"/><animate attributeName="cy" values="'+y1+';'+y2+'" dur="1.4s" repeatCount="indefinite"/></circle>';
+ }));
+ g.innerHTML=h
+}
+function agentFace(name,cls){
+ const l=agentLook(name),state=(S&&S.agentStates&&S.agentStates[name])||'idle';
+ return '<svg class="face '+(cls||'')+' '+state+'" viewBox="-22 -129 44 46" aria-hidden="true"><rect x="-22" y="-129" width="44" height="46" class="faceBg"/>'+wsBody(l)+wsHead(l)+'</svg>'
+}
+function faceStack(names,max){
+ const shown=names.slice(0,max);
+ return '<span class="faceStack">'+shown.map(n=>'<span class="faceChip" title="'+esc(n)+'">'+agentFace(n)+'</span>').join('')+(names.length>max?'<span class="faceMore">+'+(names.length-max)+'</span>':'')+'</span>'
+}
+const PIPE_ICON_PATHS={
+ inbox:'<path d="M4 13l2.5-7h11L20 13v5H4z"/><path d="M4 13h4.5l1 2h5l1-2H20"/>',
+ research:'<circle cx="10.5" cy="10.5" r="5.5"/><path d="M15 15l5 5"/>',
+ script:'<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M9.5 12h6M9.5 15.5h6M9.5 9h2.5"/>',
+ visual:'<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.7"/><path d="M5 17l4.5-4.5 3 3 2.5-2.5 4 4"/>',
+ voice:'<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 10.5v3"/>',
+ render:'<circle cx="12" cy="12" r="8.5"/><path d="M10 8.5l5.5 3.5-5.5 3.5z"/>',
+ qa:'<circle cx="12" cy="12" r="8.5"/><path d="M8.2 12.3l2.6 2.6 5-5.4"/>',
+ publish:'<path d="M7 18a4.5 4.5 0 01-.6-8.96A6 6 0 0118 9a4 4 0 01-.5 9"/><path d="M12 12v8M9 15l3-3 3 3"/>',
+ analytics:'<path d="M5 20V12M10 20V6M15 20v-9M20 20V9M3 20h18"/>'
+};
+function pipeIcon(st){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(PIPE_ICON_PATHS[st]||PIPE_ICON_PATHS.inbox)+'</svg>'}
+function pipeline(){
+ const j=S.selectedJob,cur=j?S.stages.indexOf(j.stage):0,stale=((S.selectedJobQuality||{}).stale_stages||[]),states=S.agentStates||{},map=S.agentMap||{},vsm=((S.selectedJobVariants||{}).summary||{}),last=S.stages.length-1,allDone=j&&j.status==='done';
+ $('#pipeline').innerHTML=S.stages.map((st,i)=>{
+  const crew=map[st]||[],activeAgents=crew.filter(name=>states[name]==='working'),live=!!activeAgents.length,isStale=stale.includes(st);
+  const state=isStale?'stale':live?'liveWorking':(allDone||i<cur)?'complete':i===cur?'current':'pending';
+  let detail=live?activeAgents.join(', '):(stageSub(st)+(isStale?' · '+tr('stage.rebuild'):''));
+  if(st==='script'&&Number(vsm.variants||0))detail=Number(vsm.variants)+' variants · '+Number(vsm.selected||0)+' selected'+(live?' · '+activeAgents.join(', '):'');
+  const label=state==='complete'?tr('sj.completed'):state==='pending'?tr('sj.pending'):tr('sj.inProgress');
+  return '<div class="stage '+state+'" aria-label="'+esc(stageLabel(st)+' — '+label)+'"><div class="stIcon">'+pipeIcon(st)+(state==='complete'?'<em class="stCheck">✓</em>':'')+'</div><b>'+stageLabel(st)+'</b><span>'+esc(detail)+'</span>'+(live?faceStack(activeAgents,4):'')+(live&&i<last?'<em class="stagePacket"></em>':'')+'</div>'+(i<last?'<div class="stArrow" aria-hidden="true">›</div>':'')
+ }).join('')
+}
+function timeAgo(iso){
+ const t=Date.parse(iso||'');if(!t)return '';const m=Math.max(0,Math.round((Date.now()-t)/60000));
+ return m<1?tr('time.now'):m<60?tr('time.min',{n:m}):m<1440?tr('time.hour',{n:Math.round(m/60)}):tr('time.day',{n:Math.round(m/1440)})
+}
+function jobThumb(j){
+ const title=String(j.title||''),h=hashStr(title),hue=190+h%60;
+ const glyph=/ghidra|nsa|secur|hack|lock|crypt|exploit|malware|revers|privacy/i.test(title)?'<rect x="50" y="31" width="20" height="16" rx="3"/><path d="M54 31v-5a6 6 0 0112 0v5M60 37v4"/>'
+  :/firmware|chip|hardware|device|iot|cpu/i.test(title)?'<rect x="49" y="23" width="22" height="22" rx="3"/><path d="M54 23v-4M60 23v-4M66 23v-4M54 49v-4M60 49v-4M66 49v-4M45 28h4M45 34h4M45 40h4M71 28h4M71 34h4M71 40h4"/><rect x="55" y="29" width="10" height="10" rx="1.5"/>'
+  :/\bai\b|gpt|llm|model|neural|agent|claude/i.test(title)?'<rect x="47" y="25" width="26" height="20" rx="6"/><circle cx="55" cy="35" r="2.2"/><circle cx="65" cy="35" r="2.2"/><path d="M60 25v-5M58 20h4"/>'
+  :'<circle cx="60" cy="34" r="12"/><path d="M57 28.5l8.5 5.5-8.5 5.5z"/>';
+ return '<svg class="jobThumb" viewBox="0 0 120 68" aria-hidden="true"><defs><linearGradient id="jt'+h+'" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl('+hue+',85%,22%)"/><stop offset="1" stop-color="hsl('+(hue+30)+',80%,9%)"/></linearGradient></defs><rect width="120" height="68" fill="url(#jt'+h+')"/>'
+  +'<path d="M0 50H120M0 34H120M0 18H120M20 0V68M40 0V68M80 0V68M100 0V68" stroke="#ffffff" stroke-opacity=".05"/><circle cx="60" cy="34" r="26" fill="hsl('+hue+',100%,60%)" opacity=".12"/>'
+  +'<g fill="none" stroke="hsl('+hue+',100%,72%)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'+glyph+'</g></svg>'
+}
+function jobCrew(j){
+ const map=S.agentMap||{},cur=S.stages.indexOf(j.stage),upto=j.status==='done'?S.stages.length-1:Math.max(cur,1);
+ return S.stages.slice(0,upto+1).flatMap(st=>map[st]||[])
+}
+async function reviewJob(id){await api('/api/jobs/'+id+'/select',{method:'POST'});await refresh();openApprovalStudio()}
+function jobs(){
+ const a=S.jobs||[],done=a.filter(j=>j.status==='done').length;$('#jobSummary').textContent=tr('jobs.summary',{jobs:a.length,running:S.runningJobs.length,done});
+ if(!a.length){$('#jobs').innerHTML='<div class="sub" style="padding:18px">'+tr('jobs.none')+'</div>';return}
+ $('#jobs').innerHTML=a.map(j=>{
+  const id=esc(j.id),pct=Number(j.progress||0);
+  const action=j.status==='running'?'<button class="btn" disabled>'+tr('jobs.running')+'</button>'
+   :j.status==='waiting_approval'?'<button class="btn good" onclick="event.stopPropagation();reviewJob(\''+id+'\')">✓ '+tr('jobs.review')+'</button>'
+   :j.status==='done'?'<button class="btn" onclick="event.stopPropagation();openJobOutputs(\''+id+'\')">'+tr('jobs.viewOutputsShort')+'</button>'
+   :'<button class="btn" onclick="event.stopPropagation();runJob(\''+id+'\')">▶ '+tr('jobs.run')+'</button>';
+  return '<div class="job '+(j.id===S.selectedJobId?'selectedJob':'')+' st-'+esc(j.status)+'" onclick="selectJob(\''+id+'\')">'
+   +jobThumb(j)
+   +'<div class="jobInfo"><h4>'+esc(j.title)+'</h4><div class="chips"><span>'+esc(j.format)+'</span><span>'+stageLabel(j.stage)+'</span></div></div>'
+   +'<div class="jobProg"><div class="jobProgTop"><span>'+status(j.status)+'</span><b>'+pct+'%</b></div><div class="bar"><i style="width:'+pct+'%"></i></div></div>'
+   +faceStack(jobCrew(j),4)
+   +'<span class="jobAgo">'+esc(timeAgo(j.updated_at||j.created_at))+'</span>'
+   +action
+   +'<button class="btn icon" title="'+esc(tr('jobs.viewOutputs'))+'" onclick="event.stopPropagation();openJobOutputs(\''+id+'\')">⋯</button></div>'
+ }).join('')
+}
+function detail(){
+ const j=S.selectedJob;if(!j){$('#detail').innerHTML='<div class="sub" style="padding:15px">'+tr('jobs.createSelect')+'</div>';$('#log').innerHTML='';return}
+ const q=S.selectedJobQuality||{},stale=q.stale_stages||[];
+ const qhtml='<div class="qualityBox '+(stale.length?'warn':'')+'"><b>'+tr('quality.coverage',{n:Number(q.coverage||0).toFixed(0)})+'</b><span>'+(stale.length?tr('quality.stale',{stages:stale.map(stageLabel).join(', ')}):tr('quality.fresh'))+'</span></div>';
+ const cur=S.stages.indexOf(j.stage),timeline=S.stages.filter(st=>st!=='inbox'&&st!=='analytics');
+ const rows=timeline.map(st=>{
+  const i=S.stages.indexOf(st),state=j.status==='done'||i<cur?'done':i===cur?(j.status==='waiting_approval'?'waiting':'current'):'pending';
+  const label=state==='done'?tr('sj.completed'):state==='waiting'?tr('sj.needsYou'):state==='current'?tr('sj.inProgress'):tr('sj.pending');
+  return '<li class="'+state+'"><span class="tlIco">'+(state==='done'?'✓':state==='current'?'●':state==='waiting'?'!':'')+'</span><b>'+stageLabel(st)+'</b><em>'+label+'</em></li>'
+ }).join('');
+ const curSt=S.stages[Math.max(cur,0)]||'inbox';
+ $('#detail').innerHTML='<div class="sjHead">'+jobThumb(j)+'<div><h4>'+esc(j.title)+'</h4><div class="chips"><span>'+esc(j.format)+'</span><span>'+esc(j.presenter)+'</span><span>'+stageLabel(j.stage)+'</span></div></div></div>'
+  +(j.brief?'<p class="sjBrief">'+esc(j.brief)+'</p>':'')
+  +'<div id="selectedJobMediaStrip" class="selectedJobMediaStrip"></div>'
+  +'<div class="sjBody"><ol class="sjTimeline">'+rows+'</ol>'
+  +'<div class="sjNow"><small>'+tr('sj.currentStage')+'</small><div class="sjNowHead"><span class="sjNowIco">'+pipeIcon(curSt)+'</span><div><b>'+stageLabel(curSt)+'</b><span>'+esc(status(j.status))+'</span></div></div>'
+  +'<div class="bar"><i style="width:'+Number(j.progress||0)+'%"></i></div><div class="sjPct">'+Number(j.progress||0)+'%</div>'
+  +'<small>'+tr('sj.nextAction')+'</small><b class="sjNext">'+esc(S.nextAction)+'</b></div></div>'
+  +qhtml
+  +'<div class="sjActions"><button class="btn" onclick="openJobOutputs(S.selectedJobId)">▦ '+tr('jobs.viewOutputs')+'</button><button class="btn primary" onclick="openMediaFinisher()">✂ '+tr('finisher.nav')+'</button><button class="btn" onclick="openVariantStudio()">◇ '+tr('variant.nav')+'</button><button class="btn" onclick="openPackageStudio()">▤ '+tr('package.nav')+'</button></div>';
+ hydrateSelectedJobMedia(j.id);
+ $('#approveBtn').style.display=j.status==='waiting_approval'?'inline-block':'none';
+ $('#runTop').style.display='inline-block';$('#runTop').textContent=j.status==='waiting_approval'?'↻ Restart Factory':'▶ '+tr('jobs.run');
+ $('#log').innerHTML='<div class="group">'+tr('jobs.recent')+'</div>'+S.events.filter(e=>!e.job_id||e.job_id===j.id).slice(0,16).map(e=>'<div>'+e.ts.slice(11,19)+' · '+esc(e.message)+'</div>').join('')
+}
 function tr(key,vars={}){let v=(I18N[LANG]&&I18N[LANG][key])||I18N.en[key]||key;return String(v).replace(/\{(\w+)\}/g,(_,k)=>vars[k]??'')}
 function applyLanguage(){
  document.documentElement.lang=LANG;
@@ -1263,45 +1758,6 @@ function serviceIcon(k){
  };return icons[k]||'<span>•</span>'
 }
 function connections(){const groups=[['group.publishing',['Metricool','YouTube','Instagram','TikTok']],['group.intelligence',['vidIQ','LLM']],['group.generation',['Voice','Video']]];let h='';groups.forEach(([g,arr])=>{h+='<div class="group">'+tr(g)+'</div>';arr.forEach(k=>{const v=S.connections[k];if(!v)return;const label=v.state==='not_configured'?tr('state.needsSetup'):tr('state.'+v.state)||v.state;h+='<div class="conn"><div class="svc '+k.toLowerCase().replace(/[^a-z0-9]+/g,'')+'">'+serviceIcon(k)+'</div><div><b>'+k+'</b><small>'+esc(v.detail)+'</small></div><span class="status '+v.state+'">'+esc(label)+'</span></div>'})});$('#connections').innerHTML=h}
-function agents(){
- const r=$('#agentBadges');r.innerHTML='';
- const results=(S&&S.selectedJobWorkerResults)||{};
- Object.entries(S.agentStates).filter(([name])=>name!=='Design Partner').forEach(([name,state])=>{
-   const p=pos[name]||[50,50],d=document.createElement('div'),pr=(S.agentProgress||{})[name]||{},m=(S.agentMetrics||{})[name]||{},res=results[name]||{},run=res.run||{};
-   d.className='agent '+state;d.style.left=p[0]+'%';d.style.top=p[1]+'%';
-   const key=state==='working'?'agent.working':state==='waiting'?'agent.waiting':state==='done'?'agent.done':state==='monitoring'?'agent.monitoring':state==='failed'?'agent.failed':'agent.idle',t=tr(key);
-   const pct=state==='done'&&Number(pr.progress||0)===0?100:Number(pr.progress||0),step=pr.step&&pr.step!=='Idle'?pr.step:t;
-   const purpose=workerPurpose(name)||((S.agentMap||{})[name]||'');
-   const latest=res.preview?textValue(res.preview).slice(0,260):tr('worker.noArtifact');
-   const selectedMeta=res.id?(fmtTokens(Number(run.input_tokens||0)+Number(run.output_tokens||0))+' tok · '+fmtMoney(run.cost_usd||0)+' · '+Number(res.artifact_count||1)+' '+tr('worker.artifactCount')):'';
-   d.dataset.name=name.toLowerCase();
-   d.innerHTML='<span class="agentAvatar">'+esc(initials(name))+'</span><span class="agentText"><b><span class="dot"></span>'+esc(name)+'</b><small>'+esc(step)+' · '+pct+'%</small></span><div class="agentMiniBar"><i style="width:'+pct+'%"></i></div>'
-    +'<div class="agentTooltip"><b>'+esc(name)+' · '+esc(t)+'</b>'
-    +(purpose?'<span><strong>'+esc(tr('worker.role'))+':</strong> '+esc(purpose)+'</span>':'')
-    +'<span>'+esc(tr('agent.currentStep'))+': '+esc(step)+'</span>'
-    +'<span><strong>'+esc(tr('worker.latestResult'))+':</strong> '+esc(latest)+'</span>'
-    +(selectedMeta?'<span>'+esc(selectedMeta)+'</span>':'')
-    +'<span>'+esc(tr('worker.clickFull'))+'</span><span class="hoverPct">'+pct+'% '+esc(tr('agent.complete'))+'</span></div>';
-   d.onclick=()=>openAgent(name);r.appendChild(d)
- });
- $('#agentCount').textContent=tr('agent.count',{n:Object.keys(S.agentStates).filter(x=>x!=='Design Partner').length})
-}
-function officeFlow(){
- const svg=$('#officeFlow');if(!svg||!S)return;
- const deps=S.agentDependencies||{},states=S.agentStates||{},handoffs=S.selectedJobHandoffs||[];
- let h='<defs><marker id="flowArrow" markerWidth="5" markerHeight="5" refX="4.4" refY="2.5" orient="auto"><path d="M0,0 L5,2.5 L0,5 z" fill="#4ccfff" opacity=".65"/></marker></defs>';
- Object.entries(deps).forEach(([target,sources])=>(sources||[]).forEach(source=>{
-   if(!pos[source]||!pos[target])return;
-   const [x1,y1]=pos[source],[x2,y2]=pos[target],targetState=states[target]||'idle';
-   const recent=handoffs.some(x=>x.source_agent===source&&x.target_agent===target);
-   const cls=targetState==='working'?'active':(recent||targetState==='done')?'done':'';
-   h+='<line class="flowEdge '+cls+'" x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" marker-end="url(#flowArrow)"/>';
-   if(targetState==='working'){
-     h+='<circle class="flowPacket" r=".65" cx="'+x1+'" cy="'+y1+'"><animate attributeName="cx" values="'+x1+';'+x2+'" dur="1.15s" repeatCount="indefinite"/><animate attributeName="cy" values="'+y1+';'+y2+'" dur="1.15s" repeatCount="indefinite"/></circle>';
-   }
- }));
- svg.innerHTML=h;
-}
 function errorPolicyText(p,part){
  const code=(p&&p.code)||'unknown_failure',key='error.policy.'+code+'.'+part,value=tr(key);
  if(value!==key)return value;
@@ -1355,8 +1811,6 @@ function workerResults(){
 }
 
 function supervisor(){const r=S.supervisor||{},p=S.runtimePolicy||{};const root=$('#supervisorPanel');if(!root)return;const findings=(r.findings||[]).slice(0,2),improvements=(r.improvements||[]).slice(0,2),proposals=(S.improvementProposals||[]).slice(0,3);root.innerHTML='<div class="health"><div class="score" style="--score:'+(r.score??0)+'"><b>'+(r.score??0)+'</b><small>'+tr('super.health')+'</small></div><div class="supSummary"><b>'+esc(r.summary||tr('super.monitoring'))+'</b><span>'+tr('super.lastAudit')+': '+(r.checked_at?r.checked_at.slice(11,19):'…')+'</span></div></div><div class="policyBar"><span>timeout '+Number(p.agent_timeout_seconds||0)+'s</span><span>retries '+Number(p.max_retries||0)+'</span><span>job budget '+fmtMoney(p.job_budget_usd||0)+'</span><span>day budget '+fmtMoney(p.daily_budget_usd||0)+'</span></div>'+(findings.length?findings.map(f=>'<div class="finding '+f.severity+'"><strong>'+esc(f.title)+'</strong><span>'+esc(f.detail)+'</span></div>').join(''):'<div class="finding info"><strong>'+tr('super.noIncidents')+'</strong><span>'+tr('super.monitoring')+'</span></div>')+'<div class="improve"><b>'+tr('super.improvements')+'</b>'+improvements.map(x=>'<div>→ '+esc(x)+'</div>').join('')+'</div>'+(proposals.length?'<div class="group">'+tr('super.backlog')+'</div>'+proposals.map(p=>'<div class="proposal"><strong>'+esc(p.title)+'</strong><span>'+esc(p.rationale)+'</span><div class="proposalActions"><button class="btn" onclick="event.stopPropagation();acceptProposal(\''+p.id+'\')">'+tr('super.accept')+'</button><button class="btn" onclick="event.stopPropagation();dismissProposal(\''+p.id+'\')">'+tr('super.dismiss')+'</button></div></div>').join(''):'')}
-function pipeline(){const j=S.selectedJob,cur=j?S.stages.indexOf(j.stage):0,stale=((S.selectedJobQuality||{}).stale_stages||[]),states=S.agentStates||{},map=S.agentMap||{},vsm=((S.selectedJobVariants||{}).summary||{});$('#pipeline').innerHTML=S.stages.map((st,i)=>{const activeAgents=(map[st]||[]).filter(name=>states[name]==='working'),live=!!activeAgents.length;const cls=stale.includes(st)?'stale ':(live?'liveWorking ':(i<cur?'complete ':i===cur?'current ':'pending '));let detail=live?activeAgents.join(', '):(stageSub(st)+(stale.includes(st)?' · '+tr('stage.rebuild'):''));if(st==='script'&&Number(vsm.variants||0))detail=Number(vsm.variants)+' variants · '+Number(vsm.selected||0)+' selected'+(live?' · '+activeAgents.join(', '):'');return '<div class="stage '+cls+'"><i>'+icons[st]+'</i><b>'+stageLabel(st)+'</b><span>'+esc(detail)+'</span>'+(live&&i<S.stages.length-1?'<em class="stagePacket"></em>':'')+'</div>'}).join('')}
-function jobs(){const a=S.jobs||[],done=a.filter(j=>j.status==='done').length;$('#jobSummary').textContent=tr('jobs.summary',{jobs:a.length,running:S.runningJobs.length,done});if(!a.length){$('#jobs').innerHTML='<div class="sub" style="padding:18px">'+tr('jobs.none')+'</div>';return}$('#jobs').innerHTML=a.map(j=>'<div class="job '+(j.id===S.selectedJobId?'selectedJob':'')+'" onclick="selectJob(\''+j.id+'\')"><div><h4>'+esc(j.title)+'</h4><div class="jobMeta">'+esc(j.format)+' · '+esc(j.presenter)+' · '+esc(j.language)+'</div></div><div><div class="bar"><i style="width:'+j.progress+'%"></i></div><div class="jobMeta">'+stageLabel(j.stage)+' · '+status(j.status)+'</div></div><button class="btn" onclick="event.stopPropagation();runJob(\''+j.id+'\')">'+(j.status==='running'?tr('jobs.running'):j.status==='waiting_approval'?'↻ Restart':'▶ '+tr('jobs.run'))+'</button></div>').join('')}
 function status(s){return ({idle:tr('status.ready'),running:tr('status.running'),waiting_approval:tr('status.approval'),done:tr('status.done'),failed:tr('status.failed')})[s]||s}
 let jobMediaCache={};
 async function loadJobVideoArtifacts(jobId,force=false){
@@ -1372,7 +1826,6 @@ async function hydrateSelectedJobMedia(jobId){
   root.innerHTML=items.slice(0,6).map((a,i)=>{const raw=a.meta&&a.meta.component==='raw_upload',name=(a.meta&&a.meta.filename)||a.title||'video',stable=artifactMediaPath(a,false);return '<span class="jobMediaChip '+(i===0?'latest':'')+'"><span>🎬</span><a href="'+esc(stable)+'" target="_blank" rel="noopener" title="'+esc(name)+'">'+esc(name)+'</a>'+(i===0?'<em>latest</em>':'')+(raw?'<button class="mediaChipDelete" title="Remove" onclick="event.preventDefault();event.stopPropagation();deleteVideoArtifact(\''+esc(a.id)+'\',\''+esc(jobId)+'\')">×</button>':'')+'</span>'}).join('')
  }catch(e){root.innerHTML=''}
 }
-function detail(){const j=S.selectedJob;if(!j){$('#detail').innerHTML='<div class="sub" style="padding:15px">'+tr('jobs.createSelect')+'</div>';$('#log').innerHTML='';return}const q=S.selectedJobQuality||{},stale=q.stale_stages||[];const qhtml='<div class="qualityBox '+(stale.length?'warn':'')+'"><b>'+tr('quality.coverage',{n:Number(q.coverage||0).toFixed(0)})+'</b><span>'+(stale.length?tr('quality.stale',{stages:stale.map(stageLabel).join(', ')}):tr('quality.fresh'))+'</span></div>';$('#detail').innerHTML='<div class="hero"><h4>'+esc(j.title)+'</h4><p>'+esc(j.brief||'')+'</p><div id="selectedJobMediaStrip" class="selectedJobMediaStrip"></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn" onclick="openJobOutputs(S.selectedJobId)">▦ '+tr('jobs.viewOutputs')+'</button><button class="btn primary" onclick="openMediaFinisher()">✂ '+tr('finisher.nav')+'</button><button class="btn" onclick="openVariantStudio()">◇ '+tr('variant.nav')+'</button><button class="btn" onclick="openPackageStudio()">▤ '+tr('package.nav')+'</button></div></div><div class="kv"><span>'+tr('jobs.currentStage')+'</span><b>'+stageLabel(j.stage)+'</b></div><div class="kv"><span>'+tr('jobs.status')+'</span><b>'+status(j.status)+'</b></div><div class="kv"><span>'+tr('jobs.progress')+'</span><b>'+j.progress+'%</b></div>'+qhtml+'<div class="nextBox"><small>'+tr('jobs.next')+'</small><b>'+esc(S.nextAction)+'</b></div>';hydrateSelectedJobMedia(j.id);$('#approveBtn').style.display=j.status==='waiting_approval'?'inline-block':'none';$('#runTop').style.display='inline-block';$('#runTop').textContent=j.status==='waiting_approval'?'↻ Restart Factory':'▶ '+tr('jobs.run');$('#log').innerHTML='<div class="group">'+tr('jobs.recent')+'</div>'+S.events.filter(e=>!e.job_id||e.job_id===j.id).slice(0,16).map(e=>'<div>'+e.ts.slice(11,19)+' · '+esc(e.message)+'</div>').join('')}
 let currentAgentDrawer=null;
 function openClaudeFree(){window.open('https://claude.ai','_blank','noopener')}
 function designBriefText(){
@@ -2033,7 +2486,7 @@ async function openHandoffTrace(runId,artifactId){
 async function openAgent(name){
   currentAgentDrawer=name;
   $('#drawerShade').classList.add('open');$('#agentDrawer').classList.add('open');
-  $('#agentName').textContent=name;$('#agentRole').textContent='Loading history…';$('#agentAvatar').textContent=initials(name);
+  $('#agentName').textContent=name;$('#agentRole').textContent='Loading history…';$('#agentAvatar').innerHTML=agentFace(name);
   $('#agentDrawerBody').innerHTML='<div class="sub" style="padding:20px">Loading agent ledger…</div>';
   try{
     const d=await api('/api/agents/'+encodeURIComponent(name));
@@ -2044,7 +2497,7 @@ function closeAgent(){currentAgentDrawer=null;$('#drawerShade').classList.remove
 function renderAgentDetail(d){
   $('#agentName').textContent=d.name;
   $('#agentRole').textContent=(d.spec.role||'Agent')+' · '+(d.spec.stage||'factory')+' · '+d.state;
-  $('#agentAvatar').textContent=initials(d.name);
+  $('#agentAvatar').innerHTML=agentFace(d.name);
   const m=d.metrics||{},runs=d.runs||[],arts=d.artifacts||[],mem=d.memory||[],deps=d.dependencies||[],pr=d.progress||{},mcp=d.mcp||[],steps=d.steps||[];
   const liveJob=(S&&S.jobs||[]).find(x=>x.id===pr.job_id);
   const liveJobLabel=liveJob?liveJob.title:(pr.job_id||'none');
