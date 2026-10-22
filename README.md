@@ -18,6 +18,11 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v4.8.1 — Signed Archive Access Hotfix — 2026-10-22
+- Fixed the auth boundary for durable finished-media URLs: signed `/media-archive/{id}` links now bypass the login middleware and reach their HMAC token validation, just like signed raw-media source URLs.
+- Without this fix an external publisher could receive the correct durable URL but still get redirected/401 because it has no FactoryOS session cookie.
+- Session-protected API/UI routes remain private; only the signed media path is public before token validation.
+
 ### v4.8 — Durable Finished Media — 2026-10-22
 - Production inspection found a real release blocker: Media Finisher `/files/...` outputs lived on the worker's ephemeral filesystem and older verified pilot URLs returned 404 after worker redeploys.
 - FactoryOS now detects worker-local finished-media URLs and streams masters / Shorts-Reels clips onto its own persistent Render disk before human approval.
