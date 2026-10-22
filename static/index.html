@@ -1750,6 +1750,7 @@ async function renderMediaFinisher(silent=false){
    const stage=String((j.response||{}).stage||j.status||'queued'),pct=finisherPercent(j),durable=String((j.response||{}).durable_media_status||'');
    let actions='';
    if(['queued','submitted','processing'].includes(j.status))actions+='<button class="btn" onclick="refreshMediaFinisher(\''+esc(j.id)+'\')">↻ '+esc(tr('finisher.refresh'))+'</button>';
+   if(j.status==='ready'&&durable==='failed')actions+='<button class="btn" onclick="retryDurableMedia(\''+esc(j.id)+'\')">↻ durable media</button>';
    if(j.status==='ready')actions+='<button class="btn" onclick="rerunMediaFinisher(\''+esc(j.id)+'\',\'captions\')">'+esc(tr('finisher.rerunCaptions'))+'</button><button class="btn" onclick="rerunMediaFinisher(\''+esc(j.id)+'\',\'render\')">'+esc(tr('finisher.rerunRender'))+'</button><button class="btn good" onclick="closeMediaFinisher();openApprovalStudio()">✓ '+esc(tr('finisher.openReview'))+'</button>';
    const progress=['queued','submitted','processing'].includes(j.status)?'<div class="finisherProgressCard"><div class="finisherProgressTop"><b>'+esc(tr('finisher.progress'))+' · '+esc(finisherStageLabel(stage))+'</b><span>'+pct+'%</span></div><div class="finisherProgressTrack"><i style="width:'+pct+'%"></i></div></div>':'';
    const before=summary.duration_before_sec!=null?Number(summary.duration_before_sec).toFixed(1)+'s':'—',after=summary.duration_after_sec!=null?Number(summary.duration_after_sec).toFixed(1)+'s':'—';
@@ -1783,6 +1784,7 @@ async function startMediaFinisher(){
  }catch(e){toast(e.message)}finally{finisherBusy=false}
 }
 async function refreshMediaFinisher(id){try{const r=await api('/api/media-finisher/'+id+'/refresh',{method:'POST'});toast((r.edit_job||{}).status||'updated');await refresh();renderMediaFinisher()}catch(e){toast(e.message)}}
+async function retryDurableMedia(id){try{const r=await api('/api/media-finisher/'+id+'/archive',{method:'POST'});toast(((r.edit_job||{}).response||{}).durable_media_status||'archive queued');await refresh();renderMediaFinisher()}catch(e){toast(e.message)}}
 async function rerunMediaFinisher(id,stage){if(!confirm(tr('finisher.costConfirm')))return;try{const r=await api('/api/media-finisher/'+id+'/rerun/'+stage,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_external_cost:true})});toast(r.ok?tr('finisher.rerunSubmitted'):(r.message||'blocked'));await refresh();renderMediaFinisher()}catch(e){toast(e.message)}}
 
 let cyclePollTimer=null;
