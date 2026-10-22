@@ -11,6 +11,7 @@ The living technical specification and progress tracker for the next major produ
 - [FactoryOS v4.0 — Technical Specification & Roadmap](docs/roadmap/FACTORYOS_V4_TECH_SPEC.md)
 - [FactoryOS v4.5 — AI Editing / Media Finisher](docs/roadmap/FACTORYOS_V4_5_AI_EDITING_SPEC.md) — **DONE**: real uploaded-video production pilot verified end-to-end, with word-level ASR, deterministic cuts, captions/graphics, audio finishing, QA frame samples, traceable artifacts and return to HUMAN APPROVAL.
 - [FactoryOS v4.6 — Video → Approval → Publishing](docs/roadmap/FACTORYOS_V4_6_VIDEO_PUBLISH_SPEC.md) — **IN PROGRESS**: bind the exact final Media Finisher artifact to approval, publishing, real platform receipt and analytics.
+- [FactoryOS v4.7 — Direct Raw Video → Publishing](docs/roadmap/FACTORYOS_V4_7_RAW_VIDEO_PUBLISH_SPEC.md) — **IN PROGRESS**: carry direct owner-uploaded video through Media Finisher, zero-spend publish pack, approval and the same immutable publishing boundary.
 
 This document is the source of truth for milestone status, Definition of Done, progress checkboxes, known gaps and the next action from v3.25 through v4.0.
 
