@@ -16,6 +16,12 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v4.6.1 — Exact Media Binding Hardening — 2026-10-22
+- Runtime/UI version advanced from v4.5 to v4.6.1.
+- Approval now resolves the video artifact from the latest exact Media Finisher edit job instead of choosing an arbitrary recent video.
+- A finished render is invalidated for approval when the selected variant or Content Package changes after rendering; Media Finisher must rerun against the current production inputs.
+- Regression coverage now proves stale media is blocked, then proves the newly rerun artifact is the exact asset carried into the publishing queue and publisher payload.
+
 ### v4.6 — Video → Approval → Publishing — IN PROGRESS — 2026-10-22
 - Approval Studio now resolves the finished AI Media Finisher video as the primary review asset when an edit job exists, and blocks approval until the latest edit is READY.
 - Publishing queue provenance is bound to the exact Content Package, selected variant and final media artifact; the media artifact participates in the duplicate-safe idempotency key.
