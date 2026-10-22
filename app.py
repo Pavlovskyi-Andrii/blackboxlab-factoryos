@@ -3991,6 +3991,20 @@ def _queue_durable_media_archive(edit_job_id):
                      name=f"media-archive-{edit_job_id[:8]}").start()
     return True
 
+def _recover_ready_durable_media():
+    con=db();rows=con.execute("""SELECT id FROM edit_jobs WHERE status='ready'
+                                ORDER BY updated_at DESC LIMIT 60""").fetchall();con.close()
+    queued=0
+    for row in rows:
+        try:
+            edit=get_edit_job(row["id"]);media=_artifact_for_edit_job(edit)
+            if media and _is_ephemeral_finisher_url(media.get("url")):
+                if _queue_durable_media_archive(row["id"]):queued+=1
+        except Exception as exc:
+            print(json.dumps({"event":"DURABLE_MEDIA_RECOVERY_ERROR","edit_job_id":row["id"],"error":str(exc)[:400]}),flush=True)
+    if queued:print(json.dumps({"event":"DURABLE_MEDIA_RECOVERY","queued":queued}),flush=True)
+    return queued
+
 def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,output_url=""):
     report=report if isinstance(report,dict) else {}
     evidence_map={
@@ -7902,6 +7916,7 @@ def recover_pending_media_finisher_submits():
     for row in rows:_spawn_media_finisher_submit(row["id"])
     _recover_recent_real_media_failures()
     _recover_recent_failed_asr_jobs()
+    _recover_ready_durable_media()
     threading.Thread(target=_media_finisher_watchdog_loop,daemon=True,name="finisher-watchdog").start()
     if rows:print(json.dumps({"event":"MEDIA_FINISHER_SUBMIT_RECOVERY","queued":len(rows)}),flush=True)
 
@@ -7937,6 +7952,17 @@ async def media_finisher_refresh(edit_job_id:str):
     except RuntimeError as exc:raise HTTPException(503,str(exc))
     await broadcast({"type":"media_finisher","action":"updated","editJobId":edit_job_id,"status":item["status"]})
     return {"ok":True,"edit_job":item}
+
+@app.post("/api/media-finisher/{edit_job_id}/archive")
+async def media_finisher_archive(edit_job_id:str):
+    item=get_edit_job(edit_job_id)
+    if not item:raise HTTPException(404,"Edit job not found")
+    if item.get("status")!="ready":raise HTTPException(400,"Media Finisher job must be ready before durable archive")
+    queued=_queue_durable_media_archive(edit_job_id)
+    updated=get_edit_job(edit_job_id)
+    await broadcast({"type":"media_finisher","action":"archive","editJobId":edit_job_id,
+                     "durableMediaStatus":((updated.get("response") or {}).get("durable_media_status"))})
+    return {"ok":True,"queued":queued,"edit_job":updated}
 
 @app.post("/api/media-finisher/{edit_job_id}/callback")
 async def media_finisher_callback(edit_job_id:str,payload:MediaFinisherCallbackRequest,request:Request):
