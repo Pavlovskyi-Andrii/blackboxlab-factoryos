@@ -283,6 +283,9 @@ try:
     require(finished_worker and finished_worker["kind"]=="video" and finished_worker["url"].endswith("final-ci.mp4"),"finished media must be visible in Worker Evidence")
     review_job=app.get_job(job_id)
     require(review_job["status"]=="waiting_approval","finished media must return to human approval gate")
+    media_review=app._media_review_state(job_id)
+    require(media_review["required"] is True and media_review["ready"] is True,"finished media must be approval-ready")
+    require((media_review["artifact"] or {}).get("url")=="https://example.com/final-ci.mp4","Approval must resolve the exact Media Finisher master")
     require(app._publishing_summary()==publish_before,"Media Finisher must not create a publish item")
     rerun=app.rerun_media_finisher_stage(edit_id,"captions")
     require(rerun["edit_job"]["parent_edit_job_id"]==edit_id and rerun["edit_job"]["rerun_stage"]=="captions","targeted Media Finisher rerun lineage regression")
@@ -359,6 +362,22 @@ require(approval["ok"] is True and approval["status"]=="approved","approval deci
 require(app.get_approval_history(job_id)[0]["decision"]=="approved","approval history must persist")
 pub=approval["publish"]
 require(pub["status"]=="approved" and pub["idempotency_key"],"approval must create idempotent queue item")
+require((pub.get("media") or {}).get("url")=="https://example.com/final-ci.mp4","approved publish item must bind the exact final Media Finisher video")
+require((pub.get("meta") or {}).get("media_artifact_id"),"publish provenance must persist the final media artifact id")
+
+orig_pub_adapter,orig_pub_endpoint,orig_pub_external=app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_PUBLISHER_ENDPOINT,app._external_json
+captured_publish={}
+def fake_publish_webhook(url,method="GET",payload=None,token=""):
+    captured_publish.update({"url":url,"method":method,"payload":payload,"token":token})
+    return {"status":"publishing","id":"provider-publish-1"}
+app.FACTORY_PUBLISHER_ADAPTER="webhook";app.FACTORY_PUBLISHER_ENDPOINT="https://publisher.invalid/publish";app._external_json=fake_publish_webhook
+try:
+    adapter_result=app._publish_via_adapter(pub)
+    require(adapter_result["manual"] is False,"configured publisher adapter must use webhook path")
+    require((captured_publish.get("payload") or {}).get("media_url")=="https://example.com/final-ci.mp4","publisher payload must carry the approved final video URL")
+    require(((captured_publish.get("payload") or {}).get("content") or {}).get("title"),"publisher payload must carry Content Package metadata")
+finally:
+    app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_PUBLISHER_ENDPOINT,app._external_json=orig_pub_adapter,orig_pub_endpoint,orig_pub_external
 
 # v3.70 Publishing Engine — no duplicate publish and no invented external receipt.
 scheduled=asyncio.run(app.schedule_publishing(pub["id"],app.PublishScheduleRequest(target="manual",platform="youtube_shorts",scheduled_at=app.ts())))
@@ -367,6 +386,9 @@ started=asyncio.run(app.publish_scheduled_item(pub["id"]))
 require(started["requiresManualConfirmation"] is True,"manual path must require factual platform confirmation")
 confirmed=asyncio.run(app.confirm_manual_publish(pub["id"],app.PublishConfirmRequest(external_post_id="ci-post-1",external_url="https://example.com/post/ci-post-1")))
 require(confirmed["status"]=="published","manual publish confirmation regression")
+require(app.get_job(job_id)["status"]=="published","publish receipt must close the production job as published")
+con=app.db();receipt=con.execute("SELECT * FROM artifacts WHERE job_id=? AND agent='Publisher' AND kind='publish_receipt' ORDER BY created_at DESC LIMIT 1",(job_id,)).fetchone();con.close()
+require(receipt is not None and "media_artifact_id" in (receipt["meta_json"] or ""),"publish receipt must preserve final media provenance")
 again=asyncio.run(app.publish_scheduled_item(pub["id"]))
 require(again.get("idempotent") is True,"published item must be duplicate-safe")
 
