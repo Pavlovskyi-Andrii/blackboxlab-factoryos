@@ -24,6 +24,7 @@ This document is the source of truth for milestone status, Definition of Done, p
 - Split-only jobs bind the actual Shorts/Reels clip — not the internal master — into human approval and the publishing queue.
 - Direct raw uploads now follow one traceable path: upload → Media Finisher → QA → zero-spend publish pack → HUMAN APPROVAL → immutable publish snapshot → schedule → publisher.
 - Existing jobs with partial normal production state are not silently overwritten by the synthetic raw-media pack.
+- Zero-spend CI `39768976136` passed all compile/runtime/frontend checks; production commit `cf7357775e6ee7e8d71d61cf71a25588a0d98177` is LIVE on FactoryOS deploy `dep-dbcv090u01pc73bphrh0` and Media Finisher deploy `dep-dbcv026k1f9s73b3piug`, with clean startup and `/health 200 OK`.
 
 ### v4.6.2 — Immutable Approval → Publish Snapshot — 2026-10-22
 - Approval now freezes the exact publishing metadata (title, description, CTA, hashtags and thumbnail concept) alongside the exact approved video artifact.

@@ -1,6 +1,6 @@
 # FactoryOS v4.7 — Direct Raw Video → Publishing
 
-**Status:** IN PROGRESS  
+**Status:** IN PROGRESS — internal pipeline verified in CI and production; real external publisher post still pending.  
 **Goal:** let an owner upload a raw video directly to AI Media Finisher and carry the finished deliverable all the way into the same human-approval and publishing system without forcing the normal idea/variant/LLM pipeline.
 
 ## Flow
@@ -60,6 +60,6 @@ The fact-check state explicitly says that spoken claims were not independently v
 - [x] split-only approval resolves the exact short clip, not the internal master;
 - [x] direct raw job can pass human approval and enter the publishing queue;
 - [x] UI route shows Media Finisher → Approval → Publishing;
-- [ ] GitHub CI PASS;
-- [ ] production deploy LIVE;
+- [x] GitHub CI PASS — run `39768976136`;
+- [x] production deploy LIVE — FactoryOS `dep-dbcv090u01pc73bphrh0`, Media Finisher `dep-dbcv026k1f9s73b3piug`;
 - [ ] owner-approved real platform post verified through configured publisher.
