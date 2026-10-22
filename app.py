@@ -3927,6 +3927,9 @@ def _ensure_manual_raw_publish_package(edit_job_id):
     existing=get_content_package(job_id).get("package_record")
     selected=_selected_production_variant(job_id)
     if existing and existing.get("status")=="ready" and selected:return existing
+    if existing or selected:
+        event(job_id,"Manual raw-media auto publish pack skipped because this job already has partial production state")
+        return existing
     report=edit.get("report") or {}
     script=_manual_raw_transcript(report)
     if not script:
@@ -3968,8 +3971,9 @@ def _ensure_manual_raw_publish_package(edit_job_id):
     con=db()
     current=con.execute("SELECT id FROM content_packages WHERE job_id=? AND status='ready' ORDER BY created_at DESC LIMIT 1",(job_id,)).fetchone()
     selected_row=con.execute("SELECT id FROM production_variants WHERE job_id=? AND status='selected' ORDER BY updated_at DESC LIMIT 1",(job_id,)).fetchone()
-    if current and selected_row:
-        row=con.execute("SELECT * FROM content_packages WHERE id=?",(current["id"],)).fetchone();con.close()
+    if current or selected_row:
+        row=con.execute("SELECT * FROM content_packages WHERE id=?",(current["id"],)).fetchone() if current else None
+        con.close()
         return _content_package_dict(row)
     con.execute("""INSERT OR IGNORE INTO production_variants(
         id,batch_id,job_id,ordinal,status,angle,angle_reason,hook,hook_rationale,script,optimized_hook,edited_script,
