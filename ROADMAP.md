@@ -51,6 +51,10 @@ Rules:
 
 ## v5.2 — Real Publishing Closure
 
+- [x] T-519 Metricool publisher adapter
+  Goal: add a server-side Metricool scheduling adapter that receives only the exact human-approved immutable snapshot and final durable video.
+  DONE: regression proves YouTube Shorts / TikTok / Instagram Reels mapping, exact media binding, AI disclosure metadata and no fake platform receipt.
+
 - [ ] [HUMAN] T-520 Configure first real publisher
   Need: owner-controlled platform/publisher credentials or connected publishing provider.
   DONE: FactoryOS reports one configured real publisher adapter without exposing secrets.
