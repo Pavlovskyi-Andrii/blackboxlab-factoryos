@@ -46,7 +46,8 @@ Rules:
   DONE: Claude Code status confirms subscription auth and no ANTHROPIC_API_KEY overrides it.
 
 - [ ] T-508 Claude delegation adapter
-  Goal: let FactoryOS delegate a bounded task packet to Claude Code and ingest the result/commit/test evidence back into Builder state.
+  Goal: let FactoryOS delegate bounded Builder work to a Claude Code runner authenticated with the owner's Pro subscription, while keeping API PAYG disabled by default.
+  Progress: owner-visible connection state, authenticated heartbeat and a Claude Pro worker wrapper are implemented; task-result ingestion still requires the final deterministic regression.
   DONE: deterministic regression proves task pinning, bounded execution, evidence capture and no direct main/prod action.
 
 ## v5.1 — Viral Discovery Loop
