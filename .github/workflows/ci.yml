@@ -35,6 +35,8 @@ jobs:
           grep -q "FactoryOS" static/index.html
           grep -q "agentDrawer" static/index.html
           grep -q "FactoryOS Build Progress" static/index.html
+          grep -q "telegramBridge" static/index.html
+          grep -q "startTelegramPairing" static/index.html
           grep -q "agentTooltip" static/index.html
           grep -q "MCP connections" static/index.html
           grep -q "const I18N" static/index.html
