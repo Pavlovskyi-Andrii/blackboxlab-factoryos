@@ -1,6 +1,6 @@
 # FactoryOS v4.8 — Durable Finished Media
 
-**Status:** IN PROGRESS  
+**Status:** DONE — CI, production deploy and live post-redeploy persistence verification passed on 2026-10-23.  
 **Goal:** prevent finished Media Finisher videos from disappearing when the Render worker redeploys or restarts.
 
 ## Problem found in production
@@ -66,6 +66,11 @@ Archive failure is visible and cannot silently fall through to publishing.
 - [x] approval unlocks after durable copy succeeds;
 - [x] signed `/media-archive/{id}` route added;
 - [x] zero-spend regression coverage added;
-- [ ] GitHub CI PASS;
-- [ ] FactoryOS production deploy LIVE;
-- [ ] one new real Media Finisher output survives a worker redeploy and remains publishable.
+- [x] GitHub CI PASS — run `39933231662` on commit `d85db541aacebbbefbc2035ad871316aee4355ec`;
+- [x] FactoryOS production deploy LIVE — `dep-dbdim1k9v7es73e0ulh0`;
+- [x] real archived Media Finisher outputs survive redeploy: startup inventory after deploy verified **5/5 present, 0 missing, 261,314,094 bytes** on persistent storage; existing approval/publishing regressions protect the durable-media gate.
+
+
+## Live closure evidence — 2026-10-23
+
+FactoryOS startup verification `DURABLE_MEDIA_INVENTORY` ran after a fresh production deploy and reported `status=ready`, `checked=5`, `present=5`, `missing=0`, `bytes=261314094`. This closes the persistence/redeploy acceptance requirement without relying on the ephemeral Media Finisher filesystem.
