@@ -3460,23 +3460,57 @@ def get_discovery_candidate(candidate_id):
     con=db();row=con.execute("SELECT * FROM discovery_candidates WHERE id=?",(candidate_id,)).fetchone();con.close()
     return _discovery_dict(row)
 
+DISCOVERY_RANK_FIELDS=("breakout_score","vph","engagement_rate","views")
+
+def _discovery_metric_value(item,key):
+    value=item.get(key)
+    if value is None:return (0,0.0)
+    try:return (1,float(value))
+    except (TypeError,ValueError):return (0,0.0)
+
+def _discovery_rank_key(item):
+    # This is deliberately a factual lexicographic priority, not a synthetic quality score.
+    # A supplied metric always outranks a missing value for that metric; missing values are never imputed.
+    parts=[1 if item.get("status")=="new" else 0]
+    for key in DISCOVERY_RANK_FIELDS:
+        present,value=_discovery_metric_value(item,key);parts.extend((present,value))
+    parts.extend((str(item.get("discovered_at") or ""),str(item.get("id") or "")))
+    return tuple(parts)
+
+def _discovery_ranking_evidence(item):
+    evidence={}
+    for key in DISCOVERY_RANK_FIELDS:
+        if item.get(key) is not None:evidence[key]=item.get(key)
+    return {
+        "metrics":evidence,
+        "metric_count":len(evidence),
+        "method":"factual_lexicographic",
+        "priority":["status:new","breakout_score","vph","engagement_rate","views","discovered_at","id"],
+        "missing_metrics":[key for key in DISCOVERY_RANK_FIELDS if item.get(key) is None],
+    }
+
 def get_discovery_candidates(limit=80,status=None):
+    cap=max(1,min(300,int(limit)))
     con=db()
     if status:
-        rows=con.execute("""SELECT * FROM discovery_candidates WHERE status=?
-                            ORDER BY COALESCE(breakout_score,-1) DESC,COALESCE(vph,-1) DESC,discovered_at DESC LIMIT ?""",
-                         (status,max(1,min(300,int(limit))))).fetchall()
+        rows=con.execute("SELECT * FROM discovery_candidates WHERE status=? LIMIT 300",(status,)).fetchall()
     else:
-        rows=con.execute("""SELECT * FROM discovery_candidates
-                            ORDER BY CASE WHEN status='new' THEN 0 ELSE 1 END,
-                                     COALESCE(breakout_score,-1) DESC,COALESCE(vph,-1) DESC,discovered_at DESC LIMIT ?""",
-                         (max(1,min(300,int(limit))),)).fetchall()
-    con.close();items=[_discovery_dict(x) for x in rows];counts={}
+        rows=con.execute("SELECT * FROM discovery_candidates LIMIT 300").fetchall()
+    con.close()
+    items=[_discovery_dict(x) for x in rows]
+    items.sort(key=_discovery_rank_key,reverse=True)
+    items=items[:cap]
+    for rank,item in enumerate(items,1):
+        item["rank_position"]=rank
+        item["ranking_evidence"]=_discovery_ranking_evidence(item)
+    counts={}
     for x in items:counts[x["status"]]=counts.get(x["status"],0)+1
     return {
       "summary":{"candidates":len(items),**counts},"candidates":items,
       "adapter":{"configured":bool(FACTORY_DISCOVERY_ENDPOINT),"mode":"webhook" if FACTORY_DISCOVERY_ENDPOINT else "manual_intake",
                  "topics":FACTORY_DISCOVERY_TOPICS,"interval_minutes":FACTORY_DISCOVERY_INTERVAL_MINUTES},
+      "ranking":{"method":"factual_lexicographic","fields":list(DISCOVERY_RANK_FIELDS),
+                 "note":"Provider-supplied breakout score is primary, then measured VPH, engagement and views. Missing metrics are never imputed; timestamp and ID only break factual ties."},
       "measurement_note":"views, VPH, engagement and breakout score are stored only when supplied by the discovery source; FactoryOS does not synthesize them."
     }
 
