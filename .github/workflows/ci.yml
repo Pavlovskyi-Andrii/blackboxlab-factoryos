@@ -36,6 +36,9 @@ jobs:
           grep -q "agentDrawer" static/index.html
           grep -q "FactoryOS Build Progress" static/index.html
           grep -q "telegramBridge" static/index.html
+          grep -q "Claude Code Pro" static/index.html
+          grep -q "openTelegramConnection" static/index.html
+          grep -q "openClaudeCodeConnection" static/index.html
           grep -q "startTelegramPairing" static/index.html
           grep -q "agentTooltip" static/index.html
           grep -q "MCP connections" static/index.html
