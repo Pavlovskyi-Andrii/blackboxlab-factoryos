@@ -510,6 +510,14 @@ def viewer_invite(request: Request):
     token=urlparse.quote(FACTORY_VIEWER_INVITE_TOKEN,safe="")
     return {"url":f"{FACTORY_PUBLIC_BASE_URL}/guest?token={token}&lang=ru","role":"viewer","read_only":True}
 
+@app.get("/api/factory/claude-code/status")
+def claude_code_connection_status(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":
+        raise HTTPException(403,"Owner access required")
+    return get_claude_code_connection_status()
+
+
 @app.get("/api/factory/telegram/status")
 def telegram_owner_status(request: Request):
     identity=request_identity(request) or {}
@@ -886,6 +894,44 @@ CONNECTIONS = {
     "Voice": {"state":"not_configured","detail":"Provider not selected"},
     "Video": {"state":"not_configured","detail":"Provider not selected"},
 }
+
+def get_connection_registry():
+    registry={k:dict(v) for k,v in CONNECTIONS.items()}
+    tg=_telegram_public_status()
+    if tg.get("paired"):
+        who=("@"+tg.get("username")) if tg.get("username") else "owner chat"
+        registry["Telegram"]={"state":"connected","detail":f"Owner channel paired · {who}"}
+    elif tg.get("configured"):
+        bot=("@"+tg.get("bot_username")) if tg.get("bot_username") else "bot token ready"
+        registry["Telegram"]={"state":"paused","detail":f"{bot} · pair owner chat"}
+    else:
+        registry["Telegram"]={"state":"not_configured","detail":"Add bot token, then pair owner chat"}
+
+    # Claude Code Pro is intentionally represented as a runner connection, not as an API key.
+    # The actual subscription login lives on the trusted Claude Code runner, not in the web app.
+    registry["Claude Code"]={
+        "state":"not_configured",
+        "detail":"Pro runner not connected · subscription login",
+    }
+    return registry
+
+
+def get_claude_code_connection_status():
+    return {
+        "connected":False,
+        "state":"not_configured",
+        "plan_mode":"Pro subscription",
+        "api_key_required":False,
+        "auth_method":"Claude account with subscription",
+        "runner":"not_connected",
+        "architecture":"FactoryOS → Claude Code Runner → isolated Git branch → CI → FactoryOS",
+        "next_step":"Authenticate Claude Code on an always-on runner with the same Claude Pro account, then pair that runner with FactoryOS.",
+        "safety":{
+            "main_push_forbidden":True,
+            "production_deploy_forbidden":True,
+            "human_publish_approval_required":True,
+        },
+    }
 
 def ts(): return datetime.now(timezone.utc).isoformat()
 
@@ -8068,7 +8114,7 @@ def status(request: Request=None):
         "selectedJobContentPackage": get_content_package(sid),
         "mediaAdapters": get_media_adapter_registry(),
         "packageBuilding": list(package_building),
-        "events":ev,"connections":CONNECTIONS,"stages":STAGES,
+        "events":ev,"connections":get_connection_registry(),"stages":STAGES,
         "agentStates":agent_states(jobs),"agentProgress":{a:get_agent_progress_snapshot(a) for a in AGENTS},"agentMap":AGENT_MAP,
         "agentDependencies":AGENT_DEPENDENCIES,
         "runningJobs":list(running_jobs),"nextAction":next_action(selected),
