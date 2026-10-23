@@ -45,7 +45,7 @@ Rules:
   Goal: one approved discovery candidate can create a traceable Revideo project without manual copy/paste.
   DONE: source provenance survives Discovery -> Revideo -> production job.
 
-- [ ] T-513 Semi-autonomous content loop
+- [x] T-513 Semi-autonomous content loop
   Goal: Discovery -> Revideo -> Content Package -> Media Finisher -> HUMAN APPROVAL.
   DONE: zero-spend deterministic acceptance reaches approval and never publishes automatically.
 
