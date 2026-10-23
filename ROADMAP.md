@@ -42,8 +42,8 @@ Rules:
   DONE: `/api/factory/telegram/status` reports paired=true and a FactoryOS test push arrives in the paired chat.
 
 - [ ] [HUMAN] T-507 Authorize Claude Code Pro
-  Need: owner signs Claude Code into the Pro subscription and provisions a Claude Code OAuth token on the trusted runner; no API key is required for the first pass.
-  DONE: Claude Code status confirms subscription auth and no ANTHROPIC_API_KEY overrides it.
+  Need: owner signs the native Claude Code CLI into the Pro subscription on a trusted PC/VPS runner using /login; keep ANTHROPIC_API_KEY unset so Pro usage is not overridden by separately billed API usage.
+  DONE: FactoryOS Claude Code Pro connection reports runner online + subscription_verified.
 
 - [ ] T-508 Claude delegation adapter
   Goal: let FactoryOS delegate a bounded task packet to Claude Code and ingest the result/commit/test evidence back into Builder state.
