@@ -144,6 +144,10 @@ app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 FACTORY_USER = os.environ.get("FACTORY_USER", "blackboxlab")
 FACTORY_PASSWORD = os.environ.get("FACTORY_PASSWORD", "")
 FACTORY_SECRET = os.environ.get("FACTORY_SECRET", secrets.token_hex(32))
+FACTORY_TELEGRAM_BOT_TOKEN = os.environ.get("FACTORY_TELEGRAM_BOT_TOKEN", "").strip()
+FACTORY_TELEGRAM_PAIR_TTL_SECONDS = max(120, min(1800, int(os.environ.get("FACTORY_TELEGRAM_PAIR_TTL_SECONDS", "600"))))
+TELEGRAM_OWNER_FILE = DATA_DIR / "telegram_owner.json"
+_telegram_state_lock = threading.Lock()
 FACTORY_LOCAL_BOOSTER_TOKEN = (os.environ.get("FACTORY_LOCAL_BOOSTER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest())
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
@@ -277,13 +281,124 @@ def _local_booster_authorized(request: Request) -> bool:
 def _local_booster_online():
     return (time.time()-float(local_booster_runtime.get("last_seen") or 0)) <= FACTORY_LOCAL_BOOSTER_TTL_SECONDS
 
+def _telegram_webhook_secret() -> str:
+    if not FACTORY_TELEGRAM_BOT_TOKEN:
+        return ""
+    return hmac.new(
+        FACTORY_TELEGRAM_BOT_TOKEN.encode("utf-8"),
+        b"factoryos-telegram-webhook-v1",
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _telegram_webhook_authorized(request: Request) -> bool:
+    expected=_telegram_webhook_secret()
+    supplied=(request.headers.get("x-telegram-bot-api-secret-token") or "").strip()
+    return bool(expected and supplied and hmac.compare_digest(supplied,expected))
+
+
+def _telegram_bridge_authorized(request: Request) -> bool:
+    if not FACTORY_MCP_TOKEN:
+        return False
+    auth=(request.headers.get("authorization") or "").strip()
+    if not auth.lower().startswith("bearer "):
+        return False
+    supplied=auth.split(" ",1)[1].strip()
+    return bool(supplied and hmac.compare_digest(supplied,FACTORY_MCP_TOKEN))
+
+
+def _telegram_load_state() -> dict:
+    if not TELEGRAM_OWNER_FILE.exists():
+        return {}
+    try:
+        value=json.loads(TELEGRAM_OWNER_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return value if isinstance(value,dict) else {}
+
+
+def _telegram_save_state(state: dict) -> None:
+    TELEGRAM_OWNER_FILE.parent.mkdir(parents=True,exist_ok=True)
+    payload=dict(state or {})
+    tmp=TELEGRAM_OWNER_FILE.with_suffix(".tmp")
+    with _telegram_state_lock:
+        tmp.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+        os.replace(tmp,TELEGRAM_OWNER_FILE)
+        try:
+            TELEGRAM_OWNER_FILE.chmod(0o600)
+        except OSError:
+            pass
+
+
+def _telegram_pair_code_hash(code: str) -> str:
+    return hashlib.sha256(str(code or "").strip().encode("utf-8")).hexdigest()
+
+
+def _telegram_pair_code_matches(code: str, expected_hash: str) -> bool:
+    candidate=_telegram_pair_code_hash(code)
+    return bool(expected_hash and hmac.compare_digest(candidate,str(expected_hash)))
+
+
+def _telegram_api(method: str, payload: Optional[dict]=None) -> dict:
+    if not FACTORY_TELEGRAM_BOT_TOKEN:
+        raise RuntimeError("Telegram bot token is not configured")
+    url=f"https://api.telegram.org/bot{FACTORY_TELEGRAM_BOT_TOKEN}/{method}"
+    body=json.dumps(payload or {}).encode("utf-8")
+    req=urlrequest.Request(url,data=body,headers={"Content-Type":"application/json"},method="POST")
+    try:
+        with urlrequest.urlopen(req,timeout=25) as response:
+            result=json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Telegram API {method} failed") from exc
+    if not isinstance(result,dict) or not result.get("ok"):
+        raise RuntimeError(f"Telegram API {method} returned not-ok")
+    return result
+
+
+def _telegram_send_to(chat_id: str, text: str) -> bool:
+    target=str(chat_id or "").strip()
+    if not target or not FACTORY_TELEGRAM_BOT_TOKEN:
+        return False
+    _telegram_api("sendMessage",{"chat_id":target,"text":str(text or "")[:4000]})
+    return True
+
+
+def _telegram_send(text: str) -> bool:
+    state=_telegram_load_state()
+    return _telegram_send_to(str(state.get("chat_id") or ""),text)
+
+
+def _telegram_public_status() -> dict:
+    state=_telegram_load_state()
+    pending=state.get("pending") if isinstance(state.get("pending"),dict) else {}
+    expires_at=float(pending.get("expires_at") or 0)
+    return {
+        "configured": bool(FACTORY_TELEGRAM_BOT_TOKEN),
+        "paired": bool(state.get("chat_id")),
+        "username": str(state.get("username") or ""),
+        "bot_username": str(state.get("bot_username") or ""),
+        "paired_at": state.get("paired_at"),
+        "pairing_pending": bool(pending and expires_at>time.time()),
+        "pairing_expires_at": datetime.fromtimestamp(expires_at,timezone.utc).isoformat() if expires_at else None,
+        "inbox_count": len(state.get("inbox") or []) if isinstance(state.get("inbox"),list) else 0,
+    }
+
+
+class TelegramBridgeNotify(BaseModel):
+    text: str
+    kind: str = "info"
+    task_id: Optional[str] = None
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp"}
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/")
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
+    telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or telegram_webhook_path or telegram_bridge_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
@@ -394,6 +509,158 @@ def viewer_invite(request: Request):
         raise HTTPException(503,"Viewer invite is not configured")
     token=urlparse.quote(FACTORY_VIEWER_INVITE_TOKEN,safe="")
     return {"url":f"{FACTORY_PUBLIC_BASE_URL}/guest?token={token}&lang=ru","role":"viewer","read_only":True}
+
+@app.get("/api/factory/telegram/status")
+def telegram_owner_status(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":
+        raise HTTPException(403,"Owner access required")
+    return _telegram_public_status()
+
+
+@app.post("/api/factory/telegram/pairing/start")
+def telegram_pairing_start(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":
+        raise HTTPException(403,"Owner access required")
+    if not FACTORY_TELEGRAM_BOT_TOKEN:
+        raise HTTPException(503,"Telegram bot token is not configured")
+    try:
+        bot_result=(_telegram_api("getMe").get("result") or {})
+        bot_username=str(bot_result.get("username") or "")
+        code=secrets.token_hex(4).upper()
+        state=_telegram_load_state()
+        state["bot_username"]=bot_username
+        state["pending"]={
+            "code_hash":_telegram_pair_code_hash(code),
+            "expires_at":time.time()+FACTORY_TELEGRAM_PAIR_TTL_SECONDS,
+            "created_at":datetime.now(timezone.utc).isoformat(),
+        }
+        _telegram_save_state(state)
+        _telegram_api("setWebhook",{
+            "url":f"{FACTORY_PUBLIC_BASE_URL}/api/integrations/telegram/webhook",
+            "secret_token":_telegram_webhook_secret(),
+            "allowed_updates":["message"],
+            "drop_pending_updates":False,
+        })
+    except Exception as exc:
+        raise HTTPException(502,"Telegram pairing could not be initialized") from exc
+    return {
+        **_telegram_public_status(),
+        "pair_code":code,
+        "command":f"/pair {code}",
+        "expires_in_seconds":FACTORY_TELEGRAM_PAIR_TTL_SECONDS,
+    }
+
+
+@app.post("/api/factory/telegram/test")
+def telegram_test_notification(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":
+        raise HTTPException(403,"Owner access required")
+    if not _telegram_public_status().get("paired"):
+        raise HTTPException(409,"Telegram owner chat is not paired")
+    try:
+        _telegram_send("✅ FactoryOS Telegram channel test. Owner interrupt channel is online.")
+    except Exception as exc:
+        raise HTTPException(502,"Telegram test message failed") from exc
+    return {"sent":True}
+
+
+@app.post("/api/integrations/telegram/webhook")
+async def telegram_webhook(request: Request):
+    if not _telegram_webhook_authorized(request):
+        raise HTTPException(403,"Invalid Telegram webhook secret")
+    try:
+        update=await request.json()
+    except Exception:
+        return {"ok":True}
+    if not isinstance(update,dict):
+        return {"ok":True}
+    message=update.get("message") or {}
+    chat=message.get("chat") or {}
+    if str(chat.get("type") or "")!="private":
+        return {"ok":True}
+    chat_id=str(chat.get("id") or "").strip()
+    text=str(message.get("text") or "").strip()
+    if not chat_id or not text:
+        return {"ok":True}
+    state=_telegram_load_state()
+    pending=state.get("pending") if isinstance(state.get("pending"),dict) else {}
+    parts=text.split(maxsplit=1)
+    if parts and parts[0].lower()=="/pair":
+        supplied=parts[1].strip() if len(parts)>1 else ""
+        expires_at=float(pending.get("expires_at") or 0)
+        if not pending or expires_at<=time.time():
+            try:
+                _telegram_send_to(chat_id,"⏱ Pairing code expired. Start a new pairing session in FactoryOS.")
+            except Exception:
+                pass
+            return {"ok":True,"paired":False}
+        if not _telegram_pair_code_matches(supplied,str(pending.get("code_hash") or "")):
+            return {"ok":True,"paired":False}
+        sender=message.get("from") or {}
+        state["chat_id"]=chat_id
+        state["username"]=str(sender.get("username") or "")
+        state["paired_at"]=datetime.now(timezone.utc).isoformat()
+        state.pop("pending",None)
+        state.setdefault("inbox",[])
+        _telegram_save_state(state)
+        try:
+            _telegram_send_to(chat_id,"✅ FactoryOS paired. I will send HUMAN blockers and autopilot stop alerts here.")
+        except Exception:
+            pass
+        return {"ok":True,"paired":True}
+    if chat_id!=str(state.get("chat_id") or ""):
+        return {"ok":True}
+    if text.lower()=="/status":
+        try:
+            _telegram_send_to(chat_id,"🟢 FactoryOS Telegram bridge is online and paired.")
+        except Exception:
+            pass
+        return {"ok":True}
+    inbox=state.get("inbox") if isinstance(state.get("inbox"),list) else []
+    update_id=int(update.get("update_id") or 0)
+    inbox.append({
+        "id":update_id,
+        "text":text[:4000],
+        "received_at":datetime.now(timezone.utc).isoformat(),
+    })
+    state["inbox"]=inbox[-100:]
+    _telegram_save_state(state)
+    return {"ok":True}
+
+
+@app.post("/api/factory/telegram/bridge/notify")
+def telegram_bridge_notify(payload: TelegramBridgeNotify, request: Request):
+    if not _telegram_bridge_authorized(request):
+        raise HTTPException(403,"Invalid bridge token")
+    if not _telegram_public_status().get("paired"):
+        raise HTTPException(409,"Telegram owner chat is not paired")
+    prefix={"warning":"⚠️","blocked":"🙋","stopped":"⛔","done":"✅"}.get((payload.kind or "").strip().lower(),"")
+    task=(payload.task_id or "").strip()
+    body=" ".join(x for x in (prefix,task) if x).strip()
+    body=(body+"\n" if body else "")+payload.text.strip()
+    try:
+        _telegram_send(body)
+    except Exception as exc:
+        raise HTTPException(502,"Telegram notification failed") from exc
+    state=_telegram_load_state()
+    inbox=state.get("inbox") if isinstance(state.get("inbox"),list) else []
+    latest=max([int(x.get("id") or 0) for x in inbox if isinstance(x,dict)] or [0])
+    return {"sent":True,"inbox_cursor":latest}
+
+
+@app.get("/api/factory/telegram/bridge/inbox")
+def telegram_bridge_inbox(request: Request, after: int=0):
+    if not _telegram_bridge_authorized(request):
+        raise HTTPException(403,"Invalid bridge token")
+    state=_telegram_load_state()
+    inbox=state.get("inbox") if isinstance(state.get("inbox"),list) else []
+    messages=[x for x in inbox if isinstance(x,dict) and int(x.get("id") or 0)>int(after or 0)]
+    latest=max([int(x.get("id") or 0) for x in inbox if isinstance(x,dict)] or [0])
+    return {"messages":messages,"latest_id":latest}
+
 
 @app.post("/logout")
 def logout():
