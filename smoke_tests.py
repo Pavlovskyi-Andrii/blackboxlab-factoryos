@@ -31,6 +31,10 @@ state=app.status()
 for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","discoverySummary","discoveryAdapter","revideoSummary","revideoAdapters","mediaFinisher","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
     require(key in state,f"status missing {key}")
 require(state["factory"]=="online","factory must report online")
+require("Telegram" in state["connections"],"Telegram connection must be visible in status")
+require("Claude Code" in state["connections"],"Claude Code connection must be visible in status")
+require(state["connections"]["Telegram"]["state"] in ("connected","paused","not_configured"),"unexpected Telegram connection state")
+require(state["connections"]["Claude Code"]["state"]=="not_configured","Claude Code must not fake a connected runner")
 autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
@@ -68,6 +72,7 @@ for path,method in (("/guest","GET"),("/api/viewer-invite","GET"),("/health","GE
 
 for path,method in (
     ("/api/factory/telegram/status","GET"),
+    ("/api/factory/claude-code/status","GET"),
     ("/api/factory/telegram/pairing/start","POST"),
     ("/api/factory/telegram/test","POST"),
     ("/api/integrations/telegram/webhook","POST"),
