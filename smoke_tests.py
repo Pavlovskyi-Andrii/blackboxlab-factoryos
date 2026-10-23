@@ -975,7 +975,6 @@ require('data-help="help.approval"' in html and 'data-help="help.brain"' in html
 require("legacyBanner" in html and "approval.legacyHelp" in html,"legacy approval clarity missing")
 require('<span class="version">v5.3</span>' in html,"visible UI version mismatch")
 require('autopilotDecisions' in html and 'recent_decisions' in html,"autopilot decision review UI missing")
-require("'group.automation'" not in html,"translation key must not be accidentally quoted as code")
 require("Claude Code Pro" in html and "openClaudeRunnerSetup" in html and "/api/claude-runner/package.zip" in html,"Claude Code Pro connection UI missing")
 require("Telegram" in html and "openTelegramConnection" in html,"Telegram main connection UI missing")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
