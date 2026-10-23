@@ -27,7 +27,7 @@ Rules:
   Goal: when a Builder task reaches verified DONE, select the next safe ROADMAP task automatically; never auto-run `[HUMAN]` tasks.
   DONE: regression proves done -> next task, blocked HUMAN -> skip/escalate, no duplicate dispatch.
 
-- [ ] T-504 Decision review
+- [x] T-504 Decision review
   Goal: surface DECISIONS.md entries in FactoryOS so owner decisions can be reviewed in batches instead of interrupting implementation.
   DONE: API + UI render repository decisions and smoke tests stay green.
 
