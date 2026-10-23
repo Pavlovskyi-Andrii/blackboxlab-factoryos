@@ -25,7 +25,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v4.9.4"
+APP_VERSION = "v5.0.0"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -7654,6 +7654,7 @@ def status(request: Request=None):
         "publisherAdapters": get_publisher_adapter_registry(),
         "analyticsAdapters": get_analytics_adapter_registry(),
         "buildProgress": get_factory_tasks(),
+        "builderAutopilot": get_repository_autopilot_state(),
         "runtimePolicy": {
             "agent_timeout_seconds":AGENT_TIMEOUT_SECONDS,
             "max_retries":AGENT_MAX_RETRIES,
@@ -8757,6 +8758,72 @@ async def call_agent_mcp_tool(agent_name:str,connection_id:str,item:McpToolCall)
         return {"ok":True,"result":result}
     except Exception as exc:
         raise HTTPException(502,str(exc))
+
+def get_repository_autopilot_state():
+    roadmap_path=BASE/"ROADMAP.md"
+    status_path=BASE/".autopilot"/"status.json"
+    decisions_path=BASE/"DECISIONS.md"
+    tasks=[]
+    current_version=""
+    if roadmap_path.exists():
+        for raw in roadmap_path.read_text(encoding="utf-8").splitlines():
+            line=raw.strip()
+            if line.startswith("## "):
+                current_version=line[3:].strip()
+                continue
+            match=re.match(r"- \[([ xX])\]\s+(\[HUMAN\]\s+)?(T-[A-Za-z0-9-]+)\s+(.+)",line)
+            if not match:
+                continue
+            tasks.append({
+                "id":match.group(3),
+                "title":match.group(4).strip(),
+                "done":match.group(1).lower()=="x",
+                "human":bool(match.group(2)),
+                "version":current_version,
+            })
+    pending=[x for x in tasks if not x["done"]]
+    safe_pending=[x for x in pending if not x["human"]]
+    human_pending=[x for x in pending if x["human"]]
+    runtime={"status":"idle","task":"","summary":"","need":"","checks":[],"commit":""}
+    if status_path.exists():
+        runtime=_decode_json(status_path.read_text(encoding="utf-8"),runtime)
+        if not isinstance(runtime,dict):
+            runtime={"status":"invalid","task":"","summary":"Autopilot status is not a JSON object","need":"","checks":[],"commit":""}
+    decisions=[]
+    if decisions_path.exists():
+        block=[]
+        for raw in decisions_path.read_text(encoding="utf-8").splitlines():
+            if raw.startswith("## "):
+                if block:decisions.append("\n".join(block).strip())
+                block=[raw[3:].strip()]
+            elif block:
+                block.append(raw)
+        if block:decisions.append("\n".join(block).strip())
+    return {
+        "enabled":roadmap_path.exists() and (BASE/"CLAUDE.md").exists(),
+        "runner_present":(BASE/"autopilot"/"autopilot.py").exists(),
+        "roadmap_present":roadmap_path.exists(),
+        "total":len(tasks),
+        "done":sum(1 for x in tasks if x["done"]),
+        "pending":len(pending),
+        "safe_pending":len(safe_pending),
+        "human_pending":len(human_pending),
+        "progress":round((sum(1 for x in tasks if x["done"])/len(tasks))*100,1) if tasks else 0,
+        "next_task":safe_pending[0] if safe_pending else None,
+        "next_human":human_pending[0] if human_pending else None,
+        "runtime":runtime,
+        "recent_decisions":decisions[-5:],
+        "safety":{
+            "main_push_forbidden":True,
+            "production_direct_deploy_forbidden":True,
+            "human_publish_approval_required":True,
+            "paid_calls_auto_enabled":False,
+        },
+    }
+
+@app.get("/api/factory/autopilot")
+def factory_autopilot_status():
+    return get_repository_autopilot_state()
 
 @app.get("/api/factory/builder")
 def factory_builder_status():
