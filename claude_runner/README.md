@@ -35,3 +35,5 @@ python claude_runner/runner.py
 ```
 
 The runner currently provides connection/auth/heartbeat state. Task claim/delegation is the next T-508 layer and will keep the same safety rules: non-main branch, bounded turns, tests/evidence, no direct production deploy.
+
+If FactoryOS still shows the runner as offline, keep `runner.py` running continuously; the online state intentionally expires when heartbeats stop.
