@@ -37,7 +37,7 @@ Rules:
   Goal: collect current short-form candidates through a provider-neutral adapter with provenance and deduplication.
   DONE: deterministic fixture creates deduplicated discovery candidates with source URL, platform, metrics and capture time.
 
-- [ ] T-511 Breakout ranking
+- [x] T-511 Breakout ranking
   Goal: rank candidates using factual velocity/engagement evidence without inventing unavailable metrics.
   DONE: regression covers ranking, missing metrics and tie behavior.
 
