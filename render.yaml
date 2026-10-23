@@ -37,6 +37,18 @@ services:
         sync: false
       - key: FACTORY_VIEWER_INVITE_TOKEN
         sync: false
+      - key: FACTORY_PUBLISHER_ADAPTER
+        sync: false
+      - key: FACTORY_METRICOOL_TOKEN
+        sync: false
+      - key: FACTORY_METRICOOL_USER_ID
+        sync: false
+      - key: FACTORY_METRICOOL_BLOG_ID
+        sync: false
+      - key: FACTORY_METRICOOL_TIMEZONE
+        value: Europe/Kyiv
+      - key: FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS
+        sync: false
       - key: FACTORY_MEDIA_FINISHER_ADAPTER
         value: render-media-finisher
       - key: FACTORY_MEDIA_FINISHER_ENDPOINT

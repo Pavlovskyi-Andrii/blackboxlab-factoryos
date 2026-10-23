@@ -19,6 +19,15 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v5.3 — Metricool Publisher Adapter — 2026-10-23
+- Added a native server-side Metricool publisher adapter for Instagram Reels, TikTok and YouTube Shorts.
+- Metricool receives only the immutable metadata snapshot frozen at human approval plus the exact approved final video URL; later Content Package edits cannot drift into the scheduled post.
+- The adapter uses Metricool's scheduler endpoint and keeps the API token server-side. User ID / brand ID / token are runtime configuration, never frontend values.
+- FactoryOS explicitly declares AI-generated/AI-edited content in platform-specific fields for Instagram, TikTok and YouTube.
+- YouTube `madeForKids` must be explicitly configured; FactoryOS refuses to guess that compliance setting.
+- A Metricool scheduled-post ID is stored only as provider scheduling evidence and is never treated as a real platform post ID. Final publication still requires a factual platform receipt.
+- T-519 is closed. T-520/T-521 remain HUMAN gates for Metricool API credentials and the first owner-approved real external post.
+
 ### v5.2 — Analytics Return Provenance — 2026-10-23
 - Closed safe roadmap task T-522 without weakening the real-publisher HUMAN gates.
 - Every persisted performance snapshot now records the factual external post ID/URL plus exact published media artifact, Media Finisher edit job, approved content snapshot hash, approval decision and workflow/experiment assignment.
