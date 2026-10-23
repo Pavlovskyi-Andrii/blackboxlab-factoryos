@@ -33,7 +33,7 @@ Rules:
 
 ## v5.0.1 — Owner Interrupt + Claude Worker
 
-- [ ] T-505 Secure Telegram owner pairing
+- [x] T-505 Secure Telegram owner pairing
   Goal: pair one private Telegram chat with FactoryOS using a short-lived one-time code; never commit the bot token or owner chat ID.
   DONE: `python -m autopilot.test_notify` and runtime pair command persists only ignored pairing state.
 
