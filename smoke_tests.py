@@ -31,6 +31,10 @@ state=app.status()
 for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","discoverySummary","discoveryAdapter","revideoSummary","revideoAdapters","mediaFinisher","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
     require(key in state,f"status missing {key}")
 require(state["factory"]=="online","factory must report online")
+require("Telegram" in state["connections"],"Telegram must be surfaced in main Connections")
+require("Claude Code Pro" in state["connections"],"Claude Code Pro must be surfaced in main Connections")
+require(state["connections"]["Claude Code Pro"]["online"] is False,"CI must not fabricate an online Claude runner")
+require(app.claude_runner_status()["online"] is False,"fresh Claude runner state must be offline")
 autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
@@ -67,6 +71,10 @@ for path,method in (("/guest","GET"),("/api/viewer-invite","GET"),("/health","GE
     require(route_exists(path,method),f"route missing: {method} {path}")
 
 for path,method in (
+    ("/api/claude-runner/status","GET"),
+    ("/api/claude-runner/token","GET"),
+    ("/api/claude-runner/package.zip","GET"),
+    ("/api/claude-runner/heartbeat","POST"),
     ("/api/factory/telegram/status","GET"),
     ("/api/factory/telegram/pairing/start","POST"),
     ("/api/factory/telegram/test","POST"),
@@ -967,6 +975,9 @@ require('data-help="help.approval"' in html and 'data-help="help.brain"' in html
 require("legacyBanner" in html and "approval.legacyHelp" in html,"legacy approval clarity missing")
 require('<span class="version">v5.3</span>' in html,"visible UI version mismatch")
 require('autopilotDecisions' in html and 'recent_decisions' in html,"autopilot decision review UI missing")
+require("'group.automation'" not in html,"translation key must not be accidentally quoted as code")
+require("Claude Code Pro" in html and "openClaudeRunnerSetup" in html and "/api/claude-runner/package.zip" in html,"Claude Code Pro connection UI missing")
+require("Telegram" in html and "openTelegramConnection" in html,"Telegram main connection UI missing")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
