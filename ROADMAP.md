@@ -23,7 +23,7 @@ Rules:
   Goal: expose roadmap progress, current task, latest autonomous status and blockers in the FactoryOS API/UI.
   DONE: `DATA_DIR=/tmp/factoryos-autopilot FACTORY_PASSWORD="" python smoke_tests.py`
 
-- [ ] T-503 Roadmap auto-advance
+- [x] T-503 Roadmap auto-advance
   Goal: when a Builder task reaches verified DONE, select the next safe ROADMAP task automatically; never auto-run `[HUMAN]` tasks.
   DONE: regression proves done -> next task, blocked HUMAN -> skip/escalate, no duplicate dispatch.
 
