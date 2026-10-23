@@ -655,7 +655,7 @@ const I18N={
   "discovery.views":"Views","discovery.vph":"Views/hour","discovery.engagement":"Engagement rate","discovery.breakout":"Breakout score",
   "discovery.save":"Save candidate","discovery.collect":"Collect from provider","discovery.toRevideo":"Create Revideo","discovery.openRevideo":"Open Revideo",
   "discovery.noCandidates":"No discovery candidates yet.","discovery.notConfigured":"Discovery webhook is not configured. Manual intake works, and external discovery connectors can feed candidates.",
-  "discovery.metricsNote":"Metrics are displayed only when supplied by the discovery source; FactoryOS does not synthesize missing values.",
+  "discovery.metricsNote":"Metrics are displayed only when supplied by the discovery source; FactoryOS does not synthesize missing values.","discovery.rank":"Rank","discovery.rankEvidence":"measured signals",
   "discovery.loading":"Loading discovery candidates…","discovery.saved":"Discovery candidate saved","discovery.collected":"Discovery collection finished",
   "discovery.revideoCreated":"Revideo project created","discovery.language":"Language","discovery.contentType":"Format","discovery.short":"Short",
 
@@ -899,7 +899,7 @@ const I18N={
   "discovery.views":"Перегляди","discovery.vph":"Переглядів/год","discovery.engagement":"Engagement rate","discovery.breakout":"Breakout score",
   "discovery.save":"Зберегти кандидата","discovery.collect":"Зібрати з provider","discovery.toRevideo":"Створити Revideo","discovery.openRevideo":"Відкрити Revideo",
   "discovery.noCandidates":"Discovery-кандидатів ще немає.","discovery.notConfigured":"Discovery webhook не налаштовано. Ручний intake працює, а зовнішні discovery connectors можуть передавати кандидатів.",
-  "discovery.metricsNote":"Метрики показуються лише якщо їх надав discovery source; FactoryOS не вигадує відсутні значення.",
+  "discovery.metricsNote":"Метрики показуються лише якщо їх надав discovery source; FactoryOS не вигадує відсутні значення.","discovery.rank":"Ранг","discovery.rankEvidence":"виміряних сигналів",
   "discovery.loading":"Завантаження discovery-кандидатів…","discovery.saved":"Discovery-кандидата збережено","discovery.collected":"Discovery collection завершено",
   "discovery.revideoCreated":"Revideo-проєкт створено","discovery.language":"Мова","discovery.contentType":"Формат","discovery.short":"Short",
 
@@ -1143,7 +1143,7 @@ const I18N={
   "discovery.views":"Просмотры","discovery.vph":"Просмотров/час","discovery.engagement":"Engagement rate","discovery.breakout":"Breakout score",
   "discovery.save":"Сохранить кандидата","discovery.collect":"Собрать из provider","discovery.toRevideo":"Создать Revideo","discovery.openRevideo":"Открыть Revideo",
   "discovery.noCandidates":"Discovery-кандидатов пока нет.","discovery.notConfigured":"Discovery webhook не настроен. Ручной intake работает, а внешние discovery connectors могут передавать кандидатов.",
-  "discovery.metricsNote":"Метрики показываются только если их дал discovery source; FactoryOS не выдумывает отсутствующие значения.",
+  "discovery.metricsNote":"Метрики показываются только если их дал discovery source; FactoryOS не выдумывает отсутствующие значения.","discovery.rank":"Ранг","discovery.rankEvidence":"измеренных сигналов",
   "discovery.loading":"Загрузка discovery-кандидатов…","discovery.saved":"Discovery-кандидат сохранён","discovery.collected":"Discovery collection завершён",
   "discovery.revideoCreated":"Revideo-проект создан","discovery.language":"Язык","discovery.contentType":"Формат","discovery.short":"Short",
 
@@ -2110,7 +2110,7 @@ async function renderDiscoveryStudio(){
   out+='<div class="flowGrid" style="margin-top:10px">'+items.map(x=>{
     const metrics=[];if(x.views!=null)metrics.push(tr('discovery.views')+' '+Number(x.views).toLocaleString());if(x.vph!=null)metrics.push(tr('discovery.vph')+' '+Number(x.vph).toFixed(2));if(x.engagement_rate!=null)metrics.push(tr('discovery.engagement')+' '+(Number(x.engagement_rate)*100).toFixed(2)+'%');if(x.breakout_score!=null)metrics.push(tr('discovery.breakout')+' '+Number(x.breakout_score).toFixed(2));
     const actions=x.revideo_project_id?'<button class="btn" onclick="openRevideoStudio();closeDiscoveryStudio()">↗ '+esc(tr('discovery.openRevideo'))+'</button>':'<button class="btn good" onclick="candidateToRevideo(\''+x.id+'\')">⟳ '+esc(tr('discovery.toRevideo'))+'</button>';
-    return '<article class="flowCard">'+(x.thumbnail_url?'<img class="discoveryThumb" src="'+esc(x.thumbnail_url)+'" alt="'+esc(x.title)+'">':'')+'<h3>'+esc(x.title)+'</h3><div class="flowMeta"><span class="flowPill">'+esc(x.platform||'')+'</span><span class="flowPill">'+esc(x.content_type||'')+'</span><span class="flowPill '+(x.status==='new'?'warn':'good')+'">'+esc(x.status||'new')+'</span></div><p>'+esc(x.creator||'')+'</p><div class="metricGrid">'+metrics.map(m=>'<span>'+esc(m)+'</span>').join('')+'</div><a class="mediaLink" target="_blank" rel="noopener" href="'+esc(x.source_url)+'">'+esc(x.source_url)+'</a>'+(x.transcript?'<div class="packageSection"><strong>'+esc(tr('discovery.transcript'))+'</strong><pre>'+esc(textValue(x.transcript).slice(0,1200))+'</pre></div>':'')+'<div class="flowActions">'+actions+'</div></article>';
+    return '<article class="flowCard">'+(x.thumbnail_url?'<img class="discoveryThumb" src="'+esc(x.thumbnail_url)+'" alt="'+esc(x.title)+'">':'')+'<h3>'+esc(x.title)+'</h3><div class="flowMeta"><span class="flowPill good">'+esc(tr('discovery.rank'))+' #'+Number(x.rank_position||0)+'</span><span class="flowPill">'+Number(((x.ranking_evidence||{}).metric_count)||0)+' '+esc(tr('discovery.rankEvidence'))+'</span><span class="flowPill">'+esc(x.platform||'')+'</span><span class="flowPill">'+esc(x.content_type||'')+'</span><span class="flowPill '+(x.status==='new'?'warn':'good')+'">'+esc(x.status||'new')+'</span></div><p>'+esc(x.creator||'')+'</p><div class="metricGrid">'+metrics.map(m=>'<span>'+esc(m)+'</span>').join('')+'</div><a class="mediaLink" target="_blank" rel="noopener" href="'+esc(x.source_url)+'">'+esc(x.source_url)+'</a>'+(x.transcript?'<div class="packageSection"><strong>'+esc(tr('discovery.transcript'))+'</strong><pre>'+esc(textValue(x.transcript).slice(0,1200))+'</pre></div>':'')+'<div class="flowActions">'+actions+'</div></article>';
   }).join('')+'</div>';root.innerHTML=out;
  }catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}
 }

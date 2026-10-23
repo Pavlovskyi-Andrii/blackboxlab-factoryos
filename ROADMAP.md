@@ -33,19 +33,19 @@ Rules:
 
 ## v5.1 — Viral Discovery Loop
 
-- [ ] T-510 Discovery adapter
+- [x] T-510 Discovery adapter
   Goal: collect current short-form candidates through a provider-neutral adapter with provenance and deduplication.
   DONE: deterministic fixture creates deduplicated discovery candidates with source URL, platform, metrics and capture time.
 
-- [ ] T-511 Breakout ranking
+- [x] T-511 Breakout ranking
   Goal: rank candidates using factual velocity/engagement evidence without inventing unavailable metrics.
   DONE: regression covers ranking, missing metrics and tie behavior.
 
-- [ ] T-512 Candidate -> Revideo handoff
+- [x] T-512 Candidate -> Revideo handoff
   Goal: one approved discovery candidate can create a traceable Revideo project without manual copy/paste.
   DONE: source provenance survives Discovery -> Revideo -> production job.
 
-- [ ] T-513 Semi-autonomous content loop
+- [x] T-513 Semi-autonomous content loop
   Goal: Discovery -> Revideo -> Content Package -> Media Finisher -> HUMAN APPROVAL.
   DONE: zero-spend deterministic acceptance reaches approval and never publishes automatically.
 

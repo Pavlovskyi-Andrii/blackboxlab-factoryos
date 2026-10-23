@@ -34,7 +34,7 @@ autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
 require(autopilot_state["total"]>=8,"roadmap task parsing regression")
-require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-510","autopilot must select first safe pending roadmap task")
+require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-522","autopilot must select first safe pending roadmap task")
 require(autopilot_state["human_pending"]>=1,"HUMAN blockers must remain explicit")
 require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log must be exposed")
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
@@ -98,9 +98,44 @@ dc_payload=app.DiscoveryCandidateCreate(
 dc=app.ingest_discovery_candidate(dc_payload,"ci_fixture")
 require(dc["created"] is True and dc["candidate"]["views"]==108273 and dc["candidate"]["breakout_score"]==53.09,
         "discovery factual metric persistence regression")
+require(dc["candidate"]["platform"]=="youtube" and dc["candidate"]["source_url"]==dc_payload.source_url,
+        "discovery source identity regression")
+require(bool(dc["candidate"]["discovered_at"]) and bool(dc["candidate"]["updated_at"]),
+        "discovery capture timestamps missing")
+require(dc["candidate"]["metrics"].get("vph")==123.4 and dc["candidate"]["metrics"].get("engagement_rate")==0.029,
+        "discovery factual metric evidence missing")
+require(dc["candidate"]["provenance"].get("source")=="ci_fixture" and bool(dc["candidate"]["provenance"].get("ingested_at")),
+        "discovery provenance/capture evidence regression")
 dc_dup=app.ingest_discovery_candidate(dc_payload,"ci_fixture")
 require(dc_dup["created"] is False and dc_dup["candidate"]["id"]==dc["candidate"]["id"],"discovery dedup regression")
+
+rank_tie_ids=[]
+for suffix in ("A","B"):
+    ranked=app.ingest_discovery_candidate(app.DiscoveryCandidateCreate(
+        platform="tiktok",source_url=f"https://www.tiktok.com/@ci/video/rank{suffix}",external_id=f"rank{suffix}",
+        title=f"Ranking tie {suffix}",topic="AI automation tools",content_type="short",
+        views=5000,vph=80.0,engagement_rate=0.02,breakout_score=10.0,
+        provenance={"source":"ranking_fixture"}
+    ),"ranking_fixture")
+    rank_tie_ids.append(ranked["candidate"]["id"])
+missing_rank=app.ingest_discovery_candidate(app.DiscoveryCandidateCreate(
+    platform="instagram",source_url="https://www.instagram.com/reel/ciMissingMetrics",external_id="ciMissingMetrics",
+    title="Missing metric candidate",topic="AI automation tools",content_type="short",
+    provenance={"source":"ranking_fixture"}
+),"ranking_fixture")
+con=app.db();con.execute("UPDATE discovery_candidates SET discovered_at=? WHERE id IN (?,?)",
+                         ("2026-10-20T12:00:00+00:00",rank_tie_ids[0],rank_tie_ids[1]));con.commit();con.close()
 discovery=app.get_discovery_candidates()
+ranked_ids=[x["id"] for x in discovery["candidates"]]
+require(ranked_ids.index(dc["candidate"]["id"]) < ranked_ids.index(rank_tie_ids[0]),"higher factual breakout evidence must rank first")
+require([x for x in ranked_ids if x in rank_tie_ids]==sorted(rank_tie_ids,reverse=True),
+        "Discovery factual tie-break must be deterministic")
+missing_item=next(x for x in discovery["candidates"] if x["id"]==missing_rank["candidate"]["id"])
+require(missing_item["ranking_evidence"]["metrics"]=={} and set(missing_item["ranking_evidence"]["missing_metrics"])==set(app.DISCOVERY_RANK_FIELDS),
+        "missing Discovery metrics must stay missing instead of being imputed")
+require(ranked_ids.index(rank_tie_ids[0]) < ranked_ids.index(missing_rank["candidate"]["id"]),
+        "measured factual evidence must rank ahead of a metric-empty candidate")
+require(discovery["ranking"]["method"]=="factual_lexicographic","Discovery ranking method must be explicit")
 require(discovery["summary"]["candidates"]>=1 and discovery["adapter"]["configured"] is False,"discovery dashboard/adapter regression")
 require(discovery["measurement_note"].startswith("views"),"discovery measurement honesty note missing")
 dc_rev=app.discovery_candidate_to_revideo(dc["candidate"]["id"],"English")
@@ -108,6 +143,68 @@ require(dc_rev["created"] is True and dc_rev["project"]["source_url"]==dc["candi
 require(dc_rev["project"]["transcript"].startswith("A source transcript"),"discovery transcript was not preserved")
 dc_after=app.get_discovery_candidate(dc["candidate"]["id"])
 require(dc_after["status"]=="sent_to_revideo" and dc_after["revideo_project_id"]==dc_rev["project"]["id"],"discovery linkage regression")
+dc_ready=asyncio.run(app.run_revideo_analysis(dc_rev["project"]["id"],"English"))
+require(dc_ready["status"]=="ready","Discovery-sourced Revideo must reach a deterministic ready rewrite")
+dc_prod=app.create_revideo_production_job(dc_rev["project"]["id"])
+require(dc_prod["created"] is True and dc_prod["job"]["id"],"Discovery → Revideo → production handoff failed")
+dc_project=app.get_revideo_project(dc_rev["project"]["id"])
+require(dc_project["status"]=="in_production" and dc_project["job_id"]==dc_prod["job"]["id"],
+        "Discovery-sourced Revideo production linkage regression")
+require(dc_project["provenance"].get("discovery_candidate_id")==dc["candidate"]["id"],
+        "Discovery candidate provenance was lost before production")
+require(dc_project["provenance"].get("discovery_metrics",{}).get("vph")==123.4,
+        "Discovery performance evidence was lost before production")
+require(bool(dc_project.get("source_signal_id")) and bool(dc_project.get("idea_id")),
+        "Discovery → Revideo production must preserve source/idea lineage")
+
+# v5.1 T-513 — deterministic zero-spend Discovery → Revideo → Package → Finisher → HUMAN APPROVAL.
+dc_job_id=dc_prod["job"]["id"]
+dc_variants=asyncio.run(app.run_variant_pipeline(dc_job_id,3))
+require(dc_variants["summary"]["selected"]==1 and dc_variants["summary"]["variants"]==3,
+        "semi-autonomous Discovery flow must build three deterministic production variants")
+dc_package=asyncio.run(app.generate_content_package(dc_job_id))
+require(dc_package["status"]=="ready" and dc_package["package"]["final_script"],
+        "semi-autonomous Discovery flow must build a ready Content Package")
+dc_raw_url="https://example.com/discovery-source-render.mp4"
+app.save_artifact("Render Agent","video","Discovery CI raw render","",job_id=dc_job_id,url=dc_raw_url,
+                  mime_type="video/mp4",meta={"fixture":True,"source":"T-513"})
+dc_publish_before=app._publishing_summary()
+dc_orig_endpoint,dc_orig_spawn=app.FACTORY_MEDIA_FINISHER_ENDPOINT,app._spawn_media_finisher_submit
+app.FACTORY_MEDIA_FINISHER_ENDPOINT="https://ci.invalid/finish"
+app._spawn_media_finisher_submit=lambda edit_job_id: None
+try:
+    dc_edit=app.start_media_finisher(dc_job_id,app.MediaFinisherStartRequest(
+        profile_id="revideo_finish",profile_version=1,platform="reels",input_url=dc_raw_url,
+        edit_full_video=True,split_shortform=False,add_captions=True,add_animation=True,
+        smart_graphics=True,max_short_clips=1,confirm_external_cost=True
+    ))
+    dc_edit_id=dc_edit["edit_job"]["id"]
+    dc_report={
+      "transcript_words":[{"word":"Discovery","start":0.0,"end":0.4},{"word":"rewrite","start":0.4,"end":0.8}],
+      "cut_list":[],"caption_timeline":[{"start":0.0,"end":0.8,"words":["Discovery","rewrite"]}],
+      "motion_timeline":[],"graphics_timeline":[],"shorts_manifest":{"enabled":False,"clips":[]},
+      "audio_report":{"voice_lufs":-14.0},"safe_zone_report":{"violations":[]},
+      "edit_summary":{"duration_before_sec":12.0,"duration_after_sec":11.5,
+                      "options":{"edit_full_video":True,"split_shortform":False},"human_review_required":True}
+    }
+    dc_finished=app._finalize_edit_job(dc_edit_id,"completed","https://example.com/discovery-finished.mp4",
+                                       "ci-t513-finisher","",{"status":"completed"},dc_report,0.0,11.5)
+finally:
+    app.FACTORY_MEDIA_FINISHER_ENDPOINT,app._spawn_media_finisher_submit=dc_orig_endpoint,dc_orig_spawn
+require(dc_finished["status"]=="ready","semi-autonomous Discovery Media Finisher fixture must reach ready")
+require(app.get_job(dc_job_id)["status"]=="waiting_approval",
+        "semi-autonomous Discovery flow must stop at HUMAN APPROVAL")
+dc_review=app._media_review_state(dc_job_id)
+require(dc_review["required"] is True and dc_review["ready"] is True and
+        (dc_review["artifact"] or {}).get("url")=="https://example.com/discovery-finished.mp4",
+        "semi-autonomous Discovery flow must expose the exact finished media for human review")
+require(app._publishing_summary()==dc_publish_before,
+        "semi-autonomous Discovery flow must never publish or create a publish item before human approval")
+require(any(x["job"]["id"]==dc_job_id for x in app.get_approval_queue()["items"]),
+        "semi-autonomous Discovery flow must enter the Approval Studio queue")
+dc_project_after=app.get_revideo_project(dc_rev["project"]["id"])
+require(dc_project_after["provenance"].get("discovery_candidate_id")==dc["candidate"]["id"],
+        "Discovery provenance must survive through the Media Finisher approval boundary")
 manual_collect=app.collect_discovery_candidates("AI automation",5,"short","en")
 require(manual_collect["created_count"]==0 and manual_collect["adapter"]=="manual_intake","unconfigured discovery provider must not invent candidates")
 

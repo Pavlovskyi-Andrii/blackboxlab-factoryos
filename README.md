@@ -19,6 +19,14 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v5.1 — Viral Discovery Loop — 2026-10-23
+- Closed T-510 provider-neutral Discovery acceptance with explicit source URL, platform, factual metric, timestamp, provenance and deduplication evidence.
+- Added deterministic evidence-based breakout ranking using only supplied `breakout_score`, VPH, engagement and views; missing metrics remain missing instead of being imputed.
+- Discovery Studio now shows rank position and the number of measured ranking signals for each candidate.
+- Closed T-512 with traceable Discovery → Revideo → production lineage preserving the exact candidate ID and supplied performance evidence.
+- Closed T-513 with a zero-spend deterministic acceptance path: Discovery → Revideo → three production variants → Content Package → Media Finisher fixture → QA → HUMAN APPROVAL.
+- The T-513 acceptance explicitly proves that no publishing queue item is created before human approval.
+
 ### v5.0 — Builder Autopilot — 2026-10-23
 - Added repository-native `ROADMAP.md` with machine-checkable DONE criteria and explicit `[HUMAN]` blockers.
 - Added `CLAUDE.md`, `DECISIONS.md`, `.autopilot/answers.md` and a machine-readable status contract so autonomous implementation does not stop for ordinary reversible decisions.
