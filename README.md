@@ -13,10 +13,20 @@ The living technical specification and progress tracker for the next major produ
 - [FactoryOS v4.6 — Video → Approval → Publishing](docs/roadmap/FACTORYOS_V4_6_VIDEO_PUBLISH_SPEC.md) — **IN PROGRESS**: bind the exact final Media Finisher artifact to approval, publishing, real platform receipt and analytics.
 - [FactoryOS v4.7 — Direct Raw Video → Publishing](docs/roadmap/FACTORYOS_V4_7_RAW_VIDEO_PUBLISH_SPEC.md) — **IN PROGRESS**: carry direct owner-uploaded video through Media Finisher, zero-spend publish pack, approval and the same immutable publishing boundary.
 - [FactoryOS v4.8 — Durable Finished Media](docs/roadmap/FACTORYOS_V4_8_DURABLE_MEDIA_SPEC.md) — **DONE**: finished worker media is persisted on the FactoryOS disk before approval; live post-redeploy inventory verified 5/5 archived videos present with 0 missing.
+- **FactoryOS v5.0 — Builder Autopilot — READY TO MERGE**: repository-driven autonomous engineering loop with machine-checkable roadmap tasks, isolated Claude Code runner, explicit HUMAN blockers, decision log, runtime status in Build Progress and CI guardrails. Source of truth: `ROADMAP.md`.
 
 This document is the source of truth for milestone status, Definition of Done, progress checkboxes, known gaps and the next action from v3.25 through v4.0.
 
 ## Product changelog
+
+### v5.0 — Builder Autopilot — 2026-10-23
+- Added repository-native `ROADMAP.md` with machine-checkable DONE criteria and explicit `[HUMAN]` blockers.
+- Added `CLAUDE.md`, `DECISIONS.md`, `.autopilot/answers.md` and a machine-readable status contract so autonomous implementation does not stop for ordinary reversible decisions.
+- Added a Docker-isolated Claude Code runner with bounded turns, task timeout, three-failure stop, safe-branch enforcement and optional owner-only Telegram escalation.
+- Autopilot pins one exact task per invocation, refuses a false `done` unless the ROADMAP checkbox really closed, then advances to the next non-HUMAN task.
+- Build Progress now shows repository roadmap progress, next safe task, HUMAN blockers, runtime status and recent autonomous decisions in EN / UK / RU.
+- Added dedicated autopilot unit tests plus compose, Python, smoke, HTML and JavaScript CI guardrails.
+- No paid model calls, external publishing, production secrets or human approval boundaries are enabled or weakened by this release.
 
 ### v4.8.2 — Durable Media Closure Verification — 2026-10-23
 - Added a production startup inventory check for durable AI Media Finisher archives.
