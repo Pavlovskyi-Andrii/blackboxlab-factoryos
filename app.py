@@ -4274,6 +4274,31 @@ def _recover_ready_durable_media():
     if queued:print(json.dumps({"event":"DURABLE_MEDIA_RECOVERY","queued":queued}),flush=True)
     return queued
 
+def _durable_media_inventory(limit=200):
+    con=db();rows=con.execute("""SELECT id,url,meta_json FROM artifacts
+                                WHERE kind='video' AND (url LIKE '%/media-archive/%' OR meta_json LIKE '%"durable_media": true%')
+                                ORDER BY created_at DESC LIMIT ?""",(int(limit),)).fetchall();con.close()
+    checked=present=missing=0;bytes_total=0;archive_ids=[]
+    for row in rows:
+        item=dict(row);meta=_decode_json(item.get("meta_json") or "{}",{})
+        archive_id=str(meta.get("archive_id") or "").strip()
+        if not archive_id:
+            match=re.search(r"/media-archive/([^?/#]+)",str(item.get("url") or ""))
+            archive_id=match.group(1) if match else ""
+        if not archive_id:continue
+        checked+=1
+        archive_meta=_media_archive_meta(archive_id)
+        path=(MEDIA_ARCHIVE_DIR/str((archive_meta or {}).get("stored_name") or "")) if archive_meta else None
+        expected=int((archive_meta or {}).get("bytes") or meta.get("archive_bytes") or 0)
+        actual=int(path.stat().st_size) if path and path.exists() else 0
+        ok=bool(archive_meta and path and path.exists() and actual>=1024 and (not expected or actual==expected))
+        if ok:
+            present+=1;bytes_total+=actual
+        else:
+            missing+=1
+        if len(archive_ids)<5:archive_ids.append(archive_id[:12])
+    return {"checked":checked,"present":present,"missing":missing,"bytes":bytes_total,"archive_ids":archive_ids}
+
 def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,output_url=""):
     report=report if isinstance(report,dict) else {}
     evidence_map={
@@ -8201,6 +8226,9 @@ def recover_pending_media_finisher_submits():
     _recover_recent_real_media_failures()
     _recover_recent_failed_asr_jobs()
     _recover_ready_durable_media()
+    inventory=_durable_media_inventory()
+    inventory_status="ready" if inventory["checked"] and inventory["missing"]==0 else ("empty" if not inventory["checked"] else "degraded")
+    print(json.dumps({"event":"DURABLE_MEDIA_INVENTORY","status":inventory_status,**inventory}),flush=True)
     threading.Thread(target=_media_finisher_watchdog_loop,daemon=True,name="finisher-watchdog").start()
     if rows:print(json.dumps({"event":"MEDIA_FINISHER_SUBMIT_RECOVERY","queued":len(rows)}),flush=True)
 
