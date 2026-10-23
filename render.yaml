@@ -37,6 +37,10 @@ services:
         sync: false
       - key: FACTORY_VIEWER_INVITE_TOKEN
         sync: false
+      - key: FACTORY_TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: FACTORY_TELEGRAM_PAIR_TTL_SECONDS
+        value: "600"
       - key: FACTORY_PUBLISHER_ADAPTER
         sync: false
       - key: FACTORY_METRICOOL_TOKEN
