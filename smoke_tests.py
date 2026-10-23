@@ -34,7 +34,7 @@ autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
 require(autopilot_state["total"]>=8,"roadmap task parsing regression")
-require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-503","autopilot must select first safe pending roadmap task")
+require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-504","autopilot must select first safe pending roadmap task")
 require(autopilot_state["human_pending"]>=1,"HUMAN blockers must remain explicit")
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
 
