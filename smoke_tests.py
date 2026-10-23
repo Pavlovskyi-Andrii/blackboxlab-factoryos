@@ -34,8 +34,8 @@ autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
 require(autopilot_state["total"]>=8,"roadmap task parsing regression")
-require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-522","autopilot must select first safe pending roadmap task")
-require(autopilot_state["human_pending"]>=1,"HUMAN blockers must remain explicit")
+require(autopilot_state["next_task"] is None,"no safe roadmap task should remain after T-522")
+require(autopilot_state["human_pending"]>=2,"real publisher and first real post must remain HUMAN blockers")
 require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log must be exposed")
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
 
@@ -623,8 +623,20 @@ require(again.get("idempotent") is True,"published item must be duplicate-safe")
 # v3.80 Feedback Loop — store only metrics actually supplied and preserve attribution.
 snap=app.record_performance_snapshot(app.PerformanceSnapshotCreate(publish_id=pub["id"],views=1200,retention_pct=61.5,likes=48,source="ci_fixture"))
 require(snap["metrics"]=={"views":1200,"retention_pct":61.5,"likes":48},"missing metrics must not be invented")
+require(snap["meta"]["external_post_id"]=="ci-post-1" and snap["meta"]["external_url"].endswith("/ci-post-1"),
+        "analytics snapshot must preserve the factual external platform receipt")
+require(snap["meta"]["media_artifact_id"]==(pub.get("meta") or {}).get("media_artifact_id"),
+        "analytics snapshot must preserve exact published media provenance")
+require(snap["meta"]["content_snapshot_hash"]==pub["content_snapshot_hash"] and
+        snap["meta"]["approval_decision_id"]==pub["approval_decision_id"],
+        "analytics snapshot must bind to exact approved content/decision provenance")
 perf=app.get_performance_dashboard()
 pitem=next(x for x in perf["items"] if x["publish"]["id"]==pub["id"])
+require(pitem["publish"]["external_post_id"]=="ci-post-1","performance item must remain traceable to the external post ID")
+require((pitem["latest"].get("meta") or {}).get("external_post_id")=="ci-post-1",
+        "persisted latest analytics snapshot must retain platform receipt provenance")
+require(pitem["latest"]["metrics"]=={"views":1200,"retention_pct":61.5,"likes":48},
+        "performance dashboard must not fabricate absent platform metrics")
 require(pitem["attribution"]["idea_id"]==idea["id"],"performance must link to originating idea")
 require(pitem["attribution"]["package_id"] and pitem["attribution"]["variant_id"],"performance package/variant attribution missing")
 require(pitem["cost_per_1k_views_usd"] is not None,"cost/outcome comparison missing when views exist")
