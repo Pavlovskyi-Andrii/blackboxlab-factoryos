@@ -34,7 +34,7 @@ autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
 require(autopilot_state["total"]>=8,"roadmap task parsing regression")
-require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-511","autopilot must select first safe pending roadmap task")
+require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-512","autopilot must select first safe pending roadmap task")
 require(autopilot_state["human_pending"]>=1,"HUMAN blockers must remain explicit")
 require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log must be exposed")
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
@@ -108,7 +108,34 @@ require(dc["candidate"]["provenance"].get("source")=="ci_fixture" and bool(dc["c
         "discovery provenance/capture evidence regression")
 dc_dup=app.ingest_discovery_candidate(dc_payload,"ci_fixture")
 require(dc_dup["created"] is False and dc_dup["candidate"]["id"]==dc["candidate"]["id"],"discovery dedup regression")
+
+rank_tie_ids=[]
+for suffix in ("A","B"):
+    ranked=app.ingest_discovery_candidate(app.DiscoveryCandidateCreate(
+        platform="tiktok",source_url=f"https://www.tiktok.com/@ci/video/rank{suffix}",external_id=f"rank{suffix}",
+        title=f"Ranking tie {suffix}",topic="AI automation tools",content_type="short",
+        views=5000,vph=80.0,engagement_rate=0.02,breakout_score=10.0,
+        provenance={"source":"ranking_fixture"}
+    ),"ranking_fixture")
+    rank_tie_ids.append(ranked["candidate"]["id"])
+missing_rank=app.ingest_discovery_candidate(app.DiscoveryCandidateCreate(
+    platform="instagram",source_url="https://www.instagram.com/reel/ciMissingMetrics",external_id="ciMissingMetrics",
+    title="Missing metric candidate",topic="AI automation tools",content_type="short",
+    provenance={"source":"ranking_fixture"}
+),"ranking_fixture")
+con=app.db();con.execute("UPDATE discovery_candidates SET discovered_at=? WHERE id IN (?,?)",
+                         ("2026-10-20T12:00:00+00:00",rank_tie_ids[0],rank_tie_ids[1]));con.commit();con.close()
 discovery=app.get_discovery_candidates()
+ranked_ids=[x["id"] for x in discovery["candidates"]]
+require(ranked_ids.index(dc["candidate"]["id"]) < ranked_ids.index(rank_tie_ids[0]),"higher factual breakout evidence must rank first")
+require([x for x in ranked_ids if x in rank_tie_ids]==sorted(rank_tie_ids,reverse=True),
+        "Discovery factual tie-break must be deterministic")
+missing_item=next(x for x in discovery["candidates"] if x["id"]==missing_rank["candidate"]["id"])
+require(missing_item["ranking_evidence"]["metrics"]=={} and set(missing_item["ranking_evidence"]["missing_metrics"])==set(app.DISCOVERY_RANK_FIELDS),
+        "missing Discovery metrics must stay missing instead of being imputed")
+require(ranked_ids.index(rank_tie_ids[0]) < ranked_ids.index(missing_rank["candidate"]["id"]),
+        "measured factual evidence must rank ahead of a metric-empty candidate")
+require(discovery["ranking"]["method"]=="factual_lexicographic","Discovery ranking method must be explicit")
 require(discovery["summary"]["candidates"]>=1 and discovery["adapter"]["configured"] is False,"discovery dashboard/adapter regression")
 require(discovery["measurement_note"].startswith("views"),"discovery measurement honesty note missing")
 dc_rev=app.discovery_candidate_to_revideo(dc["candidate"]["id"],"English")
