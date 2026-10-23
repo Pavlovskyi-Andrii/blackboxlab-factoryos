@@ -41,7 +41,7 @@ Rules:
   Goal: rank candidates using factual velocity/engagement evidence without inventing unavailable metrics.
   DONE: regression covers ranking, missing metrics and tie behavior.
 
-- [ ] T-512 Candidate -> Revideo handoff
+- [x] T-512 Candidate -> Revideo handoff
   Goal: one approved discovery candidate can create a traceable Revideo project without manual copy/paste.
   DONE: source provenance survives Discovery -> Revideo -> production job.
 
