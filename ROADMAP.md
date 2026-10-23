@@ -59,6 +59,6 @@ Rules:
   Need: explicit owner approval of the exact final media + immutable metadata snapshot.
   DONE: real external post ID/URL is persisted as a Publisher receipt and attributed back to the Factory Cycle.
 
-- [ ] T-522 Analytics return loop
+- [x] T-522 Analytics return loop
   Goal: ingest factual platform metrics for the published post and attach them to the exact workflow/media/content snapshot.
   DONE: persisted analytics snapshot is traceable to external post ID and contains no fabricated metrics.
