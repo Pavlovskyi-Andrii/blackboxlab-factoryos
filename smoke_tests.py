@@ -34,7 +34,7 @@ autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
 require(autopilot_state["total"]>=8,"roadmap task parsing regression")
-require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-510","autopilot must select first safe pending roadmap task")
+require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-511","autopilot must select first safe pending roadmap task")
 require(autopilot_state["human_pending"]>=1,"HUMAN blockers must remain explicit")
 require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log must be exposed")
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
@@ -98,6 +98,14 @@ dc_payload=app.DiscoveryCandidateCreate(
 dc=app.ingest_discovery_candidate(dc_payload,"ci_fixture")
 require(dc["created"] is True and dc["candidate"]["views"]==108273 and dc["candidate"]["breakout_score"]==53.09,
         "discovery factual metric persistence regression")
+require(dc["candidate"]["platform"]=="youtube" and dc["candidate"]["source_url"]==dc_payload.source_url,
+        "discovery source identity regression")
+require(bool(dc["candidate"]["discovered_at"]) and bool(dc["candidate"]["updated_at"]),
+        "discovery capture timestamps missing")
+require(dc["candidate"]["metrics"].get("vph")==123.4 and dc["candidate"]["metrics"].get("engagement_rate")==0.029,
+        "discovery factual metric evidence missing")
+require(dc["candidate"]["provenance"].get("source")=="ci_fixture" and bool(dc["candidate"]["provenance"].get("ingested_at")),
+        "discovery provenance/capture evidence regression")
 dc_dup=app.ingest_discovery_candidate(dc_payload,"ci_fixture")
 require(dc_dup["created"] is False and dc_dup["candidate"]["id"]==dc["candidate"]["id"],"discovery dedup regression")
 discovery=app.get_discovery_candidates()
