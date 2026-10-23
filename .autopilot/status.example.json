@@ -1,0 +1,10 @@
+{
+  "task": "T-502",
+  "status": "done",
+  "summary": "Autopilot state is exposed through FactoryOS API and UI.",
+  "need": "",
+  "checks": [
+    "DATA_DIR=/tmp/factoryos-autopilot FACTORY_PASSWORD="" python smoke_tests.py"
+  ],
+  "commit": "example-sha"
+}

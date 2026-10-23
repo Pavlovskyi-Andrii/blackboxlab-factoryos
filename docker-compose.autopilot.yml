@@ -1,0 +1,15 @@
+services:
+  autopilot:
+    build:
+      context: .
+      dockerfile: autopilot/Dockerfile
+    restart: "no"
+    env_file:
+      - .env.autopilot
+    environment:
+      AUTOPILOT_REPO: /work/factoryos
+      AUTOPILOT_SKIP_PERMISSIONS: "1"
+      AUTOPILOT_WAIT_FOR_HUMAN: "0"
+    volumes:
+      - ./:/work/factoryos
+      - ./autopilot-ssh:/home/agent/.ssh:ro

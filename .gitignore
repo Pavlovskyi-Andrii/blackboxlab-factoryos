@@ -4,3 +4,6 @@ __pycache__/
 data/
 .env
 .DS_Store
+.env.autopilot
+.autopilot/status.json
+autopilot-ssh/
