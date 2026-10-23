@@ -786,7 +786,7 @@ require("workerSelectedResult" in html and "selected_job_result" in Path("app.py
 require('"/media-archive/"' in Path("app.py").read_text(encoding="utf-8").split("public_prefixes =",1)[1].split("\n",1)[0],"signed durable media route must bypass session auth before token validation")
 require('data-help="help.approval"' in html and 'data-help="help.brain"' in html and 'data-help="help.worker"' in html and 'data-help="help.finisher"' in html,"help tooltip coverage missing")
 require("legacyBanner" in html and "approval.legacyHelp" in html,"legacy approval clarity missing")
-require('<span class="version">v4.9.1</span>' in html,"visible UI version mismatch")
+require('<span class="version">v5.0</span>' in html,"visible UI version mismatch")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
 require("#agentBadges{position:relative;display:grid" in html,"mobile worker grid missing")
