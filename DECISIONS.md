@@ -28,3 +28,8 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** terminate Telegram pairing and owner messaging inside the existing FactoryOS Render service, with pairing state on the persistent disk and a bearer-authenticated notify/inbox bridge for Builder Autopilot.
   **Reason:** this avoids a second paid service, keeps the bot token in one secret store, and gives future autonomous runners a stable two-way owner interrupt channel.
+
+## 2026-10-23 — Claude Code Pro connection boundary
+
+- **Decision:** connect Claude Code Pro to FactoryOS through a trusted native Claude Code runner instead of storing Claude subscription credentials in the FactoryOS web service.
+  **Reason:** Pro authentication is a native Claude Code OAuth login; keeping it on the runner preserves the subscription boundary, while FactoryOS only stores a scoped runner token and heartbeat state. API remains an optional paid fallback for truly headless 24/7 execution.
