@@ -19,6 +19,12 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v5.2 — Analytics Return Provenance — 2026-10-23
+- Closed safe roadmap task T-522 without weakening the real-publisher HUMAN gates.
+- Every persisted performance snapshot now records the factual external post ID/URL plus exact published media artifact, Media Finisher edit job, approved content snapshot hash, approval decision and workflow/experiment assignment.
+- Missing platform metrics remain absent; the analytics path does not synthesize unavailable measurements.
+- The only remaining v5 roadmap tasks are HUMAN gates: configure the first real publisher and approve/verify the first real external post.
+
 ### v5.1 — Viral Discovery Loop — 2026-10-23
 - Closed T-510 provider-neutral Discovery acceptance with explicit source URL, platform, factual metric, timestamp, provenance and deduplication evidence.
 - Added deterministic evidence-based breakout ranking using only supplied `breakout_score`, VPH, engagement and views; missing metrics remain missing instead of being imputed.

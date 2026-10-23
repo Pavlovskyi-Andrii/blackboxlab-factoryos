@@ -7344,20 +7344,36 @@ def record_performance_snapshot(payload):
         value=getattr(payload,key)
         if value is not None:metrics[key]=value
     if not metrics:con.close();raise ValueError("At least one real platform metric is required")
+    publish=_publish_item(pub)
+    publish_meta=(publish or {}).get("meta") or {}
+    workflow=get_job_workflow_assignment(pub["job_id"]) or {}
+    snapshot_meta={
+        "publish_id":pub["id"],
+        "external_post_id":str(pub["external_post_id"] or ""),
+        "external_url":str(pub["external_url"] or ""),
+        "media_artifact_id":publish_meta.get("media_artifact_id"),
+        "media_edit_job_id":publish_meta.get("media_edit_job_id"),
+        "content_snapshot_hash":publish_meta.get("content_snapshot_hash"),
+        "approval_decision_id":publish_meta.get("approval_decision_id"),
+        "workflow_version_id":workflow.get("workflow_version_id"),
+        "experiment_id":workflow.get("experiment_id"),
+        "experiment_arm":workflow.get("arm"),
+        "source":payload.source or "manual",
+    }
     snapshot_id=str(uuid.uuid4());captured=payload.captured_at or ts()
     con.execute("""INSERT INTO performance_snapshots(
         id,publish_id,job_id,platform,captured_at,metrics_json,source,meta_json
     ) VALUES(?,?,?,?,?,?,?,?)""",(
         snapshot_id,pub["id"],pub["job_id"],pub["platform"],captured,json.dumps(metrics),
-        payload.source or "manual","{}"
+        payload.source or "manual",json.dumps(snapshot_meta,ensure_ascii=False,default=str)
     ))
     con.commit();con.close()
     save_artifact("Analyst","performance_snapshot",f"Performance snapshot · {pub['platform']}",
                   json.dumps(metrics,ensure_ascii=False,indent=2),job_id=pub["job_id"],
-                  meta={"publish_id":pub["id"],"source":payload.source or "manual"})
+                  meta=snapshot_meta)
     event(pub["job_id"],f"Performance snapshot recorded: {pub['platform']} · {', '.join(metrics.keys())}")
     sync_cycle_for_publish(pub["id"])
-    return {"id":snapshot_id,"publish_id":pub["id"],"metrics":metrics,"captured_at":captured}
+    return {"id":snapshot_id,"publish_id":pub["id"],"metrics":metrics,"captured_at":captured,"meta":snapshot_meta}
 
 @app.get("/api/factory-cycles")
 def factory_cycles(limit:int=80):
