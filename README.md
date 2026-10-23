@@ -12,11 +12,18 @@ The living technical specification and progress tracker for the next major produ
 - [FactoryOS v4.5 — AI Editing / Media Finisher](docs/roadmap/FACTORYOS_V4_5_AI_EDITING_SPEC.md) — **DONE**: real uploaded-video production pilot verified end-to-end, with word-level ASR, deterministic cuts, captions/graphics, audio finishing, QA frame samples, traceable artifacts and return to HUMAN APPROVAL.
 - [FactoryOS v4.6 — Video → Approval → Publishing](docs/roadmap/FACTORYOS_V4_6_VIDEO_PUBLISH_SPEC.md) — **IN PROGRESS**: bind the exact final Media Finisher artifact to approval, publishing, real platform receipt and analytics.
 - [FactoryOS v4.7 — Direct Raw Video → Publishing](docs/roadmap/FACTORYOS_V4_7_RAW_VIDEO_PUBLISH_SPEC.md) — **IN PROGRESS**: carry direct owner-uploaded video through Media Finisher, zero-spend publish pack, approval and the same immutable publishing boundary.
-- [FactoryOS v4.8 — Durable Finished Media](docs/roadmap/FACTORYOS_V4_8_DURABLE_MEDIA_SPEC.md) — **IN PROGRESS**: persist finished worker media on the FactoryOS disk before approval so Render worker redeploys cannot break publish URLs.
+- [FactoryOS v4.8 — Durable Finished Media](docs/roadmap/FACTORYOS_V4_8_DURABLE_MEDIA_SPEC.md) — **DONE**: finished worker media is persisted on the FactoryOS disk before approval; live post-redeploy inventory verified 5/5 archived videos present with 0 missing.
 
 This document is the source of truth for milestone status, Definition of Done, progress checkboxes, known gaps and the next action from v3.25 through v4.0.
 
 ## Product changelog
+
+### v4.8.2 — Durable Media Closure Verification — 2026-10-23
+- Added a production startup inventory check for durable AI Media Finisher archives.
+- GitHub CI run `39933231662` passed on commit `d85db541aacebbbefbc2035ad871316aee4355ec`.
+- FactoryOS deploy `dep-dbdim1k9v7es73e0ulh0` reached LIVE.
+- After that fresh deploy, persistent storage verification reported **5/5 archived video artifacts present, 0 missing, 261,314,094 bytes**.
+- v4.8 durable-media persistence/redeploy acceptance is now closed. Real social publishing remains the separate v4.6/v4.7 external-provider gate.
 
 ### v4.8.1 — Signed Archive Access Hotfix — 2026-10-22
 - Fixed the auth boundary for durable finished-media URLs: signed `/media-archive/{id}` links now bypass the login middleware and reach their HMAC token validation, just like signed raw-media source URLs.
