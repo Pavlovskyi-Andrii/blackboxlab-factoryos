@@ -19,7 +19,7 @@ Rules:
   Goal: run one roadmap task per isolated Claude Code invocation on a non-main branch, with bounded turns, bounded retries and optional Telegram escalation.
   DONE: `python -m py_compile autopilot/autopilot.py autopilot/notify.py && docker compose -f docker-compose.autopilot.yml config >/dev/null`
 
-- [ ] T-502 Autopilot state inside FactoryOS
+- [x] T-502 Autopilot state inside FactoryOS
   Goal: expose roadmap progress, current task, latest autonomous status and blockers in the FactoryOS API/UI.
   DONE: `DATA_DIR=/tmp/factoryos-autopilot FACTORY_PASSWORD="" python smoke_tests.py`
 
