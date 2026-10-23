@@ -602,6 +602,60 @@ try:
 finally:
     app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_PUBLISHER_ENDPOINT,app._external_json=orig_pub_adapter,orig_pub_endpoint,orig_pub_external
 
+# v5.3 T-519 — Metricool publisher adapter uses only the frozen approval snapshot and exact media.
+metricool_globals=(
+    app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_METRICOOL_TOKEN,app.FACTORY_METRICOOL_USER_ID,
+    app.FACTORY_METRICOOL_BLOG_ID,app.FACTORY_METRICOOL_TIMEZONE,
+    app.FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS,app._metricool_json
+)
+captured_metricool={}
+def fake_metricool(url,method="GET",payload=None):
+    captured_metricool.update({"url":url,"method":method,"payload":payload})
+    return {"data":{"id":"metricool-schedule-ci","plannerUrl":"https://example.com/metricool/planner/ci"}}
+try:
+    app.FACTORY_PUBLISHER_ADAPTER="metricool"
+    app.FACTORY_METRICOOL_TOKEN="ci-secret-never-render"
+    app.FACTORY_METRICOOL_USER_ID="ci-user"
+    app.FACTORY_METRICOOL_BLOG_ID="ci-blog"
+    app.FACTORY_METRICOOL_TIMEZONE="Europe/Kyiv"
+    app.FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS="false"
+    app._metricool_json=fake_metricool
+    metricool_item={**pub,"platform":"youtube_shorts",
+                    "scheduled_at":(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat()}
+    metricool_result=app._publish_via_adapter(metricool_item)
+    require(metricool_result["manual"] is False and metricool_result["status"]=="publishing",
+            "Metricool must create an external schedule without inventing a published receipt")
+    require(metricool_result.get("external_post_id") is None,
+            "Metricool scheduler id must never be misreported as a real platform post id")
+    mc_payload=captured_metricool.get("payload") or {}
+    require(captured_metricool.get("method")=="POST" and "/api/v2/scheduler/posts?" in captured_metricool.get("url",""),
+            "Metricool scheduler endpoint regression")
+    require(mc_payload.get("providers")==[{"network":"youtube"}] and mc_payload.get("autoPublish") is True,
+            "Metricool YouTube provider payload regression")
+    require(mc_payload.get("media")==["https://example.com/final-ci-current.mp4"] and mc_payload.get("saveExternalMediaFiles") is True,
+            "Metricool must receive the exact approved durable media URL")
+    require((mc_payload.get("youtubeData") or {}).get("title")==approved_title and
+            (mc_payload.get("youtubeData") or {}).get("madeForKids") is False and
+            (mc_payload.get("youtubeData") or {}).get("isAiGeneratedContent") is True,
+            "Metricool YouTube compliance metadata regression")
+    require("MUTATED AFTER APPROVAL" not in json.dumps(mc_payload,ensure_ascii=False),
+            "Metricool must never receive mutable post-approval package state")
+    require(app.get_publisher_adapter_registry()["adapters"][-1]["configured"] is True,
+            "Metricool adapter registry must reflect complete server-side configuration")
+    ig_payload,_,ig_network=app._metricool_scheduler_payload(
+        {**metricool_item,"platform":"instagram_reels"},pub["content_snapshot"],pub["media"])
+    require(ig_network=="instagram" and (ig_payload.get("instagramData") or {}).get("type")=="REEL" and
+            (ig_payload.get("instagramData") or {}).get("isAiGenerated") is True,
+            "Metricool Instagram Reel mapping regression")
+    tt_payload,_,tt_network=app._metricool_scheduler_payload(
+        {**metricool_item,"platform":"tiktok"},pub["content_snapshot"],pub["media"])
+    require(tt_network=="tiktok" and (tt_payload.get("tiktokData") or {}).get("isAigc") is True,
+            "Metricool TikTok mapping regression")
+finally:
+    (app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_METRICOOL_TOKEN,app.FACTORY_METRICOOL_USER_ID,
+     app.FACTORY_METRICOOL_BLOG_ID,app.FACTORY_METRICOOL_TIMEZONE,
+     app.FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS,app._metricool_json)=metricool_globals
+
 # v3.70 Publishing Engine — no duplicate publish and no invented external receipt.
 unscheduled=asyncio.run(app.publish_scheduled_item(pub["id"]))
 require(unscheduled["ok"] is False and "scheduling" in unscheduled["message"].lower(),
