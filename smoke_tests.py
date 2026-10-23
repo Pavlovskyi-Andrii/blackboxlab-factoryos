@@ -39,6 +39,10 @@ require((autopilot_state["next_task"] or {}).get("id")=="T-508","next safe roadm
 require(autopilot_state["human_pending"]>=2,"real publisher and first real post must remain HUMAN blockers")
 require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log must be exposed")
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
+connections=app.get_connection_registry()
+require("Telegram" in connections and "Claude Code Pro" in connections,"owner/automation connections missing")
+require(connections["Claude Code Pro"]["state"]=="not_configured","CI must not fake a live Claude Pro runner")
+require(app.get_claude_code_status()["online"] is False,"CI must not report Claude worker online")
 pair_hash=app._telegram_pair_code_hash("PAIR1234")
 require(app._telegram_pair_code_matches("PAIR1234",pair_hash) is True,"Telegram pair-code verification regression")
 require(app._telegram_pair_code_matches("WRONG",pair_hash) is False,"Telegram pair-code rejection regression")
@@ -73,6 +77,9 @@ for path,method in (
     ("/api/integrations/telegram/webhook","POST"),
     ("/api/factory/telegram/bridge/notify","POST"),
     ("/api/factory/telegram/bridge/inbox","GET"),
+    ("/api/factory/claude-code/status","GET"),
+    ("/api/factory/claude-code/worker-token","GET"),
+    ("/api/claude-worker/heartbeat","POST"),
 ):
     require(route_exists(path,method),f"Telegram route missing: {method} {path}")
 
