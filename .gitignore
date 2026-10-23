@@ -6,4 +6,5 @@ data/
 .DS_Store
 .env.autopilot
 .autopilot/status.json
+.autopilot/telegram.json
 autopilot-ssh/

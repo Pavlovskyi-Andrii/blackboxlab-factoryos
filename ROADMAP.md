@@ -31,6 +31,24 @@ Rules:
   Goal: surface DECISIONS.md entries in FactoryOS so owner decisions can be reviewed in batches instead of interrupting implementation.
   DONE: API + UI render repository decisions and smoke tests stay green.
 
+## v5.0.1 — Owner Interrupt + Claude Worker
+
+- [x] T-505 Secure Telegram owner pairing
+  Goal: pair one private Telegram chat with FactoryOS using a short-lived one-time code; never commit the bot token or owner chat ID.
+  DONE: `python -m autopilot.test_notify` and runtime pair command persists only ignored pairing state.
+
+- [ ] [HUMAN] T-506 Pair owner Telegram bot
+  Need: owner places TG_TOKEN in the trusted runner secret environment and sends the one-time `/pair CODE` command to the bot.
+  DONE: `python -m autopilot.notify status` reports paired=true and the bot sends the confirmation message.
+
+- [ ] [HUMAN] T-507 Authorize Claude Code Pro
+  Need: owner signs Claude Code into the Pro subscription and provisions a Claude Code OAuth token on the trusted runner; no API key is required for the first pass.
+  DONE: Claude Code status confirms subscription auth and no ANTHROPIC_API_KEY overrides it.
+
+- [ ] T-508 Claude delegation adapter
+  Goal: let FactoryOS delegate a bounded task packet to Claude Code and ingest the result/commit/test evidence back into Builder state.
+  DONE: deterministic regression proves task pinning, bounded execution, evidence capture and no direct main/prod action.
+
 ## v5.1 — Viral Discovery Loop
 
 - [x] T-510 Discovery adapter

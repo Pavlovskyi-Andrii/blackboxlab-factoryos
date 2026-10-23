@@ -15,3 +15,11 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** represent unavoidable owner actions explicitly as `[HUMAN]` roadmap tasks.
   **Reason:** the agent should skip real blockers instead of stopping on ordinary implementation questions.
+
+## 2026-10-23 — Owner interrupt channel and Claude auth
+
+- **Decision:** pair Telegram with a one-time code and persist only the paired chat ID in an ignored runtime file; the bot token stays in the secret environment.
+  **Reason:** this gives the owner a fast push-notification channel without putting messaging credentials or personal chat identifiers in Git.
+
+- **Decision:** prefer Claude Code subscription OAuth for the owner's Pro plan and keep Anthropic API PAYG as an optional fallback.
+  **Reason:** Claude Code is included with Pro, while an ANTHROPIC_API_KEY would switch usage to separately billed API credits.
