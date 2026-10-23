@@ -5,8 +5,12 @@ import subprocess
 import time
 from typing import Any
 
-from notify import configured as telegram_configured
-from notify import send, wait_answer
+try:
+    from .notify import configured as telegram_configured
+    from .notify import send, wait_answer
+except ImportError:
+    from notify import configured as telegram_configured
+    from notify import send, wait_answer
 
 REPO = pathlib.Path(os.environ.get("AUTOPILOT_REPO", "/work/factoryos")).resolve()
 STATUS = REPO / ".autopilot" / "status.json"
@@ -18,13 +22,6 @@ TASK_TIMEOUT_SECONDS = max(600, min(7200, int(os.environ.get("AUTOPILOT_TASK_TIM
 PAUSE_SECONDS = max(5, min(3600, int(os.environ.get("AUTOPILOT_PAUSE_SECONDS", "30"))))
 WAIT_FOR_HUMAN = os.environ.get("AUTOPILOT_WAIT_FOR_HUMAN", "0").strip().lower() in {"1", "true", "yes", "on"}
 SKIP_PERMISSIONS = os.environ.get("AUTOPILOT_SKIP_PERMISSIONS", "0").strip().lower() in {"1", "true", "yes", "on"}
-
-PROMPT = (
-    "Работай строго по CLAUDE.md. Возьми первую незакрытую задачу ROADMAP.md без [HUMAN], "
-    "доведи только её до проверяемого DONE, запиши решения, тесты и .autopilot/status.json, "
-    "сделай один commit с ID задачи. Не трогай main и production."
-)
-
 
 def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -48,24 +45,51 @@ def assert_safe_branch() -> str:
     return branch
 
 
-def roadmap_has_safe_work() -> bool:
-    if not ROADMAP.exists():
+TASK_RE = __import__("re").compile(r"^- \[([ xX])\]\s+(\[HUMAN\]\s+)?(T-[A-Za-z0-9-]+)\s+(.+)$")
+
+
+def parse_roadmap(path: pathlib.Path = ROADMAP) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    version = ""
+    tasks: list[dict[str, Any]] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("## "):
+            version = line[3:].strip()
+            continue
+        match = TASK_RE.match(line)
+        if not match:
+            continue
+        tasks.append({
+            "id": match.group(3),
+            "title": match.group(4).strip(),
+            "done": match.group(1).lower() == "x",
+            "human": bool(match.group(2)),
+            "version": version,
+        })
+    return tasks
+
+
+def next_safe_task(path: pathlib.Path = ROADMAP) -> dict[str, Any] | None:
+    return next((task for task in parse_roadmap(path) if not task["done"] and not task["human"]), None)
+
+
+def roadmap_has_safe_work(path: pathlib.Path = ROADMAP) -> bool:
+    return next_safe_task(path) is not None
+
+
+def first_human_blocker(path: pathlib.Path = ROADMAP) -> str:
+    task = next((task for task in parse_roadmap(path) if not task["done"] and task["human"]), None)
+    return f"{task['id']} · {task['title']}" if task else ""
+
+
+def done_status_is_consistent(status: dict[str, Any], expected_task: dict[str, Any], path: pathlib.Path = ROADMAP) -> bool:
+    task_id = str(status.get("task") or "")
+    if not expected_task or task_id != expected_task.get("id"):
         return False
-    for raw in ROADMAP.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if line.startswith("- [ ]") and "[HUMAN]" not in line:
-            return True
-    return False
-
-
-def first_human_blocker() -> str:
-    if not ROADMAP.exists():
-        return ""
-    for raw in ROADMAP.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if line.startswith("- [ ]") and "[HUMAN]" in line:
-            return line
-    return ""
+    persisted = next((task for task in parse_roadmap(path) if task["id"] == task_id), None)
+    return bool(persisted and persisted["done"] and not persisted["human"])
 
 
 def load_status() -> dict[str, Any]:
@@ -80,13 +104,19 @@ def load_status() -> dict[str, Any]:
     return value
 
 
-def run_agent() -> dict[str, Any]:
+def run_agent(target: dict[str, Any]) -> dict[str, Any]:
     STATUS.parent.mkdir(parents=True, exist_ok=True)
     STATUS.unlink(missing_ok=True)
+    prompt = (
+        f"Работай строго по CLAUDE.md. Выполни только задачу {target['id']} — {target['title']}. "
+        "Не переходи к другой задаче в этом запуске. Доведи её до проверяемого DONE, "
+        "отметь checkbox в ROADMAP.md, запиши решения, тесты и .autopilot/status.json, "
+        "сделай один commit с ID задачи. Не трогай main и production."
+    )
     cmd = [
         "claude",
         "-p",
-        PROMPT,
+        prompt,
         "--output-format",
         "json",
         "--max-turns",
@@ -121,10 +151,21 @@ def main() -> int:
 
     while roadmap_has_safe_work():
         sync_branch(branch)
-        status = run_agent()
+        target = next_safe_task()
+        if not target:
+            break
+        status = run_agent(target)
         state = str(status.get("status") or "failed").strip().lower()
         task = str(status.get("task") or "unknown")
         summary = str(status.get("summary") or "").strip()
+
+        if task not in {target["id"], "unknown"}:
+            state = "failed"
+            summary = f"agent reported unexpected task {task}; expected {target['id']}"
+
+        if state == "done" and not done_status_is_consistent(status, target):
+            state = "failed"
+            summary = f"{target['id']} reported done but ROADMAP checkbox was not closed"
 
         if state == "done":
             failures = 0
