@@ -1,6 +1,6 @@
 # FactoryOS v4.6 — Video → Approval → Publishing
 
-**Status:** IN PROGRESS — v4.6/v4.6.1 are live; v4.6.2 hardens immutable approval → publish provenance. Real publisher verification is still required.  
+**Status:** IN PROGRESS — v4.6/v4.6.1/v4.6.2 are live and regression-verified. The only remaining closure gate is a configured real publisher plus one owner-approved external post receipt.  
 **Goal:** carry the exact Media Finisher output through human approval into a duplicate-safe publishing action, persist the real platform receipt, and expose the same asset throughout Approval Studio and Publishing Engine.
 
 ## Pipeline
@@ -109,7 +109,7 @@ Publishing Engine:
 - [x] UI displays the approved/publish-bound video;
 - [x] regression coverage added;
 - [x] v4.6/v4.6.1 GitHub CI PASS and production deployment from `main`;
-- [ ] v4.6.2 GitHub CI PASS and production deployment from `main`;
+- [x] v4.6.2 code remains covered by current-main GitHub CI PASS (`39933231662`) and production deploy (`dep-dbdim1k9v7es73e0ulh0`);
 - [ ] real publisher adapter configured;
 - [ ] one owner-approved real social post verified end-to-end with external post ID/URL.
 
