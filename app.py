@@ -12,8 +12,9 @@ import io
 import re
 import zipfile
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Optional
 from urllib import request as urlrequest, error as urlerror, parse as urlparse
 
@@ -172,6 +173,12 @@ FACTORY_PUBLISHER_ENDPOINT = os.environ.get("FACTORY_PUBLISHER_ENDPOINT", "").st
 FACTORY_PUBLISHER_TOKEN = os.environ.get("FACTORY_PUBLISHER_TOKEN", "").strip()
 FACTORY_PUBLISHER_SCHEDULER_ENABLED = os.environ.get("FACTORY_PUBLISHER_SCHEDULER_ENABLED", "0").strip().lower() in ("1","true","yes","on")
 FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC = max(15,min(600,int(os.environ.get("FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC","60"))))
+FACTORY_METRICOOL_TOKEN = os.environ.get("FACTORY_METRICOOL_TOKEN", "").strip()
+FACTORY_METRICOOL_USER_ID = os.environ.get("FACTORY_METRICOOL_USER_ID", "").strip()
+FACTORY_METRICOOL_BLOG_ID = os.environ.get("FACTORY_METRICOOL_BLOG_ID", "").strip()
+FACTORY_METRICOOL_TIMEZONE = os.environ.get("FACTORY_METRICOOL_TIMEZONE", "Europe/Kyiv").strip() or "Europe/Kyiv"
+FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS = os.environ.get("FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS", "").strip().lower()
+FACTORY_METRICOOL_BASE_URL = os.environ.get("FACTORY_METRICOOL_BASE_URL", "https://app.metricool.com").strip().rstrip("/")
 FACTORY_ANALYTICS_ADAPTER = (os.environ.get("FACTORY_ANALYTICS_ADAPTER", "manual").strip().lower() or "manual")
 FACTORY_ANALYTICS_ENDPOINT = os.environ.get("FACTORY_ANALYTICS_ENDPOINT", "").strip()
 FACTORY_ANALYTICS_TOKEN = os.environ.get("FACTORY_ANALYTICS_TOKEN", "").strip()
@@ -6654,17 +6661,25 @@ def link_job_idea(job_id,idea_id):
     con.commit();con.close()
     return {"job_id":job_id,"idea_id":idea_id}
 
+def _metricool_configured():
+    return bool(FACTORY_METRICOOL_TOKEN and FACTORY_METRICOOL_USER_ID and FACTORY_METRICOOL_BLOG_ID)
+
 def get_publisher_adapter_registry():
     webhook=bool(FACTORY_PUBLISHER_ENDPOINT)
+    metricool=_metricool_configured()
     return {"selected":FACTORY_PUBLISHER_ADAPTER,
             "scheduler_enabled":FACTORY_PUBLISHER_SCHEDULER_ENABLED,
             "scheduler_interval_sec":FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC,
             "adapters":[
                 {"kind":"manual","configured":True,"status":"ready","execution":"explicit external confirmation"},
                 {"kind":"webhook","configured":webhook,"status":"configured" if webhook else "not_configured","execution":"idempotent POST"},
+                {"kind":"metricool","configured":metricool,"status":"configured" if metricool else "not_configured",
+                 "execution":"server-side Metricool scheduler",
+                 "supported_platforms":["instagram_reels","tiktok","youtube_shorts"],
+                 "youtube_audience_configured":FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS in ("true","false","1","0","yes","no")},
             ],
             "secrets_exposed":False,
-            "note":"Approval never publishes directly. Retries reuse one stable idempotency key bound to the approved package, variant and final media artifact."}
+            "note":"Approval never publishes directly. Metricool receives only the exact immutable approved snapshot and durable media URL after explicit scheduling. A Metricool scheduler ID is never treated as a real platform post receipt."}
 
 def get_analytics_adapter_registry():
     webhook=bool(FACTORY_ANALYTICS_ENDPOINT)
@@ -6754,6 +6769,108 @@ def _external_json(url,method="GET",payload=None,token=""):
     with urlrequest.urlopen(req,timeout=25) as response:
         return json.loads(response.read().decode("utf-8","replace") or "{}")
 
+def _metricool_json(url,method="GET",payload=None):
+    if not _metricool_configured():
+        raise RuntimeError("Metricool publisher is not configured")
+    headers={"Accept":"application/json","User-Agent":f"FactoryOS/{APP_VERSION}",
+             "X-Mc-Auth":FACTORY_METRICOOL_TOKEN}
+    data=None
+    if payload is not None:
+        data=json.dumps(payload,ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"]="application/json"
+    req=urlrequest.Request(url,data=data,headers=headers,method=method)
+    with urlrequest.urlopen(req,timeout=45) as response:
+        raw=response.read().decode("utf-8","replace")
+        try:return json.loads(raw or "{}")
+        except json.JSONDecodeError:return {"raw_text":raw[:4000],"http_status":getattr(response,"status",None)}
+
+def _metricool_network(platform):
+    key=str(platform or "").strip().lower()
+    mapping={
+        "instagram":"instagram","instagram_reel":"instagram","instagram_reels":"instagram","reels":"instagram",
+        "tiktok":"tiktok","tik_tok":"tiktok",
+        "youtube":"youtube","youtube_short":"youtube","youtube_shorts":"youtube","shorts":"youtube",
+    }
+    network=mapping.get(key)
+    if not network:
+        raise RuntimeError(f"Metricool adapter does not support platform '{platform}'")
+    return network
+
+def _metricool_bool_setting(raw,name):
+    value=str(raw or "").strip().lower()
+    if value in ("1","true","yes","on"):return True
+    if value in ("0","false","no","off"):return False
+    raise RuntimeError(f"{name} must be explicitly configured as true or false")
+
+def _metricool_publication_time(scheduled_at):
+    try:
+        requested=datetime.fromisoformat(str(scheduled_at or "").replace("Z","+00:00"))
+        if requested.tzinfo is None:raise ValueError("timezone required")
+    except Exception as exc:
+        raise RuntimeError("Metricool requires a valid scheduled_at timestamp with timezone") from exc
+    minimum=datetime.now(timezone.utc)+timedelta(minutes=2)
+    target=max(requested.astimezone(timezone.utc),minimum)
+    try:zone=ZoneInfo(FACTORY_METRICOOL_TIMEZONE)
+    except Exception as exc:raise RuntimeError("Invalid FACTORY_METRICOOL_TIMEZONE") from exc
+    local=target.astimezone(zone)
+    return {"dateTime":local.strftime("%Y-%m-%dT%H:%M:%S"),"timezone":FACTORY_METRICOOL_TIMEZONE,
+            "_utc":target.isoformat()}
+
+def _metricool_post_text(content):
+    content=content if isinstance(content,dict) else {}
+    parts=[]
+    description=str(content.get("description") or "").strip()
+    cta=str(content.get("cta") or "").strip()
+    hashtags=["#"+str(x).strip().lstrip("#") for x in (content.get("hashtags") or []) if str(x).strip()]
+    if description:parts.append(description)
+    if cta:parts.append(cta)
+    if hashtags:parts.append(" ".join(hashtags))
+    return "\n\n".join(parts).strip()
+
+def _metricool_scheduler_payload(item,content,media):
+    network=_metricool_network(item.get("platform"))
+    media_url=str((media or {}).get("url") or "").strip()
+    if not media_url:
+        raise RuntimeError("Metricool video publishing requires the exact approved media URL")
+    title=str((content or {}).get("title") or "").strip()
+    if not title:title="FactoryOS approved video"
+    publication=_metricool_publication_time(item.get("scheduled_at"))
+    payload={
+        "publicationDate":{"dateTime":publication["dateTime"],"timezone":publication["timezone"]},
+        "text":_metricool_post_text(content),
+        "providers":[{"network":network}],
+        "autoPublish":True,"draft":False,"shortener":False,
+        "saveExternalMediaFiles":True,
+        "media":[media_url],
+    }
+    if network=="instagram":
+        payload["instagramData"]={"type":"REEL","collaborators":[],"showReelOnFeed":True,"isAiGenerated":True}
+    elif network=="tiktok":
+        payload["tiktokData"]={"disableComment":False,"disableDuet":False,"disableStitch":False,
+                               "privacyOption":"PUBLIC_TO_EVERYONE","commercialContentThirdParty":False,
+                               "commercialContentOwnBrand":False,"title":title,"autoAddMusic":False,
+                               "photoCoverIndex":0,"isAigc":True}
+    elif network=="youtube":
+        made_for_kids=_metricool_bool_setting(FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS,
+                                               "FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS")
+        payload["youtubeData"]={"title":title,"type":"short","privacy":"public",
+                               "tags":[str(x).strip().lstrip("#") for x in ((content or {}).get("hashtags") or []) if str(x).strip()],
+                               "madeForKids":made_for_kids,"isAiGeneratedContent":True}
+    return payload,publication["_utc"],network
+
+def _publish_via_metricool(item,content,media):
+    if not _metricool_configured():
+        raise RuntimeError("Metricool publisher requires FACTORY_METRICOOL_TOKEN, FACTORY_METRICOOL_USER_ID and FACTORY_METRICOOL_BLOG_ID")
+    payload,scheduled_utc,network=_metricool_scheduler_payload(item,content,media)
+    query=urlparse.urlencode({"blogId":FACTORY_METRICOOL_BLOG_ID,"userId":FACTORY_METRICOOL_USER_ID})
+    result=_metricool_json(f"{FACTORY_METRICOOL_BASE_URL}/api/v2/scheduler/posts?{query}","POST",payload)
+    data=result.get("data") if isinstance(result.get("data"),dict) else result
+    scheduler_id=(data or {}).get("id") or (data or {}).get("postId") or (data or {}).get("uuid")
+    planner_url=(data or {}).get("plannerUrl") or (data or {}).get("planner_url") or ""
+    raw={"provider":"metricool","network":network,"scheduled_at_utc":scheduled_utc,
+         "metricool_schedule_id":scheduler_id,"planner_url":planner_url,"response":result}
+    return {"manual":False,"status":"publishing","external_post_id":None,"external_url":None,"raw":raw}
+
 def _publish_receipt(item,external_post_id,external_url="",published_at=None,source="adapter"):
     published_at=published_at or ts()
     content_snapshot=item.get("content_snapshot") or {}
@@ -6776,7 +6893,7 @@ def _publish_receipt(item,external_post_id,external_url="",published_at=None,sou
     sync_cycle_for_publish(item["id"])
 
 def _publish_via_adapter(item):
-    if FACTORY_PUBLISHER_ADAPTER=="manual" or not FACTORY_PUBLISHER_ENDPOINT:
+    if FACTORY_PUBLISHER_ADAPTER=="manual":
         return {"manual":True,"status":"publishing"}
     content=item.get("content_snapshot")
     if not isinstance(content,dict):
@@ -6785,6 +6902,10 @@ def _publish_via_adapter(item):
         if not package_record:raise RuntimeError("Approved Content Package snapshot is unavailable")
         content=_publish_content_snapshot(package_record)
     media=item.get("media") or {}
+    if FACTORY_PUBLISHER_ADAPTER=="metricool":
+        return _publish_via_metricool(item,content,media)
+    if not FACTORY_PUBLISHER_ENDPOINT:
+        raise RuntimeError(f"Publisher adapter '{FACTORY_PUBLISHER_ADAPTER}' is not configured")
     payload={"idempotency_key":item["idempotency_key"],"publish_id":item["id"],"job_id":item["job_id"],
              "package_id":item["package_id"],"approval_decision_id":item.get("approval_decision_id"),
              "content_snapshot_hash":item.get("content_snapshot_hash") or _publish_snapshot_hash(content),
