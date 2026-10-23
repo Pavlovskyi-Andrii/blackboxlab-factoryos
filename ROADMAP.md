@@ -38,8 +38,8 @@ Rules:
   DONE: `python -m autopilot.test_notify` and runtime pair command persists only ignored pairing state.
 
 - [ ] [HUMAN] T-506 Pair owner Telegram bot
-  Need: owner places TG_TOKEN in the trusted runner secret environment and sends the one-time `/pair CODE` command to the bot.
-  DONE: `python -m autopilot.notify status` reports paired=true and the bot sends the confirmation message.
+  Need: owner places FACTORY_TELEGRAM_BOT_TOKEN in the existing FactoryOS Render secret environment, starts pairing in FactoryOS and sends the one-time `/pair CODE` command to the bot.
+  DONE: `/api/factory/telegram/status` reports paired=true and a FactoryOS test push arrives in the paired chat.
 
 - [ ] [HUMAN] T-507 Authorize Claude Code Pro
   Need: owner signs Claude Code into the Pro subscription and provisions a Claude Code OAuth token on the trusted runner; no API key is required for the first pass.
