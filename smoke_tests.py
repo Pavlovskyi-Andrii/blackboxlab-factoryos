@@ -34,7 +34,7 @@ autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
 require(autopilot_state["total"]>=8,"roadmap task parsing regression")
-require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-512","autopilot must select first safe pending roadmap task")
+require(autopilot_state["next_task"] and autopilot_state["next_task"]["id"]=="T-513","autopilot must select first safe pending roadmap task")
 require(autopilot_state["human_pending"]>=1,"HUMAN blockers must remain explicit")
 require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log must be exposed")
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
@@ -143,6 +143,19 @@ require(dc_rev["created"] is True and dc_rev["project"]["source_url"]==dc["candi
 require(dc_rev["project"]["transcript"].startswith("A source transcript"),"discovery transcript was not preserved")
 dc_after=app.get_discovery_candidate(dc["candidate"]["id"])
 require(dc_after["status"]=="sent_to_revideo" and dc_after["revideo_project_id"]==dc_rev["project"]["id"],"discovery linkage regression")
+dc_ready=asyncio.run(app.run_revideo_analysis(dc_rev["project"]["id"],"English"))
+require(dc_ready["status"]=="ready","Discovery-sourced Revideo must reach a deterministic ready rewrite")
+dc_prod=app.create_revideo_production_job(dc_rev["project"]["id"])
+require(dc_prod["created"] is True and dc_prod["job"]["id"],"Discovery → Revideo → production handoff failed")
+dc_project=app.get_revideo_project(dc_rev["project"]["id"])
+require(dc_project["status"]=="in_production" and dc_project["job_id"]==dc_prod["job"]["id"],
+        "Discovery-sourced Revideo production linkage regression")
+require(dc_project["provenance"].get("discovery_candidate_id")==dc["candidate"]["id"],
+        "Discovery candidate provenance was lost before production")
+require(dc_project["provenance"].get("discovery_metrics",{}).get("vph")==123.4,
+        "Discovery performance evidence was lost before production")
+require(bool(dc_project.get("source_signal_id")) and bool(dc_project.get("idea_id")),
+        "Discovery → Revideo production must preserve source/idea lineage")
 manual_collect=app.collect_discovery_candidates("AI automation",5,"short","en")
 require(manual_collect["created_count"]==0 and manual_collect["adapter"]=="manual_intake","unconfigured discovery provider must not invent candidates")
 
