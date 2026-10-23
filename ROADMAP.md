@@ -33,7 +33,7 @@ Rules:
 
 ## v5.1 — Viral Discovery Loop
 
-- [ ] T-510 Discovery adapter
+- [x] T-510 Discovery adapter
   Goal: collect current short-form candidates through a provider-neutral adapter with provenance and deduplication.
   DONE: deterministic fixture creates deduplicated discovery candidates with source URL, platform, metrics and capture time.
 
