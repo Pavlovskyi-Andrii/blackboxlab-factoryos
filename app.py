@@ -150,6 +150,10 @@ TELEGRAM_OWNER_FILE = DATA_DIR / "telegram_owner.json"
 _telegram_state_lock = threading.Lock()
 FACTORY_LOCAL_BOOSTER_TOKEN = (os.environ.get("FACTORY_LOCAL_BOOSTER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest())
+FACTORY_CLAUDE_RUNNER_TOKEN = (os.environ.get("FACTORY_CLAUDE_RUNNER_TOKEN","").strip()
+    or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-claude-code-runner-v1",hashlib.sha256).hexdigest())
+FACTORY_CLAUDE_RUNNER_TTL_SECONDS = max(20,min(300,int(os.environ.get("FACTORY_CLAUDE_RUNNER_TTL_SECONDS","75"))))
+claude_runner_runtime={"last_seen":0.0,"node":{},"claude_version":"","auth_mode":"","repo":"","branch":"","last_error":""}
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
 FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS","").split(",") if x.strip()}
 FACTORY_GOOGLE_VIEWER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_VIEWER_EMAILS","").split(",") if x.strip()}
@@ -281,6 +285,38 @@ def _local_booster_authorized(request: Request) -> bool:
 def _local_booster_online():
     return (time.time()-float(local_booster_runtime.get("last_seen") or 0)) <= FACTORY_LOCAL_BOOSTER_TTL_SECONDS
 
+def _claude_runner_authorized(request: Request) -> bool:
+    auth=(request.headers.get("authorization") or "").strip()
+    if not auth.lower().startswith("bearer "):return False
+    supplied=auth.split(" ",1)[1].strip()
+    return bool(supplied and hmac.compare_digest(supplied,FACTORY_CLAUDE_RUNNER_TOKEN))
+
+def _claude_runner_online():
+    return (time.time()-float(claude_runner_runtime.get("last_seen") or 0)) <= FACTORY_CLAUDE_RUNNER_TTL_SECONDS
+
+def claude_runner_status():
+    return {
+        "online":_claude_runner_online(),
+        "ttl_seconds":FACTORY_CLAUDE_RUNNER_TTL_SECONDS,
+        "last_seen":claude_runner_runtime.get("last_seen") or 0,
+        "node":claude_runner_runtime.get("node") or {},
+        "claude_version":claude_runner_runtime.get("claude_version") or "",
+        "auth_mode":claude_runner_runtime.get("auth_mode") or "",
+        "repo":claude_runner_runtime.get("repo") or "",
+        "branch":claude_runner_runtime.get("branch") or "",
+        "last_error":claude_runner_runtime.get("last_error") or "",
+    }
+
+class ClaudeRunnerHeartbeat(BaseModel):
+    hostname: str = ""
+    os: str = ""
+    python: str = ""
+    claude_version: str = ""
+    auth_mode: str = ""
+    repo: str = ""
+    branch: str = ""
+    last_error: str = ""
+
 def _telegram_webhook_secret() -> str:
     if not FACTORY_TELEGRAM_BOT_TOKEN:
         return ""
@@ -396,9 +432,10 @@ async def auth_middleware(request: Request, call_next):
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/")
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
+    claude_runner_api=request.url.path.startswith("/api/claude-runner/") and _claude_runner_authorized(request)
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or telegram_webhook_path or telegram_bridge_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_runner_api or telegram_webhook_path or telegram_bridge_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
@@ -844,6 +881,9 @@ def health():
         "service": "factoryos",
         "version": APP_VERSION,
         "factory_mcp_configured": bool(FACTORY_MCP_TOKEN),
+        "telegram_configured": bool(FACTORY_TELEGRAM_BOT_TOKEN),
+        "telegram_paired": bool(_telegram_public_status().get("paired")),
+        "claude_runner_online": _claude_runner_online(),
         "llm_configured": bool(FACTORY_LLM_API_KEY),
         "llm_model": FACTORY_LLM_MODEL if FACTORY_LLM_API_KEY else None,
         "paid_verification": {
@@ -886,6 +926,33 @@ CONNECTIONS = {
     "Voice": {"state":"not_configured","detail":"Provider not selected"},
     "Video": {"state":"not_configured","detail":"Provider not selected"},
 }
+
+def get_connections():
+    out={k:dict(v) for k,v in CONNECTIONS.items()}
+    tg=_telegram_public_status()
+    out["Telegram"]={
+        "state":"connected" if tg.get("paired") else ("paused" if tg.get("configured") else "not_configured"),
+        "detail":(
+            f"Paired to @{tg.get('username')}" if tg.get("paired") and tg.get("username")
+            else ("Owner chat paired" if tg.get("paired") else ("Bot ready · pair owner chat" if tg.get("configured") else "Add bot token in Render"))
+        ),
+        "configured":bool(tg.get("configured")),
+        "paired":bool(tg.get("paired")),
+        "bot_username":tg.get("bot_username") or "",
+    }
+    cr=claude_runner_status()
+    auth=str(cr.get("auth_mode") or "")
+    if cr.get("online"):
+        state="connected" if auth=="subscription_verified" else "paused"
+        detail=("Pro subscription verified" if auth=="subscription_verified" else f"Runner online · {auth or 'auth not verified'}")
+    else:
+        state="not_configured"
+        detail="Connect a trusted Claude Code Pro runner"
+    out["Claude Code Pro"]={
+        "state":state,"detail":detail,"online":bool(cr.get("online")),
+        "auth_mode":auth,"claude_version":cr.get("claude_version") or "",
+    }
+    return out
 
 def ts(): return datetime.now(timezone.utc).isoformat()
 
@@ -8068,7 +8135,7 @@ def status(request: Request=None):
         "selectedJobContentPackage": get_content_package(sid),
         "mediaAdapters": get_media_adapter_registry(),
         "packageBuilding": list(package_building),
-        "events":ev,"connections":CONNECTIONS,"stages":STAGES,
+        "events":ev,"connections":get_connections(),"stages":STAGES,
         "agentStates":agent_states(jobs),"agentProgress":{a:get_agent_progress_snapshot(a) for a in AGENTS},"agentMap":AGENT_MAP,
         "agentDependencies":AGENT_DEPENDENCIES,
         "runningJobs":list(running_jobs),"nextAction":next_action(selected),
@@ -8671,6 +8738,44 @@ def recover_pending_media_finisher_submits():
     threading.Thread(target=_media_finisher_watchdog_loop,daemon=True,name="finisher-watchdog").start()
     if rows:print(json.dumps({"event":"MEDIA_FINISHER_SUBMIT_RECOVERY","queued":len(rows)}),flush=True)
 
+
+@app.get("/api/claude-runner/status")
+def get_claude_runner_status():
+    return claude_runner_status()
+
+@app.get("/api/claude-runner/token")
+def claude_runner_pairing_token():
+    return {
+        "token":FACTORY_CLAUDE_RUNNER_TOKEN,
+        "factory_url":FACTORY_PUBLIC_BASE_URL,
+        "note":"Keep this token private. It authorizes only the Claude Code runner channel."
+    }
+
+@app.get("/api/claude-runner/package.zip")
+def claude_runner_package():
+    buf=io.BytesIO()
+    with zipfile.ZipFile(buf,"w",zipfile.ZIP_DEFLATED) as zf:
+        root=BASE/"claude_runner"
+        if root.exists():
+            for path in root.rglob("*"):
+                if not path.is_file() or "__pycache__" in path.parts or path.suffix in (".pyc",".pyo"):
+                    continue
+                zf.write(path,path.relative_to(BASE).as_posix())
+    return Response(buf.getvalue(),media_type="application/zip",headers={
+        "Content-Disposition":'attachment; filename="factoryos-claude-code-runner.zip"',
+        "Cache-Control":"no-store"
+    })
+
+@app.post("/api/claude-runner/heartbeat")
+def claude_runner_heartbeat(payload:ClaudeRunnerHeartbeat):
+    claude_runner_runtime["last_seen"]=time.time()
+    claude_runner_runtime["node"]={"hostname":payload.hostname,"os":payload.os,"python":payload.python}
+    claude_runner_runtime["claude_version"]=payload.claude_version
+    claude_runner_runtime["auth_mode"]=payload.auth_mode
+    claude_runner_runtime["repo"]=payload.repo
+    claude_runner_runtime["branch"]=payload.branch
+    claude_runner_runtime["last_error"]=payload.last_error
+    return {"ok":True,**claude_runner_status()}
 
 @app.get("/api/local-booster/status")
 def local_booster_status():
