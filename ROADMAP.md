@@ -93,7 +93,7 @@ Rules:
 
 ## v5.3 — Reliability + Operator Clarity
 
-- [ ] T-530 CI baseline stabilization
+- [x] T-530 CI baseline stabilization
   Goal: restore a deterministic green local/CI baseline for the current branch without weakening, deleting or bypassing tests.
   DONE: Python compile, Media Finisher planner tests, autopilot/Telegram/delegation tests and zero-spend smoke tests all pass; dashboard JavaScript validation remains enabled.
 

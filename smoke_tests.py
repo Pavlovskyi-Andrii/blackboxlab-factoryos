@@ -8,6 +8,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 if not os.environ.get("DATA_DIR"):
     os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="factoryos-smoke-")
+elif Path(os.environ["DATA_DIR"]).is_dir() and any(Path(os.environ["DATA_DIR"]).iterdir()):
+    # The suite asserts fresh-fixture state; isolate reruns without deleting prior data.
+    os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="smoke-run-", dir=os.environ["DATA_DIR"])
 os.environ["FACTORY_PASSWORD"] = ""
 os.environ["FACTORY_LLM_API_KEY"] = ""
 import app  # noqa: E402

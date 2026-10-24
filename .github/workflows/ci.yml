@@ -27,6 +27,12 @@ jobs:
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
         run: python smoke_tests.py
+      - name: Smoke suite rerun against reused DATA_DIR
+        env:
+          DATA_DIR: /tmp/factoryos-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: python smoke_tests.py
       - name: Validate required frontend assets
         run: |
           test -f static/index.html
