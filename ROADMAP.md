@@ -101,6 +101,47 @@ Rules:
   Goal: make every canonical worker visibly answer “what went in, what it did, what came out, and what it cost” without fabricating unavailable metrics.
   DONE: deterministic fixtures expose worker input, action, status, output, artifacts, duration, tokens and cost when known; unknown values render explicitly as unavailable and smoke tests cover the contract.
 
+- [ ] T-536-A Delegation Board API
+  Planner: ChatGPT
+  Parent: T-536
+  Goal: expose one owner-safe API contract that combines the ROADMAP queue, hierarchy/dependencies, Claude worker heartbeat, active task, recent verified results and queue counts.
+  DONE: deterministic regression returns planner queue + worker state + done/running/queued/blocked/HUMAN counts without returning worker tokens or other secrets.
+
+- [ ] T-536-B Live worker telemetry
+  Planner: ChatGPT
+  Parent: T-536
+  Depends: T-536-A
+  Goal: extend heartbeat/runtime telemetry with current stage, task start/elapsed time, branch/head, queue depth, safe CPU percent and memory usage when available, with null/unsupported fallbacks.
+  DONE: heartbeat regression persists and renders telemetry without secrets; Linux/Termux metrics are numeric when available and unsupported platforms degrade cleanly.
+
+- [ ] T-536-C Planner hierarchy + delegation provenance
+  Planner: ChatGPT
+  Parent: T-536
+  Depends: T-536-A
+  Goal: make ROADMAP tasks readable as a hierarchy (task/subtask), including planner/source, parent, dependency, Goal and DONE criteria so the owner can see exactly what ChatGPT delegated and why.
+  DONE: parser/API expose parent/dependency/planner/goal/done-criteria metadata for representative tasks while remaining backward-compatible with existing ROADMAP entries.
+
+- [ ] T-536-D Worker / Delegation Control Center UI
+  Planner: ChatGPT
+  Parent: T-536
+  Depends: T-536-A,T-536-B,T-536-C
+  Goal: add a dedicated Worker page: left column = ChatGPT/Planner queue and hierarchy; right column = Claude runner live state; top summary = online, current task, progress counts, branch and heartbeat age.
+  DONE: desktop two-column and mobile stacked fixtures render queued/in-progress/done/blocked tasks, online/offline/stale worker, branch, stage, elapsed, CPU/memory when known, and remaining safe/HUMAN counts.
+
+- [ ] T-536-E Delegation execution timeline
+  Planner: ChatGPT
+  Parent: T-536
+  Depends: T-536-D
+  Goal: show the lifecycle of each delegated task as a factual timeline: queued -> picked -> running -> checks -> commit -> push -> done/blocked/failed, with timestamps, commit SHA, changed files and checks.
+  DONE: verified task-result fixtures render timeline events and link the exact commit/check evidence; missing events are shown as unavailable rather than invented.
+
+- [ ] T-536-F Safe operator controls
+  Planner: ChatGPT
+  Parent: T-536
+  Depends: T-536-D
+  Goal: provide safe remote controls for the daemon: pause after current task, resume, and retry a blocked/failed safe task; never expose force-push, main checkout, production deploy or publish bypass.
+  DONE: command channel is idempotent, authenticated, auditable and regression proves pause/resume/retry cannot bypass main/prod/publish safety invariants.
+
 - [ ] T-532 Live pipeline + handoff trace
   Goal: make the main FactoryOS pipeline visually show current movement and worker-to-worker handoffs instead of only static cards.
   DONE: a deterministic workflow fixture renders ordered source artifact -> worker run -> output -> downstream worker edges with running/done/blocked/failed states and a usable mobile fallback.
@@ -116,10 +157,6 @@ Rules:
 - [ ] T-535 Artifact + media viewer hardening
   Goal: make agent artifacts and finished media reliably open from Worker Results, Trace Viewer and Approval flows while preserving signed-media/auth boundaries.
   DONE: deterministic regression opens representative text, JSON, subtitle and video artifacts through the intended viewer/media routes with correct content handling and no broken known-artifact links.
-
-- [ ] T-536 Claude Worker Control Center
-  Goal: make the phone runner understandable from FactoryOS without exposing secrets: online/idle/running/blocked state, branch, current task, last heartbeat, last verified result, commit and checks.
-  DONE: Connections/Autopilot UI renders the heartbeat and verified delegation evidence states, stale workers are obvious, and smoke tests prove no worker token/secret is returned.
 
 ## v5.4 — Revideo Production Hardening
 
