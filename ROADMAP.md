@@ -121,7 +121,7 @@ Rules:
   Goal: make ROADMAP tasks readable as a hierarchy (task/subtask), including planner/source, parent, dependency, Goal and DONE criteria so the owner can see exactly what ChatGPT delegated and why.
   DONE: parser/API expose parent/dependency/planner/goal/done-criteria metadata for representative tasks while remaining backward-compatible with existing ROADMAP entries.
 
-- [ ] T-536-D Worker / Delegation Control Center UI
+- [x] T-536-D Worker / Delegation Control Center UI
   Planner: ChatGPT
   Parent: T-536
   Depends: T-536-A,T-536-B,T-536-C

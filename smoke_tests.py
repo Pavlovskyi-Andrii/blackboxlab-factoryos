@@ -1068,6 +1068,10 @@ require("function workerContract(" in html and "workerContract(r&&r.report)" in 
 for key in ("input","action","status","output","artifacts","duration","tokens","cost","unavailable","noInputs","artifactOnly"):
     require(html.count('"worker.contract.'+key+'":')==3,f"worker.contract.{key} must exist in EN/UK/RU")
 require('data-i18n="intel.title"' in html,"Factory Intelligence title is not localized")
+require('onclick="openDelegationCenter()"' in html and 'data-i18n="dc.title"' in html and "function renderDelegationCenter(" in html,"Worker / Delegation Control Center page missing")
+require("api('/api/factory/delegation-board')" in html,"Control Center must read the owner-safe delegation board API")
+for key in ("dc.nav","dc.title","dc.unavailable","dc.planner","dc.worker","dc.connection.online","dc.connection.stale","dc.connection.offline","dc.safeRemaining","dc.humanRemaining"):
+    require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
 require("FactoryOS v3.14" not in html,"stale document title version returned")
 require('data-i18n="brain.title"' in html,"Content Brain workspace missing")
 require('data-i18n="variant.title"' in html,"Variant Studio workspace missing")

@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Compile Python
-        run: python -m py_compile app.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py autopilot/autopilot.py autopilot/notify.py autopilot/claude_pro_worker.py autopilot/delegation.py autopilot/test_autopilot.py autopilot/test_notify.py autopilot/test_delegation.py
+        run: python -m py_compile app.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py autopilot/autopilot.py autopilot/notify.py autopilot/claude_pro_worker.py autopilot/delegation.py autopilot/test_autopilot.py autopilot/test_notify.py autopilot/test_delegation.py test_delegation_ui.py
       - name: Install runtime dependencies
         run: python -m pip install -r requirements.txt
       - name: Media Finisher planner unit tests
@@ -106,3 +106,7 @@ jobs:
           Path("/tmp/factoryos-ui.js").write_text(script, encoding="utf-8")
           PY
           node --check /tmp/factoryos-ui.js
+      - name: Worker / Delegation Control Center UI fixtures
+        env:
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: python test_delegation_ui.py
