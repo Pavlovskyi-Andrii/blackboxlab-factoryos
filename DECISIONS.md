@@ -125,3 +125,29 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** fixed `test_delegation_ui.py` block extraction. It used to start the extracted code in the middle of the `delegation-center:begin` marker comment, so under Node the harness hit a SyntaxError before rendering anything. The T-536-D fixture render had only ever been SKIPPED locally. Node is now available on this runner and the full fixture render (T-536-D checks plus the new timeline checks) passes.
   **Reason:** CI with `FACTORYOS_REQUIRE_NODE=1` would have failed. The fix only changes where extraction starts; every assertion is kept.
+
+## 2026-10-24 — T-536-F Safe operator controls
+
+- **Decision:** the command channel has exactly three actions: `pause`, `resume`, `retry`. The owner sends them with `POST /api/factory/delegation-control` (owner session only; viewers and the worker token get 403/401). The runner reads them with `GET /api/claude-worker/control` and reports back with `POST /api/claude-worker/control/ack`. Both runner endpoints check the worker token themselves, so an owner session (or open mode) cannot read or ack as the runner. Request models use `extra="forbid"`, so fields like `branch`, `force`, `deploy` or `publish` are rejected. The runner only ever receives `{id, action, task_id}`.
+  **Reason:** this is the smallest command surface that meets the Goal. Nothing in it can describe a push, a branch switch, a deploy, a publish or a secret, so no button can bypass those invariants. The worker loop's existing branch/push/HUMAN rules stay the only authority.
+
+- **Decision:** state lives in `DATA_DIR/claude_worker_control.json`: the desired `paused` level, commands (`pending → applied | rejected | superseded`) and an append-only audit log (last 200 entries; actor, action, task, request_id, outcome, detail). Every request is audited, including rejected and no-op ones. This follows the `claude_worker_results.json` pattern.
+  **Reason:** auditable and restart-safe without a DB migration. The audit log never stores tokens (the regression checks this).
+
+- **Decision:** idempotency works at two levels. (1) A client-generated `request_id` (8–64 chars `[A-Za-z0-9_-]`) replays the original command, and reusing it for a different command returns 409. (2) Intent-level: pause when already paused, resume when already running, or a second retry for a task with one already pending is a no-op that is audited but queues nothing. A new pause/resume supersedes a still-pending opposite command. Acks are terminal, so a repeated ack returns the stored outcome.
+  **Reason:** double taps, retries on a flaky phone connection and racing tabs must never queue duplicate work.
+
+- **Decision:** `retry` is accepted only for a ROADMAP task that is not HUMAN, not done, not currently running, and whose latest verified result is `blocked`/`failed` (board state `blocked`). On the runner it only releases the in-memory hold for the exact task it is holding. Retries for any other task are acked `rejected`.
+  **Reason:** retry must not become a way to run an arbitrary or HUMAN task. The runner still takes only the first safe ROADMAP task through the normal delegation adapter.
+
+- **Decision:** "pause after current task" is enforced by where the loop reads controls: once per iteration, before syncing or picking a task. A running Claude task is never interrupted. The board shows `pause_requested` until the runner acks. While paused, `status.json` says `paused` (the previous status is restored on resume), the stage is `idle`, and the one-shot (non-daemon) mode exits with code 5. If FactoryOS is unreachable or not configured, the last known pause level is kept.
+  **Reason:** this matches the design doc ("Pause after current task"). Keeping the level when the network drops means a paused runner does not silently resume.
+
+- **Decision:** in daemon mode, using up `AUTOPILOT_MAX_FAILS` no longer exits the process (exit code 3). It now holds the failed task without new attempts (stage `failed`) until an owner Retry, or until the ROADMAP head task changes. Non-daemon mode still exits with 3. The loop also re-checks before every task that the branch is still the dedicated start branch, and refuses to continue otherwise.
+  **Reason:** a process that has exited cannot receive "retry failed task". Holding costs no Claude turns. The per-task branch re-check means no sequence of controls can make the runner work on main/master.
+
+- **Decision:** command ids the runner has already decided are remembered in memory, and they are re-acked with the same outcome instead of being applied again.
+  **Reason:** a lost ack must not turn one owner Retry into two task runs.
+
+- **Decision:** the T-536-B telemetry work was present in the working tree but uncommitted when this task started. The T-536-F commit was staged to contain only T-536-F changes (verified on a clean HEAD + T-536-F tree). The pause/failed-hold branches only call the T-536-B `mark_stage` helper in the working tree, where it exists.
+  **Reason:** one roadmap task = one focused commit. T-536-B's changes remain for their own commit.

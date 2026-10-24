@@ -9,10 +9,12 @@ try:
     from .delegation import build_delegation, report_result, run_delegation, write_evidence
     from .notify import configured as telegram_configured
     from .notify import send, wait_answer
+    from . import control
 except ImportError:
     from delegation import build_delegation, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
+    import control
 
 REPO = pathlib.Path(os.environ.get("AUTOPILOT_REPO", "/work/factoryos")).resolve()
 STATUS = REPO / ".autopilot" / "status.json"
@@ -163,6 +165,15 @@ def write_runtime_status(status: str, *, task: str = "", summary: str = "", need
     os.replace(tmp, STATUS)
 
 
+def poll_control(paused: bool, held_task: str, decided: dict[str, tuple[str, str]], *, fetch=None, ack=None) -> dict[str, Any]:
+    """Apply owner pause/resume/retry between tasks. Unreachable FactoryOS keeps the last pause level."""
+    decision = control.decide((fetch or control.fetch)(), paused=paused, held_task=held_task, decided=decided)
+    for command_id, outcome, detail in decision["acks"]:
+        decided[command_id] = (outcome, detail)
+        (ack or control.ack)(command_id, outcome, detail)
+    return decision
+
+
 def idle_notice(path: pathlib.Path = ROADMAP) -> str:
     blocker = first_human_blocker(path)
     if blocker:
@@ -176,8 +187,36 @@ def main() -> int:
     blocked_task = ""
     blocked_marker: tuple[str, int] | None = None
     last_idle_notice = ""
+    failed_hold = ""
+    paused = False
+    paused_status = ""
+    decided: dict[str, tuple[str, str]] = {}
 
     while True:
+        # Owner controls are only read here, between tasks, so a pause never interrupts a running task.
+        decision = poll_control(paused, blocked_task or failed_hold, decided)
+        if decision["retry"]:
+            send(f"🔁 {decision['retry']}: owner requested a retry from FactoryOS.")
+            failures = 0
+            blocked_task = ""
+            blocked_marker = None
+            failed_hold = ""
+        if decision["paused"]:
+            if not paused:
+                paused_status = STATUS.read_text(encoding="utf-8") if STATUS.exists() else ""
+                write_runtime_status("paused", summary="Paused by the owner from FactoryOS; no new task starts until Resume.")
+                send("⏸ Autopilot paused by the owner. No new task will start until Resume.")
+            paused = True
+            if not DAEMON_MODE:
+                return 5
+            time.sleep(IDLE_SECONDS)
+            continue
+        if paused:
+            paused = False
+            if paused_status:
+                STATUS.write_text(paused_status, encoding="utf-8")
+            send("▶️ Autopilot resumed by the owner.")
+
         sync_branch(branch)
 
         # Never advance to another task while verified local commits are still
@@ -217,6 +256,15 @@ def main() -> int:
         if blocked_task and blocked_task != target["id"]:
             blocked_task = ""
             blocked_marker = None
+        if failed_hold and failed_hold != target["id"]:
+            failed_hold = ""
+            failures = 0
+        if failed_hold:
+            # The failure budget for this task is spent; wait for an owner Retry instead of burning turns.
+            time.sleep(IDLE_SECONDS)
+            continue
+        if current_branch() != branch:
+            raise RuntimeError(f"Branch changed from {branch} while running; autopilot refuses to continue.")
 
         status = run_agent(target)
         state = str(status.get("status") or "failed").strip().lower()
@@ -267,8 +315,12 @@ def main() -> int:
         failures += 1
         send(f"⚠️ {task}: autonomous attempt failed ({failures}/{MAX_FAILS}). {summary}")
         if failures >= MAX_FAILS:
-            send(f"⛔ {MAX_FAILS} failures in a row. Autopilot stopped. Last: {summary}")
-            return 3
+            if not DAEMON_MODE:
+                send(f"⛔ {MAX_FAILS} failures in a row. Autopilot stopped. Last: {summary}")
+                return 3
+            failed_hold = target["id"]
+            send(f"⛔ {MAX_FAILS} failures in a row on {target['id']}. Holding without new attempts; "
+                 f"use Retry in FactoryOS Workers to try again. Last: {summary}")
         time.sleep(PAUSE_SECONDS)
 
 

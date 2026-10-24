@@ -135,7 +135,7 @@ Rules:
   Goal: show the lifecycle of each delegated task as a factual timeline: queued -> picked -> running -> checks -> commit -> push -> done/blocked/failed, with timestamps, commit SHA, changed files and checks.
   DONE: verified task-result fixtures render timeline events and link the exact commit/check evidence; missing events are shown as unavailable rather than invented.
 
-- [ ] T-536-F Safe operator controls
+- [x] T-536-F Safe operator controls
   Planner: ChatGPT
   Parent: T-536
   Depends: T-536-D

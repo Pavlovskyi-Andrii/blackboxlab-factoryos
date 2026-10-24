@@ -2,7 +2,7 @@
 
 Static checks always run. The fixture rendering check runs the real inline renderers from
 static/index.html under Node: desktop/mobile layout, task states, worker online/stale/offline,
-telemetry, counts and the T-536-E execution timeline. Node is required when FACTORYOS_REQUIRE_NODE=1 (CI); without it the
+telemetry, counts, the T-536-E execution timeline and the T-536-F operator controls. Node is required when FACTORYOS_REQUIRE_NODE=1 (CI); without it the
 check is reported as SKIPPED, never as passed.
 """
 import json
@@ -50,6 +50,11 @@ def static_checks(html, script, block):
     keys |= {f"dc.stage.{s}" for s in ("starting", "syncing", "idle", "running", "pushing", "blocked", "failed", "unknown")}
     keys |= {f"dc.tl.{s}" for s in ("queued", "picked", "running", "checks", "commit", "push", "outcome", "done", "blocked", "failed")}
     keys |= {f"dc.tl.status.{s}" for s in ("observed", "unavailable", "pending", "skipped")}
+    keys |= {f"dc.ctl.mode.{s}" for s in ("running", "pause_requested", "paused")}
+    keys |= {"dc.ctl.confirmRetry", "dc.ctl.sent", "dc.ctl.unchanged"}
+    require("/api/factory/delegation-control" in script and "request_id:dcRequestId()" in script, "controls must post idempotent commands")
+    for word in ("force", "deploy", "publish", "checkout", "main"):
+        require(f"data-control=\"{word}" not in block and f"'{word}'" not in block, f"controls must not offer {word}")
     keys |= set(re.findall(r'data-i18n="(dc\.[a-zA-Z.]+)"', html))
     for key in sorted(keys):
         require(html.count(f'"{key}":') == 3, f"i18n key {key} must exist in EN/UK/RU")
@@ -123,8 +128,18 @@ TIMELINES = {
 }
 
 
-def board(connection, age, telemetry, active="T-536-B"):
+CONTROLS = {
+    "running": {"mode": "running", "paused": False, "available": ["pause"], "retryable": ["T-536-C"], "pending": [],
+                "recent_audit": [{"at": T0, "action": "force_push", "task_id": "", "outcome": "rejected", "detail": "unsupported <b>action</b>"}]},
+    "paused": {"mode": "paused", "paused": True, "available": ["resume"], "retryable": [],
+               "pending": [{"id": "c1", "action": "retry", "task_id": "T-536-C", "created_at": T0}], "recent_audit": []},
+    "pause_requested": {"mode": "pause_requested", "paused": True, "available": ["resume"], "retryable": [], "pending": [], "recent_audit": []},
+}
+
+
+def board(connection, age, telemetry, active="T-536-B", controls="running"):
     return {
+        "controls": CONTROLS.get(controls),
         "tree": NOW_TREE, "planner_queue": QUEUE, "counts": COUNTS, "recent_results": RESULTS, "timelines": TIMELINES,
         "next_task": {"id": "T-536-D", "title": "UI"},
         "active_task": {"id": active, "title": "Telemetry"} if active else None,
@@ -139,7 +154,9 @@ FIXTURES = {
     "online": board("online", 7, TELEMETRY),
     "stale": board("stale", 4000, {**TELEMETRY, "cpu_percent": None, "cpu_source": "unsupported", "memory_mb": None,
                                    "memory_total_mb": None, "memory_source": "unsupported"}),
-    "offline": board("offline", None, None, active=None),
+    "offline": board("offline", None, None, active=None, controls=None),
+    "paused": board("online", 7, TELEMETRY, controls="paused"),
+    "pause_requested": board("online", 7, TELEMETRY, controls="pause_requested"),
 }
 
 HARNESS = r"""
@@ -185,6 +202,25 @@ def render_checks(out):
     require("Owner input needed: owner decision" in online, "blocked result need missing")
     require("Онлайн" in out["uk:online"] and "Офлайн" in out["ru:offline"], "localized connection labels missing")
     timeline_checks(out)
+    control_checks(out)
+
+
+def control_checks(out):
+    running, paused, requested = out["en:online"], out["en:paused"], out["en:pause_requested"]
+    require('data-control-mode="running"' in running and 'data-control="pause"' in running and 'data-control="resume"' not in running,
+            "running runner must offer Pause only")
+    require('data-control="retry" data-control-task="T-536-C"' in running and "Retry T-536-C" in running, "retry for a blocked task missing")
+    require("Pause after current task" in running and "cannot push, switch to main, deploy or skip publish approval" in running,
+            "pause semantics / safety note missing")
+    require("unsupported &lt;b&gt;action&lt;/b&gt;" in running and "<b>action</b>" not in running, "audit log must be escaped")
+    require('data-control-mode="paused"' in paused and 'data-control="resume"' in paused and 'data-control="pause"' not in paused,
+            "paused runner must offer Resume only")
+    require('data-control="retry"' not in paused and "Retry T-536-C queued" in paused, "pending retry must show as queued")
+    require("Pause requested — after the current task" in requested, "pause request must say it applies after the current task")
+    require("dcControls" not in out["en:offline"], "no controls without board control state")
+    controls = re.findall(r'data-control="([a-z]+)"', "".join(out.values()))
+    require(set(controls) == {"pause", "resume", "retry"}, f"only pause/resume/retry may render: {set(controls)}")
+    require("Керування оператора" in out["uk:online"] and "Управление оператора" in out["ru:paused"], "localized control labels missing")
 
 
 def events(html):
@@ -243,7 +279,7 @@ def main():
     if result.returncode:
         raise SystemExit(f"renderer harness failed:\n{result.stderr[-2000:]}")
     render_checks(json.loads(result.stdout))
-    print("Delegation Control Center fixture rendering passed (desktop/mobile, online/stale/offline, timeline, EN/UK/RU)")
+    print("Delegation Control Center fixture rendering passed (desktop/mobile, online/stale/offline, timeline, controls, EN/UK/RU)")
 
 
 if __name__ == "__main__":
