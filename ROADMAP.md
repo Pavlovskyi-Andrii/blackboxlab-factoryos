@@ -135,22 +135,22 @@ Rules:
   Goal: show the lifecycle of each delegated task as a factual timeline: queued -> picked -> running -> checks -> commit -> push -> done/blocked/failed, with timestamps, commit SHA, changed files and checks.
   DONE: verified task-result fixtures render timeline events and link the exact commit/check evidence; missing events are shown as unavailable rather than invented.
 
-- [ ] T-536-F Safe operator controls
+- [x] T-536-F Safe operator controls
   Planner: ChatGPT
   Parent: T-536
   Depends: T-536-D
   Goal: provide safe remote controls for the daemon: pause after current task, resume, and retry a blocked/failed safe task; never expose force-push, main checkout, production deploy or publish bypass.
   DONE: command channel is idempotent, authenticated, auditable and regression proves pause/resume/retry cannot bypass main/prod/publish safety invariants.
 
-- [ ] T-532 Live pipeline + handoff trace
+- [x] T-532 Live pipeline + handoff trace
   Goal: make the main FactoryOS pipeline visually show current movement and worker-to-worker handoffs instead of only static cards.
   DONE: a deterministic workflow fixture renders ordered source artifact -> worker run -> output -> downstream worker edges with running/done/blocked/failed states and a usable mobile fallback.
 
-- [ ] T-533 Explainability + tooltips
+- [x] T-533 Explainability + tooltips
   Goal: remove ambiguity around Hook, Script, Caption, Voice and the Cycle/Idea/Job/Review/Learned stages with concise contextual help.
   DONE: EN/UK/RU tooltip/help copy exists for the canonical concepts, hover/focus/tap access is keyboard/mobile safe, and regression prevents missing help keys.
 
-- [ ] T-534 EN/UK/RU localization parity
+- [x] T-534 EN/UK/RU localization parity
   Goal: remove mixed-language UI leftovers and keep the three supported locales structurally in sync.
   DONE: an automated locale-parity regression catches missing canonical dashboard keys and the representative EN/UK/RU dashboard fixture contains no known cross-locale fallback strings.
 

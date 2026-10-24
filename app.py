@@ -5918,6 +5918,78 @@ def get_job_handoffs(job_id, limit=60):
     con.close()
     return rows
 
+# T-532 — live pipeline handoff trace. Ordered read model of persisted runs only:
+# source artifact -> worker run -> output artifacts -> downstream worker runs.
+FLOW_BLOCKED_CATEGORIES={"dependency","budget"}
+
+def _flow_run_state(status, error):
+    raw=(status or "").lower()
+    if raw=="running":
+        return "running"
+    if raw=="completed":
+        return "done"
+    if raw=="failed":
+        # A gate (missing upstream / quality gate / budget guard) stopped the run: blocked, not a worker failure.
+        return "blocked" if classify_agent_error(error)["category"] in FLOW_BLOCKED_CATEGORIES else "failed"
+    return "queued" if raw=="queued" else "unknown"
+
+def get_job_flow(job_id, limit=40):
+    empty={"job_id":job_id,"hops":[],"edges":[],"sources":[],"counts":{"running":0,"done":0,"blocked":0,"failed":0,"queued":0,"unknown":0},"live":False,"truncated":False}
+    if not job_id:
+        return empty
+    con=db()
+    runs=[dict(x) for x in con.execute(
+        """SELECT id,agent,stage,status,started_at,finished_at,error FROM agent_runs
+           WHERE job_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?""",(job_id,limit+1)
+    ).fetchall()]
+    truncated=len(runs)>limit
+    runs=list(reversed(runs[:limit]))
+    if not runs:
+        con.close()
+        return empty
+    ids=[r["id"] for r in runs]
+    marks=",".join("?"*len(ids))
+    outputs=[dict(x) for x in con.execute(
+        f"""SELECT id,run_id,agent,kind,title FROM artifacts WHERE run_id IN ({marks})
+            ORDER BY created_at, rowid""",ids
+    ).fetchall()]
+    inputs=[dict(x) for x in con.execute(
+        f"""SELECT ri.run_id,ri.artifact_id,ri.source_agent,a.run_id source_run_id,a.title,a.kind
+            FROM run_inputs ri JOIN artifacts a ON a.id=ri.artifact_id
+            WHERE ri.run_id IN ({marks}) ORDER BY ri.created_at, ri.rowid""",ids
+    ).fetchall()]
+    con.close()
+    hops={}
+    for i,r in enumerate(runs):
+        state=_flow_run_state(r["status"],r.get("error"))
+        hops[r["id"]]={"order":i+1,"run_id":r["id"],"agent":r["agent"],"stage":r.get("stage") or "","status":r["status"],"state":state,
+                       "started_at":r["started_at"],"finished_at":r.get("finished_at"),
+                       "error":(r.get("error") or "")[:160] if state in ("failed","blocked") else "",
+                       "inputs":[],"outputs":[],"downstream":[]}
+    for a in outputs:
+        hops[a["run_id"]]["outputs"].append({"artifact_id":a["id"],"title":a["title"],"kind":a["kind"]})
+    edges=[];sources={}
+    for x in inputs:
+        target=hops[x["run_id"]]
+        upstream=hops.get(x["source_run_id"]) if x.get("source_run_id") else None
+        item={"artifact_id":x["artifact_id"],"title":x["title"],"kind":x["kind"],"source_agent":x["source_agent"],
+              "source_run_id":upstream["run_id"] if upstream else None,
+              # "source" = seed/manual artifact with no run record; "earlier" = produced by a run outside this window.
+              "origin":"run" if upstream else ("earlier" if x.get("source_run_id") else "source")}
+        target["inputs"].append(item)
+        if upstream:
+            upstream["downstream"].append({"run_id":target["run_id"],"agent":target["agent"],"state":target["state"],"artifact_id":x["artifact_id"]})
+        else:
+            sources.setdefault(x["artifact_id"],{"artifact_id":x["artifact_id"],"title":x["title"],"kind":x["kind"],"agent":x["source_agent"],"origin":item["origin"]})
+        edges.append({"from_run":item["source_run_id"],"from_agent":x["source_agent"],"artifact_id":x["artifact_id"],"artifact_title":x["title"],
+                      "to_run":target["run_id"],"to_agent":target["agent"],"state":target["state"],"origin":item["origin"]})
+    ordered=sorted(hops.values(),key=lambda h:h["order"])
+    counts=dict(empty["counts"])
+    for h in ordered:
+        counts[h["state"]]+=1
+    return {"job_id":job_id,"hops":ordered,"edges":edges,"sources":list(sources.values()),"counts":counts,
+            "live":counts["running"]>0,"truncated":truncated}
+
 def classify_agent_error(message):
     raw=(message or "").strip()
     low=raw.lower()
@@ -8227,6 +8299,7 @@ def status(request: Request=None):
         "selectedJobQuality": get_job_quality(sid) if sid else None,
         "selectedJobWorkerResults": get_job_worker_results(sid),
         "selectedJobHandoffs": get_job_handoffs(sid),
+        "selectedJobFlow": get_job_flow(sid),
         "selectedJobAgentErrors": get_job_agent_errors(sid),
         "selectedJobErrorCenter": get_job_error_center(sid),
         "selectedJobVariants": get_job_variants(sid),
@@ -9601,6 +9674,7 @@ def get_delegation_board():
         "next_task":next((x for x in queue if x["state"]=="queued"),None),
         "recent_results":results[-10:],
         "counts":counts,
+        "controls":get_delegation_control_view(queue,{"online":online,"active_task_id":active_task_id}),
         "safety":{"secrets_returned":False,"main_push_forbidden":True,"production_direct_deploy_forbidden":True,
                   "human_publish_approval_required":True},
     }
@@ -9664,6 +9738,181 @@ def factory_delegation_board(request: Request):
     identity=request_identity(request) or {}
     if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
     return get_delegation_board()
+
+# --- T-536-F safe operator controls: owner -> FactoryOS -> Claude runner command channel.
+# Only these three actions exist. Nothing here can push, switch branches, deploy, publish or touch secrets;
+# commands carry only {action, task_id} and the runner applies them between tasks.
+DELEGATION_CONTROL_ACTIONS=("pause","resume","retry")
+DELEGATION_CONTROL_FILE = DATA_DIR / "claude_worker_control.json"
+_delegation_control_lock=threading.Lock()
+_DELEGATION_CONTROL_TERMINAL=("applied","rejected","superseded")
+
+class DelegationControlRequest(BaseModel):
+    model_config={"extra":"forbid"}
+    action: str
+    request_id: str
+    task_id: str = ""
+
+class DelegationControlAck(BaseModel):
+    model_config={"extra":"forbid"}
+    command_id: str
+    outcome: str
+    detail: str = ""
+
+def _load_delegation_control():
+    empty={"paused":False,"commands":[],"audit":[]}
+    if not DELEGATION_CONTROL_FILE.exists():return empty
+    value=_decode_json(DELEGATION_CONTROL_FILE.read_text(encoding="utf-8"),empty)
+    if not isinstance(value,dict):return empty
+    return {"paused":value.get("paused") is True,
+            "commands":[x for x in value.get("commands") or [] if isinstance(x,dict)],
+            "audit":[x for x in value.get("audit") or [] if isinstance(x,dict)]}
+
+def _save_delegation_control(state):
+    pending=[x for x in state["commands"] if x.get("status")=="pending"]
+    done=[x for x in state["commands"] if x.get("status")!="pending"][-100:]
+    state["commands"]=sorted(pending+done,key=lambda x:x.get("seq",0))
+    state["audit"]=state["audit"][-200:]
+    DELEGATION_CONTROL_FILE.parent.mkdir(parents=True,exist_ok=True)
+    tmp=DELEGATION_CONTROL_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+    os.replace(tmp,DELEGATION_CONTROL_FILE)
+
+def _delegation_audit(state,actor,action,outcome,*,task_id="",request_id="",command_id="",detail=""):
+    state["audit"].append({"at":time.time(),"actor":actor,"action":str(action)[:40],"task_id":task_id,"request_id":request_id,
+                           "command_id":command_id,"outcome":outcome,"detail":str(detail)[:300]})
+
+def _delegation_actor(identity):
+    identity=identity or {}
+    return ":".join(x for x in (str(identity.get("role") or "unknown"),str(identity.get("email") or "")) if x)
+
+def _delegation_retry_refusal(task_id,queue,worker):
+    """Why `task_id` may not be retried, or "" when it is a blocked/failed safe ROADMAP task."""
+    task=next((x for x in queue if x["id"]==task_id),None)
+    if not task:return "unknown roadmap task"
+    if task.get("human"):return "HUMAN roadmap tasks cannot be retried by the runner"
+    if task.get("done") or task.get("state")=="done":return "task is already done"
+    if worker.get("online") and str(worker.get("active_task_id") or "")==task_id:return "task is running now"
+    if task.get("state")!="blocked":return "only blocked or failed tasks can be retried"
+    return ""
+
+def submit_delegation_control(item:DelegationControlRequest,identity,*,queue=None,worker=None):
+    """Record one owner command. Idempotent per request_id; repeated intents never queue twice."""
+    actor=_delegation_actor(identity)
+    action=item.action.strip().lower()
+    task_id=item.task_id.strip()
+    request_id=item.request_id.strip()
+    with _delegation_control_lock:
+        state=_load_delegation_control()
+        if not re.match(r"^[A-Za-z0-9_-]{8,64}$",request_id):
+            _delegation_audit(state,actor,action,"rejected",task_id=task_id[:40],detail="invalid request_id")
+            _save_delegation_control(state)
+            raise HTTPException(422,"request_id must be 8-64 characters of [A-Za-z0-9_-]")
+        replay=next((x for x in state["commands"] if x.get("request_id")==request_id),None)
+        if replay:
+            if replay["action"]!=action or replay["task_id"]!=task_id:
+                raise HTTPException(409,"request_id was already used for a different command")
+            return {"ok":True,"duplicate":True,"changed":False,"command":replay,"paused":state["paused"]}
+        noop=next((x for x in state["audit"] if x.get("request_id")==request_id and x.get("outcome")=="noop"),None)
+        if noop:
+            if noop["action"]!=action or noop["task_id"]!=task_id:
+                raise HTTPException(409,"request_id was already used for a different command")
+            return {"ok":True,"duplicate":True,"changed":False,"command":None,"paused":state["paused"]}
+        refusal=""
+        if action not in DELEGATION_CONTROL_ACTIONS:
+            refusal=f"unsupported action; allowed: {', '.join(DELEGATION_CONTROL_ACTIONS)}"
+        elif action=="retry":
+            if not re.match(r"^T-[A-Za-z0-9-]+$",task_id):refusal="retry requires a ROADMAP task id"
+            else:
+                if queue is None or worker is None:
+                    board=get_delegation_board()
+                    queue,worker=board["planner_queue"],board["worker"]
+                refusal=_delegation_retry_refusal(task_id,queue,worker)
+        elif task_id:
+            refusal=f"{action} does not take a task id"
+        if refusal:
+            _delegation_audit(state,actor,action,"rejected",task_id=task_id[:40],request_id=request_id,detail=refusal)
+            _save_delegation_control(state)
+            raise HTTPException(409 if action in DELEGATION_CONTROL_ACTIONS else 400,refusal)
+        pending=[x for x in state["commands"] if x.get("status")=="pending"]
+        same=next((x for x in pending if x["action"]==action and x["task_id"]==task_id),None)
+        if action in ("pause","resume") and state["paused"]==(action=="pause"):
+            _delegation_audit(state,actor,action,"noop",request_id=request_id,command_id=(same or {}).get("id",""),
+                              detail="already paused" if action=="pause" else "already running")
+            _save_delegation_control(state)
+            return {"ok":True,"duplicate":False,"changed":False,"command":same,"paused":state["paused"]}
+        if same:
+            _delegation_audit(state,actor,action,"noop",task_id=task_id,request_id=request_id,command_id=same["id"],detail="already pending")
+            _save_delegation_control(state)
+            return {"ok":True,"duplicate":False,"changed":False,"command":same,"paused":state["paused"]}
+        now=time.time()
+        if action in ("pause","resume"):
+            opposite="resume" if action=="pause" else "pause"
+            for cmd in pending:
+                if cmd["action"]==opposite:
+                    cmd.update(status="superseded",updated_at=now,detail=f"superseded by {action}")
+                    _delegation_audit(state,actor,opposite,"superseded",command_id=cmd["id"],request_id=cmd["request_id"])
+            state["paused"]=action=="pause"
+        seq=max([int(x.get("seq") or 0) for x in state["commands"]]+[0])+1
+        command={"id":uuid.uuid4().hex,"seq":seq,"request_id":request_id,"action":action,"task_id":task_id,"status":"pending",
+                 "actor":actor,"created_at":now,"updated_at":now,"detail":""}
+        state["commands"].append(command)
+        _delegation_audit(state,actor,action,"accepted",task_id=task_id,request_id=request_id,command_id=command["id"])
+        _save_delegation_control(state)
+        return {"ok":True,"duplicate":False,"changed":True,"command":command,"paused":state["paused"]}
+
+def get_worker_delegation_control():
+    """What the runner may see: the pause level and pending commands as {id, action, task_id} only."""
+    state=_load_delegation_control()
+    return {"paused":state["paused"],
+            "commands":[{"id":x["id"],"action":x["action"],"task_id":x["task_id"]}
+                        for x in state["commands"] if x.get("status")=="pending" and x.get("action") in DELEGATION_CONTROL_ACTIONS]}
+
+def ack_delegation_control(item:DelegationControlAck):
+    outcome=item.outcome.strip().lower()
+    if outcome not in ("applied","rejected"):raise HTTPException(422,"outcome must be applied or rejected")
+    with _delegation_control_lock:
+        state=_load_delegation_control()
+        command=next((x for x in state["commands"] if x.get("id")==item.command_id.strip()),None)
+        if not command:raise HTTPException(404,"Unknown command")
+        if command["status"] in _DELEGATION_CONTROL_TERMINAL:
+            return {"ok":True,"duplicate":True,"command":command}
+        command.update(status=outcome,updated_at=time.time(),detail=item.detail.strip()[:300])
+        _delegation_audit(state,"worker",command["action"],outcome,task_id=command["task_id"],request_id=command["request_id"],
+                          command_id=command["id"],detail=command["detail"])
+        _save_delegation_control(state)
+        return {"ok":True,"duplicate":False,"command":command}
+
+def get_delegation_control_view(queue,worker):
+    """Owner-facing control state for the delegation board."""
+    state=_load_delegation_control()
+    pending=[x for x in state["commands"] if x.get("status")=="pending"]
+    pending_retry={x["task_id"] for x in pending if x["action"]=="retry"}
+    pause_cmd=next((x for x in reversed(pending) if x["action"]=="pause"),None)
+    mode="pause_requested" if pause_cmd else ("paused" if state["paused"] else "running")
+    return {"paused":state["paused"],"mode":mode,
+            "available":["resume"] if state["paused"] else ["pause"],
+            "retryable":[x["id"] for x in queue if x["id"] not in pending_retry and not _delegation_retry_refusal(x["id"],queue,worker)],
+            "pending":[{k:x.get(k) for k in ("id","action","task_id","created_at")} for x in pending],
+            "recent_audit":[{k:x.get(k) for k in ("at","action","task_id","outcome","detail")} for x in state["audit"][-10:]],
+            "allowed_actions":list(DELEGATION_CONTROL_ACTIONS)}
+
+@app.post("/api/factory/delegation-control")
+def factory_delegation_control(item:DelegationControlRequest,request:Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return submit_delegation_control(item,identity)
+
+@app.get("/api/claude-worker/control")
+def claude_worker_control(request:Request):
+    # Worker token only: an owner session must not be able to impersonate the runner.
+    if not _claude_worker_authorized(request):raise HTTPException(401,"Claude worker token required")
+    return get_worker_delegation_control()
+
+@app.post("/api/claude-worker/control/ack")
+def claude_worker_control_ack(item:DelegationControlAck,request:Request):
+    if not _claude_worker_authorized(request):raise HTTPException(401,"Claude worker token required")
+    return ack_delegation_control(item)
 
 @app.get("/api/factory/builder")
 def factory_builder_status():
