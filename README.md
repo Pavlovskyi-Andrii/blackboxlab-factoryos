@@ -19,6 +19,15 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v5.3.1 — Account Portability Foundation — 2026-10-24
+- Reworked Connections so Metricool, YouTube, Instagram, TikTok and HubSpot are provider slots instead of owner-specific identities.
+- Added durable workspace/provider binding metadata plus owner-only Connect / Disconnect / Change account actions. Disconnect never deletes jobs, artifacts, approvals or analytics.
+- Removed the hard-coded TikTok account label from runtime state.
+- Disconnecting Metricool now fences the real publishing transport; disconnecting an individual social channel fences that destination.
+- Added HubSpot to Connections as the CRM / Growth slot. The standalone product intentionally does not reuse the separate ChatGPT HubSpot OAuth grant.
+- Added the v5.5 sellable-workspace roadmap for provider OAuth, encrypted token storage, full tenant scoping and customer A → customer B replacement acceptance.
+- Architecture and current boundary: [docs/ACCOUNT_PORTABILITY.md](docs/ACCOUNT_PORTABILITY.md).
+
 ### v5.3 — Metricool Publisher Adapter — 2026-10-23
 - Added a native server-side Metricool publisher adapter for Instagram Reels, TikTok and YouTube Shorts.
 - Metricool receives only the immutable metadata snapshot frozen at human approval plus the exact approved final video URL; later Content Package edits cannot drift into the scheduled post.
