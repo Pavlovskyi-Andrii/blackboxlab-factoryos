@@ -182,3 +182,23 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** as in T-532, the uncommitted T-536-B telemetry changes in the working tree are left out of this commit. The T-533 commit contains only T-533 hunks and was verified on a clean HEAD + T-533 worktree.
   **Reason:** one roadmap task = one focused commit.
+
+## 2026-10-24 — T-534 EN/UK/RU localization parity
+
+- **Decision:** EN (`I18N.en` literal plus its `Object.assign` extensions) is the canonical dashboard key set. UK and RU must contain exactly the same keys with the same `{placeholders}`, and every key referenced by `data-i18n`, `data-i18n-placeholder`, `data-help` or a literal `tr('…')` must exist. `tr('prefix.'+x)` families are dynamic and are covered by key-set parity, not enumerated.
+  **Reason:** `tr()` silently falls back to EN and then to the raw key, so gaps used to ship unnoticed. The real gaps were `action.close` (missing everywhere, so the Claude setup "Close" button showed the raw key), 3 drawer MCP keys in UK, and 28 category/design/owner keys in RU.
+
+- **Decision:** UK/RU values may equal EN only for an explicit allowlist (`SAME_AS_EN` in `test_locale_parity.py`). It covers product/workspace names (Approval Studio, Content Brain, Revideo, Media Finisher, …) and glossary/technical terms (Hook, CTA, QA, CPU, DONE, HUMAN, Push, Short, workflow, roadmap). Ordinary labels that had been left in English (Description, Hashtags, Voice-over, Provenance, job/learning/production, Heartbeat, …) are now translated.
+  **Reason:** brand names stay recognizable across locales. Everything else that renders in English inside UK/RU is a leftover. An allowlist makes every intentional exception reviewable.
+
+- **Decision:** hardcoded English UI strings in the dashboard script now go through `tr()` with new `toast.*`, `error.*`, `dialog.*`, `finisher.*`, `publishing.*`, `experiment.*` keys. This covers toasts, the "Restart Factory" button, loading/error cards, Media Finisher route nodes, the experiment/publishing panels and `prompt()`/`confirm()` dialogs, including their prefilled free text. Machine values (`youtube_shorts`, JSON defaults) and the audit `reason` strings sent to the API stay in English.
+  **Reason:** these strings are user-visible. The API reasons are stored audit data, not UI, and changing them would change backend records.
+
+- **Decision:** the language check is letter-based. UK copy must not contain RU-only letters (ы э ъ ё) and RU copy must not contain UK-only letters (і ї є ґ). The test also self-tests the checker against deliberately broken tables (missing UK/RU key, missing referenced key, EN fallback, placeholder drift, mixed letters, a re-added hardcoded literal).
+  **Reason:** this deterministically catches UK↔RU copy-paste mixing without a dictionary. The self-test proves the regression would actually fail on a missing canonical key.
+
+- **Decision:** the "representative EN/UK/RU dashboard fixture" runs the shipped `I18N`, `TASK_COPY`, `taskCopy()` and `tr()` under Node. It renders the static shell labels, every statically referenced key (with sample vars) and every roadmap card per locale, and asserts there are no raw keys, no unresolved placeholders, no EN fallbacks and none of the known EN fallback strings in UK/RU. As with the other UI fixtures, it runs with `FACTORYOS_REQUIRE_NODE=1` in CI and reports SKIPPED without Node.
+  **Reason:** this matches the established `test_explainability.py` / `test_delegation_ui.py` pattern and needs no browser.
+
+- **Decision:** as in T-532/T-533, the uncommitted T-536-B telemetry changes in the working tree are left out of this commit. The T-534 commit contains only T-534 hunks.
+  **Reason:** one roadmap task = one focused commit.

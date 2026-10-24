@@ -124,6 +124,12 @@ jobs:
         run: |
           python -m py_compile test_explainability.py
           python test_explainability.py
+      - name: EN/UK/RU locale parity regression
+        env:
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_locale_parity.py
+          python test_locale_parity.py
       - name: Delegation execution timeline regression
         env:
           FACTORY_PASSWORD: ""
