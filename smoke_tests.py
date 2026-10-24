@@ -197,6 +197,7 @@ for path,method in (("/guest","GET"),("/api/viewer-invite","GET"),("/health","GE
 
 for path,method in (
     ("/api/integrations","GET"),
+    ("/api/integrations/disconnect-all","POST"),
     ("/api/integrations/{provider}/disconnect","POST"),
     ("/api/integrations/{provider}/connect","POST"),
     ("/api/integrations/{provider}/switch","POST"),
