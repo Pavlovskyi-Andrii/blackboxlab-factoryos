@@ -101,7 +101,7 @@ Rules:
   Goal: make every canonical worker visibly answer “what went in, what it did, what came out, and what it cost” without fabricating unavailable metrics.
   DONE: deterministic fixtures expose worker input, action, status, output, artifacts, duration, tokens and cost when known; unknown values render explicitly as unavailable and smoke tests cover the contract.
 
-- [ ] T-536-A Delegation Board API
+- [x] T-536-A Delegation Board API
   Planner: ChatGPT
   Parent: T-536
   Goal: expose one owner-safe API contract that combines the ROADMAP queue, hierarchy/dependencies, Claude worker heartbeat, active task, recent verified results and queue counts.

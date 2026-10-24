@@ -67,6 +67,55 @@ for overrides,code in ((dict(pinned_task_id="T-510"),409),(dict(branch="main"),4
 for overrides in (dict(commit_count=2),dict(commit=""),dict(pushed=True),dict(deploy_credentials_scrubbed=False),dict(violations=["protected branch main was modified"])):
     require(app.ingest_claude_worker_result(claude_result(**overrides))["result"]=="failed",f"unverified Claude done must fail closed: {overrides}")
 require(app.get_claude_code_status()["online"] is False,"result ingestion must not fake a live Claude worker heartbeat")
+live_t536a=next((x for x in roadmap_tasks if x["id"]=="T-536-A"),None)
+require(live_t536a and live_t536a["parent"]=="T-536" and live_t536a["planner"]=="ChatGPT","live ROADMAP planner/parent metadata regression")
+require(next(x for x in roadmap_tasks if x["id"]=="T-536-D")["depends"]==["T-536-A","T-536-B","T-536-C"],"live ROADMAP dependency metadata regression")
+require(next(x for x in roadmap_tasks if x["id"]=="T-500")["depends"]==[] and route_exists("/api/factory/delegation-board","GET"),"legacy ROADMAP entries/board route regression")
+board_fixture=app._parse_roadmap_tasks("""## Fixture
+- [x] T-900 Done task
+- [ ] [HUMAN] T-901 Owner credential
+  Need: owner secret
+- [ ] T-902 Parent work
+  Planner: ChatGPT
+- [ ] T-902-A Running child
+  Planner: ChatGPT
+  Parent: T-902
+- [ ] T-902-B Blocked child
+  Parent: T-902
+  Depends: T-902-A, not-a-task
+- [ ] T-903 Queued legacy task
+  Goal: still parses
+""")
+require([x["id"] for x in board_fixture]==["T-900","T-901","T-902","T-902-A","T-902-B","T-903"],"fixture ROADMAP parse regression")
+require(board_fixture[4]["depends"]==["T-902-A"] and board_fixture[3]["parent"]=="T-902" and board_fixture[5]["planner"]=="","fixture ROADMAP metadata regression")
+real_parse_roadmap,real_results_file,real_worker_runtime=app._parse_roadmap_tasks,app.CLAUDE_WORKER_RESULTS_FILE,dict(app.claude_worker_runtime)
+app._parse_roadmap_tasks=lambda text=None:[dict(x) for x in board_fixture]
+app.CLAUDE_WORKER_RESULTS_FILE=Path(os.environ["DATA_DIR"])/"delegation_board_fixture_results.json"
+try:
+    offline=app.get_delegation_board()
+    require(offline["worker"]["connection"]=="offline" and offline["worker"]["heartbeat_age_seconds"] is None,"board must not fake a worker heartbeat")
+    require(offline["counts"]=={"done":1,"running":0,"queued":4,"blocked":0,"human":1,"total":6,"safe_remaining":4},f"offline board counts regression: {offline['counts']}")
+    require(offline["next_task"]["id"]=="T-902" and offline["planner_queue"][2]["queue_position"]==1,"board queue order regression")
+    app.ingest_claude_worker_result(claude_result(task_id="T-902-B",pinned_task_id="T-902-B",result="blocked",commit="",commit_count=0,need="owner input"))
+    app.claude_worker_heartbeat(app.ClaudeWorkerHeartbeat(task_id="T-902-A",status="running",branch="autopilot-ci",
+        repo=f"https://ci:{app.FACTORY_CLAUDE_WORKER_TOKEN}@github.com/example/factoryos.git",last_error=f"leak {app.FACTORY_CLAUDE_WORKER_TOKEN}"))
+    live=app.get_delegation_board()
+    states={x["id"]:x["state"] for x in live["planner_queue"]}
+    require(states=={"T-900":"done","T-901":"human","T-902":"queued","T-902-A":"running","T-902-B":"blocked","T-903":"queued"},f"board task state regression: {states}")
+    require(live["counts"]=={"done":1,"running":1,"queued":2,"blocked":1,"human":1,"total":6,"safe_remaining":4},f"live board counts regression: {live['counts']}")
+    require(live["worker"]["connection"]=="online" and live["active_task"]["id"]=="T-902-A" and live["worker"]["node"]["branch"]=="autopilot-ci","board worker state regression")
+    require(live["hierarchy"]==[{"parent":"T-902","parent_is_task":True,"children":["T-902-A","T-902-B"],"done":0,"total":2}],"board hierarchy regression")
+    require(next(x for x in live["planner_queue"] if x["id"]=="T-902-B")["dependencies_met"] is False,"board dependency regression")
+    require(live["recent_results"][-1]["task_id"]=="T-902-B" and "pinned_task_id" not in live["recent_results"][-1],"board recent result regression")
+    board_json=json.dumps(live)
+    require(app.FACTORY_CLAUDE_WORKER_TOKEN not in board_json and app.FACTORY_SECRET not in board_json and "ci:" not in board_json and "token" not in board_json.lower(),"delegation board must never return worker tokens or secrets")
+    app.claude_worker_runtime["last_seen"]=app.time.time()-app.FACTORY_CLAUDE_WORKER_TTL_SECONDS-5
+    stale=app.get_delegation_board()
+    require(stale["worker"]["connection"]=="stale" and stale["counts"]["running"]==0 and stale["counts"]["queued"]==3,"stale worker must not count as running")
+finally:
+    app._parse_roadmap_tasks,app.CLAUDE_WORKER_RESULTS_FILE=real_parse_roadmap,real_results_file
+    app.claude_worker_runtime.clear();app.claude_worker_runtime.update(real_worker_runtime)
+require(app.get_claude_code_status()["online"] is False,"delegation board fixture must not leave a live worker behind")
 pair_hash=app._telegram_pair_code_hash("PAIR1234")
 require(app._telegram_pair_code_matches("PAIR1234",pair_hash) is True,"Telegram pair-code verification regression")
 require(app._telegram_pair_code_matches("WRONG",pair_hash) is False,"Telegram pair-code rejection regression")

@@ -9384,18 +9384,24 @@ async def call_agent_mcp_tool(agent_name:str,connection_id:str,item:McpToolCall)
     except Exception as exc:
         raise HTTPException(502,str(exc))
 
-def _parse_roadmap_tasks():
+def _parse_roadmap_tasks(text=None):
     roadmap_path=BASE/"ROADMAP.md"
     tasks=[]
     current_version=""
-    if roadmap_path.exists():
-        for raw in roadmap_path.read_text(encoding="utf-8").splitlines():
+    if text is None and roadmap_path.exists():text=roadmap_path.read_text(encoding="utf-8")
+    if text:
+        for raw in text.splitlines():
             line=raw.strip()
             if line.startswith("## "):
                 current_version=line[3:].strip()
                 continue
             match=re.match(r"- \[([ xX])\]\s+(\[HUMAN\]\s+)?(T-[A-Za-z0-9-]+)\s+(.+)",line)
             if not match:
+                meta=re.match(r"(Planner|Parent|Depends):\s*(.*)",line)
+                if meta and tasks and raw[:1].isspace():
+                    key,value=meta.group(1).lower(),meta.group(2).strip()
+                    if key=="depends":tasks[-1]["depends"]=[x.strip() for x in value.split(",") if re.match(r"^T-[A-Za-z0-9-]+$",x.strip())]
+                    else:tasks[-1][key]=value
                 continue
             tasks.append({
                 "id":match.group(3),
@@ -9403,8 +9409,81 @@ def _parse_roadmap_tasks():
                 "done":match.group(1).lower()=="x",
                 "human":bool(match.group(2)),
                 "version":current_version,
+                "planner":"",
+                "parent":"",
+                "depends":[],
             })
     return tasks
+
+def _redact_board_value(value, secret_values):
+    if isinstance(value,dict):return {k:_redact_board_value(v,secret_values) for k,v in value.items()}
+    if isinstance(value,list):return [_redact_board_value(v,secret_values) for v in value]
+    if not isinstance(value,str):return value
+    value=re.sub(r"(?i)\b(https?://)[^/\s:@]+(?::[^/\s@]*)?@",r"\1",value)
+    for secret in secret_values:value=value.replace(secret,"[redacted]")
+    return value
+
+_DELEGATION_NODE_FIELDS=("node_id","hostname","platform","claude_version","auth_mode","subscription","branch","repo","status")
+_DELEGATION_RESULT_FIELDS=("task_id","result","branch","summary","need","checks","commit","commit_count","files","exit_code",
+                           "timed_out","duration_seconds","violations","received_at")
+
+def get_delegation_board():
+    """Owner-safe read model: ROADMAP queue + Claude worker state + verified results. Never returns tokens."""
+    tasks=_parse_roadmap_tasks()
+    worker=get_claude_code_status()
+    online=bool(worker["online"])
+    last_seen=float(worker["last_seen"] or 0)
+    active_task_id=str(worker["active_task_id"] or "")
+    results=[{k:r.get(k) for k in _DELEGATION_RESULT_FIELDS} for r in _load_claude_worker_results() if isinstance(r,dict)]
+    latest_result={}
+    for r in results:latest_result[str(r.get("task_id") or "")]=r
+    done_ids={x["id"] for x in tasks if x["done"]}
+    queue=[];position=0
+    for task in tasks:
+        latest=latest_result.get(task["id"])
+        latest_state=str((latest or {}).get("result") or "")
+        if task["done"]:state,source="done","roadmap"
+        elif latest_state=="done":state,source="done","worker_result"
+        elif task["human"]:state,source="human","roadmap"
+        elif online and active_task_id==task["id"]:state,source="running","heartbeat"
+        elif latest_state in {"blocked","failed"}:state,source="blocked","worker_result"
+        else:state,source="queued","roadmap"
+        if state=="queued":position+=1
+        queue.append({**task,"state":state,"state_source":source,"queue_position":position if state=="queued" else None,
+                      "dependencies_met":all(d in done_ids for d in task["depends"]),"latest_result":latest})
+    counts={key:sum(1 for x in queue if x["state"]==key) for key in ("done","running","queued","blocked","human")}
+    counts["total"]=len(queue)
+    counts["safe_remaining"]=counts["running"]+counts["queued"]+counts["blocked"]
+    connection="online" if online else ("stale" if last_seen else "offline")
+    board={
+        "planner_queue":queue,
+        "hierarchy":[{"parent":p,"parent_is_task":p in {x["id"] for x in tasks},
+                      "children":[c["id"] for c in queue if c["parent"]==p],
+                      "done":sum(1 for c in queue if c["parent"]==p and c["state"]=="done"),
+                      "total":sum(1 for c in queue if c["parent"]==p)}
+                     for p in dict.fromkeys(x["parent"] for x in tasks if x["parent"])],
+        "worker":{
+            "connection":connection,
+            "online":online,
+            "ttl_seconds":worker["ttl_seconds"],
+            "last_seen":last_seen or None,
+            "heartbeat_age_seconds":round(max(0.0,time.time()-last_seen),1) if last_seen else None,
+            "active_task_id":active_task_id or None,
+            "last_error":worker["last_error"] or "",
+            "node":{k:worker["node"].get(k) for k in _DELEGATION_NODE_FIELDS if k in worker["node"]},
+        },
+        "active_task":next((x for x in queue if x["id"]==active_task_id),None) if active_task_id else None,
+        "next_task":next((x for x in queue if x["state"]=="queued"),None),
+        "recent_results":results[-10:],
+        "counts":counts,
+        "safety":{"secrets_returned":False,"main_push_forbidden":True,"production_direct_deploy_forbidden":True,
+                  "human_publish_approval_required":True},
+    }
+    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
+                               FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,
+                               FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,
+                               FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8]
+    return _redact_board_value(board,sorted(secret_values,key=len,reverse=True))
 
 def get_repository_autopilot_state():
     roadmap_path=BASE/"ROADMAP.md"
@@ -9454,6 +9533,12 @@ def get_repository_autopilot_state():
 @app.get("/api/factory/autopilot")
 def factory_autopilot_status():
     return get_repository_autopilot_state()
+
+@app.get("/api/factory/delegation-board")
+def factory_delegation_board(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return get_delegation_board()
 
 @app.get("/api/factory/builder")
 def factory_builder_status():
