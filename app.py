@@ -5794,6 +5794,36 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
             event(job_id,f"{agent}: retry blocked ({policy['code']}) — {policy['action']}")
         raise RuntimeError(f"{agent} failed after {attempt} attempt(s): {last_error}")
 
+WORKER_REPORT_ARTIFACT_LIMIT=5
+# Run modes whose persisted zero token/cost values are factual (no paid call, or a measured live call).
+WORKER_REPORT_MEASURED_MODES={"demo","live_llm","rules-engine","deterministic"}
+
+def _worker_report(row,content,run,inputs,meta,artifact_count,artifact_items):
+    """Answer input / action / status / output / artifacts / duration / tokens / cost for one worker.
+
+    None means "unavailable": never substitute a default (e.g. the 0 DB default) for an unmeasured value.
+    """
+    run=run or None
+    run_meta=(run or {}).get("meta") or {}
+    finished=bool(run and run.get("finished_at"))
+    mode=run_meta.get("mode") or meta.get("mode")
+    tokens_in=int((run or {}).get("input_tokens") or 0);tokens_out=int((run or {}).get("output_tokens") or 0)
+    cost=float((run or {}).get("cost_usd") or 0)
+    measured=finished and run.get("status")=="completed" and mode in WORKER_REPORT_MEASURED_MODES
+    report={
+        "input":({"count":len(inputs),"sources":[{"agent":x.get("source_agent"),"artifact_id":x.get("artifact_id"),"kind":x.get("kind"),"title":x.get("title")} for x in inputs]} if run else None),
+        "action":({"stage":run.get("stage"),"mode":mode,"model":run.get("model") or meta.get("model"),"note":run_meta.get("note")} if run else None),
+        "status":(run.get("status") if run else "artifact_only"),
+        "error":(run.get("error") if run else None),
+        "output":{"kind":row.get("kind"),"title":row.get("title"),"preview":content[:240],"url":row.get("url"),"mime_type":row.get("mime_type")},
+        "artifacts":{"count":int(artifact_count or 0),"items":list(artifact_items or [])},
+        "duration_ms":(int(run.get("duration_ms") or 0) if finished else None),
+        "tokens":({"input":tokens_in,"output":tokens_out,"total":tokens_in+tokens_out} if finished and (tokens_in or tokens_out or measured) else None),
+        "cost_usd":(round(cost,6) if finished and (cost>0 or measured) else None),
+    }
+    report["unavailable"]=[k for k in ("input","action","duration_ms","tokens","cost_usd") if report[k] is None]
+    return report
+
 def get_job_worker_results(job_id):
     if not job_id:
         return {}
@@ -5810,7 +5840,10 @@ def get_job_worker_results(job_id):
     counts={x["agent"]:int(x["c"] or 0) for x in con.execute(
         "SELECT agent,COUNT(*) c FROM artifacts WHERE job_id=? GROUP BY agent",(job_id,)
     ).fetchall()}
-    latest={}
+    latest={};items={}
+    for row in rows:
+        if len(items.setdefault(row["agent"],[]))<WORKER_REPORT_ARTIFACT_LIMIT:
+            items[row["agent"]].append({k:row.get(k) for k in ("id","kind","title","url","mime_type","created_at")})
     for row in rows:
         agent=row["agent"]
         if agent in latest:
@@ -5840,6 +5873,7 @@ def get_job_worker_results(job_id):
                        WHERE ri.run_id=? ORDER BY a.created_at""",(row["run_id"],)
                 ).fetchall()]
         latest[agent]={
+            "report":_worker_report(row,content,run,inputs,meta,counts.get(agent,0),items.get(agent,[])),
             "id":row["id"],
             "run_id":row.get("run_id"),
             "agent":agent,

@@ -120,6 +120,12 @@ worker_results=app.get_job_worker_results(job_id)
 require("Scout" in worker_results,"selected-job worker result missing")
 require("structured object output" in worker_results["Scout"]["content"],"worker result must expose full normalized content")
 require(worker_results["Scout"]["artifact_count"]>=1 and worker_results["Scout"]["run"]["output_tokens"]==8,"worker accounting/evidence regression")
+# T-531 Worker Results contract: input/action/status/output/artifacts/duration/tokens/cost, unknown → None.
+rep=worker_results["Scout"]["report"]
+require(set(rep)>={"input","action","status","output","artifacts","duration_ms","tokens","cost_usd","unavailable"},"worker report contract shape changed")
+require(rep["status"]=="completed" and rep["input"]=={"count":0,"sources":[]} and rep["action"]["stage"]=="research" and rep["action"]["mode"]=="demo","worker report input/action/status regression")
+require(rep["output"]["title"]=="CI worker evidence" and rep["artifacts"]["count"]==1 and rep["artifacts"]["items"][0]["id"]==worker_artifact,"worker report output/artifacts regression")
+require(isinstance(rep["duration_ms"],int) and rep["tokens"]=={"input":12,"output":8,"total":20} and rep["cost_usd"]==0.0 and rep["unavailable"]==[],"measured demo run must expose duration, tokens and cost")
 agent_detail=app.agent_detail("Scout")
 require(agent_detail["selected_job_id"]==job_id and agent_detail["selected_job_result"]["id"]==worker_artifact,"agent drawer must expose selected-job result first")
 center=app.get_job_error_center(job_id)
@@ -132,6 +138,23 @@ legacy_id=legacy["id"]
 con=app.db();con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(app.ts(),legacy_id));con.commit();con.close()
 legacy_item=next(x for x in app.get_approval_queue()["items"] if x["job"]["id"]==legacy_id)
 require(legacy_item["legacy_incomplete"] is True and legacy_item["review_ready"] is False,"legacy approval item must be explicitly marked incomplete")
+contract_job=asyncio.run(app.create_job(app.JobCreate(title="CI worker contract",brief="Unknown-value fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))["id"]
+contract_seed=app.save_artifact("Scout","analysis","CI contract seed","seed",job_id=contract_job)
+running_run=app.start_agent_run("Researcher",contract_job,"research",model="simulation-v4.2")
+app.attach_run_inputs(running_run,[{"id":contract_seed,"agent":"Scout"}])
+app.save_artifact("Researcher","analysis","CI partial research","partial",job_id=contract_job,run_id=running_run,meta={"mode":"live_llm"})
+app.save_artifact("Tech Verifier","analysis","CI orphan artifact","no run record",job_id=contract_job)
+failed_run=app.start_agent_run("Angle Strategist",contract_job,"angle",model="gpt-ci")
+app.save_artifact("Angle Strategist","analysis","CI failed attempt","partial",job_id=contract_job,run_id=failed_run,meta={"mode":"live_llm"})
+app.finish_agent_run(failed_run,status="failed",error="Timed out",meta={"mode":"live_llm"})
+reports={k:v["report"] for k,v in app.get_job_worker_results(contract_job).items()}
+running=reports["Researcher"]
+require(running["status"]=="running" and running["input"]["count"]==1 and running["input"]["sources"][0]["agent"]=="Scout","running worker must expose its consumed input")
+require(running["duration_ms"] is None and running["tokens"] is None and running["cost_usd"] is None and running["unavailable"]==["duration_ms","tokens","cost_usd"],"unfinished run must not fabricate duration/tokens/cost")
+orphan=reports["Tech Verifier"]
+require(orphan["status"]=="artifact_only" and orphan["input"] is None and orphan["action"] is None and orphan["unavailable"]==["input","action","duration_ms","tokens","cost_usd"],"artifact without run must render run fields as unavailable")
+failed=reports["Angle Strategist"]
+require(failed["status"]=="failed" and failed["error"]=="Timed out" and isinstance(failed["duration_ms"],int) and failed["tokens"] is None and failed["cost_usd"] is None,"failed live call with no recorded usage must report spend as unavailable, not 0")
 
 # v4.4 Viral Discovery — factual metric persistence, dedup and Revideo handoff.
 dc_payload=app.DiscoveryCandidateCreate(
@@ -960,6 +983,9 @@ for key in ("runs","completed_runs","failed_runs","success_rate","duration_ms","
 html=Path("static/index.html").read_text(encoding="utf-8")
 require('data-i18n="error.title"' in html,"Error Center title is not localized")
 require('data-i18n="worker.title"' in html,"Worker Results title is not localized")
+require("function workerContract(" in html and "workerContract(r&&r.report)" in html,"Worker Results must render the input/action/output/cost contract")
+for key in ("input","action","status","output","artifacts","duration","tokens","cost","unavailable","noInputs","artifactOnly"):
+    require(html.count('"worker.contract.'+key+'":')==3,f"worker.contract.{key} must exist in EN/UK/RU")
 require('data-i18n="intel.title"' in html,"Factory Intelligence title is not localized")
 require("FactoryOS v3.14" not in html,"stale document title version returned")
 require('data-i18n="brain.title"' in html,"Content Brain workspace missing")

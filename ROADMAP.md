@@ -97,7 +97,7 @@ Rules:
   Goal: restore a deterministic green local/CI baseline for the current branch without weakening, deleting or bypassing tests.
   DONE: Python compile, Media Finisher planner tests, autopilot/Telegram/delegation tests and zero-spend smoke tests all pass; dashboard JavaScript validation remains enabled.
 
-- [ ] T-531 Worker Results completeness
+- [x] T-531 Worker Results completeness
   Goal: make every canonical worker visibly answer “what went in, what it did, what came out, and what it cost” without fabricating unavailable metrics.
   DONE: deterministic fixtures expose worker input, action, status, output, artifacts, duration, tokens and cost when known; unknown values render explicitly as unavailable and smoke tests cover the contract.
 
