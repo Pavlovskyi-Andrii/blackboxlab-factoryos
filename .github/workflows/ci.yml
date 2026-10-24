@@ -118,6 +118,12 @@ jobs:
         run: |
           python -m py_compile test_pipeline_flow.py
           python test_pipeline_flow.py
+      - name: Explainability tooltip fixtures
+        env:
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_explainability.py
+          python test_explainability.py
       - name: Delegation execution timeline regression
         env:
           FACTORY_PASSWORD: ""

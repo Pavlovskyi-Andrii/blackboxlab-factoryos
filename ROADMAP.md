@@ -146,7 +146,7 @@ Rules:
   Goal: make the main FactoryOS pipeline visually show current movement and worker-to-worker handoffs instead of only static cards.
   DONE: a deterministic workflow fixture renders ordered source artifact -> worker run -> output -> downstream worker edges with running/done/blocked/failed states and a usable mobile fallback.
 
-- [ ] T-533 Explainability + tooltips
+- [x] T-533 Explainability + tooltips
   Goal: remove ambiguity around Hook, Script, Caption, Voice and the Cycle/Idea/Job/Review/Learned stages with concise contextual help.
   DONE: EN/UK/RU tooltip/help copy exists for the canonical concepts, hover/focus/tap access is keyboard/mobile safe, and regression prevents missing help keys.
 

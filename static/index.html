@@ -184,6 +184,14 @@
 
 .helpable{cursor:help}
 [data-help]{cursor:help}
+.helpTipWrap.helpTipWrap{position:relative;display:inline-block;vertical-align:middle;margin:0 0 0 4px;max-height:none;overflow:visible;white-space:normal}
+.helpTip{display:inline-grid;place-items:center;width:18px;height:18px;min-width:18px;padding:0;border:1px solid #2f5873;border-radius:50%;background:#0b2233;color:#9fdcff;font:700 11px/1 Inter,system-ui;text-transform:none;letter-spacing:0;cursor:help}
+.helpTip:focus-visible{outline:2px solid #63d9ff;outline-offset:2px}
+.helpTipWrap.helpTipWrap .helpTipText{display:none;position:absolute;z-index:60;left:50%;top:calc(100% + 6px);transform:translateX(-50%);width:max-content;max-width:min(260px,80vw);max-height:none;overflow:visible;padding:8px 10px;border:1px solid #2f5873;border-radius:8px;background:#06141f;color:#d7ebf7;font:400 11px/1.45 Inter,system-ui;text-transform:none;letter-spacing:0;white-space:normal;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.helpTipWrap.helpTipWrap.open .helpTipText,.helpTipWrap.helpTipWrap .helpTip:focus-visible+.helpTipText{display:block}
+@media(hover:hover){.helpTipWrap.helpTipWrap:hover .helpTipText{display:block}}
+.helpTipWrap.helpTipWrap.muted .helpTipText{display:none}
+@media(max-width:820px){.helpTip{width:28px;height:28px;min-width:28px;font-size:13px}.helpTipWrap.helpTipWrap .helpTipText{position:fixed;left:12px;right:12px;top:auto;bottom:12px;transform:none;width:auto;max-width:none}}
 .workerSelectedResult{margin:10px 0 12px;padding:12px;border:1px solid rgba(76,207,255,.28);border-radius:12px;background:rgba(18,42,58,.7)}
 .workerSelectedResult h3{margin:0 0 8px;font-size:13px}
 .workerSelectedResult .selectedResultMeta{display:flex;gap:6px;flex-wrap:wrap;margin:7px 0}
@@ -700,6 +708,15 @@ function textValue(v){
 const esc=v=>textValue(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 function safeDate(v){return textValue(v).replace('T',' ').slice(0,19)}
 function helpTitle(key){const v=tr(key);return v===key?'':v}
+// --- explain:begin — T-533 canonical concept help: keyboard (focus/Enter/Space/Escape), hover and tap safe; text comes from explain.<concept> in EN/UK/RU.
+const EXPLAIN_CONCEPTS=['hook','script','caption','voice','cycle','idea','job','review','learned'];
+let _helpTipSeq=0;
+function helpTip(concept,term){if(!EXPLAIN_CONCEPTS.includes(concept))return '';const id='helpTip'+(++_helpTipSeq);return '<span class="helpTipWrap"><button type="button" class="helpTip" data-explain="'+concept+'" aria-expanded="false" aria-describedby="'+id+'" aria-label="'+esc(tr('explain.aria',{term:term||concept}))+'">?</button><span class="helpTipText" role="tooltip" id="'+id+'">'+esc(tr('explain.'+concept))+'</span></span>'}
+function closeHelpTips(except){document.querySelectorAll('.helpTipWrap.open').forEach(w=>{if(w===except)return;w.classList.remove('open');const b=w.querySelector('.helpTip');if(b)b.setAttribute('aria-expanded','false')})}
+document.addEventListener('click',e=>{const b=e.target&&e.target.closest?e.target.closest('.helpTip'):null;if(!b){closeHelpTips();return}e.preventDefault();e.stopPropagation();const w=b.parentNode,open=!w.classList.contains('open');closeHelpTips(w);w.classList.remove('muted');w.classList.toggle('open',open);b.setAttribute('aria-expanded',String(open))},true);
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;const a=document.activeElement,w=a&&a.closest?a.closest('.helpTipWrap'):null;if(w)w.classList.add('muted');closeHelpTips()});
+document.addEventListener('focusout',e=>{const w=e.target&&e.target.closest?e.target.closest('.helpTipWrap'):null;if(w){w.classList.remove('muted','open');const b=w.querySelector('.helpTip');if(b)b.setAttribute('aria-expanded','false')}});
+// --- explain:end
 
 const I18N={
  en:{
@@ -758,6 +775,16 @@ const I18N={
   "help.approveQueue":"Accept this exact fresh package and create a publishing-queue item. Nothing is published yet.",
   "help.reject":"Reject the package and save the reason in approval history.",
   "help.regenerate":"Regenerate only this component. It can use a paid model call and invalidates dependent downstream output.",
+  "explain.aria":"What is {term}?",
+  "explain.hook":"Hook — the first 1–3 seconds that stop the scroll and promise the payoff. It must not add claims the research does not support.",
+  "explain.script":"Script — the full narration text of the video, built from verified research. The hook opens it and the CTA closes it.",
+  "explain.caption":"Caption — on-screen subtitles timed to the voice (1–3 words per beat). Regenerating captions does not change the script.",
+  "explain.voice":"Voice — the spoken voice-over read from the final script. It is a separate track from captions and on-screen text.",
+  "explain.cycle":"Cycle — one traceable loop for one idea: sources → idea → job → review → publish → metrics → learned.",
+  "explain.idea":"Idea — a researched and verified content opportunity picked from source signals. It becomes a job only when production starts.",
+  "explain.job":"Job — the production run for one idea: workers write, check and package it. It stops at review and never publishes by itself.",
+  "explain.review":"Review — the human approval gate. Nothing is published until the owner approves this exact package.",
+  "explain.learned":"Learned — real metrics from a published video were analysed and a recommendation was saved for the next cycle. No metrics means nothing is learned.",
   "approval.statWaiting":"waiting for review","approval.statApproved":"approved","approval.statRejected":"rejected","approval.statItems":"review items",
   "approval.empty":"No jobs are currently in the approval workflow.","approval.preview":"Preview","approval.hook":"Hook","approval.script":"Script","approval.sources":"Sources",
   "approval.warnings":"Fact / QA warnings","approval.variantDiff":"Variant diff","approval.publishTarget":"Publish target","approval.history":"Decision history",
@@ -1006,6 +1033,16 @@ const I18N={
   "help.approveQueue":"Схвалити саме цей свіжий пакет і створити елемент publishing queue. Публікації ще немає.",
   "help.reject":"Відхилити пакет і зберегти причину в історії рішень.",
   "help.regenerate":"Перегенерувати лише цей компонент. Може коштувати гроші і робить залежні downstream-результати застарілими.",
+  "explain.aria":"Що таке {term}?",
+  "explain.hook":"Hook — перші 1–3 секунди, що зупиняють скрол і обіцяють користь. Hook не додає тверджень, яких немає в дослідженні.",
+  "explain.script":"Script — повний дикторський текст відео на основі перевіреного дослідження. Hook його відкриває, CTA завершує.",
+  "explain.caption":"Caption — субтитри на екрані, синхронізовані з голосом (1–3 слова на такт). Перегенерація субтитрів не змінює script.",
+  "explain.voice":"Voice — озвучка, начитана за фінальним script. Це окрема доріжка, незалежна від субтитрів і тексту на екрані.",
+  "explain.cycle":"Cycle — один відстежуваний цикл для однієї ідеї: джерела → ідея → job → перевірка → публікація → метрики → навчено.",
+  "explain.idea":"Idea — досліджена й перевірена можливість для контенту, відібрана із сигналів джерел. Job з’являється лише після запуску виробництва.",
+  "explain.job":"Job — виробничий запуск однієї ідеї: workers пишуть, перевіряють і пакують контент. Він зупиняється на перевірці й ніколи не публікує сам.",
+  "explain.review":"Review — людська перевірка перед публікацією. Нічого не публікується, доки власник не схвалить саме цей пакет.",
+  "explain.learned":"Learned — реальні метрики опублікованого відео проаналізовано, а рекомендацію збережено для наступного циклу. Без метрик нічого не навчається.",
   "approval.statWaiting":"очікують перевірки","approval.statApproved":"схвалено","approval.statRejected":"відхилено","approval.statItems":"на перевірці",
   "approval.empty":"Зараз немає job у workflow схвалення.","approval.preview":"Прев’ю","approval.hook":"Hook","approval.script":"Сценарій","approval.sources":"Джерела",
   "approval.warnings":"Fact / QA попередження","approval.variantDiff":"Різниця варіантів","approval.publishTarget":"Ціль публікації","approval.history":"Історія рішень",
@@ -1254,6 +1291,16 @@ const I18N={
   "help.approveQueue":"Одобрить именно этот свежий пакет и создать элемент publishing queue. Публикации ещё нет.",
   "help.reject":"Отклонить пакет и сохранить причину в истории решений.",
   "help.regenerate":"Перегенерировать только этот компонент. Может стоить денег и инвалидирует зависимые downstream-результаты.",
+  "explain.aria":"Что такое {term}?",
+  "explain.hook":"Hook — первые 1–3 секунды, которые останавливают скролл и обещают пользу. Hook не добавляет утверждений, которых нет в исследовании.",
+  "explain.script":"Script — полный дикторский текст видео на основе проверенного исследования. Hook его открывает, CTA завершает.",
+  "explain.caption":"Caption — субтитры на экране, синхронизированные с голосом (1–3 слова на такт). Перегенерация субтитров не меняет script.",
+  "explain.voice":"Voice — озвучка, начитанная по финальному script. Это отдельная дорожка, независимая от субтитров и текста на экране.",
+  "explain.cycle":"Cycle — один отслеживаемый цикл для одной идеи: источники → идея → job → проверка → публикация → метрики → обучено.",
+  "explain.idea":"Idea — исследованная и проверенная возможность для контента, отобранная из сигналов источников. Job появляется только после запуска производства.",
+  "explain.job":"Job — производственный запуск одной идеи: workers пишут, проверяют и упаковывают контент. Он останавливается на проверке и никогда не публикует сам.",
+  "explain.review":"Review — человеческая проверка перед публикацией. Ничего не публикуется, пока владелец не одобрит именно этот пакет.",
+  "explain.learned":"Learned — реальные метрики опубликованного видео проанализированы, а рекомендация сохранена для следующего цикла. Без метрик ничего не обучается.",
   "approval.statWaiting":"ждут проверки","approval.statApproved":"одобрено","approval.statRejected":"отклонено","approval.statItems":"на проверке",
   "approval.empty":"Сейчас нет job в workflow одобрения.","approval.preview":"Превью","approval.hook":"Hook","approval.script":"Сценарий","approval.sources":"Источники",
   "approval.warnings":"Fact / QA предупреждения","approval.variantDiff":"Разница вариантов","approval.publishTarget":"Цель публикации","approval.history":"История решений",
@@ -2045,10 +2092,10 @@ async function renderPackageStudio(){
   const sceneHtml=scenes.map(x=>'<div class="packageScene"><div class="packageSceneTop"><b>Scene '+Number(x.scene||0)+'</b><span>'+Number(x.start_sec||0).toFixed(1)+'–'+Number(x.end_sec||0).toFixed(1)+'s</span></div><p>'+esc(x.narration||'')+'</p><small>'+esc(x.visual||'')+(x.on_screen_text?' · “'+esc(x.on_screen_text)+'”':'')+'</small></div>').join('');
   const adapters=(((d.adapters||{}).adapters)||[]).map(adapterHtml).join('');
   root.innerHTML='<section class="packagePanel"><h3>'+esc(tr('package.script'))+'</h3>'
-   +'<div class="packageSection packageHook"><strong>'+esc(tr('package.hook'))+'</strong><span>'+esc(p.hook||'—')+'</span></div>'
-   +'<div class="packageSection"><strong>'+esc(tr('package.script'))+'</strong><pre>'+esc(p.final_script||'—')+'</pre></div>'
-   +'<div class="packageSection"><strong>'+esc(tr('package.voice'))+'</strong><pre>'+esc(p.voice_over||'—')+'</pre></div>'
-   +'<div class="packageSection"><strong>'+esc(tr('package.srt'))+'</strong><pre>'+esc(p.subtitles_srt||'—')+'</pre></div>'
+   +'<div class="packageSection packageHook"><strong>'+esc(tr('package.hook'))+helpTip('hook',tr('package.hook'))+'</strong><span>'+esc(p.hook||'—')+'</span></div>'
+   +'<div class="packageSection"><strong>'+esc(tr('package.script'))+helpTip('script',tr('package.script'))+'</strong><pre>'+esc(p.final_script||'—')+'</pre></div>'
+   +'<div class="packageSection"><strong>'+esc(tr('package.voice'))+helpTip('voice',tr('package.voice'))+'</strong><pre>'+esc(p.voice_over||'—')+'</pre></div>'
+   +'<div class="packageSection"><strong>'+esc(tr('package.srt'))+helpTip('caption',tr('package.srt'))+'</strong><pre>'+esc(p.subtitles_srt||'—')+'</pre></div>'
    +'<h3 style="margin-top:12px">'+esc(tr('package.scenes'))+'</h3>'+sceneHtml+'</section>'
    +'<section class="packagePanel"><h3>'+esc(tr('package.metadata'))+'</h3>'+meta
    +'<div class="packageSection"><strong>'+esc(tr('package.thumbnail'))+'</strong><pre>'+esc(packageObjText(p.thumbnail_concept))+'</pre></div>'
@@ -2467,7 +2514,7 @@ async function renderAutonomousFactory(silent=false){
  const root=$('#cycleBody');if(!root)return;
  try{
   const d=await api('/api/factory-cycles'),cycles=d.cycles||[],sm=d.summary||{};
-  let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.cycles||0)+'</b><span>'+esc(tr('cycle.statCycles'))+'</span></div><div class="flowStat"><b>'+Number(sm.active||0)+'</b><span>'+esc(tr('cycle.statActive'))+'</span></div><div class="flowStat"><b>'+Number(sm.waiting_approval||0)+'</b><span>'+esc(tr('cycle.statReview'))+'</span></div><div class="flowStat"><b>'+Number(sm.learning_ready||0)+'</b><span>'+esc(tr('cycle.statLearned'))+'</span></div></div>';
+  let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(sm.cycles||0)+'</b><span>'+esc(tr('cycle.statCycles'))+'</span>'+helpTip('cycle',tr('cycle.statCycles'))+'</div><div class="flowStat"><b>'+Number(sm.active||0)+'</b><span>'+esc(tr('cycle.statActive'))+'</span></div><div class="flowStat"><b>'+Number(sm.waiting_approval||0)+'</b><span>'+esc(tr('cycle.statReview'))+'</span>'+helpTip('review',tr('cycle.statReview'))+'</div><div class="flowStat"><b>'+Number(sm.learning_ready||0)+'</b><span>'+esc(tr('cycle.statLearned'))+'</span>'+helpTip('learned',tr('cycle.statLearned'))+'</div></div>';
   out+='<article class="flowCard" data-help="help.cycle" title="'+esc(helpTitle('help.cycle'))+'"><h3>'+esc(tr('cycle.control'))+'</h3><p>'+esc(d.safety_note||tr('cycle.safety'))+'</p><div class="flowActions"><button class="btn primary" onclick="createFactoryCycle()">+ '+esc(tr('cycle.new'))+'</button><button class="btn" data-help="help.brain" title="'+esc(helpTitle('help.brain'))+'" onclick="openContentBrain()">✦ '+esc(tr('brain.nav'))+'</button><button class="btn" data-help="help.experiment" title="'+esc(helpTitle('help.experiment'))+'" onclick="openExperimentLab()">⌘ '+esc(tr('experiment.nav'))+'</button></div></article>';
   if(!cycles.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('cycle.noCycles'))+'</div>';return}
   out+='<div class="flowGrid" style="margin-top:10px">'+cycles.map(c=>{
@@ -2481,9 +2528,9 @@ async function renderAutonomousFactory(silent=false){
    if(c.status==='learning_ready')actions+='<button class="btn primary" onclick="nextFactoryCycle(\''+c.id+'\')">∞ '+esc(tr('cycle.next'))+'</button>';
    const events=(c.events||[]).slice(0,5).map(e=>safeDate(e.ts).slice(11,19)+' · '+cyclePhaseLabel(e.phase)+' · '+textValue(e.message)).join('\n')||'—';
    return '<article class="flowCard"><h3>'+esc(idea.title||job.title||('Cycle '+textValue(c.id).slice(0,8)))+'</h3><div class="flowMeta"><span class="flowPill '+cycleStatusClass(c.status)+'">'+esc(cycleStateLabel(c.status))+'</span><span class="flowPill">'+esc(cyclePhaseLabel(c.phase))+'</span><span class="flowPill">'+Number((c.signals||[]).length)+' '+esc(tr('cycle.signals'))+'</span><span class="flowPill">wf '+esc(textValue(c.workflow_version_id).slice(0,8))+'</span></div>'
-    +'<div class="packageSection"><strong>'+esc(tr('cycle.idea'))+'</strong><span>'+esc(idea.title||'—')+(idea.score!=null?' · '+esc(tr('cycle.score'))+' '+Number(idea.score).toFixed(2):'')+'</span></div>'
-    +'<div class="packageSection"><strong>'+esc(tr('cycle.job'))+'</strong><span>'+esc(job.title||'—')+' · '+esc(job.status?cycleStateLabel(job.status):tr('cycle.notCreated'))+'</span></div>'
-    +'<div class="packageSection"><strong>'+esc(tr('cycle.metrics'))+'</strong><span>'+esc(cycleMetricText(c))+'</span></div><div class="packageSection"><strong>'+esc(tr('cycle.learning'))+'</strong><span>'+esc(learn.recommendation||'—')+'</span></div>'
+    +'<div class="packageSection"><strong>'+esc(tr('cycle.idea'))+helpTip('idea',tr('cycle.idea'))+'</strong><span>'+esc(idea.title||'—')+(idea.score!=null?' · '+esc(tr('cycle.score'))+' '+Number(idea.score).toFixed(2):'')+'</span></div>'
+    +'<div class="packageSection"><strong>'+esc(tr('cycle.job'))+helpTip('job',tr('cycle.job'))+'</strong><span>'+esc(job.title||'—')+' · '+esc(job.status?cycleStateLabel(job.status):tr('cycle.notCreated'))+'</span></div>'
+    +'<div class="packageSection"><strong>'+esc(tr('cycle.metrics'))+'</strong><span>'+esc(cycleMetricText(c))+'</span></div><div class="packageSection"><strong>'+esc(tr('cycle.learning'))+helpTip('learned',tr('cycle.learning'))+'</strong><span>'+esc(learn.recommendation||'—')+'</span></div>'
     +'<div class="packageSection"><strong>'+esc(tr('cycle.recentEvents'))+'</strong><pre>'+esc(events)+'</pre></div><div class="flowActions">'+actions+'</div></article>';
   }).join('')+'</div>';root.innerHTML=out
  }catch(e){if(!silent)root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}
@@ -2514,13 +2561,13 @@ function renderApprovalStudio(d){
   const approveActions=(j.status==='waiting_approval'&&ready)?'<div class="flowActions"><button class="btn good" data-help="help.approveQueue" title="'+esc(helpTitle('help.approveQueue'))+'" onclick="approvalApprove(\''+j.id+'\')">✓ '+esc(tr('approval.approveQueue'))+'</button><button class="btn" data-help="help.reject" title="'+esc(helpTitle('help.reject'))+'" onclick="approvalReject(\''+j.id+'\')">× '+esc(tr('approval.reject'))+'</button></div>':(j.status==='waiting_approval'?'<div class="flowActions"><button class="btn" disabled>'+esc(tr('approval.legacy'))+'</button><button class="btn" onclick="approvalReject(\''+j.id+'\')">× '+esc(tr('approval.reject'))+'</button></div>':'');
   return '<article class="flowCard"><h3>'+esc(j.title||'Untitled')+'</h3>'+legacyBanner+'<div class="flowMeta"><span class="flowPill '+(j.status==='approved'?'good':j.status==='rejected'?'bad':'warn')+'">'+esc(cycleStateLabel(j.status))+'</span><span class="flowPill">'+Number(p.estimated_duration_sec||0)+'s</span><span class="flowPill">'+fmtMoney(((p.production_cost||{}).job_total_measured_usd)||0)+'</span><span class="flowPill">'+esc(tr('approval.variants'))+' '+Number((v.summary||{}).variants||0)+'</span></div>'
    +(x.preview&&x.preview.url?'<div class="packageSection"><strong>'+esc(tr('approval.preview'))+'</strong><video controls preload="metadata" style="width:100%;max-height:420px;border-radius:12px;background:#000" src="'+esc(x.preview.url)+'"></video><a href="'+esc(x.preview.url)+'" target="_blank" rel="noopener">'+esc(x.preview.title||tr('worker.openMedia'))+'</a><span class="flowPill '+(mr.ready?'good':'warn')+'">'+esc((x.preview.agent||'Media')+' · '+(mr.required?(mr.ready?'ready':'blocked'):'available'))+'</span></div>':'')
-   +'<div class="packageSection" title="'+esc(tr('approval.hookHelp'))+'"><strong>'+esc(tr('approval.hook'))+'</strong><span>'+esc(p.hook||sel.optimized_hook||sel.hook||'—')+'</span></div>'
-   +'<div class="packageSection" title="'+esc(tr('approval.scriptHelp'))+'"><strong>'+esc(tr('approval.script'))+'</strong><pre>'+esc(p.final_script||sel.edited_script||'—')+'</pre></div>'
+   +'<div class="packageSection" title="'+esc(tr('approval.hookHelp'))+'"><strong>'+esc(tr('approval.hook'))+helpTip('hook',tr('approval.hook'))+'</strong><span>'+esc(p.hook||sel.optimized_hook||sel.hook||'—')+'</span></div>'
+   +'<div class="packageSection" title="'+esc(tr('approval.scriptHelp'))+'"><strong>'+esc(tr('approval.script'))+helpTip('script',tr('approval.script'))+'</strong><pre>'+esc(p.final_script||sel.edited_script||'—')+'</pre></div>'
    +'<div class="packageSection" title="'+esc(tr('approval.sourcesHelp'))+'"><strong>'+esc(tr('approval.sources'))+'</strong><pre>'+esc(sources)+'</pre></div>'
    +'<div class="packageSection" title="'+esc(tr('approval.warningsHelp'))+'"><strong>'+esc(tr('approval.warnings'))+'</strong><pre>'+esc(findings)+'</pre></div>'
    +'<div class="packageSection" title="'+esc(tr('approval.variantDiffHelp'))+'"><strong>'+esc(tr('approval.variantDiff'))+'</strong><span>'+Number(diff.length)+' · #'+esc(textValue((x.variant_diff||{}).selected?.ordinal||'—'))+'</span></div>'
    +'<div class="packageSection" title="'+esc(tr('approval.publishTargetHelp'))+'"><strong>'+esc(tr('approval.publishTarget'))+'</strong><span>'+esc(pub.status||'—')+' · '+esc(pub.platform||'—')+'</span></div>'
-   +(ready?'<div class="flowActions">'+regen('hook','↻ '+esc(tr('approval.hook'))+' '+fmtMoney((quotes.hook||{}).estimated_model_cost_usd||0))+regen('script','↻ '+esc(tr('approval.script'))+' '+fmtMoney((quotes.script||{}).estimated_model_cost_usd||0))+regen('caption','↻ Caption '+fmtMoney((quotes.caption||{}).estimated_model_cost_usd||0))+regen('voice','↻ Voice')+'</div>':'')
+   +(ready?'<div class="flowActions">'+regen('hook','↻ '+esc(tr('approval.hook'))+' '+fmtMoney((quotes.hook||{}).estimated_model_cost_usd||0))+regen('script','↻ '+esc(tr('approval.script'))+' '+fmtMoney((quotes.script||{}).estimated_model_cost_usd||0))+regen('caption','↻ Caption '+fmtMoney((quotes.caption||{}).estimated_model_cost_usd||0))+helpTip('caption','Caption')+regen('voice','↻ Voice')+helpTip('voice','Voice')+'</div>':'')
    +approveActions
    +'<div class="packageSection"><strong>'+esc(tr('approval.history'))+'</strong><pre>'+esc(hist.slice(0,6).map(h=>safeDate(h.created_at)+' · '+textValue(h.decision)+(h.reason?' · '+textValue(h.reason):'')).join('\n')||tr('approval.noDecisions'))+'</pre></div></article>';
  }).join('')+'</div>';root.innerHTML=out;

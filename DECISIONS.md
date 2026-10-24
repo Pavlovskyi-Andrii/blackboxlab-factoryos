@@ -168,3 +168,17 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** the uncommitted T-536-B telemetry work was still in the working tree. The T-532 commit was staged to contain only T-532 hunks and verified on a clean HEAD + T-532 worktree (compile, planner tests, smoke, `node --check`, both UI fixture tests all green). In the full working tree, smoke stops earlier at the T-536-B assertion `invalid telemetry must degrade to null` (`task_started_at`/`elapsed_seconds` not dropped), before the T-532 checks run.
   **Reason:** one roadmap task = one focused commit. That failure belongs to the T-536-B changes and is left for their own fix and commit.
+
+## 2026-10-24 — T-533 Explainability + tooltips
+
+- **Decision:** the canonical concepts are fixed in `EXPLAIN_CONCEPTS` (`hook, script, caption, voice, cycle, idea, job, review, learned`). Their copy lives in `explain.<concept>` (plus `explain.aria` = "What is {term}?") in each EN/UK/RU I18N block. Product terms (Hook, Script, Job…) stay in English inside the UK/RU sentences, matching the UI labels the owner already sees. The explanation around them is fully translated.
+  **Reason:** one source of truth that the regression can enumerate. Translating the term itself would make it stop matching the on-screen label.
+
+- **Decision:** help is a small `?` `<button type="button">` produced by `helpTip(concept, term)`, linked to a `role="tooltip"` span through `aria-describedby`. It opens on keyboard focus (`:focus-visible`), on hover only under `@media(hover:hover)` (so taps never leave a sticky hover open), and on tap/click via an `.open` toggle that keeps `aria-expanded` in sync. A capture-phase click handler stops the tap from also triggering the parent card's `onclick`, closes the other open tips, and closes everything on an outside tap. Escape hides the tip until focus leaves. At ≤820px the button is 28×28 px and the tip becomes a fixed bottom sheet, so it is not clipped by scrolling panels. Unknown concepts render nothing.
+  **Reason:** the existing `data-help` → `title` hints cannot be reached by keyboard or touch. Those hints are left as they are, and the new component adds accessible help only where the ambiguous concepts appear.
+
+- **Decision:** the tips are placed next to the labels where the ambiguity actually shows up. Cycle Control: cycles/review/learned stats and the Idea/Job/Learning sections. Content Package: Hook/Script/Voice-over/Subtitles. Approval Studio: Hook/Script and the Caption/Voice regenerate buttons. `test_explainability.py` (CI step, Node required) checks key presence/parity/non-fallback in all three locales, checks that every `helpTip()` call uses a known concept and that every concept is used, and runs the real helper under Node with a fake DOM to verify markup, escaping and tap/outside/Escape/blur behaviour.
+  **Reason:** this satisfies "regression prevents missing help keys" deterministically, without a browser.
+
+- **Decision:** as in T-532, the uncommitted T-536-B telemetry changes in the working tree are left out of this commit. The T-533 commit contains only T-533 hunks and was verified on a clean HEAD + T-533 worktree.
+  **Reason:** one roadmap task = one focused commit.
