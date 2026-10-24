@@ -112,6 +112,12 @@ jobs:
         env:
           FACTORYOS_REQUIRE_NODE: "1"
         run: python test_delegation_ui.py
+      - name: Live pipeline handoff trace UI fixtures
+        env:
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_pipeline_flow.py
+          python test_pipeline_flow.py
       - name: Delegation execution timeline regression
         env:
           FACTORY_PASSWORD: ""

@@ -5918,6 +5918,78 @@ def get_job_handoffs(job_id, limit=60):
     con.close()
     return rows
 
+# T-532 — live pipeline handoff trace. Ordered read model of persisted runs only:
+# source artifact -> worker run -> output artifacts -> downstream worker runs.
+FLOW_BLOCKED_CATEGORIES={"dependency","budget"}
+
+def _flow_run_state(status, error):
+    raw=(status or "").lower()
+    if raw=="running":
+        return "running"
+    if raw=="completed":
+        return "done"
+    if raw=="failed":
+        # A gate (missing upstream / quality gate / budget guard) stopped the run: blocked, not a worker failure.
+        return "blocked" if classify_agent_error(error)["category"] in FLOW_BLOCKED_CATEGORIES else "failed"
+    return "queued" if raw=="queued" else "unknown"
+
+def get_job_flow(job_id, limit=40):
+    empty={"job_id":job_id,"hops":[],"edges":[],"sources":[],"counts":{"running":0,"done":0,"blocked":0,"failed":0,"queued":0,"unknown":0},"live":False,"truncated":False}
+    if not job_id:
+        return empty
+    con=db()
+    runs=[dict(x) for x in con.execute(
+        """SELECT id,agent,stage,status,started_at,finished_at,error FROM agent_runs
+           WHERE job_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?""",(job_id,limit+1)
+    ).fetchall()]
+    truncated=len(runs)>limit
+    runs=list(reversed(runs[:limit]))
+    if not runs:
+        con.close()
+        return empty
+    ids=[r["id"] for r in runs]
+    marks=",".join("?"*len(ids))
+    outputs=[dict(x) for x in con.execute(
+        f"""SELECT id,run_id,agent,kind,title FROM artifacts WHERE run_id IN ({marks})
+            ORDER BY created_at, rowid""",ids
+    ).fetchall()]
+    inputs=[dict(x) for x in con.execute(
+        f"""SELECT ri.run_id,ri.artifact_id,ri.source_agent,a.run_id source_run_id,a.title,a.kind
+            FROM run_inputs ri JOIN artifacts a ON a.id=ri.artifact_id
+            WHERE ri.run_id IN ({marks}) ORDER BY ri.created_at, ri.rowid""",ids
+    ).fetchall()]
+    con.close()
+    hops={}
+    for i,r in enumerate(runs):
+        state=_flow_run_state(r["status"],r.get("error"))
+        hops[r["id"]]={"order":i+1,"run_id":r["id"],"agent":r["agent"],"stage":r.get("stage") or "","status":r["status"],"state":state,
+                       "started_at":r["started_at"],"finished_at":r.get("finished_at"),
+                       "error":(r.get("error") or "")[:160] if state in ("failed","blocked") else "",
+                       "inputs":[],"outputs":[],"downstream":[]}
+    for a in outputs:
+        hops[a["run_id"]]["outputs"].append({"artifact_id":a["id"],"title":a["title"],"kind":a["kind"]})
+    edges=[];sources={}
+    for x in inputs:
+        target=hops[x["run_id"]]
+        upstream=hops.get(x["source_run_id"]) if x.get("source_run_id") else None
+        item={"artifact_id":x["artifact_id"],"title":x["title"],"kind":x["kind"],"source_agent":x["source_agent"],
+              "source_run_id":upstream["run_id"] if upstream else None,
+              # "source" = seed/manual artifact with no run record; "earlier" = produced by a run outside this window.
+              "origin":"run" if upstream else ("earlier" if x.get("source_run_id") else "source")}
+        target["inputs"].append(item)
+        if upstream:
+            upstream["downstream"].append({"run_id":target["run_id"],"agent":target["agent"],"state":target["state"],"artifact_id":x["artifact_id"]})
+        else:
+            sources.setdefault(x["artifact_id"],{"artifact_id":x["artifact_id"],"title":x["title"],"kind":x["kind"],"agent":x["source_agent"],"origin":item["origin"]})
+        edges.append({"from_run":item["source_run_id"],"from_agent":x["source_agent"],"artifact_id":x["artifact_id"],"artifact_title":x["title"],
+                      "to_run":target["run_id"],"to_agent":target["agent"],"state":target["state"],"origin":item["origin"]})
+    ordered=sorted(hops.values(),key=lambda h:h["order"])
+    counts=dict(empty["counts"])
+    for h in ordered:
+        counts[h["state"]]+=1
+    return {"job_id":job_id,"hops":ordered,"edges":edges,"sources":list(sources.values()),"counts":counts,
+            "live":counts["running"]>0,"truncated":truncated}
+
 def classify_agent_error(message):
     raw=(message or "").strip()
     low=raw.lower()
@@ -8227,6 +8299,7 @@ def status(request: Request=None):
         "selectedJobQuality": get_job_quality(sid) if sid else None,
         "selectedJobWorkerResults": get_job_worker_results(sid),
         "selectedJobHandoffs": get_job_handoffs(sid),
+        "selectedJobFlow": get_job_flow(sid),
         "selectedJobAgentErrors": get_job_agent_errors(sid),
         "selectedJobErrorCenter": get_job_error_center(sid),
         "selectedJobVariants": get_job_variants(sid),

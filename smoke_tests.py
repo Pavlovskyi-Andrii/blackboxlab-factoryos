@@ -1,5 +1,6 @@
 """FactoryOS zero-spend smoke/regression checks."""
 import asyncio
+import inspect
 import json
 import os
 import tempfile
@@ -236,6 +237,38 @@ orphan=reports["Tech Verifier"]
 require(orphan["status"]=="artifact_only" and orphan["input"] is None and orphan["action"] is None and orphan["unavailable"]==["input","action","duration_ms","tokens","cost_usd"],"artifact without run must render run fields as unavailable")
 failed=reports["Angle Strategist"]
 require(failed["status"]=="failed" and failed["error"]=="Timed out" and isinstance(failed["duration_ms"],int) and failed["tokens"] is None and failed["cost_usd"] is None,"failed live call with no recorded usage must report spend as unavailable, not 0")
+# T-532 live pipeline handoff trace: ordered source artifact -> run -> output -> downstream runs from persisted evidence only.
+require(app.get_job_flow(legacy_id)["hops"]==[] and app.get_job_flow(legacy_id)["live"] is False,"job without runs must not invent a flow")
+flow_job=asyncio.run(app.create_job(app.JobCreate(title="CI flow trace",brief="Handoff fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))["id"]
+flow_seed=app.save_artifact("Scout","analysis","CI flow brief","FLOW-SEED-CONTENT-NOT-IN-TRACE",job_id=flow_job)
+def flow_run(agent,stage,inputs,output=None,status=None,error=None):
+    rid=app.start_agent_run(agent,flow_job,stage,model="simulation-v4.2")
+    app.attach_run_inputs(rid,[{"id":a,"agent":src} for a,src in inputs])
+    art=app.save_artifact(agent,"text",output,"FLOW-OUTPUT-CONTENT",job_id=flow_job,run_id=rid) if output else None
+    if status:app.finish_agent_run(rid,status=status,error=error,meta={"mode":"demo"})
+    return rid,art
+r_research,a_research=flow_run("Researcher","research",[(flow_seed,"Scout")],"CI flow research","completed")
+r_script,a_script=flow_run("Scriptwriter","script",[(a_research,"Researcher")],"CI flow script","completed")
+r_visual,_=flow_run("Visual Director","visual",[(a_script,"Scriptwriter")])
+r_voice,_=flow_run("Voice Agent","voice",[(a_script,"Scriptwriter")],status="failed",error="Timed out")
+r_render,_=flow_run("Render Agent","render",[(a_script,"Scriptwriter")],status="failed",error="Missing required upstream artifacts: Voice Agent")
+flow=app.get_job_flow(flow_job)
+require([h["agent"] for h in flow["hops"]]==["Researcher","Scriptwriter","Visual Director","Voice Agent","Render Agent"] and [h["order"] for h in flow["hops"]]==[1,2,3,4,5],"flow hops must follow run start order")
+require([h["state"] for h in flow["hops"]]==["done","done","running","failed","blocked"],f"flow run states regression: {[h['state'] for h in flow['hops']]}")
+require(flow["counts"]=={"running":1,"done":2,"blocked":1,"failed":1,"queued":0,"unknown":0} and flow["live"] is True and flow["truncated"] is False,"flow counts/live regression")
+first=flow["hops"][0]
+require(first["inputs"]==[{"artifact_id":flow_seed,"title":"CI flow brief","kind":"analysis","source_agent":"Scout","source_run_id":None,"origin":"source"}],"seed artifact must be the trace source")
+require(flow["sources"]==[{"artifact_id":flow_seed,"title":"CI flow brief","kind":"analysis","agent":"Scout","origin":"source"}],"flow sources regression")
+require([o["artifact_id"] for o in first["outputs"]]==[a_research] and [(d["agent"],d["state"]) for d in first["downstream"]]==[("Scriptwriter","done")],"run output -> downstream edge regression")
+require([(d["agent"],d["state"]) for d in flow["hops"][1]["downstream"]]==[("Visual Director","running"),("Voice Agent","failed"),("Render Agent","blocked")],"fan-out downstream edges regression")
+require(flow["hops"][2]["outputs"]==[] and flow["hops"][2]["finished_at"] is None and flow["hops"][2]["error"]=="","running hop must not invent output or completion")
+require(flow["hops"][3]["error"]=="Timed out" and flow["hops"][4]["error"].startswith("Missing required upstream"),"failed/blocked hops must carry their recorded error")
+require([(e["from_agent"],e["to_agent"],e["origin"]) for e in flow["edges"]]==[("Scout","Researcher","source"),("Researcher","Scriptwriter","run"),("Scriptwriter","Visual Director","run"),("Scriptwriter","Voice Agent","run"),("Scriptwriter","Render Agent","run")],"flow edge order regression")
+require(all(e["from_run"] in (None,r_research,r_script) for e in flow["edges"]) and flow["edges"][1]["from_run"]==r_research and flow["edges"][1]["to_run"]==r_script,"flow edges must link exact runs")
+require("CONTENT" not in json.dumps(flow),"flow trace must not carry artifact content")
+window=app.get_job_flow(flow_job,limit=2)
+require([h["agent"] for h in window["hops"]]==["Voice Agent","Render Agent"] and window["truncated"] is True and window["hops"][0]["inputs"][0]["origin"]=="earlier","flow window must keep latest runs and mark out-of-window producers as earlier")
+require('"selectedJobFlow": get_job_flow(sid)' in inspect.getsource(app.status),"status payload must expose the selected job flow")
 
 # v4.4 Viral Discovery — factual metric persistence, dedup and Revideo handoff.
 dc_payload=app.DiscoveryCandidateCreate(

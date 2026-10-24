@@ -151,3 +151,20 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** the T-536-B telemetry work was present in the working tree but uncommitted when this task started. The T-536-F commit was staged to contain only T-536-F changes (verified on a clean HEAD + T-536-F tree). The pause/failed-hold branches only call the T-536-B `mark_stage` helper in the working tree, where it exists.
   **Reason:** one roadmap task = one focused commit. T-536-B's changes remain for their own commit.
+
+## 2026-10-24 — T-532 Live pipeline + handoff trace
+
+- **Decision:** `get_job_flow(job_id, limit=40)` is a server read model built only from persisted `agent_runs`, `artifacts` (by `run_id`) and `run_inputs`. It returns hops in run start order (`started_at`, then `rowid`). Each hop carries its inputs (source artifact + producing run), outputs, and downstream runs that consumed those outputs, plus a flat `edges` list. It is exposed as `selectedJobFlow` on `/api/status`, next to the existing `selectedJobHandoffs`. It carries ids, titles, kinds and states only, never artifact content.
+  **Reason:** this gives one ordered, factual trace of "source artifact → worker run → output → downstream worker". The auth boundary is the same as the handoff data the status payload already exposes, and there is no new route.
+
+- **Decision:** run state mapping: `running` → running, `completed` → done, `failed` → `blocked` when `classify_agent_error` puts the error in the `dependency` or `budget` category (missing upstream, quality gate, budget guard), otherwise → failed. `queued` stays queued, and anything else is `unknown`.
+  **Reason:** the run table has no blocked status. A gate that stopped a worker before it did its job is a different situation for the owner than a provider/worker failure, and the existing error classifier already makes that distinction. No new status is written.
+
+- **Decision:** input origin: `run` (producer is in this trace), `earlier` (producer run exists but falls outside the 40-run window, which is marked `truncated`), or `source` (seed/manual artifact with no run record). Nothing is inferred from the agent dependency map, so only edges that a run actually consumed are drawn.
+  **Reason:** this keeps the payload bounded and never invents a handoff.
+
+- **Decision:** the UI is a pure renderer `renderPipelineFlow(flow)` (between `pipeline-flow:begin/end` markers) rendered under the existing stage cards in the Content Pipeline card. Desktop shows one row per run (`# · input → run → output → downstream`). Running rows pulse, with a moving packet and a "Moving now: …" header, and `prefers-reduced-motion` disables the animation. Input and downstream chips are buttons that open the existing `openHandoffTrace(run, artifact)` drawer. They are only rendered as buttons when both ids match `[A-Za-z0-9_-]{1,80}`. At ≤820px each row stacks into one column with ↓ arrows and larger tap targets.
+  **Reason:** this reuses the existing trace drawer and the page convention from T-536-D/E. `test_pipeline_flow.py` runs the shipped renderer under Node against a deterministic workflow fixture, and CI requires Node for it.
+
+- **Decision:** the uncommitted T-536-B telemetry work was still in the working tree. The T-532 commit was staged to contain only T-532 hunks and verified on a clean HEAD + T-532 worktree (compile, planner tests, smoke, `node --check`, both UI fixture tests all green). In the full working tree, smoke stops earlier at the T-536-B assertion `invalid telemetry must degrade to null` (`task_started_at`/`elapsed_seconds` not dropped), before the T-532 checks run.
+  **Reason:** one roadmap task = one focused commit. That failure belongs to the T-536-B changes and is left for their own fix and commit.

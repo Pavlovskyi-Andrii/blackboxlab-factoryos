@@ -142,7 +142,7 @@ Rules:
   Goal: provide safe remote controls for the daemon: pause after current task, resume, and retry a blocked/failed safe task; never expose force-push, main checkout, production deploy or publish bypass.
   DONE: command channel is idempotent, authenticated, auditable and regression proves pause/resume/retry cannot bypass main/prod/publish safety invariants.
 
-- [ ] T-532 Live pipeline + handoff trace
+- [x] T-532 Live pipeline + handoff trace
   Goal: make the main FactoryOS pipeline visually show current movement and worker-to-worker handoffs instead of only static cards.
   DONE: a deterministic workflow fixture renders ordered source artifact -> worker run -> output -> downstream worker edges with running/done/blocked/failed states and a usable mobile fallback.
 
