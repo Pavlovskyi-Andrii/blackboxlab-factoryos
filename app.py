@@ -154,6 +154,8 @@ FACTORY_CLAUDE_WORKER_TOKEN = (os.environ.get("FACTORY_CLAUDE_WORKER_TOKEN","").
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-claude-code-worker-v1",hashlib.sha256).hexdigest())
 FACTORY_CLAUDE_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_CLAUDE_WORKER_TTL_SECONDS","45"))))
 claude_worker_runtime={"last_seen":0.0,"node":{},"active_task_id":"","last_error":""}
+CLAUDE_WORKER_RESULTS_FILE = DATA_DIR / "claude_worker_results.json"
+_claude_worker_results_lock=threading.Lock()
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
 FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS","").split(",") if x.strip()}
 FACTORY_GOOGLE_VIEWER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_VIEWER_EMAILS","").split(",") if x.strip()}
@@ -307,7 +309,44 @@ def get_claude_code_status():
         "subscription":str(node.get("subscription") or ""),
         "api_key_required":False,
         "recommended_auth":"Claude account with subscription",
+        "recent_results":_load_claude_worker_results()[-5:],
     }
+
+def _load_claude_worker_results():
+    if not CLAUDE_WORKER_RESULTS_FILE.exists():return []
+    value=_decode_json(CLAUDE_WORKER_RESULTS_FILE.read_text(encoding="utf-8"),[])
+    return value if isinstance(value,list) else []
+
+def ingest_claude_worker_result(payload: "ClaudeWorkerTaskResult"):
+    """Validate a delegated Builder result; never trusts a self-reported done without evidence."""
+    data=payload.model_dump()
+    task_id=data["task_id"].strip()
+    if not re.match(r"^T-[A-Za-z0-9-]+$",task_id):raise HTTPException(422,"Invalid task id")
+    if data["pinned_task_id"].strip()!=task_id:raise HTTPException(409,"Result task does not match the pinned delegation task")
+    if not data["branch"].strip() or data["branch"].strip() in {"main","master"}:
+        raise HTTPException(409,"Delegated work must run on a dedicated non-main branch")
+    task=next((x for x in _parse_roadmap_tasks() if x["id"]==task_id),None)
+    if not task:raise HTTPException(404,"Unknown roadmap task")
+    if task["human"]:raise HTTPException(409,"HUMAN roadmap tasks cannot be delegated")
+    result=data["result"].strip().lower()
+    if result not in {"done","blocked","failed"}:raise HTTPException(422,"Unsupported result state")
+    violations=[str(x)[:300] for x in data["violations"]][:20]
+    if data["pushed"]:violations.append("delegated agent pushed during execution")
+    if not data["deploy_credentials_scrubbed"]:violations.append("deploy credentials were not scrubbed")
+    if result=="done" and (data["commit_count"]!=1 or not re.match(r"^[0-9a-f]{7,40}$",data["commit"] or "")):
+        violations.append("done result lacks exactly one captured commit")
+    if violations:result="failed"
+    record={**data,"task_id":task_id,"result":result,"violations":violations,"received_at":time.time(),
+            "summary":data["summary"][:500],"need":data["need"][:500],"checks":[str(x)[:300] for x in data["checks"]][:20],
+            "files":[str(x)[:300] for x in data["files"]][:100]}
+    CLAUDE_WORKER_RESULTS_FILE.parent.mkdir(parents=True,exist_ok=True)
+    tmp=CLAUDE_WORKER_RESULTS_FILE.with_suffix(".tmp")
+    with _claude_worker_results_lock:
+        results=(_load_claude_worker_results()+[record])[-50:]
+        tmp.write_text(json.dumps(results,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+        os.replace(tmp,CLAUDE_WORKER_RESULTS_FILE)
+    claude_worker_runtime["last_error"]="; ".join(violations) if violations else ("" if result!="failed" else record["summary"])
+    return record
 
 def _telegram_webhook_secret() -> str:
     if not FACTORY_TELEGRAM_BOT_TOKEN:
@@ -2149,6 +2188,26 @@ class ClaudeWorkerHeartbeat(BaseModel):
     status: str = "idle"
     task_id: str = ""
     last_error: str = ""
+
+class ClaudeWorkerTaskResult(BaseModel):
+    task_id: str
+    pinned_task_id: str
+    result: str
+    branch: str
+    summary: str = ""
+    need: str = ""
+    checks: list[str] = []
+    commit: str = ""
+    commit_count: int = 0
+    files: list[str] = []
+    exit_code: int | None = None
+    timed_out: bool = False
+    duration_seconds: float = 0
+    max_turns: int = 0
+    timeout_seconds: int = 0
+    violations: list[str] = []
+    pushed: bool = False
+    deploy_credentials_scrubbed: bool = True
 
 class LocalBoosterProgress(BaseModel):
     stage: str = "processing"
@@ -8762,6 +8821,10 @@ def claude_worker_heartbeat(payload: ClaudeWorkerHeartbeat):
     claude_worker_runtime["last_error"]=payload.last_error or ""
     return {"ok":True,**get_claude_code_status()}
 
+@app.post("/api/claude-worker/task-result")
+def claude_worker_task_result(payload: ClaudeWorkerTaskResult):
+    return {"ok":True,"result":ingest_claude_worker_result(payload)}
+
 @app.get("/api/local-booster/status")
 def local_booster_status():
     return {"online":_local_booster_online(),"ttl_seconds":FACTORY_LOCAL_BOOSTER_TTL_SECONDS,
@@ -9287,10 +9350,8 @@ async def call_agent_mcp_tool(agent_name:str,connection_id:str,item:McpToolCall)
     except Exception as exc:
         raise HTTPException(502,str(exc))
 
-def get_repository_autopilot_state():
+def _parse_roadmap_tasks():
     roadmap_path=BASE/"ROADMAP.md"
-    status_path=BASE/".autopilot"/"status.json"
-    decisions_path=BASE/"DECISIONS.md"
     tasks=[]
     current_version=""
     if roadmap_path.exists():
@@ -9309,6 +9370,13 @@ def get_repository_autopilot_state():
                 "human":bool(match.group(2)),
                 "version":current_version,
             })
+    return tasks
+
+def get_repository_autopilot_state():
+    roadmap_path=BASE/"ROADMAP.md"
+    status_path=BASE/".autopilot"/"status.json"
+    decisions_path=BASE/"DECISIONS.md"
+    tasks=_parse_roadmap_tasks()
     pending=[x for x in tasks if not x["done"]]
     safe_pending=[x for x in pending if not x["human"]]
     human_pending=[x for x in pending if x["human"]]

@@ -1,4 +1,3 @@
-import json
 import os
 import pathlib
 import subprocess
@@ -6,9 +5,11 @@ import time
 from typing import Any
 
 try:
+    from .delegation import build_delegation, report_result, run_delegation, write_evidence
     from .notify import configured as telegram_configured
     from .notify import send, wait_answer
 except ImportError:
+    from delegation import build_delegation, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
 
@@ -92,43 +93,25 @@ def done_status_is_consistent(status: dict[str, Any], expected_task: dict[str, A
     return bool(persisted and persisted["done"] and not persisted["human"])
 
 
-def load_status() -> dict[str, Any]:
-    if not STATUS.exists():
-        return {"status": "failed", "summary": "agent did not write .autopilot/status.json"}
-    try:
-        value = json.loads(STATUS.read_text(encoding="utf-8"))
-    except Exception as exc:
-        return {"status": "failed", "summary": f"invalid status.json: {exc}"}
-    if not isinstance(value, dict):
-        return {"status": "failed", "summary": "status.json is not an object"}
-    return value
-
-
 def run_agent(target: dict[str, Any]) -> dict[str, Any]:
-    STATUS.parent.mkdir(parents=True, exist_ok=True)
-    STATUS.unlink(missing_ok=True)
-    prompt = (
-        f"Работай строго по CLAUDE.md. Выполни только задачу {target['id']} — {target['title']}. "
-        "Не переходи к другой задаче в этом запуске. Доведи её до проверяемого DONE, "
-        "отметь checkbox в ROADMAP.md, запиши решения, тесты и .autopilot/status.json, "
-        "сделай один commit с ID задачи. Не трогай main и production."
-    )
-    cmd = [
-        "claude",
-        "-p",
-        prompt,
-        "--output-format",
-        "json",
-        "--max-turns",
-        str(MAX_TURNS),
-    ]
-    if SKIP_PERMISSIONS:
-        cmd.append("--dangerously-skip-permissions")
     try:
-        subprocess.run(cmd, cwd=REPO, timeout=TASK_TIMEOUT_SECONDS, check=False)
-    except subprocess.TimeoutExpired:
-        return {"status": "failed", "summary": f"agent timed out after {TASK_TIMEOUT_SECONDS}s"}
-    return load_status()
+        spec = build_delegation(
+            target,
+            REPO,
+            max_turns=MAX_TURNS,
+            timeout_seconds=TASK_TIMEOUT_SECONDS,
+            skip_permissions=SKIP_PERMISSIONS,
+        )
+    except ValueError as exc:
+        return {"task": target.get("id"), "status": "failed", "summary": f"delegation refused: {exc}"}
+    evidence = run_delegation(spec)
+    write_evidence(REPO, evidence)
+    report_result(evidence)
+    status = dict(evidence["status"])
+    status["status"] = evidence["result"]
+    if evidence["violations"]:
+        status["summary"] = "; ".join(evidence["violations"])
+    return status
 
 
 def append_answer(task: str, answer: str) -> None:

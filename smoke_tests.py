@@ -35,7 +35,7 @@ autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
 require(autopilot_state["total"]>=8,"roadmap task parsing regression")
-require((autopilot_state["next_task"] or {}).get("id")=="T-508","next safe roadmap task should skip HUMAN blockers and advance to T-508")
+require(autopilot_state["next_task"] is None,"all safe roadmap tasks are closed; only HUMAN blockers remain")
 require(autopilot_state["human_pending"]>=2,"real publisher and first real post must remain HUMAN blockers")
 require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log must be exposed")
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
@@ -43,6 +43,22 @@ connections=app.get_connection_registry()
 require("Telegram" in connections and "Claude Code Pro" in connections,"owner/automation connections missing")
 require(connections["Claude Code Pro"]["state"]=="not_configured","CI must not fake a live Claude Pro runner")
 require(app.get_claude_code_status()["online"] is False,"CI must not report Claude worker online")
+def claude_result(**overrides):
+    base=dict(task_id="T-508",pinned_task_id="T-508",result="done",branch="autopilot-ci",summary="ci",commit="a"*40,commit_count=1,files=["ROADMAP.md"],exit_code=0,max_turns=80,timeout_seconds=3600)
+    return app.ClaudeWorkerTaskResult(**{**base,**overrides})
+accepted=app.ingest_claude_worker_result(claude_result())
+require(accepted["result"]=="done" and accepted["violations"]==[],"verified delegated result must be ingested as done")
+require(app.get_claude_code_status()["recent_results"][-1]["task_id"]=="T-508","ingested Claude result must be visible in worker status")
+for overrides,code in ((dict(pinned_task_id="T-510"),409),(dict(branch="main"),409),(dict(branch="master"),409),(dict(task_id="T-507",pinned_task_id="T-507"),409),(dict(task_id="T-999",pinned_task_id="T-999"),404),(dict(result="shipped"),422)):
+    try:
+        app.ingest_claude_worker_result(claude_result(**overrides))
+    except app.HTTPException as exc:
+        require(exc.status_code==code,f"Claude result rejection regression for {overrides}: {exc.status_code}")
+    else:
+        raise AssertionError(f"Claude result must be rejected: {overrides}")
+for overrides in (dict(commit_count=2),dict(commit=""),dict(pushed=True),dict(deploy_credentials_scrubbed=False),dict(violations=["protected branch main was modified"])):
+    require(app.ingest_claude_worker_result(claude_result(**overrides))["result"]=="failed",f"unverified Claude done must fail closed: {overrides}")
+require(app.get_claude_code_status()["online"] is False,"result ingestion must not fake a live Claude worker heartbeat")
 pair_hash=app._telegram_pair_code_hash("PAIR1234")
 require(app._telegram_pair_code_matches("PAIR1234",pair_hash) is True,"Telegram pair-code verification regression")
 require(app._telegram_pair_code_matches("WRONG",pair_hash) is False,"Telegram pair-code rejection regression")
@@ -80,6 +96,7 @@ for path,method in (
     ("/api/factory/claude-code/status","GET"),
     ("/api/factory/claude-code/worker-token","GET"),
     ("/api/claude-worker/heartbeat","POST"),
+    ("/api/claude-worker/task-result","POST"),
 ):
     require(route_exists(path,method),f"Telegram route missing: {method} {path}")
 

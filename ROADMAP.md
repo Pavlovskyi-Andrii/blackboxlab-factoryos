@@ -45,9 +45,9 @@ Rules:
   Need: owner signs Claude Code into the Pro subscription and provisions a Claude Code OAuth token on the trusted runner; no API key is required for the first pass.
   DONE: Claude Code status confirms subscription auth and no ANTHROPIC_API_KEY overrides it.
 
-- [ ] T-508 Claude delegation adapter
+- [x] T-508 Claude delegation adapter
   Goal: let FactoryOS delegate bounded Builder work to a Claude Code runner authenticated with the owner's Pro subscription, while keeping API PAYG disabled by default.
-  Progress: owner-visible connection state, authenticated heartbeat and a Claude Pro worker wrapper are implemented; task-result ingestion still requires the final deterministic regression.
+  Progress: `autopilot/delegation.py` pins one task per bounded Claude Code run, captures git/status evidence, fails closed on main/push/pin violations and reports to `POST /api/claude-worker/task-result`.
   DONE: deterministic regression proves task pinning, bounded execution, evidence capture and no direct main/prod action.
 
 ## v5.1 — Viral Discovery Loop
