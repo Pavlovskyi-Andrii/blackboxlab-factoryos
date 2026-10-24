@@ -101,6 +101,8 @@ def main() -> int:
     if not WORKER_TOKEN:
         raise SystemExit("FACTORY_CLAUDE_WORKER_TOKEN is required. Copy it from FactoryOS Connections.")
     os.environ.setdefault("AUTOPILOT_REPO", str(REPO))
+    # The autopilot child reports delegation evidence to the same FactoryOS instance.
+    os.environ.setdefault("FACTORYOS_URL", FACTORY_URL)
     version = claude_version()
     branch = current_branch()
     if not branch or branch in {"main", "master"}:

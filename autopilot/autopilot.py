@@ -6,9 +6,11 @@ import time
 from typing import Any
 
 try:
+    from .delegation import build_delegation, report_result, run_delegation, write_evidence
     from .notify import configured as telegram_configured
     from .notify import send, wait_answer
 except ImportError:
+    from delegation import build_delegation, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
 
@@ -22,6 +24,8 @@ TASK_TIMEOUT_SECONDS = max(600, min(7200, int(os.environ.get("AUTOPILOT_TASK_TIM
 PAUSE_SECONDS = max(5, min(3600, int(os.environ.get("AUTOPILOT_PAUSE_SECONDS", "30"))))
 WAIT_FOR_HUMAN = os.environ.get("AUTOPILOT_WAIT_FOR_HUMAN", "0").strip().lower() in {"1", "true", "yes", "on"}
 SKIP_PERMISSIONS = os.environ.get("AUTOPILOT_SKIP_PERMISSIONS", "0").strip().lower() in {"1", "true", "yes", "on"}
+DAEMON_MODE = os.environ.get("AUTOPILOT_DAEMON", "1").strip().lower() in {"1", "true", "yes", "on"}
+IDLE_SECONDS = max(15, min(3600, int(os.environ.get("AUTOPILOT_IDLE_SECONDS", "60"))))
 
 def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -92,43 +96,25 @@ def done_status_is_consistent(status: dict[str, Any], expected_task: dict[str, A
     return bool(persisted and persisted["done"] and not persisted["human"])
 
 
-def load_status() -> dict[str, Any]:
-    if not STATUS.exists():
-        return {"status": "failed", "summary": "agent did not write .autopilot/status.json"}
-    try:
-        value = json.loads(STATUS.read_text(encoding="utf-8"))
-    except Exception as exc:
-        return {"status": "failed", "summary": f"invalid status.json: {exc}"}
-    if not isinstance(value, dict):
-        return {"status": "failed", "summary": "status.json is not an object"}
-    return value
-
-
 def run_agent(target: dict[str, Any]) -> dict[str, Any]:
-    STATUS.parent.mkdir(parents=True, exist_ok=True)
-    STATUS.unlink(missing_ok=True)
-    prompt = (
-        f"Работай строго по CLAUDE.md. Выполни только задачу {target['id']} — {target['title']}. "
-        "Не переходи к другой задаче в этом запуске. Доведи её до проверяемого DONE, "
-        "отметь checkbox в ROADMAP.md, запиши решения, тесты и .autopilot/status.json, "
-        "сделай один commit с ID задачи. Не трогай main и production."
-    )
-    cmd = [
-        "claude",
-        "-p",
-        prompt,
-        "--output-format",
-        "json",
-        "--max-turns",
-        str(MAX_TURNS),
-    ]
-    if SKIP_PERMISSIONS:
-        cmd.append("--dangerously-skip-permissions")
     try:
-        subprocess.run(cmd, cwd=REPO, timeout=TASK_TIMEOUT_SECONDS, check=False)
-    except subprocess.TimeoutExpired:
-        return {"status": "failed", "summary": f"agent timed out after {TASK_TIMEOUT_SECONDS}s"}
-    return load_status()
+        spec = build_delegation(
+            target,
+            REPO,
+            max_turns=MAX_TURNS,
+            timeout_seconds=TASK_TIMEOUT_SECONDS,
+            skip_permissions=SKIP_PERMISSIONS,
+        )
+    except ValueError as exc:
+        return {"task": target.get("id"), "status": "failed", "summary": f"delegation refused: {exc}"}
+    evidence = run_delegation(spec)
+    write_evidence(REPO, evidence)
+    report_result(evidence)
+    status = dict(evidence["status"])
+    status["status"] = evidence["result"]
+    if evidence["violations"]:
+        status["summary"] = "; ".join(evidence["violations"])
+    return status
 
 
 def append_answer(task: str, answer: str) -> None:
@@ -141,19 +127,97 @@ def sync_branch(branch: str) -> None:
     run(["git", "pull", "--rebase", "origin", branch], check=False)
 
 
-def push_branch(branch: str) -> None:
-    run(["git", "push", "origin", branch])
+def push_branch(branch: str) -> bool:
+    return run(["git", "push", "origin", branch], check=False).returncode == 0
+
+
+def commits_ahead(branch: str) -> int:
+    result = run(["git", "rev-list", "--count", f"origin/{branch}..HEAD"], check=False, capture=True)
+    try:
+        return int(result.stdout.strip()) if result.returncode == 0 else 0
+    except ValueError:
+        return 0
+
+
+def runtime_marker() -> tuple[str, int]:
+    head = run(["git", "rev-parse", "HEAD"], check=False, capture=True).stdout.strip()
+    try:
+        answers_mtime = ANSWERS.stat().st_mtime_ns
+    except FileNotFoundError:
+        answers_mtime = 0
+    return head, answers_mtime
+
+
+def write_runtime_status(status: str, *, task: str = "", summary: str = "", need: str = "") -> None:
+    STATUS.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "task": task,
+        "status": status,
+        "summary": summary,
+        "need": need,
+        "checks": [],
+        "commit": "",
+    }
+    tmp = STATUS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, STATUS)
+
+
+def idle_notice(path: pathlib.Path = ROADMAP) -> str:
+    blocker = first_human_blocker(path)
+    if blocker:
+        return f"🙋 Safe roadmap tasks are complete. HUMAN task remains: {blocker}"
+    return "🏁 FactoryOS roadmap has no remaining safe tasks."
 
 
 def main() -> int:
     branch = assert_safe_branch()
     failures = 0
+    blocked_task = ""
+    blocked_marker: tuple[str, int] | None = None
+    last_idle_notice = ""
 
-    while roadmap_has_safe_work():
+    while True:
         sync_branch(branch)
+
+        # Never advance to another task while verified local commits are still
+        # waiting to reach the dedicated remote branch.
+        if commits_ahead(branch) > 0:
+            if push_branch(branch):
+                failures = 0
+            else:
+                failures += 1
+                send(f"⚠️ Git push to {branch} failed ({failures}/{MAX_FAILS}); worker will retry.")
+                if not DAEMON_MODE and failures >= MAX_FAILS:
+                    return 4
+                time.sleep(IDLE_SECONDS if DAEMON_MODE else PAUSE_SECONDS)
+                continue
+
         target = next_safe_task()
         if not target:
-            break
+            notice = idle_notice()
+            write_runtime_status("idle", summary=notice)
+            if notice != last_idle_notice:
+                suffix = f" Polling every {IDLE_SECONDS}s." if DAEMON_MODE else ""
+                send(notice + suffix)
+                last_idle_notice = notice
+            if not DAEMON_MODE:
+                return 0
+            time.sleep(IDLE_SECONDS)
+            continue
+
+        last_idle_notice = ""
+        if blocked_task == target["id"] and blocked_marker == runtime_marker():
+            # The task asked for owner input. Stay online without repeatedly
+            # burning Claude turns until either the branch or answers change.
+            if not DAEMON_MODE:
+                return 2
+            time.sleep(IDLE_SECONDS)
+            continue
+        if blocked_task and blocked_task != target["id"]:
+            blocked_task = ""
+            blocked_marker = None
+
         status = run_agent(target)
         state = str(status.get("status") or "failed").strip().lower()
         task = str(status.get("task") or "unknown")
@@ -169,7 +233,15 @@ def main() -> int:
 
         if state == "done":
             failures = 0
-            push_branch(branch)
+            blocked_task = ""
+            blocked_marker = None
+            if not push_branch(branch):
+                failures = 1
+                send(f"⚠️ {task} is committed locally but push failed; worker will retry without rerunning the task.")
+                if not DAEMON_MODE:
+                    return 4
+                time.sleep(IDLE_SECONDS)
+                continue
             send(f"✅ {task}: {summary}")
             time.sleep(PAUSE_SECONDS)
             continue
@@ -181,8 +253,15 @@ def main() -> int:
                 answer = wait_answer()
                 if answer:
                     append_answer(task, answer)
+                    blocked_task = ""
+                    blocked_marker = None
                     time.sleep(PAUSE_SECONDS)
                     continue
+            if DAEMON_MODE:
+                blocked_task = target["id"]
+                blocked_marker = runtime_marker()
+                time.sleep(IDLE_SECONDS)
+                continue
             return 2
 
         failures += 1
@@ -191,13 +270,6 @@ def main() -> int:
             send(f"⛔ {MAX_FAILS} failures in a row. Autopilot stopped. Last: {summary}")
             return 3
         time.sleep(PAUSE_SECONDS)
-
-    blocker = first_human_blocker()
-    if blocker:
-        send(f"🙋 Safe roadmap tasks are complete. HUMAN task remains: {blocker}")
-    else:
-        send("🏁 FactoryOS roadmap has no remaining safe tasks.")
-    return 0
 
 
 if __name__ == "__main__":

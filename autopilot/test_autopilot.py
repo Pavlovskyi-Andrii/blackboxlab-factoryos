@@ -45,6 +45,10 @@ def main():
     assert ap.next_safe_task(path) is None
     assert ap.roadmap_has_safe_work(path) is False
     assert ap.first_human_blocker(path).startswith("T-002")
+    assert "T-002" in ap.idle_notice(path)
+
+    no_human = write_roadmap("# Roadmap\n\n## v5\n- [x] T-001 Finished\n")
+    assert ap.idle_notice(no_human).startswith("🏁")
     print("Autopilot roadmap advancement tests passed")
 
 

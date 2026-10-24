@@ -8,6 +8,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 if not os.environ.get("DATA_DIR"):
     os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="factoryos-smoke-")
+elif Path(os.environ["DATA_DIR"]).is_dir() and any(Path(os.environ["DATA_DIR"]).iterdir()):
+    # The suite asserts fresh-fixture state; isolate reruns without deleting prior data.
+    os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="smoke-run-", dir=os.environ["DATA_DIR"])
 os.environ["FACTORY_PASSWORD"] = ""
 os.environ["FACTORY_LLM_API_KEY"] = ""
 import app  # noqa: E402
@@ -35,14 +38,116 @@ autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
 require(autopilot_state["total"]>=8,"roadmap task parsing regression")
-require((autopilot_state["next_task"] or {}).get("id")=="T-508","next safe roadmap task should skip HUMAN blockers and advance to T-508")
-require(autopilot_state["human_pending"]>=2,"real publisher and first real post must remain HUMAN blockers")
+roadmap_tasks=app._parse_roadmap_tasks()
+safe_roadmap=[x for x in roadmap_tasks if not x["done"] and not x["human"]]
+human_roadmap=[x for x in roadmap_tasks if not x["done"] and x["human"]]
+expected_next=safe_roadmap[0] if safe_roadmap else None
+require(autopilot_state["safe_pending"]==len(safe_roadmap),"safe roadmap count mismatch")
+require(autopilot_state["next_task"]==expected_next,"next safe roadmap task must match the first pending non-HUMAN task")
+require(autopilot_state["human_pending"]==len(human_roadmap) and autopilot_state["human_pending"]>=2,"real publisher and first real post must remain HUMAN blockers")
 require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log must be exposed")
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
 connections=app.get_connection_registry()
 require("Telegram" in connections and "Claude Code Pro" in connections,"owner/automation connections missing")
 require(connections["Claude Code Pro"]["state"]=="not_configured","CI must not fake a live Claude Pro runner")
 require(app.get_claude_code_status()["online"] is False,"CI must not report Claude worker online")
+def claude_result(**overrides):
+    base=dict(task_id="T-508",pinned_task_id="T-508",result="done",branch="autopilot-ci",summary="ci",commit="a"*40,commit_count=1,files=["ROADMAP.md"],exit_code=0,max_turns=80,timeout_seconds=3600)
+    return app.ClaudeWorkerTaskResult(**{**base,**overrides})
+accepted=app.ingest_claude_worker_result(claude_result())
+require(accepted["result"]=="done" and accepted["violations"]==[],"verified delegated result must be ingested as done")
+require(app.get_claude_code_status()["recent_results"][-1]["task_id"]=="T-508","ingested Claude result must be visible in worker status")
+for overrides,code in ((dict(pinned_task_id="T-510"),409),(dict(branch="main"),409),(dict(branch="master"),409),(dict(task_id="T-507",pinned_task_id="T-507"),409),(dict(task_id="T-999",pinned_task_id="T-999"),404),(dict(result="shipped"),422)):
+    try:
+        app.ingest_claude_worker_result(claude_result(**overrides))
+    except app.HTTPException as exc:
+        require(exc.status_code==code,f"Claude result rejection regression for {overrides}: {exc.status_code}")
+    else:
+        raise AssertionError(f"Claude result must be rejected: {overrides}")
+for overrides in (dict(commit_count=2),dict(commit=""),dict(pushed=True),dict(deploy_credentials_scrubbed=False),dict(violations=["protected branch main was modified"])):
+    require(app.ingest_claude_worker_result(claude_result(**overrides))["result"]=="failed",f"unverified Claude done must fail closed: {overrides}")
+require(app.get_claude_code_status()["online"] is False,"result ingestion must not fake a live Claude worker heartbeat")
+live_t536a=next((x for x in roadmap_tasks if x["id"]=="T-536-A"),None)
+require(live_t536a and live_t536a["parent"]=="T-536" and live_t536a["planner"]=="ChatGPT","live ROADMAP planner/parent metadata regression")
+require(next(x for x in roadmap_tasks if x["id"]=="T-536-D")["depends"]==["T-536-A","T-536-B","T-536-C"],"live ROADMAP dependency metadata regression")
+require(next(x for x in roadmap_tasks if x["id"]=="T-500")["depends"]==[] and route_exists("/api/factory/delegation-board","GET"),"legacy ROADMAP entries/board route regression")
+board_fixture=app._parse_roadmap_tasks("""## Fixture
+- [x] T-900 Done task
+- [ ] [HUMAN] T-901 Owner credential
+  Need: owner secret
+- [ ] T-902 Parent work
+  Planner: ChatGPT
+- [ ] T-902-A Running child
+  Planner: ChatGPT
+  Parent: T-902
+  Goal: build the child
+    across two lines
+  DONE: `python -m child_check` passes
+- [ ] T-902-B Blocked child
+  Parent: T-902
+  Depends: T-902-A, not-a-task
+- [ ] T-903 Queued legacy task
+  Goal: still parses
+""")
+require([x["id"] for x in board_fixture]==["T-900","T-901","T-902","T-902-A","T-902-B","T-903"],"fixture ROADMAP parse regression")
+require(board_fixture[4]["depends"]==["T-902-A"] and board_fixture[3]["parent"]=="T-902" and board_fixture[5]["planner"]=="","fixture ROADMAP metadata regression")
+require(board_fixture[3]["goal"]=="build the child across two lines" and board_fixture[3]["done_criteria"]=="`python -m child_check` passes"
+        and board_fixture[3]["source"]=="ChatGPT" and board_fixture[3]["provenance"]=="planner" and board_fixture[3]["roadmap_line"]==7,
+        f"fixture ROADMAP goal/DONE/provenance regression: {board_fixture[3]}")
+require(board_fixture[1]["need"]=="owner secret" and board_fixture[5]["goal"]=="still parses" and board_fixture[5]["done_criteria"]==""
+        and board_fixture[5]["source"]=="roadmap" and board_fixture[5]["provenance"]=="legacy" and board_fixture[0]["done"] is True,"legacy ROADMAP entry compatibility regression")
+live_t536c=next(x for x in roadmap_tasks if x["id"]=="T-536-C")
+require(live_t536c["parent"]=="T-536" and live_t536c["source"]=="ChatGPT" and live_t536c["depends"]==["T-536-A"]
+        and live_t536c["goal"].startswith("make ROADMAP tasks readable") and live_t536c["done_criteria"].startswith("parser/API expose"),"live ROADMAP T-536-C metadata regression")
+live_t500=next(x for x in roadmap_tasks if x["id"]=="T-500")
+require(live_t500["provenance"]=="legacy" and live_t500["goal"] and live_t500["done_criteria"].startswith("`test -f ROADMAP.md"),"live legacy ROADMAP Goal/DONE regression")
+odd_tree=app._roadmap_task_tree([{**x,"state":"queued","queue_position":None} for x in app._parse_roadmap_tasks("""## Odd
+- [ ] T-1 Self parent
+  Parent: T-1
+- [ ] T-2 Cycle A
+  Parent: T-3
+- [ ] T-3 Cycle B
+  Parent: T-2
+- [ ] T-4 Orphan
+  Parent: T-404
+""")])
+require(sorted(n["id"] for n in odd_tree)==["T-1","T-2","T-4"] and next(n for n in odd_tree if n["id"]=="T-2")["children"][0]["id"]=="T-3","roadmap tree must survive self-parent, cycles and unknown parents")
+real_parse_roadmap,real_results_file,real_worker_runtime=app._parse_roadmap_tasks,app.CLAUDE_WORKER_RESULTS_FILE,dict(app.claude_worker_runtime)
+app._parse_roadmap_tasks=lambda text=None:[dict(x) for x in board_fixture]
+app.CLAUDE_WORKER_RESULTS_FILE=Path(os.environ["DATA_DIR"])/"delegation_board_fixture_results.json"
+try:
+    offline=app.get_delegation_board()
+    require(offline["worker"]["connection"]=="offline" and offline["worker"]["heartbeat_age_seconds"] is None,"board must not fake a worker heartbeat")
+    require(offline["counts"]=={"done":1,"running":0,"queued":4,"blocked":0,"human":1,"total":6,"safe_remaining":4},f"offline board counts regression: {offline['counts']}")
+    require(offline["next_task"]["id"]=="T-902" and offline["planner_queue"][2]["queue_position"]==1,"board queue order regression")
+    app.ingest_claude_worker_result(claude_result(task_id="T-902-B",pinned_task_id="T-902-B",result="blocked",commit="",commit_count=0,need="owner input"))
+    app.claude_worker_heartbeat(app.ClaudeWorkerHeartbeat(task_id="T-902-A",status="running",branch="autopilot-ci",
+        repo=f"https://ci:{app.FACTORY_CLAUDE_WORKER_TOKEN}@github.com/example/factoryos.git",last_error=f"leak {app.FACTORY_CLAUDE_WORKER_TOKEN}"))
+    live=app.get_delegation_board()
+    states={x["id"]:x["state"] for x in live["planner_queue"]}
+    require(states=={"T-900":"done","T-901":"human","T-902":"queued","T-902-A":"running","T-902-B":"blocked","T-903":"queued"},f"board task state regression: {states}")
+    require(live["counts"]=={"done":1,"running":1,"queued":2,"blocked":1,"human":1,"total":6,"safe_remaining":4},f"live board counts regression: {live['counts']}")
+    require(live["worker"]["connection"]=="online" and live["active_task"]["id"]=="T-902-A" and live["worker"]["node"]["branch"]=="autopilot-ci","board worker state regression")
+    require(live["hierarchy"]==[{"parent":"T-902","parent_is_task":True,"children":["T-902-A","T-902-B"],"done":0,"total":2}],"board hierarchy regression")
+    require(next(x for x in live["planner_queue"] if x["id"]=="T-902-B")["dependencies_met"] is False,"board dependency regression")
+    require(next(x for x in live["planner_queue"] if x["id"]=="T-902-B")["unmet_dependencies"]==["T-902-A"],"board unmet dependency regression")
+    require([n["id"] for n in live["tree"]]==["T-900","T-901","T-902","T-903"],f"board tree roots regression: {[n['id'] for n in live['tree']]}")
+    tree_parent=live["tree"][2]
+    require([c["id"] for c in tree_parent["children"]]==["T-902-A","T-902-B"] and tree_parent["children_total"]==2 and tree_parent["children"][0]["depth"]==1
+            and tree_parent["children"][0]["state"]=="running" and tree_parent["children"][0]["goal"]=="build the child across two lines"
+            and tree_parent["children"][0]["done_criteria"]=="`python -m child_check` passes" and tree_parent["children"][0]["source"]=="ChatGPT"
+            and tree_parent["children"][1]["depends"]==["T-902-A"] and tree_parent["children"][1]["source"]=="roadmap","board tree provenance regression")
+    require(live["provenance"]=={"roadmap":4,"ChatGPT":2},f"board provenance count regression: {live['provenance']}")
+    require(live["recent_results"][-1]["task_id"]=="T-902-B" and "pinned_task_id" not in live["recent_results"][-1],"board recent result regression")
+    board_json=json.dumps(live)
+    require(app.FACTORY_CLAUDE_WORKER_TOKEN not in board_json and app.FACTORY_SECRET not in board_json and "ci:" not in board_json and "token" not in board_json.lower(),"delegation board must never return worker tokens or secrets")
+    app.claude_worker_runtime["last_seen"]=app.time.time()-app.FACTORY_CLAUDE_WORKER_TTL_SECONDS-5
+    stale=app.get_delegation_board()
+    require(stale["worker"]["connection"]=="stale" and stale["counts"]["running"]==0 and stale["counts"]["queued"]==3,"stale worker must not count as running")
+finally:
+    app._parse_roadmap_tasks,app.CLAUDE_WORKER_RESULTS_FILE=real_parse_roadmap,real_results_file
+    app.claude_worker_runtime.clear();app.claude_worker_runtime.update(real_worker_runtime)
+require(app.get_claude_code_status()["online"] is False,"delegation board fixture must not leave a live worker behind")
 pair_hash=app._telegram_pair_code_hash("PAIR1234")
 require(app._telegram_pair_code_matches("PAIR1234",pair_hash) is True,"Telegram pair-code verification regression")
 require(app._telegram_pair_code_matches("WRONG",pair_hash) is False,"Telegram pair-code rejection regression")
@@ -80,6 +185,7 @@ for path,method in (
     ("/api/factory/claude-code/status","GET"),
     ("/api/factory/claude-code/worker-token","GET"),
     ("/api/claude-worker/heartbeat","POST"),
+    ("/api/claude-worker/task-result","POST"),
 ):
     require(route_exists(path,method),f"Telegram route missing: {method} {path}")
 
@@ -95,6 +201,12 @@ worker_results=app.get_job_worker_results(job_id)
 require("Scout" in worker_results,"selected-job worker result missing")
 require("structured object output" in worker_results["Scout"]["content"],"worker result must expose full normalized content")
 require(worker_results["Scout"]["artifact_count"]>=1 and worker_results["Scout"]["run"]["output_tokens"]==8,"worker accounting/evidence regression")
+# T-531 Worker Results contract: input/action/status/output/artifacts/duration/tokens/cost, unknown → None.
+rep=worker_results["Scout"]["report"]
+require(set(rep)>={"input","action","status","output","artifacts","duration_ms","tokens","cost_usd","unavailable"},"worker report contract shape changed")
+require(rep["status"]=="completed" and rep["input"]=={"count":0,"sources":[]} and rep["action"]["stage"]=="research" and rep["action"]["mode"]=="demo","worker report input/action/status regression")
+require(rep["output"]["title"]=="CI worker evidence" and rep["artifacts"]["count"]==1 and rep["artifacts"]["items"][0]["id"]==worker_artifact,"worker report output/artifacts regression")
+require(isinstance(rep["duration_ms"],int) and rep["tokens"]=={"input":12,"output":8,"total":20} and rep["cost_usd"]==0.0 and rep["unavailable"]==[],"measured demo run must expose duration, tokens and cost")
 agent_detail=app.agent_detail("Scout")
 require(agent_detail["selected_job_id"]==job_id and agent_detail["selected_job_result"]["id"]==worker_artifact,"agent drawer must expose selected-job result first")
 center=app.get_job_error_center(job_id)
@@ -107,6 +219,23 @@ legacy_id=legacy["id"]
 con=app.db();con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(app.ts(),legacy_id));con.commit();con.close()
 legacy_item=next(x for x in app.get_approval_queue()["items"] if x["job"]["id"]==legacy_id)
 require(legacy_item["legacy_incomplete"] is True and legacy_item["review_ready"] is False,"legacy approval item must be explicitly marked incomplete")
+contract_job=asyncio.run(app.create_job(app.JobCreate(title="CI worker contract",brief="Unknown-value fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))["id"]
+contract_seed=app.save_artifact("Scout","analysis","CI contract seed","seed",job_id=contract_job)
+running_run=app.start_agent_run("Researcher",contract_job,"research",model="simulation-v4.2")
+app.attach_run_inputs(running_run,[{"id":contract_seed,"agent":"Scout"}])
+app.save_artifact("Researcher","analysis","CI partial research","partial",job_id=contract_job,run_id=running_run,meta={"mode":"live_llm"})
+app.save_artifact("Tech Verifier","analysis","CI orphan artifact","no run record",job_id=contract_job)
+failed_run=app.start_agent_run("Angle Strategist",contract_job,"angle",model="gpt-ci")
+app.save_artifact("Angle Strategist","analysis","CI failed attempt","partial",job_id=contract_job,run_id=failed_run,meta={"mode":"live_llm"})
+app.finish_agent_run(failed_run,status="failed",error="Timed out",meta={"mode":"live_llm"})
+reports={k:v["report"] for k,v in app.get_job_worker_results(contract_job).items()}
+running=reports["Researcher"]
+require(running["status"]=="running" and running["input"]["count"]==1 and running["input"]["sources"][0]["agent"]=="Scout","running worker must expose its consumed input")
+require(running["duration_ms"] is None and running["tokens"] is None and running["cost_usd"] is None and running["unavailable"]==["duration_ms","tokens","cost_usd"],"unfinished run must not fabricate duration/tokens/cost")
+orphan=reports["Tech Verifier"]
+require(orphan["status"]=="artifact_only" and orphan["input"] is None and orphan["action"] is None and orphan["unavailable"]==["input","action","duration_ms","tokens","cost_usd"],"artifact without run must render run fields as unavailable")
+failed=reports["Angle Strategist"]
+require(failed["status"]=="failed" and failed["error"]=="Timed out" and isinstance(failed["duration_ms"],int) and failed["tokens"] is None and failed["cost_usd"] is None,"failed live call with no recorded usage must report spend as unavailable, not 0")
 
 # v4.4 Viral Discovery — factual metric persistence, dedup and Revideo handoff.
 dc_payload=app.DiscoveryCandidateCreate(
@@ -935,7 +1064,14 @@ for key in ("runs","completed_runs","failed_runs","success_rate","duration_ms","
 html=Path("static/index.html").read_text(encoding="utf-8")
 require('data-i18n="error.title"' in html,"Error Center title is not localized")
 require('data-i18n="worker.title"' in html,"Worker Results title is not localized")
+require("function workerContract(" in html and "workerContract(r&&r.report)" in html,"Worker Results must render the input/action/output/cost contract")
+for key in ("input","action","status","output","artifacts","duration","tokens","cost","unavailable","noInputs","artifactOnly"):
+    require(html.count('"worker.contract.'+key+'":')==3,f"worker.contract.{key} must exist in EN/UK/RU")
 require('data-i18n="intel.title"' in html,"Factory Intelligence title is not localized")
+require('onclick="openDelegationCenter()"' in html and 'data-i18n="dc.title"' in html and "function renderDelegationCenter(" in html,"Worker / Delegation Control Center page missing")
+require("api('/api/factory/delegation-board')" in html,"Control Center must read the owner-safe delegation board API")
+for key in ("dc.nav","dc.title","dc.unavailable","dc.planner","dc.worker","dc.connection.online","dc.connection.stale","dc.connection.offline","dc.safeRemaining","dc.humanRemaining"):
+    require(html.count(f'"{key}":')==3,f"i18n key {key} must exist in EN/UK/RU")
 require("FactoryOS v3.14" not in html,"stale document title version returned")
 require('data-i18n="brain.title"' in html,"Content Brain workspace missing")
 require('data-i18n="variant.title"' in html,"Variant Studio workspace missing")

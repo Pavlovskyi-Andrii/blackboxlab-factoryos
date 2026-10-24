@@ -154,6 +154,8 @@ FACTORY_CLAUDE_WORKER_TOKEN = (os.environ.get("FACTORY_CLAUDE_WORKER_TOKEN","").
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-claude-code-worker-v1",hashlib.sha256).hexdigest())
 FACTORY_CLAUDE_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_CLAUDE_WORKER_TTL_SECONDS","45"))))
 claude_worker_runtime={"last_seen":0.0,"node":{},"active_task_id":"","last_error":""}
+CLAUDE_WORKER_RESULTS_FILE = DATA_DIR / "claude_worker_results.json"
+_claude_worker_results_lock=threading.Lock()
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
 FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS","").split(",") if x.strip()}
 FACTORY_GOOGLE_VIEWER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_VIEWER_EMAILS","").split(",") if x.strip()}
@@ -307,7 +309,46 @@ def get_claude_code_status():
         "subscription":str(node.get("subscription") or ""),
         "api_key_required":False,
         "recommended_auth":"Claude account with subscription",
+        "recent_results":_load_claude_worker_results()[-5:],
     }
+
+def _load_claude_worker_results():
+    if not CLAUDE_WORKER_RESULTS_FILE.exists():return []
+    value=_decode_json(CLAUDE_WORKER_RESULTS_FILE.read_text(encoding="utf-8"),[])
+    return value if isinstance(value,list) else []
+
+def ingest_claude_worker_result(payload: "ClaudeWorkerTaskResult"):
+    """Validate a delegated Builder result; never trusts a self-reported done without evidence."""
+    data=payload.model_dump()
+    task_id=data["task_id"].strip()
+    if not re.match(r"^T-[A-Za-z0-9-]+$",task_id):raise HTTPException(422,"Invalid task id")
+    if data["pinned_task_id"].strip()!=task_id:raise HTTPException(409,"Result task does not match the pinned delegation task")
+    if not data["branch"].strip() or data["branch"].strip() in {"main","master"}:
+        raise HTTPException(409,"Delegated work must run on a dedicated non-main branch")
+    task=next((x for x in _parse_roadmap_tasks() if x["id"]==task_id),None)
+    if not task:raise HTTPException(404,"Unknown roadmap task")
+    if task["human"]:raise HTTPException(409,"HUMAN roadmap tasks cannot be delegated")
+    result=data["result"].strip().lower()
+    if result not in {"done","blocked","failed"}:raise HTTPException(422,"Unsupported result state")
+    violations=[str(x)[:300] for x in data["violations"]][:20]
+    if data["pushed"]:violations.append("delegated agent pushed during execution")
+    if not data["deploy_credentials_scrubbed"]:violations.append("deploy credentials were not scrubbed")
+    if result=="done" and (data["commit_count"]!=1 or not re.match(r"^[0-9a-f]{7,40}$",data["commit"] or "")):
+        violations.append("done result lacks exactly one captured commit")
+    if violations:result="failed"
+    received_at=time.time()
+    record={**data,"task_id":task_id,"result":result,"violations":violations,"received_at":received_at,
+            "started_at":_timeline_ts(data["started_at"],received_at),
+            "summary":data["summary"][:500],"need":data["need"][:500],"checks":[str(x)[:300] for x in data["checks"]][:20],
+            "files":[str(x)[:300] for x in data["files"]][:100]}
+    CLAUDE_WORKER_RESULTS_FILE.parent.mkdir(parents=True,exist_ok=True)
+    tmp=CLAUDE_WORKER_RESULTS_FILE.with_suffix(".tmp")
+    with _claude_worker_results_lock:
+        results=(_load_claude_worker_results()+[record])[-50:]
+        tmp.write_text(json.dumps(results,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+        os.replace(tmp,CLAUDE_WORKER_RESULTS_FILE)
+    claude_worker_runtime["last_error"]="; ".join(violations) if violations else ("" if result!="failed" else record["summary"])
+    return record
 
 def _telegram_webhook_secret() -> str:
     if not FACTORY_TELEGRAM_BOT_TOKEN:
@@ -2149,6 +2190,27 @@ class ClaudeWorkerHeartbeat(BaseModel):
     status: str = "idle"
     task_id: str = ""
     last_error: str = ""
+
+class ClaudeWorkerTaskResult(BaseModel):
+    task_id: str
+    pinned_task_id: str
+    result: str
+    branch: str
+    summary: str = ""
+    need: str = ""
+    checks: list[str] = []
+    commit: str = ""
+    commit_count: int = 0
+    files: list[str] = []
+    exit_code: int | None = None
+    timed_out: bool = False
+    duration_seconds: float = 0
+    started_at: float | None = None
+    max_turns: int = 0
+    timeout_seconds: int = 0
+    violations: list[str] = []
+    pushed: bool = False
+    deploy_credentials_scrubbed: bool = True
 
 class LocalBoosterProgress(BaseModel):
     stage: str = "processing"
@@ -5735,6 +5797,36 @@ async def execute_agent(agent, stage, job_id, delay=1.1):
             event(job_id,f"{agent}: retry blocked ({policy['code']}) — {policy['action']}")
         raise RuntimeError(f"{agent} failed after {attempt} attempt(s): {last_error}")
 
+WORKER_REPORT_ARTIFACT_LIMIT=5
+# Run modes whose persisted zero token/cost values are factual (no paid call, or a measured live call).
+WORKER_REPORT_MEASURED_MODES={"demo","live_llm","rules-engine","deterministic"}
+
+def _worker_report(row,content,run,inputs,meta,artifact_count,artifact_items):
+    """Answer input / action / status / output / artifacts / duration / tokens / cost for one worker.
+
+    None means "unavailable": never substitute a default (e.g. the 0 DB default) for an unmeasured value.
+    """
+    run=run or None
+    run_meta=(run or {}).get("meta") or {}
+    finished=bool(run and run.get("finished_at"))
+    mode=run_meta.get("mode") or meta.get("mode")
+    tokens_in=int((run or {}).get("input_tokens") or 0);tokens_out=int((run or {}).get("output_tokens") or 0)
+    cost=float((run or {}).get("cost_usd") or 0)
+    measured=finished and run.get("status")=="completed" and mode in WORKER_REPORT_MEASURED_MODES
+    report={
+        "input":({"count":len(inputs),"sources":[{"agent":x.get("source_agent"),"artifact_id":x.get("artifact_id"),"kind":x.get("kind"),"title":x.get("title")} for x in inputs]} if run else None),
+        "action":({"stage":run.get("stage"),"mode":mode,"model":run.get("model") or meta.get("model"),"note":run_meta.get("note")} if run else None),
+        "status":(run.get("status") if run else "artifact_only"),
+        "error":(run.get("error") if run else None),
+        "output":{"kind":row.get("kind"),"title":row.get("title"),"preview":content[:240],"url":row.get("url"),"mime_type":row.get("mime_type")},
+        "artifacts":{"count":int(artifact_count or 0),"items":list(artifact_items or [])},
+        "duration_ms":(int(run.get("duration_ms") or 0) if finished else None),
+        "tokens":({"input":tokens_in,"output":tokens_out,"total":tokens_in+tokens_out} if finished and (tokens_in or tokens_out or measured) else None),
+        "cost_usd":(round(cost,6) if finished and (cost>0 or measured) else None),
+    }
+    report["unavailable"]=[k for k in ("input","action","duration_ms","tokens","cost_usd") if report[k] is None]
+    return report
+
 def get_job_worker_results(job_id):
     if not job_id:
         return {}
@@ -5751,7 +5843,10 @@ def get_job_worker_results(job_id):
     counts={x["agent"]:int(x["c"] or 0) for x in con.execute(
         "SELECT agent,COUNT(*) c FROM artifacts WHERE job_id=? GROUP BY agent",(job_id,)
     ).fetchall()}
-    latest={}
+    latest={};items={}
+    for row in rows:
+        if len(items.setdefault(row["agent"],[]))<WORKER_REPORT_ARTIFACT_LIMIT:
+            items[row["agent"]].append({k:row.get(k) for k in ("id","kind","title","url","mime_type","created_at")})
     for row in rows:
         agent=row["agent"]
         if agent in latest:
@@ -5781,6 +5876,7 @@ def get_job_worker_results(job_id):
                        WHERE ri.run_id=? ORDER BY a.created_at""",(row["run_id"],)
                 ).fetchall()]
         latest[agent]={
+            "report":_worker_report(row,content,run,inputs,meta,counts.get(agent,0),items.get(agent,[])),
             "id":row["id"],
             "run_id":row.get("run_id"),
             "agent":agent,
@@ -8762,6 +8858,10 @@ def claude_worker_heartbeat(payload: ClaudeWorkerHeartbeat):
     claude_worker_runtime["last_error"]=payload.last_error or ""
     return {"ok":True,**get_claude_code_status()}
 
+@app.post("/api/claude-worker/task-result")
+def claude_worker_task_result(payload: ClaudeWorkerTaskResult):
+    return {"ok":True,"result":ingest_claude_worker_result(payload)}
+
 @app.get("/api/local-booster/status")
 def local_booster_status():
     return {"online":_local_booster_online(),"ttl_seconds":FACTORY_LOCAL_BOOSTER_TTL_SECONDS,
@@ -9287,28 +9387,234 @@ async def call_agent_mcp_tool(agent_name:str,connection_id:str,item:McpToolCall)
     except Exception as exc:
         raise HTTPException(502,str(exc))
 
-def get_repository_autopilot_state():
+_ROADMAP_META_KEYS={"planner":"planner","parent":"parent","depends":"depends","goal":"goal","done":"done_criteria",
+                    "need":"need","progress":"progress"}
+_ROADMAP_TEXT_KEYS=("goal","done_criteria","need","progress")
+
+def _parse_roadmap_tasks(text=None):
     roadmap_path=BASE/"ROADMAP.md"
-    status_path=BASE/".autopilot"/"status.json"
-    decisions_path=BASE/"DECISIONS.md"
     tasks=[]
     current_version=""
-    if roadmap_path.exists():
-        for raw in roadmap_path.read_text(encoding="utf-8").splitlines():
+    last_key=""
+    if text is None and roadmap_path.exists():text=roadmap_path.read_text(encoding="utf-8")
+    if text:
+        for line_no,raw in enumerate(text.splitlines(),1):
             line=raw.strip()
             if line.startswith("## "):
-                current_version=line[3:].strip()
+                current_version=line[3:].strip();last_key=""
                 continue
             match=re.match(r"- \[([ xX])\]\s+(\[HUMAN\]\s+)?(T-[A-Za-z0-9-]+)\s+(.+)",line)
             if not match:
+                if not (tasks and line and raw[:1].isspace()):
+                    last_key=""
+                    continue
+                meta=re.match(r"(Planner|Parent|Depends|Goal|DONE|Need|Progress):\s*(.*)",line)
+                if meta:
+                    key,value=_ROADMAP_META_KEYS[meta.group(1).lower()],meta.group(2).strip()
+                    if key=="depends":tasks[-1]["depends"]=[x.strip() for x in value.split(",") if re.match(r"^T-[A-Za-z0-9-]+$",x.strip())]
+                    else:tasks[-1][key]=value
+                    last_key=key
+                elif last_key in _ROADMAP_TEXT_KEYS:
+                    tasks[-1][last_key]=(tasks[-1][last_key]+" "+line).strip()
                 continue
+            last_key=""
             tasks.append({
                 "id":match.group(3),
                 "title":match.group(4).strip(),
                 "done":match.group(1).lower()=="x",
                 "human":bool(match.group(2)),
                 "version":current_version,
+                "planner":"",
+                "parent":"",
+                "depends":[],
+                "goal":"",
+                "done_criteria":"",
+                "need":"",
+                "progress":"",
+                "roadmap_line":line_no,
             })
+    for task in tasks:
+        task["source"]=task["planner"] or "roadmap"
+        task["provenance"]="planner" if task["planner"] else "legacy"
+    return tasks
+
+def _roadmap_task_tree(queue):
+    """Nest ROADMAP tasks under their declared Parent; unknown parents and cycles fall back to roots."""
+    by_id={x["id"]:x for x in queue}
+    children={}
+    for task in queue:
+        if task["parent"] in by_id and task["parent"]!=task["id"]:children.setdefault(task["parent"],[]).append(task["id"])
+    placed=set()
+    def node(task_id,depth,trail):
+        placed.add(task_id)
+        task=by_id[task_id]
+        kids=[node(c,depth+1,trail|{c}) for c in children.get(task_id,[]) if c not in trail and c not in placed]
+        return {"id":task_id,"title":task["title"],"state":task["state"],"source":task["source"],"provenance":task["provenance"],
+                "planner":task["planner"],"parent":task["parent"],"depends":task["depends"],"goal":task["goal"],
+                "done_criteria":task["done_criteria"],"queue_position":task["queue_position"],"depth":depth,
+                "children_done":sum(1 for k in kids if k["state"]=="done"),"children_total":len(kids),"children":kids}
+    roots=[]
+    for task in queue:
+        if task["id"] in placed:continue
+        if task["parent"] in by_id and task["parent"]!=task["id"] and not _roadmap_parent_cycle(task["id"],by_id):continue
+        roots.append(node(task["id"],0,{task["id"]}))
+    for task in queue:
+        if task["id"] not in placed:roots.append(node(task["id"],0,{task["id"]}))
+    return roots
+
+def _roadmap_parent_cycle(task_id,by_id):
+    seen={task_id};current=by_id[task_id]["parent"]
+    while current in by_id:
+        if current in seen:return True
+        seen.add(current);current=by_id[current]["parent"]
+    return False
+
+def _redact_board_value(value, secret_values):
+    if isinstance(value,dict):return {k:_redact_board_value(v,secret_values) for k,v in value.items()}
+    if isinstance(value,list):return [_redact_board_value(v,secret_values) for v in value]
+    if not isinstance(value,str):return value
+    value=re.sub(r"(?i)\b(https?://)[^/\s:@]+(?::[^/\s@]*)?@",r"\1",value)
+    for secret in secret_values:value=value.replace(secret,"[redacted]")
+    return value
+
+_DELEGATION_NODE_FIELDS=("node_id","hostname","platform","claude_version","auth_mode","subscription","branch","repo","status")
+_DELEGATION_RESULT_FIELDS=("task_id","result","branch","summary","need","checks","commit","commit_count","files","exit_code",
+                           "timed_out","duration_seconds","violations","received_at","started_at","pushed")
+_TIMELINE_AFTER_PICK=("checks","commit","push","outcome")
+
+def _timeline_ts(value, upper):
+    """Accept only a plausible epoch timestamp observed no later than `upper` (+60 s clock skew)."""
+    if isinstance(value,bool) or not isinstance(value,(int,float)) or value!=value or value<=0 or value==float("inf"):return None
+    return float(value) if value<=float(upper)+60 else None
+
+def _timeline_event(kind, status, source=None, at=None, **detail):
+    return {"kind":kind,"status":status,"source":source,"at":at,**detail}
+
+def _commit_url(sha):
+    if not re.match(r"^[0-9a-f]{7,40}$",sha or "") or not re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",GITHUB_REPO or ""):return None
+    return f"https://github.com/{GITHUB_REPO}/commit/{sha}"
+
+def build_delegation_timeline(task, attempts, telemetry=None, now=None):
+    """Factual lifecycle of one board task: queued -> picked -> running -> checks -> commit -> push -> outcome.
+
+    Only reported evidence becomes an `observed` event. Everything else is `unavailable` (expected but never
+    reported), `pending` (not reached yet) or `skipped` (the run ended blocked/failed first). Nothing is inferred.
+    """
+    now=time.time() if now is None else now
+    telemetry=telemetry or {}
+    latest=attempts[-1] if attempts else None
+    events=[_timeline_event("queued","observed","roadmap",roadmap_line=task.get("roadmap_line"))]
+    if task.get("state")=="running":
+        phase="running"
+        started=_timeline_ts(telemetry.get("task_started_at"),now) if telemetry.get("stage")=="running" else None
+        events+=[_timeline_event("picked","observed","heartbeat",started),
+                 _timeline_event("running","observed","heartbeat",started,stage=telemetry.get("stage"),
+                                 elapsed_seconds=telemetry.get("elapsed_seconds") if started else None)]
+        events+=[_timeline_event(k,"pending") for k in _TIMELINE_AFTER_PICK]
+    elif latest:
+        phase="result"
+        result=str(latest.get("result") or "failed")
+        ended=result in {"blocked","failed"}
+        received=_timeline_ts(latest.get("received_at"),now)
+        started=_timeline_ts(latest.get("started_at"),received or now)
+        events+=[_timeline_event("picked","observed","worker_result",started),
+                 _timeline_event("running","observed","worker_result",started,duration_seconds=latest.get("duration_seconds"),
+                                 exit_code=latest.get("exit_code"),timed_out=bool(latest.get("timed_out")))]
+        checks=[str(x) for x in (latest.get("checks") or [])]
+        # Workers report the commands they ran, not a per-command verdict, so per-check pass/fail stays None.
+        events.append(_timeline_event("checks","observed","worker_result",items=[{"command":c,"passed":None} for c in checks])
+                      if checks else _timeline_event("checks","skipped" if ended else "unavailable"))
+        sha=str(latest.get("commit") or "")
+        if re.match(r"^[0-9a-f]{7,40}$",sha):
+            files=[str(x) for x in (latest.get("files") or [])]
+            events.append(_timeline_event("commit","observed","worker_result",sha=sha,url=_commit_url(sha),
+                                          commit_count=latest.get("commit_count"),files=files,file_count=len(files)))
+        else:
+            events.append(_timeline_event("commit","skipped" if ended else "unavailable"))
+        if latest.get("pushed"):
+            events.append(_timeline_event("push","observed","worker_result",violation=True))
+        else:
+            # The runner pushes after reporting; FactoryOS never observes that push, so it is not claimed.
+            events.append(_timeline_event("push","skipped" if ended and not re.match(r"^[0-9a-f]{7,40}$",sha) else "unavailable"))
+        events.append(_timeline_event("outcome","observed","worker_result",received,result=result,summary=latest.get("summary") or "",
+                                      need=latest.get("need") or "",violations=list(latest.get("violations") or [])))
+    elif task.get("done"):
+        phase="roadmap"
+        events+=[_timeline_event(k,"unavailable") for k in ("picked","running","checks","commit","push")]
+        events.append(_timeline_event("outcome","observed","roadmap",result="done"))
+    else:
+        phase="queued"
+        events+=[_timeline_event(k,"pending") for k in ("picked","running")+_TIMELINE_AFTER_PICK]
+    return {"task_id":task["id"],"phase":phase,"attempts":len(attempts),"events":events}
+
+def get_delegation_board():
+    """Owner-safe read model: ROADMAP queue + Claude worker state + verified results. Never returns tokens."""
+    tasks=_parse_roadmap_tasks()
+    worker=get_claude_code_status()
+    online=bool(worker["online"])
+    last_seen=float(worker["last_seen"] or 0)
+    active_task_id=str(worker["active_task_id"] or "")
+    results=[{k:r.get(k) for k in _DELEGATION_RESULT_FIELDS} for r in _load_claude_worker_results() if isinstance(r,dict)]
+    latest_result={}
+    for r in results:latest_result[str(r.get("task_id") or "")]=r
+    done_ids={x["id"] for x in tasks if x["done"]}
+    queue=[];position=0
+    for task in tasks:
+        latest=latest_result.get(task["id"])
+        latest_state=str((latest or {}).get("result") or "")
+        if task["done"]:state,source="done","roadmap"
+        elif latest_state=="done":state,source="done","worker_result"
+        elif task["human"]:state,source="human","roadmap"
+        elif online and active_task_id==task["id"]:state,source="running","heartbeat"
+        elif latest_state in {"blocked","failed"}:state,source="blocked","worker_result"
+        else:state,source="queued","roadmap"
+        if state=="queued":position+=1
+        queue.append({**task,"state":state,"state_source":source,"queue_position":position if state=="queued" else None,
+                      "dependencies_met":all(d in done_ids for d in task["depends"]),
+                      "unmet_dependencies":[d for d in task["depends"] if d not in done_ids],"latest_result":latest})
+    counts={key:sum(1 for x in queue if x["state"]==key) for key in ("done","running","queued","blocked","human")}
+    counts["total"]=len(queue)
+    counts["safe_remaining"]=counts["running"]+counts["queued"]+counts["blocked"]
+    connection="online" if online else ("stale" if last_seen else "offline")
+    board={
+        "planner_queue":queue,
+        "hierarchy":[{"parent":p,"parent_is_task":p in {x["id"] for x in tasks},
+                      "children":[c["id"] for c in queue if c["parent"]==p],
+                      "done":sum(1 for c in queue if c["parent"]==p and c["state"]=="done"),
+                      "total":sum(1 for c in queue if c["parent"]==p)}
+                     for p in dict.fromkeys(x["parent"] for x in tasks if x["parent"])],
+        "tree":_roadmap_task_tree(queue),
+        "provenance":{key:sum(1 for x in tasks if x["source"]==key) for key in dict.fromkeys(x["source"] for x in tasks)},
+        "timelines":{x["id"]:build_delegation_timeline(x,[r for r in results if r.get("task_id")==x["id"]],worker.get("telemetry"))
+                     for x in queue if x["state"]!="human"},
+        "worker":{
+            "connection":connection,
+            "online":online,
+            "ttl_seconds":worker["ttl_seconds"],
+            "last_seen":last_seen or None,
+            "heartbeat_age_seconds":round(max(0.0,time.time()-last_seen),1) if last_seen else None,
+            "active_task_id":active_task_id or None,
+            "last_error":worker["last_error"] or "",
+            "node":{k:worker["node"].get(k) for k in _DELEGATION_NODE_FIELDS if k in worker["node"]},
+        },
+        "active_task":next((x for x in queue if x["id"]==active_task_id),None) if active_task_id else None,
+        "next_task":next((x for x in queue if x["state"]=="queued"),None),
+        "recent_results":results[-10:],
+        "counts":counts,
+        "safety":{"secrets_returned":False,"main_push_forbidden":True,"production_direct_deploy_forbidden":True,
+                  "human_publish_approval_required":True},
+    }
+    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
+                               FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,
+                               FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,
+                               FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8]
+    return _redact_board_value(board,sorted(secret_values,key=len,reverse=True))
+
+def get_repository_autopilot_state():
+    roadmap_path=BASE/"ROADMAP.md"
+    status_path=BASE/".autopilot"/"status.json"
+    decisions_path=BASE/"DECISIONS.md"
+    tasks=_parse_roadmap_tasks()
     pending=[x for x in tasks if not x["done"]]
     safe_pending=[x for x in pending if not x["human"]]
     human_pending=[x for x in pending if x["human"]]
@@ -9352,6 +9658,12 @@ def get_repository_autopilot_state():
 @app.get("/api/factory/autopilot")
 def factory_autopilot_status():
     return get_repository_autopilot_state()
+
+@app.get("/api/factory/delegation-board")
+def factory_delegation_board(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return get_delegation_board()
 
 @app.get("/api/factory/builder")
 def factory_builder_status():
