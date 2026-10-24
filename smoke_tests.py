@@ -26,7 +26,7 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v5.3.0","version mismatch")
+require(health["version"]==app.APP_VERSION=="v5.3.1","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -50,8 +50,27 @@ require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log mus
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
 connections=app.get_connection_registry()
 require("Telegram" in connections and "Claude Code Pro" in connections,"owner/automation connections missing")
+require("HubSpot" in connections and connections["HubSpot"]["portable"] is True,"CRM portability connection missing")
+for provider in ("Metricool","YouTube","Instagram","TikTok","HubSpot"):
+    require(provider in connections and connections[provider].get("secrets_exposed") is False,f"{provider} portability metadata missing")
+require("@blackboxlab" not in json.dumps(connections,ensure_ascii=False),"connection registry must not hard-code the owner's social identity")
 require(connections["Claude Code Pro"]["state"]=="not_configured","CI must not fake a live Claude Pro runner")
 require(app.get_claude_code_status()["online"] is False,"CI must not report Claude worker online")
+
+# v5.3.1 account portability — a workspace can detach provider identities without deleting content.
+orig_metricool=(app.FACTORY_METRICOOL_TOKEN,app.FACTORY_METRICOOL_USER_ID,app.FACTORY_METRICOOL_BLOG_ID)
+con=app.db();con.execute("DELETE FROM integration_accounts WHERE workspace_key=?",(app.INTEGRATION_WORKSPACE_KEY,));con.commit();con.close()
+try:
+    app.FACTORY_METRICOOL_TOKEN="ci-token";app.FACTORY_METRICOOL_USER_ID="ci-user";app.FACTORY_METRICOOL_BLOG_ID="ci-blog"
+    require(app._portable_connection("YouTube")["state"]=="connected","legacy Metricool credentials should expose a replaceable YouTube binding")
+    app._integration_set("YouTube","disconnected",auth_mode="via_metricool",connected_via="metricool")
+    require(app._portable_connection("YouTube")["state"]=="disconnected","YouTube disconnect override must be durable")
+    require(app._metricool_configured() is True,"one social disconnect must not disable Metricool transport")
+    app._integration_set("Metricool","disconnected",auth_mode="server_credentials",connected_via="metricool")
+    require(app._metricool_configured() is False,"Metricool disconnect must disable the publishing transport")
+finally:
+    app.FACTORY_METRICOOL_TOKEN,app.FACTORY_METRICOOL_USER_ID,app.FACTORY_METRICOOL_BLOG_ID=orig_metricool
+    con=app.db();con.execute("DELETE FROM integration_accounts WHERE workspace_key=?",(app.INTEGRATION_WORKSPACE_KEY,));con.commit();con.close()
 def claude_result(**overrides):
     base=dict(task_id="T-508",pinned_task_id="T-508",result="done",branch="autopilot-ci",summary="ci",commit="a"*40,commit_count=1,files=["ROADMAP.md"],exit_code=0,max_turns=80,timeout_seconds=3600)
     return app.ClaudeWorkerTaskResult(**{**base,**overrides})
@@ -175,6 +194,14 @@ require("adapters" in brain and "rss" in brain["adapters"],"source adapter regis
 require("verified" in brain["summary"] and "feeds_configured" in brain["summary"],"Content Brain summary fields missing")
 for path,method in (("/guest","GET"),("/api/viewer-invite","GET"),("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/reject","POST"),("/api/approval","GET"),("/api/jobs/{job_id}/approval/history","GET"),("/api/jobs/{job_id}/approval/quote/{component}","GET"),("/api/jobs/{job_id}/approval/regenerate","POST"),("/api/jobs/{job_id}/idea-link/{idea_id}","POST"),("/api/publisher-adapters","GET"),("/api/publishing","GET"),("/api/publishing/{publish_id}/schedule","POST"),("/api/publishing/{publish_id}/publish","POST"),("/api/publishing/{publish_id}/confirm","POST"),("/api/publishing/run-due","POST"),("/api/analytics-adapters","GET"),("/api/performance","GET"),("/api/performance/{publish_id}","GET"),("/api/performance/snapshots","POST"),("/api/performance/{publish_id}/sync","POST"),("/api/self-improvement","GET"),("/api/workflow/active","GET"),("/api/experiments","GET"),("/api/improvements","POST"),("/api/improvements/{proposal_id}/experiment","POST"),("/api/experiments/{experiment_id}/assign","POST"),("/api/experiments/{experiment_id}/evaluate","POST"),("/api/experiments/{experiment_id}/rollout","POST"),("/api/experiments/{experiment_id}/rollback","POST"),("/api/experiments/{experiment_id}/reject","POST"),("/api/factory/autopilot","GET"),("/api/factory-cycles","GET"),("/api/factory-cycles","POST"),("/api/factory-cycles/{cycle_id}","GET"),("/api/factory-cycles/{cycle_id}/quote","GET"),("/api/factory-cycles/{cycle_id}/run","POST"),("/api/factory-cycles/{cycle_id}/sync","POST"),("/api/factory-cycles/{cycle_id}/learn","POST"),("/api/factory-cycles/{cycle_id}/next","POST"),("/api/discovery","GET"),("/api/discovery/candidates","POST"),("/api/discovery/collect","POST"),("/api/discovery/{candidate_id}/revideo","POST"),("/api/revideo","GET"),("/api/revideo","POST"),("/api/revideo/adapters","GET"),("/api/revideo/{project_id}","GET"),("/api/revideo/{project_id}/quote","GET"),("/api/revideo/{project_id}/analyze","POST"),("/api/revideo/{project_id}/create-job","POST"),("/api/revideo/{project_id}/render","POST"),("/api/media-jobs","GET"),("/api/media-jobs/{media_job_id}","GET"),("/api/media-jobs/{media_job_id}/refresh","POST"),("/api/media-jobs/{media_job_id}/callback","POST"),("/api/media-finisher/profiles","GET"),("/api/media-finisher","GET"),("/api/media-finisher/{edit_job_id}","GET"),("/api/jobs/{job_id}/media-finisher","POST"),("/api/media-finisher/{edit_job_id}/refresh","POST"),("/api/media-finisher/{edit_job_id}/archive","POST"),("/api/media-finisher/{edit_job_id}/callback","POST"),("/api/media-finisher/{edit_job_id}/rerun/{stage}","POST"),("/api/jobs/{job_id}/media-finisher/upload","POST"),("/media-source/{upload_id}","GET"),("/media-archive/{archive_id}","GET"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
     require(route_exists(path,method),f"route missing: {method} {path}")
+
+for path,method in (
+    ("/api/integrations","GET"),
+    ("/api/integrations/{provider}/disconnect","POST"),
+    ("/api/integrations/{provider}/connect","POST"),
+    ("/api/integrations/{provider}/switch","POST"),
+):
+    require(route_exists(path,method),f"Integration portability route missing: {method} {path}")
 
 for path,method in (
     ("/api/factory/telegram/status","GET"),
