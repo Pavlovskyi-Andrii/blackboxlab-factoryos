@@ -132,6 +132,7 @@ def test_done_with_evidence():
     payload = dg.result_payload(evidence)
     assert payload["task_id"] == payload["pinned_task_id"] == "T-003"
     assert payload["commit"] == evidence["commits"][0]["sha"] and payload["commit_count"] == 1
+    assert payload["started_at"] == evidence["started_at"] and payload["started_at"] > 0, "timeline needs the observed start"
 
     posted = []
 

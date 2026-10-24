@@ -128,7 +128,7 @@ Rules:
   Goal: add a dedicated Worker page: left column = ChatGPT/Planner queue and hierarchy; right column = Claude runner live state; top summary = online, current task, progress counts, branch and heartbeat age.
   DONE: desktop two-column and mobile stacked fixtures render queued/in-progress/done/blocked tasks, online/offline/stale worker, branch, stage, elapsed, CPU/memory when known, and remaining safe/HUMAN counts.
 
-- [ ] T-536-E Delegation execution timeline
+- [x] T-536-E Delegation execution timeline
   Planner: ChatGPT
   Parent: T-536
   Depends: T-536-D

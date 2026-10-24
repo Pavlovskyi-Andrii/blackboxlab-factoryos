@@ -105,3 +105,23 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** this runner has no Node and no network access. Locally, `test_delegation_ui.py` runs its static checks and reports the fixture render as `SKIPPED`, never as passed. CI sets `FACTORYOS_REQUIRE_NODE=1`, which turns a missing Node into a failure.
   **Reason:** CI enforces the check, and the local result stays honest.
+
+## 2026-10-24 — T-536-E Delegation execution timeline
+
+- **Decision:** the server builds the timeline (`build_delegation_timeline`, exposed as `timelines[task_id]` on the owner-only delegation board) for every non-HUMAN task, with fixed steps `queued → picked → running → checks → commit → push → outcome`. Each event has `status`: `observed` (backed by a ROADMAP line, heartbeat or verified result), `unavailable` (should have happened but was never reported), `pending` (not reached yet) or `skipped` (the run ended blocked/failed first). The outcome event carries the real `done|blocked|failed` result.
+  **Reason:** one factual read model that the UI and tests share. The four statuses keep "we don't know" separate from "hasn't happened", so nothing has to be invented.
+
+- **Decision:** what the timeline does not claim: ROADMAP has no queue timestamps, so `queued` is observed with `at: null` and the ROADMAP line number. Checks list the commands the worker reported, with `passed: null`, because workers report commands, not per-command verdicts. `push` stays `unavailable`, because the runner pushes after reporting and FactoryOS never sees it. The only observed push is the agent's own forbidden push (`pushed: true`), and that is shown as a violation. ROADMAP-done tasks with no worker result show every middle step as unavailable.
+  **Reason:** the DONE criterion and design doc say: never infer a check, commit, push or cost that was not observed.
+
+- **Decision:** the delegation result payload now includes the evidence `started_at` (optional `started_at` on `ClaudeWorkerTaskResult`). At ingest it is kept only when it is a finite epoch no later than receive time + 60 s. Older results without it render "time unavailable" for picked/running. For the running task, picked/running come from the heartbeat, and the start time comes from `telemetry.task_started_at` only when the stage is `running`.
+  **Reason:** the adapter already measured the start. Sending it is additive and backward compatible, and the bound stops a worker from forging future times.
+
+- **Decision:** the commit event links `https://github.com/{FACTORY_GITHUB_REPO}/commit/{sha}` (built only from a validated hex SHA and repo slug; the UI only renders `https://github.com/` links). A commit that has not been pushed yet may 404 there. The link is evidence of *which* commit, not a claim that it was pushed.
+  **Reason:** the exact commit and its CI checks are one click away without FactoryOS calling GitHub.
+
+- **Decision:** the UI shows the timeline in the worker column: for the active task by default, otherwise for the last result's task. Every task card gets a "Timeline" button that selects it. On ≤820px the selected timeline opens as a fixed bottom sheet with a Close button, as the design doc asks. The renderers stay pure and fixture-tested.
+  **Reason:** the queue stays readable on phones, and no new page or API is needed.
+
+- **Decision:** fixed `test_delegation_ui.py` block extraction. It used to start the extracted code in the middle of the `delegation-center:begin` marker comment, so under Node the harness hit a SyntaxError before rendering anything. The T-536-D fixture render had only ever been SKIPPED locally. Node is now available on this runner and the full fixture render (T-536-D checks plus the new timeline checks) passes.
+  **Reason:** CI with `FACTORYOS_REQUIRE_NODE=1` would have failed. The fix only changes where extraction starts; every assertion is kept.

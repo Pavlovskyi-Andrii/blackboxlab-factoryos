@@ -336,7 +336,9 @@ def ingest_claude_worker_result(payload: "ClaudeWorkerTaskResult"):
     if result=="done" and (data["commit_count"]!=1 or not re.match(r"^[0-9a-f]{7,40}$",data["commit"] or "")):
         violations.append("done result lacks exactly one captured commit")
     if violations:result="failed"
-    record={**data,"task_id":task_id,"result":result,"violations":violations,"received_at":time.time(),
+    received_at=time.time()
+    record={**data,"task_id":task_id,"result":result,"violations":violations,"received_at":received_at,
+            "started_at":_timeline_ts(data["started_at"],received_at),
             "summary":data["summary"][:500],"need":data["need"][:500],"checks":[str(x)[:300] for x in data["checks"]][:20],
             "files":[str(x)[:300] for x in data["files"]][:100]}
     CLAUDE_WORKER_RESULTS_FILE.parent.mkdir(parents=True,exist_ok=True)
@@ -2203,6 +2205,7 @@ class ClaudeWorkerTaskResult(BaseModel):
     exit_code: int | None = None
     timed_out: bool = False
     duration_seconds: float = 0
+    started_at: float | None = None
     max_turns: int = 0
     timeout_seconds: int = 0
     violations: list[str] = []
@@ -9476,7 +9479,73 @@ def _redact_board_value(value, secret_values):
 
 _DELEGATION_NODE_FIELDS=("node_id","hostname","platform","claude_version","auth_mode","subscription","branch","repo","status")
 _DELEGATION_RESULT_FIELDS=("task_id","result","branch","summary","need","checks","commit","commit_count","files","exit_code",
-                           "timed_out","duration_seconds","violations","received_at")
+                           "timed_out","duration_seconds","violations","received_at","started_at","pushed")
+_TIMELINE_AFTER_PICK=("checks","commit","push","outcome")
+
+def _timeline_ts(value, upper):
+    """Accept only a plausible epoch timestamp observed no later than `upper` (+60 s clock skew)."""
+    if isinstance(value,bool) or not isinstance(value,(int,float)) or value!=value or value<=0 or value==float("inf"):return None
+    return float(value) if value<=float(upper)+60 else None
+
+def _timeline_event(kind, status, source=None, at=None, **detail):
+    return {"kind":kind,"status":status,"source":source,"at":at,**detail}
+
+def _commit_url(sha):
+    if not re.match(r"^[0-9a-f]{7,40}$",sha or "") or not re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",GITHUB_REPO or ""):return None
+    return f"https://github.com/{GITHUB_REPO}/commit/{sha}"
+
+def build_delegation_timeline(task, attempts, telemetry=None, now=None):
+    """Factual lifecycle of one board task: queued -> picked -> running -> checks -> commit -> push -> outcome.
+
+    Only reported evidence becomes an `observed` event. Everything else is `unavailable` (expected but never
+    reported), `pending` (not reached yet) or `skipped` (the run ended blocked/failed first). Nothing is inferred.
+    """
+    now=time.time() if now is None else now
+    telemetry=telemetry or {}
+    latest=attempts[-1] if attempts else None
+    events=[_timeline_event("queued","observed","roadmap",roadmap_line=task.get("roadmap_line"))]
+    if task.get("state")=="running":
+        phase="running"
+        started=_timeline_ts(telemetry.get("task_started_at"),now) if telemetry.get("stage")=="running" else None
+        events+=[_timeline_event("picked","observed","heartbeat",started),
+                 _timeline_event("running","observed","heartbeat",started,stage=telemetry.get("stage"),
+                                 elapsed_seconds=telemetry.get("elapsed_seconds") if started else None)]
+        events+=[_timeline_event(k,"pending") for k in _TIMELINE_AFTER_PICK]
+    elif latest:
+        phase="result"
+        result=str(latest.get("result") or "failed")
+        ended=result in {"blocked","failed"}
+        received=_timeline_ts(latest.get("received_at"),now)
+        started=_timeline_ts(latest.get("started_at"),received or now)
+        events+=[_timeline_event("picked","observed","worker_result",started),
+                 _timeline_event("running","observed","worker_result",started,duration_seconds=latest.get("duration_seconds"),
+                                 exit_code=latest.get("exit_code"),timed_out=bool(latest.get("timed_out")))]
+        checks=[str(x) for x in (latest.get("checks") or [])]
+        # Workers report the commands they ran, not a per-command verdict, so per-check pass/fail stays None.
+        events.append(_timeline_event("checks","observed","worker_result",items=[{"command":c,"passed":None} for c in checks])
+                      if checks else _timeline_event("checks","skipped" if ended else "unavailable"))
+        sha=str(latest.get("commit") or "")
+        if re.match(r"^[0-9a-f]{7,40}$",sha):
+            files=[str(x) for x in (latest.get("files") or [])]
+            events.append(_timeline_event("commit","observed","worker_result",sha=sha,url=_commit_url(sha),
+                                          commit_count=latest.get("commit_count"),files=files,file_count=len(files)))
+        else:
+            events.append(_timeline_event("commit","skipped" if ended else "unavailable"))
+        if latest.get("pushed"):
+            events.append(_timeline_event("push","observed","worker_result",violation=True))
+        else:
+            # The runner pushes after reporting; FactoryOS never observes that push, so it is not claimed.
+            events.append(_timeline_event("push","skipped" if ended and not re.match(r"^[0-9a-f]{7,40}$",sha) else "unavailable"))
+        events.append(_timeline_event("outcome","observed","worker_result",received,result=result,summary=latest.get("summary") or "",
+                                      need=latest.get("need") or "",violations=list(latest.get("violations") or [])))
+    elif task.get("done"):
+        phase="roadmap"
+        events+=[_timeline_event(k,"unavailable") for k in ("picked","running","checks","commit","push")]
+        events.append(_timeline_event("outcome","observed","roadmap",result="done"))
+    else:
+        phase="queued"
+        events+=[_timeline_event(k,"pending") for k in ("picked","running")+_TIMELINE_AFTER_PICK]
+    return {"task_id":task["id"],"phase":phase,"attempts":len(attempts),"events":events}
 
 def get_delegation_board():
     """Owner-safe read model: ROADMAP queue + Claude worker state + verified results. Never returns tokens."""
@@ -9516,6 +9585,8 @@ def get_delegation_board():
                      for p in dict.fromkeys(x["parent"] for x in tasks if x["parent"])],
         "tree":_roadmap_task_tree(queue),
         "provenance":{key:sum(1 for x in tasks if x["source"]==key) for key in dict.fromkeys(x["source"] for x in tasks)},
+        "timelines":{x["id"]:build_delegation_timeline(x,[r for r in results if r.get("task_id")==x["id"]],worker.get("telemetry"))
+                     for x in queue if x["state"]!="human"},
         "worker":{
             "connection":connection,
             "online":online,

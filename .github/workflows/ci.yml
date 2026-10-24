@@ -110,3 +110,10 @@ jobs:
         env:
           FACTORYOS_REQUIRE_NODE: "1"
         run: python test_delegation_ui.py
+      - name: Delegation execution timeline regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile test_delegation_timeline.py
+          python test_delegation_timeline.py

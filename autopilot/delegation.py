@@ -284,6 +284,7 @@ def result_payload(evidence: dict[str, Any]) -> dict[str, Any]:
         "exit_code": evidence.get("exit_code"),
         "timed_out": bool(evidence.get("timed_out")),
         "duration_seconds": evidence.get("duration_seconds") or 0,
+        "started_at": evidence.get("started_at"),
         "max_turns": evidence["max_turns"],
         "timeout_seconds": evidence["timeout_seconds"],
         "violations": list(evidence.get("violations") or [])[:20],
