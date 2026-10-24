@@ -114,7 +114,7 @@ Rules:
   Goal: extend heartbeat/runtime telemetry with current stage, task start/elapsed time, branch/head, queue depth, safe CPU percent and memory usage when available, with null/unsupported fallbacks.
   DONE: heartbeat regression persists and renders telemetry without secrets; Linux/Termux metrics are numeric when available and unsupported platforms degrade cleanly.
 
-- [ ] T-536-C Planner hierarchy + delegation provenance
+- [x] T-536-C Planner hierarchy + delegation provenance
   Planner: ChatGPT
   Parent: T-536
   Depends: T-536-A

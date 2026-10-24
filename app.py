@@ -9384,25 +9384,37 @@ async def call_agent_mcp_tool(agent_name:str,connection_id:str,item:McpToolCall)
     except Exception as exc:
         raise HTTPException(502,str(exc))
 
+_ROADMAP_META_KEYS={"planner":"planner","parent":"parent","depends":"depends","goal":"goal","done":"done_criteria",
+                    "need":"need","progress":"progress"}
+_ROADMAP_TEXT_KEYS=("goal","done_criteria","need","progress")
+
 def _parse_roadmap_tasks(text=None):
     roadmap_path=BASE/"ROADMAP.md"
     tasks=[]
     current_version=""
+    last_key=""
     if text is None and roadmap_path.exists():text=roadmap_path.read_text(encoding="utf-8")
     if text:
-        for raw in text.splitlines():
+        for line_no,raw in enumerate(text.splitlines(),1):
             line=raw.strip()
             if line.startswith("## "):
-                current_version=line[3:].strip()
+                current_version=line[3:].strip();last_key=""
                 continue
             match=re.match(r"- \[([ xX])\]\s+(\[HUMAN\]\s+)?(T-[A-Za-z0-9-]+)\s+(.+)",line)
             if not match:
-                meta=re.match(r"(Planner|Parent|Depends):\s*(.*)",line)
-                if meta and tasks and raw[:1].isspace():
-                    key,value=meta.group(1).lower(),meta.group(2).strip()
+                if not (tasks and line and raw[:1].isspace()):
+                    last_key=""
+                    continue
+                meta=re.match(r"(Planner|Parent|Depends|Goal|DONE|Need|Progress):\s*(.*)",line)
+                if meta:
+                    key,value=_ROADMAP_META_KEYS[meta.group(1).lower()],meta.group(2).strip()
                     if key=="depends":tasks[-1]["depends"]=[x.strip() for x in value.split(",") if re.match(r"^T-[A-Za-z0-9-]+$",x.strip())]
                     else:tasks[-1][key]=value
+                    last_key=key
+                elif last_key in _ROADMAP_TEXT_KEYS:
+                    tasks[-1][last_key]=(tasks[-1][last_key]+" "+line).strip()
                 continue
+            last_key=""
             tasks.append({
                 "id":match.group(3),
                 "title":match.group(4).strip(),
@@ -9412,8 +9424,47 @@ def _parse_roadmap_tasks(text=None):
                 "planner":"",
                 "parent":"",
                 "depends":[],
+                "goal":"",
+                "done_criteria":"",
+                "need":"",
+                "progress":"",
+                "roadmap_line":line_no,
             })
+    for task in tasks:
+        task["source"]=task["planner"] or "roadmap"
+        task["provenance"]="planner" if task["planner"] else "legacy"
     return tasks
+
+def _roadmap_task_tree(queue):
+    """Nest ROADMAP tasks under their declared Parent; unknown parents and cycles fall back to roots."""
+    by_id={x["id"]:x for x in queue}
+    children={}
+    for task in queue:
+        if task["parent"] in by_id and task["parent"]!=task["id"]:children.setdefault(task["parent"],[]).append(task["id"])
+    placed=set()
+    def node(task_id,depth,trail):
+        placed.add(task_id)
+        task=by_id[task_id]
+        kids=[node(c,depth+1,trail|{c}) for c in children.get(task_id,[]) if c not in trail and c not in placed]
+        return {"id":task_id,"title":task["title"],"state":task["state"],"source":task["source"],"provenance":task["provenance"],
+                "planner":task["planner"],"parent":task["parent"],"depends":task["depends"],"goal":task["goal"],
+                "done_criteria":task["done_criteria"],"queue_position":task["queue_position"],"depth":depth,
+                "children_done":sum(1 for k in kids if k["state"]=="done"),"children_total":len(kids),"children":kids}
+    roots=[]
+    for task in queue:
+        if task["id"] in placed:continue
+        if task["parent"] in by_id and task["parent"]!=task["id"] and not _roadmap_parent_cycle(task["id"],by_id):continue
+        roots.append(node(task["id"],0,{task["id"]}))
+    for task in queue:
+        if task["id"] not in placed:roots.append(node(task["id"],0,{task["id"]}))
+    return roots
+
+def _roadmap_parent_cycle(task_id,by_id):
+    seen={task_id};current=by_id[task_id]["parent"]
+    while current in by_id:
+        if current in seen:return True
+        seen.add(current);current=by_id[current]["parent"]
+    return False
 
 def _redact_board_value(value, secret_values):
     if isinstance(value,dict):return {k:_redact_board_value(v,secret_values) for k,v in value.items()}
@@ -9450,7 +9501,8 @@ def get_delegation_board():
         else:state,source="queued","roadmap"
         if state=="queued":position+=1
         queue.append({**task,"state":state,"state_source":source,"queue_position":position if state=="queued" else None,
-                      "dependencies_met":all(d in done_ids for d in task["depends"]),"latest_result":latest})
+                      "dependencies_met":all(d in done_ids for d in task["depends"]),
+                      "unmet_dependencies":[d for d in task["depends"] if d not in done_ids],"latest_result":latest})
     counts={key:sum(1 for x in queue if x["state"]==key) for key in ("done","running","queued","blocked","human")}
     counts["total"]=len(queue)
     counts["safe_remaining"]=counts["running"]+counts["queued"]+counts["blocked"]
@@ -9462,6 +9514,8 @@ def get_delegation_board():
                       "done":sum(1 for c in queue if c["parent"]==p and c["state"]=="done"),
                       "total":sum(1 for c in queue if c["parent"]==p)}
                      for p in dict.fromkeys(x["parent"] for x in tasks if x["parent"])],
+        "tree":_roadmap_task_tree(queue),
+        "provenance":{key:sum(1 for x in tasks if x["source"]==key) for key in dict.fromkeys(x["source"] for x in tasks)},
         "worker":{
             "connection":connection,
             "online":online,

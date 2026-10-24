@@ -80,6 +80,9 @@ board_fixture=app._parse_roadmap_tasks("""## Fixture
 - [ ] T-902-A Running child
   Planner: ChatGPT
   Parent: T-902
+  Goal: build the child
+    across two lines
+  DONE: `python -m child_check` passes
 - [ ] T-902-B Blocked child
   Parent: T-902
   Depends: T-902-A, not-a-task
@@ -88,6 +91,27 @@ board_fixture=app._parse_roadmap_tasks("""## Fixture
 """)
 require([x["id"] for x in board_fixture]==["T-900","T-901","T-902","T-902-A","T-902-B","T-903"],"fixture ROADMAP parse regression")
 require(board_fixture[4]["depends"]==["T-902-A"] and board_fixture[3]["parent"]=="T-902" and board_fixture[5]["planner"]=="","fixture ROADMAP metadata regression")
+require(board_fixture[3]["goal"]=="build the child across two lines" and board_fixture[3]["done_criteria"]=="`python -m child_check` passes"
+        and board_fixture[3]["source"]=="ChatGPT" and board_fixture[3]["provenance"]=="planner" and board_fixture[3]["roadmap_line"]==7,
+        f"fixture ROADMAP goal/DONE/provenance regression: {board_fixture[3]}")
+require(board_fixture[1]["need"]=="owner secret" and board_fixture[5]["goal"]=="still parses" and board_fixture[5]["done_criteria"]==""
+        and board_fixture[5]["source"]=="roadmap" and board_fixture[5]["provenance"]=="legacy" and board_fixture[0]["done"] is True,"legacy ROADMAP entry compatibility regression")
+live_t536c=next(x for x in roadmap_tasks if x["id"]=="T-536-C")
+require(live_t536c["parent"]=="T-536" and live_t536c["source"]=="ChatGPT" and live_t536c["depends"]==["T-536-A"]
+        and live_t536c["goal"].startswith("make ROADMAP tasks readable") and live_t536c["done_criteria"].startswith("parser/API expose"),"live ROADMAP T-536-C metadata regression")
+live_t500=next(x for x in roadmap_tasks if x["id"]=="T-500")
+require(live_t500["provenance"]=="legacy" and live_t500["goal"] and live_t500["done_criteria"].startswith("`test -f ROADMAP.md"),"live legacy ROADMAP Goal/DONE regression")
+odd_tree=app._roadmap_task_tree([{**x,"state":"queued","queue_position":None} for x in app._parse_roadmap_tasks("""## Odd
+- [ ] T-1 Self parent
+  Parent: T-1
+- [ ] T-2 Cycle A
+  Parent: T-3
+- [ ] T-3 Cycle B
+  Parent: T-2
+- [ ] T-4 Orphan
+  Parent: T-404
+""")])
+require(sorted(n["id"] for n in odd_tree)==["T-1","T-2","T-4"] and next(n for n in odd_tree if n["id"]=="T-2")["children"][0]["id"]=="T-3","roadmap tree must survive self-parent, cycles and unknown parents")
 real_parse_roadmap,real_results_file,real_worker_runtime=app._parse_roadmap_tasks,app.CLAUDE_WORKER_RESULTS_FILE,dict(app.claude_worker_runtime)
 app._parse_roadmap_tasks=lambda text=None:[dict(x) for x in board_fixture]
 app.CLAUDE_WORKER_RESULTS_FILE=Path(os.environ["DATA_DIR"])/"delegation_board_fixture_results.json"
@@ -106,6 +130,14 @@ try:
     require(live["worker"]["connection"]=="online" and live["active_task"]["id"]=="T-902-A" and live["worker"]["node"]["branch"]=="autopilot-ci","board worker state regression")
     require(live["hierarchy"]==[{"parent":"T-902","parent_is_task":True,"children":["T-902-A","T-902-B"],"done":0,"total":2}],"board hierarchy regression")
     require(next(x for x in live["planner_queue"] if x["id"]=="T-902-B")["dependencies_met"] is False,"board dependency regression")
+    require(next(x for x in live["planner_queue"] if x["id"]=="T-902-B")["unmet_dependencies"]==["T-902-A"],"board unmet dependency regression")
+    require([n["id"] for n in live["tree"]]==["T-900","T-901","T-902","T-903"],f"board tree roots regression: {[n['id'] for n in live['tree']]}")
+    tree_parent=live["tree"][2]
+    require([c["id"] for c in tree_parent["children"]]==["T-902-A","T-902-B"] and tree_parent["children_total"]==2 and tree_parent["children"][0]["depth"]==1
+            and tree_parent["children"][0]["state"]=="running" and tree_parent["children"][0]["goal"]=="build the child across two lines"
+            and tree_parent["children"][0]["done_criteria"]=="`python -m child_check` passes" and tree_parent["children"][0]["source"]=="ChatGPT"
+            and tree_parent["children"][1]["depends"]==["T-902-A"] and tree_parent["children"][1]["source"]=="roadmap","board tree provenance regression")
+    require(live["provenance"]=={"roadmap":4,"ChatGPT":2},f"board provenance count regression: {live['provenance']}")
     require(live["recent_results"][-1]["task_id"]=="T-902-B" and "pinned_task_id" not in live["recent_results"][-1],"board recent result regression")
     board_json=json.dumps(live)
     require(app.FACTORY_CLAUDE_WORKER_TOKEN not in board_json and app.FACTORY_SECRET not in board_json and "ci:" not in board_json and "token" not in board_json.lower(),"delegation board must never return worker tokens or secrets")
