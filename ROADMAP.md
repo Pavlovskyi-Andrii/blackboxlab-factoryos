@@ -171,3 +171,36 @@ Rules:
 - [ ] T-542 Publishing dry-run evidence
   Goal: validate the exact immutable media+metadata snapshot that would be sent to YouTube Shorts, TikTok and Instagram Reels without making a real external post.
   DONE: zero-spend dry-run produces a traceable publisher plan/receipt preview bound to the approved snapshot; no external post ID is fabricated and real publish still requires T-520/T-521.
+
+## v5.5 — Sellable Workspaces + Account Portability
+
+- [x] T-550 Account portability foundation
+  Planner: ChatGPT
+  Goal: remove owner-specific social identity from the runtime connection registry, add durable workspace/provider binding metadata, expose safe Disconnect / Change account controls, add HubSpot as a CRM/Growth connector slot, and ensure disconnect never deletes FactoryOS content history.
+  DONE: deterministic regression proves Metricool / YouTube / Instagram / TikTok / HubSpot are portable connection slots, provider secrets never appear in the connection registry, YouTube can be detached independently, Metricool disconnect fences real publishing, and integration routes are owner-write protected by the existing auth middleware.
+
+- [ ] [HUMAN] T-551 Provider OAuth applications
+  Planner: ChatGPT
+  Depends: T-550
+  Need: owner creates/approves production OAuth applications and redirect URLs for Google/YouTube, TikTok, Meta/Instagram and HubSpot, plus any required provider review.
+  DONE: every provider has production client credentials stored only in secret environment/vault storage and an approved callback URL; no customer token is committed to Git.
+
+- [ ] T-552 OAuth callback + token vault
+  Planner: ChatGPT
+  Parent: T-550
+  Depends: T-551
+  Goal: implement provider-specific authorize/callback/refresh/revoke flows so a customer can connect, disconnect and replace accounts from FactoryOS without editing Render environment variables.
+  DONE: deterministic mocks cover OAuth state/PKCE where supported, token refresh, encrypted secret storage, revoke/disconnect and account replacement without exposing tokens to the browser or logs.
+
+- [ ] T-553 Workspace data tenancy
+  Planner: ChatGPT
+  Depends: T-550
+  Goal: scope jobs, artifacts, approvals, publishing queue, analytics, CRM attribution and integration bindings to a workspace/customer while preserving owner/admin observability.
+  DONE: two-workspace regression proves users cannot read or mutate each other's content, credentials, publishing queue or analytics; all background workers carry explicit workspace identity.
+
+- [ ] T-554 Customer onboarding + account replacement acceptance
+  Planner: ChatGPT
+  Depends: T-552,T-553
+  Goal: make a sellable onboarding flow where a new customer signs in, connects their own YouTube/TikTok/Instagram/HubSpot accounts, runs content, then safely disconnects/replaces all accounts without losing FactoryOS project history.
+  DONE: end-to-end acceptance covers customer A -> disconnect all -> customer B login/connect with zero credential or content leakage and preserved workspace-specific audit history.
+
