@@ -8443,6 +8443,17 @@ async def connect_integration(provider: str, payload: IntegrationConnectRequest=
     return {"ok":False,"state":"needs_oauth","provider":"HubSpot",
             "message":"HubSpot direct login is not configured in FactoryOS yet. The connector slot is ready, but each customer needs a separate OAuth authorization flow."}
 
+@app.post("/api/integrations/disconnect-all")
+async def disconnect_all_integrations():
+    affected=list(PORTABLE_INTEGRATIONS)
+    for name in affected:
+        _integration_set(name,"disconnected",auth_mode=PORTABLE_INTEGRATIONS[name]["auth_mode"],
+                         connected_via=PORTABLE_INTEGRATIONS[name]["transport"],
+                         meta={"reason":"owner_disconnect_all"})
+    event(None,"All portable integrations disconnected")
+    await broadcast({"type":"integration","provider":"all","state":"disconnected"})
+    return {"ok":True,"affected":affected,"history_preserved":True}
+
 @app.post("/api/integrations/{provider}/switch")
 async def switch_integration(provider: str):
     if provider not in PORTABLE_INTEGRATIONS:raise HTTPException(404,"Unknown integration")
