@@ -41,14 +41,18 @@ Rules:
   Need: owner places FACTORY_TELEGRAM_BOT_TOKEN in the existing FactoryOS Render secret environment, starts pairing in FactoryOS and sends the one-time `/pair CODE` command to the bot.
   DONE: `/api/factory/telegram/status` reports paired=true and a FactoryOS test push arrives in the paired chat.
 
-- [ ] [HUMAN] T-507 Authorize Claude Code Pro
-  Need: owner signs Claude Code into the Pro subscription and provisions a Claude Code OAuth token on the trusted runner; no API key is required for the first pass.
+- [x] [HUMAN] T-507 Authorize Claude Code Pro
+  Progress: trusted phone runner is authenticated through the Claude subscription; T-508 executed with ANTHROPIC_API_KEY unset.
   DONE: Claude Code status confirms subscription auth and no ANTHROPIC_API_KEY overrides it.
 
 - [x] T-508 Claude delegation adapter
   Goal: let FactoryOS delegate bounded Builder work to a Claude Code runner authenticated with the owner's Pro subscription, while keeping API PAYG disabled by default.
   Progress: `autopilot/delegation.py` pins one task per bounded Claude Code run, captures git/status evidence, fails closed on main/push/pin violations and reports to `POST /api/claude-worker/task-result`.
   DONE: deterministic regression proves task pinning, bounded execution, evidence capture and no direct main/prod action.
+
+- [x] T-509 Persistent Claude worker watch mode
+  Goal: keep the trusted runner alive while idle, retry a failed branch push without rerunning completed work, and automatically pick up newly added safe ROADMAP tasks.
+  DONE: `python -m autopilot.test_autopilot`; idle state is visible to heartbeat, polling defaults on, and `AUTOPILOT_DAEMON=0` preserves one-shot behavior.
 
 ## v5.1 — Viral Discovery Loop
 
@@ -85,3 +89,48 @@ Rules:
 - [x] T-522 Analytics return loop
   Goal: ingest factual platform metrics for the published post and attach them to the exact workflow/media/content snapshot.
   DONE: persisted analytics snapshot is traceable to external post ID and contains no fabricated metrics.
+
+
+## v5.3 — Reliability + Operator Clarity
+
+- [ ] T-530 CI baseline stabilization
+  Goal: restore a deterministic green local/CI baseline for the current branch without weakening, deleting or bypassing tests.
+  DONE: Python compile, Media Finisher planner tests, autopilot/Telegram/delegation tests and zero-spend smoke tests all pass; dashboard JavaScript validation remains enabled.
+
+- [ ] T-531 Worker Results completeness
+  Goal: make every canonical worker visibly answer “what went in, what it did, what came out, and what it cost” without fabricating unavailable metrics.
+  DONE: deterministic fixtures expose worker input, action, status, output, artifacts, duration, tokens and cost when known; unknown values render explicitly as unavailable and smoke tests cover the contract.
+
+- [ ] T-532 Live pipeline + handoff trace
+  Goal: make the main FactoryOS pipeline visually show current movement and worker-to-worker handoffs instead of only static cards.
+  DONE: a deterministic workflow fixture renders ordered source artifact -> worker run -> output -> downstream worker edges with running/done/blocked/failed states and a usable mobile fallback.
+
+- [ ] T-533 Explainability + tooltips
+  Goal: remove ambiguity around Hook, Script, Caption, Voice and the Cycle/Idea/Job/Review/Learned stages with concise contextual help.
+  DONE: EN/UK/RU tooltip/help copy exists for the canonical concepts, hover/focus/tap access is keyboard/mobile safe, and regression prevents missing help keys.
+
+- [ ] T-534 EN/UK/RU localization parity
+  Goal: remove mixed-language UI leftovers and keep the three supported locales structurally in sync.
+  DONE: an automated locale-parity regression catches missing canonical dashboard keys and the representative EN/UK/RU dashboard fixture contains no known cross-locale fallback strings.
+
+- [ ] T-535 Artifact + media viewer hardening
+  Goal: make agent artifacts and finished media reliably open from Worker Results, Trace Viewer and Approval flows while preserving signed-media/auth boundaries.
+  DONE: deterministic regression opens representative text, JSON, subtitle and video artifacts through the intended viewer/media routes with correct content handling and no broken known-artifact links.
+
+- [ ] T-536 Claude Worker Control Center
+  Goal: make the phone runner understandable from FactoryOS without exposing secrets: online/idle/running/blocked state, branch, current task, last heartbeat, last verified result, commit and checks.
+  DONE: Connections/Autopilot UI renders the heartbeat and verified delegation evidence states, stale workers are obvious, and smoke tests prove no worker token/secret is returned.
+
+## v5.4 — Revideo Production Hardening
+
+- [ ] T-540 Revideo zero-spend acceptance
+  Goal: prove the full safe content path Discovery candidate -> Revideo -> rewrite -> Content Package -> Media Finisher -> HUMAN APPROVAL on deterministic fixtures.
+  DONE: acceptance reaches waiting_approval with provenance and originality evidence intact, creates no real provider spend and cannot auto-publish.
+
+- [ ] T-541 Media Finisher operator preview
+  Goal: make the final-video review path obvious before approval, including source/final preview and the produced cuts/captions/audio/graphics artifacts that actually exist.
+  DONE: deterministic UI/API regression exposes available before/after media plus generated artifact links, gracefully marks absent optional artifacts, and preserves the approval gate.
+
+- [ ] T-542 Publishing dry-run evidence
+  Goal: validate the exact immutable media+metadata snapshot that would be sent to YouTube Shorts, TikTok and Instagram Reels without making a real external post.
+  DONE: zero-spend dry-run produces a traceable publisher plan/receipt preview bound to the approved snapshot; no external post ID is fabricated and real publish still requires T-520/T-521.

@@ -35,8 +35,13 @@ autopilot_state=app.get_repository_autopilot_state()
 require(autopilot_state["enabled"] is True,"repository autopilot contract must be enabled")
 require(autopilot_state["runner_present"] is True,"autopilot runner missing")
 require(autopilot_state["total"]>=8,"roadmap task parsing regression")
-require(autopilot_state["next_task"] is None,"all safe roadmap tasks are closed; only HUMAN blockers remain")
-require(autopilot_state["human_pending"]>=2,"real publisher and first real post must remain HUMAN blockers")
+roadmap_tasks=app._parse_roadmap_tasks()
+safe_roadmap=[x for x in roadmap_tasks if not x["done"] and not x["human"]]
+human_roadmap=[x for x in roadmap_tasks if not x["done"] and x["human"]]
+expected_next=safe_roadmap[0] if safe_roadmap else None
+require(autopilot_state["safe_pending"]==len(safe_roadmap),"safe roadmap count mismatch")
+require(autopilot_state["next_task"]==expected_next,"next safe roadmap task must match the first pending non-HUMAN task")
+require(autopilot_state["human_pending"]==len(human_roadmap) and autopilot_state["human_pending"]>=2,"real publisher and first real post must remain HUMAN blockers")
 require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log must be exposed")
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
 connections=app.get_connection_registry()
