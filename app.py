@@ -26,7 +26,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.3.0"
+APP_VERSION = "v5.3.1"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -943,12 +943,23 @@ supervisor_runtime = {
     "auto_heal": True,
 }
 
-# Local MVP knows only what was verified during setup. Standalone server cannot reuse ChatGPT plugin auth.
+# Connection metadata is intentionally separate from provider secrets. The current
+# deployment is one FactoryOS workspace, but bindings are stored with a workspace key so
+# provider accounts can be detached/replaced now and full tenant scoping can be added later.
+INTEGRATION_WORKSPACE_KEY = "default"
+PORTABLE_INTEGRATIONS = {
+    "Metricool": {"category":"publishing","auth_mode":"server_credentials","transport":"metricool"},
+    "YouTube": {"category":"publishing","auth_mode":"via_metricool","transport":"metricool"},
+    "Instagram": {"category":"publishing","auth_mode":"via_metricool","transport":"metricool"},
+    "TikTok": {"category":"publishing","auth_mode":"via_metricool","transport":"metricool"},
+    "HubSpot": {"category":"crm","auth_mode":"oauth","transport":"direct"},
+}
 CONNECTIONS = {
-    "Metricool": {"state":"connected","detail":"Brand connected"},
-    "YouTube": {"state":"connected","detail":"Connected in Metricool"},
-    "Instagram": {"state":"connected","detail":"Connected in Metricool"},
-    "TikTok": {"state":"connected","detail":"@blackboxlab"},
+    "Metricool": {"state":"not_configured","detail":"Publishing workspace not configured"},
+    "YouTube": {"state":"not_configured","detail":"Connect a publishing account"},
+    "Instagram": {"state":"not_configured","detail":"Connect a publishing account"},
+    "TikTok": {"state":"not_configured","detail":"Connect a publishing account"},
+    "HubSpot": {"state":"not_configured","detail":"CRM / Growth · direct FactoryOS login not configured"},
     "vidIQ": {"state":"paused","detail":"Paused for now"},
     "LLM": {
         "state":"connected" if FACTORY_LLM_API_KEY else "demo",
@@ -958,8 +969,82 @@ CONNECTIONS = {
     "Video": {"state":"not_configured","detail":"Provider not selected"},
 }
 
+def _integration_row(provider, workspace_key=INTEGRATION_WORKSPACE_KEY):
+    con=db()
+    row=con.execute("""SELECT * FROM integration_accounts
+                       WHERE workspace_key=? AND provider=?""",(workspace_key,provider)).fetchone()
+    con.close()
+    if not row:return None
+    item=dict(row)
+    try:item["meta"]=json.loads(item.pop("meta_json") or "{}")
+    except Exception:item["meta"]={}
+    return item
+
+def _integration_set(provider,state,account_label="",external_account_id="",auth_mode="",connected_via="",meta=None,
+                     workspace_key=INTEGRATION_WORKSPACE_KEY):
+    if provider not in PORTABLE_INTEGRATIONS:
+        raise ValueError("Unsupported portable integration")
+    now=ts(); existing=_integration_row(provider,workspace_key)
+    connected_at=(existing or {}).get("connected_at")
+    if state=="connected" and not connected_at:connected_at=now
+    disconnected_at=now if state=="disconnected" else None
+    con=db()
+    con.execute("""INSERT INTO integration_accounts(
+        workspace_key,provider,state,account_label,external_account_id,auth_mode,connected_via,
+        meta_json,connected_at,disconnected_at,created_at,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(workspace_key,provider) DO UPDATE SET
+        state=excluded.state,account_label=excluded.account_label,
+        external_account_id=excluded.external_account_id,auth_mode=excluded.auth_mode,
+        connected_via=excluded.connected_via,meta_json=excluded.meta_json,
+        connected_at=excluded.connected_at,disconnected_at=excluded.disconnected_at,
+        updated_at=excluded.updated_at""",(
+        workspace_key,provider,state,account_label,external_account_id,auth_mode,connected_via,
+        json.dumps(meta or {},ensure_ascii=False),connected_at,disconnected_at,
+        (existing or {}).get("created_at") or now,now
+    ))
+    con.commit();con.close()
+    return _integration_row(provider,workspace_key)
+
+def _integration_explicitly_disconnected(provider,workspace_key=INTEGRATION_WORKSPACE_KEY):
+    row=_integration_row(provider,workspace_key)
+    return bool(row and row.get("state")=="disconnected")
+
+def _metricool_credentials_present():
+    return bool(FACTORY_METRICOOL_TOKEN and FACTORY_METRICOOL_USER_ID and FACTORY_METRICOOL_BLOG_ID)
+
+def _portable_connection(provider):
+    spec=PORTABLE_INTEGRATIONS[provider]
+    row=_integration_row(provider)
+    disconnected=bool(row and row.get("state")=="disconnected")
+    if provider=="Metricool":
+        ready=_metricool_credentials_present() and not disconnected
+        state="connected" if ready else ("disconnected" if disconnected else "not_configured")
+        detail=(row or {}).get("account_label") or ("Publisher credentials ready" if ready else
+               ("Disconnected · content history kept" if disconnected else "Add workspace publisher credentials"))
+    elif provider in ("YouTube","Instagram","TikTok"):
+        ready=_metricool_credentials_present() and not _integration_explicitly_disconnected("Metricool") and not disconnected
+        state="connected" if ready else ("disconnected" if disconnected else "not_configured")
+        detail=(row or {}).get("account_label") or (f"Available via Metricool · replaceable" if ready else
+               ("Disconnected · content history kept" if disconnected else "Connect a publishing account"))
+    else:  # HubSpot direct runtime auth is intentionally not borrowed from ChatGPT.
+        ready=bool(row and row.get("state")=="connected" and row.get("auth_mode")=="oauth")
+        state="connected" if ready else ("disconnected" if disconnected else "not_configured")
+        detail=(row or {}).get("account_label") or ("Disconnected · CRM history kept" if disconnected else
+               "CRM / Growth · per-workspace OAuth slot ready")
+    return {
+        "state":state,"detail":detail,"portable":True,
+        "category":spec["category"],"auth_mode":spec["auth_mode"],"transport":spec["transport"],
+        "account_label":(row or {}).get("account_label") or "",
+        "external_account_id":(row or {}).get("external_account_id") or "",
+        "can_disconnect":state=="connected","can_switch":True,
+        "secrets_exposed":False,
+    }
+
 def get_connection_registry():
     registry={k:dict(v) for k,v in CONNECTIONS.items()}
+    for provider in PORTABLE_INTEGRATIONS:
+        registry[provider]=_portable_connection(provider)
     tg=_telegram_public_status()
     registry["Telegram"]={
         "state":"connected" if tg.get("paired") else "not_configured",
@@ -1099,6 +1184,23 @@ def init_db():
       ts TEXT NOT NULL,
       message TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS integration_accounts(
+      workspace_key TEXT NOT NULL DEFAULT 'default',
+      provider TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'disconnected',
+      account_label TEXT DEFAULT '',
+      external_account_id TEXT DEFAULT '',
+      auth_mode TEXT DEFAULT '',
+      connected_via TEXT DEFAULT '',
+      meta_json TEXT DEFAULT '{}',
+      connected_at TEXT,
+      disconnected_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(workspace_key, provider)
+    );
+    CREATE INDEX IF NOT EXISTS idx_integration_accounts_workspace
+      ON integration_accounts(workspace_key, provider);
     CREATE TABLE IF NOT EXISTS system_verifications(
       tag TEXT PRIMARY KEY,
       status TEXT NOT NULL,
@@ -7166,7 +7268,7 @@ def link_job_idea(job_id,idea_id):
     return {"job_id":job_id,"idea_id":idea_id}
 
 def _metricool_configured():
-    return bool(FACTORY_METRICOOL_TOKEN and FACTORY_METRICOOL_USER_ID and FACTORY_METRICOOL_BLOG_ID)
+    return bool(_metricool_credentials_present() and not _integration_explicitly_disconnected("Metricool"))
 
 def get_publisher_adapter_registry():
     webhook=bool(FACTORY_PUBLISHER_ENDPOINT)
@@ -7366,6 +7468,9 @@ def _publish_via_metricool(item,content,media):
     if not _metricool_configured():
         raise RuntimeError("Metricool publisher requires FACTORY_METRICOOL_TOKEN, FACTORY_METRICOOL_USER_ID and FACTORY_METRICOOL_BLOG_ID")
     payload,scheduled_utc,network=_metricool_scheduler_payload(item,content,media)
+    provider_name={"youtube":"YouTube","instagram":"Instagram","tiktok":"TikTok"}[network]
+    if _integration_explicitly_disconnected(provider_name):
+        raise RuntimeError(f"{provider_name} is disconnected from this FactoryOS workspace")
     query=urlparse.urlencode({"blogId":FACTORY_METRICOOL_BLOG_ID,"userId":FACTORY_METRICOOL_USER_ID})
     result=_metricool_json(f"{FACTORY_METRICOOL_BASE_URL}/api/v2/scheduler/posts?{query}","POST",payload)
     data=result.get("data") if isinstance(result.get("data"),dict) else result
@@ -8285,6 +8390,83 @@ def root():
 @app.get("/api/version")
 def version():
     return {"version":APP_VERSION,"build_sha":BUILD_SHA,"service":"factoryos"}
+
+class IntegrationConnectRequest(BaseModel):
+    account_label: Optional[str] = None
+    external_account_id: Optional[str] = None
+
+def _integration_public_payload(provider):
+    return {"provider":provider,**_portable_connection(provider)}
+
+@app.get("/api/integrations")
+def list_integrations():
+    return {
+        "workspace":INTEGRATION_WORKSPACE_KEY,
+        "connections":{k:_integration_public_payload(k) for k in PORTABLE_INTEGRATIONS},
+        "history_policy":"Disconnecting an account never deletes FactoryOS jobs, artifacts, approvals or analytics.",
+        "tenant_scope":"Provider bindings are workspace-ready; production content data is still single-workspace in this deployment.",
+    }
+
+@app.post("/api/integrations/{provider}/disconnect")
+async def disconnect_integration(provider: str):
+    if provider not in PORTABLE_INTEGRATIONS:raise HTTPException(404,"Unknown integration")
+    affected=[provider]
+    if provider=="Metricool":
+        affected=["Metricool","YouTube","Instagram","TikTok"]
+    for name in affected:
+        _integration_set(name,"disconnected",auth_mode=PORTABLE_INTEGRATIONS[name]["auth_mode"],
+                         connected_via=PORTABLE_INTEGRATIONS[name]["transport"],
+                         meta={"reason":"owner_disconnect"})
+    event(None,f"Integration disconnected: {provider}" + (" + publishing channels" if provider=="Metricool" else ""))
+    await broadcast({"type":"integration","provider":provider,"state":"disconnected"})
+    return {"ok":True,"affected":affected,"connection":_integration_public_payload(provider)}
+
+@app.post("/api/integrations/{provider}/connect")
+async def connect_integration(provider: str, payload: IntegrationConnectRequest=IntegrationConnectRequest()):
+    if provider not in PORTABLE_INTEGRATIONS:raise HTTPException(404,"Unknown integration")
+    label=(payload.account_label or "").strip()[:180]
+    external_id=(payload.external_account_id or "").strip()[:180]
+    if provider in ("Metricool","YouTube","Instagram","TikTok"):
+        if not _metricool_credentials_present():
+            return {"ok":False,"state":"needs_setup","provider":provider,
+                    "message":"No reusable Metricool workspace credentials are configured. Use Connect another account after OAuth/credential setup."}
+        if provider!="Metricool" and _integration_explicitly_disconnected("Metricool"):
+            return {"ok":False,"state":"needs_setup","provider":provider,
+                    "message":"Metricool transport is disconnected. Reconnect Metricool before enabling social channels."}
+        row=_integration_set(provider,"connected",account_label=label or "Current publisher workspace",
+                             external_account_id=external_id,auth_mode=PORTABLE_INTEGRATIONS[provider]["auth_mode"],
+                             connected_via="metricool",meta={"credential_source":"server_secret"})
+        event(None,f"Integration enabled: {provider}")
+        await broadcast({"type":"integration","provider":provider,"state":"connected"})
+        return {"ok":True,"connection":_integration_public_payload(provider),"binding":bool(row)}
+    # HubSpot: ChatGPT's OAuth grant is deliberately not copied into the standalone product.
+    return {"ok":False,"state":"needs_oauth","provider":"HubSpot",
+            "message":"HubSpot direct login is not configured in FactoryOS yet. The connector slot is ready, but each customer needs a separate OAuth authorization flow."}
+
+@app.post("/api/integrations/disconnect-all")
+async def disconnect_all_integrations():
+    affected=list(PORTABLE_INTEGRATIONS)
+    for name in affected:
+        _integration_set(name,"disconnected",auth_mode=PORTABLE_INTEGRATIONS[name]["auth_mode"],
+                         connected_via=PORTABLE_INTEGRATIONS[name]["transport"],
+                         meta={"reason":"owner_disconnect_all"})
+    event(None,"All portable integrations disconnected")
+    await broadcast({"type":"integration","provider":"all","state":"disconnected"})
+    return {"ok":True,"affected":affected,"history_preserved":True}
+
+@app.post("/api/integrations/{provider}/switch")
+async def switch_integration(provider: str):
+    if provider not in PORTABLE_INTEGRATIONS:raise HTTPException(404,"Unknown integration")
+    await disconnect_integration(provider)
+    return {
+        "ok":True,"provider":provider,"state":"disconnected","ready_for_new_account":True,
+        "next_step":(
+            "Authorize a new customer account through provider OAuth."
+            if provider=="HubSpot" else
+            "Authorize/replace the publisher workspace credentials for the new customer, then press Connect."
+        ),
+        "history_preserved":True,
+    }
 
 @app.get("/api/status")
 def status(request: Request=None):
