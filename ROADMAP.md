@@ -114,6 +114,11 @@ Rules:
   Goal: extend heartbeat/runtime telemetry with current stage, task start/elapsed time, branch/head, queue depth, safe CPU percent and memory usage when available, with null/unsupported fallbacks.
   DONE: heartbeat regression persists and renders telemetry without secrets; Linux/Termux metrics are numeric when available and unsupported platforms degrade cleanly.
 
+- [ ] T-537 Dependency-aware roadmap scheduler
+  Planner: ChatGPT
+  Goal: make the Claude worker honor Depends metadata before selecting a safe ROADMAP task, so blocked tasks are skipped instead of running prematurely; HUMAN tasks remain non-delegable.
+  DONE: deterministic regression proves a task with unmet dependencies is not selected, an unrelated safe task can still advance, completed dependencies unlock the task, and HUMAN blockers can never be auto-run.
+
 - [x] T-536-C Planner hierarchy + delegation provenance
   Planner: ChatGPT
   Parent: T-536
@@ -171,3 +176,12 @@ Rules:
 - [ ] T-542 Publishing dry-run evidence
   Goal: validate the exact immutable media+metadata snapshot that would be sent to YouTube Shorts, TikTok and Instagram Reels without making a real external post.
   DONE: zero-spend dry-run produces a traceable publisher plan/receipt preview bound to the approved snapshot; no external post ID is fabricated and real publish still requires T-520/T-521.
+
+## v5.5 — Sellable Workspaces + Account Portability
+
+- [ ] T-551-A OAuth framework scaffold
+  Planner: ChatGPT
+  Depends: T-537,T-550
+  Goal: build the credential-free provider-neutral OAuth framework for Google/YouTube, TikTok, Meta/Instagram and HubSpot: provider registry, authorize/callback route contracts, state/PKCE helpers, token-vault interface and deterministic mocked adapters, without real client secrets or external authorization.
+  DONE: zero-secret tests cover provider selection, state validation, PKCE where applicable, callback error handling, token-vault interface, revoke/disconnect contract and no token leakage to UI/logs.
+
