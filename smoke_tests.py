@@ -192,7 +192,7 @@ require(obj["decision"]=="shortlist","Content Brain JSON object parser regressio
 brain=app.get_content_brain()
 require("adapters" in brain and "rss" in brain["adapters"],"source adapter registry missing")
 require("verified" in brain["summary"] and "feeds_configured" in brain["summary"],"Content Brain summary fields missing")
-for path,method in (("/guest","GET"),("/api/viewer-invite","GET"),("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/reject","POST"),("/api/approval","GET"),("/api/jobs/{job_id}/approval/history","GET"),("/api/jobs/{job_id}/approval/quote/{component}","GET"),("/api/jobs/{job_id}/approval/regenerate","POST"),("/api/jobs/{job_id}/idea-link/{idea_id}","POST"),("/api/publisher-adapters","GET"),("/api/publishing","GET"),("/api/publishing/{publish_id}/schedule","POST"),("/api/publishing/{publish_id}/publish","POST"),("/api/publishing/{publish_id}/confirm","POST"),("/api/publishing/run-due","POST"),("/api/analytics-adapters","GET"),("/api/performance","GET"),("/api/performance/{publish_id}","GET"),("/api/performance/snapshots","POST"),("/api/performance/{publish_id}/sync","POST"),("/api/self-improvement","GET"),("/api/workflow/active","GET"),("/api/experiments","GET"),("/api/improvements","POST"),("/api/improvements/{proposal_id}/experiment","POST"),("/api/experiments/{experiment_id}/assign","POST"),("/api/experiments/{experiment_id}/evaluate","POST"),("/api/experiments/{experiment_id}/rollout","POST"),("/api/experiments/{experiment_id}/rollback","POST"),("/api/experiments/{experiment_id}/reject","POST"),("/api/factory/autopilot","GET"),("/api/factory-cycles","GET"),("/api/factory-cycles","POST"),("/api/factory-cycles/{cycle_id}","GET"),("/api/factory-cycles/{cycle_id}/quote","GET"),("/api/factory-cycles/{cycle_id}/run","POST"),("/api/factory-cycles/{cycle_id}/sync","POST"),("/api/factory-cycles/{cycle_id}/learn","POST"),("/api/factory-cycles/{cycle_id}/next","POST"),("/api/discovery","GET"),("/api/discovery/candidates","POST"),("/api/discovery/collect","POST"),("/api/discovery/{candidate_id}/revideo","POST"),("/api/revideo","GET"),("/api/revideo","POST"),("/api/revideo/adapters","GET"),("/api/revideo/{project_id}","GET"),("/api/revideo/{project_id}/quote","GET"),("/api/revideo/{project_id}/analyze","POST"),("/api/revideo/{project_id}/create-job","POST"),("/api/revideo/{project_id}/render","POST"),("/api/media-jobs","GET"),("/api/media-jobs/{media_job_id}","GET"),("/api/media-jobs/{media_job_id}/refresh","POST"),("/api/media-jobs/{media_job_id}/callback","POST"),("/api/media-finisher/profiles","GET"),("/api/media-finisher","GET"),("/api/media-finisher/{edit_job_id}","GET"),("/api/jobs/{job_id}/media-finisher","POST"),("/api/media-finisher/{edit_job_id}/refresh","POST"),("/api/media-finisher/{edit_job_id}/archive","POST"),("/api/media-finisher/{edit_job_id}/callback","POST"),("/api/media-finisher/{edit_job_id}/rerun/{stage}","POST"),("/api/jobs/{job_id}/media-finisher/upload","POST"),("/media-source/{upload_id}","GET"),("/media-archive/{archive_id}","GET"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
+for path,method in (("/guest","GET"),("/api/viewer-invite","GET"),("/health","GET"),("/api/version","GET"),("/api/status","GET"),("/api/release-readiness","GET"),("/api/intelligence","GET"),("/api/content-brain","GET"),("/api/content-brain/collect","POST"),("/api/content-brain/signals","POST"),("/api/content-brain/generate","POST"),("/api/content-brain/process","POST"),("/api/content-brain/ideas","POST"),("/api/content-brain/ideas/{idea_id}/status","POST"),("/api/media-adapters","GET"),("/api/jobs/{job_id}/content-package","GET"),("/api/jobs/{job_id}/content-package/generate","POST"),("/api/jobs/{job_id}/content-package/export.json","GET"),("/api/jobs/{job_id}/content-package/export.zip","GET"),("/api/jobs/{job_id}/variants","GET"),("/api/jobs/{job_id}/variants/generate","POST"),("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}","POST"),("/api/jobs/{job_id}/variants/{variant_id}/select","POST"),("/api/handoffs/{run_id}/{artifact_id}","GET"),("/api/jobs/{job_id}/approve","POST"),("/api/jobs/{job_id}/reject","POST"),("/api/approval","GET"),("/api/jobs/{job_id}/approval/history","GET"),("/api/jobs/{job_id}/approval/quote/{component}","GET"),("/api/jobs/{job_id}/approval/regenerate","POST"),("/api/jobs/{job_id}/idea-link/{idea_id}","POST"),("/api/publisher-adapters","GET"),("/api/publishing","GET"),("/api/publishing/{publish_id}/schedule","POST"),("/api/publishing/{publish_id}/publish","POST"),("/api/publishing/{publish_id}/confirm","POST"),("/api/publishing/{publish_id}/refresh","POST"),("/api/publishing/run-due","POST"),("/api/analytics-adapters","GET"),("/api/performance","GET"),("/api/performance/{publish_id}","GET"),("/api/performance/snapshots","POST"),("/api/performance/{publish_id}/sync","POST"),("/api/self-improvement","GET"),("/api/workflow/active","GET"),("/api/experiments","GET"),("/api/improvements","POST"),("/api/improvements/{proposal_id}/experiment","POST"),("/api/experiments/{experiment_id}/assign","POST"),("/api/experiments/{experiment_id}/evaluate","POST"),("/api/experiments/{experiment_id}/rollout","POST"),("/api/experiments/{experiment_id}/rollback","POST"),("/api/experiments/{experiment_id}/reject","POST"),("/api/factory/autopilot","GET"),("/api/factory-cycles","GET"),("/api/factory-cycles","POST"),("/api/factory-cycles/{cycle_id}","GET"),("/api/factory-cycles/{cycle_id}/quote","GET"),("/api/factory-cycles/{cycle_id}/run","POST"),("/api/factory-cycles/{cycle_id}/sync","POST"),("/api/factory-cycles/{cycle_id}/learn","POST"),("/api/factory-cycles/{cycle_id}/next","POST"),("/api/discovery","GET"),("/api/discovery/candidates","POST"),("/api/discovery/collect","POST"),("/api/discovery/{candidate_id}/revideo","POST"),("/api/revideo","GET"),("/api/revideo","POST"),("/api/revideo/adapters","GET"),("/api/revideo/{project_id}","GET"),("/api/revideo/{project_id}/quote","GET"),("/api/revideo/{project_id}/analyze","POST"),("/api/revideo/{project_id}/create-job","POST"),("/api/revideo/{project_id}/render","POST"),("/api/media-jobs","GET"),("/api/media-jobs/{media_job_id}","GET"),("/api/media-jobs/{media_job_id}/refresh","POST"),("/api/media-jobs/{media_job_id}/callback","POST"),("/api/media-finisher/profiles","GET"),("/api/media-finisher","GET"),("/api/media-finisher/{edit_job_id}","GET"),("/api/jobs/{job_id}/media-finisher","POST"),("/api/media-finisher/{edit_job_id}/refresh","POST"),("/api/media-finisher/{edit_job_id}/archive","POST"),("/api/media-finisher/{edit_job_id}/callback","POST"),("/api/media-finisher/{edit_job_id}/rerun/{stage}","POST"),("/api/jobs/{job_id}/media-finisher/upload","POST"),("/media-source/{upload_id}","GET"),("/media-archive/{archive_id}","GET"),("/api/jobs/{job_id}/agents/{agent_name}/rerun","POST")):
     require(route_exists(path,method),f"route missing: {method} {path}")
 
 for path,method in (
@@ -818,12 +818,15 @@ finally:
 metricool_globals=(
     app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_METRICOOL_TOKEN,app.FACTORY_METRICOOL_USER_ID,
     app.FACTORY_METRICOOL_BLOG_ID,app.FACTORY_METRICOOL_TIMEZONE,
-    app.FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS,app._metricool_json
+    app.FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS,app._metricool_json,app._metricool_normalize_media_url
 )
 captured_metricool={}
 def fake_metricool(url,method="GET",payload=None):
     captured_metricool.update({"url":url,"method":method,"payload":payload})
     return {"data":{"id":"metricool-schedule-ci","plannerUrl":"https://example.com/metricool/planner/ci"}}
+def fake_metricool_normalize(url):
+    captured_metricool["normalized_source"]=url
+    return "https://metricool.invalid/media/final-ci-current.mp4"
 try:
     app.FACTORY_PUBLISHER_ADAPTER="metricool"
     app.FACTORY_METRICOOL_TOKEN="ci-secret-never-render"
@@ -832,6 +835,7 @@ try:
     app.FACTORY_METRICOOL_TIMEZONE="Europe/Kyiv"
     app.FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS="false"
     app._metricool_json=fake_metricool
+    app._metricool_normalize_media_url=fake_metricool_normalize
     metricool_item={**pub,"platform":"youtube_shorts",
                     "scheduled_at":(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat()}
     metricool_result=app._publish_via_adapter(metricool_item)
@@ -844,8 +848,10 @@ try:
             "Metricool scheduler endpoint regression")
     require(mc_payload.get("providers")==[{"network":"youtube"}] and mc_payload.get("autoPublish") is True,
             "Metricool YouTube provider payload regression")
-    require(mc_payload.get("media")==["https://example.com/final-ci-current.mp4"] and mc_payload.get("saveExternalMediaFiles") is True,
-            "Metricool must receive the exact approved durable media URL")
+    require(captured_metricool.get("normalized_source")=="https://example.com/final-ci-current.mp4",
+            "Metricool normalization must start from the exact approved durable media URL")
+    require(mc_payload.get("media")==["https://metricool.invalid/media/final-ci-current.mp4"] and mc_payload.get("saveExternalMediaFiles") is True,
+            "Metricool scheduler must receive the normalized provider-hosted media URL")
     require((mc_payload.get("youtubeData") or {}).get("title")==approved_title and
             (mc_payload.get("youtubeData") or {}).get("madeForKids") is False and
             (mc_payload.get("youtubeData") or {}).get("isAiGeneratedContent") is True,
@@ -863,10 +869,25 @@ try:
         {**metricool_item,"platform":"tiktok"},pub["content_snapshot"],pub["media"])
     require(tt_network=="tiktok" and (tt_payload.get("tiktokData") or {}).get("isAigc") is True,
             "Metricool TikTok mapping regression")
+    published_snap=app._metricool_provider_snapshot({
+        "id":"metricool-schedule-ci",
+        "providers":[{"network":"youtube","status":"PUBLISHED","detailedStatus":"OK",
+                      "publicUrl":"https://youtube.com/shorts/ci-real",
+                      "externalPostId":"yt-ci-real"}]
+    },"youtube")
+    require(published_snap["status"]=="PUBLISHED" and published_snap["external_id"]=="yt-ci-real" and
+            published_snap["public_url"].endswith("/ci-real"),
+            "Metricool provider reconciliation must preserve factual platform ID and public URL")
+    error_snap=app._metricool_provider_snapshot({
+        "providers":[{"network":"youtube","status":"ERROR","detailedStatus":"upload rejected"}]
+    },"youtube")
+    require(error_snap["status"]=="ERROR" and error_snap["detail"]=="upload rejected" and not error_snap["public_url"],
+            "Metricool provider error reconciliation regression")
 finally:
     (app.FACTORY_PUBLISHER_ADAPTER,app.FACTORY_METRICOOL_TOKEN,app.FACTORY_METRICOOL_USER_ID,
      app.FACTORY_METRICOOL_BLOG_ID,app.FACTORY_METRICOOL_TIMEZONE,
-     app.FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS,app._metricool_json)=metricool_globals
+     app.FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS,app._metricool_json,
+     app._metricool_normalize_media_url)=metricool_globals
 
 # v3.70 Publishing Engine — no duplicate publish and no invented external receipt.
 unscheduled=asyncio.run(app.publish_scheduled_item(pub["id"]))
