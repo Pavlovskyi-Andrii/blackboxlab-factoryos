@@ -528,7 +528,7 @@ main{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(240px,1fr))
 @media(max-width:800px){main{display:block;overflow:visible}.col{margin-bottom:10px;min-height:auto}header{padding-top:max(14px,env(safe-area-inset-top))}}
 </style></head><body>
 <header><h1>📡 FactoryOS Relay</h1><div class="sub" id="summary">Загрузка…</div>
-<div class="new"><input id="newTitle" placeholder="Новая задача или ссылка"><button class="primary" onclick="createTicket()">Добавить</button></div></header>
+<div class="new"><input id="newTitle" placeholder="Новая задача или ссылка"><button class="primary" onclick="createTicket()">Добавить</button></div><div class="new"><button id="tgBtn" onclick="pairTelegram()">Telegram…</button><span class="sub" id="tgState"></span></div></header>
 <main id="board"></main>
 <script>
 const labels={inbox:"📥 Inbox",in_progress:"▶️ В работе",need_you:"🙋 Нужно от тебя",done:"✅ Готово"};
@@ -558,5 +558,7 @@ async function load(){
 }
 async function setStatus(id,status){await api("/api/relay/"+id+"/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:status})});load()}
 async function createTicket(){const el=document.getElementById("newTitle"),v=el.value.trim();if(!v)return;const u=(v.match(/https?:\/\/\S+/)||[""])[0];await api("/api/relay",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:v,source_url:u})});el.value="";load()}
-document.getElementById("newTitle").addEventListener("keydown",function(e){if(e.key==="Enter")createTicket()});load();setInterval(load,10000);
+async function telegramStatus(){try{const s=await api("/api/factory/telegram/status");document.getElementById("tgBtn").textContent=s.paired?"✅ Telegram подключён":"Подключить Telegram";document.getElementById("tgState").textContent=s.paired?(s.username?"@"+s.username:"готов"):(s.configured?"не привязан":"бот не настроен")}catch(e){document.getElementById("tgState").textContent="статус недоступен"}}
+async function pairTelegram(){try{const d=await api("/api/factory/telegram/pairing/start",{method:"POST"});document.getElementById("tgState").textContent="Код "+d.pair_code+" · действует "+Math.round(d.expires_in_seconds/60)+" мин";if(d.deep_link){window.location.href=d.deep_link}else{alert("Отправь боту: "+d.command)}}catch(e){alert("Не удалось начать привязку Telegram")}}
+document.getElementById("newTitle").addEventListener("keydown",function(e){if(e.key==="Enter")createTicket()});load();telegramStatus();setInterval(load,10000);setInterval(telegramStatus,30000);
 </script></body></html>"""
