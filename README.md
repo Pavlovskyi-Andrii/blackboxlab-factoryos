@@ -19,6 +19,21 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+### v5.5.1 — Production Runtime Observability — 2026-10-26
+- Runtime version advanced to `v5.5.1`.
+- Added a non-secret `PUBLISHER_RUNTIME` startup event with publisher adapter, scheduler state, Metricool readiness, reconciliation state, analytics adapter and queue counts; credentials are never logged.
+- Production verification on Render: publisher scheduler enabled at 60-second cadence; durable archive inventory 5/5 present, 0 missing, 261,314,094 bytes.
+- Production verification snapshot: publisher adapter remains `manual`, server-side Metricool credentials are not yet complete, publishing queue is empty, Approval has 4 waiting jobs and 0 approval decisions. Real posting therefore remains fail-closed.
+- Closed obsolete PRs #17 and #19 so the repository keeps only the newer `autopilot/claude_pro_worker.py` runner architecture.
+
+### v5.5 — Production Closure — 2026-10-26
+- Metricool scheduler now normalizes the exact approved durable media into provider-hosted media before scheduling.
+- Added Metricool reconciliation: scheduled items remain `publishing` until provider state proves publication; factual external ID/URL is persisted when available, provider failures remain failures instead of fabricated receipts.
+- Added `POST /api/publishing/{publish_id}/refresh` and background reconciliation in the publisher scheduler.
+- Enabled the publisher scheduler and reconciliation in the live FactoryOS Render service without bypassing the human approval boundary.
+- Added resilient Termux Claude worker supervision: crash restart loop, wake-lock integration, protected local env file and Termux:Boot installer.
+- PR #27 and its merge commit passed `syntax-and-smoke`; both FactoryOS and Media Finisher deployed successfully on Render.
+
 ### v5.3.1 — Account Portability Foundation — 2026-10-24
 - Reworked Connections so Metricool, YouTube, Instagram, TikTok and HubSpot are provider slots instead of owner-specific identities.
 - Added durable workspace/provider binding metadata plus owner-only Connect / Disconnect / Change account actions. Disconnect never deletes jobs, artifacts, approvals or analytics.
