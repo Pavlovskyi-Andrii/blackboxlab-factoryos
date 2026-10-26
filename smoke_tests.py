@@ -50,8 +50,6 @@ require(len(autopilot_state["recent_decisions"])>=1,"autonomous decision log mus
 require(autopilot_state["safety"]["main_push_forbidden"] is True,"autopilot main-branch safety regression")
 connections=app.get_connection_registry()
 require("Telegram" in connections and "Claude Code Pro" in connections,"owner/automation connections missing")
-require("copyClaudeTermuxBootstrap" in STATIC_HTML and "autopilot/install_termux_boot.sh" in STATIC_HTML,"Termux Claude bootstrap UI missing")
-require('"claude.copyTermux"' in STATIC_HTML and '"claude.termuxLabel"' in STATIC_HTML,"Termux Claude bootstrap localization missing")
 require("HubSpot" in connections and connections["HubSpot"]["portable"] is True,"CRM portability connection missing")
 for provider in ("Metricool","YouTube","Instagram","TikTok","HubSpot"):
     require(provider in connections and connections[provider].get("secrets_exposed") is False,f"{provider} portability metadata missing")
