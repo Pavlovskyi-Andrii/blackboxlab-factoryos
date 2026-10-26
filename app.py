@@ -6613,6 +6613,8 @@ async def start_factory_cycle_reconciler():
         "metricool_reconcile_enabled":FACTORY_METRICOOL_RECONCILE_ENABLED,
         "analytics_adapter":FACTORY_ANALYTICS_ADAPTER,
         "analytics_webhook_configured":bool(FACTORY_ANALYTICS_ENDPOINT),
+        "publishing_queue":_publishing_summary(),
+        "approval_queue":_approval_summary(),
     }
     print(json.dumps(publisher_state),flush=True)
     asyncio.create_task(factory_cycle_reconcile_loop())
