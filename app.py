@@ -189,6 +189,8 @@ FACTORY_METRICOOL_BLOG_ID = os.environ.get("FACTORY_METRICOOL_BLOG_ID", "").stri
 FACTORY_METRICOOL_TIMEZONE = os.environ.get("FACTORY_METRICOOL_TIMEZONE", "Europe/Kyiv").strip() or "Europe/Kyiv"
 FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS = os.environ.get("FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS", "").strip().lower()
 FACTORY_METRICOOL_BASE_URL = os.environ.get("FACTORY_METRICOOL_BASE_URL", "https://app.metricool.com").strip().rstrip("/")
+FACTORY_METRICOOL_RECONCILE_ENABLED = os.environ.get("FACTORY_METRICOOL_RECONCILE_ENABLED", "1").strip().lower() in ("1","true","yes","on")
+FACTORY_METRICOOL_RECONCILE_LIMIT = max(1,min(100,int(os.environ.get("FACTORY_METRICOOL_RECONCILE_LIMIT","30"))))
 FACTORY_ANALYTICS_ADAPTER = (os.environ.get("FACTORY_ANALYTICS_ADAPTER", "manual").strip().lower() or "manual")
 FACTORY_ANALYTICS_ENDPOINT = os.environ.get("FACTORY_ANALYTICS_ENDPOINT", "").strip()
 FACTORY_ANALYTICS_TOKEN = os.environ.get("FACTORY_ANALYTICS_TOKEN", "").strip()
@@ -7276,6 +7278,7 @@ def get_publisher_adapter_registry():
     return {"selected":FACTORY_PUBLISHER_ADAPTER,
             "scheduler_enabled":FACTORY_PUBLISHER_SCHEDULER_ENABLED,
             "scheduler_interval_sec":FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC,
+            "metricool_reconcile_enabled":FACTORY_METRICOOL_RECONCILE_ENABLED,
             "adapters":[
                 {"kind":"manual","configured":True,"status":"ready","execution":"explicit external confirmation"},
                 {"kind":"webhook","configured":webhook,"status":"configured" if webhook else "not_configured","execution":"idempotent POST"},
@@ -7390,6 +7393,51 @@ def _metricool_json(url,method="GET",payload=None):
         try:return json.loads(raw or "{}")
         except json.JSONDecodeError:return {"raw_text":raw[:4000],"http_status":getattr(response,"status",None)}
 
+def _metricool_normalize_media_url(media_url):
+    """Copy approved media to Metricool-owned hosting before scheduler submission.
+
+    Metricool's normalize endpoint intentionally returns plain text for media URLs,
+    so it must not use _metricool_json (which advertises JSON). The durable
+    FactoryOS URL remains the provenance source; the normalized URL is only the
+    transport copy handed to the social scheduler.
+    """
+    media_url=str(media_url or "").strip()
+    if not media_url:
+        raise RuntimeError("Metricool media normalization requires a public media URL")
+    query=urlparse.urlencode({
+        "url":media_url,"folder":"PLANNER",
+        "userId":FACTORY_METRICOOL_USER_ID,"blogId":FACTORY_METRICOOL_BLOG_ID,
+    })
+    req=urlrequest.Request(
+        f"{FACTORY_METRICOOL_BASE_URL}/api/actions/normalize/image/url?{query}",
+        headers={"Accept":"*/*","X-Mc-Auth":FACTORY_METRICOOL_TOKEN,
+                 "User-Agent":f"FactoryOS/{APP_VERSION}"},
+        method="GET",
+    )
+    with urlrequest.urlopen(req,timeout=300) as response:
+        raw=response.read().decode("utf-8","replace").strip()
+    normalized=raw.strip().strip('"')
+    if raw[:1] in ("{","["):
+        try:
+            parsed=json.loads(raw)
+            stack=[parsed]
+            while stack:
+                current=stack.pop(0)
+                if isinstance(current,dict):
+                    for key in ("url","mediaUrl","media_url","normalizedUrl","normalized_url"):
+                        value=current.get(key)
+                        if isinstance(value,str) and value.startswith(("http://","https://")):
+                            normalized=value.strip();stack=[];break
+                    else:
+                        stack.extend(current.values())
+                elif isinstance(current,list):
+                    stack.extend(current)
+        except Exception:
+            pass
+    if not normalized.startswith(("http://","https://")):
+        raise RuntimeError(f"Metricool media normalization returned no public URL: {normalized[:240]}")
+    return normalized
+
 def _metricool_network(platform):
     key=str(platform or "").strip().lower()
     mapping={
@@ -7441,13 +7489,14 @@ def _metricool_scheduler_payload(item,content,media):
     title=str((content or {}).get("title") or "").strip()
     if not title:title="FactoryOS approved video"
     publication=_metricool_publication_time(item.get("scheduled_at"))
+    normalized_media_url=_metricool_normalize_media_url(media_url)
     payload={
         "publicationDate":{"dateTime":publication["dateTime"],"timezone":publication["timezone"]},
         "text":_metricool_post_text(content),
         "providers":[{"network":network}],
         "autoPublish":True,"draft":False,"shortener":False,
         "saveExternalMediaFiles":True,
-        "media":[media_url],
+        "media":[normalized_media_url],
     }
     if network=="instagram":
         payload["instagramData"]={"type":"REEL","collaborators":[],"showReelOnFeed":True,"isAiGenerated":True}
@@ -7478,7 +7527,141 @@ def _publish_via_metricool(item,content,media):
     planner_url=(data or {}).get("plannerUrl") or (data or {}).get("planner_url") or ""
     raw={"provider":"metricool","network":network,"scheduled_at_utc":scheduled_utc,
          "metricool_schedule_id":scheduler_id,"planner_url":planner_url,"response":result}
+    raw["normalized_media_url"]=(payload.get("media") or [""])[0]
     return {"manual":False,"status":"publishing","external_post_id":None,"external_url":None,"raw":raw}
+
+def _metricool_calendar_posts(item):
+    meta=item.get("meta") or {}
+    adapter=meta.get("adapter_result") if isinstance(meta.get("adapter_result"),dict) else {}
+    scheduled_raw=str(adapter.get("scheduled_at_utc") or item.get("scheduled_at") or "").strip()
+    try:
+        scheduled=datetime.fromisoformat(scheduled_raw.replace("Z","+00:00"))
+        if scheduled.tzinfo is None:scheduled=scheduled.replace(tzinfo=timezone.utc)
+    except Exception:
+        scheduled=datetime.now(timezone.utc)
+    start=(scheduled.astimezone(timezone.utc)-timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S")
+    end=(scheduled.astimezone(timezone.utc)+timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S")
+    query=urlparse.urlencode({
+        "blogId":FACTORY_METRICOOL_BLOG_ID,"userId":FACTORY_METRICOOL_USER_ID,
+        "start":start,"end":end,"timezone":FACTORY_METRICOOL_TIMEZONE,"extendedRange":"true",
+    })
+    result=_metricool_json(f"{FACTORY_METRICOOL_BASE_URL}/api/v2/scheduler/posts?{query}","GET")
+    if isinstance(result,list):return result
+    if isinstance(result,dict):
+        for key in ("data","posts","items","content"):
+            value=result.get(key)
+            if isinstance(value,list):return value
+            if isinstance(value,dict):
+                for nested in ("data","posts","items","content"):
+                    if isinstance(value.get(nested),list):return value[nested]
+    return []
+
+def _metricool_post_identity(post):
+    if not isinstance(post,dict):return set()
+    values=set()
+    for key in ("id","uuid","postId","post_id","schedulerId","scheduler_id"):
+        value=post.get(key)
+        if value not in (None,""):values.add(str(value))
+    return values
+
+def _metricool_match_post(posts,scheduler_id):
+    target=str(scheduler_id or "").strip()
+    if not target:return None
+    for post in posts or []:
+        if target in _metricool_post_identity(post):return post
+    return None
+
+def _metricool_provider_snapshot(post,network):
+    post=post if isinstance(post,dict) else {}
+    providers=post.get("providers") if isinstance(post.get("providers"),list) else []
+    provider=None
+    for candidate in providers:
+        if not isinstance(candidate,dict):continue
+        name=str(candidate.get("network") or candidate.get("provider") or candidate.get("name") or "").strip().lower()
+        if name==network:
+            provider=candidate;break
+    if provider is None and len(providers)==1 and isinstance(providers[0],dict):provider=providers[0]
+    provider=provider or {}
+    status=str(provider.get("status") or post.get("status") or "").strip().upper()
+    detail=str(provider.get("detailedStatus") or provider.get("detailed_status") or post.get("detailedStatus") or "").strip()
+    public_url=str(provider.get("publicUrl") or provider.get("public_url") or provider.get("externalUrl") or
+                   post.get("publicUrl") or post.get("public_url") or post.get("externalUrl") or "").strip()
+    external_id=""
+    for source in (provider,post):
+        for key in ("externalPostId","external_post_id","socialMediaId","social_media_id","postId","post_id"):
+            value=source.get(key) if isinstance(source,dict) else None
+            if value not in (None,""):
+                external_id=str(value);break
+        if external_id:break
+    return {"status":status,"detail":detail,"public_url":public_url,"external_id":external_id,
+            "provider":provider,"post":post}
+
+def reconcile_metricool_publish(publish_id):
+    con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
+    if not row:return {"changed":False,"status":"missing","publish_id":publish_id}
+    item=_publish_item(row);meta=item.get("meta") or {}
+    adapter=meta.get("adapter_result") if isinstance(meta.get("adapter_result"),dict) else {}
+    if item.get("status")!="publishing" or str(adapter.get("provider") or "").lower()!="metricool":
+        return {"changed":False,"status":item.get("status"),"publish_id":publish_id}
+    scheduler_id=adapter.get("metricool_schedule_id")
+    if not scheduler_id:
+        return {"changed":False,"status":"publishing","publish_id":publish_id,"reason":"missing_metricool_schedule_id"}
+    try:
+        network=str(adapter.get("network") or _metricool_network(item.get("platform"))).lower()
+        posts=_metricool_calendar_posts(item)
+        post=_metricool_match_post(posts,scheduler_id)
+        now=ts()
+        reconcile_meta={"checked_at":now,"scheduler_id":str(scheduler_id),"network":network,
+                        "calendar_items":len(posts),"found":bool(post)}
+        if not post:
+            con=db();con.execute("UPDATE publishing_queue SET meta_json=?,updated_at=? WHERE id=?",
+                (json.dumps({**meta,"metricool_reconcile":{**reconcile_meta,"status":"not_found"}},ensure_ascii=False),now,publish_id))
+            con.commit();con.close()
+            return {"changed":False,"status":"publishing","publish_id":publish_id,"reason":"not_found"}
+        snap=_metricool_provider_snapshot(post,network)
+        status=snap["status"];public_url=snap["public_url"];detail=snap["detail"]
+        reconcile_meta.update({"status":status or "UNKNOWN","detailed_status":detail,"public_url":public_url})
+        published=status in ("PUBLISHED","PUBLISHED_WITH_ERRORS","DONE","SUCCESS") or (status=="ERROR" and bool(public_url))
+        if published:
+            external_id=snap["external_id"] or f"metricool:{scheduler_id}"
+            published_at=now
+            next_meta={**meta,"metricool_reconcile":{**reconcile_meta,
+                       "external_id_kind":"platform" if snap["external_id"] else "metricool_schedule_fallback"}}
+            con=db();con.execute("""UPDATE publishing_queue SET status='published',external_post_id=?,external_url=?,
+                                   published_at=?,updated_at=?,last_error=NULL,meta_json=? WHERE id=?""",
+                (external_id,public_url,published_at,now,json.dumps(next_meta,ensure_ascii=False,default=str),publish_id))
+            con.commit();updated=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
+            published_item=_publish_item(updated)
+            _publish_receipt(published_item,external_id,public_url,published_at,"metricool-reconcile")
+            return {"changed":True,"status":"published","publish_id":publish_id,
+                    "external_post_id":external_id,"external_url":public_url}
+        if status in ("ERROR","FAILED","REJECTED","CANCELLED","CANCELED"):
+            message=detail or f"Metricool provider status {status}"
+            con=db();con.execute("UPDATE publishing_queue SET status='failed',last_error=?,updated_at=?,meta_json=? WHERE id=?",
+                (message[:900],now,json.dumps({**meta,"metricool_reconcile":reconcile_meta},ensure_ascii=False,default=str),publish_id))
+            con.commit();con.close()
+            event(item["job_id"],f"Metricool publish failed: {network} · {message[:180]}")
+            sync_cycle_for_publish(publish_id)
+            return {"changed":True,"status":"failed","publish_id":publish_id,"message":message}
+        con=db();con.execute("UPDATE publishing_queue SET meta_json=?,updated_at=? WHERE id=?",
+            (json.dumps({**meta,"metricool_reconcile":reconcile_meta},ensure_ascii=False,default=str),now,publish_id))
+        con.commit();con.close()
+        return {"changed":False,"status":"publishing","publish_id":publish_id,"provider_status":status or "UNKNOWN"}
+    except Exception as exc:
+        now=ts()
+        reconcile_meta={"checked_at":now,"scheduler_id":str(scheduler_id),"status":"reconcile_error","error":str(exc)[:700]}
+        con=db();con.execute("UPDATE publishing_queue SET meta_json=?,updated_at=? WHERE id=?",
+            (json.dumps({**meta,"metricool_reconcile":reconcile_meta},ensure_ascii=False,default=str),now,publish_id))
+        con.commit();con.close()
+        return {"changed":False,"status":"publishing","publish_id":publish_id,"error":str(exc)}
+
+def reconcile_metricool_publishing(limit=None):
+    if not (FACTORY_METRICOOL_RECONCILE_ENABLED and _metricool_configured()):
+        return {"processed":0,"changed":0,"results":[]}
+    con=db();rows=con.execute("""SELECT id FROM publishing_queue WHERE status='publishing'
+                                 ORDER BY updated_at LIMIT ?""",(int(limit or FACTORY_METRICOOL_RECONCILE_LIMIT),)).fetchall();con.close()
+    results=[reconcile_metricool_publish(row["id"]) for row in rows]
+    return {"processed":len(results),"changed":sum(1 for x in results if x.get("changed")),"results":results}
 
 def _publish_receipt(item,external_post_id,external_url="",published_at=None,source="adapter"):
     published_at=published_at or ts()
@@ -8324,6 +8507,13 @@ async def confirm_manual_publish(publish_id:str,payload:PublishConfirmRequest):
     await broadcast({"type":"publishing","publishId":publish_id,"status":"published"})
     return {"ok":True,"status":"published","item":_publish_item(updated)}
 
+@app.post("/api/publishing/{publish_id}/refresh")
+async def refresh_publishing_status(publish_id:str):
+    result=await asyncio.to_thread(reconcile_metricool_publish,publish_id)
+    if result.get("status")=="missing":raise HTTPException(404,"Publish item not found")
+    await broadcast({"type":"publishing","publishId":publish_id,"status":result.get("status"),"refresh":True})
+    return {"ok":True,**result}
+
 @app.post("/api/publishing/run-due")
 async def run_due_publishing():
     con=db();rows=con.execute("""SELECT id FROM publishing_queue WHERE status='scheduled' AND scheduled_at<=?
@@ -8336,6 +8526,10 @@ async def publisher_scheduler_loop():
     while True:
         try:
             await run_due_publishing()
+            reconciled=await asyncio.to_thread(reconcile_metricool_publishing)
+            if reconciled.get("changed"):
+                await broadcast({"type":"publishing","action":"metricool_reconciled",
+                                 "changed":reconciled.get("changed"),"processed":reconciled.get("processed")})
         except Exception as exc:
             print(json.dumps({"event":"PUBLISHER_SCHEDULER_ERROR","error":str(exc)[:500]}),flush=True)
         await asyncio.sleep(FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC)
