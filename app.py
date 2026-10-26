@@ -26,7 +26,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.3.1"
+APP_VERSION = "v5.5.1"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -6603,6 +6603,18 @@ async def start_content_brain_collector():
 
 @app.on_event("startup")
 async def start_factory_cycle_reconciler():
+    publisher_state={
+        "event":"PUBLISHER_RUNTIME",
+        "version":APP_VERSION,
+        "adapter":FACTORY_PUBLISHER_ADAPTER,
+        "scheduler_enabled":FACTORY_PUBLISHER_SCHEDULER_ENABLED,
+        "scheduler_interval_sec":FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC,
+        "metricool_configured":_metricool_configured(),
+        "metricool_reconcile_enabled":FACTORY_METRICOOL_RECONCILE_ENABLED,
+        "analytics_adapter":FACTORY_ANALYTICS_ADAPTER,
+        "analytics_webhook_configured":bool(FACTORY_ANALYTICS_ENDPOINT),
+    }
+    print(json.dumps(publisher_state),flush=True)
     asyncio.create_task(factory_cycle_reconcile_loop())
     if FACTORY_PUBLISHER_SCHEDULER_ENABLED:
         asyncio.create_task(publisher_scheduler_loop())
