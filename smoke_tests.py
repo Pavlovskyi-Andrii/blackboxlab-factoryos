@@ -26,13 +26,13 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v5.6.0","version mismatch")
+require(health["version"]==app.APP_VERSION=="v5.7.0","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
 require("real_pilot" in health and health["real_pilot"]["status"]=="disabled","CI must never auto-run the real paid pilot")
 state=app.status()
-for key in ("factory","version","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","discoverySummary","discoveryAdapter","revideoSummary","revideoAdapters","mediaFinisher","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
+for key in ("factory","version","relay","jobs","agentStates","agentProgress","usage","selectedJobWorkerResults","selectedJobHandoffs","selectedJobAgentErrors","selectedJobErrorCenter","selectedJobVariants","selectedJobContentPackage","mediaAdapters","contentBrain","approvalSummary","publishingSummary","performanceSummary","selfImprovementSummary","autonomousCycleSummary","discoverySummary","discoveryAdapter","revideoSummary","revideoAdapters","mediaFinisher","activeWorkflow","publisherAdapters","analyticsAdapters","runtimePolicy"):
     require(key in state,f"status missing {key}")
 require(state["factory"]=="online","factory must report online")
 autopilot_state=app.get_repository_autopilot_state()
@@ -172,6 +172,28 @@ pair_hash=app._telegram_pair_code_hash("PAIR1234")
 require(app._telegram_pair_code_matches("PAIR1234",pair_hash) is True,"Telegram pair-code verification regression")
 require(app._telegram_pair_code_matches("WRONG",pair_hash) is False,"Telegram pair-code rejection regression")
 require(app._telegram_public_status()["configured"] is False,"CI must not have a Telegram bot token")
+
+require(route_exists("/api/relay","GET") and route_exists("/api/relay","POST"),"Relay collection routes missing")
+require(route_exists("/api/relay/{ticket_id}","GET"),"Relay detail route missing")
+require(route_exists("/api/relay/{ticket_id}/status","POST") and route_exists("/api/relay/{ticket_id}/notes","POST"),"Relay mutation routes missing")
+require(route_exists("/relay","GET"),"Relay mobile board route missing")
+relay_ticket,relay_created=app.RELAY_STORE.create("Check reference","Review this link",source={"channel":"ci","source_key":"ci:relay:1","url":"https://example.com/video"})
+require(relay_created is True and relay_ticket["id"]=="R-0001" and relay_ticket["status"]=="inbox","Relay ticket create regression")
+relay_dup,relay_dup_created=app.RELAY_STORE.create("Duplicate","",source={"channel":"ci","source_key":"ci:relay:1"})
+require(relay_dup_created is False and relay_dup["id"]==relay_ticket["id"],"Relay source dedupe regression")
+relay_ticket=app.RELAY_STORE.set_status(relay_ticket["id"],"need_you",actor="ci")
+relay_ticket=app.RELAY_STORE.add_note(relay_ticket["id"],"Please confirm",actor="ci")
+require(relay_ticket["status"]=="need_you" and relay_ticket["notes"][-1]["text"]=="Please confirm","Relay history/note regression")
+fake_tg=[]
+def fake_relay_tg(method,payload=None):
+    fake_tg.append((method,payload or {}))
+    return {"ok":True,"result":{}}
+relay_update={"update_id":777,"message":{"message_id":9,"chat":{"id":42,"type":"private"},"text":"https://example.com/watch?v=1"}}
+relay_result=app.relay_handle_telegram_update(relay_update,app.RELAY_STORE,lambda:{"chat_id":"42"},fake_relay_tg)
+require(relay_result["handled"] is False and relay_result["created"] is True,"Relay Telegram text must create ticket and preserve legacy bridge pass-through")
+relay_again=app.relay_handle_telegram_update(relay_update,app.RELAY_STORE,lambda:{"chat_id":"42"},fake_relay_tg)
+require(relay_again["created"] is False,"Relay Telegram update retries must dedupe")
+require(app.RELAY_STORE.summary()["total"]==2 and app.RELAY_STORE.summary()["needs_you"]==1,"Relay summary regression")
 
 brain=app.get_content_brain()
 require(brain["summary"]["signals"]==0 and brain["summary"]["ideas"]==0,"fresh Content Brain fixture must be empty")
