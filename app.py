@@ -26,7 +26,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.5.1"
+APP_VERSION = "v5.6.0"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -201,6 +201,11 @@ FACTORY_VIDEO_ENDPOINT = os.environ.get("FACTORY_VIDEO_ENDPOINT", "").strip()
 FACTORY_VIDEO_TOKEN = os.environ.get("FACTORY_VIDEO_TOKEN", "").strip()
 FACTORY_VIDEO_STATUS_ENDPOINT = os.environ.get("FACTORY_VIDEO_STATUS_ENDPOINT", "").strip()
 FACTORY_VIDEO_CALLBACK_TOKEN = os.environ.get("FACTORY_VIDEO_CALLBACK_TOKEN", "").strip()
+# Native Google Gemini video provider. Keep the API key in the runtime secret store only.
+FACTORY_GEMINI_API_KEY = os.environ.get("FACTORY_GEMINI_API_KEY", "").strip()
+FACTORY_GEMINI_VIDEO_MODEL = os.environ.get("FACTORY_GEMINI_VIDEO_MODEL", "gemini-omni-1.1-flash").strip() or "gemini-omni-1.1-flash"
+FACTORY_GEMINI_VIDEO_ASPECT_RATIO = os.environ.get("FACTORY_GEMINI_VIDEO_ASPECT_RATIO", "9:16").strip() or "9:16"
+FACTORY_GEMINI_VIDEO_RESOLUTION = os.environ.get("FACTORY_GEMINI_VIDEO_RESOLUTION", "720p").strip() or "720p"
 FACTORY_MEDIA_FINISHER_ADAPTER = (os.environ.get("FACTORY_MEDIA_FINISHER_ADAPTER", "webhook").strip().lower() or "webhook")
 FACTORY_MEDIA_FINISHER_ENDPOINT = os.environ.get("FACTORY_MEDIA_FINISHER_ENDPOINT", "").strip()
 FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT = os.environ.get("FACTORY_MEDIA_FINISHER_STATUS_ENDPOINT", "").strip()
@@ -1069,6 +1074,26 @@ def get_connection_registry():
         "online":bool(cw.get("online")),"auth_mode":cw.get("auth_mode") or "",
         "subscription":cw.get("subscription") or "Pro",
     }
+    video_provider=_video_adapter_name()
+    video_ready=_video_provider_configured(video_provider)
+    if _is_gemini_video_provider(video_provider):
+        registry["Video"]={
+            "state":"connected" if video_ready else "not_configured",
+            "detail":(
+                f"Gemini Omni · {FACTORY_GEMINI_VIDEO_MODEL} · {FACTORY_GEMINI_VIDEO_ASPECT_RATIO} · {FACTORY_GEMINI_VIDEO_RESOLUTION}"
+                if video_ready else
+                "Gemini Omni selected · add FACTORY_GEMINI_API_KEY in the runtime secret store"
+            ),
+            "provider":video_provider,"model":FACTORY_GEMINI_VIDEO_MODEL,
+            "aspect_ratio":FACTORY_GEMINI_VIDEO_ASPECT_RATIO,"resolution":FACTORY_GEMINI_VIDEO_RESOLUTION,
+            "secrets_exposed":False,
+        }
+    elif video_provider:
+        registry["Video"]={
+            "state":"connected" if video_ready else "not_configured",
+            "detail":f"{video_provider} · "+("provider endpoint ready" if video_ready else "provider endpoint not configured"),
+            "provider":video_provider,"secrets_exposed":False,
+        }
     return registry
 
 def ts(): return datetime.now(timezone.utc).isoformat()
@@ -5367,14 +5392,183 @@ async def run_media_finisher_pilot_once():
         print(json.dumps({"event":"V45_MEDIA_FINISHER_PILOT","tag":tag,"status":"failed","job_id":job_id,"edit_job_id":edit_job_id,"error":str(exc)[:700]}),flush=True)
 
 
+GEMINI_VIDEO_ADAPTERS={"gemini","gemini-omni","gemini-omni-flash","google-gemini","google-gemini-omni"}
+
+def _video_adapter_name():
+    return str(FACTORY_MEDIA_ADAPTERS.get("video") or "").strip().lower()
+
+def _is_gemini_video_provider(provider=None):
+    return str(provider if provider is not None else _video_adapter_name()).strip().lower() in GEMINI_VIDEO_ADAPTERS
+
+def _video_provider_configured(provider=None):
+    provider=str(provider if provider is not None else _video_adapter_name()).strip().lower()
+    if _is_gemini_video_provider(provider):
+        return bool(FACTORY_GEMINI_API_KEY)
+    return bool(provider and FACTORY_VIDEO_ENDPOINT)
+
+def _gemini_api_json(path,method="GET",payload=None,timeout=300):
+    if not FACTORY_GEMINI_API_KEY:
+        raise RuntimeError("Gemini API key is not configured")
+    path=str(path or "").strip()
+    if not path.startswith("/"):path="/"+path
+    url="https://generativelanguage.googleapis.com/v1beta"+path
+    headers={"Accept":"application/json","User-Agent":f"FactoryOS/{APP_VERSION}","x-goog-api-key":FACTORY_GEMINI_API_KEY}
+    data=None
+    if payload is not None:
+        data=json.dumps(payload,ensure_ascii=False).encode("utf-8");headers["Content-Type"]="application/json"
+    req=urlrequest.Request(url,data=data,headers=headers,method=method)
+    try:
+        with urlrequest.urlopen(req,timeout=timeout) as response:
+            raw=response.read().decode("utf-8","replace")
+            return json.loads(raw or "{}")
+    except urlerror.HTTPError as exc:
+        try:detail=exc.read().decode("utf-8","replace")
+        except Exception:detail=str(exc)
+        raise RuntimeError(f"Gemini API HTTP {getattr(exc,'code','error')}: {detail[:700]}") from exc
+    except urlerror.URLError as exc:
+        raise RuntimeError(f"Gemini API network error: {exc}") from exc
+
+def _gemini_video_uri(result):
+    if not isinstance(result,dict):return ""
+    direct=result.get("output_video") or result.get("outputVideo")
+    if isinstance(direct,dict) and str(direct.get("uri") or "").strip():
+        return str(direct.get("uri")).strip()
+    stack=[result.get("steps") or []]
+    while stack:
+        current=stack.pop(0)
+        if isinstance(current,dict):
+            if str(current.get("type") or "").lower()=="video" and str(current.get("uri") or "").strip():
+                return str(current.get("uri")).strip()
+            stack.extend(current.values())
+        elif isinstance(current,list):
+            stack.extend(current)
+    return ""
+
+def _gemini_video_file_id(value):
+    raw=str(value or "").strip()
+    match=re.search(r"/files/([^/:?]+)",raw)
+    if match:return match.group(1)
+    raw=raw.replace("files/","").split(":",1)[0].split("?",1)[0].strip("/")
+    return raw if re.fullmatch(r"[A-Za-z0-9._-]+",raw or "") else ""
+
+def _gemini_video_prompt(package):
+    package=package if isinstance(package,dict) else {}
+    title=str(package.get("title") or "").strip()
+    hook=str(package.get("hook") or "").strip()
+    script=str(package.get("final_script") or package.get("voice_over") or "").strip()
+    brief=package.get("media_brief")
+    brief=json.dumps(brief,ensure_ascii=False) if isinstance(brief,(dict,list)) else str(brief or "").strip()
+    scene_lines=[]
+    for index,scene in enumerate((package.get("scenes") or [])[:8],1):
+        if isinstance(scene,dict):
+            visual=str(scene.get("visual") or scene.get("visual_prompt") or scene.get("description") or "").strip()
+            narration=str(scene.get("narration") or "").strip()
+            line=" · ".join(x for x in (visual,narration) if x)
+        else:
+            line=str(scene or "").strip()
+        if line:scene_lines.append(f"{index}. {line[:700]}")
+    parts=[
+        "Create one original short-form social video asset for FactoryOS.",
+        f"Format: {FACTORY_GEMINI_VIDEO_ASPECT_RATIO} portrait, {FACTORY_GEMINI_VIDEO_RESOLUTION}.",
+        "Use cinematic, coherent motion and clear visual storytelling. Do not copy or reuse source footage, creator identity, likeness, voice, logos, or watermarks.",
+        "No spoken dialogue and no baked-in subtitles unless the visual itself requires a small natural sign; FactoryOS adds narration and captions later.",
+    ]
+    if title:parts.append("Working title: "+title[:500])
+    if hook:parts.append("Hook intent: "+hook[:700])
+    if brief:parts.append("Visual brief: "+brief[:2400])
+    if scene_lines:parts.append("Scene guidance:\n"+"\n".join(scene_lines))
+    if script:parts.append("Narrative context (visualize, do not render as captions): "+script[:2800])
+    return "\n\n".join(parts)[:12000]
+
+def _gemini_submit_video(package):
+    aspect=FACTORY_GEMINI_VIDEO_ASPECT_RATIO if FACTORY_GEMINI_VIDEO_ASPECT_RATIO in ("9:16","16:9") else "9:16"
+    resolution=FACTORY_GEMINI_VIDEO_RESOLUTION if FACTORY_GEMINI_VIDEO_RESOLUTION in ("360p","720p","1080p","4k") else "720p"
+    request_payload={
+        "model":FACTORY_GEMINI_VIDEO_MODEL,
+        "input":_gemini_video_prompt(package),
+        "response_format":{"type":"video","delivery":"uri","aspect_ratio":aspect,"resolution":resolution},
+    }
+    result=_gemini_api_json("/interactions","POST",request_payload,timeout=300)
+    uri=_gemini_video_uri(result)
+    file_id=_gemini_video_file_id(uri)
+    if not uri or not file_id:
+        raise RuntimeError("Gemini returned no downloadable video URI")
+    return {
+        "id":file_id,"job_id":file_id,"status":"submitted",
+        "interaction_id":str(result.get("id") or ""),"file_uri":uri,
+        "model":FACTORY_GEMINI_VIDEO_MODEL,"aspect_ratio":aspect,"resolution":resolution,
+        "provider_response":result,
+    }
+
+def _gemini_archive_video(media_job_id,file_id,file_info=None):
+    archive_id=str(uuid.uuid5(uuid.NAMESPACE_URL,f"factoryos:gemini-video:{media_job_id}:{file_id}"))
+    stored_name=archive_id+".mp4";dest=MEDIA_ARCHIVE_DIR/stored_name
+    existing=_media_archive_meta(archive_id)
+    if not (existing and dest.exists()):
+        url=f"https://generativelanguage.googleapis.com/v1beta/files/{urlparse.quote(file_id,safe='')}:download?alt=media"
+        req=urlrequest.Request(url,headers={
+            "Accept":"video/mp4","User-Agent":f"FactoryOS/{APP_VERSION}","x-goog-api-key":FACTORY_GEMINI_API_KEY
+        },method="GET")
+        total=0;digest=hashlib.sha256();content_type="video/mp4"
+        try:
+            with urlrequest.urlopen(req,timeout=300) as response,dest.open("wb") as fh:
+                content_type=str(response.headers.get("Content-Type") or "video/mp4").split(";")[0].strip() or "video/mp4"
+                length=str(response.headers.get("Content-Length") or "").strip()
+                if length and int(length)>FACTORY_MEDIA_ARCHIVE_MAX_BYTES:
+                    raise RuntimeError(f"Gemini video exceeds archive limit of {FACTORY_MEDIA_ARCHIVE_MAX_BYTES//(1024*1024)} MB")
+                while True:
+                    chunk=response.read(1024*1024)
+                    if not chunk:break
+                    total+=len(chunk)
+                    if total>FACTORY_MEDIA_ARCHIVE_MAX_BYTES:
+                        raise RuntimeError(f"Gemini video exceeds archive limit of {FACTORY_MEDIA_ARCHIVE_MAX_BYTES//(1024*1024)} MB")
+                    fh.write(chunk);digest.update(chunk)
+        except Exception:
+            if dest.exists():dest.unlink()
+            raise
+        if total<1024:
+            if dest.exists():dest.unlink()
+            raise RuntimeError("Gemini video download was empty or too small")
+        existing={
+            "archive_id":archive_id,"media_job_id":media_job_id,"provider":"gemini-omni",
+            "google_file_id":file_id,"stored_name":stored_name,"filename":f"gemini-{media_job_id[:8]}.mp4",
+            "content_type":content_type,"bytes":total,"sha256":digest.hexdigest(),
+            "model":FACTORY_GEMINI_VIDEO_MODEL,"created_at":ts(),
+            "file_state":str((file_info or {}).get("state") or "ACTIVE"),
+        }
+        (MEDIA_ARCHIVE_DIR/f"{archive_id}.json").write_text(json.dumps(existing,ensure_ascii=False,indent=2),encoding="utf-8")
+    token=_media_archive_signature(archive_id)
+    return f"{FACTORY_PUBLIC_BASE_URL}/media-archive/{archive_id}?token={urlparse.quote(token,safe='')}"
+
+def _refresh_gemini_media_job(item):
+    file_id=_gemini_video_file_id(item.get("provider_job_id"))
+    if not file_id:raise RuntimeError("Gemini file id is not available yet")
+    info=_gemini_api_json(f"/files/{urlparse.quote(file_id,safe='')}","GET",None,timeout=60)
+    state=str(info.get("state") or "").strip().upper()
+    if state=="FAILED":
+        detail=info.get("error") or info.get("status") or "Gemini generation failed"
+        return _finalize_media_job(item["id"],"failed",error=str(detail)[:900],response=info,provider_job_id=file_id)
+    if state!="ACTIVE":
+        return _finalize_media_job(item["id"],"processing",response=info,provider_job_id=file_id)
+    media_url=_gemini_archive_video(item["id"],file_id,info)
+    return _finalize_media_job(item["id"],"ready",media_url=media_url,response=info,provider_job_id=file_id)
+
 def get_revideo_adapter_registry():
+    provider=_video_adapter_name()
+    gemini=_is_gemini_video_provider(provider)
     return {
         "transcript":{"selected":FACTORY_TRANSCRIPT_ADAPTER,"configured":bool(FACTORY_TRANSCRIPT_ENDPOINT),
                       "manual_supported":True,"endpoint_configured":bool(FACTORY_TRANSCRIPT_ENDPOINT)},
-        "video":{"selected":FACTORY_MEDIA_ADAPTERS.get("video") or None,"configured":bool(FACTORY_VIDEO_ENDPOINT),
-                 "endpoint_configured":bool(FACTORY_VIDEO_ENDPOINT),
-                 "async_jobs":True,"status_endpoint_configured":bool(FACTORY_VIDEO_STATUS_ENDPOINT)},
-        "note":"Provider endpoints/tokens come from environment variables and are never exposed in this response."
+        "video":{"selected":provider or None,"configured":_video_provider_configured(provider),
+                 "endpoint_configured":bool(FACTORY_VIDEO_ENDPOINT) if not gemini else False,
+                 "api_key_configured":bool(FACTORY_GEMINI_API_KEY) if gemini else None,
+                 "model":FACTORY_GEMINI_VIDEO_MODEL if gemini else None,
+                 "aspect_ratio":FACTORY_GEMINI_VIDEO_ASPECT_RATIO if gemini else None,
+                 "resolution":FACTORY_GEMINI_VIDEO_RESOLUTION if gemini else None,
+                 "execution":"gemini_interactions_uri" if gemini else "webhook_provider",
+                 "async_jobs":True,
+                 "status_endpoint_configured":True if gemini and FACTORY_GEMINI_API_KEY else bool(FACTORY_VIDEO_STATUS_ENDPOINT)},
+        "note":"Provider credentials come from environment/runtime secrets and are never exposed in this response."
     }
 
 def render_revideo_media(project_id):
@@ -5383,11 +5577,12 @@ def render_revideo_media(project_id):
     if not project.get("job_id"):raise ValueError("Create a production job first")
     package=get_content_package(project["job_id"]).get("package_record")
     if not package or package.get("status")!="ready":raise ValueError("A fresh Content Package is required before video generation")
-    if not FACTORY_VIDEO_ENDPOINT:raise RuntimeError("Video provider is not configured")
+    provider=_video_adapter_name()
+    if not _video_provider_configured(provider):raise RuntimeError("Video provider is not configured")
     payload={"project_id":project_id,"job_id":project["job_id"],"source_url":project["source_url"],
              "content_package":package.get("package") or {},
              "guardrails":{"do_not_reuse_source_media":True,"do_not_imitate_creator_identity_or_voice":True}}
-    media_job_id=str(uuid.uuid4());now=ts();provider=FACTORY_MEDIA_ADAPTERS.get("video") or "webhook"
+    media_job_id=str(uuid.uuid4());now=ts();provider=provider or "webhook"
     con=db();con.execute("""INSERT INTO media_jobs(
         id,revideo_project_id,job_id,provider,provider_job_id,status,media_url,error,
         request_json,response_json,created_at,updated_at,completed_at
@@ -5395,9 +5590,12 @@ def render_revideo_media(project_id):
         (media_job_id,project_id,project["job_id"],provider,"",json.dumps(payload,ensure_ascii=False),now,now))
     con.commit();con.close()
     try:
-        result=_external_json(FACTORY_VIDEO_ENDPOINT,"POST",payload,FACTORY_VIDEO_TOKEN)
+        if _is_gemini_video_provider(provider):
+            result=_gemini_submit_video(package.get("package") or {})
+        else:
+            result=_external_json(FACTORY_VIDEO_ENDPOINT,"POST",payload,FACTORY_VIDEO_TOKEN)
     except Exception as exc:
-        _finalize_media_job(media_job_id,"failed",error=str(exc),response={"exception":str(exc)})
+        _finalize_media_job(media_job_id,"failed",error=str(exc),response={"exception":str(exc),"provider":provider})
         raise
     media_url=str(result.get("url") or result.get("video_url") or result.get("output_url") or "").strip()
     provider_job_id=str(result.get("id") or result.get("job_id") or result.get("task_id") or "").strip()
@@ -5414,6 +5612,8 @@ def refresh_media_job(media_job_id):
     if not item:raise ValueError("Media job not found")
     if item["status"] in ("ready","failed"):return item
     if not item.get("provider_job_id"):raise RuntimeError("Provider job id is not available yet")
+    if _is_gemini_video_provider(item.get("provider")):
+        return _refresh_gemini_media_job(item)
     if not FACTORY_VIDEO_STATUS_ENDPOINT:raise RuntimeError("Video status endpoint is not configured")
     endpoint=FACTORY_VIDEO_STATUS_ENDPOINT.replace("{provider_job_id}",urlparse.quote(item["provider_job_id"],safe=""))
     result=_external_json(endpoint,"GET",None,FACTORY_VIDEO_TOKEN)
@@ -5434,7 +5634,7 @@ def get_media_adapter_registry():
     contracts={
         "tts":{"input":["voice_over","language","delivery_notes"],"output":["audio"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["tts"] else "not_configured"},
         "image":{"input":["scene_prompt","aspect_ratio","style"],"output":["image"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["image"] else "not_configured"},
-        "video":{"input":["scene","audio","captions","assets"],"output":["video"],"status":"configured" if (FACTORY_MEDIA_ADAPTERS["video"] and FACTORY_VIDEO_ENDPOINT) else "not_configured"},
+        "video":{"input":["scene","audio","captions","assets"],"output":["video"],"status":"configured" if _video_provider_configured() else "not_configured"},
         "stock":{"input":["query","duration","orientation"],"output":["stock_asset"],"status":"configured" if FACTORY_MEDIA_ADAPTERS["stock"] else "not_configured"},
         "manual":{"input":["uploaded_media"],"output":["media_asset"],"status":"ready"},
     }
@@ -5444,7 +5644,7 @@ def get_media_adapter_registry():
         out.append({
             "kind":kind,"provider":provider or None,"configured":spec["status"] in ("configured","ready"),
             "status":spec["status"],"contract":{"input":spec["input"],"output":spec["output"]},
-            "execution":("webhook_provider" if kind=="video" and FACTORY_VIDEO_ENDPOINT else "adapter_interface_only") if kind!="manual" else "manual_asset_path",
+            "execution":(("gemini_interactions_uri" if _is_gemini_video_provider(provider) else "webhook_provider") if kind=="video" and _video_provider_configured(provider) else "adapter_interface_only") if kind!="manual" else "manual_asset_path",
         })
     return {
         "contract_version":"1.0",
