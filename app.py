@@ -24,9 +24,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
+from relay import RelayStore, install_relay_routes, relay_handle_telegram_update
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.6.0"
+APP_VERSION = "v5.7.0"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -147,6 +148,7 @@ FACTORY_SECRET = os.environ.get("FACTORY_SECRET", secrets.token_hex(32))
 FACTORY_TELEGRAM_BOT_TOKEN = os.environ.get("FACTORY_TELEGRAM_BOT_TOKEN", "").strip()
 FACTORY_TELEGRAM_PAIR_TTL_SECONDS = max(120, min(1800, int(os.environ.get("FACTORY_TELEGRAM_PAIR_TTL_SECONDS", "600"))))
 TELEGRAM_OWNER_FILE = DATA_DIR / "telegram_owner.json"
+RELAY_STORE = RelayStore(DATA_DIR / "relay.json")
 _telegram_state_lock = threading.Lock()
 FACTORY_LOCAL_BOOSTER_TOKEN = (os.environ.get("FACTORY_LOCAL_BOOSTER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest())
@@ -466,6 +468,9 @@ class TelegramBridgeNotify(BaseModel):
     task_id: Optional[str] = None
 
 
+install_relay_routes(app, RELAY_STORE, request_identity)
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp"}
@@ -617,7 +622,7 @@ def telegram_pairing_start(request: Request):
         _telegram_api("setWebhook",{
             "url":f"{FACTORY_PUBLIC_BASE_URL}/api/integrations/telegram/webhook",
             "secret_token":_telegram_webhook_secret(),
-            "allowed_updates":["message"],
+            "allowed_updates":["message","callback_query"],
             "drop_pending_updates":False,
         })
     except Exception as exc:
@@ -655,6 +660,9 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api)
+    if relay_result and relay_result.get("handled"):
+        return {"ok":True,**relay_result}
     message=update.get("message") or {}
     chat=message.get("chat") or {}
     if str(chat.get("type") or "")!="private":
@@ -8884,6 +8892,7 @@ def status(request: Request=None):
     report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
     return {
         "factory":"online","version":APP_VERSION,"buildSha":BUILD_SHA,"factoryMcpConfigured":bool(FACTORY_MCP_TOKEN),
+        "relay":RELAY_STORE.summary(),
         "auth":{"role":identity.get("role","owner"),"email":identity.get("email",""),"provider":identity.get("provider",""),"readOnly":identity.get("role")=="viewer"},
         "jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
         "selectedJobQuality": get_job_quality(sid) if sid else None,
