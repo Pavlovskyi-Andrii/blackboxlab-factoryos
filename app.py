@@ -462,6 +462,31 @@ def _telegram_public_status() -> dict:
     }
 
 
+@app.on_event("startup")
+async def sync_telegram_relay_webhook():
+    if not FACTORY_TELEGRAM_BOT_TOKEN:
+        return
+    try:
+        await asyncio.to_thread(_telegram_api,"setWebhook",{
+            "url":f"{FACTORY_PUBLIC_BASE_URL}/api/integrations/telegram/webhook",
+            "secret_token":_telegram_webhook_secret(),
+            "allowed_updates":["message","callback_query"],
+            "drop_pending_updates":False,
+        })
+        await asyncio.to_thread(_telegram_api,"setMyCommands",{"commands":[
+            {"command":"relay","description":"Открыть активные задачи Relay"},
+            {"command":"tasks","description":"Показать активные задачи"},
+            {"command":"new","description":"Создать новую задачу"},
+            {"command":"work","description":"Перевести тикет в работу"},
+            {"command":"need","description":"Нужно действие от меня"},
+            {"command":"done","description":"Закрыть тикет"},
+            {"command":"status","description":"Проверить связь с FactoryOS"},
+        ]})
+        print(json.dumps({"event":"RELAY_TELEGRAM_WEBHOOK","status":"ready"}),flush=True)
+    except Exception as exc:
+        print(json.dumps({"event":"RELAY_TELEGRAM_WEBHOOK","status":"error","error":str(exc)[:300]}),flush=True)
+
+
 class TelegramBridgeNotify(BaseModel):
     text: str
     kind: str = "info"
