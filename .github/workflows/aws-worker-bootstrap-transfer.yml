@@ -1,0 +1,36 @@
+name: Bootstrap FactoryOS source to AWS
+on:
+  push:
+    branches:
+      - bootstrap/aws-worker-transfer-20261026
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify GitHub credentials were removed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git config --get-all http.https://github.com/.extraheader || true)"
+      - name: Package exact repository checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf /tmp/factoryos-src.tgz .
+          test -s /tmp/factoryos-src.tgz
+          sha256sum /tmp/factoryos-src.tgz
+          du -h /tmp/factoryos-src.tgz
+      - name: Upload to private AWS bootstrap object
+        shell: bash
+        env:
+          UPLOAD_URL: "https://factoryos-bootstrap-546963349404-eun1.s3.amazonaws.com/bootstrap/factoryos-src.tgz?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAX6WMOL6OLYOU3J4Y%2F20261026%2Feu-north-1%2Fs3%2Faws4_request&X-Amz-Date=20261026T192234Z&X-Amz-SignedHeaders=content-type%3Bhost&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEBMaCmV1LW5vcnRoLTEiSDBGAiEAhrPCCOxJ2y7ACH7pnErX%2F8oVsZzDYDl7skm0zPyHJE4CIQC3Mrj09xr%2BCdEDRXQ%2FiNfixWVM70JeBtqIdRMMovQkiSrIBQjc%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F8BEAAaDDU0Njk2MzM0OTQwNCIMVhxPvW1SR1UQp7%2B0KpwFJnHKrSxMmJsxQclftvFpea47CnfRJHKHEvAEV4dPynZqVuYeOOwTirV7ac94sAO7rjKTnYL4xbYk%2F5n5D9FtwvJkmeZNQEwMeiGB534jYZ9vvlrRa%2Bcx%2FcvysGg61lO%2BnSLx9JvewA3aBlZsU%2F96wCC8rHYJqiGk76%2Be9TyMPoBZzmc0125eCSMN7Qj6%2FYahhEudBbSpCtXeJFvtB3zyWvXHJ%2FO3ssDTZWGZ4bLaUyO5YV%2B04sVTy6TrWzRTUl7nPerkdJpr7h%2B1FxA8gquAjH6yi650EplO%2F6Kx0jgbP3TLtwGP7Exi1dKWLWS832wnMojkzeGl3ApcWRTILQx%2Bob6QtJX2rpOjO7IKOCpqejnIin0lEHwSgWldguK1geYpfPzKq3PqfXXhdgT%2FOHNdg0LlN0U9STm3sk06AhdUags4JvNvJbeYWjkTAyNv9pZT1DiVbeLj%2B8HaZb%2BZMelTiBvW3iWw8tsZCy1whJJYyOxL9EuJoznl7Ojjchp819Vmy8EAu%2FRaRbVaES97kkswZqMb0lYWbkaW%2B5Ig%2Bz3OHwqHWDQ8c8FV3rlS7LBxTgyJiUtd%2F%2FyzKtus%2FV1g2IoJu1hKFgulldoiIo8HLrns6SbbILrD9s%2BP%2FGztnyG%2F6MO96Gxp0tZRh2fuVVG%2F%2Fk1Qzy2UhG0QccJpvRswuespEq8sJcpH%2FJFxVUoGhWUaAxD8f2WqH46KkxUQQYbs%2FpwqPvp5rCilRJdCyrsnXRP4pGSQ4MwmYlyxrV2dnrHcqURH36ZwAEv1V7YCq35QLoNCXJ%2F2XWDrSsb2m25psIjjyMona8HQ4TCziVjlIc89AHdtnQNNqob9i0C7HW%2FP50duC%2FbURX5K3GuqHWrowbFNuVKhd5fOlKH6ijYzgCcwzcz%2B1gY6sAGl6iQRRqQ6E%2F4qbEPfrnoRdN6vbX%2B7djnCouwZrjA8DkP8KvufHStS0djhsfBzoznWG0s%2Fbu%2BDanr5%2BuOHeFK2ghGSG9xWFzGebd6%2BT6bR8VSMbvzp2%2FQ%2BA8ReJXH6bN1kDEKQ4fLKp0dzab5PwhUacnWRADDVRZXjq2OYKWwyo9YiYSFFj%2Btm1fUHtok6jdGViY%2FS5gLem6%2F%2BUzlE4%2BnD4ND6pBymTmH2B9BRsxgMow%3D%3D&X-Amz-Signature=f7fe2b71a1884600751694bc681c4bca907a7dc053f49de3323bec8740e5da39"
+        run: |
+          set -euo pipefail
+          curl -fsS -X PUT -H 'Content-Type: application/gzip' --upload-file /tmp/factoryos-src.tgz "$UPLOAD_URL"
