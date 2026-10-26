@@ -80,6 +80,7 @@ Rules:
 
 - [ ] [HUMAN] T-520 Configure first real publisher
   Need: owner-controlled platform/publisher credentials or connected publishing provider.
+  Progress 2026-10-26: Metricool brand blackboxlab7 is connected in ChatGPT (YouTube / TikTok / Instagram visible), but the live FactoryOS Render runtime still reports `adapter=manual` and `metricool_configured=false`. Known non-secret account IDs are not sufficient without the server-side provider credential; keep publishing fail-closed until FactoryOS itself reports a configured real adapter.
   DONE: FactoryOS reports one configured real publisher adapter without exposing secrets.
 
 - [ ] [HUMAN] T-521 First owner-approved real post
