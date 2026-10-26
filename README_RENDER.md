@@ -31,3 +31,19 @@ When we add real long-running AI/video jobs or multiple users:
 - add a background worker / queue
 - move generated media to object storage
 - add real provider adapters (LLM, voice, video, Metricool)
+
+
+## Gemini Omni video provider
+
+FactoryOS can use Google's current Gemini Omni Flash video API directly, without a separate webhook bridge.
+
+Runtime variables:
+- `FACTORY_VIDEO_ADAPTER=gemini-omni`
+- `FACTORY_GEMINI_API_KEY` — secret; create it in Google AI Studio / a Google Cloud project with Gemini API billing enabled. Never commit it.
+- `FACTORY_GEMINI_VIDEO_MODEL=gemini-omni-1.1-flash`
+- `FACTORY_GEMINI_VIDEO_ASPECT_RATIO=9:16`
+- `FACTORY_GEMINI_VIDEO_RESOLUTION=720p`
+
+Generation uses the Interactions API with URI delivery. FactoryOS stores the Google file id in `media_jobs`, polls the Files API through the existing Refresh render action, downloads the ready MP4 into the persistent media archive, and then exposes the normal signed FactoryOS media URL. Provider credentials are never returned to the browser.
+
+Google AI consumer subscriptions and Gemini API billing are separate products. A Gemini/Google AI Pro subscription does not by itself make the developer API paid tier available; enable billing on the Google Cloud project used by the API key before a paid video test.

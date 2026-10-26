@@ -35,6 +35,16 @@ services:
         sync: false
       - key: FACTORY_GOOGLE_ALLOWED_DOMAINS
         sync: false
+      - key: FACTORY_VIDEO_ADAPTER
+        value: gemini-omni
+      - key: FACTORY_GEMINI_API_KEY
+        sync: false
+      - key: FACTORY_GEMINI_VIDEO_MODEL
+        value: gemini-omni-1.1-flash
+      - key: FACTORY_GEMINI_VIDEO_ASPECT_RATIO
+        value: "9:16"
+      - key: FACTORY_GEMINI_VIDEO_RESOLUTION
+        value: 720p
       - key: FACTORY_VIEWER_INVITE_TOKEN
         sync: false
       - key: FACTORY_TELEGRAM_BOT_TOKEN

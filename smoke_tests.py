@@ -26,7 +26,7 @@ def route_exists(path, method):
 
 health=app.health()
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v5.5.1","version mismatch")
+require(health["version"]==app.APP_VERSION=="v5.6.0","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -1208,3 +1208,27 @@ require(app._identity_from_session_token(viewer_token)["role"]=="viewer","viewer
 require(app._identity_from_session_token(viewer_token)["email"]=="viewer@example.com","viewer email session regression")
 
 require(hasattr(app,"FACTORY_VIEWER_INVITE_TOKEN"),"viewer invite config missing")
+
+
+# Native Gemini Omni video provider stays zero-spend in CI: only pure parsing/config helpers are exercised.
+require(hasattr(app,"FACTORY_GEMINI_API_KEY") and hasattr(app,"FACTORY_GEMINI_VIDEO_MODEL"),"Gemini video config missing")
+require(app._is_gemini_video_provider("gemini-omni"),"Gemini adapter alias regression")
+uri_payload={"steps":[{"type":"model_output","content":[{"type":"video","mime_type":"video/mp4","uri":"https://generativelanguage.googleapis.com/v1beta/files/abc-123:download?alt=media"}]}]}
+require(app._gemini_video_uri(uri_payload).endswith("files/abc-123:download?alt=media"),"Gemini REST URI extraction regression")
+require(app._gemini_video_file_id(app._gemini_video_uri(uri_payload))=="abc-123","Gemini file-id extraction regression")
+prompt=app._gemini_video_prompt({"title":"Test","hook":"Open fast","scenes":[{"visual":"Original abstract motion","narration":"A concise fact"}]})
+require("Do not copy or reuse source footage" in prompt and "No spoken dialogue" in prompt,"Gemini prompt guardrails missing")
+old_video_adapter=app.FACTORY_MEDIA_ADAPTERS.get("video")
+old_gemini_key=app.FACTORY_GEMINI_API_KEY
+try:
+    app.FACTORY_MEDIA_ADAPTERS["video"]="gemini-omni"
+    app.FACTORY_GEMINI_API_KEY="ci-placeholder-not-a-real-key"
+    require(app._video_provider_configured(),"Gemini video should report configured when runtime secret exists")
+    adapter=app.get_revideo_adapter_registry()["video"]
+    require(adapter["configured"] and adapter["execution"]=="gemini_interactions_uri","Gemini Revideo registry regression")
+    require("ci-placeholder-not-a-real-key" not in json.dumps(app.get_revideo_adapter_registry()),"Gemini secret leaked through adapter registry")
+    video_conn=app.get_connection_registry()["Video"]
+    require(video_conn["state"]=="connected" and video_conn["provider"]=="gemini-omni","Gemini connection registry regression")
+finally:
+    app.FACTORY_MEDIA_ADAPTERS["video"]=old_video_adapter
+    app.FACTORY_GEMINI_API_KEY=old_gemini_key
