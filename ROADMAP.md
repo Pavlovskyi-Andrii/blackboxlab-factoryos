@@ -8,6 +8,7 @@ Rules:
 - Tasks that require credentials, payment, account ownership, irreversible decisions, or an external human approval are marked `[HUMAN]`.
 - Autopilot skips `[HUMAN]` tasks and continues with the next safe task.
 - Human approval remains mandatory before any real social publishing action.
+- ZERO ADDITIONAL SPEND: do not connect paid API billing, metered AI/browser calls, new paid cloud resources, or paid publisher plans without explicit fresh owner approval. Use existing subscriptions and free-tier resources only, with a fail-closed spending guard. Subscription access must never be silently replaced with PAYG API usage.
 
 ## v5.0 — Self-Building FactoryOS
 
@@ -314,3 +315,11 @@ Rules:
   Depends: T-584,T-585
   Goal: run one safe coding task as a real implementation battle (Claude vs another configured operator), review both, and persist exact commits/check evidence without auto-merging production.
   DONE: one real non-HUMAN task has two isolated candidate branches/results and a reviewer decision; owner remains the merge gate.
+
+## v5.0.3 — Runner Supervisor (Subscription-only Recovery)
+
+- [ ] T-562 Local self-healing supervisor and zero-paid-API guards
+  Planner: ChatGPT
+  Spec: docs/roadmap/T-562_RUNNER_SUPERVISOR.md
+  Goal: use a bounded local systemd recovery timer on the existing EC2 instance to restart only when subscription OAuth, internal worker token, non-main branch, and zero paid API billing gates all pass. Record safe local recovery status, never recover or copy OAuth tokens, never bypass account security.
+  DONE: `python -m autopilot.test_supervisor` passes, CI passes, and on-host timer + truthful blocked/running status are verified; owner authorization and internal token remain independent prerequisites to live Claude task execution.
