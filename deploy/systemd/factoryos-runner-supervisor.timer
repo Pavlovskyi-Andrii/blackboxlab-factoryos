@@ -1,0 +1,11 @@
+[Unit]
+Description=Check FactoryOS subscription worker every minute
+
+[Timer]
+OnBootSec=90s
+OnUnitInactiveSec=60s
+AccuracySec=10s
+Unit=factoryos-runner-supervisor.service
+
+[Install]
+WantedBy=timers.target

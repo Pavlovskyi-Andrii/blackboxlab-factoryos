@@ -1,0 +1,15 @@
+[Unit]
+Description=FactoryOS Runner Supervisor (subscription-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/factoryos
+ExecStart=/usr/bin/python3 -m autopilot.supervisor
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+TimeoutStartSec=60
