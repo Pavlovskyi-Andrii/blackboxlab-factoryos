@@ -80,6 +80,12 @@ class LocalStateTests(unittest.TestCase):
             self.assertEqual(parsed["FACTORY_CLAUDE_WORKER_TOKEN"], "")
             self.assertNotIn("SECRET", parsed)
 
+    def test_logged_out_status_is_not_missing_cli(self):
+        with mock.patch.object(s, "command", return_value=(
+            1, json.dumps({"loggedIn": False, "apiProvider": "firstParty", "authMethod": "none"})
+        )):
+            self.assertEqual(s.subscription_status(), (True, False))
+
     def test_subscription_requires_first_party_non_api_key_auth(self):
         with mock.patch.object(s, "command", return_value=(
             0, json.dumps({"loggedIn": True, "apiProvider": "firstParty", "authMethod": "api_key"})
