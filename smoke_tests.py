@@ -1254,3 +1254,17 @@ try:
 finally:
     app.FACTORY_MEDIA_ADAPTERS["video"]=old_video_adapter
     app.FACTORY_GEMINI_API_KEY=old_gemini_key
+
+
+# Multi-operator telemetry stays factual and secret-free.
+app.operator_worker_runtime={"claude":{"last_seen":0.0},"gemini":{"last_seen":0.0}}
+lanes=app.get_operator_lanes()
+require(lanes["claude"]["online"] is False and lanes["gemini"]["online"] is False,"operator worker telemetry regression: offline must remain offline")
+hb=app.OperatorWorkerHeartbeat(operator_id="gemini",node_id="ci-node",runtime="antigravity",version="test",auth_mode="subscription",
+                               branch="gemini/test",repo="factoryos",status="working",task_id="T-TEST",stage="coding",queue_depth=1,
+                               tickets=[{"id":"T-TEST","title":"fixture"}],last_result="")
+app.operator_worker_heartbeat(hb)
+lanes=app.get_operator_lanes()
+require(lanes["gemini"]["online"] is True and lanes["gemini"]["active_task_id"]=="T-TEST","operator worker telemetry regression: live heartbeat missing")
+require(lanes["gemini"]["branch"]=="gemini/test" and lanes["gemini"]["runtime"]=="antigravity","operator worker telemetry regression: provenance missing")
+require("token" not in json.dumps(lanes).lower(),"operator worker telemetry regression: secret-shaped field leaked")
