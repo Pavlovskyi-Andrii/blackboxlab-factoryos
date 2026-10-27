@@ -237,6 +237,18 @@ def _owner_guard(request: Request, request_identity: Callable) -> dict:
     return identity
 
 
+def _operator_keyboard() -> dict:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "🟠 Claude", "callback_data": "relay:operator:claude"},
+                {"text": "🔵 Gemini", "callback_data": "relay:operator:gemini"},
+            ],
+            [{"text": "📋 Все открытые тикеты", "callback_data": "relay:list:active"}],
+        ]
+    }
+
+
 def _ticket_keyboard(ticket_id: str) -> dict:
     return {
         "inline_keyboard": [
@@ -247,6 +259,10 @@ def _ticket_keyboard(ticket_id: str) -> dict:
             [
                 {"text": "✅ Готово", "callback_data": f"relay:status:{ticket_id}:done"},
                 {"text": "↩️ Inbox", "callback_data": f"relay:status:{ticket_id}:inbox"},
+            ],
+            [
+                {"text": "🟠 Claude", "callback_data": "relay:operator:claude"},
+                {"text": "🔵 Gemini", "callback_data": "relay:operator:gemini"},
             ],
             [{"text": "📋 Мои задачи", "callback_data": "relay:list:active"}],
         ]
@@ -285,6 +301,66 @@ def _active_list_text(store: RelayStore) -> str:
         groups.extend(f"{x['id']} · {x['title'][:90]}" for x in rows[:12])
         groups.append("")
     return "📡 FactoryOS Relay\n\n" + "\n".join(groups).strip()
+
+
+def _operator_lane_text(name: str, provider: Optional[Callable[[], dict]]) -> str:
+    key=(name or "").strip().lower()
+    label={"claude":"🟠 Claude","gemini":"🔵 Gemini"}.get(key,key.title() or "Operator")
+    if provider is None:
+        return f"{label}\n\nСтатус пока не подключён к FactoryOS."
+    try:
+        lanes=provider() or {}
+    except Exception as exc:
+        return f"{label}\n\n⚠️ Статус недоступен: {str(exc)[:160]}"
+    lane=lanes.get(key) if isinstance(lanes,dict) else None
+    lane=lane if isinstance(lane,dict) else {}
+    online=lane.get("online") is True
+    state=str(lane.get("state") or ("online" if online else "offline"))
+    lines=[label, f"Статус: {'🟢 online' if online else '⚪ '+state}"]
+    task=str(lane.get("active_task_id") or lane.get("task_id") or "").strip()
+    if task:
+        lines.append(f"Текущая задача: {task}")
+    branch=str(lane.get("branch") or "").strip()
+    if branch:
+        lines.append(f"Ветка: {branch}")
+    stage=str(lane.get("stage") or "").strip()
+    if stage:
+        lines.append(f"Этап: {stage}")
+    queue=lane.get("queue_depth")
+    if queue is not None:
+        lines.append(f"Очередь: {queue}")
+    tickets=lane.get("tickets") or []
+    if isinstance(tickets,list) and tickets:
+        lines.append("")
+        lines.append("Открытые тикеты:")
+        for item in tickets[:10]:
+            if isinstance(item,dict):
+                tid=str(item.get("id") or item.get("task_id") or "").strip()
+                title=str(item.get("title") or "").strip()
+                lines.append(f"• {tid}{' · ' if tid and title else ''}{title}"[:180])
+            else:
+                lines.append(f"• {str(item)[:160]}")
+    last=str(lane.get("last_result") or lane.get("summary") or "").strip()
+    if last:
+        lines.extend(["",f"Последний результат: {last[:500]}"])
+    return "\n".join(lines)
+
+
+def _operators_overview_text(provider: Optional[Callable[[], dict]]) -> str:
+    if provider is None:
+        return "🧠 Operators\n\nClaude: статус не подключён\nGemini: статус не подключён"
+    try:
+        lanes=provider() or {}
+    except Exception as exc:
+        return f"🧠 Operators\n\n⚠️ Статус недоступен: {str(exc)[:160]}"
+    rows=["🧠 FactoryOS Operators"]
+    for key,label in (("claude","🟠 Claude"),("gemini","🔵 Gemini")):
+        lane=(lanes.get(key) or {}) if isinstance(lanes,dict) else {}
+        online=lane.get("online") is True
+        state=str(lane.get("state") or ("online" if online else "offline"))
+        task=str(lane.get("active_task_id") or lane.get("task_id") or "").strip()
+        rows.append(f"{label}: {'🟢 online' if online else '⚪ '+state}{' · '+task if task else ''}")
+    return "\n".join(rows)
 
 
 def _telegram_attachment(message: dict) -> dict:
@@ -339,6 +415,7 @@ def relay_handle_telegram_update(
     store: RelayStore,
     load_pair_state: Callable[[], dict],
     telegram_api: Callable[[str, Optional[dict]], dict],
+    operator_status_provider: Optional[Callable[[], dict]] = None,
 ) -> Optional[dict]:
     """Handle Relay-specific Telegram traffic.
 
@@ -362,8 +439,18 @@ def relay_handle_telegram_update(
         callback_id = str(callback.get("id") or "")
         if data == "relay:list:active":
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
-            telegram_api("sendMessage", {"chat_id": chat_id, "text": _active_list_text(store)})
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": _active_list_text(store), "reply_markup": _operator_keyboard()})
             return {"handled": True, "action": "list"}
+        match_operator=re.fullmatch(r"relay:operator:(claude|gemini)",data)
+        if match_operator:
+            name=match_operator.group(1)
+            telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": name.title()})
+            telegram_api("sendMessage", {
+                "chat_id": chat_id,
+                "text": _operator_lane_text(name,operator_status_provider),
+                "reply_markup": _operator_keyboard(),
+            })
+            return {"handled": True, "action": "operator", "operator": name}
         match = re.fullmatch(r"relay:status:(R-\d{4,8}):(inbox|in_progress|need_you|done|archived)", data)
         if match:
             ticket_id, status = match.group(1), match.group(2)
@@ -396,8 +483,11 @@ def relay_handle_telegram_update(
     if command in ("/pair", "/start", "/status"):
         return None
     if command in ("/relay", "/tasks"):
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _active_list_text(store)})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _active_list_text(store), "reply_markup": _operator_keyboard()})
         return {"handled": True, "action": "list"}
+    if command in ("/operators","/workers"):
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _operators_overview_text(operator_status_provider), "reply_markup": _operator_keyboard()})
+        return {"handled": True, "action": "operators"}
 
     command_status = {
         "/done": "done",
