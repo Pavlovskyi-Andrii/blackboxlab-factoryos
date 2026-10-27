@@ -539,6 +539,8 @@ async def sync_telegram_relay_webhook():
             {"command":"done","description":"Закрыть тикет"},
             {"command":"operators","description":"Claude / Gemini: статус и тикеты"},
             {"command":"workers","description":"Открыть операторские ветки"},
+            {"command":"claude","description":"Открыть Claude operator lane"},
+            {"command":"gemini","description":"Открыть Gemini operator lane"},
             {"command":"status","description":"Проверить связь с FactoryOS"},
         ]})
         print(json.dumps({"event":"RELAY_TELEGRAM_WEBHOOK","status":"ready"}),flush=True)
