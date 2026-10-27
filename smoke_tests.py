@@ -15,6 +15,7 @@ elif Path(os.environ["DATA_DIR"]).is_dir() and any(Path(os.environ["DATA_DIR"]).
 os.environ["FACTORY_PASSWORD"] = ""
 os.environ["FACTORY_LLM_API_KEY"] = ""
 import app  # noqa: E402
+import relay  # noqa: E402
 
 def require(condition, message):
     if not condition:
@@ -210,9 +211,8 @@ for cmd,operator in (("/claude","claude"),("/gemini","gemini")):
     require(result["handled"] is True and result["action"]=="operator" and result["operator"]==operator,"Relay direct operator command regression")
     require(fake_tg and fake_tg[-1][0]=="sendMessage" and operator.title() in fake_tg[-1][1]["text"],"Relay operator lane response missing")
 
-relay_html=app._relay_html() if hasattr(app,"_relay_html") else ""
-if relay_html:
-    require("/api/factory/operators/runtime" in relay_html and "opState" in relay_html,"Relay mobile operator status regression")
+relay_html=relay._relay_html()
+require("/api/factory/operators/runtime" in relay_html and "opState" in relay_html,"Relay mobile operator status regression")
 
 brain=app.get_content_brain()
 require(brain["summary"]["signals"]==0 and brain["summary"]["ideas"]==0,"fresh Content Brain fixture must be empty")
