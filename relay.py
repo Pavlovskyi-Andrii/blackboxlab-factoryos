@@ -488,6 +488,14 @@ def relay_handle_telegram_update(
     if command in ("/operators","/workers"):
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _operators_overview_text(operator_status_provider), "reply_markup": _operator_keyboard()})
         return {"handled": True, "action": "operators"}
+    if command in ("/claude","/gemini"):
+        operator = command[1:]
+        telegram_api("sendMessage", {
+            "chat_id": chat_id,
+            "text": _operator_lane_text(operator, operator_status_provider),
+            "reply_markup": _operator_keyboard(),
+        })
+        return {"handled": True, "action": "operator", "operator": operator}
 
     command_status = {
         "/done": "done",
@@ -618,7 +626,7 @@ main{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(240px,1fr))
 @media(max-width:800px){main{display:block;overflow:visible}.col{margin-bottom:10px;min-height:auto}header{padding-top:max(14px,env(safe-area-inset-top))}}
 </style></head><body>
 <header><h1>📡 FactoryOS Relay</h1><div class="sub" id="summary">Загрузка…</div>
-<div class="new"><input id="newTitle" placeholder="Новая задача или ссылка"><button class="primary" onclick="createTicket()">Добавить</button></div><div class="new"><button id="tgBtn" onclick="pairTelegram()">Telegram…</button><span class="sub" id="tgState"></span></div></header>
+<div class="new"><input id="newTitle" placeholder="Новая задача или ссылка"><button class="primary" onclick="createTicket()">Добавить</button></div><div class="new"><button id="tgBtn" onclick="pairTelegram()">Telegram…</button><span class="sub" id="tgState"></span></div><div class="new"><span class="sub" id="opState">🧠 Operators: загрузка…</span></div></header>
 <main id="board"></main>
 <script>
 const labels={inbox:"📥 Inbox",in_progress:"▶️ В работе",need_you:"🙋 Нужно от тебя",done:"✅ Готово"};
@@ -649,6 +657,7 @@ async function load(){
 async function setStatus(id,status){await api("/api/relay/"+id+"/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:status})});load()}
 async function createTicket(){const el=document.getElementById("newTitle"),v=el.value.trim();if(!v)return;const u=(v.match(/https?:\/\/\S+/)||[""])[0];await api("/api/relay",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:v,source_url:u})});el.value="";load()}
 async function telegramStatus(){try{const s=await api("/api/factory/telegram/status");document.getElementById("tgBtn").textContent=s.paired?"✅ Telegram подключён":"Подключить Telegram";document.getElementById("tgState").textContent=s.paired?(s.username?"@"+s.username:"готов"):(s.configured?"не привязан":"бот не настроен")}catch(e){document.getElementById("tgState").textContent="статус недоступен"}}
+async function operatorStatus(){try{const d=await api("/api/factory/operators/runtime"),o=d.operators||{};const fmt=function(name,icon){const x=o[name]||{};const state=x.online?"🟢 online":("⚪ "+(x.state||"offline"));const task=x.active_task_id?(" · "+x.active_task_id):"";return icon+" "+name.charAt(0).toUpperCase()+name.slice(1)+": "+state+task};document.getElementById("opState").textContent="🧠 Operators · "+fmt("claude","🟠")+" · "+fmt("gemini","🔵")}catch(e){document.getElementById("opState").textContent="🧠 Operators: статус недоступен"}}
 async function pairTelegram(){try{const d=await api("/api/factory/telegram/pairing/start",{method:"POST"});document.getElementById("tgState").textContent="Код "+d.pair_code+" · действует "+Math.round(d.expires_in_seconds/60)+" мин";if(d.deep_link){window.location.href=d.deep_link}else{alert("Отправь боту: "+d.command)}}catch(e){alert("Не удалось начать привязку Telegram")}}
-document.getElementById("newTitle").addEventListener("keydown",function(e){if(e.key==="Enter")createTicket()});load();telegramStatus();setInterval(load,10000);setInterval(telegramStatus,30000);
+document.getElementById("newTitle").addEventListener("keydown",function(e){if(e.key==="Enter")createTicket()});load();telegramStatus();operatorStatus();setInterval(load,10000);setInterval(operatorStatus,15000);setInterval(telegramStatus,30000);
 </script></body></html>"""
