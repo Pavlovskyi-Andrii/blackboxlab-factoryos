@@ -47,6 +47,10 @@ services:
         value: 720p
       - key: FACTORY_VIEWER_INVITE_TOKEN
         sync: false
+      - key: FACTORY_CLAUDE_WORKER_TOKEN
+        sync: false
+      - key: FACTORY_OPERATOR_WORKER_TOKEN
+        sync: false
       - key: FACTORY_TELEGRAM_BOT_TOKEN
         sync: false
       - key: FACTORY_TELEGRAM_PAIR_TTL_SECONDS
