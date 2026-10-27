@@ -116,12 +116,16 @@ def subscription_status() -> tuple[bool, bool]:
         ["runuser", "-u", WORKER_USER, "--", "claude", "auth", "status"],
         timeout=20,
     )
-    if rc or not output:
-        return False, False
+    if not output:
+        # "auth status" may return a non-zero exit code for logged-out users.
+        # Probe --version separately so we don't misdiagnose missing CLI.
+        version_rc, _ = command(["runuser", "-u", WORKER_USER, "--", "claude", "--version"])
+        return version_rc == 0, False
     try:
         obj = json.loads(output)
     except (ValueError, TypeError):
-        return False, False
+        version_rc, _ = command(["runuser", "-u", WORKER_USER, "--", "claude", "--version"])
+        return version_rc == 0, False
     # The CLI may use different names for subscription OAuth. Do not accept
     # api_key/console login as a substitute for a paid Claude subscription.
     method = str(obj.get("authMethod") or "").lower().strip()
@@ -131,7 +135,7 @@ def subscription_status() -> tuple[bool, bool]:
         and provider == "firstParty"
         and method not in ("", "none", "api_key", "api-key", "console")
     )
-    return True, valid
+    return True, valid and rc == 0
 
 
 def read_attempts(path: Path, now: float) -> list[float]:
