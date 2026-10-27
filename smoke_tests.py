@@ -195,6 +195,25 @@ relay_again=app.relay_handle_telegram_update(relay_update,app.RELAY_STORE,lambda
 require(relay_again["created"] is False,"Relay Telegram update retries must dedupe")
 require(app.RELAY_STORE.summary()["total"]==2 and app.RELAY_STORE.summary()["needs_you"]==1,"Relay summary regression")
 
+def fake_operator_status():
+    return {
+        "claude":{"online":True,"state":"working","active_task_id":"T-580","runtime":"claude-code","branch":"chatgpt/fixture","tickets":[{"id":"T-580","title":"Role/operator separation"}]},
+        "gemini":{"online":False,"state":"offline","active_task_id":"","runtime":"","branch":"","tickets":[]},
+    }
+
+for cmd,operator in (("/claude","claude"),("/gemini","gemini")):
+    fake_tg.clear()
+    result=app.relay_handle_telegram_update(
+        {"update_id":778 if operator=="claude" else 779,"message":{"message_id":10,"chat":{"id":42,"type":"private"},"text":cmd}},
+        app.RELAY_STORE,lambda:{"chat_id":"42"},fake_relay_tg,fake_operator_status
+    )
+    require(result["handled"] is True and result["action"]=="operator" and result["operator"]==operator,"Relay direct operator command regression")
+    require(fake_tg and fake_tg[-1][0]=="sendMessage" and operator.title() in fake_tg[-1][1]["text"],"Relay operator lane response missing")
+
+relay_html=app._relay_html() if hasattr(app,"_relay_html") else ""
+if relay_html:
+    require("/api/factory/operators/runtime" in relay_html and "opState" in relay_html,"Relay mobile operator status regression")
+
 brain=app.get_content_brain()
 require(brain["summary"]["signals"]==0 and brain["summary"]["ideas"]==0,"fresh Content Brain fixture must be empty")
 signal_payload=app.SignalCreate(title="Open-source firmware RE update",content="New reverse-engineering workflow details",url="https://example.com/re",source_type="url",topic="reverse engineering")
