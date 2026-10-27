@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Compile Python
-        run: python -m py_compile app.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py autopilot/autopilot.py autopilot/notify.py autopilot/claude_pro_worker.py autopilot/supervisor.py autopilot/test_supervisor.py autopilot/delegation.py autopilot/test_autopilot.py autopilot/test_notify.py autopilot/test_delegation.py autopilot/control.py autopilot/test_control.py test_delegation_ui.py browser_runner/__init__.py browser_runner/core.py browser_runner/sessions.py test_browser_runner.py test_browser_sessions.py
+        run: python -m py_compile app.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py autopilot/autopilot.py autopilot/notify.py autopilot/claude_pro_worker.py autopilot/supervisor.py autopilot/test_supervisor.py test_worker_token_binding.py autopilot/delegation.py autopilot/test_autopilot.py autopilot/test_notify.py autopilot/test_delegation.py autopilot/control.py autopilot/test_control.py test_delegation_ui.py browser_runner/__init__.py browser_runner/core.py browser_runner/sessions.py test_browser_runner.py test_browser_sessions.py
       - name: Install runtime dependencies
         run: python -m pip install -r requirements.txt
       - name: Media Finisher planner unit tests
@@ -83,6 +83,12 @@ jobs:
         run: python -m autopilot.test_control
       - name: Runner Supervisor recovery and no-PAYG safeguards
         run: python -m autopilot.test_supervisor
+      - name: EC2 worker token backwards compatibility
+        env:
+          DATA_DIR: /tmp/factoryos-worker-token-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: python test_worker_token_binding.py
       - name: Browser Action Runner policy regression
         run: python test_browser_runner.py
       - name: Browser session isolation regression

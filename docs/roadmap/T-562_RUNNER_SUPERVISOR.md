@@ -46,3 +46,6 @@ sudo -u ec2-user claude auth status
 
 ## Limitations / next phase
 This milestone provides **local crash recovery** and a truthful local health status. It does not back up/renew subscription OAuth credentials, bypass 2FA, trigger chat-side tools autonomously, or by itself expose the local status over the FactoryOS web UI. UI integration must use an authenticated endpoint with workspace isolation and redaction. Off-host redundancy requires a separately approved deployment plan because a second machine could incur costs.
+
+## Separate EC2 worker binding (T-563)
+FactoryOS may accept an additional `FACTORY_CLAUDE_WORKER_TOKEN_EC2` via its existing Render secret environment. This token is independent of the primary `FACTORY_CLAUDE_WORKER_TOKEN` used by other devices, so provisioning EC2 does not rotate/disconnect existing phone workers. On the trusted EC2 store exactly the same value under `FACTORY_CLAUDE_WORKER_TOKEN` in the root-owned `/etc/factoryos/claude-worker.env`. The service sees only the local name. Generate 32+ random bytes; never store the value in Git, docs, console history or owner-facing status payloads. Verify accepted auth with harmless heartbeat only **after** subscription login has succeeded; never claim live execution before both checks pass.

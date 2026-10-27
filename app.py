@@ -154,6 +154,8 @@ FACTORY_LOCAL_BOOSTER_TOKEN = (os.environ.get("FACTORY_LOCAL_BOOSTER_TOKEN","").
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest())
 FACTORY_CLAUDE_WORKER_TOKEN = (os.environ.get("FACTORY_CLAUDE_WORKER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-claude-code-worker-v1",hashlib.sha256).hexdigest())
+# Independent credential for the existing EC2 worker; leaves older phone/owner tokens valid.
+FACTORY_CLAUDE_WORKER_TOKEN_EC2 = os.environ.get("FACTORY_CLAUDE_WORKER_TOKEN_EC2", "").strip()
 FACTORY_OPERATOR_WORKER_TOKEN = (os.environ.get("FACTORY_OPERATOR_WORKER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-operator-worker-v1",hashlib.sha256).hexdigest())
 FACTORY_OPERATOR_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_OPERATOR_WORKER_TTL_SECONDS","45"))))
@@ -305,7 +307,8 @@ def _claude_worker_authorized(request: Request) -> bool:
     auth=(request.headers.get("authorization") or "").strip()
     if not auth.lower().startswith("bearer "):return False
     supplied=auth.split(" ",1)[1].strip()
-    return bool(supplied and hmac.compare_digest(supplied,FACTORY_CLAUDE_WORKER_TOKEN))
+    return bool(supplied and (hmac.compare_digest(supplied,FACTORY_CLAUDE_WORKER_TOKEN)
+                 or bool(FACTORY_CLAUDE_WORKER_TOKEN_EC2 and hmac.compare_digest(supplied,FACTORY_CLAUDE_WORKER_TOKEN_EC2))))
 
 def _operator_worker_authorized(request: Request) -> bool:
     auth=(request.headers.get("authorization") or "").strip()
@@ -10397,7 +10400,7 @@ def get_delegation_board():
         "safety":{"secrets_returned":False,"main_push_forbidden":True,"production_direct_deploy_forbidden":True,
                   "human_publish_approval_required":True},
     }
-    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
+    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
                                FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,
                                FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,
                                FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8]
