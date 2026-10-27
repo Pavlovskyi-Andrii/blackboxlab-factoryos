@@ -216,3 +216,65 @@ Rules:
   Goal: make a sellable onboarding flow where a new customer signs in, connects their own YouTube/TikTok/Instagram/HubSpot accounts, runs content, then safely disconnects/replaces all accounts without losing FactoryOS project history.
   DONE: end-to-end acceptance covers customer A -> disconnect all -> customer B login/connect with zero credential or content leakage and preserved workspace-specific audit history.
 
+
+
+## v5.8 — Multi-Model Role Lab
+
+- [ ] T-580 Role / Operator separation
+  Planner: ChatGPT
+  Goal: represent a FactoryOS role (Scout, Researcher, Scriptwriter, Engineer, Reviewer, QA, Supervisor, etc.) separately from the operator/model assigned to it (ChatGPT, Claude, Gemini, Auto), without renaming existing canonical workers.
+  DONE: API contract exposes roles, available operators, assignment state and operator online/auth status; existing pipelines remain backward-compatible.
+
+- [ ] T-581 Operator assignment UI
+  Planner: ChatGPT
+  Depends: T-580
+  Goal: let the owner assign ChatGPT / Claude / Gemini / Auto to any eligible role from the worker/agent UI and clearly show the current operator on every worker card.
+  DONE: deterministic UI fixture changes operator assignment for representative Content and Engineering roles and displays offline/auth-pending states without fabricating readiness.
+
+- [ ] T-582 Battle Run experiment model
+  Planner: ChatGPT
+  Depends: T-580
+  Goal: run the same task/content brief through two or more role→operator chains and preserve exact chain provenance for each variant.
+  DONE: deterministic regression creates at least two competing chains, preserves role/operator/model/runtime provenance per step, and records a battle/run ID without publishing automatically.
+
+- [ ] T-583 Outcome attribution + leaderboard
+  Planner: ChatGPT
+  Depends: T-582
+  Goal: attribute factual analytics (views, likes, comments, shares/reposts, saves, CTR/conversion when available) back to the exact role/operator chain and compare chains without inventing missing metrics.
+  DONE: analytics fixtures produce a factual leaderboard by chain; missing platform metrics remain unavailable rather than zero/fabricated.
+
+- [ ] T-584 Reviewer / Judge mode
+  Planner: ChatGPT
+  Depends: T-582
+  Goal: allow one or more operators to independently produce candidate outputs while a separately assigned Reviewer/Judge compares them using explicit criteria and preserved evidence.
+  DONE: deterministic fixture produces two candidate outputs + one review decision with criteria, selected candidate, rationale and provenance; Reviewer cannot silently rewrite candidates.
+
+- [ ] T-585 Multi-operator delegation board
+  Planner: ChatGPT
+  Depends: T-580
+  Goal: generalize the current Claude-only delegation board into operator lanes (Claude, Gemini, ChatGPT) showing open ticket, stage, branch/runtime, heartbeat, last result and queue depth.
+  DONE: API/UI renders at least Claude and Gemini lanes; offline/unconfigured Gemini is explicit; secrets are never returned.
+
+- [ ] T-586 Telegram operator lanes
+  Planner: ChatGPT
+  Depends: T-585
+  Goal: extend the paired Telegram owner bridge with two operator buttons/lists for Claude and Gemini plus open tickets and current status.
+  DONE: Telegram callback regression renders Claude/Gemini buttons, lists each operator's open tickets/status, and existing Relay ticket controls continue to work.
+
+- [ ] T-587 Telegram Battle controls
+  Planner: ChatGPT
+  Depends: T-582,T-586
+  Goal: let the owner view a Battle Run from Telegram, compare candidate chains, see factual outcome metrics and approve/reject only safe next actions.
+  DONE: deterministic Telegram fixture shows battle summary + candidate chains + metrics while preserving human publish approval.
+
+- [ ] T-588 Supervisor routing policy
+  Planner: ChatGPT
+  Depends: T-580,T-585
+  Goal: make Supervisor a routing role, not a fixed model: choose operators for tasks according to owner assignment, availability, task type and bounded Auto policy.
+  DONE: regression proves explicit assignment wins over Auto, offline operators are skipped, HUMAN tasks remain blocked, and no provider gains production/publish privileges by being selected.
+
+- [ ] T-589 Engineering battle pilot
+  Planner: ChatGPT
+  Depends: T-584,T-585
+  Goal: run one safe coding task as a real implementation battle (Claude vs another configured operator), review both, and persist exact commits/check evidence without auto-merging production.
+  DONE: one real non-HUMAN task has two isolated candidate branches/results and a reviewer decision; owner remains the merge gate.
