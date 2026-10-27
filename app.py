@@ -154,6 +154,11 @@ FACTORY_LOCAL_BOOSTER_TOKEN = (os.environ.get("FACTORY_LOCAL_BOOSTER_TOKEN","").
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest())
 FACTORY_CLAUDE_WORKER_TOKEN = (os.environ.get("FACTORY_CLAUDE_WORKER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-claude-code-worker-v1",hashlib.sha256).hexdigest())
+FACTORY_OPERATOR_WORKER_TOKEN = (os.environ.get("FACTORY_OPERATOR_WORKER_TOKEN","").strip()
+    or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-operator-worker-v1",hashlib.sha256).hexdigest())
+FACTORY_OPERATOR_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_OPERATOR_WORKER_TTL_SECONDS","45"))))
+operator_worker_runtime={"claude":{"last_seen":0.0},"gemini":{"last_seen":0.0}}
+_operator_worker_lock=threading.Lock()
 FACTORY_CLAUDE_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_CLAUDE_WORKER_TTL_SECONDS","45"))))
 claude_worker_runtime={"last_seen":0.0,"node":{},"active_task_id":"","last_error":""}
 CLAUDE_WORKER_RESULTS_FILE = DATA_DIR / "claude_worker_results.json"
@@ -301,6 +306,58 @@ def _claude_worker_authorized(request: Request) -> bool:
     if not auth.lower().startswith("bearer "):return False
     supplied=auth.split(" ",1)[1].strip()
     return bool(supplied and hmac.compare_digest(supplied,FACTORY_CLAUDE_WORKER_TOKEN))
+
+def _operator_worker_authorized(request: Request) -> bool:
+    auth=(request.headers.get("authorization") or "").strip()
+    if not auth.lower().startswith("bearer "):return False
+    supplied=auth.split(" ",1)[1].strip()
+    return bool(supplied and hmac.compare_digest(supplied,FACTORY_OPERATOR_WORKER_TOKEN))
+
+def _operator_runtime_online(item: dict) -> bool:
+    return (time.time()-float((item or {}).get("last_seen") or 0)) <= FACTORY_OPERATOR_WORKER_TTL_SECONDS
+
+def get_operator_lanes():
+    """Live, secret-free operator telemetry for UI/Telegram. Absence stays offline/unknown."""
+    lanes={}
+    role_board=get_role_operator_board() if "ROLE_CATALOG" in globals() else {"roles":[]}
+    assigned_by_operator={}
+    for role in role_board.get("roles") or []:
+        op=str(role.get("assigned_operator") or "")
+        if op and op!="auto":assigned_by_operator.setdefault(op,[]).append(role.get("id"))
+    for op in ("claude","gemini"):
+        item=dict(operator_worker_runtime.get(op) or {})
+        online=_operator_runtime_online(item)
+        tickets=[x for x in (item.get("tickets") or []) if isinstance(x,dict)][:20]
+        task_id=str(item.get("task_id") or "")
+        if task_id and not any(str(x.get("id") or x.get("task_id") or "")==task_id for x in tickets):
+            task=next((x for x in _parse_roadmap_tasks() if x["id"]==task_id),None)
+            tickets.insert(0,{"id":task_id,"title":(task or {}).get("title",""),"state":item.get("status") or "running"})
+        lanes[op]={
+            "operator_id":op,"online":online,
+            "state":str(item.get("status") or ("online" if online else "offline")) if online else ("stale" if item.get("last_seen") else "offline"),
+            "last_seen":item.get("last_seen") or 0,
+            "heartbeat_age_seconds":round(max(0.0,time.time()-float(item.get("last_seen") or 0)),1) if item.get("last_seen") else None,
+            "node_id":str(item.get("node_id") or ""),"runtime":str(item.get("runtime") or ""),
+            "version":str(item.get("version") or ""),"auth_mode":str(item.get("auth_mode") or ""),
+            "branch":str(item.get("branch") or ""),"repo":str(item.get("repo") or ""),
+            "active_task_id":task_id if online else "",
+            "stage":str(item.get("stage") or ""),"queue_depth":max(0,int(item.get("queue_depth") or 0)),
+            "tickets":tickets,"last_result":str(item.get("last_result") or "")[:500],
+            "last_error":str(item.get("last_error") or "")[:500],
+            "assigned_roles":assigned_by_operator.get(op,[]),
+        }
+    # Preserve the richer legacy Claude heartbeat as a factual fallback until all runners use the generic reporter.
+    legacy=get_claude_code_status()
+    if not lanes["claude"]["online"] and legacy.get("online"):
+        lanes["claude"].update({
+            "online":True,"state":"online","last_seen":legacy.get("last_seen") or 0,
+            "active_task_id":legacy.get("active_task_id") or "",
+            "last_error":legacy.get("last_error") or "",
+            "runtime":"claude-code","auth_mode":legacy.get("auth_mode") or "",
+            "node_id":str((legacy.get("node") or {}).get("node_id") or ""),
+            "branch":str((legacy.get("node") or {}).get("branch") or ""),
+        })
+    return lanes
 
 def _claude_worker_online():
     return (time.time()-float(claude_worker_runtime.get("last_seen") or 0)) <= FACTORY_CLAUDE_WORKER_TTL_SECONDS
@@ -480,6 +537,8 @@ async def sync_telegram_relay_webhook():
             {"command":"work","description":"Перевести тикет в работу"},
             {"command":"need","description":"Нужно действие от меня"},
             {"command":"done","description":"Закрыть тикет"},
+            {"command":"operators","description":"Claude / Gemini: статус и тикеты"},
+            {"command":"workers","description":"Открыть операторские ветки"},
             {"command":"status","description":"Проверить связь с FactoryOS"},
         ]})
         print(json.dumps({"event":"RELAY_TELEGRAM_WEBHOOK","status":"ready"}),flush=True)
@@ -503,9 +562,10 @@ async def auth_middleware(request: Request, call_next):
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
     claude_worker_api=request.url.path.startswith("/api/claude-worker/") and _claude_worker_authorized(request)
+    operator_worker_api=request.url.path.startswith("/api/operator-worker/") and _operator_worker_authorized(request)
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or telegram_webhook_path or telegram_bridge_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
@@ -685,7 +745,7 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api)
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}
@@ -2351,6 +2411,23 @@ class ClaudeWorkerHeartbeat(BaseModel):
     repo: str = ""
     status: str = "idle"
     task_id: str = ""
+    last_error: str = ""
+
+class OperatorWorkerHeartbeat(BaseModel):
+    operator_id: str
+    node_id: str = "factoryos-worker"
+    hostname: str = ""
+    runtime: str = ""
+    version: str = ""
+    auth_mode: str = ""
+    branch: str = ""
+    repo: str = ""
+    status: str = "idle"
+    task_id: str = ""
+    stage: str = ""
+    queue_depth: int = 0
+    tickets: list[dict] = []
+    last_result: str = ""
     last_error: str = ""
 
 class ClaudeWorkerTaskResult(BaseModel):
@@ -9559,6 +9636,24 @@ def claude_worker_heartbeat(payload: ClaudeWorkerHeartbeat):
 def claude_worker_task_result(payload: ClaudeWorkerTaskResult):
     return {"ok":True,"result":ingest_claude_worker_result(payload)}
 
+@app.post("/api/operator-worker/heartbeat")
+def operator_worker_heartbeat(payload: OperatorWorkerHeartbeat):
+    op=(payload.operator_id or "").strip().lower()
+    if op not in ("claude","gemini"):raise HTTPException(422,"Unsupported operator")
+    data=payload.model_dump()
+    data["operator_id"]=op
+    data["last_seen"]=time.time()
+    data["tickets"]=[x for x in (data.get("tickets") or []) if isinstance(x,dict)][:20]
+    with _operator_worker_lock:
+        operator_worker_runtime[op]=data
+    return {"ok":True,"lane":get_operator_lanes()[op]}
+
+@app.get("/api/factory/operators/runtime")
+def factory_operator_runtime(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return {"operators":get_operator_lanes()}
+
 @app.get("/api/local-booster/status")
 def local_booster_status():
     return {"online":_local_booster_online(),"ttl_seconds":FACTORY_LOCAL_BOOSTER_TTL_SECONDS,
@@ -10302,7 +10397,7 @@ def get_delegation_board():
         "safety":{"secrets_returned":False,"main_push_forbidden":True,"production_direct_deploy_forbidden":True,
                   "human_publish_approval_required":True},
     }
-    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
+    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
                                FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,
                                FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,
                                FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8]
