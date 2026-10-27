@@ -220,7 +220,7 @@ Rules:
 
 ## v5.8 — Multi-Model Role Lab
 
-- [ ] T-580 Role / Operator separation
+- [x] T-580 Role / Operator separation
   Planner: ChatGPT
   Goal: represent a FactoryOS role (Scout, Researcher, Scriptwriter, Engineer, Reviewer, QA, Supervisor, etc.) separately from the operator/model assigned to it (ChatGPT, Claude, Gemini, Auto), without renaming existing canonical workers.
   DONE: API contract exposes roles, available operators, assignment state and operator online/auth status; existing pipelines remain backward-compatible.

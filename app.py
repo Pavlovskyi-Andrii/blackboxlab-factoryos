@@ -10363,6 +10363,92 @@ def factory_delegation_board(request: Request):
     if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
     return get_delegation_board()
 
+# --- T-580 Role / Operator separation.
+# A role is what a canonical worker does; an operator is the model/runtime assigned to it. Canonical worker
+# names (AGENTS / AGENT_MAP) are untouched. Assignment is recorded owner intent only: it does not reroute the
+# existing pipeline (T-588 owns routing) and never grants a provider publish/production privileges.
+OPERATOR_IDS=("chatgpt","claude","gemini","auto")
+ROLE_CATALOG=(
+    {"id":"scout","label":"Scout","group":"content","workers":["Scout"],"operators":["chatgpt","claude","gemini","auto"]},
+    {"id":"researcher","label":"Researcher","group":"content","workers":["Researcher","Tech Verifier"],"operators":["chatgpt","claude","gemini","auto"]},
+    {"id":"scriptwriter","label":"Scriptwriter","group":"content","workers":["Angle Strategist","Hook Generator","Scriptwriter","Hook Optimizer","Editor"],"operators":["chatgpt","claude","gemini","auto"]},
+    {"id":"reviewer","label":"Reviewer","group":"content","workers":["Fact Checker"],"operators":["chatgpt","claude","gemini","auto"]},
+    {"id":"qa","label":"QA","group":"content","workers":["QA Agent"],"operators":["chatgpt","claude","gemini","auto"]},
+    {"id":"engineer","label":"Engineer","group":"engineering","workers":[],"operators":["claude","gemini","auto"]},
+    {"id":"supervisor","label":"Supervisor","group":"engineering","workers":["Supervisor"],"operators":["chatgpt","claude","gemini","auto"]},
+)
+ROLE_ASSIGNMENTS_FILE = DATA_DIR / "role_operator_assignments.json"
+_role_assignments_lock=threading.Lock()
+
+def _load_role_assignments():
+    if not ROLE_ASSIGNMENTS_FILE.exists():return {}
+    value=_decode_json(ROLE_ASSIGNMENTS_FILE.read_text(encoding="utf-8"),{})
+    roles={r["id"]:r for r in ROLE_CATALOG}
+    return {k:v for k,v in (value.items() if isinstance(value,dict) else [])
+            if k in roles and v in roles[k]["operators"]}
+
+def get_operator_status():
+    """Operator readiness without secrets; unknown stays unknown instead of being reported as ready."""
+    claude=get_claude_code_status()
+    return [
+        {"id":"chatgpt","label":"ChatGPT","kind":"api","model":FACTORY_LLM_MODEL,
+         "online":bool(FACTORY_LLM_API_KEY),"auth":"ready" if FACTORY_LLM_API_KEY else "pending",
+         "status":"configured" if FACTORY_LLM_API_KEY else "auth_pending"},
+        {"id":"claude","label":"Claude","kind":"runner","model":"",
+         "online":bool(claude["online"]),"auth":"ready" if claude["online"] and claude["auth_mode"] else ("unknown" if claude["online"] else "pending"),
+         "status":"online" if claude["online"] else "offline"},
+        {"id":"gemini","label":"Gemini","kind":"api","model":FACTORY_GEMINI_VIDEO_MODEL if FACTORY_GEMINI_API_KEY else "",
+         "online":None if FACTORY_GEMINI_API_KEY else False,"auth":"ready" if FACTORY_GEMINI_API_KEY else "pending",
+         "status":"configured_unverified" if FACTORY_GEMINI_API_KEY else "auth_pending"},
+        {"id":"auto","label":"Auto","kind":"policy","model":"","online":True,"auth":"not_required","status":"policy"},
+    ]
+
+def get_role_operator_board():
+    assigned=_load_role_assignments()
+    operators=get_operator_status()
+    status={o["id"]:o for o in operators}
+    roles=[]
+    for r in ROLE_CATALOG:
+        choice=assigned.get(r["id"],"auto")
+        live=[w for w in r["workers"] if w in LLM_LIVE_AGENTS]
+        roles.append({**r,"workers":list(r["workers"]),"operators":list(r["operators"]),
+            "assigned_operator":choice,"explicit":r["id"] in assigned,
+            "operator_status":status[choice]["status"],
+            # what the unchanged pipeline really uses today; assignment does not reroute it yet
+            "runtime_operator":"chatgpt" if live else "",
+            "enforced":False})
+    return {"roles":roles,"operators":operators,"assignments":assigned,
+            "note":"Assignments record owner intent; existing pipelines still run on their configured provider."}
+
+class RoleAssignmentRequest(BaseModel):
+    model_config={"extra":"forbid"}
+    role: str
+    operator: str
+
+@app.get("/api/factory/roles")
+def factory_roles(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return get_role_operator_board()
+
+@app.post("/api/factory/roles/assignment")
+def factory_role_assignment(item:RoleAssignmentRequest,request:Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    role=next((r for r in ROLE_CATALOG if r["id"]==item.role),None)
+    if not role:raise HTTPException(404,"Unknown role")
+    if item.operator not in OPERATOR_IDS:raise HTTPException(422,"Unknown operator")
+    if item.operator not in role["operators"]:raise HTTPException(409,"Operator is not eligible for this role")
+    with _role_assignments_lock:
+        state=_load_role_assignments()
+        if item.operator=="auto":state.pop(role["id"],None)
+        else:state[role["id"]]=item.operator
+        ROLE_ASSIGNMENTS_FILE.parent.mkdir(parents=True,exist_ok=True)
+        tmp=ROLE_ASSIGNMENTS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+        os.replace(tmp,ROLE_ASSIGNMENTS_FILE)
+    return {"ok":True,**get_role_operator_board()}
+
 # --- T-536-F safe operator controls: owner -> FactoryOS -> Claude runner command channel.
 # Only these three actions exist. Nothing here can push, switch branches, deploy, publish or touch secrets;
 # commands carry only {action, task_id} and the runner applies them between tasks.

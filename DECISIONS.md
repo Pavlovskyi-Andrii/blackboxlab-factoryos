@@ -202,3 +202,16 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** as in T-532/T-533, the uncommitted T-536-B telemetry changes in the working tree are left out of this commit. The T-534 commit contains only T-534 hunks.
   **Reason:** one roadmap task = one focused commit.
+
+## 2026-10-27 — T-580 Role / Operator separation
+
+- **Decision:** roles live in a new `ROLE_CATALOG` (Scout, Researcher, Scriptwriter, Reviewer, QA, Engineer, Supervisor) that only *references* canonical worker names. `AGENTS`, `AGENT_MAP`, `AGENT_SPECS` and `/api/agents` are untouched. Operators are `chatgpt`, `claude`, `gemini`, `auto`; `engineer` has no pipeline worker and excludes ChatGPT (no coding runner for it).
+  **Reason:** satisfies "without renaming existing canonical workers" and keeps all pipelines backward-compatible.
+
+- **Decision:** assignment is recorded owner intent only (`role_operator_assignments.json`, default `auto`, `enforced: false`). Each role also reports `runtime_operator`, i.e. what the unchanged pipeline really uses today (`chatgpt` for `LLM_LIVE_AGENTS`). Routing by assignment is left to T-588; the UI to T-581.
+  **Reason:** reporting a Claude/Gemini assignment as if it were running would fabricate readiness. Selection grants no publish/production privilege.
+
+- **Decision:** operator status never returns secrets and never invents readiness. ChatGPT = key configured (`configured`/`auth_pending`); Claude = worker heartbeat (`online`/`offline`); Gemini = key configured but not probed (`configured_unverified`, `online: null`) or `auth_pending`. Endpoints `GET /api/factory/roles` and `POST /api/factory/roles/assignment` are owner-only; the POST validates role, operator and eligibility.
+  **Reason:** a live Gemini probe would be a provider call; unknown must stay unknown.
+
+- **Decision:** tests in `test_role_operator.py`, wired into CI. The local venv used Python 3.12 (the code needs 3.10+ syntax; system `python` is absent).
