@@ -77,7 +77,11 @@ class RelayQueue:
                     continue
                 execution = item.get("execution") or {}
                 if execution.get("state") in {"queued", *ACTIVE_STATES}:
-                    return self.view(dict(item))
+                    view = self.view(dict(item))
+                    # Explicit owner Retry may recover a truly stale task. Normal active
+                    # work is never requeued merely because the page was refreshed.
+                    if view["execution"].get("state") != "stale":
+                        return view
                 now = utc_now()
                 attempts = int(execution.get("attempts") or 0)
                 item["execution"] = {
