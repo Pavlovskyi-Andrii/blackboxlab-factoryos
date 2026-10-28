@@ -28,7 +28,7 @@ class TestRelayPairing(unittest.TestCase):
         self.assertEqual(len(json.loads(stored)["digest"]), 64)
         self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
         self.assertTrue(valid_pairing(self.path, token))
-        self.assertFalse(valid_pairing(self.path, token[:-1] + "0"))
+        self.assertFalse(valid_pairing(self.path, token[:-1] + ("x" if token[-1] != "x" else "y")))
         self.assertTrue(pairing_status(self.path)["configured"])
         self.assertNotIn("token", pairing_status(self.path))
 
