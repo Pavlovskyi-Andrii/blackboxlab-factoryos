@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from relay import RelayStore, install_relay_routes, relay_handle_telegram_update
+from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -535,7 +535,11 @@ async def sync_telegram_relay_webhook():
         })
         await asyncio.to_thread(_telegram_api,"setMyCommands",{"commands":[
             {"command":"relay","description":"Открыть активные задачи Relay"},
-            {"command":"tasks","description":"Показать активные задачи"},
+            {"command":"tasks","description":"Задачи Relay и GitHub"},
+            {"command":"task","description":"Детали задачи Relay: /task R-0001"},
+            {"command":"history","description":"История действий Relay"},
+            {"command":"github","description":"GitHub PR, коммиты и CI"},
+            {"command":"roadmap","description":"Roadmap и открытые задачи"},
             {"command":"new","description":"Создать новую задачу"},
             {"command":"work","description":"Перевести тикет в работу"},
             {"command":"need","description":"Нужно действие от меня"},
@@ -748,7 +752,7 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes)
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN))
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}

@@ -363,6 +363,193 @@ def _operators_overview_text(provider: Optional[Callable[[], dict]]) -> str:
     return "\n".join(rows)
 
 
+
+def relay_github_snapshot(repo: str = "", token: str = "") -> dict:
+    """Read GitHub state on demand; a missing token/failed lookup is UNKNOWN, never success."""
+    import urllib.error
+    import urllib.request
+    import json as _json
+
+    repo = (repo or "Pavlovskyi-Andrii/blackboxlab-factoryos").strip()
+    token = (token or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+        return {"available": False, "error": "Invalid repository", "issues": [], "pulls": []}
+
+    def fetch(path: str):
+        url = "https://api.github.com/repos/" + repo + path
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "FactoryOS-Relay/1.0",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return _json.load(response)
+
+    try:
+        issues_raw = fetch("/issues?state=open&per_page=12")
+        pulls_raw = fetch("/pulls?state=open&per_page=3")
+        commits_raw = fetch("/commits?per_page=8")
+        if not isinstance(issues_raw, list) or not isinstance(pulls_raw, list) or not isinstance(commits_raw, list):
+            raise ValueError("Unexpected GitHub response")
+        issues = [{
+            "number": int(x["number"]),
+            "title": _clean_text(x.get("title"), 100),
+            "url": str(x.get("html_url") or ""),
+            "state": str(x.get("state") or "unknown"),
+            "updated_at": str(x.get("updated_at") or ""),
+        } for x in issues_raw if isinstance(x, dict) and "pull_request" not in x]
+        pulls = []
+        for x in pulls_raw:
+            if not isinstance(x, dict):
+                continue
+            sha = str((x.get("head") or {}).get("sha") or "")
+            entry = {
+                "number": int(x["number"]),
+                "title": _clean_text(x.get("title"), 100),
+                "url": str(x.get("html_url") or ""),
+                "sha": sha,
+                "merged": False,
+                "state": str(x.get("state") or "unknown"),
+                "ci": "unknown",
+            }
+            if sha:
+                try:
+                    runs = fetch("/commits/" + sha + "/check-runs?per_page=50")
+                    checks = runs.get("check_runs") if isinstance(runs, dict) else None
+                    if isinstance(checks, list) and checks:
+                        conclusions = [str(y.get("conclusion") or "") for y in checks]
+                        statuses = [str(y.get("status") or "") for y in checks]
+                        if any(v != "completed" for v in statuses):
+                            entry["ci"] = "running"
+                        elif all(v in ("success", "skipped", "neutral") for v in conclusions):
+                            entry["ci"] = "passed"
+                        else:
+                            entry["ci"] = "failed"
+                except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError):
+                    pass
+            pulls.append(entry)
+        commits = [{
+            "sha": str(x.get("sha") or "")[:40],
+            "message": _clean_text(((x.get("commit") or {}).get("message") or "").splitlines()[0], 100),
+            "date": str((((x.get("commit") or {}).get("author") or {}).get("date") or "")),
+            "author": _clean_text(((x.get("author") or {}).get("login") or ((x.get("commit") or {}).get("author") or {}).get("name") or ""), 50),
+            "url": str(x.get("html_url") or ""),
+        } for x in commits_raw if isinstance(x, dict)]
+        return {"available": True, "repo": repo, "checked_at": _now(), "issues": issues, "pulls": pulls, "commits": commits}
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError) as exc:
+        # Do not include request headers, tokens or internal tracebacks in Telegram.
+        code = getattr(exc, "code", None)
+        return {"available": False, "repo": repo, "error": ("HTTP " + str(code)) if code else "GitHub unavailable", "issues": [], "pulls": []}
+
+
+def _github_text(snapshot: dict) -> str:
+    if not snapshot.get("available"):
+        return "🔗 GitHub: проверка недоступна (" + str(snapshot.get("error") or "unknown")[:60] + "). Статусы неизвестны."
+    lines = ["🔗 GitHub · " + str(snapshot.get("repo") or ""), "Проверено: " + str(snapshot.get("checked_at") or "")[:19]]
+    for pr in (snapshot.get("pulls") or [])[:5]:
+        sha = str(pr.get("sha") or "")[:7] or "unknown"
+        lines.append("PR #" + str(pr.get("number")) + " · " + str(pr.get("state") or "?") + " · CI " + str(pr.get("ci") or "unknown") + " · " + sha)
+        lines.append(str(pr.get("url") or ""))
+    if not snapshot.get("pulls"):
+        lines.append("Открытых PR не найдено")
+    for commit in (snapshot.get("commits") or [])[:5]:
+        lines.append("Commit " + str(commit.get("sha") or "")[:7] + " · " + str(commit.get("message") or "")[:80])
+    return "\n".join(lines)[:3900]
+
+
+def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]]) -> str:
+    summary = store.summary()
+    lines = ["📡 FactoryOS Relay", "Связь с Telegram: ✅", "Тикетов: " + str(summary["total"]) + " · активных: " + str(summary["active"]), "ChatGPT: нет автоматической телеметрии"]
+    if provider:
+        try:
+            lanes = provider() or {}
+            for name in ("claude", "gemini"):
+                lane = lanes.get(name) or {}
+                online = lane.get("online") is True
+                age = lane.get("heartbeat_age_seconds")
+                task = str(lane.get("active_task_id") or "")
+                desc = "online" if online else str(lane.get("state") or "offline")
+                if age is not None:
+                    desc += " · heartbeat " + str(age) + " сек назад"
+                if task:
+                    desc += " · " + task
+                lines.append(name.capitalize() + ": " + desc)
+        except Exception:
+            lines.append("Воркеры: данные недоступны")
+    else:
+        lines.append("Воркеры: телеметрия не подключена")
+    return "\n".join(lines)[:3900]
+
+
+def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]], github: Optional[Callable[[], dict]]) -> str:
+    lines = [_active_list_text(store), "", "— Исполнители —"]
+    if provider:
+        try:
+            lanes = provider() or {}
+            for name in ("claude", "gemini"):
+                lane = lanes.get(name) or {}
+                state = "online" if lane.get("online") is True else str(lane.get("state") or "offline")
+                lines.append(name.capitalize() + ": " + state + (" · " + str(lane.get("active_task_id")) if lane.get("active_task_id") else ""))
+        except Exception:
+            lines.append("Телеметрия исполнителей недоступна")
+    else:
+        lines.append("Нет телеметрии воркеров")
+    lines.append("ChatGPT: нет автоматической телеметрии")
+    if github:
+        try:
+            snapshot = github() or {}
+            if snapshot.get("available"):
+                lines.append("")
+                lines.append("— GitHub issues (открытые) —")
+                for issue in (snapshot.get("issues") or [])[:8]:
+                    lines.append("#" + str(issue.get("number")) + " · " + str(issue.get("title") or "")[:75])
+                if not snapshot.get("issues"):
+                    lines.append("Открытых задач GitHub нет")
+            else:
+                lines.append("GitHub: недоступен; статусы неизвестны")
+        except Exception:
+            lines.append("GitHub: недоступен; статусы неизвестны")
+    return "\n".join(lines)[:3900]
+
+
+def _relay_history_text(store: RelayStore, github: Optional[Callable[[], dict]] = None) -> str:
+    events = []
+    for ticket in store.list(limit=500):
+        for event in ticket.get("history") or []:
+            events.append((str(event.get("at") or ""), str(ticket.get("id") or ""), event))
+    events.sort(key=lambda row: row[0], reverse=True)
+    lines = ["🕘 Relay · подтверждённая история"]
+    for at, ticket_id, event in events[:20]:
+        lines.append(at[:19] + " · " + ticket_id + " · " + str(event.get("actor") or "?")[:32] + " · " + str(event.get("action") or "?")[:30])
+    if not events:
+        lines.append("Событий пока нет")
+    if github:
+        try:
+            snapshot = github() or {}
+            if snapshot.get("available"):
+                lines.append("")
+                lines.append("GitHub: подтверждённые коммиты main")
+                for commit in (snapshot.get("commits") or [])[:8]:
+                    lines.append(str(commit.get("date") or "")[:19] + " · " + str(commit.get("sha") or "")[:7] + " · " + str(commit.get("author") or "?")[:22] + " · " + str(commit.get("message") or "")[:50])
+            else:
+                lines.append("GitHub: данные недоступны")
+        except Exception:
+            lines.append("GitHub: данные недоступны")
+    lines.append("Нет автоматической истории действий ChatGPT вне GitHub/Relay.")
+    return "\n".join(lines)[:3900]
+
+
+def _relay_keyboard() -> dict:
+    return {"inline_keyboard": [
+        [{"text": "📋 Задачи", "callback_data": "relay:overview:tasks"},
+         {"text": "🕘 История", "callback_data": "relay:overview:history"}],
+        [{"text": "🔗 GitHub / CI", "callback_data": "relay:overview:github"},
+         {"text": "🧠 Воркеры", "callback_data": "relay:overview:workers"}],
+    ]}
+
 def _telegram_attachment(message: dict) -> dict:
     for kind in ("voice", "audio", "video", "video_note", "document", "animation"):
         raw = message.get(kind)
@@ -416,6 +603,7 @@ def relay_handle_telegram_update(
     load_pair_state: Callable[[], dict],
     telegram_api: Callable[[str, Optional[dict]], dict],
     operator_status_provider: Optional[Callable[[], dict]] = None,
+    github_provider: Optional[Callable[[], dict]] = None,
 ) -> Optional[dict]:
     """Handle Relay-specific Telegram traffic.
 
@@ -437,6 +625,21 @@ def relay_handle_telegram_update(
             return {"handled": True}
         data = str(callback.get("data") or "")
         callback_id = str(callback.get("id") or "")
+        if data.startswith("relay:overview:"):
+            action = data.split(":")[-1]
+            telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
+            if action == "tasks":
+                value = _relay_tasks_text(store, operator_status_provider, github_provider)
+            elif action == "history":
+                value = _relay_history_text(store, github_provider)
+            elif action == "github":
+                value = _github_text(github_provider() if github_provider else {"available": False})
+            elif action == "workers":
+                value = _operators_overview_text(operator_status_provider)
+            else:
+                return {"handled": True}
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": value, "reply_markup": _relay_keyboard()})
+            return {"handled": True, "action": action}
         if data == "relay:list:active":
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
             telegram_api("sendMessage", {"chat_id": chat_id, "text": _active_list_text(store), "reply_markup": _operator_keyboard()})
@@ -480,11 +683,49 @@ def relay_handle_telegram_update(
 
     text = str(message.get("text") or message.get("caption") or "").strip()
     command = text.split(maxsplit=1)[0].lower() if text.startswith("/") else ""
-    if command in ("/pair", "/start", "/status"):
+    if command in ("/pair", "/start"):
         return None
+    if command == "/status":
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_status_text(store, operator_status_provider), "reply_markup": _relay_keyboard()})
+        return {"handled": True, "action": "status"}
     if command in ("/relay", "/tasks"):
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _active_list_text(store), "reply_markup": _operator_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "list"}
+    if command == "/history":
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_history_text(store, github_provider), "reply_markup": _relay_keyboard()})
+        return {"handled": True, "action": "history"}
+    if command == "/github":
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _github_text(github_provider() if github_provider else {"available": False}), "reply_markup": _relay_keyboard()})
+        return {"handled": True, "action": "github"}
+    if command == "/roadmap":
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider), "reply_markup": _relay_keyboard()})
+        return {"handled": True, "action": "roadmap"}
+    if command == "/task":
+        parts = text.split(maxsplit=1)
+        ticket_id = parts[1].strip().upper() if len(parts) > 1 else ""
+        if ticket_id.startswith("#") or ticket_id.isdecimal():
+            number = ticket_id.lstrip("#")
+            try:
+                snapshot = github_provider() if github_provider else {}
+                match = next((x for x in (snapshot.get("issues") or []) if str(x.get("number") or "") == number), None)
+            except Exception:
+                match = None
+            if match:
+                detail = "🔗 GitHub #" + number + "\n" + str(match.get("title") or "") + "\nСтатус: open (проверено в GitHub)\n" + str(match.get("url") or "")
+            else:
+                detail = "GitHub #" + number + ": нет в текущей выборке открытых задач. Статус неизвестен; проверь GitHub."
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": detail, "reply_markup": _relay_keyboard()})
+            return {"handled": True, "action": "github_issue", "number": number}
+        ticket = store.get(ticket_id)
+        if not ticket:
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "Задача не найдена. Пример: /task R-0001"})
+            return {"handled": True}
+        history = ticket.get("history") or []
+        lines = [_ticket_card(ticket), "История:"]
+        for event in history[-12:]:
+            lines.append(f"{str(event.get('at') or '')[:19]} · {event.get('actor') or '?'} · {event.get('action') or '?'} · {str(event.get('note') or '')[:120]}")
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": "\n".join(lines)[:3900], "reply_markup": _ticket_keyboard(ticket_id)})
+        return {"handled": True, "action": "detail", "ticket_id": ticket_id}
     if command in ("/operators","/workers"):
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _operators_overview_text(operator_status_provider), "reply_markup": _operator_keyboard()})
         return {"handled": True, "action": "operators"}
