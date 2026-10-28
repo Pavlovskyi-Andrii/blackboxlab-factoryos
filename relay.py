@@ -485,6 +485,30 @@ def relay_handle_telegram_update(
     if command in ("/relay", "/tasks"):
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _active_list_text(store), "reply_markup": _operator_keyboard()})
         return {"handled": True, "action": "list"}
+    if command == "/history":
+        events = []
+        for ticket in store.list(limit=100):
+            for event in ticket.get("history") or []:
+                events.append((str(event.get("at") or ""), ticket.get("id"), event))
+        events.sort(key=lambda row: row[0], reverse=True)
+        lines = ["🕘 Relay · последние события"]
+        for at, ticket_id, event in events[:20]:
+            lines.append(f"{at[:19]} · {ticket_id} · {event.get('actor') or '?'} · {event.get('action') or '?'}")
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": "\n".join(lines) if events else "История пока пуста."})
+        return {"handled": True, "action": "history"}
+    if command == "/task":
+        parts = text.split(maxsplit=1)
+        ticket_id = parts[1].strip().upper() if len(parts) > 1 else ""
+        ticket = store.get(ticket_id)
+        if not ticket:
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "Задача не найдена. Пример: /task R-0001"})
+            return {"handled": True}
+        history = ticket.get("history") or []
+        lines = [_ticket_card(ticket), "История:"]
+        for event in history[-12:]:
+            lines.append(f"{str(event.get('at') or '')[:19]} · {event.get('actor') or '?'} · {event.get('action') or '?'} · {str(event.get('note') or '')[:120]}")
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": "\\n".join(lines)[:3900], "reply_markup": _ticket_keyboard(ticket_id)})
+        return {"handled": True, "action": "detail", "ticket_id": ticket_id}
     if command in ("/operators","/workers"):
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _operators_overview_text(operator_status_provider), "reply_markup": _operator_keyboard()})
         return {"handled": True, "action": "operators"}
