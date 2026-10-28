@@ -932,51 +932,135 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
 def _relay_html() -> str:
     return r"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>FactoryOS Relay</title>
+<title>FactoryOS · Relay</title>
 <style>
-:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#07101b;color:#eaf3ff;font:14px Inter,system-ui,Arial}
-header{position:sticky;top:0;z-index:5;padding:16px;background:#08131fee;border-bottom:1px solid #20364a;backdrop-filter:blur(12px)}
-h1{font-size:20px;margin:0}.sub{color:#8299ad;font-size:12px;margin-top:4px}.new{display:flex;gap:8px;margin-top:12px}
-input{flex:1;min-width:0;background:#0d1b29;border:1px solid #29465e;border-radius:10px;color:#fff;padding:11px}
-button{border:0;border-radius:9px;padding:9px 11px;background:#17304a;color:#dff4ff;font-weight:700}.primary{background:#137be6}
-main{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(240px,1fr));gap:10px;overflow-x:auto}.col{background:#0a1622;border:1px solid #1d3346;border-radius:14px;padding:10px;min-height:150px}
-.col h2{font-size:13px;color:#9fb5c8;margin:2px 2px 10px}.card{background:#0d1d2b;border:1px solid #29445b;border-radius:12px;padding:11px;margin-bottom:8px}
-.id{font:11px ui-monospace,monospace;color:#53c7ff}.title{font-weight:750;margin:5px 0;line-height:1.3}.url{display:block;color:#57b8ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:5px 0}
-.actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}.actions button{font-size:11px;padding:7px 8px}.empty{color:#60778b;padding:8px}
-@media(max-width:800px){main{display:block;overflow:visible}.col{margin-bottom:10px;min-height:auto}header{padding-top:max(14px,env(safe-area-inset-top))}}
+:root{color-scheme:dark;--bg:#070f19;--card:#102032;--line:#254159;--muted:#95aac0;--accent:#54bdff;--green:#58d9a6}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(850px 500px at 40% -200px,#183453 0,transparent 75%),var(--bg);color:#eef7ff;font:14px Inter,system-ui,Arial}
+header{padding:18px clamp(12px,3vw,40px);position:sticky;top:0;z-index:5;background:#081420ee;border-bottom:1px solid #28415c;backdrop-filter:blur(14px)}
+h1{font-size:23px;letter-spacing:-.6px;margin:0}h2{font-size:15px;margin:0 0 10px}
+.sub{color:var(--muted);font-size:12px;line-height:1.6}.meta{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:6px 0 12px}
+button{border:1px solid #34506a;background:#17304a;color:#e7f3ff;border-radius:9px;padding:10px 12px;font:inherit;font-weight:650;cursor:pointer}
+button:hover{border-color:#65b5ec}.primary{background:#167ad5;border-color:#1684eb;color:white}button:disabled{opacity:.55}
+input,textarea{width:100%;background:#101f2e;border:1px solid #35536b;border-radius:10px;color:white;padding:11px;font:inherit}
+textarea{resize:vertical;min-height:62px}input:focus,textarea:focus{outline:1px solid #54bdff}
+form{display:grid;grid-template-columns:minmax(260px,2fr) minmax(240px,3fr) auto;gap:8px;align-items:start;margin:12px 0 8px}
+.toprow{display:flex;gap:9px;flex-wrap:wrap;align-items:center}.hint{font-size:12px;color:#a8bcd0}
+main{padding:16px clamp(12px,3vw,40px);display:grid;grid-template-columns:repeat(4,minmax(250px,1fr));gap:12px;align-items:start}
+.column{background:#0b1a29;border:1px solid #284157;border-radius:15px;padding:13px;min-height:180px}
+.column h2{font-size:13px;color:#b2cce2}.card{background:var(--card);border:1px solid #2c4c65;border-radius:12px;padding:13px;margin:8px 0}
+.id{font:11px ui-monospace,monospace;color:var(--accent)}.title{font-size:14px;font-weight:750;margin:7px 0;line-height:1.35;overflow-wrap:anywhere}
+.exec{display:inline-block;border-radius:8px;padding:5px 7px;background:#17344b;font-size:12px;font-weight:750}
+.exec.queued{color:#ffd58d;background:#4b391a}.exec.running,.exec.claimed,.exec.checkpoint{color:#8bd3ff}.exec.done{color:#80edc6;background:#194338}
+.exec.blocked,.exec.failed,.exec.stale{color:#ffb2a5;background:#442525}
+.desc{font-size:12px;color:#b6cada;margin-top:8px;overflow-wrap:anywhere}.line{margin:5px 0;color:#8ea7bd;font-size:11px}
+.actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.actions button{font-size:11px;padding:7px 9px}
+.empty{color:#718da4;padding:14px 4px}.notice{font-size:12px;color:#b9d6f0;min-height:18px;margin-top:6px}
+dialog{background:#0b1926;color:#eaf5ff;border:1px solid #3e6380;border-radius:16px;padding:22px;width:min(650px,94vw);max-height:90vh;overflow:auto}
+dialog::backdrop{background:#000a}.event{padding:11px 0;border-bottom:1px solid #254159}.event strong{display:block}.event time{font:11px ui-monospace,monospace;color:#87a2b8}.event p{color:#d0e2ef;margin:5px 0;font-size:12px;overflow-wrap:anywhere}
+a{color:#78c7ff}#footer{padding:0 18px 24px;color:#8ca5b9;font-size:12px}
+@media(max-width:1250px){main{grid-template-columns:repeat(2,minmax(260px,1fr))}}
+@media(max-width:750px){header{position:static;padding:16px}main{grid-template-columns:1fr;padding:12px}form{grid-template-columns:1fr}button{min-height:38px}}
 </style></head><body>
-<header><h1>📡 FactoryOS Relay</h1><div class="sub" id="summary">Загрузка…</div>
-<div class="new"><input id="newTitle" placeholder="Новая задача или ссылка"><button class="primary" onclick="createTicket()">Добавить</button></div><div class="new"><button id="tgBtn" onclick="pairTelegram()">Telegram…</button><span class="sub" id="tgState"></span></div></header>
-<main id="board"></main>
+<header>
+<div class="toprow"><h1>📡 FactoryOS Relay</h1><span class="hint">Работа Claude в реальном времени · без фиктивных процентов</span></div>
+<div class="meta"><span id="summary" class="sub">Загрузка…</span><span class="sub" id="worker">Claude: проверка…</span></div>
+<form id="newForm">
+  <input id="newTitle" maxlength="180" placeholder="Что нужно сделать? Например: исправить вкладку Workers" required>
+  <textarea id="newBody" maxlength="10000" placeholder="Подробное задание и критерии готовности (необязательно)"></textarea>
+  <button type="submit" id="submit" class="primary">▶ Отправить Claude</button>
+</form>
+<div class="toprow"><button id="tgBtn" onclick="pairTelegram()">Telegram…</button><span class="sub" id="tgState"></span><button onclick="load()">↻ Обновить</button></div>
+<div id="notice" class="notice"></div>
+</header>
+<main id="board"></main><div id="footer">Статус «в работе» появляется только после запуска исполнителя. Коммит и push — отдельные подтверждаемые события.</div>
+<dialog id="details"><div class="toprow"><h2 id="detailsTitle"></h2><button onclick="document.getElementById('details').close()">Закрыть ×</button></div><div id="detailsBody"></div></dialog>
 <script>
-const labels={inbox:"📥 Inbox",in_progress:"▶️ В работе",need_you:"🙋 Нужно от тебя",done:"✅ Готово"};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const states={queued:"⏳ В очереди",claimed:"📥 Получено воркером",running:"⚙️ Claude работает",checkpoint:"⚙️ В процессе",committed:"📦 Commit",pushed:"⬆️ Push",done:"✅ Готово",blocked:"🙋 Нужна помощь",failed:"❌ Ошибка",stale:"⚠️ Нет heartbeat"};
+const statuses={inbox:"📥 Очередь",in_progress:"▶️ Выполняется",need_you:"🙋 Проблемы / блокеры",done:"✅ Готово"};
 const order=["inbox","in_progress","need_you","done"];
-function esc(s){return String(s||"").replace(/[&<>"']/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]})}
-async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(await r.text());return r.json()}
-async function load(){
-  const d=await api("/api/relay?limit=200");
-  document.getElementById("summary").textContent=d.summary.active+" активных · "+d.summary.needs_you+" ждут тебя · "+d.summary.done+" готово";
-  const board=document.getElementById("board");board.innerHTML="";
-  order.forEach(function(st){
-    const col=document.createElement("section");col.className="col";const rows=d.items.filter(function(x){return x.status===st});
-    col.innerHTML="<h2>"+labels[st]+" · "+rows.length+"</h2>";
-    if(!rows.length)col.innerHTML+="<div class='empty'>Пусто</div>";
-    rows.forEach(function(t){
-      const src=t.source||{};const card=document.createElement("article");card.className="card";
-      card.innerHTML="<div class='id'>"+esc(t.id)+"</div><div class='title'>"+esc(t.title)+"</div>"+
-        (src.url?"<a class='url' target='_blank' href='"+esc(src.url)+"'>"+esc(src.url)+"</a>":"")+
-        "<div class='actions'>"+
-        "<button onclick=\"setStatus('"+esc(t.id)+"','inbox')\">Inbox</button>"+
-        "<button onclick=\"setStatus('"+esc(t.id)+"','in_progress')\">В работу</button>"+
-        "<button onclick=\"setStatus('"+esc(t.id)+"','need_you')\">Нужен я</button>"+
-        "<button onclick=\"setStatus('"+esc(t.id)+"','done')\">✓</button></div>";
-      col.appendChild(card);
-    });board.appendChild(col);
-  })
+async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error("HTTP "+r.status+": "+(await r.text()).slice(0,150));return await r.json()}
+const send=(method,body)=>({method,headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+function age(ts){if(!ts)return"";const d=(Date.now()-Date.parse(ts))/1000;if(!Number.isFinite(d))return"";return d<60?Math.round(d)+" сек":Math.round(d/60)+" мин"}
+function safeLink(url){try{const x=new URL(String(url));return x.protocol==="https:"||x.protocol==="http:"?x.href:""}catch{return""}}
+function executionLine(t){
+  const e=t.execution||{},stage=e.state||"not_requested",last=e.last_seen_at||"",note=e.note||"";
+  return '<div class="exec '+esc(stage)+'">'+esc(states[stage]||"Не назначено")+'</div>'+
+     '<div class="line">Исполнитель: '+esc(e.owner||"не назначен")+' · '+(last?'heartbeat '+esc(age(last))+' назад':'запуск ещё не подтверждён')+'</div>'+
+     (note?'<div class="desc">'+esc(note)+'</div>':'')+
+     (e.commit?'<div class="line">Commit '+esc(String(e.commit).slice(0,10))+' · отчёт worker</div>':'');
 }
-async function setStatus(id,status){await api("/api/relay/"+id+"/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:status})});load()}
-async function createTicket(){const el=document.getElementById("newTitle"),v=el.value.trim();if(!v)return;const u=(v.match(/https?:\/\/\S+/)||[""])[0];await api("/api/relay",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:v,source_url:u})});el.value="";load()}
-async function telegramStatus(){try{const s=await api("/api/factory/telegram/status");document.getElementById("tgBtn").textContent=s.paired?"✅ Telegram подключён":"Подключить Telegram";document.getElementById("tgState").textContent=s.paired?(s.username?"@"+s.username:"готов"):(s.configured?"не привязан":"бот не настроен")}catch(e){document.getElementById("tgState").textContent="статус недоступен"}}
-async function pairTelegram(){try{const d=await api("/api/factory/telegram/pairing/start",{method:"POST"});document.getElementById("tgState").textContent="Код "+d.pair_code+" · действует "+Math.round(d.expires_in_seconds/60)+" мин";if(d.deep_link){window.location.href=d.deep_link}else{alert("Отправь боту: "+d.command)}}catch(e){alert("Не удалось начать привязку Telegram")}}
-document.getElementById("newTitle").addEventListener("keydown",function(e){if(e.key==="Enter")createTicket()});load();telegramStatus();setInterval(load,10000);setInterval(telegramStatus,30000);
+async function load(){
+ try{
+  const [d,w]=await Promise.all([api("/api/relay?limit=200"),api("/api/factory/claude-code/status").catch(()=>null)]);
+  $("summary").textContent=d.summary.active+" открытых · "+d.summary.needs_you+" требуют внимания · "+d.summary.done+" завершено";
+  $("worker").textContent=w?(w.online?"🟢 Claude worker online":"⚪ Claude worker offline · задания ждут запуска"):"Claude: телеметрия недоступна";
+  const board=$("board");board.innerHTML="";
+  order.forEach(st=>{
+    const col=document.createElement("section");col.className="column";
+    const rows=d.items.filter(t=>t.status===st);
+    col.innerHTML="<h2>"+statuses[st]+" · "+rows.length+"</h2>";
+    if(!rows.length)col.innerHTML+='<div class="empty">Нет задач</div>';
+    for(const t of rows){
+      const card=document.createElement("article");card.className="card";
+      const e=t.execution||{},src=t.source||{},link=safeLink(src.url);
+      const startAllowed=!["queued","claimed","running","checkpoint","committed","pushed"].includes(e.state||"");
+      card.innerHTML='<span class="id">'+esc(t.id)+'</span><div class="title">'+esc(t.title)+'</div>'+
+        executionLine(t)+(link?'<p><a target="_blank" rel="noopener noreferrer" href="'+esc(link)+'">Исходная ссылка</a></p>':'')+
+        '<div class="actions"><button data-detail="'+esc(t.id)+'">📜 История</button>'+
+        (startAllowed?'<button data-run="'+esc(t.id)+'">↻ Отправить Claude</button>':'')+'</div>';
+      col.appendChild(card);
+    }
+    board.appendChild(col);
+  });
+ }catch(e){$("notice").textContent="Не удалось обновить данные Relay: "+String(e.message||e)}
+}
+async function createTicket(ev){
+ ev.preventDefault();const el=$("newTitle"),v=el.value.trim(),body=$("newBody").value.trim();if(!v)return;
+ $("submit").disabled=true;$("notice").textContent="Добавляю задание в очередь Claude…";
+ try{
+  const match=v.match(/https?:\/\/\S+/);const d=await api("/api/relay",send("POST",{title:v,body,source_url:match?match[0]:""}));
+  $("notice").textContent=d.ticket.id+" · в очереди Claude. Статус сменится только после реального запуска.";
+  el.value="";$("newBody").value="";await load();
+ }catch(e){$("notice").textContent="Задание не создано: "+String(e.message||e)}
+ finally{$("submit").disabled=false}
+}
+async function startTicket(id){
+ try{const d=await api("/api/relay/"+encodeURIComponent(id)+"/run",send("POST",{}));$("notice").textContent=id+" · "+(d.ticket.execution?.state||"queued");await load()}
+ catch(e){$("notice").textContent="Не удалось поставить "+id+" в очередь: "+e.message}
+}
+async function detailTicket(id){
+ try{
+  const t=await api("/api/relay/"+encodeURIComponent(id));
+  $("detailsTitle").textContent=t.id+" · "+t.title;
+  const e=t.execution||{},history=[...(t.history||[])].reverse();
+  let html='<p class="desc">Исполнитель: '+esc(e.owner||"Claude")+' · '+esc(states[e.state]||e.state||"не назначено")+'</p>';
+  if(t.body)html+='<p class="desc">'+esc(t.body)+'</p>';
+  html+='<h2>Хронология ('+history.length+')</h2>';
+  html+=history.map(ev=>'<div class="event"><time>'+esc(ev.at||"")+'</time><strong>'+esc(ev.action||"")+' · '+esc(ev.actor||"")+'</strong>'+
+    '<p>'+esc(ev.note||"")+'</p>'+
+    (ev.evidence?.commit?'<p>Commit: '+esc(ev.evidence.commit)+' (отчёт worker)</p>':'')+'</div>').join("");
+  $("detailsBody").innerHTML=html;
+  $("details").showModal();
+ }catch(e){$("notice").textContent="Ошибка истории: "+e.message}
+}
+$("board").addEventListener("click",ev=>{
+ const target=ev.target.closest("button");if(!target)return;
+ if(target.dataset.detail)detailTicket(target.dataset.detail);
+ if(target.dataset.run)startTicket(target.dataset.run);
+});
+$("newForm").addEventListener("submit",createTicket);
+async function telegramStatus(){
+ try{const s=await api("/api/factory/telegram/status");
+ $("tgBtn").textContent=s.paired?"✅ Telegram подключён":"Подключить Telegram";
+ $("tgState").textContent=s.paired?(s.username?"@"+s.username:"готов"):(s.configured?"ожидает привязки":"бот не настроен");
+ }catch(e){$("tgState").textContent="не удалось проверить Telegram"}
+}
+async function pairTelegram(){
+ try{const s=await api("/api/factory/telegram/status");if(s.paired){$("notice").textContent="Telegram уже привязан; открой существующий чат и отправь /tasks";return}
+ const d=await api("/api/factory/telegram/pairing/start",send("POST",{}));$("tgState").textContent="Код действует "+Math.round(d.expires_in_seconds/60)+" минут";if(d.deep_link)window.location.href=d.deep_link;else alert("Отправь боту: "+d.command);
+ }catch(e){$("notice").textContent="Не удалось привязать Telegram: "+e.message}
+}
+load();telegramStatus();setInterval(load,5000);setInterval(telegramStatus,30000);
 </script></body></html>"""
