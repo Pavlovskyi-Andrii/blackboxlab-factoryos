@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot
+from relay_execution import RelayQueue
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -149,6 +150,7 @@ FACTORY_TELEGRAM_BOT_TOKEN = os.environ.get("FACTORY_TELEGRAM_BOT_TOKEN", "").st
 FACTORY_TELEGRAM_PAIR_TTL_SECONDS = max(120, min(1800, int(os.environ.get("FACTORY_TELEGRAM_PAIR_TTL_SECONDS", "600"))))
 TELEGRAM_OWNER_FILE = DATA_DIR / "telegram_owner.json"
 RELAY_STORE = RelayStore(DATA_DIR / "relay.json")
+RELAY_QUEUE = RelayQueue(RELAY_STORE)
 _telegram_state_lock = threading.Lock()
 FACTORY_LOCAL_BOOSTER_TOKEN = (os.environ.get("FACTORY_LOCAL_BOOSTER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest())
@@ -559,7 +561,7 @@ class TelegramBridgeNotify(BaseModel):
     task_id: Optional[str] = None
 
 
-install_relay_routes(app, RELAY_STORE, request_identity)
+install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send)
 
 
 @app.middleware("http")
@@ -572,7 +574,8 @@ async def auth_middleware(request: Request, call_next):
     operator_worker_api=request.url.path.startswith("/api/operator-worker/") and _operator_worker_authorized(request)
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
@@ -752,7 +755,7 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN))
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}
