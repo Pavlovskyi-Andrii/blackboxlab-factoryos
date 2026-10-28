@@ -26,6 +26,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot
 from relay_execution import RelayQueue
+from relay_pairing import create_pairing, valid_pairing, pairing_status
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -151,6 +152,7 @@ FACTORY_TELEGRAM_PAIR_TTL_SECONDS = max(120, min(1800, int(os.environ.get("FACTO
 TELEGRAM_OWNER_FILE = DATA_DIR / "telegram_owner.json"
 RELAY_STORE = RelayStore(DATA_DIR / "relay.json")
 RELAY_QUEUE = RelayQueue(RELAY_STORE)
+RELAY_WORKER_PAIR_FILE = DATA_DIR / "relay_worker_pair.json"
 _telegram_state_lock = threading.Lock()
 FACTORY_LOCAL_BOOSTER_TOKEN = (os.environ.get("FACTORY_LOCAL_BOOSTER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-local-render-booster-v1",hashlib.sha256).hexdigest())
@@ -310,7 +312,8 @@ def _claude_worker_authorized(request: Request) -> bool:
     if not auth.lower().startswith("bearer "):return False
     supplied=auth.split(" ",1)[1].strip()
     return bool(supplied and (hmac.compare_digest(supplied,FACTORY_CLAUDE_WORKER_TOKEN)
-                 or bool(FACTORY_CLAUDE_WORKER_TOKEN_EC2 and hmac.compare_digest(supplied,FACTORY_CLAUDE_WORKER_TOKEN_EC2))))
+                 or bool(FACTORY_CLAUDE_WORKER_TOKEN_EC2 and hmac.compare_digest(supplied,FACTORY_CLAUDE_WORKER_TOKEN_EC2))
+                 or valid_pairing(RELAY_WORKER_PAIR_FILE, supplied)))
 
 def _operator_worker_authorized(request: Request) -> bool:
     auth=(request.headers.get("authorization") or "").strip()
@@ -9633,6 +9636,26 @@ def claude_code_worker_token(request: Request):
     if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
     return {"token":FACTORY_CLAUDE_WORKER_TOKEN,"factory_url":FACTORY_PUBLIC_BASE_URL,
             "note":"Use only on the trusted machine running Claude Code. Do not commit this token."}
+
+@app.post("/api/factory/claude-code/pair-token")
+def claude_code_pair_token(request: Request):
+    identity = request_identity(request) or {}
+    if identity.get("role") != "owner":
+        raise HTTPException(403, "Owner access required")
+    # Secret is returned ONCE through the authenticated HTTPS response.
+    # Do not print, log, email or include it in history/status endpoints.
+    return {**create_pairing(RELAY_WORKER_PAIR_FILE),
+            "environment_key": "FACTORY_CLAUDE_WORKER_TOKEN",
+            "note": "Copy this token into /etc/factoryos/claude-worker.env on the existing EC2. Do not paste it into a chat."}
+
+
+@app.get("/api/factory/claude-code/pair-token/status")
+def claude_code_pair_token_status(request: Request):
+    identity = request_identity(request) or {}
+    if identity.get("role") != "owner":
+        raise HTTPException(403, "Owner access required")
+    return pairing_status(RELAY_WORKER_PAIR_FILE)
+
 
 @app.post("/api/claude-worker/heartbeat")
 def claude_worker_heartbeat(payload: ClaudeWorkerHeartbeat):
