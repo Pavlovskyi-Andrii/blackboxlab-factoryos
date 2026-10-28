@@ -58,6 +58,11 @@ class TestRelayTelegram(unittest.TestCase):
         self.assertIn("\nИстория:\n", self.last_message())
         self.assertIn("Claude", self.last_message())
 
+    def test_github_issue_detail(self):
+        self.message("/task #41")
+        self.assertIn("GitHub #41", self.last_message())
+        self.assertIn("open (проверено", self.last_message())
+
     def test_github_verified_ci_and_buttons(self):
         self.message("/github")
         self.assertIn("CI passed", self.last_message())
@@ -90,6 +95,7 @@ class TestRelayTelegram(unittest.TestCase):
         issues = [{"number": 41, "title": "Relay", "state": "open", "html_url": "https://github.com/org/repo/issues/41"}]
         prs = [{"number": 42, "title": "Relay PR", "state": "open", "html_url": "https://github.com/org/repo/pull/42", "head": {"sha": "abc123"}}]
         check_runs = {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+        commits = [{"sha": "abc123", "commit": {"message": "Implement Relay", "author": {"date": "2026-10-28T09:00:00Z", "name": "Claude"}}, "html_url": "https://github.com/org/repo/commit/abc123"}]
 
         class FakeResponse:
             def __init__(self, value): self.value = value
@@ -100,6 +106,7 @@ class TestRelayTelegram(unittest.TestCase):
         def fake_open(request, timeout=5):
             url = request.full_url
             if "/check-runs" in url: return FakeResponse(check_runs)
+            if "/commits?" in url: return FakeResponse(commits)
             if "/pulls?" in url: return FakeResponse(prs)
             if "/issues?" in url: return FakeResponse(issues)
             raise AssertionError(url)
@@ -109,6 +116,7 @@ class TestRelayTelegram(unittest.TestCase):
         self.assertTrue(result["available"])
         self.assertEqual(result["pulls"][0]["ci"], "passed")
         self.assertEqual(result["issues"][0]["number"], 41)
+        self.assertEqual(result["commits"][0]["message"], "Implement Relay")
 
 
 if __name__ == "__main__":
