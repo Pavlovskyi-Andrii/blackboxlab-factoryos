@@ -699,6 +699,11 @@ def relay_handle_telegram_update(
         match = re.fullmatch(r"relay:status:(R-\d{4,8}):(inbox|in_progress|need_you|done|archived)", data)
         if match:
             ticket_id, status = match.group(1), match.group(2)
+            current = store.get(ticket_id)
+            ex_state = str(((current or {}).get("execution") or {}).get("state") or "")
+            if queue and status in ("done", "archived") and ex_state in ("queued", "claimed", "running", "checkpoint", "committed", "pushed"):
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Сначала дождись результата Claude. Это не завершённая задача."})
+                return {"handled": True}
             try:
                 ticket = queue.enqueue(ticket_id, actor="telegram") if status == "in_progress" and queue else store.set_status(ticket_id, status, actor="telegram")
             except KeyError:
@@ -783,6 +788,11 @@ def relay_handle_telegram_update(
     if command in command_status:
         parts = text.split(maxsplit=1)
         ticket_id = parts[1].strip().upper() if len(parts) > 1 else ""
+        current = store.get(ticket_id)
+        ex_state = str(((current or {}).get("execution") or {}).get("state") or "")
+        if queue and command == "/done" and ex_state in ("queued", "claimed", "running", "checkpoint", "committed", "pushed"):
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "⏳ Задание ещё не выполнено. Claude должен подтвердить результат."})
+            return {"handled": True}
         try:
             ticket = queue.enqueue(ticket_id, actor="telegram") if command == "/work" and queue else store.set_status(ticket_id, command_status[command], actor="telegram")
         except (KeyError, ValueError):
@@ -796,6 +806,9 @@ def relay_handle_telegram_update(
         return {"handled": True, "ticket_id": ticket_id}
 
     explicit_new = command == "/new"
+    if command and not explicit_new:
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": "Команды: /status /tasks /task R-0001 /history /github /new ЗАДАЧА"})
+        return {"handled": True, "action": "help"}
     if explicit_new:
         parts = text.split(maxsplit=1)
         text = parts[1].strip() if len(parts) > 1 else ""
@@ -866,6 +879,10 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
     @app.post("/api/relay/{ticket_id}/status")
     def relay_status(ticket_id: str, payload: RelayStatusRequest, request: Request):
         identity = _owner_guard(request, request_identity)
+        existing = store.get(ticket_id)
+        active_state = str(((existing or {}).get("execution") or {}).get("state") or "")
+        if queue and payload.status in ("done", "archived") and active_state in ("queued", "claimed", "running", "checkpoint", "committed", "pushed"):
+            raise HTTPException(409, "Cannot mark Claude task done before execution is verified")
         try:
             ticket = queue.enqueue(ticket_id, actor=identity.get("email") or "owner") if payload.status == "in_progress" and queue else store.set_status(ticket_id, payload.status, actor=identity.get("email") or "owner", note=payload.note)
         except KeyError:
