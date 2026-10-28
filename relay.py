@@ -145,11 +145,19 @@ class RelayStore:
                 "history": [{
                     "at": now,
                     "actor": (created_by or "owner").strip()[:80],
-                    "action": "created",
+                    "action": "queued",
                     "from_status": None,
                     "to_status": "inbox",
                     "note": "",
                 }],
+                "execution": {
+                    "state": "queued",
+                    "owner": "claude",
+                    "queued_at": now,
+                    "attempts": 0,
+                    "last_seen_at": None,
+                    "note": "Ожидает работающего Claude worker",
+                },
                 "operator": {
                     "state": "not_requested",
                     "requires_confirmation": False,
@@ -230,6 +238,18 @@ class RelayNoteRequest(BaseModel):
     kind: str = "note"
 
 
+class RelayWorkerClaimRequest(BaseModel):
+    worker_id: str
+
+
+class RelayWorkerEventRequest(BaseModel):
+    ticket_id: str
+    worker_id: str
+    stage: str
+    note: str = ""
+    evidence: dict = {}
+
+
 def _owner_guard(request: Request, request_identity: Callable) -> dict:
     identity = request_identity(request) or {}
     if identity.get("role") != "owner":
@@ -282,6 +302,16 @@ def _ticket_card(ticket: dict) -> str:
         lines.append(link)
     if attachment:
         lines.append(f"📎 {attachment.get('kind') or 'attachment'} сохранён в тикете")
+    execution = ticket.get("execution") or {}
+    if execution:
+        stage = str(execution.get("state") or "unknown")
+        owner = str(execution.get("owner") or "claude")
+        labels = {"queued": "⏳ В очереди", "claimed": "📥 Получено worker", "running": "⚙️ Claude работает", "checkpoint": "⚙️ В процессе", "committed": "📦 Commit", "pushed": "⬆️ Push", "done": "✅ Выполнено", "blocked": "🙋 Нужна помощь", "failed": "❌ Ошибка", "stale": "⚠️ Worker без связи"}
+        lines.append(f"Исполнение: {labels.get(stage, stage)} · {owner}")
+        if execution.get("note"):
+            lines.append(str(execution["note"])[:230])
+        if execution.get("commit"):
+            lines.append("Commit: " + str(execution["commit"])[:10] + " (worker report)")
     notes = ticket.get("notes") or []
     if notes:
         lines.append(f"📝 Заметок: {len(notes)}")
@@ -298,7 +328,13 @@ def _active_list_text(store: RelayStore) -> str:
         if not rows:
             continue
         groups.append(STATUS_LABELS[status])
-        groups.extend(f"{x['id']} · {x['title'][:90]}" for x in rows[:12])
+        for x in rows[:12]:
+            ex = x.get("execution") or {}
+            stage = str(ex.get("state") or "не назначено")
+            owner = str(ex.get("owner") or "owner")
+            groups.append(f"{x['id']} · [{stage} · {owner}] {x['title'][:72]}")
+            if ex.get("last_seen_at") and stage in ("claimed", "running", "checkpoint", "committed", "pushed"):
+                groups.append("  Последняя связь: " + str(ex["last_seen_at"])[:19])
         groups.append("")
     return "📡 FactoryOS Relay\n\n" + "\n".join(groups).strip()
 
@@ -462,7 +498,12 @@ def _github_text(snapshot: dict) -> str:
 
 def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]]) -> str:
     summary = store.summary()
-    lines = ["📡 FactoryOS Relay", "Связь с Telegram: ✅", "Тикетов: " + str(summary["total"]) + " · активных: " + str(summary["active"]), "ChatGPT: нет автоматической телеметрии"]
+    tickets = store.list(limit=500)
+    stages = [str((t.get("execution") or {}).get("state") or "") for t in tickets]
+    lines = ["📡 FactoryOS Relay", "Связь с Telegram: ✅",
+             "Тикетов: " + str(summary["total"]) + " · активных: " + str(summary["active"]),
+             "Очередь: " + str(stages.count("queued")) + " · работа: " + str(sum(x in ("claimed", "running", "checkpoint", "committed", "pushed") for x in stages)),
+             "ChatGPT: нет автоматической телеметрии"]
     if provider:
         try:
             lanes = provider() or {}
@@ -604,6 +645,7 @@ def relay_handle_telegram_update(
     telegram_api: Callable[[str, Optional[dict]], dict],
     operator_status_provider: Optional[Callable[[], dict]] = None,
     github_provider: Optional[Callable[[], dict]] = None,
+    queue=None,
 ) -> Optional[dict]:
     """Handle Relay-specific Telegram traffic.
 
@@ -657,8 +699,13 @@ def relay_handle_telegram_update(
         match = re.fullmatch(r"relay:status:(R-\d{4,8}):(inbox|in_progress|need_you|done|archived)", data)
         if match:
             ticket_id, status = match.group(1), match.group(2)
+            current = store.get(ticket_id)
+            ex_state = str(((current or {}).get("execution") or {}).get("state") or "")
+            if queue and status in ("done", "archived") and ex_state in ("queued", "claimed", "running", "checkpoint", "committed", "pushed"):
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Сначала дождись результата Claude. Это не завершённая задача."})
+                return {"handled": True}
             try:
-                ticket = store.set_status(ticket_id, status, actor="telegram")
+                ticket = queue.enqueue(ticket_id, actor="telegram") if status == "in_progress" and queue else store.set_status(ticket_id, status, actor="telegram")
             except KeyError:
                 telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Тикет не найден"})
                 return {"handled": True}
@@ -721,9 +768,11 @@ def relay_handle_telegram_update(
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "Задача не найдена. Пример: /task R-0001"})
             return {"handled": True}
         history = ticket.get("history") or []
-        lines = [_ticket_card(ticket), "История:"]
+        lines = [_ticket_card(ticket), ("ТЗ: " + str(ticket.get("body") or "")[:450]) if ticket.get("body") else "", "История:"]
         for event in history[-12:]:
-            lines.append(f"{str(event.get('at') or '')[:19]} · {event.get('actor') or '?'} · {event.get('action') or '?'} · {str(event.get('note') or '')[:120]}")
+            evidence = event.get("evidence") or {}
+            commit = " · " + str(evidence.get("commit") or "")[:10] if evidence.get("commit") else ""
+            lines.append(f"{str(event.get('at') or '')[:19]} · {event.get('actor') or '?'} · {event.get('action') or '?'}{commit} · {str(event.get('note') or '')[:120]}")
         telegram_api("sendMessage", {"chat_id": chat_id, "text": "\n".join(lines)[:3900], "reply_markup": _ticket_keyboard(ticket_id)})
         return {"handled": True, "action": "detail", "ticket_id": ticket_id}
     if command in ("/operators","/workers"):
@@ -739,8 +788,13 @@ def relay_handle_telegram_update(
     if command in command_status:
         parts = text.split(maxsplit=1)
         ticket_id = parts[1].strip().upper() if len(parts) > 1 else ""
+        current = store.get(ticket_id)
+        ex_state = str(((current or {}).get("execution") or {}).get("state") or "")
+        if queue and command == "/done" and ex_state in ("queued", "claimed", "running", "checkpoint", "committed", "pushed"):
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "⏳ Задание ещё не выполнено. Claude должен подтвердить результат."})
+            return {"handled": True}
         try:
-            ticket = store.set_status(ticket_id, command_status[command], actor="telegram")
+            ticket = queue.enqueue(ticket_id, actor="telegram") if command == "/work" and queue else store.set_status(ticket_id, command_status[command], actor="telegram")
         except (KeyError, ValueError):
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "Не нашёл тикет. Пример: /done R-0001"})
             return {"handled": True}
@@ -752,6 +806,9 @@ def relay_handle_telegram_update(
         return {"handled": True, "ticket_id": ticket_id}
 
     explicit_new = command == "/new"
+    if command and not explicit_new:
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": "Команды: /status /tasks /task R-0001 /history /github /new ЗАДАЧА"})
+        return {"handled": True, "action": "help"}
     if explicit_new:
         parts = text.split(maxsplit=1)
         text = parts[1].strip() if len(parts) > 1 else ""
@@ -789,7 +846,7 @@ def relay_handle_telegram_update(
     return {"handled": bool(explicit_new or not message.get("text")), "ticket_id": ticket["id"], "created": created}
 
 
-def install_relay_routes(app, store: RelayStore, request_identity: Callable) -> None:
+def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, queue=None, authorize_worker=None, notify_owner=None) -> None:
     @app.get("/api/relay")
     def relay_list(request: Request, status: str = "", limit: int = 200):
         _owner_guard(request, request_identity)
@@ -797,14 +854,19 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable) -> 
             items = store.list(status=status, limit=limit)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
-        return {"summary": store.summary(), "items": items, "statuses": list(RELAY_STATUSES)}
+        return {"summary": store.summary(), "items": [queue.view(x) for x in items] if queue else items, "statuses": list(RELAY_STATUSES)}
 
     @app.post("/api/relay")
     def relay_create(payload: RelayCreateRequest, request: Request):
         _owner_guard(request, request_identity)
         source = {"channel": "factoryos", "url": (payload.source_url or "").strip()}
         ticket, created = store.create(payload.title, payload.body, source=source, priority=payload.priority)
-        return {"ok": True, "created": created, "ticket": ticket}
+        if created and notify_owner:
+            try:
+                notify_owner(f"📥 Relay {ticket['id']}: {ticket['title']}\nВ очереди Claude, выполнение ещё не началось.")
+            except Exception:
+                pass
+        return {"ok": True, "created": created, "ticket": queue.view(ticket) if queue else ticket}
 
     @app.get("/api/relay/{ticket_id}")
     def relay_detail(ticket_id: str, request: Request):
@@ -812,13 +874,17 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable) -> 
         ticket = store.get(ticket_id)
         if not ticket:
             raise HTTPException(404, "Relay ticket not found")
-        return ticket
+        return queue.view(ticket) if queue else ticket
 
     @app.post("/api/relay/{ticket_id}/status")
     def relay_status(ticket_id: str, payload: RelayStatusRequest, request: Request):
         identity = _owner_guard(request, request_identity)
+        existing = store.get(ticket_id)
+        active_state = str(((existing or {}).get("execution") or {}).get("state") or "")
+        if queue and payload.status in ("done", "archived") and active_state in ("queued", "claimed", "running", "checkpoint", "committed", "pushed"):
+            raise HTTPException(409, "Cannot mark Claude task done before execution is verified")
         try:
-            ticket = store.set_status(ticket_id, payload.status, actor=identity.get("email") or "owner", note=payload.note)
+            ticket = queue.enqueue(ticket_id, actor=identity.get("email") or "owner") if payload.status == "in_progress" and queue else store.set_status(ticket_id, payload.status, actor=identity.get("email") or "owner", note=payload.note)
         except KeyError:
             raise HTTPException(404, "Relay ticket not found")
         except ValueError as exc:
@@ -836,6 +902,57 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable) -> 
             raise HTTPException(400, str(exc))
         return {"ok": True, "ticket": ticket}
 
+
+    @app.post("/api/relay/{ticket_id}/run")
+    def relay_enqueue_existing(ticket_id: str, request: Request):
+        identity = _owner_guard(request, request_identity)
+        if queue is None:
+            raise HTTPException(503, "Claude queue unavailable")
+        try:
+            ticket = queue.enqueue(ticket_id, actor=identity.get("email") or "owner")
+        except KeyError:
+            raise HTTPException(404, "Relay ticket not found")
+        if notify_owner:
+            try:
+                notify_owner(f"⏳ Relay {ticket_id}: передано Claude; ожидает worker.")
+            except Exception:
+                pass
+        return {"ok": True, "ticket": ticket}
+
+    def _require_worker(request: Request):
+        if not authorize_worker or not authorize_worker(request):
+            raise HTTPException(401, "Claude worker credential required")
+        if queue is None:
+            raise HTTPException(503, "Claude queue unavailable")
+
+    @app.post("/api/relay/worker/claim")
+    def relay_worker_claim(payload: RelayWorkerClaimRequest, request: Request):
+        _require_worker(request)
+        try:
+            ticket = queue.claim(payload.worker_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"ok": True, "ticket": ticket}
+
+    @app.post("/api/relay/worker/event")
+    def relay_worker_event(payload: RelayWorkerEventRequest, request: Request):
+        _require_worker(request)
+        try:
+            ticket = queue.event(payload.ticket_id, payload.worker_id, payload.stage, payload.note, payload.evidence)
+        except KeyError:
+            raise HTTPException(404, "Relay ticket not found")
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        if payload.stage not in {"heartbeat", "checkpoint"} and notify_owner:
+            try:
+                execution = ticket.get("execution") or {}
+                stage = execution.get("state") or payload.stage
+                note = str(execution.get("note") or "")[:200]
+                notify_owner(f"📡 Relay {payload.ticket_id} · Claude {stage}\n{note}")
+            except Exception:
+                pass
+        return {"ok": True, "ticket": ticket}
+
     @app.get("/relay", response_class=HTMLResponse)
     def relay_mobile(request: Request):
         _owner_guard(request, request_identity)
@@ -845,51 +962,135 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable) -> 
 def _relay_html() -> str:
     return r"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>FactoryOS Relay</title>
+<title>FactoryOS · Relay</title>
 <style>
-:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#07101b;color:#eaf3ff;font:14px Inter,system-ui,Arial}
-header{position:sticky;top:0;z-index:5;padding:16px;background:#08131fee;border-bottom:1px solid #20364a;backdrop-filter:blur(12px)}
-h1{font-size:20px;margin:0}.sub{color:#8299ad;font-size:12px;margin-top:4px}.new{display:flex;gap:8px;margin-top:12px}
-input{flex:1;min-width:0;background:#0d1b29;border:1px solid #29465e;border-radius:10px;color:#fff;padding:11px}
-button{border:0;border-radius:9px;padding:9px 11px;background:#17304a;color:#dff4ff;font-weight:700}.primary{background:#137be6}
-main{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(240px,1fr));gap:10px;overflow-x:auto}.col{background:#0a1622;border:1px solid #1d3346;border-radius:14px;padding:10px;min-height:150px}
-.col h2{font-size:13px;color:#9fb5c8;margin:2px 2px 10px}.card{background:#0d1d2b;border:1px solid #29445b;border-radius:12px;padding:11px;margin-bottom:8px}
-.id{font:11px ui-monospace,monospace;color:#53c7ff}.title{font-weight:750;margin:5px 0;line-height:1.3}.url{display:block;color:#57b8ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:5px 0}
-.actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}.actions button{font-size:11px;padding:7px 8px}.empty{color:#60778b;padding:8px}
-@media(max-width:800px){main{display:block;overflow:visible}.col{margin-bottom:10px;min-height:auto}header{padding-top:max(14px,env(safe-area-inset-top))}}
+:root{color-scheme:dark;--bg:#070f19;--card:#102032;--line:#254159;--muted:#95aac0;--accent:#54bdff;--green:#58d9a6}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(850px 500px at 40% -200px,#183453 0,transparent 75%),var(--bg);color:#eef7ff;font:14px Inter,system-ui,Arial}
+header{padding:18px clamp(12px,3vw,40px);position:sticky;top:0;z-index:5;background:#081420ee;border-bottom:1px solid #28415c;backdrop-filter:blur(14px)}
+h1{font-size:23px;letter-spacing:-.6px;margin:0}h2{font-size:15px;margin:0 0 10px}
+.sub{color:var(--muted);font-size:12px;line-height:1.6}.meta{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:6px 0 12px}
+button{border:1px solid #34506a;background:#17304a;color:#e7f3ff;border-radius:9px;padding:10px 12px;font:inherit;font-weight:650;cursor:pointer}
+button:hover{border-color:#65b5ec}.primary{background:#167ad5;border-color:#1684eb;color:white}button:disabled{opacity:.55}
+input,textarea{width:100%;background:#101f2e;border:1px solid #35536b;border-radius:10px;color:white;padding:11px;font:inherit}
+textarea{resize:vertical;min-height:62px}input:focus,textarea:focus{outline:1px solid #54bdff}
+form{display:grid;grid-template-columns:minmax(260px,2fr) minmax(240px,3fr) auto;gap:8px;align-items:start;margin:12px 0 8px}
+.toprow{display:flex;gap:9px;flex-wrap:wrap;align-items:center}.hint{font-size:12px;color:#a8bcd0}
+main{padding:16px clamp(12px,3vw,40px);display:grid;grid-template-columns:repeat(4,minmax(250px,1fr));gap:12px;align-items:start}
+.column{background:#0b1a29;border:1px solid #284157;border-radius:15px;padding:13px;min-height:180px}
+.column h2{font-size:13px;color:#b2cce2}.card{background:var(--card);border:1px solid #2c4c65;border-radius:12px;padding:13px;margin:8px 0}
+.id{font:11px ui-monospace,monospace;color:var(--accent)}.title{font-size:14px;font-weight:750;margin:7px 0;line-height:1.35;overflow-wrap:anywhere}
+.exec{display:inline-block;border-radius:8px;padding:5px 7px;background:#17344b;font-size:12px;font-weight:750}
+.exec.queued{color:#ffd58d;background:#4b391a}.exec.running,.exec.claimed,.exec.checkpoint{color:#8bd3ff}.exec.done{color:#80edc6;background:#194338}
+.exec.blocked,.exec.failed,.exec.stale{color:#ffb2a5;background:#442525}
+.desc{font-size:12px;color:#b6cada;margin-top:8px;overflow-wrap:anywhere}.line{margin:5px 0;color:#8ea7bd;font-size:11px}
+.actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.actions button{font-size:11px;padding:7px 9px}
+.empty{color:#718da4;padding:14px 4px}.notice{font-size:12px;color:#b9d6f0;min-height:18px;margin-top:6px}
+dialog{background:#0b1926;color:#eaf5ff;border:1px solid #3e6380;border-radius:16px;padding:22px;width:min(650px,94vw);max-height:90vh;overflow:auto}
+dialog::backdrop{background:#000a}.event{padding:11px 0;border-bottom:1px solid #254159}.event strong{display:block}.event time{font:11px ui-monospace,monospace;color:#87a2b8}.event p{color:#d0e2ef;margin:5px 0;font-size:12px;overflow-wrap:anywhere}
+a{color:#78c7ff}#footer{padding:0 18px 24px;color:#8ca5b9;font-size:12px}
+@media(max-width:1250px){main{grid-template-columns:repeat(2,minmax(260px,1fr))}}
+@media(max-width:750px){header{position:static;padding:16px}main{grid-template-columns:1fr;padding:12px}form{grid-template-columns:1fr}button{min-height:38px}}
 </style></head><body>
-<header><h1>📡 FactoryOS Relay</h1><div class="sub" id="summary">Загрузка…</div>
-<div class="new"><input id="newTitle" placeholder="Новая задача или ссылка"><button class="primary" onclick="createTicket()">Добавить</button></div><div class="new"><button id="tgBtn" onclick="pairTelegram()">Telegram…</button><span class="sub" id="tgState"></span></div></header>
-<main id="board"></main>
+<header>
+<div class="toprow"><h1>📡 FactoryOS Relay</h1><span class="hint">Работа Claude в реальном времени · без фиктивных процентов</span></div>
+<div class="meta"><span id="summary" class="sub">Загрузка…</span><span class="sub" id="worker">Claude: проверка…</span></div>
+<form id="newForm">
+  <input id="newTitle" maxlength="180" placeholder="Что нужно сделать? Например: исправить вкладку Workers" required>
+  <textarea id="newBody" maxlength="10000" placeholder="Подробное задание и критерии готовности (необязательно)"></textarea>
+  <button type="submit" id="submit" class="primary">▶ Отправить Claude</button>
+</form>
+<div class="toprow"><button id="tgBtn" onclick="pairTelegram()">Telegram…</button><span class="sub" id="tgState"></span><button onclick="load()">↻ Обновить</button></div>
+<div id="notice" class="notice"></div>
+</header>
+<main id="board"></main><div id="footer">Статус «в работе» появляется только после запуска исполнителя. Коммит и push — отдельные подтверждаемые события.</div>
+<dialog id="details"><div class="toprow"><h2 id="detailsTitle"></h2><button onclick="document.getElementById('details').close()">Закрыть ×</button></div><div id="detailsBody"></div></dialog>
 <script>
-const labels={inbox:"📥 Inbox",in_progress:"▶️ В работе",need_you:"🙋 Нужно от тебя",done:"✅ Готово"};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const states={queued:"⏳ В очереди",claimed:"📥 Получено воркером",running:"⚙️ Claude работает",checkpoint:"⚙️ В процессе",committed:"📦 Commit",pushed:"⬆️ Push",done:"✅ Готово",blocked:"🙋 Нужна помощь",failed:"❌ Ошибка",stale:"⚠️ Нет heartbeat"};
+const statuses={inbox:"📥 Очередь",in_progress:"▶️ Выполняется",need_you:"🙋 Проблемы / блокеры",done:"✅ Готово"};
 const order=["inbox","in_progress","need_you","done"];
-function esc(s){return String(s||"").replace(/[&<>"']/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]})}
-async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error(await r.text());return r.json()}
-async function load(){
-  const d=await api("/api/relay?limit=200");
-  document.getElementById("summary").textContent=d.summary.active+" активных · "+d.summary.needs_you+" ждут тебя · "+d.summary.done+" готово";
-  const board=document.getElementById("board");board.innerHTML="";
-  order.forEach(function(st){
-    const col=document.createElement("section");col.className="col";const rows=d.items.filter(function(x){return x.status===st});
-    col.innerHTML="<h2>"+labels[st]+" · "+rows.length+"</h2>";
-    if(!rows.length)col.innerHTML+="<div class='empty'>Пусто</div>";
-    rows.forEach(function(t){
-      const src=t.source||{};const card=document.createElement("article");card.className="card";
-      card.innerHTML="<div class='id'>"+esc(t.id)+"</div><div class='title'>"+esc(t.title)+"</div>"+
-        (src.url?"<a class='url' target='_blank' href='"+esc(src.url)+"'>"+esc(src.url)+"</a>":"")+
-        "<div class='actions'>"+
-        "<button onclick=\"setStatus('"+esc(t.id)+"','inbox')\">Inbox</button>"+
-        "<button onclick=\"setStatus('"+esc(t.id)+"','in_progress')\">В работу</button>"+
-        "<button onclick=\"setStatus('"+esc(t.id)+"','need_you')\">Нужен я</button>"+
-        "<button onclick=\"setStatus('"+esc(t.id)+"','done')\">✓</button></div>";
-      col.appendChild(card);
-    });board.appendChild(col);
-  })
+async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error("HTTP "+r.status+": "+(await r.text()).slice(0,150));return await r.json()}
+const send=(method,body)=>({method,headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+function age(ts){if(!ts)return"";const d=(Date.now()-Date.parse(ts))/1000;if(!Number.isFinite(d))return"";return d<60?Math.round(d)+" сек":Math.round(d/60)+" мин"}
+function safeLink(url){try{const x=new URL(String(url));return x.protocol==="https:"||x.protocol==="http:"?x.href:""}catch{return""}}
+function executionLine(t){
+  const e=t.execution||{},stage=e.state||"not_requested",last=e.last_seen_at||"",note=e.note||"";
+  return '<div class="exec '+esc(stage)+'">'+esc(states[stage]||"Не назначено")+'</div>'+
+     '<div class="line">Исполнитель: '+esc(e.owner||"не назначен")+' · '+(last?'heartbeat '+esc(age(last))+' назад':'запуск ещё не подтверждён')+'</div>'+
+     (note?'<div class="desc">'+esc(note)+'</div>':'')+
+     (e.commit?'<div class="line">Commit '+esc(String(e.commit).slice(0,10))+' · отчёт worker</div>':'');
 }
-async function setStatus(id,status){await api("/api/relay/"+id+"/status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:status})});load()}
-async function createTicket(){const el=document.getElementById("newTitle"),v=el.value.trim();if(!v)return;const u=(v.match(/https?:\/\/\S+/)||[""])[0];await api("/api/relay",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:v,source_url:u})});el.value="";load()}
-async function telegramStatus(){try{const s=await api("/api/factory/telegram/status");document.getElementById("tgBtn").textContent=s.paired?"✅ Telegram подключён":"Подключить Telegram";document.getElementById("tgState").textContent=s.paired?(s.username?"@"+s.username:"готов"):(s.configured?"не привязан":"бот не настроен")}catch(e){document.getElementById("tgState").textContent="статус недоступен"}}
-async function pairTelegram(){try{const d=await api("/api/factory/telegram/pairing/start",{method:"POST"});document.getElementById("tgState").textContent="Код "+d.pair_code+" · действует "+Math.round(d.expires_in_seconds/60)+" мин";if(d.deep_link){window.location.href=d.deep_link}else{alert("Отправь боту: "+d.command)}}catch(e){alert("Не удалось начать привязку Telegram")}}
-document.getElementById("newTitle").addEventListener("keydown",function(e){if(e.key==="Enter")createTicket()});load();telegramStatus();setInterval(load,10000);setInterval(telegramStatus,30000);
+async function load(){
+ try{
+  const [d,w]=await Promise.all([api("/api/relay?limit=200"),api("/api/factory/claude-code/status").catch(()=>null)]);
+  $("summary").textContent=d.summary.active+" открытых · "+d.summary.needs_you+" требуют внимания · "+d.summary.done+" завершено";
+  $("worker").textContent=w?(w.online?"🟢 Claude worker online":"⚪ Claude worker offline · задания ждут запуска"):"Claude: телеметрия недоступна";
+  const board=$("board");board.innerHTML="";
+  order.forEach(st=>{
+    const col=document.createElement("section");col.className="column";
+    const rows=d.items.filter(t=>t.status===st);
+    col.innerHTML="<h2>"+statuses[st]+" · "+rows.length+"</h2>";
+    if(!rows.length)col.innerHTML+='<div class="empty">Нет задач</div>';
+    for(const t of rows){
+      const card=document.createElement("article");card.className="card";
+      const e=t.execution||{},src=t.source||{},link=safeLink(src.url);
+      const startAllowed=!["queued","claimed","running","checkpoint","committed","pushed"].includes(e.state||"");
+      card.innerHTML='<span class="id">'+esc(t.id)+'</span><div class="title">'+esc(t.title)+'</div>'+
+        executionLine(t)+(link?'<p><a target="_blank" rel="noopener noreferrer" href="'+esc(link)+'">Исходная ссылка</a></p>':'')+
+        '<div class="actions"><button data-detail="'+esc(t.id)+'">📜 История</button>'+
+        (startAllowed?'<button data-run="'+esc(t.id)+'">↻ Отправить Claude</button>':'')+'</div>';
+      col.appendChild(card);
+    }
+    board.appendChild(col);
+  });
+ }catch(e){$("notice").textContent="Не удалось обновить данные Relay: "+String(e.message||e)}
+}
+async function createTicket(ev){
+ ev.preventDefault();const el=$("newTitle"),v=el.value.trim(),body=$("newBody").value.trim();if(!v)return;
+ $("submit").disabled=true;$("notice").textContent="Добавляю задание в очередь Claude…";
+ try{
+  const match=v.match(/https?:\/\/\S+/);const d=await api("/api/relay",send("POST",{title:v,body,source_url:match?match[0]:""}));
+  $("notice").textContent=d.ticket.id+" · в очереди Claude. Статус сменится только после реального запуска.";
+  el.value="";$("newBody").value="";await load();
+ }catch(e){$("notice").textContent="Задание не создано: "+String(e.message||e)}
+ finally{$("submit").disabled=false}
+}
+async function startTicket(id){
+ try{const d=await api("/api/relay/"+encodeURIComponent(id)+"/run",send("POST",{}));$("notice").textContent=id+" · "+(d.ticket.execution?.state||"queued");await load()}
+ catch(e){$("notice").textContent="Не удалось поставить "+id+" в очередь: "+e.message}
+}
+async function detailTicket(id){
+ try{
+  const t=await api("/api/relay/"+encodeURIComponent(id));
+  $("detailsTitle").textContent=t.id+" · "+t.title;
+  const e=t.execution||{},history=[...(t.history||[])].reverse();
+  let html='<p class="desc">Исполнитель: '+esc(e.owner||"Claude")+' · '+esc(states[e.state]||e.state||"не назначено")+'</p>';
+  if(t.body)html+='<p class="desc">'+esc(t.body)+'</p>';
+  html+='<h2>Хронология ('+history.length+')</h2>';
+  html+=history.map(ev=>'<div class="event"><time>'+esc(ev.at||"")+'</time><strong>'+esc(ev.action||"")+' · '+esc(ev.actor||"")+'</strong>'+
+    '<p>'+esc(ev.note||"")+'</p>'+
+    (ev.evidence?.commit?'<p>Commit: '+esc(ev.evidence.commit)+' (отчёт worker)</p>':'')+'</div>').join("");
+  $("detailsBody").innerHTML=html;
+  $("details").showModal();
+ }catch(e){$("notice").textContent="Ошибка истории: "+e.message}
+}
+$("board").addEventListener("click",ev=>{
+ const target=ev.target.closest("button");if(!target)return;
+ if(target.dataset.detail)detailTicket(target.dataset.detail);
+ if(target.dataset.run)startTicket(target.dataset.run);
+});
+$("newForm").addEventListener("submit",createTicket);
+async function telegramStatus(){
+ try{const s=await api("/api/factory/telegram/status");
+ $("tgBtn").textContent=s.paired?"✅ Telegram подключён":"Подключить Telegram";
+ $("tgState").textContent=s.paired?(s.username?"@"+s.username:"готов"):(s.configured?"ожидает привязки":"бот не настроен");
+ }catch(e){$("tgState").textContent="не удалось проверить Telegram"}
+}
+async function pairTelegram(){
+ try{const s=await api("/api/factory/telegram/status");if(s.paired){$("notice").textContent="Telegram уже привязан; открой существующий чат и отправь /tasks";return}
+ const d=await api("/api/factory/telegram/pairing/start",send("POST",{}));$("tgState").textContent="Код действует "+Math.round(d.expires_in_seconds/60)+" минут";if(d.deep_link)window.location.href=d.deep_link;else alert("Отправь боту: "+d.command);
+ }catch(e){$("notice").textContent="Не удалось привязать Telegram: "+e.message}
+}
+load();telegramStatus();setInterval(load,5000);setInterval(telegramStatus,30000);
 </script></body></html>"""
