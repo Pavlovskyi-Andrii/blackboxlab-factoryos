@@ -328,7 +328,13 @@ def _active_list_text(store: RelayStore) -> str:
         if not rows:
             continue
         groups.append(STATUS_LABELS[status])
-        groups.extend(f"{x['id']} · {x['title'][:90]}" for x in rows[:12])
+        for x in rows[:12]:
+            ex = x.get("execution") or {}
+            stage = str(ex.get("state") or "не назначено")
+            owner = str(ex.get("owner") or "owner")
+            groups.append(f"{x['id']} · [{stage} · {owner}] {x['title'][:72]}")
+            if ex.get("last_seen_at") and stage in ("claimed", "running", "checkpoint", "committed", "pushed"):
+                groups.append("  Последняя связь: " + str(ex["last_seen_at"])[:19])
         groups.append("")
     return "📡 FactoryOS Relay\n\n" + "\n".join(groups).strip()
 
@@ -492,7 +498,12 @@ def _github_text(snapshot: dict) -> str:
 
 def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]]) -> str:
     summary = store.summary()
-    lines = ["📡 FactoryOS Relay", "Связь с Telegram: ✅", "Тикетов: " + str(summary["total"]) + " · активных: " + str(summary["active"]), "ChatGPT: нет автоматической телеметрии"]
+    tickets = store.list(limit=500)
+    stages = [str((t.get("execution") or {}).get("state") or "") for t in tickets]
+    lines = ["📡 FactoryOS Relay", "Связь с Telegram: ✅",
+             "Тикетов: " + str(summary["total"]) + " · активных: " + str(summary["active"]),
+             "Очередь: " + str(stages.count("queued")) + " · работа: " + str(sum(x in ("claimed", "running", "checkpoint", "committed", "pushed") for x in stages)),
+             "ChatGPT: нет автоматической телеметрии"]
     if provider:
         try:
             lanes = provider() or {}
@@ -752,9 +763,11 @@ def relay_handle_telegram_update(
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "Задача не найдена. Пример: /task R-0001"})
             return {"handled": True}
         history = ticket.get("history") or []
-        lines = [_ticket_card(ticket), "История:"]
+        lines = [_ticket_card(ticket), ("ТЗ: " + str(ticket.get("body") or "")[:450]) if ticket.get("body") else "", "История:"]
         for event in history[-12:]:
-            lines.append(f"{str(event.get('at') or '')[:19]} · {event.get('actor') or '?'} · {event.get('action') or '?'} · {str(event.get('note') or '')[:120]}")
+            evidence = event.get("evidence") or {}
+            commit = " · " + str(evidence.get("commit") or "")[:10] if evidence.get("commit") else ""
+            lines.append(f"{str(event.get('at') or '')[:19]} · {event.get('actor') or '?'} · {event.get('action') or '?'}{commit} · {str(event.get('note') or '')[:120]}")
         telegram_api("sendMessage", {"chat_id": chat_id, "text": "\n".join(lines)[:3900], "reply_markup": _ticket_keyboard(ticket_id)})
         return {"handled": True, "action": "detail", "ticket_id": ticket_id}
     if command in ("/operators","/workers"):
