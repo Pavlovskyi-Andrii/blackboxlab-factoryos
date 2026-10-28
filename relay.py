@@ -145,11 +145,19 @@ class RelayStore:
                 "history": [{
                     "at": now,
                     "actor": (created_by or "owner").strip()[:80],
-                    "action": "created",
+                    "action": "queued",
                     "from_status": None,
                     "to_status": "inbox",
                     "note": "",
                 }],
+                "execution": {
+                    "state": "queued",
+                    "owner": "claude",
+                    "queued_at": now,
+                    "attempts": 0,
+                    "last_seen_at": None,
+                    "note": "Ожидает работающего Claude worker",
+                },
                 "operator": {
                     "state": "not_requested",
                     "requires_confirmation": False,
@@ -230,6 +238,18 @@ class RelayNoteRequest(BaseModel):
     kind: str = "note"
 
 
+class RelayWorkerClaimRequest(BaseModel):
+    worker_id: str
+
+
+class RelayWorkerEventRequest(BaseModel):
+    ticket_id: str
+    worker_id: str
+    stage: str
+    note: str = ""
+    evidence: dict = {}
+
+
 def _owner_guard(request: Request, request_identity: Callable) -> dict:
     identity = request_identity(request) or {}
     if identity.get("role") != "owner":
@@ -282,6 +302,16 @@ def _ticket_card(ticket: dict) -> str:
         lines.append(link)
     if attachment:
         lines.append(f"📎 {attachment.get('kind') or 'attachment'} сохранён в тикете")
+    execution = ticket.get("execution") or {}
+    if execution:
+        stage = str(execution.get("state") or "unknown")
+        owner = str(execution.get("owner") or "claude")
+        labels = {"queued": "⏳ В очереди", "claimed": "📥 Получено worker", "running": "⚙️ Claude работает", "checkpoint": "⚙️ В процессе", "committed": "📦 Commit", "pushed": "⬆️ Push", "done": "✅ Выполнено", "blocked": "🙋 Нужна помощь", "failed": "❌ Ошибка", "stale": "⚠️ Worker без связи"}
+        lines.append(f"Исполнение: {labels.get(stage, stage)} · {owner}")
+        if execution.get("note"):
+            lines.append(str(execution["note"])[:230])
+        if execution.get("commit"):
+            lines.append("Commit: " + str(execution["commit"])[:10] + " (worker report)")
     notes = ticket.get("notes") or []
     if notes:
         lines.append(f"📝 Заметок: {len(notes)}")
@@ -604,6 +634,7 @@ def relay_handle_telegram_update(
     telegram_api: Callable[[str, Optional[dict]], dict],
     operator_status_provider: Optional[Callable[[], dict]] = None,
     github_provider: Optional[Callable[[], dict]] = None,
+    queue=None,
 ) -> Optional[dict]:
     """Handle Relay-specific Telegram traffic.
 
@@ -658,7 +689,7 @@ def relay_handle_telegram_update(
         if match:
             ticket_id, status = match.group(1), match.group(2)
             try:
-                ticket = store.set_status(ticket_id, status, actor="telegram")
+                ticket = queue.enqueue(ticket_id, actor="telegram") if status == "in_progress" and queue else store.set_status(ticket_id, status, actor="telegram")
             except KeyError:
                 telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Тикет не найден"})
                 return {"handled": True}
@@ -740,7 +771,7 @@ def relay_handle_telegram_update(
         parts = text.split(maxsplit=1)
         ticket_id = parts[1].strip().upper() if len(parts) > 1 else ""
         try:
-            ticket = store.set_status(ticket_id, command_status[command], actor="telegram")
+            ticket = queue.enqueue(ticket_id, actor="telegram") if command == "/work" and queue else store.set_status(ticket_id, command_status[command], actor="telegram")
         except (KeyError, ValueError):
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "Не нашёл тикет. Пример: /done R-0001"})
             return {"handled": True}
@@ -789,7 +820,7 @@ def relay_handle_telegram_update(
     return {"handled": bool(explicit_new or not message.get("text")), "ticket_id": ticket["id"], "created": created}
 
 
-def install_relay_routes(app, store: RelayStore, request_identity: Callable) -> None:
+def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, queue=None, authorize_worker=None, notify_owner=None) -> None:
     @app.get("/api/relay")
     def relay_list(request: Request, status: str = "", limit: int = 200):
         _owner_guard(request, request_identity)
@@ -797,14 +828,19 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable) -> 
             items = store.list(status=status, limit=limit)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
-        return {"summary": store.summary(), "items": items, "statuses": list(RELAY_STATUSES)}
+        return {"summary": store.summary(), "items": [queue.view(x) for x in items] if queue else items, "statuses": list(RELAY_STATUSES)}
 
     @app.post("/api/relay")
     def relay_create(payload: RelayCreateRequest, request: Request):
         _owner_guard(request, request_identity)
         source = {"channel": "factoryos", "url": (payload.source_url or "").strip()}
         ticket, created = store.create(payload.title, payload.body, source=source, priority=payload.priority)
-        return {"ok": True, "created": created, "ticket": ticket}
+        if created and notify_owner:
+            try:
+                notify_owner(f"📥 Relay {ticket['id']}: {ticket['title']}\nВ очереди Claude, выполнение ещё не началось.")
+            except Exception:
+                pass
+        return {"ok": True, "created": created, "ticket": queue.view(ticket) if queue else ticket}
 
     @app.get("/api/relay/{ticket_id}")
     def relay_detail(ticket_id: str, request: Request):
@@ -812,13 +848,13 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable) -> 
         ticket = store.get(ticket_id)
         if not ticket:
             raise HTTPException(404, "Relay ticket not found")
-        return ticket
+        return queue.view(ticket) if queue else ticket
 
     @app.post("/api/relay/{ticket_id}/status")
     def relay_status(ticket_id: str, payload: RelayStatusRequest, request: Request):
         identity = _owner_guard(request, request_identity)
         try:
-            ticket = store.set_status(ticket_id, payload.status, actor=identity.get("email") or "owner", note=payload.note)
+            ticket = queue.enqueue(ticket_id, actor=identity.get("email") or "owner") if payload.status == "in_progress" and queue else store.set_status(ticket_id, payload.status, actor=identity.get("email") or "owner", note=payload.note)
         except KeyError:
             raise HTTPException(404, "Relay ticket not found")
         except ValueError as exc:
@@ -834,6 +870,57 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable) -> 
             raise HTTPException(404, "Relay ticket not found")
         except ValueError as exc:
             raise HTTPException(400, str(exc))
+        return {"ok": True, "ticket": ticket}
+
+
+    @app.post("/api/relay/{ticket_id}/run")
+    def relay_enqueue_existing(ticket_id: str, request: Request):
+        identity = _owner_guard(request, request_identity)
+        if queue is None:
+            raise HTTPException(503, "Claude queue unavailable")
+        try:
+            ticket = queue.enqueue(ticket_id, actor=identity.get("email") or "owner")
+        except KeyError:
+            raise HTTPException(404, "Relay ticket not found")
+        if notify_owner:
+            try:
+                notify_owner(f"⏳ Relay {ticket_id}: передано Claude; ожидает worker.")
+            except Exception:
+                pass
+        return {"ok": True, "ticket": ticket}
+
+    def _require_worker(request: Request):
+        if not authorize_worker or not authorize_worker(request):
+            raise HTTPException(401, "Claude worker credential required")
+        if queue is None:
+            raise HTTPException(503, "Claude queue unavailable")
+
+    @app.post("/api/relay/worker/claim")
+    def relay_worker_claim(payload: RelayWorkerClaimRequest, request: Request):
+        _require_worker(request)
+        try:
+            ticket = queue.claim(payload.worker_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"ok": True, "ticket": ticket}
+
+    @app.post("/api/relay/worker/event")
+    def relay_worker_event(payload: RelayWorkerEventRequest, request: Request):
+        _require_worker(request)
+        try:
+            ticket = queue.event(payload.ticket_id, payload.worker_id, payload.stage, payload.note, payload.evidence)
+        except KeyError:
+            raise HTTPException(404, "Relay ticket not found")
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        if payload.stage not in {"heartbeat", "checkpoint"} and notify_owner:
+            try:
+                execution = ticket.get("execution") or {}
+                stage = execution.get("state") or payload.stage
+                note = str(execution.get("note") or "")[:200]
+                notify_owner(f"📡 Relay {payload.ticket_id} · Claude {stage}\n{note}")
+            except Exception:
+                pass
         return {"ok": True, "ticket": ticket}
 
     @app.get("/relay", response_class=HTMLResponse)
