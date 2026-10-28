@@ -59,6 +59,7 @@ class BrowserActionResult:
     external_receipt: str = ""
     blocker_reason: str = ""
     executor: str = "mock"
+    artifacts: tuple[str, ...] = field(default_factory=tuple)
 
 
 def _is_secret_key(key: str) -> bool:

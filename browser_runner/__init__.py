@@ -1,4 +1,5 @@
 """Provider-neutral, fail-closed browser action runner contracts."""
+from .playwright_executor import BrowserRuntimePolicy, run_playwright
 from .core import (
     ACTION_CLASSES,
     ALLOWED_STEPS,
@@ -23,4 +24,6 @@ __all__ = [
     "redact",
     "run_mock",
     "validate_plan",
+    "BrowserRuntimePolicy",
+    "run_playwright",
 ]

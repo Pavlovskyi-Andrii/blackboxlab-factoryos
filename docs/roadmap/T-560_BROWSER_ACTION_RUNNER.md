@@ -128,3 +128,72 @@ Worker Results + Trace Viewer show plan, steps, checkpoint, screenshots/artifact
 - automatic irreversible publishing
 - storing credentials in spreadsheets or Git
 - replacing official APIs when a stable API already covers the task
+
+## T-560-C guarded Playwright adapter (2026-10-28)
+
+Implementation: `browser_runner/playwright_executor.py`, `test_browser_playwright.py`.
+
+The real browser adapter operates in **anonymous draft/read/upload mode only**.
+It never signs in, reuses session cookies, imports credentials from a vault,
+creates posts, submits forms, or performs irreversible actions. Even a plan
+with a matching self-asserted approval snapshot is **not** sufficient to
+authorize real publication. Human-approval verification against the FactoryOS
+server must be built before any real submit capability is considered.
+
+### Trusted runtime contract
+
+Instantiate `BrowserRuntimePolicy` **in trusted server/runner code**, never
+from untrusted plan JSON. Supply a strict origin allowlist
+(`https://example.org` with optional explicit port), a private screenshot
+artifact root, and an optional separate staging root for uploads.
+
+All browser requests are routed through an origin/method/path guard:
+- only exact allowlisted origins, no wildcard domains, no localhost/private
+  IP/metadata service access in production;
+- GET/HEAD/OPTIONS only; POST, PUT, PATCH, DELETE fail closed;
+- no known irreversible URL/action targets, no form-root click, no
+  WebSocket channels, no service workers, no downloads;
+- step schema, selectors, upload roots, extensions, size, runtime and count
+  are bounded; missing access/binaries cause explicit blocked/failed status;
+- `extract` logs character count + hash, not page text; screenshot artifacts
+  are private files and are **not automatically published**;
+- common CAPTCHA/2FA markers produce `waiting_human` checkpoints.
+  Current browser contexts are ephemeral: resuming requires a future trusted,
+  owner-authorized session handoff. Never fake a resumed browser session.
+
+This is defense in depth, not a guarantee about arbitrary untrusted JavaScript
+or GET endpoints with nonstandard side effects. Use only trusted sites and
+isolated runner infrastructure until audited for production accounts.
+
+### Run deterministic regression without browser installation
+
+```bash
+python test_browser_playwright.py
+```
+
+### Optional real Chromium test (explicit operator opt-in on existing local machine)
+
+Playwright is intentionally **not** installed in the FactoryOS Render API
+requirements. On an already-approved runner machine with enough memory, use
+an existing Python environment and free local Chromium:
+
+```bash
+python -m pip install playwright
+python -m playwright install chromium
+RUN_BROWSER_FIXTURE=1 python test_browser_playwright.py
+```
+
+If Chromium is already installed system-wide, supply the existing path through
+`PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium`. The fixture serves HTML from
+127.0.0.1 on an ephemeral port, using `allow_loopback_fixture=True` in
+**test code only**. This exception must never be enabled for user-supplied
+production plans. The test exercises navigation, fill, select, safe click,
+extract and screenshot with no remote-site traffic and no paid API.
+
+### Remaining before claiming production-ready
+
+- finish actual vault/session_ref lookup and authorization boundary (T-560-B);
+- run verified real Chromium fixture on the intended host and measure memory;
+- wire redacted events/artifacts to Worker Results and Trace Viewer (T-560-E);
+- implement trusted owner approval verifier for any real submit/publish action;
+- integrate social-specific recipes separately under T-560-D.
