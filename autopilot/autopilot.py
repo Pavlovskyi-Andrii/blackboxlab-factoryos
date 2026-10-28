@@ -30,6 +30,7 @@ WAIT_FOR_HUMAN = os.environ.get("AUTOPILOT_WAIT_FOR_HUMAN", "0").strip().lower()
 SKIP_PERMISSIONS = os.environ.get("AUTOPILOT_SKIP_PERMISSIONS", "0").strip().lower() in {"1", "true", "yes", "on"}
 DAEMON_MODE = os.environ.get("AUTOPILOT_DAEMON", "1").strip().lower() in {"1", "true", "yes", "on"}
 IDLE_SECONDS = max(15, min(3600, int(os.environ.get("AUTOPILOT_IDLE_SECONDS", "60"))))
+RELAY_ONLY = os.environ.get("AUTOPILOT_RELAY_ONLY", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -239,6 +240,15 @@ def main() -> int:
         if relay_tasks.run_one(REPO, status_fn=write_runtime_status):
             last_idle_notice = ""
             time.sleep(PAUSE_SECONDS)
+            continue
+
+        # Keep the dedicated EC2 Relay executor focused on owner requests.
+        # It must not silently consume unrelated ROADMAP tasks while idle.
+        if RELAY_ONLY:
+            write_runtime_status("idle", summary="Relay worker online, waiting for queued owner tasks")
+            if not DAEMON_MODE:
+                return 0
+            time.sleep(IDLE_SECONDS)
             continue
 
         target = next_safe_task()
