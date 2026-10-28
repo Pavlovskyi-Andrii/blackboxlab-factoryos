@@ -10,11 +10,13 @@ try:
     from .notify import configured as telegram_configured
     from .notify import send, wait_answer
     from . import control
+    from . import relay_tasks
 except ImportError:
     from delegation import build_delegation, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
     import control
+    import relay_tasks
 
 REPO = pathlib.Path(os.environ.get("AUTOPILOT_REPO", "/work/factoryos")).resolve()
 STATUS = REPO / ".autopilot" / "status.json"
@@ -231,6 +233,13 @@ def main() -> int:
                     return 4
                 time.sleep(IDLE_SECONDS if DAEMON_MODE else PAUSE_SECONDS)
                 continue
+
+        # Relay owner tickets have priority over ordinary roadmap work. This is
+        # an actual claim + bounded Claude CLI invocation, not a UI status flip.
+        if relay_tasks.run_one(REPO, status_fn=write_runtime_status):
+            last_idle_notice = ""
+            time.sleep(PAUSE_SECONDS)
+            continue
 
         target = next_safe_task()
         if not target:
