@@ -72,7 +72,7 @@ class PairingTest(unittest.TestCase):
 
     def test_noninteractive_fails_without_reading_or_printing_token(self):
         with mock.patch.object(pair_worker.os, "geteuid", return_value=0), \
-             mock.patch.object(pair_worker.sys.stdin, "isatty", return_value=False), \
+             mock.patch.object(pair_worker.sys, "stdin", io.StringIO()), \
              mock.patch.object(pair_worker.getpass, "getpass") as spy:
             with redirect_stderr(io.StringIO()):
                 status = pair_worker.main()
@@ -83,7 +83,7 @@ class PairingTest(unittest.TestCase):
         fake = mock.Mock(returncode=0)
         stdout = io.StringIO()
         with mock.patch.object(pair_worker.os, "geteuid", return_value=0), \
-             mock.patch.object(pair_worker.sys.stdin, "isatty", return_value=True), \
+             mock.patch.object(pair_worker.sys, "stdin", mock.Mock(isatty=lambda: True)), \
              mock.patch.object(pair_worker, "DEFAULT_ENV", self.file), \
              mock.patch.object(pair_worker.getpass, "getpass", return_value=self.token), \
              mock.patch.object(pair_worker.subprocess, "run", return_value=fake) as shell, \
