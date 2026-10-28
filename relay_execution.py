@@ -111,7 +111,7 @@ class RelayQueue:
                 ex = item.get("execution") or {}
                 if ex.get("worker_id") == worker_id and ex.get("state") in ACTIVE_STATES:
                     return None
-            pending = [item for item in state["tickets"] if (item.get("execution") or {}).get("state") == "queued"]
+            pending = [item for item in state["tickets"] if item.get("status") == "inbox" and (item.get("execution") or {}).get("state") == "queued"]
             pending.sort(key=lambda item: (item.get("execution") or {}).get("queued_at") or "")
             if not pending:
                 return None
