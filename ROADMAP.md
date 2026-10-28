@@ -325,3 +325,11 @@ Rules:
   Spec: docs/roadmap/T-562_RUNNER_SUPERVISOR.md
   Goal: use a bounded local systemd recovery timer on the existing EC2 instance to restart only when subscription OAuth, internal worker token, non-main branch, and zero paid API billing gates all pass. Record safe local recovery status, never recover or copy OAuth tokens, never bypass account security.
   DONE: `python -m autopilot.test_supervisor` passes, CI passes, and on-host timer + truthful blocked/running status are verified; owner authorization and internal token remain independent prerequisites to live Claude task execution.
+
+## v5.0.4 — Self-service EC2 pairing
+
+- [ ] T-564 Interactive Claude worker pairing (no shell history/secrets)
+  Planner: ChatGPT
+  Depends: T-562,T-563
+  Goal: one interactive root-only command on the existing EC2 reads the internal FactoryOS worker token without terminal echo, atomically edits root-owned config with restrictive permissions, refuses paid API override, and requests ONLY a Supervisor preflight, never a direct unguarded Claude start.
+  DONE: `python -m autopilot.test_pair_worker` passes, CI green, host CLI verified and documented; no secret is printed/logged or stored in git.

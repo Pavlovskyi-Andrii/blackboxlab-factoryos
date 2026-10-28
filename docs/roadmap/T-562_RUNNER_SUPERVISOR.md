@@ -49,3 +49,18 @@ This milestone provides **local crash recovery** and a truthful local health sta
 
 ## Separate EC2 worker binding (T-563)
 FactoryOS may accept an additional `FACTORY_CLAUDE_WORKER_TOKEN_EC2` via its existing Render secret environment. This token is independent of the primary `FACTORY_CLAUDE_WORKER_TOKEN` used by other devices, so provisioning EC2 does not rotate/disconnect existing phone workers. On the trusted EC2 store exactly the same value under `FACTORY_CLAUDE_WORKER_TOKEN` in the root-owned `/etc/factoryos/claude-worker.env`. The service sees only the local name. Generate 32+ random bytes; never store the value in Git, docs, console history or owner-facing status payloads. Verify accepted auth with harmless heartbeat only **after** subscription login has succeeded; never claim live execution before both checks pass.
+
+## One-time owner pairing without editing a root file manually (T-564)
+
+1. Sign into the existing FactoryOS UI as owner: **Connections → Claude Code Pro → Connect → Copy worker token**. This secret is internal FactoryOS auth, *not* an Anthropic API key.
+2. On the trusted EC2, open an interactive AWS Session Manager session, then run:
+
+```bash
+cd /opt/factoryos
+sudo python3 -m autopilot.pair_worker
+```
+
+3. Paste the token into the hidden prompt and press Enter. It is not part of the command line or shell history; never paste it into ChatGPT, Git, logs, CI, or a normal shell assignment.
+4. The CLI validates the protected env file, writes only the internal worker-token setting, refuses PAYG overrides, then invokes `factoryos-runner-supervisor.service` (not Claude directly). Check `/var/lib/factoryos/supervisor-status.json` and the FactoryOS owner UI. Successful local pairing alone does not prove a functioning remote heartbeat; verify it separately.
+
+The command must run on an interactive trusted TTY. Root-only, no stdin pipe and no CLI token parameter are supported. The runner's periodic Supervisor remains the only automated process-start authority. No additional cloud resource, provider API key or subscription required.
