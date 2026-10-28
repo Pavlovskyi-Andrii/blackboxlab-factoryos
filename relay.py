@@ -999,10 +999,16 @@ a{color:#78c7ff}#footer{padding:0 18px 24px;color:#8ca5b9;font-size:12px}
   <textarea id="newBody" maxlength="10000" placeholder="Подробное задание и критерии готовности (необязательно)"></textarea>
   <button type="submit" id="submit" class="primary">▶ Отправить Claude</button>
 </form>
-<div class="toprow"><button id="tgBtn" onclick="pairTelegram()">Telegram…</button><span class="sub" id="tgState"></span><button onclick="load()">↻ Обновить</button></div>
+<div class="toprow"><button id="tgBtn" onclick="pairTelegram()">Telegram…</button><span class="sub" id="tgState"></span><button onclick="pairWorker()">🔑 Подключить AWS worker</button><button onclick="load()">↻ Обновить</button></div>
 <div id="notice" class="notice"></div>
 </header>
 <main id="board"></main><div id="footer">Статус «в работе» появляется только после запуска исполнителя. Коммит и push — отдельные подтверждаемые события.</div>
+<dialog id="pairDialog"><h2>🔑 Привязка Claude worker на AWS</h2>
+<p class="sub">Токен виден только здесь один раз. Не отправляй его в чат и не сохраняй в GitHub.</p>
+<textarea id="pairToken" readonly rows="3" style="width:100%;font-family:ui-monospace,monospace"></textarea>
+<div class="actions"><button onclick="copyPairToken()">📋 Скопировать токен</button><button onclick="document.getElementById('pairDialog').close()">Закрыть</button></div>
+<p class="sub">В существующем EC2 через Session Manager открой <code>/etc/factoryos/claude-worker.env</code> и установи <code>FACTORY_CLAUDE_WORKER_TOKEN=</code> с этим значением. Затем запусти <code>sudo systemctl start factoryos-runner-supervisor.service</code>.</p>
+</dialog>
 <dialog id="details"><div class="toprow"><h2 id="detailsTitle"></h2><button onclick="document.getElementById('details').close()">Закрыть ×</button></div><div id="detailsBody"></div></dialog>
 <script>
 const $=id=>document.getElementById(id);
@@ -1087,6 +1093,20 @@ async function telegramStatus(){
  $("tgState").textContent=s.paired?(s.username?"@"+s.username:"готов"):(s.configured?"ожидает привязки":"бот не настроен");
  }catch(e){$("tgState").textContent="не удалось проверить Telegram"}
 }
+async function pairWorker(){
+ if(!confirm("Создать новый токен AWS worker? Предыдущий токен этого способа привязки станет недействительным."))return;
+ try{
+  const response=await api("/api/factory/claude-code/pair-token",send("POST",{}));
+  $("pairToken").value=response.token;
+  $("pairDialog").showModal();
+ }catch(e){$("notice").textContent="Не удалось создать токен привязки: "+e.message}
+}
+function copyPairToken(){
+ const token=$("pairToken").value;
+ if(navigator.clipboard?.writeText)navigator.clipboard.writeText(token).then(()=>$("notice").textContent="Токен скопирован. Вставь в AWS Session Manager.").catch(()=>$("pairToken").select());
+ else $("pairToken").select();
+}
+$("pairDialog").addEventListener("close",()=>{$("pairToken").value=""});
 async function pairTelegram(){
  try{const s=await api("/api/factory/telegram/status");if(s.paired){$("notice").textContent="Telegram уже привязан; открой существующий чат и отправь /tasks";return}
  const d=await api("/api/factory/telegram/pairing/start",send("POST",{}));$("tgState").textContent="Код действует "+Math.round(d.expires_in_seconds/60)+" минут";if(d.deep_link)window.location.href=d.deep_link;else alert("Отправь боту: "+d.command);
