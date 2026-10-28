@@ -69,9 +69,6 @@ class TestRelayQueue(unittest.TestCase):
         with self.assertRaises(ValueError): self.queue.event(t["id"], "wrong", "done", "fake")
         with self.assertRaises(ValueError): self.queue.event(t["id"], "good-worker", "invalid", "fake")
         self.assertEqual(self.store.get(t["id"])["execution"]["state"], "claimed")
-        retried = self.queue.enqueue(t["id"])
-        self.assertEqual(retried["execution"]["state"], "queued")
-        self.assertEqual(self.queue.claim("other-worker")["id"], t["id"])
 
     def test_stale_shown_without_fake_recovery(self):
         t, _ = self.store.create("Stale task")
@@ -83,6 +80,9 @@ class TestRelayQueue(unittest.TestCase):
         self.assertEqual(self.queue.view(self.store.get(t["id"]))["execution"]["state"], "stale")
         self.assertIsNone(self.queue.claim("other-worker"))
         self.assertEqual(self.store.get(t["id"])["execution"]["state"], "claimed")
+        retried = self.queue.enqueue(t["id"])
+        self.assertEqual(retried["execution"]["state"], "queued")
+        self.assertEqual(self.queue.claim("other-worker")["id"], t["id"])
 
     def test_evidence_allowlist_excludes_secrets(self):
         val = safe_evidence({"commit": "a"*40, "branch": "autopilot/aws-worker", "pushed": True,
