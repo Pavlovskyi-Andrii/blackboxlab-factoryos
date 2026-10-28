@@ -56,7 +56,7 @@ Rules:
   DONE: `python -m autopilot.test_autopilot`; idle state is visible to heartbeat, polling defaults on, and `AUTOPILOT_DAEMON=0` preserves one-shot behavior.
 ## v5.0.2 — Browser Action Runner
 
-- [ ] T-560-A Browser runner contracts + policy engine
+- [x] T-560-A Browser runner contracts + policy engine
   Planner: ChatGPT
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
   Goal: add provider-neutral BrowserActionPlan/BrowserActionResult contracts, bounded step validation, secret redaction, immutable payload hashing, approval policy and a deterministic mocked executor; no real credentials or browser session in this task.
@@ -67,6 +67,7 @@ Rules:
   Depends: T-560-A,T-550
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
   Goal: add opaque credential_ref/session_ref resolution contracts, workspace/account session isolation and resumable waiting_human checkpoints for 2FA/CAPTCHA/security challenges without exposing secrets.
+  Progress 2026-10-28: opaque per-workspace SessionRegistry and waiting_human/resume authorization contract merged; actual credential vault resolution and persisted session handoff remain unfinished.
   DONE: deterministic two-workspace regression proves no session crossover, logs/results contain no secret values, challenge state stops safely at waiting_human, and an owner-authorized checkpoint can resume without replaying already-completed irreversible steps.
 
 - [ ] T-560-C Real browser executor + generic recipe
@@ -74,6 +75,7 @@ Rules:
   Depends: T-560-A,T-560-B
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
   Goal: add a real browser executor adapter (Playwright or equivalent) behind the provider-neutral contract with allowlisted domains, bounded navigation/steps, upload/fill/click/extract/screenshot support and factual evidence capture.
+  Progress 2026-10-28: local Playwright adapter with fail-closed origin/method/step guard and redacted artifacts implemented; real Chromium fixture remains opt-in and installation on a production worker is not yet approved. No account login or real submission enabled.
   DONE: local deterministic fixture executes a generic allowlisted form flow, captures redacted evidence, rejects off-domain navigation, respects timeout/step limits and keeps submit disabled unless the plan carries valid approval.
 
 - [ ] T-560-D Social web draft recipes
