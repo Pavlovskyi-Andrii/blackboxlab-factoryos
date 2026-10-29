@@ -73,7 +73,7 @@ def worker_projection(cw: dict) -> list[dict]:
 def video_projection(provider: str, model: str, configured: bool) -> dict:
     """Configured key/endpoint does not assert successful provider access."""
     p = str(provider or "").lower()
-    google = p in {"gemini", "gemini_omni", "gemini-omni", "google_gemini"}
+    google = p in {"gemini", "gemini-omni", "gemini-omni-flash", "google-gemini", "google-gemini-omni"}
     return {
         "provider": "google" if google else p,
         "model": str(model or "")[:120] if google else "",
