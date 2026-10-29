@@ -232,3 +232,16 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** the resumable executor is mock-only (`run_mock_resumable`, `executor="mock"`). A `challenge_probe(index, step)` fixture stands in for page inspection. `test_browser_sessions.py` was rewritten as `unittest` (still runnable as `python test_browser_sessions.py` in CI). `browser_runner/sessions.py` gained `from __future__ import annotations`: its old `-> str | None` annotation would fail at import on the Python 3.9 EC2 worker.
   **Reason:** this gives deterministic, zero-network coverage. This sandbox only allows `python3 -m unittest`, so regression suites were invoked through a unittest subprocess shim.
+
+## 2026-10-29 — T-560-C Real browser executor + generic recipe
+
+- **Decision:** "generic recipe" = `browser_runner/recipes.py::generic_form_recipe`, a declarative builder (start URL, fill/select fields, staged uploads, preview click, wait, extracts, screenshot). It produces a plain `BrowserActionPlan` and has no allowlist or credential inputs. Field and upload items with unknown keys raise `PolicyError`.
+  **Reason:** recipes stay provider-neutral and cannot widen the trusted runtime policy. T-560-D social recipes can build on the same shape.
+
+- **Decision:** the DONE wording "submit disabled unless the plan carries valid approval" is implemented as a stricter gate. With no, stale or tampered approval, the run blocks with `submit_requires_matching_human_approval`. With a matching snapshot + payload hash it still blocks, with `trusted_approval_verifier_not_configured`. The browser never launches in either case, and the POST/PUT/PATCH/DELETE network guard is unchanged.
+  **Reason:** the approval fields in the plan are self-asserted. CLAUDE.md forbids weakening the publish approval gate, and the spec requires a server-side approval verifier before any real submit. That verifier is future, owner-approved work.
+
+- **Decision:** `run_playwright` takes an injectable `clock` (default `time.monotonic`), so the timeout regression is deterministic. The DONE fixture is the deterministic fake browser in `test_browser_playwright.py`. Playwright/Chromium were **not** installed on the EC2 worker, because the roadmap says installing them on a production worker is not yet approved. The real-Chromium loopback test stays opt-in (`RUN_BROWSER_FIXTURE=1`) and now drives the same generic recipe.
+  **Reason:** this proves the DONE criteria with zero network, zero install and zero cost. The real-browser run remains an operator choice.
+
+- **Decision:** on this worker `python` is a broken wrapper and only `python3` (3.9.25) runs. `smoke_tests.py` and `media_finisher_worker.test_planner` could not run here: `fastapi` is not installed and the smoke-test command was denied in this sandbox. `app.py`/smoke tests do not import `browser_runner`, and CI runs them.

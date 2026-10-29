@@ -100,12 +100,13 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Progress 2026-10-29: scoped CredentialVault contract (vault:// refs, SecretValue never renders, human-only OTP/recovery material unresolvable), persisted SessionRegistry/CheckpointStore (refs + redacted metadata only) and single-use resumable mock executor that never replays completed irreversible steps. Real vault backend and Playwright session restore remain future work (no credentials configured).
   DONE: deterministic two-workspace regression proves no session crossover, logs/results contain no secret values, challenge state stops safely at waiting_human, and an owner-authorized checkpoint can resume without replaying already-completed irreversible steps.
 
-- [ ] T-560-C Real browser executor + generic recipe
+- [x] T-560-C Real browser executor + generic recipe
   Planner: ChatGPT
   Depends: T-560-A,T-560-B
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
   Goal: add a real browser executor adapter (Playwright or equivalent) behind the provider-neutral contract with allowlisted domains, bounded navigation/steps, upload/fill/click/extract/screenshot support and factual evidence capture.
   Progress 2026-10-28: local Playwright adapter with fail-closed origin/method/step guard and redacted artifacts implemented; real Chromium fixture remains opt-in and installation on a production worker is not yet approved. No account login or real submission enabled.
+  Progress 2026-10-29: `generic_form_recipe` + deterministic fixture regression (form flow, redacted evidence, off-domain rejection, step/timeout limits, submit blocked without valid approval and still blocked pending a trusted approval verifier). Real Chromium run remains operator opt-in.
   DONE: local deterministic fixture executes a generic allowlisted form flow, captures redacted evidence, rejects off-domain navigation, respects timeout/step limits and keeps submit disabled unless the plan carries valid approval.
 
 - [ ] T-560-D Social web draft recipes
