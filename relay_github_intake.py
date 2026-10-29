@@ -29,7 +29,7 @@ def import_issue(store, issue: dict, repository: str = DEFAULT_REPOSITORY) -> tu
     number = int(match.group(3))
     if str(issue.get("number", number)) != str(number):
         raise ValueError("Issue number mismatch")
-    if issue.get("pull_request") or issue.get("state") != "open":
+    if "pull_request" in issue or issue.get("state") != "open":
         raise ValueError("Only open GitHub Issues can be imported")
     title = str(issue.get("title") or "").strip()
     if not title:
