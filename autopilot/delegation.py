@@ -7,6 +7,8 @@ verifiable evidence (git state before/after, commits, status.json, output tail).
 The adapter never pushes, never touches main/master and never deploys. Any
 evidence of such an action turns the result into ``failed``.
 """
+from __future__ import annotations
+
 import json
 import os
 import pathlib
