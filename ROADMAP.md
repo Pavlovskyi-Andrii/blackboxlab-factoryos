@@ -10,6 +10,35 @@ Rules:
 - Human approval remains mandatory before any real social publishing action.
 - ZERO ADDITIONAL SPEND: do not connect paid API billing, metered AI/browser calls, new paid cloud resources, or paid publisher plans without explicit fresh owner approval. Use existing subscriptions and free-tier resources only, with a fail-closed spending guard. Subscription access must never be silently replaced with PAYG API usage.
 
+## P0 — CLAUDE TAKES OVER (owner priority 2026-10-29)
+
+Owner directed Claude Code to be the principal engineering/operator coordinator. **Read docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md FIRST, then CLAUDE.md, and verify live state**. Do not claim owner Telegram works until live end-to-end proof. Do not enable paid APIs/cloud resources or unauthorized publishing. Separate worker service 'online' from actual task claims. Do not push to main; PR+CI+verification required.
+
+- [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
+  Planner: owner; Executor: Claude Code Pro (primary). P0.
+  Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; GitHub Issues #41, #51, #56, #40; PR #43, #42, #60.
+  Goal: implement a working vertical slice from owner Telegram/Web task intake through durable queued→claimed→running→events→code/commit→GitHub lifecycle, with factual owner-facing Telegram /status /tasks /task and same Web state. Establish real issue/ROADMAP→Relay intake or explicit reconciled links; resolve missing parent-owned task progress during Claude run.
+  Test: deterministic intake dedupe, authenticated claims, idempotent events, stale/blocked/failed paths, redaction, restart persistence, no fabricated ChatGPT telemetry; targeted and full CI.
+  DONE: one owner task can be followed end-to-end with verified server worker claim, live heartbeat and task status, a real artifact/commit where applicable, and owner-visible Telegram trace; preserve external publish approval. If owner chat not paired, show a precisely documented HUMAN action and validate all other stages without claiming live Telegram DONE. Record evidence in Issue #41, open reviewed non-main PR, verify CI and deployed revision.
+
+- [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
+  Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
+  Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; Issue #41 and #51.
+  Goal: verify actual owner Telegram chat pairing/webhook and tested /status, /tasks, /task <id>, /history, /roadmap, /github; callbacks for refresh/detail/retry; preserve event history; RU/UK/EN. Only verified ChatGPT actions visible, not fictional live ChatGPT sessions.
+  DONE: real test message in paired owner chat -> one ticket -> authenticated Claude claim -> running -> final evidence -> owner reply with exact IDs and GitHub links, redacted transcript and timestamps. If needs owner 2FA, mark HUMAN with exact ask and do not claim done.
+
+- [ ] T-592 Fix Build Progress / Worker Center factual status and UI freeze
+  Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
+  Spec: Issues #55, #56, #54, #52 and docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md.
+  Goal: reconcile 87% vs 49% metric scopes; distinguish EC2/SSM/systemd/subscription auth/heartbeat/claim/task; fix race for .autopilot/status.json, stale/offline, huge overflow; make owner HUMAN blockers actionable.
+  DONE: deterministic tests + screenshot evidence showing same task/stage in Telegram and Web; no ghost running/false progress; columns usable mobile+desktop and consistent stale timestamps; non-main PR/CI.
+
+- [ ] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
+  Planner: owner; Executor: Claude Code Pro. P0/P1. Depends: T-590.
+  Spec: handoff diagnosis, Issue #40/#49/#50/#47 and ROADMAP T-560-C onward.
+  Goal: reproducible restricted permission profile, safe tests and dependency boot (Python 3.9), non-spinning retry, durable worker errors, GitHub/ROADMAP task dedupe, automated safe backlog sequence and concise verified owner reporting.
+  DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
+
 ## v5.0 — Self-Building FactoryOS
 
 - [x] T-500 Repository autopilot contract
