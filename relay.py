@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from relay_github_intake import fetch_github_issue, import_issue
 
 RELAY_STATUSES = ("inbox", "in_progress", "need_you", "done", "archived")
 ACTIVE_STATUSES = ("inbox", "in_progress", "need_you")
@@ -867,6 +868,37 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
             except Exception:
                 pass
         return {"ok": True, "created": created, "ticket": queue.view(ticket) if queue else ticket}
+
+    @app.post("/api/relay/github/issues/{issue_number}/import")
+    def relay_import_github_issue(issue_number: int, request: Request):
+        """Explicit owner action: verified GitHub Issue -> one queued Relay ticket."""
+        _owner_guard(request, request_identity)
+        if queue is None:
+            raise HTTPException(503, "Claude queue unavailable")
+        from urllib.error import HTTPError, URLError
+
+        repository = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
+        token = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
+        try:
+            issue = fetch_github_issue(issue_number, repository=repository, token=token)
+            ticket, created = import_issue(store, issue, repository=repository)
+        except HTTPError as exc:
+            if exc.code == 404:
+                raise HTTPException(404, "GitHub Issue not found or inaccessible") from exc
+            raise HTTPException(502, "GitHub lookup failed") from exc
+        except (URLError, TimeoutError) as exc:
+            raise HTTPException(503, "GitHub lookup temporarily unavailable") from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if created and notify_owner:
+            try:
+                notify_owner(
+                    f"📥 GitHub Issue #{issue_number} → Relay {ticket['id']} queued. "
+                    "Ожидает фактического claim от Claude Worker."
+                )
+            except Exception:
+                pass
+        return {"ok": True, "created": created, "issue_number": issue_number, "ticket": queue.view(ticket)}
 
     @app.get("/api/relay/{ticket_id}")
     def relay_detail(ticket_id: str, request: Request):
