@@ -190,9 +190,28 @@ If Chromium is already installed system-wide, supply the existing path through
 production plans. The test exercises navigation, fill, select, safe click,
 extract and screenshot with no remote-site traffic and no paid API.
 
+## T-560-B session/vault contract + human takeover (2026-10-29)
+
+Implementation: `browser_runner/sessions.py`, `test_browser_sessions.py`.
+
+- `credential_ref` = opaque `vault://…`, resolved only through a `CredentialVault`
+  scoped to workspace + provider + account binding; values are `SecretValue`
+  (redacted repr, unpicklable, explicit `reveal()`). Only `username`/`password`
+  are worker-resolvable; OTP/TOTP/recovery codes/cookies are human-only.
+- `session_ref` = opaque `session://…`, usable only by the exact binding it was
+  registered for; one ref cannot be bound to two bindings; disconnect keeps an
+  inactive audit record.
+- Challenges persist a redacted `Checkpoint` (site hostname, step index/type,
+  reason, payload hash, completed irreversible step indices) in `CheckpointStore`.
+  Resume: owner-authorized `waiting_human → resumed`, then consumed once by the
+  runner before any step executes; completed irreversible steps never re-run.
+- `run_mock_resumable` is the deterministic reference executor. Only
+  `InMemoryVault` ships; a real vault backend and authenticated Playwright
+  session restore are future, owner-approved work.
+
 ### Remaining before claiming production-ready
 
-- finish actual vault/session_ref lookup and authorization boundary (T-560-B);
+- real vault backend adapter + authenticated browser session restore (contract done in T-560-B);
 - run verified real Chromium fixture on the intended host and measure memory;
 - wire redacted events/artifacts to Worker Results and Trace Viewer (T-560-E);
 - implement trusted owner approval verifier for any real submit/publish action;

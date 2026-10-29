@@ -12,8 +12,28 @@ from .core import (
     run_mock,
     validate_plan,
 )
+from .sessions import (
+    CheckpointStore,
+    CredentialVault,
+    InMemoryVault,
+    SecretValue,
+    SessionBinding,
+    SessionIsolationError,
+    SessionRegistry,
+    VaultError,
+    run_mock_resumable,
+)
 
 __all__ = [
+    "CheckpointStore",
+    "CredentialVault",
+    "InMemoryVault",
+    "SecretValue",
+    "SessionBinding",
+    "SessionIsolationError",
+    "SessionRegistry",
+    "VaultError",
+    "run_mock_resumable",
     "ACTION_CLASSES",
     "ALLOWED_STEPS",
     "BrowserActionPlan",

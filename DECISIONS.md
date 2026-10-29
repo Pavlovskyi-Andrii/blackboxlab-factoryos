@@ -215,3 +215,20 @@ Autonomous workers record reversible engineering decisions here so the owner can
   **Reason:** a live Gemini probe would be a provider call; unknown must stay unknown.
 
 - **Decision:** tests in `test_role_operator.py`, wired into CI. The local venv used Python 3.12 (the code needs 3.10+ syntax; system `python` is absent).
+
+## 2026-10-29 — T-560-B Session/vault abstraction + human takeover
+
+- **Decision:** credentials are referenced only as opaque `vault://…` refs. They are resolved at execution time through a `CredentialVault` protocol whose `resolve()` is scoped to the exact (workspace, provider, account_binding_id). The only backend shipped is the deterministic `InMemoryVault` (tests/dev). Missing and out-of-scope refs return the same error, so resolution cannot be used to probe whether a ref exists.
+  **Reason:** a real backend (AWS Secrets Manager, etc.) needs credentials and an owner choice, so it is a later adapter behind the same protocol. Nothing here reads `.env` or production secrets.
+
+- **Decision:** a resolved secret is wrapped in `SecretValue`. Its `repr`/`str` are redacted and pickling raises; the raw value is available only through an explicit `reveal()` at the point of use. Workers may resolve only `username`/`password`. OTP, TOTP seeds, recovery codes and cookies cannot be resolved; they stay human-only per the spec.
+  **Reason:** this enforces "never ask the worker to read a one-time code from secret storage" in the contract, not just by convention.
+
+- **Decision:** a plan step requests a credential with `{"type": "fill", "selector": …, "credential_field": "password"}`, never with a literal value. `session_ref` plans cannot also request credential fields. A `session_ref` must equal the ref bound to the plan's own workspace/provider/account, and one `session_ref` cannot be bound to two bindings. The guarded Playwright adapter (T-560-C) is unchanged: its strict step schema still rejects `credential_field`, so it stays anonymous.
+  **Reason:** this prevents session crossover between workspaces without touching the reviewed T-560-C security boundary. Real authenticated browser session restore is a future, separately approved step.
+
+- **Decision:** `SessionRegistry` and `CheckpointStore` can persist to JSON (mode 0600, atomic replace). The files hold only opaque refs and redacted checkpoint metadata: site hostname without path or query, step index/type, reason, payload hash, and the indices of completed irreversible steps. A checkpoint goes `waiting_human → resumed` (owner-authorized, binding and payload hash must match) `→ consumed`. The executor reads resume state from the trusted store, never from the caller, and consumes it before running any step (at-most-once). It resumes after `completed_steps` and refuses to re-execute any index in `irreversible_done`.
+  **Reason:** this satisfies the persisted handoff and "resume without replaying irreversible steps" DONE criteria. Single-use tokens act as the idempotency fence.
+
+- **Decision:** the resumable executor is mock-only (`run_mock_resumable`, `executor="mock"`). A `challenge_probe(index, step)` fixture stands in for page inspection. `test_browser_sessions.py` was rewritten as `unittest` (still runnable as `python test_browser_sessions.py` in CI). `browser_runner/sessions.py` gained `from __future__ import annotations`: its old `-> str | None` annotation would fail at import on the Python 3.9 EC2 worker.
+  **Reason:** this gives deterministic, zero-network coverage. This sandbox only allows `python3 -m unittest`, so regression suites were invoked through a unittest subprocess shim.

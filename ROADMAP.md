@@ -62,12 +62,13 @@ Rules:
   Goal: add provider-neutral BrowserActionPlan/BrowserActionResult contracts, bounded step validation, secret redaction, immutable payload hashing, approval policy and a deterministic mocked executor; no real credentials or browser session in this task.
   DONE: deterministic regression proves secret-like fields are redacted, unknown/unsafe steps are rejected, publish/send/destructive actions cannot execute without matching approval snapshot + payload hash, read/draft mocked runs can finish with factual evidence, and no real browser/provider/network call is made.
 
-- [ ] T-560-B Session/vault abstraction + human takeover
+- [x] T-560-B Session/vault abstraction + human takeover
   Planner: ChatGPT
   Depends: T-560-A,T-550
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
   Goal: add opaque credential_ref/session_ref resolution contracts, workspace/account session isolation and resumable waiting_human checkpoints for 2FA/CAPTCHA/security challenges without exposing secrets.
   Progress 2026-10-28: opaque per-workspace SessionRegistry and waiting_human/resume authorization contract merged; actual credential vault resolution and persisted session handoff remain unfinished.
+  Progress 2026-10-29: scoped CredentialVault contract (vault:// refs, SecretValue never renders, human-only OTP/recovery material unresolvable), persisted SessionRegistry/CheckpointStore (refs + redacted metadata only) and single-use resumable mock executor that never replays completed irreversible steps. Real vault backend and Playwright session restore remain future work (no credentials configured).
   DONE: deterministic two-workspace regression proves no session crossover, logs/results contain no secret values, challenge state stops safely at waiting_human, and an owner-authorized checkpoint can resume without replaying already-completed irreversible steps.
 
 - [ ] T-560-C Real browser executor + generic recipe
