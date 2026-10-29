@@ -6,6 +6,7 @@ competing Claude process. Only the verified backend claim turns "queued" into
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import pathlib
@@ -57,14 +58,23 @@ def claim(*, post_fn=None) -> dict | None:
 
 
 def emit(ticket_id: str, stage: str, note: str = "", evidence: dict | None = None,
-         *, post_fn=None) -> None:
-    (post_fn or post)("/api/relay/worker/event", {
+         *, post_fn=None, run_id: str = "", event_id: str = "") -> None:
+    payload = {
         "ticket_id": ticket_id,
         "worker_id": worker_id(),
         "stage": stage,
         "note": str(note or "")[:650],
         "evidence": evidence or {},
-    })
+        "run_id": run_id,
+        "event_id": event_id,
+    }
+    try:
+        (post_fn or post)("/api/relay/worker/event", payload)
+    except requests.RequestException:
+        if not event_id:
+            raise
+        # The backend dedupes by event_id, so one retry cannot duplicate history.
+        (post_fn or post)("/api/relay/worker/event", payload)
 
 
 def git(repo: pathlib.Path, *args: str) -> tuple[int, str]:
@@ -114,7 +124,13 @@ def execute(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=None,
     """One bounded invocation; all stage transitions come from real commands."""
     ticket_id = str(ticket.get("id") or "")
     repo = pathlib.Path(repo)
-    report = emit_fn or emit
+    run_id = str((ticket.get("execution") or {}).get("run_id") or "")
+    sequence = itertools.count(1)
+
+    def report(tid: str, stage: str, note: str = "", evidence: dict | None = None) -> None:
+        event_id = f"{run_id}:{next(sequence)}:{stage}" if run_id and stage != "heartbeat" else ""
+        (emit_fn or emit)(tid, stage, note, evidence, run_id=run_id, event_id=event_id)
+
     code, branch = git(repo, "branch", "--show-current")
     if code or not branch or branch in ("main", "master"):
         report(ticket_id, "blocked", "Runner is not on a safe non-main branch")
@@ -213,7 +229,8 @@ def run_one(repo: pathlib.Path, *, status_fn=None) -> bool:
         # Avoid printing confidential payloads or raw tracebacks in logs.
         try:
             emit(str(ticket.get("id") or ""), "failed",
-                 "Worker internal exception: " + type(exc).__name__)
+                 "Worker internal exception: " + type(exc).__name__,
+                 run_id=str((ticket.get("execution") or {}).get("run_id") or ""))
         except Exception:
             pass
     return True

@@ -245,3 +245,23 @@ Autonomous workers record reversible engineering decisions here so the owner can
   **Reason:** this proves the DONE criteria with zero network, zero install and zero cost. The real-browser run remains an operator choice.
 
 - **Decision:** on this worker `python` is a broken wrapper and only `python3` (3.9.25) runs. `smoke_tests.py` and `media_finisher_worker.test_planner` could not run here: `fastapi` is not installed and the smoke-test command was denied in this sandbox. `app.py`/smoke tests do not import `browser_runner`, and CI runs them.
+
+## 2026-10-29 — T-590 Relay build-process control room (code slice)
+
+- **Decision:** the parent `autopilot.delegation` now writes `.autopilot/run.json` atomically (gitignored, `source: parent`). It holds run_id, task, state, started_at and pid before the Claude CLI starts, then the result/commit/exit code when the run finishes. The heartbeat (`claude_pro_worker.task_snapshot`) prefers this record over the model-authored `status.json`. A `running` record whose pid is gone is reported as `stale`, never as a ghost `running`. `status.json` is still deleted before each run, so the agent must write a fresh one.
+  **Reason:** fixes the diagnosed gap where the task/progress vanished while Claude was working. Rejected alternative: leaving status.json in place, because a stale previous status could then be mistaken for the current run's result.
+
+- **Decision:** every Relay claim mints a `run_id`. Worker events may carry `run_id` and `event_id`. Events from a superseded run are rejected with 409. A repeated `event_id` from the same worker is a no-op replay: no duplicate history and no duplicate Telegram notification. The worker derives event IDs as `<run_id>:<seq>:<stage>` and retries a failed POST exactly once. Both fields are optional so older workers keep working.
+  **Reason:** idempotent, replay-safe stage events without a schema migration of the JSON store.
+
+- **Decision:** GitHub Issue intake is owner-only (`POST /api/relay/intake/github-issue`, Telegram `/issue N`). It uses `source_key = github-issue:<repo>#<n>`, and a repeat import returns the existing ticket without re-queuing. Telegram `/issue` creates a ticket only if the issue appears in the live GitHub snapshot. Otherwise it answers "not verified" and creates nothing. ROADMAP tasks are **not** imported into Relay, because the roadmap autopilot already executes them and importing would mean double execution. Their live state is visible through the parent run record/heartbeat instead.
+  **Reason:** this gives one authoritative ticket per source with no phantom queue entries. It supersedes the unwired PR #60 helper, which can be closed once this lands.
+
+- **Decision:** `RelayQueue.view()` adds a `lifecycle` list (queued, claimed, running, committed, pushed, pr, ci, merged, deployed, plus the final state). It is derived only from durable history of the **current** attempt. Telegram `/task` and the `/relay` web detail drawer both render this same field. PR/CI/merge/deploy have no backend verifier yet and are always shown as "не проверено". A worker `ci_passed` self-report does not change that.
+  **Reason:** Web and Telegram share one backend and show no fabricated stages.
+
+- **Decision:** worker notes and issue titles/bodies are redacted (Anthropic/GitHub/Telegram-bot tokens, Bearer values) before they are persisted.
+
+- **Decision:** the new suite is `test_relay_lifecycle.py`. It is imported by `test_relay_execution.py`, which CI already runs, so `.github/workflows/ci.yml` stays untouched (workflow edits are scoped separately). On this EC2 worker the relay suites ran via `python3 -m unittest discover` with an out-of-repo bootstrap that stubs only the `fastapi`/`pydantic` imports, because FastAPI is not installed on the system Python. Route handlers and `smoke_tests.py` still need real CI.
+
+- **Decision:** the T-590 checkbox stays open. Its DONE criterion needs live evidence this sandbox cannot produce or verify: a server-side worker claim on Render, a paired owner Telegram chat (T-506 HUMAN), a PR, a CI run, the deployed revision and an Issue #41 comment. `git push`, `gh` and network commands are denied to the delegated agent here.

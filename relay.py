@@ -19,6 +19,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from relay_execution import lifecycle_text
+
 RELAY_STATUSES = ("inbox", "in_progress", "need_you", "done", "archived")
 ACTIVE_STATUSES = ("inbox", "in_progress", "need_you")
 STATUS_LABELS = {
@@ -248,6 +250,16 @@ class RelayWorkerEventRequest(BaseModel):
     stage: str
     note: str = ""
     evidence: dict = {}
+    run_id: str = ""
+    event_id: str = ""
+
+
+class RelayIssueIntakeRequest(BaseModel):
+    number: int
+    title: str = ""
+    url: str = ""
+    repo: str = ""
+    body: str = ""
 
 
 def _owner_guard(request: Request, request_identity: Callable) -> dict:
@@ -767,14 +779,36 @@ def relay_handle_telegram_update(
         if not ticket:
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "Задача не найдена. Пример: /task R-0001"})
             return {"handled": True}
+        if queue:
+            ticket = queue.view(ticket)
         history = ticket.get("history") or []
-        lines = [_ticket_card(ticket), ("ТЗ: " + str(ticket.get("body") or "")[:450]) if ticket.get("body") else "", "История:"]
+        lines = [_ticket_card(ticket), ("ТЗ: " + str(ticket.get("body") or "")[:450]) if ticket.get("body") else "",
+                 lifecycle_text(ticket), "История:"]
         for event in history[-12:]:
             evidence = event.get("evidence") or {}
             commit = " · " + str(evidence.get("commit") or "")[:10] if evidence.get("commit") else ""
             lines.append(f"{str(event.get('at') or '')[:19]} · {event.get('actor') or '?'} · {event.get('action') or '?'}{commit} · {str(event.get('note') or '')[:120]}")
         telegram_api("sendMessage", {"chat_id": chat_id, "text": "\n".join(lines)[:3900], "reply_markup": _ticket_keyboard(ticket_id)})
         return {"handled": True, "action": "detail", "ticket_id": ticket_id}
+    if command == "/issue":
+        parts = text.split(maxsplit=1)
+        number = (parts[1].strip().lstrip("#") if len(parts) > 1 else "")
+        if not number.isdecimal() or queue is None:
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "Пример: /issue 41 — поставить открытый GitHub Issue в очередь Claude."})
+            return {"handled": True}
+        try:
+            snapshot = github_provider() if github_provider else {}
+        except Exception:
+            snapshot = {}
+        match = next((x for x in (snapshot.get("issues") or []) if str(x.get("number") or "") == number), None)
+        if not snapshot.get("available") or not match:
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "GitHub #" + number + ": не подтверждён как открытый Issue (GitHub недоступен или не в выборке). Тикет НЕ создан."})
+            return {"handled": True, "action": "issue_unverified", "number": number}
+        ticket, created = queue.intake_github_issue(int(number), str(match.get("title") or ""), url=str(match.get("url") or ""),
+                                                    repo=str(snapshot.get("repo") or ""), actor="telegram")
+        head = "Issue поставлен в очередь Claude (ещё не запущен).\n\n" if created else "Issue уже связан с тикетом; повторно не ставлю.\n\n"
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": head + _ticket_card(ticket), "reply_markup": _ticket_keyboard(ticket["id"])})
+        return {"handled": True, "action": "issue_intake", "ticket_id": ticket["id"], "created": created}
     if command in ("/operators","/workers"):
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _operators_overview_text(operator_status_provider), "reply_markup": _operator_keyboard()})
         return {"handled": True, "action": "operators"}
@@ -807,7 +841,7 @@ def relay_handle_telegram_update(
 
     explicit_new = command == "/new"
     if command and not explicit_new:
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": "Команды: /status /tasks /task R-0001 /history /github /new ЗАДАЧА"})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": "Команды: /status /tasks /task R-0001 /history /github /issue 41 /new ЗАДАЧА"})
         return {"handled": True, "action": "help"}
     if explicit_new:
         parts = text.split(maxsplit=1)
@@ -919,6 +953,23 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
                 pass
         return {"ok": True, "ticket": ticket}
 
+    @app.post("/api/relay/intake/github-issue")
+    def relay_intake_github_issue(payload: RelayIssueIntakeRequest, request: Request):
+        identity = _owner_guard(request, request_identity)
+        if queue is None:
+            raise HTTPException(503, "Claude queue unavailable")
+        try:
+            ticket, created = queue.intake_github_issue(payload.number, payload.title, url=payload.url, repo=payload.repo,
+                                                        body=payload.body, actor=identity.get("email") or "owner")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        if created and notify_owner:
+            try:
+                notify_owner(f"📥 Relay {ticket['id']}: {ticket['title']}\nВ очереди Claude, выполнение ещё не началось.")
+            except Exception:
+                pass
+        return {"ok": True, "created": created, "ticket": ticket}
+
     def _require_worker(request: Request):
         if not authorize_worker or not authorize_worker(request):
             raise HTTPException(401, "Claude worker credential required")
@@ -938,12 +989,13 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
     def relay_worker_event(payload: RelayWorkerEventRequest, request: Request):
         _require_worker(request)
         try:
-            ticket = queue.event(payload.ticket_id, payload.worker_id, payload.stage, payload.note, payload.evidence)
+            ticket = queue.event(payload.ticket_id, payload.worker_id, payload.stage, payload.note, payload.evidence,
+                                 run_id=payload.run_id, event_id=payload.event_id)
         except KeyError:
             raise HTTPException(404, "Relay ticket not found")
         except ValueError as exc:
             raise HTTPException(409, str(exc))
-        if payload.stage not in {"heartbeat", "checkpoint"} and notify_owner:
+        if payload.stage not in {"heartbeat", "checkpoint"} and notify_owner and not ticket.get("replayed"):
             try:
                 execution = ticket.get("execution") or {}
                 stage = execution.get("state") or payload.stage
@@ -1073,6 +1125,10 @@ async function detailTicket(id){
   const e=t.execution||{},history=[...(t.history||[])].reverse();
   let html='<p class="desc">Исполнитель: '+esc(e.owner||"Claude")+' · '+esc(states[e.state]||e.state||"не назначено")+'</p>';
   if(t.body)html+='<p class="desc">'+esc(t.body)+'</p>';
+  const icons={recorded:"✅",linked:"🔗",pending:"⏳",unverified:"❔"};
+  html+='<h2>Этапы (факт из Relay)</h2>'+(t.lifecycle||[]).map(r=>'<div class="line">'+esc(icons[r.state]||"•")+' '+esc(r.stage)+
+    (r.state==="unverified"?' — не проверено':'')+(r.at?' · '+esc(String(r.at).slice(0,19).replace("T"," "))+' UTC':'')+
+    (r.detail?' · '+esc(String(r.detail).slice(0,120)):'')+'</div>').join("");
   html+='<h2>Хронология ('+history.length+')</h2>';
   html+=history.map(ev=>'<div class="event"><time>'+esc(ev.at||"")+'</time><strong>'+esc(ev.action||"")+' · '+esc(ev.actor||"")+'</strong>'+
     '<p>'+esc(ev.note||"")+'</p>'+

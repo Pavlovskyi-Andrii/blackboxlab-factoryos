@@ -41,7 +41,35 @@ def claude_version() -> str:
     return (result.stdout or result.stderr).strip().splitlines()[0][:120]
 
 
+def _pid_alive(pid) -> bool:
+    try:
+        os.kill(int(pid), 0)
+    except (OSError, ValueError, TypeError):
+        return False
+    return True
+
+
+def run_snapshot() -> dict:
+    """Parent-owned live run record written by autopilot.delegation."""
+    try:
+        value = json.loads((REPO / ".autopilot" / "run.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    if value.get("state") == "running" and not _pid_alive(value.get("pid")):
+        # The parent died mid-run: report it, never a ghost "running".
+        value = {**value, "state": "stale"}
+    return value
+
+
 def task_snapshot() -> tuple[str, str, str]:
+    run = run_snapshot()
+    if run.get("state") in ("running", "stale"):
+        detail = f"Claude CLI run {run.get('run_id') or '?'} started {run.get('started_at') or '?'}"
+        if run["state"] == "stale":
+            detail = "Autopilot parent process is gone; " + detail
+        return str(run.get("task") or ""), str(run["state"]), detail[:500]
     path = REPO / ".autopilot" / "status.json"
     if not path.exists():
         return "", "idle", ""
@@ -62,7 +90,10 @@ def heartbeat(version: str, *, state: str = "") -> None:
     if not WORKER_TOKEN:
         return
     task_id, task_state, detail = task_snapshot()
+    run = run_snapshot()
     payload = {
+        "run_id": str(run.get("run_id") or "") if run.get("task") == task_id else "",
+        "run_started_at": str(run.get("started_at") or "") if run.get("task") == task_id else "",
         "node_id": os.environ.get("FACTORY_CLAUDE_NODE_ID", socket.gethostname() or "claude-pro-runner"),
         "hostname": socket.gethostname(),
         "platform": sys.platform,

@@ -13,6 +13,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import subprocess
 import time
 from typing import Any, Callable
@@ -199,6 +200,31 @@ def verify_evidence(spec: dict[str, Any], evidence: dict[str, Any]) -> list[str]
     return violations
 
 
+def run_state_path(repo: pathlib.Path) -> pathlib.Path:
+    return pathlib.Path(repo) / ".autopilot" / "run.json"
+
+
+def write_run_state(repo: pathlib.Path, payload: dict[str, Any]) -> None:
+    """Parent-owned, atomically replaced run record (never model-authored)."""
+    path = run_state_path(repo)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def read_run_state(repo: pathlib.Path) -> dict[str, Any]:
+    try:
+        value = json.loads(run_state_path(repo).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _iso(stamp: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stamp))
+
+
 def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run) -> dict[str, Any]:
     """Execute a delegation spec and return captured, verified evidence."""
     repo = pathlib.Path(spec["repo"])
@@ -207,6 +233,20 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run) -> 
     status_path.unlink(missing_ok=True)
     before = git_snapshot(repo)
     started = time.time()
+    run_id = "run-" + time.strftime("%Y%m%d%H%M%S", time.gmtime(started)) + "-" + secrets.token_hex(3)
+    run_state = {
+        "run_id": run_id,
+        "task": spec["task_id"],
+        "state": "running",
+        "branch": spec["branch"],
+        "head_before": before["head"],
+        "started_at": _iso(started),
+        "pid": os.getpid(),
+        "source": "parent",
+    }
+    # status.json is removed so the agent must write a fresh one; run.json keeps
+    # the live task/run visible to the heartbeat while the CLI is working.
+    write_run_state(repo, run_state)
     exit_code: int | None = None
     output = ""
     timed_out = False
@@ -225,6 +265,9 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run) -> 
     except subprocess.TimeoutExpired as exc:
         timed_out = True
         output = _tail(exc.stdout) + _tail(exc.stderr)
+    except OSError as exc:
+        # e.g. claude CLI missing: a failed run, never a ghost "running" record.
+        output = f"Claude CLI could not start: {type(exc).__name__}"
     after = git_snapshot(repo)
     commits = []
     if before["head"] and after["head"] and before["head"] != after["head"]:
@@ -258,6 +301,16 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run) -> 
         reported = "failed"
     evidence["violations"] = violations
     evidence["result"] = "failed" if violations else reported
+    evidence["run_id"] = run_id
+    write_run_state(repo, {
+        **run_state,
+        "state": evidence["result"],
+        "finished_at": _iso(time.time()),
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "commit": commits[0]["sha"] if len(commits) == 1 else "",
+        "violations": len(violations),
+    })
     return evidence
 
 

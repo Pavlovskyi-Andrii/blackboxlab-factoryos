@@ -2432,6 +2432,8 @@ class ClaudeWorkerHeartbeat(BaseModel):
     status: str = "idle"
     task_id: str = ""
     last_error: str = ""
+    run_id: str = ""
+    run_started_at: str = ""
 
 class OperatorWorkerHeartbeat(BaseModel):
     operator_id: str
