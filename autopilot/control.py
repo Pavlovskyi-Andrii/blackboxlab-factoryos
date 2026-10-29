@@ -5,6 +5,8 @@ task. This module never touches git, deploys or publishing: it reads the pause l
 pending commands from FactoryOS and tells the autopilot loop which in-memory hold to
 clear. Everything else (branch checks, push rules, HUMAN gates) stays in the loop.
 """
+from __future__ import annotations
+
 import os
 from typing import Any, Callable
 
