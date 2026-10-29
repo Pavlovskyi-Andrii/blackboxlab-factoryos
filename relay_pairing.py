@@ -1,8 +1,10 @@
-"""Owner-initiated Relay worker pairing: never store the shared token in plaintext.
+"""Owner-initiated Relay worker credential rotation; never store plaintext secrets.
 
-The HTTPS owner endpoint returns a one-time token only in the response that
-created it. The persistent file contains its SHA-256 digest, not the token.
-No new cloud resource, external API, email or log is involved.
+The owner-only HTTPS endpoint displays each newly generated bearer token only in
+its creation response. That token remains valid for worker polling until rotated;
+it is NOT a single-use or short-lived bootstrap token. Generating a new token
+revokes the previously paired token. The persistent file contains only a
+SHA-256 digest. No new cloud resource, API billing, email or log is involved.
 """
 from __future__ import annotations
 
