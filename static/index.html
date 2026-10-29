@@ -691,22 +691,43 @@
   <div class="drawerBody" id="agentDrawerBody"></div>
 </aside>
 <div class="modal" id="claudeSetupModal"><div class="dialog">
-  <h2 data-i18n="claude.setupTitle">Connect Claude Code Pro</h2>
-  <p data-i18n="claude.setupSub">Claude Code runs on a trusted runner logged into your Pro subscription. FactoryOS only gives it bounded Builder tasks.</p>
-  <div class="claudeSetupSteps">
-    <div class="claudeStep"><b>1 · <span data-i18n="claude.installLabel">Install Claude Code on the runner</span></b><code class="claudeCode">irm https://claude.ai/install.ps1 | iex</code></div>
-    <div class="claudeStep"><b>2 · <span data-i18n="claude.loginLabel">Log in with your subscription</span></b><code class="claudeCode">claude</code><span data-i18n="claude.loginHint">Then use /login → Claude account with subscription. Verify with /status. Keep ANTHROPIC_API_KEY unset.</span></div>
-    <div class="claudeStep"><b>3 · <span data-i18n="claude.workerLabel">Pair the runner with FactoryOS</span></b><span data-i18n="claude.workerHint">Copy the FactoryOS worker token below. The token authenticates your runner to FactoryOS; it is not an Anthropic API key.</span></div>
-    <div class="claudeStep"><b>4 · <span data-i18n="claude.termuxLabel">Android / Termux (recommended)</span></b><code class="claudeCode">export FACTORY_CLAUDE_WORKER_TOKEN="PASTE_COPIED_TOKEN"
-export AUTOPILOT_REPO="$HOME/factoryos"
-cd "$AUTOPILOT_REPO"
-bash autopilot/install_termux_boot.sh</code><span data-i18n="claude.termuxHint">Install and open Termux:Boot once, then paste the bootstrap. It installs restart supervision and boot startup.</span></div>
-    <div class="claudeStep"><b>5 · <span data-i18n="claude.runLabel">Windows / VPS fallback</span></b><code class="claudeCode">$env:FACTORYOS_URL="https://blackboxlab-factoryos.onrender.com"
-$env:FACTORY_CLAUDE_WORKER_TOKEN="PASTE_COPIED_TOKEN"
-$env:AUTOPILOT_REPO="C:\path\to\blackboxlab-factoryos"
-python -m autopilot.claude_pro_worker</code><span data-i18n="claude.runHint">Run this from a dedicated non-main branch. Once the heartbeat arrives, this card changes to Connected.</span></div>
+  <h2 data-i18n="worker.setupTitle">Add task executor</h2>
+  <p data-i18n="worker.setupIntro">An AI account is not an executor. Choose where tasks run, select a supported runtime, pair the device and verify its heartbeat.</p>
+  <div class="claudeStep">
+    <label for="workerHostChoice" data-i18n="worker.hostLabel">Where will the executor run?</label>
+    <select id="workerHostChoice" onchange="workerHostChanged()">
+      <option value="remote" data-i18n="worker.hostRemote">Existing server / AWS EC2 / VPS</option>
+      <option value="local" data-i18n="worker.hostLocal">My computer / Termux</option>
+      <option value="built_in" disabled data-i18n="worker.hostBuiltin">FactoryOS built-in (coming later)</option>
+      <option value="managed" disabled data-i18n="worker.hostManaged">Managed cloud (coming later; may cost extra)</option>
+    </select>
+    <label for="workerRuntimeChoice" data-i18n="worker.runtimeLabel">Which agent will execute tasks?</label>
+    <select id="workerRuntimeChoice">
+      <option value="claude-code" data-i18n="worker.runtimeClaude">Claude Code · supported</option>
+      <option value="openai-agent" disabled data-i18n="worker.runtimeOpenAI">ChatGPT agent · integration planned</option>
+      <option value="gemini-agent" disabled data-i18n="worker.runtimeGemini">Gemini agent · integration planned</option>
+    </select>
+    <p class="tiny" data-i18n="worker.billing">A Claude subscription does not create a worker or supply generic API credits. No new paid infrastructure will be provisioned.</p>
   </div>
-  <div class="dialogActions"><button class="btn primary" onclick="copyClaudeTermuxBootstrap()">⧉ <span data-i18n="claude.copyTermux">Copy Termux bootstrap</span></button> <button class="btn" onclick="copyClaudeWorkerToken()">⧉ <span data-i18n="claude.copyToken">Copy worker token</span></button> <button class="btn" onclick="closeClaudeCodeSetup()" data-i18n="action.close">Close</button></div>
+  <div class="claudeStep" id="workerSetupKnownStatus" aria-live="polite"></div>
+  <div id="workerRemoteGuide">
+    <div class="claudeStep"><b data-i18n="worker.remoteStep1">1 · Existing server: install and log into Claude Code using the subscription.</b><code class="claudeCode">claude auth status</code></div>
+    <div class="claudeStep"><b data-i18n="worker.remoteStep2">2 · Copy a new pairing token using the button below. Do not paste it into the chat.</b></div>
+    <div class="claudeStep"><b data-i18n="worker.remoteStep3">3 · On the existing EC2, run the secure interactive pairing command:</b><code class="claudeCode">cd /opt/factoryos
+sudo python3 -m autopilot.pair_worker</code></div>
+    <div class="claudeStep"><b data-i18n="worker.remoteStep4">4 · Paste the token into the hidden terminal prompt, then check worker status here. Verify a real test task before relying on the worker.</b></div>
+  </div>
+  <div id="workerLocalGuide" hidden>
+    <div class="claudeStep"><b data-i18n="worker.localStep1">1 · Install Claude Code locally and log in with a supported subscription.</b><code class="claudeCode">claude auth status</code></div>
+    <div class="claudeStep"><b data-i18n="worker.localStep2">2 · On a trusted Termux device, copy the legacy bootstrap. No paid API billing is enabled automatically.</b><code class="claudeCode">cd "$HOME/factoryos"
+bash autopilot/install_termux_boot.sh</code></div>
+  </div>
+  <div class="dialogActions">
+    <button class="btn primary" id="workerCopyPairBtn" onclick="copyClaudePairingToken()" data-i18n="worker.copyPair">Copy EC2 pairing token</button>
+    <button class="btn primary" id="workerCopyLocalBtn" onclick="copyClaudeTermuxBootstrap()" data-i18n="claude.copyTermux" hidden>Copy Termux bootstrap</button>
+    <button class="btn" onclick="refreshWorkerSetupStatus()" data-i18n="worker.refresh">Refresh status</button>
+    <button class="btn" onclick="closeClaudeCodeSetup()" data-i18n="action.close">Close</button>
+  </div>
 </div></div>
 <div class="toast" id="toast"></div>
 
@@ -1513,6 +1534,9 @@ const I18N={
   "action.close":"Закрыть","jobs.restart":"Перезапустить фабрику","common.checking":"Проверка…","common.agent":"Агент","drawer.loadingHistory":"Загрузка истории…","error.loadTeam":"Не удалось загрузить команду","error.loadOutputs":"Не удалось загрузить результаты задачи","error.loadHistory":"Не удалось загрузить историю агента","toast.viewerCopied":"Ссылка для просмотра скопирована","toast.mcpRequired":"Нужны название и endpoint MCP","toast.mcpAdded":"Конфигурация MCP добавлена","toast.mcpAddFailed":"Не удалось добавить MCP: {error}","toast.mcpEnabled":"MCP включён","toast.mcpDisabled":"MCP отключён","toast.mcpUpdateFailed":"Не удалось обновить MCP","toast.mcpRemoved":"MCP удалён","toast.mcpRemoveFailed":"Не удалось удалить MCP","toast.memoryEmpty":"Сначала напишите запись памяти","toast.memorySaved":"Память сохранена","toast.memorySaveFailed":"Не удалось сохранить память","toast.memoryArchived":"Память архивирована","toast.memoryArchiveFailed":"Не удалось архивировать память","toast.improvementDismissed":"Улучшение отклонено","toast.addTitle":"Добавьте название","toast.jobCreated":"Задача создана","toast.publishedConfirmed":"Публикация подтверждена","toast.metricRequired":"Добавьте хотя бы одну реальную метрику","toast.metricsSynced":"Метрики синхронизированы","toast.invalidJson":"Невалидный JSON","toast.proposalCreated":"Предложение создано","toast.armAssigned":"Выбранная задача назначена в {arm}","toast.experimentEvaluated":"Эксперимент оценён: {result}","toast.noDecision":"без решения","toast.rolledOut":"Вариант развёрнут","toast.rolledBack":"Процесс откачен","toast.experimentRejected":"Эксперимент отклонён","finisher.humanApproval":"Одобрение человеком","finisher.publishing":"Публикация","finisher.cutsCaptions":"Нарезка / субтитры / графика","finisher.shortClips":"Короткие клипы","publishing.snapshot":"Одобренный снимок публикации","publishing.approvedMedia":"Одобренное медиа","experiment.hypothesis":"Гипотеза","experiment.measured":"Измеренное сравнение","experiment.assigned":"назначено: {n}","variant.partialReruns":"частичных перезапусков: {n}","dialog.platformTarget":"Целевая платформа","dialog.postId":"Настоящий ID публикации на платформе","dialog.postUrl":"URL публикации (необязательно)","dialog.views":"Просмотры (пусто = недоступно)","dialog.retention":"Удержание % (пусто = недоступно)","dialog.likes":"Лайки (пусто = недоступно)","dialog.proposalTitle":"Название предложения","dialog.proposalWhy":"Почему FactoryOS стоит протестировать это изменение?","dialog.hypothesisDefault":"Это изменение процесса должно улучшить реальный измеренный результат, не ослабляя безопасность.","dialog.changeJson":"JSON изменения процесса. Разрешено: candidate_count, prompt_addenda, model, hook_pattern, routing_notes","dialog.rolloutConfirm":"Активировать измеренный вариант для НОВЫХ производственных задач? Существующие задачи останутся на своей версии процесса.","dialog.rollbackConfirm":"Откатить активный вариант к процессу до развёртывания?","dialog.rejectReason":"Причина отклонения","dialog.rejectDefault":"Недостаточная ценность / оставить контроль","drawer.allowedTools":"Разрешённые инструменты (через запятую)","drawer.discoverTools":"Найти инструменты","drawer.toolsFound":"Доступные инструменты","category.analytics":"Аналитика","category.automation":"Автоматизация","category.connectors":"Коннекторы","category.design":"Дизайн","category.generation":"Генерация","category.infrastructure":"Инфраструктура","category.intelligence":"Интеллект","category.observability":"Наблюдаемость","category.product":"Продукт","category.quality":"Качество","category.supervision":"Контроль","category.workflow":"Процесс","design.addRoadmap":"Добавить ревью в roadmap","design.copyBrief":"Копировать бриф","design.needsToken":"нужен MCP token","design.note":"Бесплатный режим: Claude подключается к FactoryOS как remote MCP client; платный Claude API не нужен.","design.openClaude":"Открыть Claude","design.openPartner":"Открыть дизайн-пространство","design.paste":"Вставьте сюда дизайн-ревью Claude…","design.promptCopied":"Дизайн-бриф скопирован","design.ready":"MCP готов","design.sub":"Claude-помощник для UI/UX ревью FactoryOS","design.title":"Дизайн-партнёр","owner.builder":"Factory Builder","owner.designPartner":"Дизайн-партнёр"
  }
 };
+Object.assign(I18N.en,{"connections.providerConfigured":"Configured · not verified","connections.providerPlanned":"Coming later","connections.videoUnverified":"API credentials configured; video access unverified","connections.workerOnline":"Online · heartbeat received","connections.workerOffline":"Offline · heartbeat not received","connections.workerDetails":"Worker details","worker.setupTitle":"Add task executor","worker.setupIntro":"AI accounts and executors are different. Choose a device, select a runtime, pair it and verify a real task.","worker.hostLabel":"Where will the executor run?","worker.hostRemote":"Existing server / AWS EC2 / VPS","worker.hostLocal":"My computer / Termux","worker.hostBuiltin":"FactoryOS built-in (planned)","worker.hostManaged":"Managed cloud (planned; may cost extra)","worker.runtimeLabel":"Which runtime will execute tasks?","worker.runtimeClaude":"Claude Code · supported","worker.runtimeOpenAI":"ChatGPT agent · planned","worker.runtimeGemini":"Gemini agent · planned","worker.billing":"A subscription does not create a worker or provide generic API credits. No new paid infrastructure will be provisioned.","worker.remoteStep1":"1 · On the existing server, log in to Claude Code with a supported subscription.","worker.remoteStep2":"2 · Copy a new EC2 pairing token below. Keep it private.","worker.remoteStep3":"3 · On the existing EC2, run the secure interactive pairing command:","worker.remoteStep4":"4 · Paste the token into the hidden prompt. Verify the heartbeat and run a test task.","worker.localStep1":"1 · Install Claude Code locally and log in to your subscription.","worker.localStep2":"2 · For a trusted Termux device, use the existing bootstrap.","worker.copyPair":"Copy EC2 pairing token","worker.refresh":"Refresh status","worker.activeTask":"Task {id}","worker.noTask":"No active task","worker.pairFailed":"Pairing token could not be created","worker.pairCopied":"EC2 pairing token copied. Paste it only into the hidden prompt on the trusted server."});
+Object.assign(I18N.uk,{"connections.providerConfigured":"Налаштовано · не перевірено","connections.providerPlanned":"Пізніше","connections.videoUnverified":"API-доступ налаштовано, генерацію відео не перевірено","connections.workerOnline":"Онлайн · heartbeat отримано","connections.workerOffline":"Офлайн · немає heartbeat","connections.workerDetails":"Деталі виконавця","worker.setupTitle":"Додати виконавця завдань","worker.setupIntro":"AI-акаунт і виконавець — різні речі. Оберіть пристрій, середовище запуску, підключіть його й перевірте завдання.","worker.hostLabel":"Де працюватиме виконавець?","worker.hostRemote":"Наявний сервер / AWS EC2 / VPS","worker.hostLocal":"Мій комп’ютер / Termux","worker.hostBuiltin":"У FactoryOS (планується)","worker.hostManaged":"Керована хмара (планується; можливі витрати)","worker.runtimeLabel":"Що виконуватиме завдання?","worker.runtimeClaude":"Claude Code · підтримується","worker.runtimeOpenAI":"ChatGPT-агент · планується","worker.runtimeGemini":"Gemini-агент · планується","worker.billing":"Підписка не створює виконавця й не надає загальних API-кредитів. Нові платні ресурси не запускаються.","worker.remoteStep1":"1 · На наявному сервері авторизуйте Claude Code через підтримувану підписку.","worker.remoteStep2":"2 · Скопіюйте новий токен підключення EC2. Не розкривайте його.","worker.remoteStep3":"3 · На наявному EC2 виконайте безпечну інтерактивну команду:","worker.remoteStep4":"4 · Вставте токен у приховане поле термінала. Перевірте heartbeat і тестове завдання.","worker.localStep1":"1 · Встановіть Claude Code локально й увійдіть у підписку.","worker.localStep2":"2 · Для довіреного пристрою Termux скористайтеся наявним встановлювачем.","worker.copyPair":"Скопіювати токен EC2","worker.refresh":"Оновити статус","worker.activeTask":"Завдання {id}","worker.noTask":"Немає активного завдання","worker.pairFailed":"Не вдалося створити токен підключення","worker.pairCopied":"Токен EC2 скопійовано. Вставте його лише в прихований запит на довіреному сервері."});
+Object.assign(I18N.ru,{"connections.providerConfigured":"Настроено · не проверено","connections.providerPlanned":"Позже","connections.videoUnverified":"API-доступ настроен, генерация видео не проверена","connections.workerOnline":"Онлайн · heartbeat получен","connections.workerOffline":"Офлайн · нет heartbeat","connections.workerDetails":"Детали исполнителя","worker.setupTitle":"Добавить исполнителя задач","worker.setupIntro":"AI-аккаунт и исполнитель — разные вещи. Выберите устройство, среду запуска, подключите её и проверьте задачу.","worker.hostLabel":"Где будет работать исполнитель?","worker.hostRemote":"Существующий сервер / AWS EC2 / VPS","worker.hostLocal":"Мой компьютер / Termux","worker.hostBuiltin":"Внутри FactoryOS (планируется)","worker.hostManaged":"Облачный хостинг (планируется; возможны расходы)","worker.runtimeLabel":"Кто будет выполнять задачи?","worker.runtimeClaude":"Claude Code · поддерживается","worker.runtimeOpenAI":"ChatGPT-агент · планируется","worker.runtimeGemini":"Gemini-агент · планируется","worker.billing":"Подписка не создаёт воркера и не даёт универсальные API-кредиты. Новые платные ресурсы не запускаются.","worker.remoteStep1":"1 · На существующем сервере авторизуйте Claude Code через поддерживаемую подписку.","worker.remoteStep2":"2 · Скопируйте новый токен привязки EC2. Не разглашайте его.","worker.remoteStep3":"3 · На существующем EC2 выполните безопасную интерактивную команду:","worker.remoteStep4":"4 · Вставьте токен в скрытый запрос терминала. Проверьте heartbeat и тестовую задачу.","worker.localStep1":"1 · Установите Claude Code локально и войдите в подписку.","worker.localStep2":"2 · Для доверенного Termux-устройства используйте существующий установщик.","worker.copyPair":"Скопировать токен EC2","worker.refresh":"Обновить статус","worker.activeTask":"Задача {id}","worker.noTask":"Нет активной задачи","worker.pairFailed":"Не удалось создать токен привязки","worker.pairCopied":"Токен EC2 скопирован. Вставляйте его только в скрытый запрос на доверенном сервере."});
 const TASK_COPY={
  en:{
   "foundation-cloud":["Cloud deployment on Render","Run FactoryOS as a persistent online service with private authentication, durable state, health checks and CI-gated deployment so the control room is available without a local PC."],
@@ -2011,20 +2035,40 @@ function connectionAction(k,v){
 }
 function connections(){
  const groups=[['group.publishing',['Metricool','YouTube','Instagram','TikTok']],['group.crm',['HubSpot']],['group.intelligence',['LLM']],['group.generation',['Voice','Video']],['group.automation',['Telegram']]];
+ const con=S.connections||{}, catalog=(con['AI Providers']||{}).providers||[], workers=(con.Workers||{}).items||[];
  let h='';
  groups.forEach(([g,arr])=>{
-  h+='<div class="group">'+tr(g)+'</div>';
+  h+='<div class="group">'+esc(tr(g))+'</div>';
   if(g==='group.intelligence'){
-   const providers=[['ChatGPT / OpenAI','openai'],['Claude','anthropic'],['Gemini','google'],['Copilot','microsoft'],['DeepSeek','deepseek'],['Grok','xai']];
    h+='<p class="tiny">'+esc(tr('connections.aiExplanation'))+'</p>';
-   providers.forEach(([name,id])=>{h+='<div class="conn"><div class="svc llm">✦</div><div><b>'+esc(name)+'</b><small>'+esc(tr('connections.providerCatalog'))+'</small></div><span class="status not_configured">'+esc(tr('connections.providerUnverified'))+'</span></div>'});
+   catalog.forEach(p=>{
+    const configured=p.status==='configured_unverified',planned=p.availability==='planned';
+    const detail=configured?(p.model||tr('connections.providerConfigured')):planned?tr('connections.providerPlanned'):tr('connections.providerCatalog');
+    const label=configured?tr('connections.providerConfigured'):planned?tr('connections.providerPlanned'):tr('connections.providerUnverified');
+    h+='<div class="conn"><div class="svc llm">✦</div><div><b>'+esc(p.name)+'</b><small>'+esc(detail)+'</small></div><span class="status '+(configured?'paused':'not_configured')+'">'+esc(label)+'</span></div>';
+   });
   }
-  arr.forEach(k=>{const v=S.connections[k];if(!v)return;h+='<div class="conn"><div class="svc '+k.toLowerCase().replace(/[^a-z0-9]+/g,'')+'">'+serviceIcon(k)+'</div><div><b>'+esc(k)+'</b><small>'+esc(v.detail)+'</small></div>'+connectionAction(k,v)+'</div>'});
+  arr.forEach(k=>{
+   const v=con[k];if(!v)return;
+   let detail=v.detail,action=connectionAction(k,v);
+   if(k==='Video' && v.access_verified!==true && v.credential_configured){
+    detail=(v.provider==='google'?'Google Gemini Omni · ':'')+(v.model||'')+' · '+tr('connections.videoUnverified');
+    action='<span class="status paused">'+esc(tr('connections.providerConfigured'))+'</span>';
+   }
+   h+='<div class="conn"><div class="svc '+k.toLowerCase().replace(/[^a-z0-9]+/g,'')+'">'+serviceIcon(k)+'</div><div><b>'+esc(k)+'</b><small>'+esc(detail)+'</small></div>'+action+'</div>';
+  });
   if(g==='group.generation')h+='<p class="tiny">'+esc(tr('connections.videoExplanation'))+'</p>';
   if(g==='group.automation'){
-   const v=S.connections['Claude Code Pro']||{};
    h+='<div class="group">'+esc(tr('connections.workers'))+'</div><p class="tiny">'+esc(tr('connections.workerExplanation'))+'</p>';
-   h+='<div class="conn"><div class="svc claudecodepro">⚙</div><div><b>Claude Code Worker</b><small>'+esc(v.detail||tr('connections.workerHost'))+'</small></div>'+connectionAction('Claude Code Pro',v)+'</div>';
+   if(workers.length){
+    workers.forEach(w=>{
+     const online=w.online===true;
+     let note=online?tr('connections.workerOnline'):tr('connections.workerOffline');
+     if(online&&w.active_task_id)note+=' · '+w.active_task_id;
+     if(w.auth_mode)note+=' · '+w.auth_mode;
+     h+='<div class="conn"><div class="svc claudecodepro">⚙</div><div><b>'+esc(w.name||'Claude Code Worker')+'</b><small>'+esc(note)+'</small></div><button class="connAction" onclick="openClaudeCodeSetup()">'+esc(online?tr('connections.workerDetails'):tr('connections.addWorker'))+'</button></div>';
+    });
+   }else h+='<div class="tiny">'+esc(tr('connections.workerOffline'))+'</div>';
    h+='<button class="connAction" onclick="openClaudeCodeSetup()">'+esc(tr('connections.addWorker'))+'</button>';
   }
  });
@@ -2321,7 +2365,31 @@ async function startTelegramPairingFromConnections(){
  if(t.deep_link)window.open(t.deep_link,'_blank','noopener');
  else if(telegramPairCommand)toast(telegramPairCommand);
 }
-function openClaudeCodeSetup(){const el=$('#claudeSetupModal');if(el)el.classList.add('open')}
+function openClaudeCodeSetup(){const el=$('#claudeSetupModal');if(el)el.classList.add('open');workerHostChanged();updateWorkerSetupStatus()}
+function workerHostChanged(){
+ const remote=($('#workerHostChoice')||{}).value!=='local';
+ const r=$('#workerRemoteGuide'),l=$('#workerLocalGuide'),pr=$('#workerCopyPairBtn'),pl=$('#workerCopyLocalBtn');
+ if(r)r.hidden=!remote;if(l)l.hidden=remote;if(pr)pr.hidden=!remote;if(pl)pl.hidden=remote;
+}
+function updateWorkerSetupStatus(){
+ const root=$('#workerSetupKnownStatus');if(!root)return;
+ const worker=(((S||{}).connections||{}).Workers||{}).items?.[0]||{};
+ const online=worker.online===true;
+ const title=online?tr('connections.workerOnline'):tr('connections.workerOffline');
+ const detail=online&&worker.active_task_id?tr('worker.activeTask',{id:worker.active_task_id}):tr('worker.noTask');
+ root.textContent=title+' · '+detail;
+}
+async function refreshWorkerSetupStatus(){
+ try{await refresh();updateWorkerSetupStatus()}catch(e){toast(e.message)}
+}
+async function copyClaudePairingToken(){
+ try{
+  const r=await api('/api/factory/claude-code/pair-token',{method:'POST'});
+  if(!r.token)throw Error(tr('worker.pairFailed'));
+  await navigator.clipboard.writeText(r.token);
+  toast(tr('worker.pairCopied'));
+ }catch(e){toast(e.message)}
+}
 function closeClaudeCodeSetup(){const el=$('#claudeSetupModal');if(el)el.classList.remove('open')}
 async function copyClaudeWorkerToken(){
  try{const r=await api('/api/factory/claude-code/worker-token');await navigator.clipboard.writeText(r.token||'');toast(tr('claude.tokenCopied'))}catch(e){toast(e.message)}
