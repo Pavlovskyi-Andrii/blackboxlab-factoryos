@@ -49,7 +49,70 @@ def main():
 
     no_human = write_roadmap("# Roadmap\n\n## v5\n- [x] T-001 Finished\n")
     assert ap.idle_notice(no_human).startswith("🏁")
+    dependency_and_owner_regression()
     print("Autopilot roadmap advancement tests passed")
+
+
+def dependency_and_owner_regression():
+    # T-537: unmet Depends are skipped, unrelated safe work advances, completion unlocks, HUMAN never runs.
+    path = write_roadmap(
+        """# Roadmap
+
+## v5
+- [ ] T-010 Foundation
+  Owner: ChatGPT
+- [ ] T-011 Needs foundation
+  Depends: T-010
+- [ ] [HUMAN] T-012 Owner credential
+- [ ] T-013 Needs human task
+  Depends: T-012
+- [ ] T-014 Needs unknown task
+  Depends: T-999, not-a-task
+- [ ] T-015 Unrelated safe task
+  Owner: any
+- [ ] T-016 Claude lane task
+  Owner: claude
+"""
+    )
+    tasks = ap.parse_roadmap(path)
+    by_id = {x["id"]: x for x in tasks}
+    assert by_id["T-011"]["depends"] == ["T-010"]
+    assert by_id["T-014"]["depends"] == ["T-999"]
+    assert by_id["T-010"]["owner"] == "chatgpt"
+    # ChatGPT-owned work is never taken by the Claude runner; dependents wait for it.
+    assert ap.next_safe_task(path, "claude")["id"] == "T-015"
+    assert ap.next_safe_task(path, "chatgpt")["id"] == "T-010"
+    assert ap.unmet_dependencies(by_id["T-014"], tasks) == ["T-999"]
+
+    text = path.read_text(encoding="utf-8").replace("- [ ] T-015", "- [x] T-015")
+    path.write_text(text, encoding="utf-8")
+    assert ap.next_safe_task(path, "claude")["id"] == "T-016"
+
+    text = text.replace("- [ ] T-016", "- [x] T-016")
+    path.write_text(text, encoding="utf-8")
+    assert ap.next_safe_task(path, "claude") is None
+    assert "T-011" in ap.idle_notice(path)
+
+    # Completed dependency unlocks the dependent task.
+    text = text.replace("- [ ] T-010", "- [x] T-010")
+    path.write_text(text, encoding="utf-8")
+    assert ap.next_safe_task(path, "claude")["id"] == "T-011"
+
+    # A HUMAN task is never selectable, even when it is the only open dependency path.
+    text = text.replace("- [ ] T-011", "- [x] T-011")
+    path.write_text(text, encoding="utf-8")
+    assert ap.next_safe_task(path, "claude") is None
+    for operator in ("claude", "chatgpt", "gemini"):
+        selected = ap.next_safe_task(path, operator)
+        assert selected is None or not selected["human"]
+    text = text.replace("- [ ] [HUMAN] T-012", "- [x] [HUMAN] T-012")
+    path.write_text(text, encoding="utf-8")
+    assert ap.next_safe_task(path, "claude")["id"] == "T-013"
+    text = text.replace("- [ ] T-013", "- [x] T-013")
+    path.write_text(text, encoding="utf-8")
+    assert ap.next_safe_task(path, "claude") is None  # T-014 waits forever on unknown T-999
+    assert "T-014" in ap.idle_notice(path)
+    print("Autopilot dependency/owner scheduler tests passed")
 
 
 if __name__ == "__main__":
