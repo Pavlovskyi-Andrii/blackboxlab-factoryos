@@ -10220,7 +10220,7 @@ async def call_agent_mcp_tool(agent_name:str,connection_id:str,item:McpToolCall)
         raise HTTPException(502,str(exc))
 
 _ROADMAP_META_KEYS={"planner":"planner","parent":"parent","depends":"depends","goal":"goal","done":"done_criteria",
-                    "need":"need","progress":"progress"}
+                    "need":"need","progress":"progress","owner":"owner"}
 _ROADMAP_TEXT_KEYS=("goal","done_criteria","need","progress")
 
 def _parse_roadmap_tasks(text=None):
@@ -10240,10 +10240,11 @@ def _parse_roadmap_tasks(text=None):
                 if not (tasks and line and raw[:1].isspace()):
                     last_key=""
                     continue
-                meta=re.match(r"(Planner|Parent|Depends|Goal|DONE|Need|Progress):\s*(.*)",line)
+                meta=re.match(r"(Planner|Parent|Depends|Goal|DONE|Need|Progress|Owner):\s*(.*)",line)
                 if meta:
                     key,value=_ROADMAP_META_KEYS[meta.group(1).lower()],meta.group(2).strip()
                     if key=="depends":tasks[-1]["depends"]=[x.strip() for x in value.split(",") if re.match(r"^T-[A-Za-z0-9-]+$",x.strip())]
+                    elif key=="owner":tasks[-1]["owner"]=(value.split()[0].lower() if value else "")
                     else:tasks[-1][key]=value
                     last_key=key
                 elif last_key in _ROADMAP_TEXT_KEYS:
@@ -10263,6 +10264,7 @@ def _parse_roadmap_tasks(text=None):
                 "done_criteria":"",
                 "need":"",
                 "progress":"",
+                "owner":"",
                 "roadmap_line":line_no,
             })
     for task in tasks:

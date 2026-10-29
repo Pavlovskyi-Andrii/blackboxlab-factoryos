@@ -215,3 +215,14 @@ Autonomous workers record reversible engineering decisions here so the owner can
   **Reason:** a live Gemini probe would be a provider call; unknown must stay unknown.
 
 - **Decision:** tests in `test_role_operator.py`, wired into CI. The local venv used Python 3.12 (the code needs 3.10+ syntax; system `python` is absent).
+
+## 2026-10-29 — T-537 Dependency-aware scheduler + Owner lanes
+
+- **Decision:** the Claude worker (`autopilot/autopilot.py`) now honors `Depends:`. A dependency is met only when that task exists in ROADMAP and is checked; unknown IDs stay unmet (fail-closed). HUMAN tasks are still never selectable.
+  **Reason:** before this, the worker ignored `Depends:` and would have started T-560-B although T-550-gated work and ChatGPT's in-flight branches were not finished.
+
+- **Decision:** new optional `Owner:` metadata (`chatgpt`, `claude`, `gemini`, `any`). The runner identity is `AUTOPILOT_OPERATOR` (default `claude`). Missing/`any`/`auto` Owner keeps the old behavior: any runner may take it. The app-side parser exposes `owner` on roadmap tasks for the delegation board.
+  **Reason:** ChatGPT (planner) also implements tasks in `chatgpt/*` branches, while the Claude worker picked the same first-unchecked task. T-560-B, T-560-C, T-562 and T-564 already had ChatGPT commits on main but were still open, so the Claude worker would have duplicated them. Those four are now tagged `Owner: ChatGPT` instead of being force-checked, because their DONE criteria include on-host/vault work that is not yet verified.
+
+- **Decision:** when `AUTOPILOT_REPO` is unset and `/work/factoryos` does not exist, the worker uses its own checkout instead of an empty path.
+  **Reason:** on EC2/phone runs the default container path silently produced an empty roadmap (0 tasks) and the worker went idle.
