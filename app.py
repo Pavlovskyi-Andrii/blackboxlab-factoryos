@@ -27,6 +27,7 @@ from google.oauth2 import id_token as google_id_token
 from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot
 from relay_execution import RelayQueue
 from relay_pairing import create_pairing, valid_pairing, pairing_status
+from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -1170,6 +1171,11 @@ def get_connection_registry():
         "bot_username":tg.get("bot_username") or "","username":tg.get("username") or "",
     }
     cw=get_claude_code_status()
+    registry["AI Providers"]={
+        "providers":ai_provider_catalog(FACTORY_LLM_MODEL,FACTORY_LLM_BASE_URL,bool(FACTORY_LLM_API_KEY)),
+        "secrets_exposed":False,
+    }
+    registry["Workers"]={"items":worker_projection(cw),"secrets_exposed":False}
     registry["Claude Code Pro"]={
         "state":"connected" if cw.get("online") else "not_configured",
         "detail":(
@@ -1182,23 +1188,24 @@ def get_connection_registry():
     }
     video_provider=_video_adapter_name()
     video_ready=_video_provider_configured(video_provider)
+    video_cap=video_projection(video_provider,FACTORY_GEMINI_VIDEO_MODEL,video_ready)
     if _is_gemini_video_provider(video_provider):
         registry["Video"]={
-            "state":"connected" if video_ready else "not_configured",
+            "state":"configured" if video_ready else "not_configured",
             "detail":(
-                f"Gemini Omni · {FACTORY_GEMINI_VIDEO_MODEL} · {FACTORY_GEMINI_VIDEO_ASPECT_RATIO} · {FACTORY_GEMINI_VIDEO_RESOLUTION}"
+                f"Google Gemini Omni · {FACTORY_GEMINI_VIDEO_MODEL} · credentials configured; video access not verified"
                 if video_ready else
-                "Gemini Omni selected · add FACTORY_GEMINI_API_KEY in the runtime secret store"
+                "Google Gemini Omni · video generation · add FACTORY_GEMINI_API_KEY in the runtime secret store"
             ),
             "provider":video_provider,"model":FACTORY_GEMINI_VIDEO_MODEL,
             "aspect_ratio":FACTORY_GEMINI_VIDEO_ASPECT_RATIO,"resolution":FACTORY_GEMINI_VIDEO_RESOLUTION,
-            "secrets_exposed":False,
+            "secrets_exposed":False,**video_cap,
         }
     elif video_provider:
         registry["Video"]={
-            "state":"connected" if video_ready else "not_configured",
-            "detail":f"{video_provider} · "+("provider endpoint ready" if video_ready else "provider endpoint not configured"),
-            "provider":video_provider,"secrets_exposed":False,
+            "state":"configured" if video_ready else "not_configured",
+            "detail":f"{video_provider} · "+("credentials configured; access not verified" if video_ready else "provider endpoint not configured"),
+            "provider":video_provider,"secrets_exposed":False,**video_cap,
         }
     return registry
 

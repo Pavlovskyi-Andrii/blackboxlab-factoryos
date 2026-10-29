@@ -55,6 +55,11 @@ for provider in ("Metricool","YouTube","Instagram","TikTok","HubSpot"):
     require(provider in connections and connections[provider].get("secrets_exposed") is False,f"{provider} portability metadata missing")
 require("@blackboxlab" not in json.dumps(connections,ensure_ascii=False),"connection registry must not hard-code the owner's social identity")
 require(connections["Claude Code Pro"]["state"]=="not_configured","CI must not fake a live Claude Pro runner")
+require(connections["Workers"]["items"][0]["online"] is False,"CI must not fabricate worker heartbeat")
+require(connections["Workers"]["items"][0]["status"]=="offline","Offline worker state missing")
+require(len(connections["AI Providers"]["providers"])==6,"AI catalog should include 6 providers")
+require(not any(p["access_verified"] for p in connections["AI Providers"]["providers"]),"AI catalog must not fabricate provider access")
+require(all(p["status"]=="coming_soon" for p in connections["AI Providers"]["providers"][3:]),"Future providers must be marked planned")
 require(app.get_claude_code_status()["online"] is False,"CI must not report Claude worker online")
 
 # v5.3.1 account portability — a workspace can detach provider identities without deleting content.
@@ -1250,7 +1255,10 @@ try:
     require(adapter["configured"] and adapter["execution"]=="gemini_interactions_uri","Gemini Revideo registry regression")
     require("ci-placeholder-not-a-real-key" not in json.dumps(app.get_revideo_adapter_registry()),"Gemini secret leaked through adapter registry")
     video_conn=app.get_connection_registry()["Video"]
-    require(video_conn["state"]=="connected" and video_conn["provider"]=="gemini-omni","Gemini connection registry regression")
+    require(video_conn["state"]=="configured" and video_conn["provider"]=="google","Gemini adapter/configuration registry regression")
+    require(video_conn["credential_configured"] and video_conn["access_verified"] is False,"Gemini API key alone cannot prove video access")
+    require(video_conn["model"]==app.FACTORY_GEMINI_VIDEO_MODEL and video_conn["capability"]=="video_generation","Gemini video model/capability missing")
+    require("ci-placeholder-not-a-real-key" not in json.dumps(video_conn),"Gemini credential leaked from Connections")
 finally:
     app.FACTORY_MEDIA_ADAPTERS["video"]=old_video_adapter
     app.FACTORY_GEMINI_API_KEY=old_gemini_key
