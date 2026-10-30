@@ -216,11 +216,18 @@ class RelayQueue:
             raise ValueError("Invalid worker ID")
         with self.store.lock:
             state = self.store._load_unlocked()
-            # Only one active job per worker. Do not reclaim stale work silently.
+            # The *same worker*, polling after a crash/restart, can explicitly
+            # release its stale claim, but never silently rerun that ticket.
+            released = False
             for item in state["tickets"]:
                 ex = item.get("execution") or {}
                 if ex.get("worker_id") == worker_id and ex.get("state") in ACTIVE_STATES:
-                    return None
+                    if self.view(dict(item))["execution"].get("state") != "stale":
+                        return None
+                    self._release_stale_unlocked(item, worker_id)
+                    released = True
+            if released:
+                self.store._save_unlocked(state)
             pending = [item for item in state["tickets"] if item.get("status") == "inbox" and (item.get("execution") or {}).get("state") == "queued"]
             pending.sort(key=lambda item: (item.get("execution") or {}).get("queued_at") or "")
             if not pending:
@@ -246,6 +253,40 @@ class RelayQueue:
             })
             self.store._save_unlocked(state)
             return self.view(dict(item))
+
+    def _release_stale_unlocked(self, item: dict, worker_id: str) -> None:
+        now = utc_now()
+        execution = dict(item.get("execution") or {})
+        before = execution.get("state") or ""
+        note = "Исполнитель потерял связь; ручной повтор: /work " + str(item.get("id") or "")
+        execution.update({"state": "blocked", "note": note, "finished_at": now})
+        item["execution"] = execution
+        item["status"] = "need_you"
+        item["updated_at"] = now
+        item.setdefault("history", []).append({
+            "at": now, "actor": worker_id, "action": "stale_released",
+            "note": note, "from_status": before, "to_status": "blocked"
+        })
+
+    def counts(self, tickets: list[dict]) -> dict:
+        """Effective queue depth must reflect the same predicates as claim()."""
+        counts = {"claimable": 0, "running": 0, "stale": 0, "need_you": 0, "not_queued": []}
+        for ticket in tickets:
+            status = str(ticket.get("status") or "")
+            if status not in ("inbox", "in_progress", "need_you"):
+                continue
+            stage = str(self.view(ticket)["execution"].get("state") or "")
+            if status == "inbox" and stage == "queued":
+                counts["claimable"] += 1
+            elif stage == "stale":
+                counts["stale"] += 1
+            elif stage in ACTIVE_STATES:
+                counts["running"] += 1
+            elif status == "need_you":
+                counts["need_you"] += 1
+            else:
+                counts["not_queued"].append(str(ticket.get("id") or ""))
+        return counts
 
     def event(self, ticket_id: str, worker_id: str, stage: str, note: str = "", evidence: dict | None = None,
               *, run_id: str = "", event_id: str = "") -> dict:
