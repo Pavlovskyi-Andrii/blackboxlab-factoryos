@@ -276,3 +276,11 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** when `AUTOPILOT_REPO` is unset and `/work/factoryos` does not exist, the worker uses its own checkout instead of an empty path.
   **Reason:** on EC2/phone runs the default container path silently produced an empty roadmap (0 tasks) and the worker went idle.
+
+## 2026-10-30 — T-594 (increment 1) Semantic sidebar sections
+
+- **Decision:** the flat 24-button sidebar is regrouped into six sections: Overview (Control Room, Pipeline, Supervisor, Error Center), Create content (New Job, Jobs, Discovery, Revideo, Content Brain, Media Finisher, Variants, Package, Outputs), Review & publish (Review, Publish), Growth & learning (Performance, Analytics, Experiments), Automation & team (Autopilot, Agents, Workers), System (Build Progress, Release QA, Settings). Every button keeps its exact handler, icon, label key and live counter id; only order and grouping changed. Control Room stays first and active.
+  **Reason:** follows the production flow (observe → create → approve/publish → measure → automate → maintain). Reversible: the groups are plain markup, and `test_navigation.py` holds the before-map of all 24 destinations and handlers.
+
+- **Decision:** section headings are flat `.navSection` headings (`role="heading"`), not collapsible submenus yet. They show as labels on desktop and in the open mobile drawer, and as 1px dividers in the icon-only rails (701–900px and closed mobile). Each button gets a localized descriptive hint through a new generic `data-i18n-title` attribute, and the `<nav>` gets a localized `aria-label` through `data-i18n-aria-label`. Both are applied by `applyLanguage()` and covered by the locale-parity checker.
+  **Reason:** smallest safe first step that keeps all existing responsive CSS and routes intact. Collapsible submenus, the slide-out one-third menu, breadcrumbs, screenshots and the CI-gated PR are still open in T-594, so the checkbox stays unchecked.
