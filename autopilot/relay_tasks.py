@@ -77,6 +77,65 @@ def emit(ticket_id: str, stage: str, note: str = "", evidence: dict | None = Non
         (post_fn or post)("/api/relay/worker/event", payload)
 
 
+def claim_roadmap(task: dict, lane: str, *, post_fn=None) -> tuple[dict | None, str]:
+    """T-599-C: ask FactoryOS for an exclusive run of one ROADMAP task. No ticket, no work."""
+    if not configured() and post_fn is None:
+        return None, "FactoryOS worker connection is not configured"
+    payload = {
+        "worker_id": worker_id(),
+        "lane": lane,
+        "task_id": str(task.get("id") or ""),
+        "title": str(task.get("title") or "")[:150],
+        "owner": str(task.get("owner") or ""),
+    }
+    try:
+        response = (post_fn or post)("/api/relay/worker/roadmap-claim", payload)
+    except (requests.RequestException, ValueError) as exc:
+        return None, "FactoryOS claim unavailable: " + type(exc).__name__
+    ticket = response.get("ticket")
+    if not isinstance(ticket, dict) or not (ticket.get("execution") or {}).get("run_id"):
+        return None, str(response.get("rejected") or "claim rejected")
+    return ticket, ""
+
+
+class RunReporter:
+    """Worker-emitted lifecycle events for one claimed run, with a background heartbeat.
+
+    Events carry run_id + sequential event_id so retries never duplicate history.
+    Reporting failures never fake progress: they are swallowed, and the server marks
+    the run stale when heartbeats stop.
+    """
+
+    def __init__(self, ticket: dict, *, emit_fn=None, interval: float = 20.0):
+        self.ticket_id = str(ticket.get("id") or "")
+        self.run_id = str((ticket.get("execution") or {}).get("run_id") or "")
+        self._emit = emit_fn or emit
+        self._seq = itertools.count(1)
+        self._interval = interval
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __call__(self, stage: str, note: str = "", evidence: dict | None = None) -> None:
+        event_id = f"{self.run_id}:{next(self._seq)}:{stage}" if stage != "heartbeat" else ""
+        try:
+            self._emit(self.ticket_id, stage, note, evidence, run_id=self.run_id, event_id=event_id)
+        except Exception:
+            pass
+
+    def __enter__(self) -> "RunReporter":
+        def beat():
+            while not self._stop.wait(self._interval):
+                self("heartbeat")
+        self._thread = threading.Thread(target=beat, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=2)
+
+
 def git(repo: pathlib.Path, *args: str) -> tuple[int, str]:
     p = subprocess.run(["git", *args], cwd=repo, text=True, capture_output=True, check=False, timeout=25)
     return p.returncode, p.stdout.strip()

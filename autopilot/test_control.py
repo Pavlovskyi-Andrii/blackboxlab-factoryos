@@ -97,11 +97,12 @@ def run_loop(*, branch_sequence, control_feed, daemon=False):
     agent_calls, messages = [], []
     patches = [
         mock.patch.object(ap, "ROADMAP", roadmap),
-        mock.patch.object(ap, "next_safe_task", lambda path=roadmap, _real=ap.next_safe_task: _real(path)),
+        mock.patch.object(ap, "next_safe_task", lambda path=roadmap, operator="", skip=frozenset(), _real=ap.next_safe_task: _real(path, operator, skip)),
         mock.patch.object(ap, "STATUS", root / ".autopilot" / "status.json"),
         mock.patch.object(ap, "ANSWERS", root / ".autopilot" / "answers.md"),
         mock.patch.object(ap, "REPO", root),
         mock.patch.object(ap, "DAEMON_MODE", daemon),
+        mock.patch.object(ap, "ALLOW_UNCLAIMED", True),
         mock.patch.object(ap, "current_branch", lambda: next(branches)),
         mock.patch.object(ap, "sync_branch", lambda branch: None),
         mock.patch.object(ap, "commits_ahead", lambda branch: 0),

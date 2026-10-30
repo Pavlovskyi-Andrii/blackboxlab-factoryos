@@ -276,3 +276,38 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** when `AUTOPILOT_REPO` is unset and `/work/factoryos` does not exist, the worker uses its own checkout instead of an empty path.
   **Reason:** on EC2/phone runs the default container path silently produced an empty roadmap (0 tasks) and the worker went idle.
+
+## 2026-10-30 — T-594 (increment 1) Semantic sidebar sections
+
+- **Decision:** the flat 24-button sidebar is regrouped into six sections: Overview (Control Room, Pipeline, Supervisor, Error Center), Create content (New Job, Jobs, Discovery, Revideo, Content Brain, Media Finisher, Variants, Package, Outputs), Review & publish (Review, Publish), Growth & learning (Performance, Analytics, Experiments), Automation & team (Autopilot, Agents, Workers), System (Build Progress, Release QA, Settings). Every button keeps its exact handler, icon, label key and live counter id; only order and grouping changed. Control Room stays first and active.
+  **Reason:** follows the production flow (observe → create → approve/publish → measure → automate → maintain). Reversible: the groups are plain markup, and `test_navigation.py` holds the before-map of all 24 destinations and handlers.
+
+- **Decision:** section headings are flat `.navSection` headings (`role="heading"`), not collapsible submenus yet. They show as labels on desktop and in the open mobile drawer, and as 1px dividers in the icon-only rails (701–900px and closed mobile). Each button gets a localized descriptive hint through a new generic `data-i18n-title` attribute, and the `<nav>` gets a localized `aria-label` through `data-i18n-aria-label`. Both are applied by `applyLanguage()` and covered by the locale-parity checker.
+  **Reason:** smallest safe first step that keeps all existing responsive CSS and routes intact. Collapsible submenus, the slide-out one-third menu, breadcrumbs, screenshots and the CI-gated PR are still open in T-594, so the checkbox stays unchecked.
+
+## 2026-10-30 — T-537 follow-up: inline roadmap metadata
+- The live ROADMAP writes `Depends:` / `Owner:` mid-line (`Planner: owner; Executor: ... Depends: T-590.`, `Owner: ChatGPT. Depends: ...`). The line-start parser missed them, so T-591/T-592/T-593 looked dependency-free and T-591-A got owner `chatgpt.`, matching no lane.
+- The scheduler now finds both fields anywhere on an indented metadata line and drops trailing punctuation. `Executor:` is intentionally not treated as an owner lane; lanes stay explicit via `Owner:`.
+
+## 2026-10-30 — Single coordinator: Claude
+- Owner decision: Claude coordinates and executes all engineering work; the `chatgpt` lane is paused and is reconnected later only via tasks Claude labels `Owner: chatgpt`.
+- Retagged open ChatGPT tasks to `Owner: claude`: T-591-A, T-562, T-564. Completed T-560-B/C keep their historical owner.
+- T-564 `Depends: T-562,T-563` → `Depends: T-562`: T-563 never existed in the ROADMAP, so T-564 could never be selected.
+- Added T-599 at the top of P0 so the worker fixes head-of-line blocking before it reaches T-590's owner-dependent remainder.
+
+## 2026-10-30 — T-599-A: park instead of stall
+- A blocked task is parked and woken only by a change to `.autopilot/answers.md` or an owner Retry. HEAD changes no longer wake it, so the worker's own commits on other tasks don't make the blocked task burn another Claude turn.
+- A task that exhausts `MAX_FAILS` is parked until Retry, and the failure counter is per task. The daemon then continues with the next safe task instead of sleeping on the held one.
+- `control.decide` accepts the set of parked tasks, so Retry works for any of them.
+- Standing owner grants are recorded in `.autopilot/answers.md`; they include merging Claude's own PRs once CI is green.
+
+## 2026-10-30 — T-599-B: explicit Owner everywhere, enforced by CI
+- With the ChatGPT lane paused, every open non-HUMAN task is labelled `Owner: claude`. HUMAN tasks stay unlabelled because no runner ever selects them.
+- A CI lint (`roadmap_owner_lint`) fails when an open non-HUMAN task has no `Owner:`, so new tasks must name a lane.
+- Runtime semantics are unchanged: an empty Owner still counts as shared. Flipping it to fail-closed is deferred until a second lane is reactivated; the lint already prevents unowned tasks from landing.
+
+## 2026-10-30 — T-599-C/D: claim before code, events from the parent process
+- ROADMAP runs reuse `RelayQueue`: `claim_roadmap` atomically finds or creates one ticket per task (`roadmap:T-xxx`) under the store lock and issues a fresh `run_id`. It refuses another lane's task, an active run, and a stale run that is waiting for an owner Retry. Generic Relay claims skip ROADMAP tickets, so a Retry cannot run a ROADMAP task with the Relay prompt.
+- Fail-closed: without a server claim the worker does not touch code, and the task is deferred for 5 minutes. `AUTOPILOT_ALLOW_UNCLAIMED=1` allows unclaimed runs only for offline dev runners without a FactoryOS connection.
+- Events come from `autopilot.py`, which sees git and exit codes: running, committed (new HEAD), pushed, done (with the agent's reported checks), blocked, failed, plus a heartbeat every 20s. PR/CI/merge are not claimed by the worker.
+- Root cause of "Claude has tasks but does nothing": the EC2 worker pulled only `autopilot/aws-worker`, which was 12 commits behind main, so it never saw new ROADMAP tasks or runner fixes. Between tasks, `sync_branch` now fast-forwards or merges `origin/main`. A merge conflict is aborted and reported. If `autopilot/*.py` changed, the runner exits 75 and `claude_pro_worker` re-execs itself with the new code.

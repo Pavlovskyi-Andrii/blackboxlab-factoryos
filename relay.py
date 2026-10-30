@@ -244,6 +244,14 @@ class RelayWorkerClaimRequest(BaseModel):
     worker_id: str
 
 
+class RelayRoadmapClaimRequest(BaseModel):
+    worker_id: str
+    lane: str
+    task_id: str
+    title: str = ""
+    owner: str = ""
+
+
 class RelayWorkerEventRequest(BaseModel):
     ticket_id: str
     worker_id: str
@@ -365,9 +373,13 @@ def _operator_lane_text(name: str, provider: Optional[Callable[[], dict]]) -> st
     online=lane.get("online") is True
     state=str(lane.get("state") or ("online" if online else "offline"))
     lines=[label, f"Статус: {'🟢 online' if online else '⚪ '+state}"]
-    task=str(lane.get("active_task_id") or lane.get("task_id") or "").strip()
+    task=str(lane.get("active_task_id") or "").strip()
     if task:
         lines.append(f"Текущая задача: {task}")
+    else:
+        last=str(lane.get("last_task_id") or "").strip()
+        if last:
+            lines.append(f"Последняя задача: {last} · {lane.get('task_state') or 'состояние неизвестно'} (не выполняется)")
     branch=str(lane.get("branch") or "").strip()
     if branch:
         lines.append(f"Ветка: {branch}")
@@ -406,8 +418,7 @@ def _operators_overview_text(provider: Optional[Callable[[], dict]]) -> str:
         lane=(lanes.get(key) or {}) if isinstance(lanes,dict) else {}
         online=lane.get("online") is True
         state=str(lane.get("state") or ("online" if online else "offline"))
-        task=str(lane.get("active_task_id") or lane.get("task_id") or "").strip()
-        rows.append(f"{label}: {'🟢 online' if online else '⚪ '+state}{' · '+task if task else ''}")
+        rows.append(f"{label}: {'🟢 online' if online else '⚪ '+state}{_lane_task_suffix(lane)}")
     return "\n".join(rows)
 
 
@@ -508,14 +519,36 @@ def _github_text(snapshot: dict) -> str:
     return "\n".join(lines)[:3900]
 
 
-def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]]) -> str:
+def _lane_task_suffix(lane: dict) -> str:
+    """Separate online heartbeat from verified running task."""
+    task = str(lane.get("active_task_id") or "").strip()
+    if task:
+        return " · выполняет " + task
+    last = str(lane.get("last_task_id") or "").strip()
+    if last:
+        state = str(lane.get("task_state") or "неизвестно")[:24]
+        return " · последняя " + last + ": " + state + " (не выполняется)"
+    return ""
+
+
+def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]], queue=None) -> str:
     summary = store.summary()
     tickets = store.list(limit=500)
-    stages = [str((t.get("execution") or {}).get("state") or "") for t in tickets]
     lines = ["📡 FactoryOS Relay", "Связь с Telegram: ✅",
-             "Тикетов: " + str(summary["total"]) + " · активных: " + str(summary["active"]),
-             "Очередь: " + str(stages.count("queued")) + " · работа: " + str(sum(x in ("claimed", "running", "checkpoint", "committed", "pushed") for x in stages)),
-             "ChatGPT: нет автоматической телеметрии"]
+             "Тикетов: " + str(summary["total"]) + " · открытых: " + str(summary["active"])]
+    if queue is not None:
+        counts = queue.counts(tickets)
+        lines.append("Очередь: " + str(counts["claimable"]) + " · работа: " + str(counts["running"]) +
+                     " · без связи: " + str(counts["stale"]) + " · нужен владелец: " + str(counts["need_you"]))
+        if counts["not_queued"]:
+            ids = counts["not_queued"]
+            lines.append("Открыты, но не в очереди: " + ", ".join(ids[:8]) +
+                         " · /work " + ids[0] + " для повторного запуска (только если нет работы)")
+    else:
+        stages = [str((t.get("execution") or {}).get("state") or "") for t in tickets]
+        lines.append("Очередь: " + str(stages.count("queued")) +
+                     " · работа: " + str(sum(x in ("claimed", "running", "checkpoint", "committed", "pushed") for x in stages)))
+    lines.append("ChatGPT: нет автоматической телеметрии")
     if provider:
         try:
             lanes = provider() or {}
@@ -523,12 +556,10 @@ def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]]
                 lane = lanes.get(name) or {}
                 online = lane.get("online") is True
                 age = lane.get("heartbeat_age_seconds")
-                task = str(lane.get("active_task_id") or "")
                 desc = "online" if online else str(lane.get("state") or "offline")
                 if age is not None:
                     desc += " · heartbeat " + str(age) + " сек назад"
-                if task:
-                    desc += " · " + task
+                desc += _lane_task_suffix(lane)
                 lines.append(name.capitalize() + ": " + desc)
         except Exception:
             lines.append("Воркеры: данные недоступны")
@@ -545,7 +576,7 @@ def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]],
             for name in ("claude", "gemini"):
                 lane = lanes.get(name) or {}
                 state = "online" if lane.get("online") is True else str(lane.get("state") or "offline")
-                lines.append(name.capitalize() + ": " + state + (" · " + str(lane.get("active_task_id")) if lane.get("active_task_id") else ""))
+                lines.append(name.capitalize() + ": " + state + _lane_task_suffix(lane))
         except Exception:
             lines.append("Телеметрия исполнителей недоступна")
     else:
@@ -745,7 +776,7 @@ def relay_handle_telegram_update(
     if command in ("/pair", "/start"):
         return None
     if command == "/status":
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_status_text(store, operator_status_provider), "reply_markup": _relay_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_status_text(store, operator_status_provider, queue), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "status"}
     if command in ("/relay", "/tasks"):
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider), "reply_markup": _relay_keyboard()})
@@ -984,6 +1015,22 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         return {"ok": True, "ticket": ticket}
+
+    @app.post("/api/relay/worker/roadmap-claim")
+    def relay_worker_roadmap_claim(payload: RelayRoadmapClaimRequest, request: Request):
+        _require_worker(request)
+        try:
+            ticket, reason = queue.claim_roadmap(payload.worker_id, payload.lane, payload.task_id,
+                                                 payload.title, payload.owner)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        if ticket and notify_owner:
+            try:
+                notify_owner(f"📥 {payload.task_id} взята в работу · {payload.lane} · {payload.worker_id}\n"
+                             f"run {(ticket.get('execution') or {}).get('run_id') or '?'}")
+            except Exception:
+                pass
+        return {"ok": bool(ticket), "ticket": ticket, "rejected": reason}
 
     @app.post("/api/relay/worker/event")
     def relay_worker_event(payload: RelayWorkerEventRequest, request: Request):
