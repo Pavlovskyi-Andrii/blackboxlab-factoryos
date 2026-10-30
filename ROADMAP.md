@@ -7,6 +7,8 @@ Rules:
 - Every task must have an objective, machine-checkable DONE criterion.
 - Tasks that require credentials, payment, account ownership, irreversible decisions, or an external human approval are marked `[HUMAN]`.
 - Autopilot skips `[HUMAN]` tasks and continues with the next safe task.
+- `Depends: T-x,T-y` — a task is selected only after every listed task is checked `[x]`; an unknown ID keeps it waiting.
+- `Owner: chatgpt | claude | gemini | any` — the lane that implements the task. Each runner (`AUTOPILOT_OPERATOR`, default `claude`) only takes tasks with its own Owner or no Owner/`any`. A planner that starts coding a task itself must set `Owner:` to its own lane first, so two agents never build the same task.
 - Human approval remains mandatory before any real social publishing action.
 - ZERO ADDITIONAL SPEND: do not connect paid API billing, metered AI/browser calls, new paid cloud resources, or paid publisher plans without explicit fresh owner approval. Use existing subscriptions and free-tier resources only, with a fail-closed spending guard. Subscription access must never be silently replaced with PAYG API usage.
 
@@ -132,6 +134,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: deterministic regression proves secret-like fields are redacted, unknown/unsafe steps are rejected, publish/send/destructive actions cannot execute without matching approval snapshot + payload hash, read/draft mocked runs can finish with factual evidence, and no real browser/provider/network call is made.
 
 - [x] T-560-B Session/vault abstraction + human takeover
+  Owner: ChatGPT
   Planner: ChatGPT
   Depends: T-560-A,T-550
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
@@ -141,6 +144,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: deterministic two-workspace regression proves no session crossover, logs/results contain no secret values, challenge state stops safely at waiting_human, and an owner-authorized checkpoint can resume without replaying already-completed irreversible steps.
 
 - [x] T-560-C Real browser executor + generic recipe
+  Owner: ChatGPT
   Planner: ChatGPT
   Depends: T-560-A,T-560-B
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
@@ -225,7 +229,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: extend heartbeat/runtime telemetry with current stage, task start/elapsed time, branch/head, queue depth, safe CPU percent and memory usage when available, with null/unsupported fallbacks.
   DONE: heartbeat regression persists and renders telemetry without secrets; Linux/Termux metrics are numeric when available and unsupported platforms degrade cleanly.
 
-- [ ] T-537 Dependency-aware roadmap scheduler
+- [x] T-537 Dependency-aware roadmap scheduler
   Planner: ChatGPT
   Goal: make the Claude worker honor Depends metadata before selecting a safe ROADMAP task, so blocked tasks are skipped instead of running prematurely; HUMAN tasks remain non-delegable.
   DONE: deterministic regression proves a task with unmet dependencies is not selected, an unrelated safe task can still advance, completed dependencies unlock the task, and HUMAN blockers can never be auto-run.
@@ -392,6 +396,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 ## v5.0.3 — Runner Supervisor (Subscription-only Recovery)
 
 - [ ] T-562 Local self-healing supervisor and zero-paid-API guards
+  Owner: ChatGPT
   Planner: ChatGPT
   Spec: docs/roadmap/T-562_RUNNER_SUPERVISOR.md
   Goal: use a bounded local systemd recovery timer on the existing EC2 instance to restart only when subscription OAuth, internal worker token, non-main branch, and zero paid API billing gates all pass. Record safe local recovery status, never recover or copy OAuth tokens, never bypass account security.
@@ -400,6 +405,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 ## v5.0.4 — Self-service EC2 pairing
 
 - [ ] T-564 Interactive Claude worker pairing (no shell history/secrets)
+  Owner: ChatGPT
   Planner: ChatGPT
   Depends: T-562,T-563
   Goal: one interactive root-only command on the existing EC2 reads the internal FactoryOS worker token without terminal echo, atomically edits root-owned config with restrictive permissions, refuses paid API override, and requests ONLY a Supervisor preflight, never a direct unguarded Claude start.

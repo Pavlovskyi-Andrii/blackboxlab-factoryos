@@ -265,3 +265,14 @@ Autonomous workers record reversible engineering decisions here so the owner can
 - **Decision:** the new suite is `test_relay_lifecycle.py`. It is imported by `test_relay_execution.py`, which CI already runs, so `.github/workflows/ci.yml` stays untouched (workflow edits are scoped separately). On this EC2 worker the relay suites ran via `python3 -m unittest discover` with an out-of-repo bootstrap that stubs only the `fastapi`/`pydantic` imports, because FastAPI is not installed on the system Python. Route handlers and `smoke_tests.py` still need real CI.
 
 - **Decision:** the T-590 checkbox stays open. Its DONE criterion needs live evidence this sandbox cannot produce or verify: a server-side worker claim on Render, a paired owner Telegram chat (T-506 HUMAN), a PR, a CI run, the deployed revision and an Issue #41 comment. `git push`, `gh` and network commands are denied to the delegated agent here.
+
+## 2026-10-29 — T-537 Dependency-aware scheduler + Owner lanes
+
+- **Decision:** the Claude worker (`autopilot/autopilot.py`) now honors `Depends:`. A dependency is met only when that task exists in ROADMAP and is checked; unknown IDs stay unmet (fail-closed). HUMAN tasks are still never selectable.
+  **Reason:** before this, the worker ignored `Depends:` and would have started T-560-B although T-550-gated work and ChatGPT's in-flight branches were not finished.
+
+- **Decision:** new optional `Owner:` metadata (`chatgpt`, `claude`, `gemini`, `any`). The runner identity is `AUTOPILOT_OPERATOR` (default `claude`). Missing/`any`/`auto` Owner keeps the old behavior: any runner may take it. The app-side parser exposes `owner` on roadmap tasks for the delegation board.
+  **Reason:** ChatGPT (planner) also implements tasks in `chatgpt/*` branches, while the Claude worker picked the same first-unchecked task. T-560-B, T-560-C, T-562 and T-564 already had ChatGPT commits on main but were still open, so the Claude worker would have duplicated them. Those four are now tagged `Owner: ChatGPT` instead of being force-checked, because their DONE criteria include on-host/vault work that is not yet verified.
+
+- **Decision:** when `AUTOPILOT_REPO` is unset and `/work/factoryos` does not exist, the worker uses its own checkout instead of an empty path.
+  **Reason:** on EC2/phone runs the default container path silently produced an empty roadmap (0 tasks) and the worker went idle.

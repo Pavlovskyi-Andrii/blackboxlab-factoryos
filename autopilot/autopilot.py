@@ -19,7 +19,18 @@ except ImportError:
     import control
     import relay_tasks
 
-REPO = pathlib.Path(os.environ.get("AUTOPILOT_REPO", "/work/factoryos")).resolve()
+def _default_repo() -> pathlib.Path:
+    """AUTOPILOT_REPO wins; otherwise the container path; otherwise this checkout (EC2/phone runs)."""
+    configured = os.environ.get("AUTOPILOT_REPO", "").strip()
+    if configured:
+        return pathlib.Path(configured).resolve()
+    container = pathlib.Path("/work/factoryos")
+    if (container / "ROADMAP.md").exists():
+        return container.resolve()
+    return pathlib.Path(__file__).resolve().parent.parent
+
+
+REPO = _default_repo()
 STATUS = REPO / ".autopilot" / "status.json"
 ANSWERS = REPO / ".autopilot" / "answers.md"
 ROADMAP = REPO / "ROADMAP.md"
@@ -31,6 +42,9 @@ WAIT_FOR_HUMAN = os.environ.get("AUTOPILOT_WAIT_FOR_HUMAN", "0").strip().lower()
 SKIP_PERMISSIONS = os.environ.get("AUTOPILOT_SKIP_PERMISSIONS", "0").strip().lower() in {"1", "true", "yes", "on"}
 DAEMON_MODE = os.environ.get("AUTOPILOT_DAEMON", "1").strip().lower() in {"1", "true", "yes", "on"}
 IDLE_SECONDS = max(15, min(3600, int(os.environ.get("AUTOPILOT_IDLE_SECONDS", "60"))))
+# Operator identity of this runner. Roadmap tasks carrying `Owner: <other operator>` are skipped.
+OPERATOR = os.environ.get("AUTOPILOT_OPERATOR", "claude").strip().lower() or "claude"
+SHARED_OWNERS = {"", "any", "auto"}
 RELAY_ONLY = os.environ.get("AUTOPILOT_RELAY_ONLY", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -58,6 +72,10 @@ def assert_safe_branch() -> str:
 TASK_RE = __import__("re").compile(r"^- \[([ xX])\]\s+(\[HUMAN\]\s+)?(T-[A-Za-z0-9-]+)\s+(.+)$")
 
 
+TASK_META_RE = __import__("re").compile(r"^(Depends|Owner):\s*(.*)$", __import__("re").IGNORECASE)
+TASK_ID_RE = __import__("re").compile(r"^T-[A-Za-z0-9-]+$")
+
+
 def parse_roadmap(path: pathlib.Path = ROADMAP) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -70,6 +88,14 @@ def parse_roadmap(path: pathlib.Path = ROADMAP) -> list[dict[str, Any]]:
             continue
         match = TASK_RE.match(line)
         if not match:
+            # Indented metadata belongs to the task directly above it.
+            meta = TASK_META_RE.match(line) if tasks and raw[:1].isspace() else None
+            if meta:
+                key, value = meta.group(1).lower(), meta.group(2).strip()
+                if key == "depends":
+                    tasks[-1]["depends"] = [x.strip() for x in value.split(",") if TASK_ID_RE.match(x.strip())]
+                else:
+                    tasks[-1]["owner"] = value.split()[0].lower() if value else ""
             continue
         tasks.append({
             "id": match.group(3),
@@ -77,12 +103,35 @@ def parse_roadmap(path: pathlib.Path = ROADMAP) -> list[dict[str, Any]]:
             "done": match.group(1).lower() == "x",
             "human": bool(match.group(2)),
             "version": version,
+            "depends": [],
+            "owner": "",
         })
     return tasks
 
 
-def next_safe_task(path: pathlib.Path = ROADMAP) -> dict[str, Any] | None:
-    return next((task for task in parse_roadmap(path) if not task["done"] and not task["human"]), None)
+def owned_by_operator(task: dict[str, Any], operator: str = "") -> bool:
+    owner = str(task.get("owner") or "").lower()
+    return owner in SHARED_OWNERS or owner == (operator or OPERATOR)
+
+
+def unmet_dependencies(task: dict[str, Any], tasks: list[dict[str, Any]]) -> list[str]:
+    """A dependency is met only when it exists in the roadmap and is checked. Unknown IDs stay unmet."""
+    done = {x["id"] for x in tasks if x["done"]}
+    return [dep for dep in task.get("depends") or [] if dep not in done]
+
+
+def selectable(task: dict[str, Any], tasks: list[dict[str, Any]], operator: str = "") -> bool:
+    return (
+        not task["done"]
+        and not task["human"]
+        and owned_by_operator(task, operator)
+        and not unmet_dependencies(task, tasks)
+    )
+
+
+def next_safe_task(path: pathlib.Path = ROADMAP, operator: str = "") -> dict[str, Any] | None:
+    tasks = parse_roadmap(path)
+    return next((task for task in tasks if selectable(task, tasks, operator)), None)
 
 
 def roadmap_has_safe_work(path: pathlib.Path = ROADMAP) -> bool:
@@ -179,6 +228,14 @@ def poll_control(paused: bool, held_task: str, decided: dict[str, tuple[str, str
 
 
 def idle_notice(path: pathlib.Path = ROADMAP) -> str:
+    tasks = parse_roadmap(path)
+    waiting = [
+        t["id"] for t in tasks
+        if not t["done"] and not t["human"] and not selectable(t, tasks)
+    ]
+    if waiting:
+        shown = ", ".join(waiting[:5]) + ("…" if len(waiting) > 5 else "")
+        return f"⏳ No task is selectable for {OPERATOR}; waiting on dependencies or another operator: {shown}"
     blocker = first_human_blocker(path)
     if blocker:
         return f"🙋 Safe roadmap tasks are complete. HUMAN task remains: {blocker}"
