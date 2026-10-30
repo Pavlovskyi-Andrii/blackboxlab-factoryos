@@ -23,10 +23,11 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Depends: T-537
   Spec: docs/handoff/T-599_VERIFIED_EXECUTION.md; Issue #67
   Goal: route ROADMAP tasks and owner GitHub Issues through the existing RelayQueue claim/run_id/event journal; remove head-of-line blocking; require explicit Owner on every open task; derive Workers/Build Progress/Telegram state only from worker events.
-  Progress 2026-10-30: T-599-A done — a blocked task is parked until new answers.md input or owner Retry, a task that exhausts MAX_FAILS is parked until Retry, and the daemon continues with the next safe task (autopilot/test_autopilot.py parking_regression). Remaining: B (Owner on every open task), C/D (ROADMAP tasks through RelayQueue claim + worker-emitted events), E (owner Issue auto-intake), F (UI/Telegram from events).
+  Progress 2026-10-30: T-599-A done — a blocked task is parked until new answers.md input or owner Retry, a task that exhausts MAX_FAILS is parked until Retry, and the daemon continues with the next safe task (autopilot/test_autopilot.py parking_regression). T-599-B done — every open non-HUMAN task carries Owner (CI lint in autopilot/test_autopilot.py). Remaining: C/D (ROADMAP tasks through RelayQueue claim + worker-emitted events), E (owner Issue auto-intake), F (UI/Telegram from events).
   DONE: deterministic tests A–E pass; no open ROADMAP task lacks Owner; a blocked task no longer stalls the queue; an Owner-assigned task without a claim renders as "assigned, not claimed"; CI-gated PRs; evidence posted to Issue #67.
 
 - [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
+  Owner: claude
   Planner: owner; Executor: Claude Code Pro (primary). P0.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; GitHub Issues #41, #51, #56, #40; PR #43, #42, #60.
   Goal: implement a working vertical slice from owner Telegram/Web task intake through durable queued→claimed→running→events→code/commit→GitHub lifecycle, with factual owner-facing Telegram /status /tasks /task and same Web state. Establish real issue/ROADMAP→Relay intake or explicit reconciled links; resolve missing parent-owned task progress during Claude run.
@@ -36,6 +37,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Remaining (needs owner/GitHub access): open PR autopilot/aws-worker → main and confirm CI green; merge + confirm Render deployed SHA; HUMAN T-506 pairing, then live `/new` test message → claim → run_id → `/task` trace; post redacted evidence to Issue #41.
 
 - [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
+  Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; Issue #41 and #51.
   Goal: verify actual owner Telegram chat pairing/webhook and tested /status, /tasks, /task <id>, /history, /roadmap, /github; callbacks for refresh/detail/retry; preserve event history; RU/UK/EN. Only verified ChatGPT actions visible, not fictional live ChatGPT sessions.
@@ -47,12 +49,14 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Test: test_relay_livefix.py and existing Relay suites; CI before merge, then Render and owner live E2E. Never mark T-591 done until actual Telegram task executes.
 
 - [ ] T-592 Fix Build Progress / Worker Center factual status and UI freeze
+  Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
   Spec: Issues #55, #56, #54, #52 and docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md.
   Goal: reconcile 87% vs 49% metric scopes; distinguish EC2/SSM/systemd/subscription auth/heartbeat/claim/task; fix race for .autopilot/status.json, stale/offline, huge overflow; make owner HUMAN blockers actionable.
   DONE: deterministic tests + screenshot evidence showing same task/stage in Telegram and Web; no ghost running/false progress; columns usable mobile+desktop and consistent stale timestamps; non-main PR/CI.
 
 - [ ] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
+  Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0/P1. Depends: T-590.
   Spec: handoff diagnosis, Issue #40/#49/#50/#47 and ROADMAP T-560-C onward.
   Goal: reproducible restricted permission profile, safe tests and dependency boot (Python 3.9), non-spinning retry, durable worker errors, GitHub/ROADMAP task dedupe, automated safe backlog sequence and concise verified owner reporting.
@@ -169,6 +173,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: local deterministic fixture executes a generic allowlisted form flow, captures redacted evidence, rejects off-domain navigation, respects timeout/step limits and keeps submit disabled unless the plan carries valid approval.
 
 - [ ] T-560-D Social web draft recipes
+  Owner: claude
   Planner: ChatGPT
   Depends: T-560-C,T-550
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
@@ -176,6 +181,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: fixture recipes can prepare text/media up to the final submit boundary, account bindings are workspace-scoped, no plaintext credentials are stored, challenge pages become waiting_human, and no fixture can publish without a matching human approval snapshot.
 
 - [ ] T-560-E Browser runner observability
+  Owner: claude
   Planner: ChatGPT
   Depends: T-560-A,T-560-C
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
@@ -238,6 +244,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: deterministic regression returns planner queue + worker state + done/running/queued/blocked/HUMAN counts without returning worker tokens or other secrets.
 
 - [ ] T-536-B Live worker telemetry
+  Owner: claude
   Planner: ChatGPT
   Parent: T-536
   Depends: T-536-A
@@ -290,20 +297,24 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: an automated locale-parity regression catches missing canonical dashboard keys and the representative EN/UK/RU dashboard fixture contains no known cross-locale fallback strings.
 
 - [ ] T-535 Artifact + media viewer hardening
+  Owner: claude
   Goal: make agent artifacts and finished media reliably open from Worker Results, Trace Viewer and Approval flows while preserving signed-media/auth boundaries.
   DONE: deterministic regression opens representative text, JSON, subtitle and video artifacts through the intended viewer/media routes with correct content handling and no broken known-artifact links.
 
 ## v5.4 — Revideo Production Hardening
 
 - [ ] T-540 Revideo zero-spend acceptance
+  Owner: claude
   Goal: prove the full safe content path Discovery candidate -> Revideo -> rewrite -> Content Package -> Media Finisher -> HUMAN APPROVAL on deterministic fixtures.
   DONE: acceptance reaches waiting_approval with provenance and originality evidence intact, creates no real provider spend and cannot auto-publish.
 
 - [ ] T-541 Media Finisher operator preview
+  Owner: claude
   Goal: make the final-video review path obvious before approval, including source/final preview and the produced cuts/captions/audio/graphics artifacts that actually exist.
   DONE: deterministic UI/API regression exposes available before/after media plus generated artifact links, gracefully marks absent optional artifacts, and preserves the approval gate.
 
 - [ ] T-542 Publishing dry-run evidence
+  Owner: claude
   Goal: validate the exact immutable media+metadata snapshot that would be sent to YouTube Shorts, TikTok and Instagram Reels without making a real external post.
   DONE: zero-spend dry-run produces a traceable publisher plan/receipt preview bound to the approved snapshot; no external post ID is fabricated and real publish still requires T-520/T-521.
 
@@ -315,6 +326,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: deterministic regression proves Metricool / YouTube / Instagram / TikTok / HubSpot are portable connection slots, provider secrets never appear in the connection registry, YouTube can be detached independently, Metricool disconnect fences real publishing, and integration routes are owner-write protected by the existing auth middleware.
 
 - [ ] T-551-A OAuth framework scaffold
+  Owner: claude
   Planner: ChatGPT
   Depends: T-537,T-550
   Goal: build the credential-free provider-neutral OAuth framework for Google/YouTube, TikTok, Meta/Instagram and HubSpot: provider registry, authorize/callback route contracts, state/PKCE helpers, token-vault interface and deterministic mocked adapters, without real client secrets or external authorization.
@@ -327,6 +339,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: every provider has production client credentials stored only in secret environment/vault storage and an approved callback URL; no customer token is committed to Git.
 
 - [ ] T-552 OAuth callback + token vault
+  Owner: claude
   Planner: ChatGPT
   Parent: T-550
   Depends: T-551
@@ -334,12 +347,14 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: deterministic mocks cover OAuth state/PKCE where supported, token refresh, encrypted secret storage, revoke/disconnect and account replacement without exposing tokens to the browser or logs.
 
 - [ ] T-553 Workspace data tenancy
+  Owner: claude
   Planner: ChatGPT
   Depends: T-550
   Goal: scope jobs, artifacts, approvals, publishing queue, analytics, CRM attribution and integration bindings to a workspace/customer while preserving owner/admin observability.
   DONE: two-workspace regression proves users cannot read or mutate each other's content, credentials, publishing queue or analytics; all background workers carry explicit workspace identity.
 
 - [ ] T-554 Customer onboarding + account replacement acceptance
+  Owner: claude
   Planner: ChatGPT
   Depends: T-552,T-553
   Goal: make a sellable onboarding flow where a new customer signs in, connects their own YouTube/TikTok/Instagram/HubSpot accounts, runs content, then safely disconnects/replaces all accounts without losing FactoryOS project history.
@@ -355,54 +370,63 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: API contract exposes roles, available operators, assignment state and operator online/auth status; existing pipelines remain backward-compatible.
 
 - [ ] T-581 Operator assignment UI
+  Owner: claude
   Planner: ChatGPT
   Depends: T-580
   Goal: let the owner assign ChatGPT / Claude / Gemini / Auto to any eligible role from the worker/agent UI and clearly show the current operator on every worker card.
   DONE: deterministic UI fixture changes operator assignment for representative Content and Engineering roles and displays offline/auth-pending states without fabricating readiness.
 
 - [ ] T-582 Battle Run experiment model
+  Owner: claude
   Planner: ChatGPT
   Depends: T-580
   Goal: run the same task/content brief through two or more role→operator chains and preserve exact chain provenance for each variant.
   DONE: deterministic regression creates at least two competing chains, preserves role/operator/model/runtime provenance per step, and records a battle/run ID without publishing automatically.
 
 - [ ] T-583 Outcome attribution + leaderboard
+  Owner: claude
   Planner: ChatGPT
   Depends: T-582
   Goal: attribute factual analytics (views, likes, comments, shares/reposts, saves, CTR/conversion when available) back to the exact role/operator chain and compare chains without inventing missing metrics.
   DONE: analytics fixtures produce a factual leaderboard by chain; missing platform metrics remain unavailable rather than zero/fabricated.
 
 - [ ] T-584 Reviewer / Judge mode
+  Owner: claude
   Planner: ChatGPT
   Depends: T-582
   Goal: allow one or more operators to independently produce candidate outputs while a separately assigned Reviewer/Judge compares them using explicit criteria and preserved evidence.
   DONE: deterministic fixture produces two candidate outputs + one review decision with criteria, selected candidate, rationale and provenance; Reviewer cannot silently rewrite candidates.
 
 - [ ] T-585 Multi-operator delegation board
+  Owner: claude
   Planner: ChatGPT
   Depends: T-580
   Goal: generalize the current Claude-only delegation board into operator lanes (Claude, Gemini, ChatGPT) showing open ticket, stage, branch/runtime, heartbeat, last result and queue depth.
   DONE: API/UI renders at least Claude and Gemini lanes; offline/unconfigured Gemini is explicit; secrets are never returned.
 
 - [ ] T-586 Telegram operator lanes
+  Owner: claude
   Planner: ChatGPT
   Depends: T-585
   Goal: extend the paired Telegram owner bridge with two operator buttons/lists for Claude and Gemini plus open tickets and current status.
   DONE: Telegram callback regression renders Claude/Gemini buttons, lists each operator's open tickets/status, and existing Relay ticket controls continue to work.
 
 - [ ] T-587 Telegram Battle controls
+  Owner: claude
   Planner: ChatGPT
   Depends: T-582,T-586
   Goal: let the owner view a Battle Run from Telegram, compare candidate chains, see factual outcome metrics and approve/reject only safe next actions.
   DONE: deterministic Telegram fixture shows battle summary + candidate chains + metrics while preserving human publish approval.
 
 - [ ] T-588 Supervisor routing policy
+  Owner: claude
   Planner: ChatGPT
   Depends: T-580,T-585
   Goal: make Supervisor a routing role, not a fixed model: choose operators for tasks according to owner assignment, availability, task type and bounded Auto policy.
   DONE: regression proves explicit assignment wins over Auto, offline operators are skipped, HUMAN tasks remain blocked, and no provider gains production/publish privileges by being selected.
 
 - [ ] T-589 Engineering battle pilot
+  Owner: claude
   Planner: ChatGPT
   Depends: T-584,T-585
   Goal: run one safe coding task as a real implementation battle (Claude vs another configured operator), review both, and persist exact commits/check evidence without auto-merging production.

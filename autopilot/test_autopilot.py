@@ -134,6 +134,14 @@ def dependency_and_owner_regression():
     assert "T-014" in ap.idle_notice(path)
     print("Autopilot dependency/owner scheduler tests passed")
     parking_regression()
+    roadmap_owner_lint()
+
+
+def roadmap_owner_lint():
+    # T-599-B: every open, non-HUMAN task in the real ROADMAP names its lane explicitly.
+    unowned = [t["id"] for t in ap.parse_roadmap(ap.ROADMAP) if not t["done"] and not t["human"] and not t["owner"]]
+    assert not unowned, f"ROADMAP tasks without Owner: {unowned}"
+    print("ROADMAP owner lint passed")
 
 
 class _StopLoop(Exception):
