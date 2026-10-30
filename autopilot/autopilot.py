@@ -45,6 +45,13 @@ IDLE_SECONDS = max(15, min(3600, int(os.environ.get("AUTOPILOT_IDLE_SECONDS", "6
 # Operator identity of this runner. Roadmap tasks carrying `Owner: <other operator>` are skipped.
 OPERATOR = os.environ.get("AUTOPILOT_OPERATOR", "claude").strip().lower() or "claude"
 SHARED_OWNERS = {"", "any", "auto"}
+# T-599-C: without a server claim no ROADMAP task runs, unless explicitly allowed for offline dev runs.
+ALLOW_UNCLAIMED = os.environ.get("AUTOPILOT_ALLOW_UNCLAIMED", "0").strip().lower() in {"1", "true", "yes", "on"}
+CLAIM_RETRY_SECONDS = 300
+# The worker branch follows main between tasks so new ROADMAP tasks and runner fixes arrive
+# without a manual merge. A runner code change restarts the process via claude_pro_worker.
+BASE_BRANCH = os.environ.get("AUTOPILOT_BASE_BRANCH", "main").strip() or "main"
+EXIT_CODE_UPDATED = 75
 RELAY_ONLY = os.environ.get("AUTOPILOT_RELAY_ONLY", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -182,12 +189,31 @@ def append_answer(task: str, answer: str) -> None:
         handle.write(f"\n## {task or 'blocked-task'}\n{answer.strip()}\n")
 
 
-def sync_branch(branch: str) -> None:
+def sync_branch(branch: str) -> str:
+    """Pull the worker branch, then bring in main. Returns "", "code_updated" or "conflict"."""
     run(["git", "pull", "--rebase", "origin", branch], check=False)
+    before = git_head()
+    if run(["git", "fetch", "origin", BASE_BRANCH], check=False).returncode != 0:
+        return ""
+    target = f"origin/{BASE_BRANCH}"
+    if run(["git", "merge", "--ff-only", target], check=False, capture=True).returncode != 0:
+        if run(["git", "merge", "--no-edit", target], check=False, capture=True).returncode != 0:
+            run(["git", "merge", "--abort"], check=False)
+            return "conflict"
+    after = git_head()
+    if not before or after == before:
+        return ""
+    changed = run(["git", "diff", "--name-only", before, after], check=False, capture=True).stdout.split()
+    return "code_updated" if any(name.startswith("autopilot/") and name.endswith(".py") for name in changed) else ""
 
 
 def push_branch(branch: str) -> bool:
     return run(["git", "push", "origin", branch], check=False).returncode == 0
+
+
+def git_head() -> str:
+    result = run(["git", "rev-parse", "HEAD"], check=False, capture=True)
+    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 def commits_ahead(branch: str) -> int:
@@ -254,6 +280,8 @@ def main() -> int:
     # Blocked tasks wake up when answers/HEAD change; failed ones only on an owner Retry.
     blocked: dict[str, int] = {}
     failed_hold: set[str] = set()
+    # Tasks the server refused to hand us (another lane/run owns them): retry after a pause.
+    deferred: dict[str, float] = {}
     last_idle_notice = ""
     paused = False
     paused_status = ""
@@ -283,7 +311,14 @@ def main() -> int:
                 STATUS.write_text(paused_status, encoding="utf-8")
             send("▶️ Autopilot resumed by the owner.")
 
-        sync_branch(branch)
+        sync = sync_branch(branch)
+        if sync == "code_updated" and DAEMON_MODE:
+            write_runtime_status("idle", summary=f"Runner code updated from {BASE_BRANCH}; restarting with the new code")
+            send(f"♻️ Worker picked up new runner code from {BASE_BRANCH}; restarting between tasks.")
+            return EXIT_CODE_UPDATED
+        if sync == "conflict" and last_idle_notice != "conflict":
+            last_idle_notice = "conflict"
+            send(f"⚠️ {branch} cannot merge {BASE_BRANCH} cleanly; continuing on the current code. Owner/Claude must resolve the conflict.")
 
         # Never advance to another task while verified local commits are still
         # waiting to reach the dedicated remote branch.
@@ -319,7 +354,10 @@ def main() -> int:
         marker = answers_marker()
         for task_id in [t for t, m in blocked.items() if m != marker]:
             del blocked[task_id]
-        parked = set(blocked) | failed_hold
+        now = time.time()
+        for task_id in [t for t, until in deferred.items() if until <= now]:
+            del deferred[task_id]
+        parked = set(blocked) | failed_hold | set(deferred)
         target = next_safe_task(ROADMAP, skip=parked)
         if not target:
             notice = idle_notice(ROADMAP, parked=parked & {t["id"] for t in parse_roadmap(ROADMAP) if not t["done"]})
@@ -340,7 +378,20 @@ def main() -> int:
         if current_branch() != branch:
             raise RuntimeError(f"Branch changed from {branch} while running; autopilot refuses to continue.")
 
-        status = run_agent(target)
+        ticket, reason = relay_tasks.claim_roadmap(target, OPERATOR)
+        if ticket is None and not (ALLOW_UNCLAIMED and not relay_tasks.configured()):
+            # Assignment is not execution: without a verified claim we never touch the code.
+            deferred[target["id"]] = time.time() + CLAIM_RETRY_SECONDS
+            write_runtime_status("idle", task=target["id"], summary=f"{target['id']} not started: {reason}")
+            continue
+        report = relay_tasks.RunReporter(ticket) if ticket else (lambda *a, **k: None)
+        head_before = git_head()
+        if ticket:
+            report("running", f"{target['id']}: Claude Code CLI started", {"branch": branch})
+            with report:
+                status = run_agent(target)
+        else:
+            status = run_agent(target)
         state = str(status.get("status") or "failed").strip().lower()
         task = str(status.get("task") or "unknown")
         summary = str(status.get("summary") or "").strip()
@@ -349,25 +400,36 @@ def main() -> int:
             state = "failed"
             summary = f"agent reported unexpected task {task}; expected {target['id']}"
 
-        if state == "done" and not done_status_is_consistent(status, target):
+        if state == "done" and not done_status_is_consistent(status, target, ROADMAP):
             state = "failed"
             summary = f"{target['id']} reported done but ROADMAP checkbox was not closed"
+
+        head_after = git_head()
+        evidence = {"branch": branch}
+        if head_after and head_after != head_before:
+            evidence["commit"] = head_after
+            report("committed", f"{target['id']}: commit {head_after[:10]} on {branch}", evidence)
 
         if state == "done":
             failures = 0
             if not push_branch(branch):
                 failures = 1
+                report("blocked", f"{target['id']}: committed locally, push failed; worker retries the push only", evidence)
                 send(f"⚠️ {task} is committed locally but push failed; worker will retry without rerunning the task.")
                 if not DAEMON_MODE:
                     return 4
                 time.sleep(IDLE_SECONDS)
                 continue
+            report("pushed", f"{target['id']}: pushed to {branch}; PR/CI/merge not verified by the worker", {**evidence, "pushed": True})
+            checks = ", ".join(str(c) for c in (status.get("checks") or [])[:6])
+            report("done", f"{target['id']}: {summary}" + (f" · checks: {checks}" if checks else ""), {**evidence, "pushed": True})
             send(f"✅ {task}: {summary}")
             time.sleep(PAUSE_SECONDS)
             continue
 
         if state == "blocked":
             need = str(status.get("need") or "Owner input required").strip()
+            report("blocked", f"{target['id']}: {need}", evidence)
             send(f"🙋 {task} ждёт тебя:\n{need}")
             if WAIT_FOR_HUMAN and telegram_configured():
                 answer = wait_answer()
@@ -382,6 +444,7 @@ def main() -> int:
             return 2
 
         failures += 1
+        report("failed", f"{target['id']}: attempt {failures}/{MAX_FAILS} failed. {summary}", evidence)
         send(f"⚠️ {task}: autonomous attempt failed ({failures}/{MAX_FAILS}). {summary}")
         if failures >= MAX_FAILS:
             if not DAEMON_MODE:

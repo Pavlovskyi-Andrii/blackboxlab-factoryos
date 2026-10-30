@@ -12,6 +12,7 @@ from autopilot import relay_tasks
 # T-590 vertical-slice suite; imported here so the existing CI step runs it.
 from test_relay_lifecycle import TestEndToEndSlice, TestOwnerIntake, TestWorkerLifecycle  # noqa: F401
 from test_relay_livefix import TestTelegramLiveFix  # noqa: F401
+from test_roadmap_claims import TestRoadmapClaims, TestWorkerSide  # noqa: F401  (T-599-C/D)
 
 
 

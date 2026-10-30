@@ -244,6 +244,14 @@ class RelayWorkerClaimRequest(BaseModel):
     worker_id: str
 
 
+class RelayRoadmapClaimRequest(BaseModel):
+    worker_id: str
+    lane: str
+    task_id: str
+    title: str = ""
+    owner: str = ""
+
+
 class RelayWorkerEventRequest(BaseModel):
     ticket_id: str
     worker_id: str
@@ -1007,6 +1015,22 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         return {"ok": True, "ticket": ticket}
+
+    @app.post("/api/relay/worker/roadmap-claim")
+    def relay_worker_roadmap_claim(payload: RelayRoadmapClaimRequest, request: Request):
+        _require_worker(request)
+        try:
+            ticket, reason = queue.claim_roadmap(payload.worker_id, payload.lane, payload.task_id,
+                                                 payload.title, payload.owner)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        if ticket and notify_owner:
+            try:
+                notify_owner(f"📥 {payload.task_id} взята в работу · {payload.lane} · {payload.worker_id}\n"
+                             f"run {(ticket.get('execution') or {}).get('run_id') or '?'}")
+            except Exception:
+                pass
+        return {"ok": bool(ticket), "ticket": ticket, "rejected": reason}
 
     @app.post("/api/relay/worker/event")
     def relay_worker_event(payload: RelayWorkerEventRequest, request: Request):
