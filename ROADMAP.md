@@ -31,6 +31,11 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Goal: verify actual owner Telegram chat pairing/webhook and tested /status, /tasks, /task <id>, /history, /roadmap, /github; callbacks for refresh/detail/retry; preserve event history; RU/UK/EN. Only verified ChatGPT actions visible, not fictional live ChatGPT sessions.
   DONE: real test message in paired owner chat -> one ticket -> authenticated Claude claim -> running -> final evidence -> owner reply with exact IDs and GitHub links, redacted transcript and timestamps. If needs owner 2FA, mark HUMAN with exact ask and do not claim done.
 
+- [ ] T-591-A Telegram Relay P0 status/queue/stale hotfix (ChatGPT owner, Claude follow-up acceptance)
+  Owner: ChatGPT. Depends: T-590 (implementation merged in #63; final live acceptance remains T-591).
+  Scope: truthful heartbeat vs active task, claimable queue counts, stale-claim handling without auto-rerun, owner retry instructions.
+  Test: test_relay_livefix.py and existing Relay suites; CI before merge, then Render and owner live E2E. Never mark T-591 done until actual Telegram task executes.
+
 - [ ] T-592 Fix Build Progress / Worker Center factual status and UI freeze
   Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
   Spec: Issues #55, #56, #54, #52 and docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md.
