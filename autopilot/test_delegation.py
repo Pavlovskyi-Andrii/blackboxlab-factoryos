@@ -269,7 +269,39 @@ def test_parent_owned_run_state_visible_during_cli():
     assert evidence["result"] == "failed" and "could not start" in evidence["output_tail"]
 
 
+def test_persistent_venv_and_allowed_tools():
+    # The agent can run the CLAUDE.md checks headlessly, from a venv that survives reboot.
+    spec = dg.build_delegation(TASK, make_repo())
+    allowed = spec["cmd"][spec["cmd"].index("--allowedTools") + 1:spec["cmd"].index("--disallowedTools")]
+    assert "Bash(python:*)" in allowed and "Edit" in allowed and "Bash(git commit:*)" in allowed
+    assert not any("push" in rule or "render" in rule for rule in allowed)
+
+    repo = make_repo()
+    assert dg.ensure_venv(repo) == (None, "no requirements.txt")
+    (repo / "requirements.txt").write_text("requests\n", encoding="utf-8")
+    calls = []
+
+    def fake(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[1:3] == ["-m", "venv"]:
+            (Path(cmd[3]) / "bin").mkdir(parents=True)
+            (Path(cmd[3]) / "bin" / "python").write_text("", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    venv, note = dg.ensure_venv(repo, runner=fake)
+    assert venv == repo / ".venv" and note == "installed" and len(calls) == 2
+    assert dg.ensure_venv(repo, runner=fake) == (venv, "ready") and len(calls) == 2  # cached by hash
+    (repo / "requirements.txt").write_text("requests\nfastapi\n", encoding="utf-8")
+    assert dg.ensure_venv(repo, runner=fake)[1] == "installed" and len(calls) == 3  # reinstall only
+    env = dg.venv_env({"PATH": "/usr/bin"}, venv)
+    assert env["PATH"].startswith(str(venv / "bin")) and env["VIRTUAL_ENV"] == str(venv)
+    failing = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="no network")
+    (repo / ".venv" / ".requirements.sha256").unlink()
+    assert dg.ensure_venv(repo, runner=failing) == (None, "pip install failed: no network")
+
+
 def main():
+    test_persistent_venv_and_allowed_tools()
     test_spec_pins_and_bounds()
     test_env_scrubs_payg_and_deploy_credentials()
     test_done_with_evidence()
