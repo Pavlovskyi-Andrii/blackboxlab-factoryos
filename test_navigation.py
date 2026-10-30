@@ -1,12 +1,19 @@
 """T-594 left navigation regression: semantic groups, RU/UK/EN labels and route preservation.
 
-Static checks only. Every destination that existed before the regrouping (the before-map below,
-taken from the pre-T-594 sidebar) must still be reachable from exactly one sidebar button with the
-same handler. Each button belongs to a declared section, carries a descriptive localized hint, and
-every section heading / hint has a real EN, UK and RU translation.
+Static checks. Every destination that existed before the regrouping (the before-map below, taken
+from the pre-T-594 sidebar) must still be reachable from exactly one sidebar button with the same
+handler. Each button belongs to a declared, collapsible section, carries a descriptive localized
+hint, and every section heading / hint / menu control has a real EN, UK and RU translation. The
+slide-out menu, remembered accordion state, breadcrumbs and keyboard handling are checked against
+the markup, CSS and script. The inline script is syntax-checked with `node --check` when node is
+available (required with FACTORYOS_REQUIRE_NODE=1).
 """
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from test_locale_parity import FOREIGN_LETTERS, extract, parse_tables, require
@@ -106,6 +113,7 @@ def check_routes_and_groups(items):
 
 def check_locales(tables, nav_ids):
     keys = [f"navGroup.{g}" for g in GROUPS] + ["navGroup.aria"] + [f"navHint.{n}" for n in nav_ids]
+    keys += ["navMenu.open", "navMenu.close", "navCrumb.aria", "navCrumb.home"]
     for key in keys:
         en = tables["en"].get(key)
         require(en, f"en missing {key}")
@@ -117,9 +125,68 @@ def check_locales(tables, nav_ids):
     require(tables["uk"]["navGroup.create"] != tables["ru"]["navGroup.create"], "UK and RU section labels must be distinct copy")
 
 
+def check_collapsible_groups(inner):
+    """Each section is a navGroup: a heading with a real toggle button that controls its item list."""
+    groups = re.findall(r'<div class="navGroup" data-nav-group="([^"]+)">', inner)
+    require(tuple(groups) == GROUPS, f"navGroup wrappers out of order or missing: {groups}")
+    for group in GROUPS:
+        toggle = re.search(r'<button type="button" class="navSectionToggle" id="navHead-' + group + r'"([^>]*)>(.*?)</button>', inner, re.S)
+        require(toggle is not None, f"section {group} has no toggle button")
+        require('aria-expanded="true"' in toggle.group(1), f"section {group} toggle has no aria-expanded")
+        require(f'aria-controls="navItems-{group}"' in toggle.group(1), f"section {group} toggle does not control its list")
+        require(f"onclick=\"toggleNavGroup('{group}')\"" in toggle.group(1), f"section {group} toggle is not wired")
+        require(f'data-i18n="navGroup.{group}"' in toggle.group(2), f"section {group} toggle lost its localized label")
+        items = re.search(r'<div class="navItems" id="navItems-' + group + r'" role="group" aria-labelledby="navHead-' + group + r'">(.*?)</div></div>', inner, re.S)
+        require(items is not None, f"section {group} has no labelled item group")
+        tags = re.findall(r'data-nav-group="([^"]+)" data-nav-id', items.group(1))
+        require(tags and set(tags) == {group}, f"section {group} list holds foreign items: {tags}")
+
+
+def check_behaviour(html, script, css):
+    # Slide-out: ~1/3 on capable viewports, usable adaptive width on phones, outside tap closes.
+    require("width:clamp(320px,33.333vw,520px)" in css, "desktop slide-out menu is not ~1/3 of the viewport")
+    require(".side.navOpen{width:min(86vw,360px)" in css, "phone drawer must use a usable adaptive width")
+    require('id="navBackdrop" onclick="closeMobileNav()"' in html, "outside tap no longer closes the menu")
+    require(".navBackdrop.open{opacity:1;pointer-events:auto}" in css.split("@media(min-width:701px){", 1)[-1], "backdrop not active on desktop")
+    require('id="navExpandToggle" aria-controls="appSideNav" aria-expanded="false"' in html, "desktop expand toggle missing")
+    require('id="mobileNavToggle" aria-label="Open navigation" aria-controls="appSideNav"' in html, "phone toggle lost aria-controls")
+    require("content:attr(title)" in css, "expanded menu does not show one-line descriptions")
+    require(".navGroup.collapsed .navItems{display:none}" in css, "collapsed groups are not hidden")
+    require(".side:not(.navOpen) .navGroup.collapsed .navItems{display:grid}" in css, "icon rails must keep every destination visible")
+    # The rail hide rule must out-rank the toggle's display:flex!important (.nav .navSection .navSectionToggle:not(.active)).
+    require(".side:not(.navOpen) .nav .navSection .navSectionToggle{display:none!important}" in css, "section toggles leak into the icon rail")
+    # Remembered accordion state, current section, breadcrumbs, keyboard.
+    require("const NAV_COLLAPSED_KEY='factoryos_nav_collapsed'" in script, "accordion state is not remembered")
+    require("localStorage.setItem(NAV_COLLAPSED_KEY" in script, "accordion state is not persisted")
+    require("set.has(g)&&!box.querySelector('.navItems>button.active')" in script, "current group can be restored collapsed")
+    require("b.setAttribute('aria-current','page')" in script, "current destination is not exposed via aria-current")
+    require('id="navCrumbs" data-i18n-aria-label="navCrumb.aria"' in html, "breadcrumb landmark missing")
+    require("function renderNavCrumbs(" in script and "tr('navGroup.'+group)" in script, "breadcrumbs do not show the section")
+    require("syncNavToggles();restoreNavGroups();renderNavCrumbs();" in script, "applyLanguage does not refresh nav state")
+    require("new MutationObserver(" in script and "setNavCurrent('control')" in script, "closing a studio does not return to Control Room")
+    for key in ("'ArrowDown','ArrowUp','Home','End'", "e.key==='ArrowRight'||e.key==='ArrowLeft'", "e.key==='Escape'&&navMenuOpen()"):
+        require(key in script, f"keyboard handling missing: {key}")
+    require("e.target.closest('.navItems>button')" in script, "only destinations, not section toggles, may close the menu")
+    require("window.addEventListener('resize',()=>{if(!mobileNavEnabled())closeMobileNav()})" not in script, "desktop resize must not force-close the menu")
+
+
+def check_script_syntax(script):
+    node = shutil.which("node")
+    if not node:
+        require(os.environ.get("FACTORYOS_REQUIRE_NODE") != "1", "node is required for the script syntax check")
+        print("SKIPPED inline script syntax check: node is not installed")
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "factoryos-ui.js"
+        path.write_text(script, encoding="utf-8")
+        result = subprocess.run([node, "--check", str(path)], capture_output=True, text=True, timeout=60)
+    require(result.returncode == 0, f"inline dashboard script has a syntax error: {result.stderr.strip()[:400]}")
+
+
 def main():
     html = HTML.read_text(encoding="utf-8")
     nav, inner = nav_markup(html)
+    check_collapsible_groups(inner)
     require('data-i18n-aria-label="navGroup.aria"' in nav, "sidebar has no localized accessible name")
     for counter in COUNTERS:
         require(f'id="{counter}"' in inner, f"live nav counter #{counter} missing from sidebar")
@@ -132,7 +199,10 @@ def main():
     require(".navSection{" in css, "nav section styling missing")
     require(".side.navOpen .navSection{" in css, "open mobile drawer must show section labels")
     require(".nav button:focus-visible{" in css, "keyboard focus ring for nav buttons missing")
-    print(f"Navigation passed: {len(BEFORE)} destinations preserved across {len(GROUPS)} sections, EN/UK/RU labels and hints present")
+    check_behaviour(html, script, css)
+    check_script_syntax(script)
+    print(f"Navigation passed: {len(BEFORE)} destinations preserved across {len(GROUPS)} collapsible sections, "
+          "slide-out menu, breadcrumbs, keyboard handling, EN/UK/RU labels and hints present")
 
 
 if __name__ == "__main__":

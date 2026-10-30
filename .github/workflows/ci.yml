@@ -169,6 +169,12 @@ jobs:
         run: |
           python -m py_compile test_locale_parity.py
           python test_locale_parity.py
+      - name: Left navigation groups / slide-out / breadcrumbs regression
+        env:
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_navigation.py
+          python test_navigation.py
       - name: Delegation execution timeline regression
         env:
           FACTORY_PASSWORD: ""
