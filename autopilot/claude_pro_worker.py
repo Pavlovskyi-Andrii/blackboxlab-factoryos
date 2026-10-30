@@ -115,6 +115,9 @@ def heartbeat(version: str, *, state: str = "") -> None:
     response.raise_for_status()
 
 
+CODE_UPDATED = 75  # autopilot.EXIT_CODE_UPDATED
+
+
 def heartbeat_loop(version: str) -> None:
     while not _stop.wait(HEARTBEAT_SECONDS):
         try:
@@ -144,6 +147,12 @@ def main() -> int:
     thread.start()
     try:
         result = subprocess.run([sys.executable, "-m", "autopilot.autopilot"], cwd=REPO, check=False)
+        if result.returncode == CODE_UPDATED:
+            # The runner merged new code from main between tasks: re-exec so this parent runs it too.
+            heartbeat(version, state="online")
+            _stop.set()
+            thread.join(timeout=2)
+            os.execv(sys.executable, [sys.executable, "-m", "autopilot.claude_pro_worker"])
         heartbeat(version, state="idle" if result.returncode == 0 else "failed")
         return int(result.returncode)
     finally:

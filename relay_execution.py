@@ -18,6 +18,9 @@ ALLOWED_EVENTS = ACTIVE_STATES | FINAL_STATES | {"heartbeat"}
 WORKER_ID_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,80}$")
 EVENT_ID_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,120}$")
 SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+TASK_ID_RE = re.compile(r"^T-[A-Za-z0-9-]{1,40}$")
+LANE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+SHARED_LANES = {"", "any", "auto"}
 GITHUB_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SECRET_RE = re.compile(
     r"(?:sk-ant-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{12,}|github_pat_[A-Za-z0-9_]{12,}"
@@ -90,6 +93,10 @@ def lifecycle_text(ticket: dict) -> str:
     if ex.get("last_seen_at") and ex.get("state") in ACTIVE_STATES | {"stale"}:
         lines.append("Последняя связь worker: " + str(ex["last_seen_at"])[:19].replace("T", " ") + " UTC")
     return "\n".join(lines)
+
+
+def _is_roadmap(ticket: dict) -> bool:
+    return (ticket.get("source") or {}).get("channel") == "roadmap"
 
 
 def utc_now() -> str:
@@ -243,31 +250,78 @@ class RelayQueue:
                     released = True
             if released:
                 self.store._save_unlocked(state)
-            pending = [item for item in state["tickets"] if item.get("status") == "inbox" and (item.get("execution") or {}).get("state") == "queued"]
+            pending = [item for item in state["tickets"] if item.get("status") == "inbox"
+                       and (item.get("execution") or {}).get("state") == "queued" and not _is_roadmap(item)]
             pending.sort(key=lambda item: (item.get("execution") or {}).get("queued_at") or "")
             if not pending:
                 return None
             item = pending[0]
-            now = utc_now()
-            ex = dict(item["execution"])
-            # A fresh run_id per claim fences late events from an older attempt.
-            run_id = "run-" + secrets.token_hex(6)
-            for key in ("started_at", "finished_at", "commit", "pushed_reported", "ci_passed_reported", "pr_url", "artifact_url"):
-                ex.pop(key, None)
-            ex.update({
-                "state": "claimed", "worker_id": worker_id, "run_id": run_id,
-                "claimed_at": now, "last_seen_at": now,
-                "attempts": int(ex.get("attempts") or 0) + 1,
-                "note": "Задание получено исполнителем; запуск Claude ещё проверяется",
-            })
-            item["execution"] = ex
-            item["updated_at"] = now
-            item.setdefault("history", []).append({
-                "at": now, "actor": worker_id, "action": "claimed", "run_id": run_id,
-                "note": "Claude worker забрал задание", "from_status": "inbox", "to_status": "inbox",
-            })
+            self._claim_unlocked(item, worker_id, "Claude worker забрал задание")
             self.store._save_unlocked(state)
             return self.view(dict(item))
+
+    def _claim_unlocked(self, item: dict, worker_id: str, history_note: str, lane: str = "") -> None:
+        now = utc_now()
+        ex = dict(item.get("execution") or {})
+        before = str(item.get("status") or "inbox")
+        # A fresh run_id per claim fences late events from an older attempt.
+        run_id = "run-" + secrets.token_hex(6)
+        for key in ("started_at", "finished_at", "commit", "pushed_reported", "ci_passed_reported", "pr_url", "artifact_url",
+                    "stale_seconds"):
+            ex.pop(key, None)
+        ex.update({
+            "state": "claimed", "worker_id": worker_id, "run_id": run_id,
+            "claimed_at": now, "last_seen_at": now,
+            "attempts": int(ex.get("attempts") or 0) + 1,
+            "note": "Задание получено исполнителем; запуск Claude ещё проверяется",
+        })
+        if lane:
+            ex["owner"] = lane
+        item["execution"] = ex
+        item["status"] = "inbox"
+        item["updated_at"] = now
+        item.setdefault("history", []).append({
+            "at": now, "actor": worker_id, "action": "claimed", "run_id": run_id,
+            "note": history_note, "from_status": before, "to_status": "inbox",
+        })
+
+    def claim_roadmap(self, worker_id: str, lane: str, task_id: str, title: str = "",
+                      owner: str = "") -> tuple[dict | None, str]:
+        """T-599-C: atomic server-side claim of one ROADMAP task by one runner lane.
+
+        One ticket per task (source_key ``roadmap:T-xxx``). Returns ``(ticket, "")`` with a
+        fresh run_id, or ``(None, reason)`` when another lane owns the task, a run is still
+        active, or a stale run awaits an owner Retry. Never re-runs active work.
+        """
+        worker_id = str(worker_id or "").strip()
+        lane = str(lane or "").strip().lower()
+        task_id = str(task_id or "").strip()
+        owner = str(owner or "").strip().lower()
+        if not WORKER_ID_RE.fullmatch(worker_id):
+            raise ValueError("Invalid worker ID")
+        if not LANE_RE.fullmatch(lane) or (owner and not LANE_RE.fullmatch(owner)):
+            raise ValueError("Invalid lane")
+        if not TASK_ID_RE.fullmatch(task_id):
+            raise ValueError("Invalid ROADMAP task ID")
+        if owner not in SHARED_LANES and owner != lane:
+            return None, f"{task_id} belongs to lane {owner}"
+        source = {"channel": "roadmap", "source_key": "roadmap:" + task_id, "task_id": task_id, "owner": owner or "any"}
+        clean_title = " ".join(redact(title).split())[:150]
+        with self.store.lock:
+            ticket, _created = self.store.create(task_id + (" · " + clean_title if clean_title else ""),
+                                                 source=source, created_by=worker_id)
+            state = self.store._load_unlocked()
+            item = next(x for x in state["tickets"] if x.get("id") == ticket["id"])
+            current = self.view(dict(item))["execution"]
+            stage = str(current.get("state") or "")
+            if stage == "stale":
+                return None, f"{task_id}: previous run lost contact; owner Retry required"
+            if stage in ACTIVE_STATES:
+                return None, f"{task_id} is already {stage} by {current.get('worker_id') or '?'}"
+            item.setdefault("source", {}).update({"owner": owner or "any"})
+            self._claim_unlocked(item, worker_id, f"ROADMAP {task_id} взята исполнителем {worker_id} (lane {lane})", lane)
+            self.store._save_unlocked(state)
+            return self.view(dict(item)), ""
 
     def _release_stale_unlocked(self, item: dict, worker_id: str) -> None:
         now = utc_now()
@@ -291,7 +345,7 @@ class RelayQueue:
             if status not in ("inbox", "in_progress", "need_you"):
                 continue
             stage = str(self.view(ticket)["execution"].get("state") or "")
-            if status == "inbox" and stage == "queued":
+            if status == "inbox" and stage == "queued" and not _is_roadmap(ticket):
                 counts["claimable"] += 1
             elif stage == "stale":
                 counts["stale"] += 1

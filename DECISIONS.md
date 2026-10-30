@@ -305,3 +305,9 @@ Autonomous workers record reversible engineering decisions here so the owner can
 - With the ChatGPT lane paused, every open non-HUMAN task is labelled `Owner: claude`. HUMAN tasks stay unlabelled because no runner ever selects them.
 - A CI lint (`roadmap_owner_lint`) fails when an open non-HUMAN task has no `Owner:`, so new tasks must name a lane.
 - Runtime semantics are unchanged: an empty Owner still counts as shared. Flipping it to fail-closed is deferred until a second lane is reactivated; the lint already prevents unowned tasks from landing.
+
+## 2026-10-30 — T-599-C/D: claim before code, events from the parent process
+- ROADMAP runs reuse `RelayQueue`: `claim_roadmap` atomically finds or creates one ticket per task (`roadmap:T-xxx`) under the store lock and issues a fresh `run_id`. It refuses another lane's task, an active run, and a stale run that is waiting for an owner Retry. Generic Relay claims skip ROADMAP tickets, so a Retry cannot run a ROADMAP task with the Relay prompt.
+- Fail-closed: without a server claim the worker does not touch code, and the task is deferred for 5 minutes. `AUTOPILOT_ALLOW_UNCLAIMED=1` allows unclaimed runs only for offline dev runners without a FactoryOS connection.
+- Events come from `autopilot.py`, which sees git and exit codes: running, committed (new HEAD), pushed, done (with the agent's reported checks), blocked, failed, plus a heartbeat every 20s. PR/CI/merge are not claimed by the worker.
+- Root cause of "Claude has tasks but does nothing": the EC2 worker pulled only `autopilot/aws-worker`, which was 12 commits behind main, so it never saw new ROADMAP tasks or runner fixes. Between tasks, `sync_branch` now fast-forwards or merges `origin/main`. A merge conflict is aborted and reported. If `autopilot/*.py` changed, the runner exits 75 and `claude_pro_worker` re-execs itself with the new code.

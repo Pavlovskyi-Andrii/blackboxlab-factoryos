@@ -102,6 +102,7 @@ def run_loop(*, branch_sequence, control_feed, daemon=False):
         mock.patch.object(ap, "ANSWERS", root / ".autopilot" / "answers.md"),
         mock.patch.object(ap, "REPO", root),
         mock.patch.object(ap, "DAEMON_MODE", daemon),
+        mock.patch.object(ap, "ALLOW_UNCLAIMED", True),
         mock.patch.object(ap, "current_branch", lambda: next(branches)),
         mock.patch.object(ap, "sync_branch", lambda branch: None),
         mock.patch.object(ap, "commits_ahead", lambda branch: 0),

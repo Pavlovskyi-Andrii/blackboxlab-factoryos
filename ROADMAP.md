@@ -17,13 +17,28 @@ Rules:
 
 Owner directed Claude Code to be the principal engineering/operator coordinator. **Read docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md FIRST, then CLAUDE.md, and verify live state**. Do not claim owner Telegram works until live end-to-end proof. Do not enable paid APIs/cloud resources or unauthorized publishing. Separate worker service 'online' from actual task claims. Do not push to main; PR+CI+verification required.
 
+- [ ] T-599-E Owner GitHub Issue auto-intake
+  Owner: claude
+  Priority: P0
+  Spec: docs/handoff/T-599_VERIFIED_EXECUTION.md §2 T-599-E; Issue #67
+  Goal: FactoryOS periodically (≤ every 5 min, free GitHub API) imports open Issues authored by the repo owner whose first body line is `Owner: Claude|ChatGPT|Gemini` via the existing idempotent `intake_github_issue`; an Issue referencing a T-ID that already has a `roadmap:T-xxx` ticket is linked instead of duplicated; other authors are ignored.
+  DONE: deterministic tests cover import, dedupe on repeat, T-ID linking, foreign-author rejection and GitHub-unavailable fallback; no secrets in logs; CI green.
+
+- [ ] T-599-F Workers / Build Progress / Telegram from verified events
+  Owner: claude
+  Priority: P0
+  Depends: T-599-E
+  Spec: docs/handoff/T-599_VERIFIED_EXECUTION.md §2 T-599-F; Issue #67 slice 3; overlaps T-596
+  Goal: per-lane state (Working/Blocked/Stale/Idle/Offline) derived only from run events + heartbeat; ROADMAP tasks with Owner but no claim render "assigned, not claimed"; Build Progress columns Planned/In progress/Blocked/Review/Done with counts done/remaining per lane; Telegram /status and /tasks show the same per-lane summary.
+  DONE: deterministic API/UI/Telegram fixtures for idle/running/blocked/stale/offline and assigned-not-claimed; web and Telegram show identical task/stage; RU/UK/EN; CI green.
+
 - [ ] T-599 Verified task claims: assignment ≠ execution
   Owner: claude
   Priority: P0
-  Depends: T-537
+  Depends: T-537,T-599-E,T-599-F
   Spec: docs/handoff/T-599_VERIFIED_EXECUTION.md; Issue #67
   Goal: route ROADMAP tasks and owner GitHub Issues through the existing RelayQueue claim/run_id/event journal; remove head-of-line blocking; require explicit Owner on every open task; derive Workers/Build Progress/Telegram state only from worker events.
-  Progress 2026-10-30: T-599-A done — a blocked task is parked until new answers.md input or owner Retry, a task that exhausts MAX_FAILS is parked until Retry, and the daemon continues with the next safe task (autopilot/test_autopilot.py parking_regression). T-599-B done — every open non-HUMAN task carries Owner (CI lint in autopilot/test_autopilot.py). Remaining: C/D (ROADMAP tasks through RelayQueue claim + worker-emitted events), E (owner Issue auto-intake), F (UI/Telegram from events).
+  Progress 2026-10-30: T-599-A done — a blocked task is parked until new answers.md input or owner Retry, a task that exhausts MAX_FAILS is parked until Retry, and the daemon continues with the next safe task (autopilot/test_autopilot.py parking_regression). T-599-B done — every open non-HUMAN task carries Owner (CI lint in autopilot/test_autopilot.py). T-599-C/D done — every ROADMAP run starts only after an atomic server claim (`POST /api/relay/worker/roadmap-claim`, one ticket per task, run_id fenced, other lanes/active/stale runs refused) and the worker itself emits running/committed/pushed/done/blocked/failed plus heartbeats (test_roadmap_claims.py, claim_gate_regression). The worker branch now follows main between tasks and restarts itself when runner code changed (follow_main_regression). Remaining: T-599-E, T-599-F (separate tasks above) and live EC2 verification.
   DONE: deterministic tests A–E pass; no open ROADMAP task lacks Owner; a blocked task no longer stalls the queue; an Owner-assigned task without a claim renders as "assigned, not claimed"; CI-gated PRs; evidence posted to Issue #67.
 
 - [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
