@@ -294,3 +294,9 @@ Autonomous workers record reversible engineering decisions here so the owner can
 - Retagged open ChatGPT tasks to `Owner: claude`: T-591-A, T-562, T-564. Completed T-560-B/C keep their historical owner.
 - T-564 `Depends: T-562,T-563` → `Depends: T-562`: T-563 never existed in the ROADMAP, so T-564 could never be selected.
 - Added T-599 at the top of P0 so the worker fixes head-of-line blocking before it reaches T-590's owner-dependent remainder.
+
+## 2026-10-30 — T-599-A: park instead of stall
+- A blocked task is parked and woken only by a change to `.autopilot/answers.md` or an owner Retry. HEAD changes no longer wake it, so the worker's own commits on other tasks don't make the blocked task burn another Claude turn.
+- A task that exhausts `MAX_FAILS` is parked until Retry, and the failure counter is per task. The daemon then continues with the next safe task instead of sleeping on the held one.
+- `control.decide` accepts the set of parked tasks, so Retry works for any of them.
+- Standing owner grants are recorded in `.autopilot/answers.md`; they include merging Claude's own PRs once CI is green.

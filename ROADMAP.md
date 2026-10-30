@@ -23,6 +23,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Depends: T-537
   Spec: docs/handoff/T-599_VERIFIED_EXECUTION.md; Issue #67
   Goal: route ROADMAP tasks and owner GitHub Issues through the existing RelayQueue claim/run_id/event journal; remove head-of-line blocking; require explicit Owner on every open task; derive Workers/Build Progress/Telegram state only from worker events.
+  Progress 2026-10-30: T-599-A done — a blocked task is parked until new answers.md input or owner Retry, a task that exhausts MAX_FAILS is parked until Retry, and the daemon continues with the next safe task (autopilot/test_autopilot.py parking_regression). Remaining: B (Owner on every open task), C/D (ROADMAP tasks through RelayQueue claim + worker-emitted events), E (owner Issue auto-intake), F (UI/Telegram from events).
   DONE: deterministic tests A–E pass; no open ROADMAP task lacks Owner; a blocked task no longer stalls the queue; an Owner-assigned task without a claim renders as "assigned, not claimed"; CI-gated PRs; evidence posted to Issue #67.
 
 - [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
