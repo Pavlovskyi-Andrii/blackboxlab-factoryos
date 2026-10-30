@@ -349,7 +349,7 @@ def get_operator_lanes():
             "node_id":str(item.get("node_id") or ""),"runtime":str(item.get("runtime") or ""),
             "version":str(item.get("version") or ""),"auth_mode":str(item.get("auth_mode") or ""),
             "branch":str(item.get("branch") or ""),"repo":str(item.get("repo") or ""),
-            "active_task_id":task_id if online and str(item.get("status") or "").lower() in ("running", "in_progress", "claimed", "checkpoint") else "",
+            "active_task_id":task_id if online and str(item.get("status") or "").lower() in ("running", "working", "in_progress", "claimed", "checkpoint") else "",
             "last_task_id":task_id if online else "",
             "task_state":str(item.get("status") or ""),
             "stage":str(item.get("stage") or ""),"queue_depth":max(0,int(item.get("queue_depth") or 0)),
@@ -362,7 +362,7 @@ def get_operator_lanes():
     if not lanes["claude"]["online"] and legacy.get("online"):
         lanes["claude"].update({
             "online":True,"state":"online","last_seen":legacy.get("last_seen") or 0,
-            "active_task_id":(legacy.get("active_task_id") or "") if legacy.get("task_state") in ("running", "in_progress", "claimed", "checkpoint") else "",
+            "active_task_id":(legacy.get("active_task_id") or "") if legacy.get("task_state") in ("running", "working", "in_progress", "claimed", "checkpoint") else "",
             "last_task_id":legacy.get("active_task_id") or "",
             "task_state":legacy.get("task_state") or "",
             "last_error":legacy.get("last_error") or "",
