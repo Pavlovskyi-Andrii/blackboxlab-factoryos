@@ -12,6 +12,75 @@ Rules:
 - Human approval remains mandatory before any real social publishing action.
 - ZERO ADDITIONAL SPEND: do not connect paid API billing, metered AI/browser calls, new paid cloud resources, or paid publisher plans without explicit fresh owner approval. Use existing subscriptions and free-tier resources only, with a fail-closed spending guard. Subscription access must never be silently replaced with PAYG API usage.
 
+## P0 — CLAUDE TAKES OVER (owner priority 2026-10-29)
+
+Owner directed Claude Code to be the principal engineering/operator coordinator. **Read docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md FIRST, then CLAUDE.md, and verify live state**. Do not claim owner Telegram works until live end-to-end proof. Do not enable paid APIs/cloud resources or unauthorized publishing. Separate worker service 'online' from actual task claims. Do not push to main; PR+CI+verification required.
+
+- [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
+  Planner: owner; Executor: Claude Code Pro (primary). P0.
+  Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; GitHub Issues #41, #51, #56, #40; PR #43, #42, #60.
+  Goal: implement a working vertical slice from owner Telegram/Web task intake through durable queued→claimed→running→events→code/commit→GitHub lifecycle, with factual owner-facing Telegram /status /tasks /task and same Web state. Establish real issue/ROADMAP→Relay intake or explicit reconciled links; resolve missing parent-owned task progress during Claude run.
+  Test: deterministic intake dedupe, authenticated claims, idempotent events, stale/blocked/failed paths, redaction, restart persistence, no fabricated ChatGPT telemetry; targeted and full CI.
+  DONE: one owner task can be followed end-to-end with verified server worker claim, live heartbeat and task status, a real artifact/commit where applicable, and owner-visible Telegram trace; preserve external publish approval. If owner chat not paired, show a precisely documented HUMAN action and validate all other stages without claiming live Telegram DONE. Record evidence in Issue #41, open reviewed non-main PR, verify CI and deployed revision.
+  Progress (2026-10-29, code slice committed on autopilot/aws-worker; NOT live-verified): parent-owned `.autopilot/run.json` run telemetry in heartbeat; run_id-fenced, event_id-idempotent Relay events with one safe retry; owner-only GitHub Issue → Relay intake (`POST /api/relay/intake/github-issue`, Telegram `/issue N`) with source_key dedupe; shared `lifecycle` trace in Web `/relay` detail + Telegram `/task` (PR/CI/merge/deploy shown "не проверено"); note redaction. Deterministic tests: `test_relay_lifecycle.py` (via `test_relay_execution.py`), `autopilot/test_delegation.py`.
+  Remaining (needs owner/GitHub access): open PR autopilot/aws-worker → main and confirm CI green; merge + confirm Render deployed SHA; HUMAN T-506 pairing, then live `/new` test message → claim → run_id → `/task` trace; post redacted evidence to Issue #41.
+
+- [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
+  Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
+  Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; Issue #41 and #51.
+  Goal: verify actual owner Telegram chat pairing/webhook and tested /status, /tasks, /task <id>, /history, /roadmap, /github; callbacks for refresh/detail/retry; preserve event history; RU/UK/EN. Only verified ChatGPT actions visible, not fictional live ChatGPT sessions.
+  DONE: real test message in paired owner chat -> one ticket -> authenticated Claude claim -> running -> final evidence -> owner reply with exact IDs and GitHub links, redacted transcript and timestamps. If needs owner 2FA, mark HUMAN with exact ask and do not claim done.
+
+- [ ] T-592 Fix Build Progress / Worker Center factual status and UI freeze
+  Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
+  Spec: Issues #55, #56, #54, #52 and docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md.
+  Goal: reconcile 87% vs 49% metric scopes; distinguish EC2/SSM/systemd/subscription auth/heartbeat/claim/task; fix race for .autopilot/status.json, stale/offline, huge overflow; make owner HUMAN blockers actionable.
+  DONE: deterministic tests + screenshot evidence showing same task/stage in Telegram and Web; no ghost running/false progress; columns usable mobile+desktop and consistent stale timestamps; non-main PR/CI.
+
+- [ ] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
+  Planner: owner; Executor: Claude Code Pro. P0/P1. Depends: T-590.
+  Spec: handoff diagnosis, Issue #40/#49/#50/#47 and ROADMAP T-560-C onward.
+  Goal: reproducible restricted permission profile, safe tests and dependency boot (Python 3.9), non-spinning retry, durable worker errors, GitHub/ROADMAP task dedupe, automated safe backlog sequence and concise verified owner reporting.
+  DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
+
+## P1 / P2 — Owner UI and agent management batch (2026-10-30)
+Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independent safe Claude engineering tasks**, except where dependency is explicitly stated. Owner is currently using EC2; avoid unnecessary service restarts or credential changes. When T-590 is blocked awaiting PR/CI/owner Telegram, do not silently claim that these UI tasks are running; use a new verifiable task claim/branch and continue safe independent work as scheduler permits. No new paid API, no bypass, no direct main push.
+
+- [ ] T-594 Left navigation with collapsible semantic submenus
+  Owner: Claude
+  Priority: P1
+  Spec: #53, T-574; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M3.
+  Goal: audit and preserve all current routes; clear section grouping and descriptive RU/UK/EN labels, icon rail, hover/click expanding text, slide-out adaptive one-third desktop menu, outside-tap closes, breadcrumbs, current section and keyboard accessibility.
+  DONE: before/after nav map, screenshots desktop/mobile, all existing destinations reachable, keyboard/touch and RU/UK/EN regressions, CI-gated PR.
+
+- [ ] T-595 Resizable/maximizable sliding drawers and overflow repair
+  Owner: Claude
+  Priority: P1
+  Spec: #54, T-575; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M4.
+  Goal: resize large panels by left-edge drag slider/handle, max/restore beside X, bounds that keep sidebar visible, session width memory, fix horizontal overflow and clipped Build Progress columns, mobile full-screen drawers and keyboard/touch controls.
+  DONE: tests and before/after screenshots 1440x900, 1024x768, 390x844; no cut-off Planned/In Progress/Completed/Blocked; CI-gated PR.
+
+- [ ] T-596 Worker Center / Agent Office factual live observability
+  Owner: Claude
+  Priority: P1
+  Spec: #52, #55, #56; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M2.
+  Goal: distinguish EC2 IAM instance visibility, systemd/OAuth, heartbeat, Relay claim, real current Claude task; existing worker detail, timeline, scoped heatmap, errors, last verified time, branch/PR/CI. Clickable workers in Agent Office. Correct distinct progress denominators (87% vs 49% historical), no fake progress, actionable HUMAN blockers.
+  DONE: deterministic offline/stale/idle/running test cases, source links, web↔Telegram consistency, RU/UK/EN mobile/desktop screens and CI-gated PR.
+
+- [ ] T-597 Contextual assistance and accessibility
+  Owner: Claude
+  Priority: P2
+  Spec: #57, T-578; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M5.
+  Goal: reusable info/help icon, microcopy and small factual diagrams for Relay, workers, connectors, stages, approval, video, Content Brain, Discovery; RU/UK/EN, desktop hover/mobile tap/keyboard focus. Audio/video tutorial placeholders marked not yet supported; no metered generation.
+  DONE: all target surfaces covered, no overlapping help/popovers, accessible tests, mobile screenshots and CI.
+
+- [ ] T-598 Stable autonomous engineering handoff and report
+  Owner: Claude
+  Priority: P1
+  Spec: #61, #40, #49–51, T-593; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M6.
+  Goal: verified GitHub Issue/ROADMAP/Relay task dedupe, Depends/Owner scheduler from merged #62, bounded retries, no endless git pull represented as busy, truthful parent run state and checkpoint reports, PR/CI/Render verification. GitHub workflow scope and EC2 describe IAM read permissions escalated as optional HUMAN tasks with least privilege, not blocking code.
+  DONE: safe queued→claimed→running→checks→PR/CI evidenced, automation survives restart, error-handling regression and concise owner-visible milestone report; no paid resources.
+
 ## v5.0 — Self-Building FactoryOS
 
 - [x] T-500 Repository autopilot contract
@@ -64,22 +133,24 @@ Rules:
   Goal: add provider-neutral BrowserActionPlan/BrowserActionResult contracts, bounded step validation, secret redaction, immutable payload hashing, approval policy and a deterministic mocked executor; no real credentials or browser session in this task.
   DONE: deterministic regression proves secret-like fields are redacted, unknown/unsafe steps are rejected, publish/send/destructive actions cannot execute without matching approval snapshot + payload hash, read/draft mocked runs can finish with factual evidence, and no real browser/provider/network call is made.
 
-- [ ] T-560-B Session/vault abstraction + human takeover
+- [x] T-560-B Session/vault abstraction + human takeover
   Owner: ChatGPT
   Planner: ChatGPT
   Depends: T-560-A,T-550
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
   Goal: add opaque credential_ref/session_ref resolution contracts, workspace/account session isolation and resumable waiting_human checkpoints for 2FA/CAPTCHA/security challenges without exposing secrets.
   Progress 2026-10-28: opaque per-workspace SessionRegistry and waiting_human/resume authorization contract merged; actual credential vault resolution and persisted session handoff remain unfinished.
+  Progress 2026-10-29: scoped CredentialVault contract (vault:// refs, SecretValue never renders, human-only OTP/recovery material unresolvable), persisted SessionRegistry/CheckpointStore (refs + redacted metadata only) and single-use resumable mock executor that never replays completed irreversible steps. Real vault backend and Playwright session restore remain future work (no credentials configured).
   DONE: deterministic two-workspace regression proves no session crossover, logs/results contain no secret values, challenge state stops safely at waiting_human, and an owner-authorized checkpoint can resume without replaying already-completed irreversible steps.
 
-- [ ] T-560-C Real browser executor + generic recipe
+- [x] T-560-C Real browser executor + generic recipe
   Owner: ChatGPT
   Planner: ChatGPT
   Depends: T-560-A,T-560-B
   Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md
   Goal: add a real browser executor adapter (Playwright or equivalent) behind the provider-neutral contract with allowlisted domains, bounded navigation/steps, upload/fill/click/extract/screenshot support and factual evidence capture.
   Progress 2026-10-28: local Playwright adapter with fail-closed origin/method/step guard and redacted artifacts implemented; real Chromium fixture remains opt-in and installation on a production worker is not yet approved. No account login or real submission enabled.
+  Progress 2026-10-29: `generic_form_recipe` + deterministic fixture regression (form flow, redacted evidence, off-domain rejection, step/timeout limits, submit blocked without valid approval and still blocked pending a trusted approval verifier). Real Chromium run remains operator opt-in.
   DONE: local deterministic fixture executes a generic allowlisted form flow, captures redacted evidence, rejects off-domain navigation, respects timeout/step limits and keeps submit disabled unless the plan carries valid approval.
 
 - [ ] T-560-D Social web draft recipes

@@ -216,6 +216,56 @@ Autonomous workers record reversible engineering decisions here so the owner can
 
 - **Decision:** tests in `test_role_operator.py`, wired into CI. The local venv used Python 3.12 (the code needs 3.10+ syntax; system `python` is absent).
 
+## 2026-10-29 — T-560-B Session/vault abstraction + human takeover
+
+- **Decision:** credentials are referenced only as opaque `vault://…` refs. They are resolved at execution time through a `CredentialVault` protocol whose `resolve()` is scoped to the exact (workspace, provider, account_binding_id). The only backend shipped is the deterministic `InMemoryVault` (tests/dev). Missing and out-of-scope refs return the same error, so resolution cannot be used to probe whether a ref exists.
+  **Reason:** a real backend (AWS Secrets Manager, etc.) needs credentials and an owner choice, so it is a later adapter behind the same protocol. Nothing here reads `.env` or production secrets.
+
+- **Decision:** a resolved secret is wrapped in `SecretValue`. Its `repr`/`str` are redacted and pickling raises; the raw value is available only through an explicit `reveal()` at the point of use. Workers may resolve only `username`/`password`. OTP, TOTP seeds, recovery codes and cookies cannot be resolved; they stay human-only per the spec.
+  **Reason:** this enforces "never ask the worker to read a one-time code from secret storage" in the contract, not just by convention.
+
+- **Decision:** a plan step requests a credential with `{"type": "fill", "selector": …, "credential_field": "password"}`, never with a literal value. `session_ref` plans cannot also request credential fields. A `session_ref` must equal the ref bound to the plan's own workspace/provider/account, and one `session_ref` cannot be bound to two bindings. The guarded Playwright adapter (T-560-C) is unchanged: its strict step schema still rejects `credential_field`, so it stays anonymous.
+  **Reason:** this prevents session crossover between workspaces without touching the reviewed T-560-C security boundary. Real authenticated browser session restore is a future, separately approved step.
+
+- **Decision:** `SessionRegistry` and `CheckpointStore` can persist to JSON (mode 0600, atomic replace). The files hold only opaque refs and redacted checkpoint metadata: site hostname without path or query, step index/type, reason, payload hash, and the indices of completed irreversible steps. A checkpoint goes `waiting_human → resumed` (owner-authorized, binding and payload hash must match) `→ consumed`. The executor reads resume state from the trusted store, never from the caller, and consumes it before running any step (at-most-once). It resumes after `completed_steps` and refuses to re-execute any index in `irreversible_done`.
+  **Reason:** this satisfies the persisted handoff and "resume without replaying irreversible steps" DONE criteria. Single-use tokens act as the idempotency fence.
+
+- **Decision:** the resumable executor is mock-only (`run_mock_resumable`, `executor="mock"`). A `challenge_probe(index, step)` fixture stands in for page inspection. `test_browser_sessions.py` was rewritten as `unittest` (still runnable as `python test_browser_sessions.py` in CI). `browser_runner/sessions.py` gained `from __future__ import annotations`: its old `-> str | None` annotation would fail at import on the Python 3.9 EC2 worker.
+  **Reason:** this gives deterministic, zero-network coverage. This sandbox only allows `python3 -m unittest`, so regression suites were invoked through a unittest subprocess shim.
+
+## 2026-10-29 — T-560-C Real browser executor + generic recipe
+
+- **Decision:** "generic recipe" = `browser_runner/recipes.py::generic_form_recipe`, a declarative builder (start URL, fill/select fields, staged uploads, preview click, wait, extracts, screenshot). It produces a plain `BrowserActionPlan` and has no allowlist or credential inputs. Field and upload items with unknown keys raise `PolicyError`.
+  **Reason:** recipes stay provider-neutral and cannot widen the trusted runtime policy. T-560-D social recipes can build on the same shape.
+
+- **Decision:** the DONE wording "submit disabled unless the plan carries valid approval" is implemented as a stricter gate. With no, stale or tampered approval, the run blocks with `submit_requires_matching_human_approval`. With a matching snapshot + payload hash it still blocks, with `trusted_approval_verifier_not_configured`. The browser never launches in either case, and the POST/PUT/PATCH/DELETE network guard is unchanged.
+  **Reason:** the approval fields in the plan are self-asserted. CLAUDE.md forbids weakening the publish approval gate, and the spec requires a server-side approval verifier before any real submit. That verifier is future, owner-approved work.
+
+- **Decision:** `run_playwright` takes an injectable `clock` (default `time.monotonic`), so the timeout regression is deterministic. The DONE fixture is the deterministic fake browser in `test_browser_playwright.py`. Playwright/Chromium were **not** installed on the EC2 worker, because the roadmap says installing them on a production worker is not yet approved. The real-Chromium loopback test stays opt-in (`RUN_BROWSER_FIXTURE=1`) and now drives the same generic recipe.
+  **Reason:** this proves the DONE criteria with zero network, zero install and zero cost. The real-browser run remains an operator choice.
+
+- **Decision:** on this worker `python` is a broken wrapper and only `python3` (3.9.25) runs. `smoke_tests.py` and `media_finisher_worker.test_planner` could not run here: `fastapi` is not installed and the smoke-test command was denied in this sandbox. `app.py`/smoke tests do not import `browser_runner`, and CI runs them.
+
+## 2026-10-29 — T-590 Relay build-process control room (code slice)
+
+- **Decision:** the parent `autopilot.delegation` now writes `.autopilot/run.json` atomically (gitignored, `source: parent`). It holds run_id, task, state, started_at and pid before the Claude CLI starts, then the result/commit/exit code when the run finishes. The heartbeat (`claude_pro_worker.task_snapshot`) prefers this record over the model-authored `status.json`. A `running` record whose pid is gone is reported as `stale`, never as a ghost `running`. `status.json` is still deleted before each run, so the agent must write a fresh one.
+  **Reason:** fixes the diagnosed gap where the task/progress vanished while Claude was working. Rejected alternative: leaving status.json in place, because a stale previous status could then be mistaken for the current run's result.
+
+- **Decision:** every Relay claim mints a `run_id`. Worker events may carry `run_id` and `event_id`. Events from a superseded run are rejected with 409. A repeated `event_id` from the same worker is a no-op replay: no duplicate history and no duplicate Telegram notification. The worker derives event IDs as `<run_id>:<seq>:<stage>` and retries a failed POST exactly once. Both fields are optional so older workers keep working.
+  **Reason:** idempotent, replay-safe stage events without a schema migration of the JSON store.
+
+- **Decision:** GitHub Issue intake is owner-only (`POST /api/relay/intake/github-issue`, Telegram `/issue N`). It uses `source_key = github-issue:<repo>#<n>`, and a repeat import returns the existing ticket without re-queuing. Telegram `/issue` creates a ticket only if the issue appears in the live GitHub snapshot. Otherwise it answers "not verified" and creates nothing. ROADMAP tasks are **not** imported into Relay, because the roadmap autopilot already executes them and importing would mean double execution. Their live state is visible through the parent run record/heartbeat instead.
+  **Reason:** this gives one authoritative ticket per source with no phantom queue entries. It supersedes the unwired PR #60 helper, which can be closed once this lands.
+
+- **Decision:** `RelayQueue.view()` adds a `lifecycle` list (queued, claimed, running, committed, pushed, pr, ci, merged, deployed, plus the final state). It is derived only from durable history of the **current** attempt. Telegram `/task` and the `/relay` web detail drawer both render this same field. PR/CI/merge/deploy have no backend verifier yet and are always shown as "не проверено". A worker `ci_passed` self-report does not change that.
+  **Reason:** Web and Telegram share one backend and show no fabricated stages.
+
+- **Decision:** worker notes and issue titles/bodies are redacted (Anthropic/GitHub/Telegram-bot tokens, Bearer values) before they are persisted.
+
+- **Decision:** the new suite is `test_relay_lifecycle.py`. It is imported by `test_relay_execution.py`, which CI already runs, so `.github/workflows/ci.yml` stays untouched (workflow edits are scoped separately). On this EC2 worker the relay suites ran via `python3 -m unittest discover` with an out-of-repo bootstrap that stubs only the `fastapi`/`pydantic` imports, because FastAPI is not installed on the system Python. Route handlers and `smoke_tests.py` still need real CI.
+
+- **Decision:** the T-590 checkbox stays open. Its DONE criterion needs live evidence this sandbox cannot produce or verify: a server-side worker claim on Render, a paired owner Telegram chat (T-506 HUMAN), a PR, a CI run, the deployed revision and an Issue #41 comment. `git push`, `gh` and network commands are denied to the delegated agent here.
+
 ## 2026-10-29 — T-537 Dependency-aware scheduler + Owner lanes
 
 - **Decision:** the Claude worker (`autopilot/autopilot.py`) now honors `Depends:`. A dependency is met only when that task exists in ROADMAP and is checked; unknown IDs stay unmet (fail-closed). HUMAN tasks are still never selectable.

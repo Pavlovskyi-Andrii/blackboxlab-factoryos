@@ -31,7 +31,7 @@ def make_repo() -> Path:
     git(repo, "config", "user.email", "test@example.invalid")
     git(repo, "config", "user.name", "delegation-test")
     (repo / "ROADMAP.md").write_text(ROADMAP, encoding="utf-8")
-    (repo / ".gitignore").write_text(".autopilot/status.json\n.autopilot/evidence/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(".autopilot/status.json\n.autopilot/evidence/\n.autopilot/run.json\n", encoding="utf-8")
     git(repo, "add", ".")
     git(repo, "commit", "-q", "-m", "init")
     # Simulate a remote-tracking ref so a push would be observable.
@@ -224,12 +224,58 @@ def test_timeout_is_bounded():
     assert any("600s bound" in v for v in evidence["violations"])
 
 
+def test_parent_owned_run_state_visible_during_cli():
+    from autopilot import claude_pro_worker as worker
+
+    repo = make_repo()
+    seen = {}
+
+    def during(r):
+        # While Claude works, status.json is absent but the parent record is live.
+        assert not (r / ".autopilot" / "status.json").exists()
+        seen.update(dg.read_run_state(r))
+        old_repo = worker.REPO
+        worker.REPO = r
+        try:
+            seen["snapshot"] = worker.task_snapshot()
+        finally:
+            worker.REPO = old_repo
+        complete_task(r)
+
+    evidence = dg.run_delegation(dg.build_delegation(TASK, repo), runner=fake_runner(during))
+    assert seen["state"] == "running" and seen["task"] == "T-003" and seen["source"] == "parent"
+    assert seen["run_id"] == evidence["run_id"]
+    task_id, state, detail = seen["snapshot"]
+    assert (task_id, state) == ("T-003", "running") and evidence["run_id"] in detail
+    final = dg.read_run_state(repo)
+    assert final["state"] == "done" and final["commit"] == evidence["commits"][0]["sha"]
+    assert final["run_id"] == evidence["run_id"] and final["finished_at"]
+    assert git(repo, "status", "--porcelain") == "", "run state must stay out of git"
+
+    # A dead parent never shows as a ghost running task.
+    dg.write_run_state(repo, {**final, "state": "running", "pid": 2 ** 22 + 12345})
+    old_repo = worker.REPO
+    worker.REPO = repo
+    try:
+        assert worker.task_snapshot()[1] == "stale"
+    finally:
+        worker.REPO = old_repo
+
+    # CLI that cannot start is a recorded failure, not a crash with a stuck record.
+    def missing_cli(cmd, **kwargs):
+        raise FileNotFoundError("claude")
+
+    evidence = dg.run_delegation(dg.build_delegation(TASK, make_repo()), runner=missing_cli)
+    assert evidence["result"] == "failed" and "could not start" in evidence["output_tail"]
+
+
 def main():
     test_spec_pins_and_bounds()
     test_env_scrubs_payg_and_deploy_credentials()
     test_done_with_evidence()
     test_violations_fail_closed()
     test_timeout_is_bounded()
+    test_parent_owned_run_state_visible_during_cli()
     print("Claude delegation adapter tests passed")
 
 

@@ -165,6 +165,24 @@ This is defense in depth, not a guarantee about arbitrary untrusted JavaScript
 or GET endpoints with nonstandard side effects. Use only trusted sites and
 isolated runner infrastructure until audited for production accounts.
 
+### Generic form recipe and submit gate (2026-10-29)
+
+`browser_runner/recipes.py::generic_form_recipe` builds a bounded plan:
+navigate → fill/select fields → staged uploads → optional preview click →
+optional wait → extracts → screenshot. It never sets an origin allowlist (the
+trusted `BrowserRuntimePolicy` does) and rejects unknown field/upload keys.
+`submit_selector` appends a `submit` step and marks the plan `publish`.
+
+`validate_runtime` checks approval for any submit step or publish/send/destructive class:
+- missing, stale or tampered approval → `submit_requires_matching_human_approval`;
+- approval snapshot + matching payload hash → still blocked with
+  `trusted_approval_verifier_not_configured`, until a server-side owner
+  approval verifier exists. Either way the browser never launches.
+
+`run_playwright(..., clock=)` accepts an injectable monotonic clock, so the
+timeout regression is deterministic. A timeout returns `failed`,
+`browser_execution_timeout`, the true `completed_steps` count and no receipt.
+
 ### Run deterministic regression without browser installation
 
 ```bash
@@ -190,9 +208,28 @@ If Chromium is already installed system-wide, supply the existing path through
 production plans. The test exercises navigation, fill, select, safe click,
 extract and screenshot with no remote-site traffic and no paid API.
 
+## T-560-B session/vault contract + human takeover (2026-10-29)
+
+Implementation: `browser_runner/sessions.py`, `test_browser_sessions.py`.
+
+- `credential_ref` = opaque `vault://…`, resolved only through a `CredentialVault`
+  scoped to workspace + provider + account binding; values are `SecretValue`
+  (redacted repr, unpicklable, explicit `reveal()`). Only `username`/`password`
+  are worker-resolvable; OTP/TOTP/recovery codes/cookies are human-only.
+- `session_ref` = opaque `session://…`, usable only by the exact binding it was
+  registered for; one ref cannot be bound to two bindings; disconnect keeps an
+  inactive audit record.
+- Challenges persist a redacted `Checkpoint` (site hostname, step index/type,
+  reason, payload hash, completed irreversible step indices) in `CheckpointStore`.
+  Resume: owner-authorized `waiting_human → resumed`, then consumed once by the
+  runner before any step executes; completed irreversible steps never re-run.
+- `run_mock_resumable` is the deterministic reference executor. Only
+  `InMemoryVault` ships; a real vault backend and authenticated Playwright
+  session restore are future, owner-approved work.
+
 ### Remaining before claiming production-ready
 
-- finish actual vault/session_ref lookup and authorization boundary (T-560-B);
+- real vault backend adapter + authenticated browser session restore (contract done in T-560-B);
 - run verified real Chromium fixture on the intended host and measure memory;
 - wire redacted events/artifacts to Worker Results and Trace Viewer (T-560-E);
 - implement trusted owner approval verifier for any real submit/publish action;

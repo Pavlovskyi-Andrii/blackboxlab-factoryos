@@ -9,6 +9,8 @@ from unittest.mock import patch
 from relay import RelayStore
 from relay_execution import RelayQueue, safe_evidence
 from autopilot import relay_tasks
+# T-590 vertical-slice suite; imported here so the existing CI step runs it.
+from test_relay_lifecycle import TestEndToEndSlice, TestOwnerIntake, TestWorkerLifecycle  # noqa: F401
 
 
 class TestRelayQueue(unittest.TestCase):

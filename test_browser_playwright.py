@@ -13,10 +13,11 @@ import tempfile
 import threading
 import unittest
 
-from browser_runner.core import BrowserActionPlan, canonical_payload_hash
+from browser_runner.core import BrowserActionPlan, PolicyError, canonical_payload_hash
 from browser_runner.playwright_executor import (
     BrowserRuntimePolicy, run_playwright, validate_runtime,
 )
+from browser_runner.recipes import generic_form_recipe
 
 
 def plan(*steps, action_class="draft", **extras):
@@ -292,6 +293,146 @@ class SafeBrowserRegression(unittest.TestCase):
         )
 
 
+def not_launched():
+    raise AssertionError("browser must not launch for a rejected plan")
+
+
+class GenericFormRecipeRegression(unittest.TestCase):
+    """DONE fixture: generic allowlisted form flow on the deterministic browser."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.origin = "https://forms.fixture.example"
+        (self.root / "uploads").mkdir()
+        (self.root / "uploads" / "cover.png").write_bytes(b"\x89PNG\r\n\x1a\nfixture")
+        self.policy = BrowserRuntimePolicy(
+            allowed_origins=(self.origin,), artifact_root=self.root / "artifacts",
+            upload_root=self.root / "uploads",
+        )
+
+    def recipe(self, **overrides):
+        args = dict(
+            plan_id="recipe-1", workspace_id="workspace-one",
+            account_binding_id="account-one",
+            session_ref="session://workspace-one/account-one",
+            start_url=self.origin + "/contact/form?draft_token=abc123",
+            fields=[
+                {"selector": "#name", "value": "Private Person"},
+                {"selector": "#message", "value": "private draft body"},
+                {"selector": "#topic", "value": "research", "kind": "select"},
+            ],
+            uploads=[{"selector": "#attachment", "path": "cover.png"}],
+            preview_selector="#preview-tab", ready_selector="#preview",
+            extract_selectors=["#preview"],
+        )
+        args.update(overrides)
+        return generic_form_recipe(**args)
+
+    def run_fake(self, p, factory=FakePlaywright, **kwargs):
+        return run_playwright(p, policy=self.policy, playwright_factory=factory, **kwargs)
+
+    def test_generic_form_flow_runs_with_redacted_evidence(self):
+        fake = FakePlaywright()
+        p = self.recipe()
+        self.assertEqual(
+            [s["type"] for s in p.steps],
+            ["navigate", "fill", "fill", "select", "upload", "click",
+             "wait_for", "extract", "screenshot"],
+        )
+        self.assertEqual(p.action_class, "upload")
+        result = self.run_fake(p, factory=lambda: fake)
+        self.assertEqual((result.status, result.completed_steps), ("done", 9), result.blocker_reason)
+        page_state = fake.chromium.browser.context.page.state
+        self.assertEqual(page_state["#message"], "private draft body")
+        self.assertEqual(page_state["uploaded"], "cover.png")
+        evidence = repr(result)
+        for private in ("Private Person", "private draft body", "draft_token", "abc123",
+                        "/contact/form", "Synthetic fixture heading", str(self.root)):
+            self.assertNotIn(private, evidence)
+        self.assertEqual(result.final_url, self.origin)
+        self.assertEqual(result.external_receipt, "")
+        self.assertEqual([r["status"] for r in result.action_log], ["done"] * 9)
+        self.assertEqual(result.action_log[7]["text_chars"], len("Synthetic fixture heading"))
+        self.assertTrue(result.artifacts[0].startswith("artifact://browser/"))
+        self.assertEqual(result.action_log[8]["artifact_ref"], result.artifacts[0])
+
+    def test_off_domain_navigation_rejected_before_launch(self):
+        for url in ("https://evil.example/contact", "http://forms.fixture.example/contact",
+                    "https://sub.forms.fixture.example/contact", "http://10.0.0.5/contact"):
+            result = self.run_fake(self.recipe(start_url=url), factory=not_launched)
+            self.assertEqual(result.status, "blocked", url)
+            self.assertEqual(result.completed_steps, 0)
+        result = self.run_fake(self.recipe(start_url="https://evil.example/x"), factory=not_launched)
+        self.assertEqual(result.blocker_reason, "off_allowlist_navigation")
+
+    def test_off_domain_request_during_flow_is_blocked(self):
+        result = self.run_fake(self.recipe(preview_selector="#trigger-offsite"))
+        self.assertEqual(result.status, "blocked")
+        self.assertEqual(result.blocker_reason, "off_allowlist_network_request")
+        self.assertEqual(result.completed_steps, 5)
+
+    def test_step_limit_enforced_before_launch(self):
+        many = [{"selector": f"#f{i}", "value": "x"} for i in range(30)]
+        result = self.run_fake(self.recipe(fields=many), factory=not_launched)
+        self.assertEqual((result.status, result.blocker_reason), ("blocked", "plan exceeds max_steps"))
+        result = self.run_fake(self.recipe(max_steps=5), factory=not_launched)
+        self.assertEqual((result.status, result.blocker_reason), ("blocked", "plan exceeds max_steps"))
+        result = self.run_fake(self.recipe(max_steps=65), factory=not_launched)
+        self.assertEqual((result.status, result.blocker_reason), ("blocked", "max_steps out of bounds"))
+
+    def test_timeout_stops_mid_flow_without_claiming_success(self):
+        ticks = iter(range(1000))
+        clock = lambda: next(ticks) * 0.5  # each deadline check costs 0.5 s
+        result = self.run_fake(self.recipe(timeout_seconds=2), clock=clock)
+        self.assertEqual((result.status, result.blocker_reason), ("failed", "browser_execution_timeout"))
+        self.assertEqual(result.completed_steps, 2)
+        self.assertLess(result.completed_steps, 9)
+        self.assertEqual(result.external_receipt, "")
+        result = self.run_fake(self.recipe(timeout_seconds=301), factory=not_launched)
+        self.assertEqual((result.status, result.blocker_reason), ("blocked", "timeout_seconds out of bounds"))
+
+    def test_submit_disabled_without_valid_approval(self):
+        p = self.recipe(submit_selector="#send-form")
+        self.assertEqual((p.action_class, p.steps[-1]["type"]), ("publish", "submit"))
+        result = self.run_fake(p, factory=not_launched)
+        self.assertEqual((result.status, result.blocker_reason),
+                         ("blocked", "submit_requires_matching_human_approval"))
+        stale = replace(p, approval_snapshot_id="snap-1", approved_payload_hash="0" * 64)
+        result = self.run_fake(stale, factory=not_launched)
+        self.assertEqual(result.blocker_reason, "submit_requires_matching_human_approval")
+        approved = replace(p, approval_snapshot_id="snap-1",
+                           approved_payload_hash=canonical_payload_hash(p))
+        tampered = replace(approved, steps=approved.steps[:1] + (
+            {"type": "fill", "selector": "#message", "value": "changed after approval"},
+        ) + approved.steps[2:])
+        result = self.run_fake(tampered, factory=not_launched)
+        self.assertEqual(result.blocker_reason, "submit_requires_matching_human_approval")
+
+    def test_submit_stays_disabled_until_trusted_verifier_exists(self):
+        p = self.recipe(submit_selector="#send-form")
+        approved = replace(p, approval_snapshot_id="snap-1",
+                           approved_payload_hash=canonical_payload_hash(p))
+        result = self.run_fake(approved, factory=not_launched)
+        self.assertEqual((result.status, result.completed_steps), ("blocked", 0))
+        self.assertEqual(result.blocker_reason, "trusted_approval_verifier_not_configured")
+
+    def test_recipe_rejects_unknown_field_shapes(self):
+        for kwargs in (
+            {"fields": [{"selector": "#a", "value": "x", "kind": "submit"}]},
+            {"fields": [{"selector": "#a", "value": "x", "password": "p"}]},
+            {"uploads": [{"selector": "#a", "path": "cover.png", "url": "https://x"}]},
+        ):
+            with self.assertRaises(PolicyError):
+                self.recipe(**kwargs)
+        result = self.run_fake(
+            self.recipe(fields=[{"selector": "#a", "value": "Bearer abc.def"}]),
+            factory=not_launched,
+        )
+        self.assertEqual(result.status, "blocked")
+
+
 class FixtureHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         body = b"""<!doctype html><html><body>
@@ -324,13 +465,16 @@ class OptionalRealChromiumFixture(unittest.TestCase):
                     allow_loopback_fixture=True,
                     browser_executable_path=os.environ.get("PLAYWRIGHT_CHROMIUM_PATH") or None,
                 )
-                result = run_playwright(plan(
-                    {"type": "navigate", "url": origin + "/editor"},
-                    {"type": "fill", "selector": "#caption", "value": "safe local draft"},
-                    {"type": "select", "selector": "#topic", "value": "science"},
-                    {"type": "click", "selector": "#tab"},
-                    {"type": "extract", "selector": "#result"},
-                    {"type": "screenshot"},
+                result = run_playwright(generic_form_recipe(
+                    plan_id="plan-fixture", workspace_id="workspace-one",
+                    account_binding_id="account-one",
+                    session_ref="session://workspace-one/account-one",
+                    start_url=origin + "/editor",
+                    fields=[
+                        {"selector": "#caption", "value": "safe local draft"},
+                        {"selector": "#topic", "value": "science", "kind": "select"},
+                    ],
+                    preview_selector="#tab", extract_selectors=["#result"],
                 ), policy=policy)
                 self.assertEqual(result.status, "done", result.blocker_reason)
                 self.assertEqual(result.completed_steps, 6)

@@ -23,8 +23,8 @@ from typing import Any, Callable, Collection
 from urllib.parse import urlsplit
 
 from .core import (
-    BrowserActionPlan, BrowserActionResult, PolicyError, canonical_payload_hash,
-    validate_plan,
+    IRREVERSIBLE_ACTIONS, BrowserActionPlan, BrowserActionResult, PolicyError,
+    approval_matches, canonical_payload_hash, validate_plan,
 )
 from .sessions import challenge_checkpoint
 
@@ -136,6 +136,15 @@ def _validated_file(step: dict[str, Any], upload_root: Path | None) -> Path:
 
 def validate_runtime(plan: BrowserActionPlan, policy: BrowserRuntimePolicy) -> frozenset[str]:
     validate_plan(plan)
+    if plan.action_class in IRREVERSIBLE_ACTIONS or any(
+        dict(step).get("type") == "submit" for step in plan.steps
+    ):
+        if not approval_matches(plan):
+            raise PolicyError("submit_requires_matching_human_approval")
+        # A self-asserted snapshot id + hash is necessary but not sufficient:
+        # no trusted server-side approval verifier exists yet, so submit stays
+        # disabled for the real browser even with a matching payload hash.
+        raise PolicyError("trusted_approval_verifier_not_configured")
     if plan.action_class not in _SAFE_CLASSES:
         raise PolicyError("real_publish_send_delete_disabled")
     if plan.max_retries:
@@ -204,6 +213,7 @@ def run_playwright(
     *,
     policy: BrowserRuntimePolicy,
     playwright_factory: Callable[[], Any] | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> BrowserActionResult:
     """Execute a bounded, fresh anonymous Chromium context; no external writes.
 
@@ -230,7 +240,7 @@ def run_playwright(
             )
         playwright_factory = sync_playwright
 
-    deadline = time.monotonic() + plan.timeout_seconds
+    deadline = clock() + plan.timeout_seconds
     log: list[dict[str, Any]] = []
     artifacts: list[str] = []
     blocked_requests: list[str] = []
@@ -240,7 +250,7 @@ def run_playwright(
     blocker = ""
 
     def time_left() -> int:
-        milliseconds = int((deadline - time.monotonic()) * 1000)
+        milliseconds = int((deadline - clock()) * 1000)
         if milliseconds < 100:
             raise TimeoutError("browser_execution_timeout")
         return milliseconds

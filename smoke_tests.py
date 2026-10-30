@@ -182,6 +182,7 @@ require(route_exists("/api/relay","GET") and route_exists("/api/relay","POST"),"
 require(route_exists("/api/relay/{ticket_id}","GET"),"Relay detail route missing")
 require(route_exists("/api/relay/{ticket_id}/status","POST") and route_exists("/api/relay/{ticket_id}/notes","POST"),"Relay mutation routes missing")
 require(route_exists("/relay","GET"),"Relay mobile board route missing")
+require(route_exists("/api/relay/intake/github-issue","POST"),"Relay GitHub issue intake route missing")
 relay_ticket,relay_created=app.RELAY_STORE.create("Check reference","Review this link",source={"channel":"ci","source_key":"ci:relay:1","url":"https://example.com/video"})
 require(relay_created is True and relay_ticket["id"]=="R-0001" and relay_ticket["status"]=="inbox","Relay ticket create regression")
 relay_dup,relay_dup_created=app.RELAY_STORE.create("Duplicate","",source={"channel":"ci","source_key":"ci:relay:1"})
