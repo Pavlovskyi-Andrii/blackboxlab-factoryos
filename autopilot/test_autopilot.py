@@ -133,6 +133,84 @@ def dependency_and_owner_regression():
     assert ap.next_safe_task(path, "claude") is None  # T-014 waits forever on unknown T-999
     assert "T-014" in ap.idle_notice(path)
     print("Autopilot dependency/owner scheduler tests passed")
+    parking_regression()
+
+
+class _StopLoop(Exception):
+    pass
+
+
+def parking_regression():
+    # T-599-A: a blocked or failed task is parked; the daemon moves on instead of stalling.
+    path = write_roadmap(
+        """# Roadmap
+
+## v5
+- [ ] T-030 Needs owner
+  Owner: claude
+- [ ] T-031 Keeps failing
+  Owner: claude
+- [ ] T-032 Healthy work
+  Owner: claude
+"""
+    )
+    assert ap.next_safe_task(path, "claude", skip={"T-030"})["id"] == "T-031"
+    assert ap.next_safe_task(path, "claude", skip={"T-030", "T-031", "T-032"}) is None
+    assert "T-030" in ap.idle_notice(path, parked={"T-030"})
+
+    answers = path.parent / "answers.md"
+    calls: list[str] = []
+    sleeps = {"n": 0}
+
+    def fake_agent(target):
+        calls.append(target["id"])
+        if target["id"] == "T-030":
+            return {"task": "T-030", "status": "blocked", "need": "owner decision"}
+        if target["id"] == "T-031":
+            return {"task": "T-031", "status": "failed", "summary": "tests red"}
+        text = path.read_text(encoding="utf-8").replace("- [ ] T-032", "- [x] T-032")
+        path.write_text(text, encoding="utf-8")
+        return {"task": "T-032", "status": "done", "summary": "ok"}
+
+    def fake_sleep(_seconds):
+        sleeps["n"] += 1
+        if sleeps["n"] == 8:
+            # New owner input wakes the blocked task exactly once more.
+            answers.write_text("## T-030\nuse option A\n", encoding="utf-8")
+        if sleeps["n"] > 12:
+            raise _StopLoop
+
+    patches = {
+        "ROADMAP": path, "ANSWERS": answers, "DAEMON_MODE": True, "OPERATOR": "claude", "RELAY_ONLY": False,
+        "assert_safe_branch": lambda: "autopilot/test", "current_branch": lambda: "autopilot/test",
+        "sync_branch": lambda _b: None, "commits_ahead": lambda _b: 0, "push_branch": lambda _b: True,
+        "poll_control": lambda *a, **k: {"paused": False, "retry": "", "acks": []},
+        "run_agent": fake_agent, "send": lambda _m: None, "write_runtime_status": lambda *a, **k: None,
+        "done_status_is_consistent": lambda status, target, path=None: True,
+    }
+    saved = {name: getattr(ap, name) for name in patches}
+    saved_relay, saved_sleep = ap.relay_tasks.run_one, ap.time.sleep
+    try:
+        for name, value in patches.items():
+            setattr(ap, name, value)
+        ap.relay_tasks.run_one = lambda *a, **k: False
+        ap.time.sleep = fake_sleep
+        try:
+            ap.main()
+        except _StopLoop:
+            pass
+    finally:
+        for name, value in saved.items():
+            setattr(ap, name, value)
+        ap.relay_tasks.run_one, ap.time.sleep = saved_relay, saved_sleep
+
+    # Blocked T-030 did not stall the queue; T-031 got exactly MAX_FAILS attempts, then parked;
+    # healthy T-032 still ran; owner input re-opened T-030 once.
+    assert calls[0] == "T-030" and calls[1] == "T-031", calls
+    assert calls.count("T-031") == ap.MAX_FAILS, calls
+    assert "T-032" in calls, calls
+    assert calls.count("T-030") == 2, calls
+    print("Autopilot blocked/failed parking tests passed")
 
 
 if __name__ == "__main__":

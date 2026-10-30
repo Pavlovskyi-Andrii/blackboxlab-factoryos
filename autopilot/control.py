@@ -66,12 +66,12 @@ def ack(command_id: str, outcome: str, detail: str = "", *, post: Callable[..., 
 
 
 def decide(
-    control: dict[str, Any] | None, *, paused: bool, held_task: str, decided: dict[str, tuple[str, str]] | None = None
+    control: dict[str, Any] | None, *, paused: bool, held_task: str | set[str] | frozenset[str], decided: dict[str, tuple[str, str]] | None = None
 ) -> dict[str, Any]:
     """Pure decision step for one loop iteration.
 
     `paused` is the last known level (kept when FactoryOS is unreachable). `held_task` is the
-    task this runner is holding because it blocked or exhausted its failure budget. Returns
+    task (or set of tasks) this runner is holding because it blocked or exhausted its failure budget. Returns
     the new pause level, the task whose hold is released (if any) and the acks to send.
     Unknown actions and retries for a task the runner does not hold are rejected. Commands in
     `decided` were already acted on (their ack was lost) and are re-acknowledged with the
@@ -80,6 +80,8 @@ def decide(
     if control is None:
         return {"paused": paused, "retry": "", "acks": []}
     retry = ""
+    held = {held_task} if isinstance(held_task, str) else set(held_task)
+    held.discard("")
     acks: list[tuple[str, str, str]] = []
     for command in control.get("commands") or []:
         if not isinstance(command, dict) or not isinstance(command.get("id"), str):
@@ -89,7 +91,7 @@ def decide(
             acks.append((command["id"], *decided[command["id"]]))
         elif action in ("pause", "resume"):
             acks.append((command["id"], "applied", "paused before the next task" if action == "pause" else "resumed"))
-        elif action == "retry" and held_task and task == held_task:
+        elif action == "retry" and task in held:
             retry = task
             acks.append((command["id"], "applied", f"released hold on {task}"))
         elif action == "retry":

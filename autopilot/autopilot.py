@@ -132,9 +132,10 @@ def selectable(task: dict[str, Any], tasks: list[dict[str, Any]], operator: str 
     )
 
 
-def next_safe_task(path: pathlib.Path = ROADMAP, operator: str = "") -> dict[str, Any] | None:
+def next_safe_task(path: pathlib.Path = ROADMAP, operator: str = "", skip: set[str] | frozenset[str] = frozenset()) -> dict[str, Any] | None:
+    """First selectable task, ignoring `skip` (tasks this runner parked as blocked or failed)."""
     tasks = parse_roadmap(path)
-    return next((task for task in tasks if selectable(task, tasks, operator)), None)
+    return next((task for task in tasks if task["id"] not in skip and selectable(task, tasks, operator)), None)
 
 
 def roadmap_has_safe_work(path: pathlib.Path = ROADMAP) -> bool:
@@ -197,13 +198,11 @@ def commits_ahead(branch: str) -> int:
         return 0
 
 
-def runtime_marker() -> tuple[str, int]:
-    head = run(["git", "rev-parse", "HEAD"], check=False, capture=True).stdout.strip()
+def answers_marker() -> int:
     try:
-        answers_mtime = ANSWERS.stat().st_mtime_ns
+        return ANSWERS.stat().st_mtime_ns
     except FileNotFoundError:
-        answers_mtime = 0
-    return head, answers_mtime
+        return 0
 
 
 def write_runtime_status(status: str, *, task: str = "", summary: str = "", need: str = "") -> None:
@@ -221,7 +220,7 @@ def write_runtime_status(status: str, *, task: str = "", summary: str = "", need
     os.replace(tmp, STATUS)
 
 
-def poll_control(paused: bool, held_task: str, decided: dict[str, tuple[str, str]], *, fetch=None, ack=None) -> dict[str, Any]:
+def poll_control(paused: bool, held_task: str | set[str], decided: dict[str, tuple[str, str]], *, fetch=None, ack=None) -> dict[str, Any]:
     """Apply owner pause/resume/retry between tasks. Unreachable FactoryOS keeps the last pause level."""
     decision = control.decide((fetch or control.fetch)(), paused=paused, held_task=held_task, decided=decided)
     for command_id, outcome, detail in decision["acks"]:
@@ -230,7 +229,9 @@ def poll_control(paused: bool, held_task: str, decided: dict[str, tuple[str, str
     return decision
 
 
-def idle_notice(path: pathlib.Path = ROADMAP) -> str:
+def idle_notice(path: pathlib.Path = ROADMAP, parked: set[str] | frozenset[str] = frozenset()) -> str:
+    if parked:
+        return f"🙋 Remaining safe tasks are parked as blocked/failed and wait for owner input or Retry: {', '.join(sorted(parked))}"
     tasks = parse_roadmap(path)
     waiting = [
         t["id"] for t in tasks
@@ -248,23 +249,24 @@ def idle_notice(path: pathlib.Path = ROADMAP) -> str:
 def main() -> int:
     branch = assert_safe_branch()
     failures = 0
-    blocked_task = ""
-    blocked_marker: tuple[str, int] | None = None
+    failures_task = ""
+    # T-599-A: a blocked or failed task is parked instead of stalling the whole queue.
+    # Blocked tasks wake up when answers/HEAD change; failed ones only on an owner Retry.
+    blocked: dict[str, int] = {}
+    failed_hold: set[str] = set()
     last_idle_notice = ""
-    failed_hold = ""
     paused = False
     paused_status = ""
     decided: dict[str, tuple[str, str]] = {}
 
     while True:
         # Owner controls are only read here, between tasks, so a pause never interrupts a running task.
-        decision = poll_control(paused, blocked_task or failed_hold, decided)
+        decision = poll_control(paused, set(blocked) | failed_hold, decided)
         if decision["retry"]:
             send(f"🔁 {decision['retry']}: owner requested a retry from FactoryOS.")
             failures = 0
-            blocked_task = ""
-            blocked_marker = None
-            failed_hold = ""
+            blocked.pop(decision["retry"], None)
+            failed_hold.discard(decision["retry"])
         if decision["paused"]:
             if not paused:
                 paused_status = STATUS.read_text(encoding="utf-8") if STATUS.exists() else ""
@@ -312,9 +314,15 @@ def main() -> int:
             time.sleep(IDLE_SECONDS)
             continue
 
-        target = next_safe_task()
+        # Only new owner input (answers.md) or an explicit Retry wakes a blocked task; our own
+        # commits on other tasks must not make it burn another turn.
+        marker = answers_marker()
+        for task_id in [t for t, m in blocked.items() if m != marker]:
+            del blocked[task_id]
+        parked = set(blocked) | failed_hold
+        target = next_safe_task(ROADMAP, skip=parked)
         if not target:
-            notice = idle_notice()
+            notice = idle_notice(ROADMAP, parked=parked & {t["id"] for t in parse_roadmap(ROADMAP) if not t["done"]})
             write_runtime_status("idle", summary=notice)
             if notice != last_idle_notice:
                 suffix = f" Polling every {IDLE_SECONDS}s." if DAEMON_MODE else ""
@@ -326,23 +334,9 @@ def main() -> int:
             continue
 
         last_idle_notice = ""
-        if blocked_task == target["id"] and blocked_marker == runtime_marker():
-            # The task asked for owner input. Stay online without repeatedly
-            # burning Claude turns until either the branch or answers change.
-            if not DAEMON_MODE:
-                return 2
-            time.sleep(IDLE_SECONDS)
-            continue
-        if blocked_task and blocked_task != target["id"]:
-            blocked_task = ""
-            blocked_marker = None
-        if failed_hold and failed_hold != target["id"]:
-            failed_hold = ""
+        if failures_task != target["id"]:
+            failures_task = target["id"]
             failures = 0
-        if failed_hold:
-            # The failure budget for this task is spent; wait for an owner Retry instead of burning turns.
-            time.sleep(IDLE_SECONDS)
-            continue
         if current_branch() != branch:
             raise RuntimeError(f"Branch changed from {branch} while running; autopilot refuses to continue.")
 
@@ -361,8 +355,6 @@ def main() -> int:
 
         if state == "done":
             failures = 0
-            blocked_task = ""
-            blocked_marker = None
             if not push_branch(branch):
                 failures = 1
                 send(f"⚠️ {task} is committed locally but push failed; worker will retry without rerunning the task.")
@@ -381,14 +373,11 @@ def main() -> int:
                 answer = wait_answer()
                 if answer:
                     append_answer(task, answer)
-                    blocked_task = ""
-                    blocked_marker = None
                     time.sleep(PAUSE_SECONDS)
                     continue
             if DAEMON_MODE:
-                blocked_task = target["id"]
-                blocked_marker = runtime_marker()
-                time.sleep(IDLE_SECONDS)
+                blocked[target["id"]] = answers_marker()
+                time.sleep(PAUSE_SECONDS)
                 continue
             return 2
 
@@ -398,8 +387,9 @@ def main() -> int:
             if not DAEMON_MODE:
                 send(f"⛔ {MAX_FAILS} failures in a row. Autopilot stopped. Last: {summary}")
                 return 3
-            failed_hold = target["id"]
-            send(f"⛔ {MAX_FAILS} failures in a row on {target['id']}. Holding without new attempts; "
+            failed_hold.add(target["id"])
+            failures = 0
+            send(f"⛔ {MAX_FAILS} failures in a row on {target['id']}. Parked without new attempts; moving to the next safe task. "
                  f"use Retry in FactoryOS Workers to try again. Last: {summary}")
         time.sleep(PAUSE_SECONDS)
 
