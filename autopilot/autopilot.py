@@ -72,7 +72,9 @@ def assert_safe_branch() -> str:
 TASK_RE = __import__("re").compile(r"^- \[([ xX])\]\s+(\[HUMAN\]\s+)?(T-[A-Za-z0-9-]+)\s+(.+)$")
 
 
-TASK_META_RE = __import__("re").compile(r"^(Depends|Owner):\s*(.*)$", __import__("re").IGNORECASE)
+# Metadata may share a line with other fields ("Planner: owner; Executor: ... Depends: T-590.").
+DEPENDS_META_RE = __import__("re").compile(r"\bDepends:\s*(T-[A-Za-z0-9-]+(?:\s*,\s*[^,;.\s(]+)*)", __import__("re").IGNORECASE)
+OWNER_META_RE = __import__("re").compile(r"\bOwner:\s*([A-Za-z0-9_-]*)", __import__("re").IGNORECASE)
 TASK_ID_RE = __import__("re").compile(r"^T-[A-Za-z0-9-]+$")
 
 
@@ -89,13 +91,14 @@ def parse_roadmap(path: pathlib.Path = ROADMAP) -> list[dict[str, Any]]:
         match = TASK_RE.match(line)
         if not match:
             # Indented metadata belongs to the task directly above it.
-            meta = TASK_META_RE.match(line) if tasks and raw[:1].isspace() else None
-            if meta:
-                key, value = meta.group(1).lower(), meta.group(2).strip()
-                if key == "depends":
-                    tasks[-1]["depends"] = [x.strip() for x in value.split(",") if TASK_ID_RE.match(x.strip())]
-                else:
-                    tasks[-1]["owner"] = value.split()[0].lower() if value else ""
+            if tasks and raw[:1].isspace():
+                depends = DEPENDS_META_RE.search(line)
+                if depends:
+                    ids = [x.strip().rstrip("-") for x in depends.group(1).split(",")]
+                    tasks[-1]["depends"] = [x for x in ids if TASK_ID_RE.match(x)]
+                owner = OWNER_META_RE.search(line)
+                if owner:
+                    tasks[-1]["owner"] = owner.group(1).lower()
             continue
         tasks.append({
             "id": match.group(3),

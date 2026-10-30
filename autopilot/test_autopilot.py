@@ -108,6 +108,26 @@ def dependency_and_owner_regression():
     text = text.replace("- [ ] [HUMAN] T-012", "- [x] [HUMAN] T-012")
     path.write_text(text, encoding="utf-8")
     assert ap.next_safe_task(path, "claude")["id"] == "T-013"
+
+    # Inline metadata as written in the live ROADMAP: other fields on the same line, trailing punctuation.
+    inline = write_roadmap(
+        """# Roadmap
+
+## P0
+- [ ] T-020 Takeover
+  Planner: owner; Executor: Claude Code Pro. P0.
+- [ ] T-021 Live acceptance
+  Planner: owner; Executor: Claude Code Pro. P0. Depends: T-020.
+- [ ] T-022 Hotfix
+  Owner: ChatGPT. Depends: T-020 (implementation merged in #63; acceptance remains T-021).
+"""
+    )
+    by_id = {x["id"]: x for x in ap.parse_roadmap(inline)}
+    assert by_id["T-020"]["owner"] == "" and by_id["T-020"]["depends"] == []
+    assert by_id["T-021"]["depends"] == ["T-020"]
+    assert by_id["T-022"]["owner"] == "chatgpt"
+    assert by_id["T-022"]["depends"] == ["T-020"]
+    assert ap.next_safe_task(inline, "claude")["id"] == "T-020"
     text = text.replace("- [ ] T-013", "- [x] T-013")
     path.write_text(text, encoding="utf-8")
     assert ap.next_safe_task(path, "claude") is None  # T-014 waits forever on unknown T-999
