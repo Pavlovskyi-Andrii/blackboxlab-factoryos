@@ -300,3 +300,8 @@ Autonomous workers record reversible engineering decisions here so the owner can
 - A task that exhausts `MAX_FAILS` is parked until Retry, and the failure counter is per task. The daemon then continues with the next safe task instead of sleeping on the held one.
 - `control.decide` accepts the set of parked tasks, so Retry works for any of them.
 - Standing owner grants are recorded in `.autopilot/answers.md`; they include merging Claude's own PRs once CI is green.
+
+## 2026-10-30 — T-599-B: explicit Owner everywhere, enforced by CI
+- With the ChatGPT lane paused, every open non-HUMAN task is labelled `Owner: claude`. HUMAN tasks stay unlabelled because no runner ever selects them.
+- A CI lint (`roadmap_owner_lint`) fails when an open non-HUMAN task has no `Owner:`, so new tasks must name a lane.
+- Runtime semantics are unchanged: an empty Owner still counts as shared. Flipping it to fail-closed is deferred until a second lane is reactivated; the lint already prevents unowned tasks from landing.
