@@ -191,6 +191,21 @@ class RelayQueue:
                     # Explicit owner Retry may recover a truly stale task. Normal active
                     # work is never requeued merely because the page was refreshed.
                     if view["execution"].get("state") != "stale":
+                        if execution.get("state") == "queued" and item.get("status") != "inbox":
+                            # Legacy status actions can leave an unclaimable queued item.
+                            # Reconcile the existing ticket; never create a second ticket/run.
+                            now = utc_now()
+                            previous = item.get("status")
+                            item["status"] = "inbox"
+                            item["updated_at"] = now
+                            item.setdefault("history", []).append({
+                                "at": now, "actor": actor[:80],
+                                "action": "queued", "from_status": previous,
+                                "to_status": "inbox",
+                                "note": "Повторный запуск существующего тикета; без дублирования",
+                            })
+                            self.store._save_unlocked(state)
+                            return self.view(dict(item))
                         return view
                 now = utc_now()
                 attempts = int(execution.get("attempts") or 0)
