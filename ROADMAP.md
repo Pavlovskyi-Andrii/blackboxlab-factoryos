@@ -41,6 +41,44 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Goal: reproducible restricted permission profile, safe tests and dependency boot (Python 3.9), non-spinning retry, durable worker errors, GitHub/ROADMAP task dedupe, automated safe backlog sequence and concise verified owner reporting.
   DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
 
+## P1 / P2 — Owner UI and agent management batch (2026-10-30)
+Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independent safe Claude engineering tasks**, except where dependency is explicitly stated. Owner is currently using EC2; avoid unnecessary service restarts or credential changes. When T-590 is blocked awaiting PR/CI/owner Telegram, do not silently claim that these UI tasks are running; use a new verifiable task claim/branch and continue safe independent work as scheduler permits. No new paid API, no bypass, no direct main push.
+
+- [ ] T-594 Left navigation with collapsible semantic submenus
+  Owner: Claude
+  Priority: P1
+  Spec: #53, T-574; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M3.
+  Goal: audit and preserve all current routes; clear section grouping and descriptive RU/UK/EN labels, icon rail, hover/click expanding text, slide-out adaptive one-third desktop menu, outside-tap closes, breadcrumbs, current section and keyboard accessibility.
+  DONE: before/after nav map, screenshots desktop/mobile, all existing destinations reachable, keyboard/touch and RU/UK/EN regressions, CI-gated PR.
+
+- [ ] T-595 Resizable/maximizable sliding drawers and overflow repair
+  Owner: Claude
+  Priority: P1
+  Spec: #54, T-575; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M4.
+  Goal: resize large panels by left-edge drag slider/handle, max/restore beside X, bounds that keep sidebar visible, session width memory, fix horizontal overflow and clipped Build Progress columns, mobile full-screen drawers and keyboard/touch controls.
+  DONE: tests and before/after screenshots 1440x900, 1024x768, 390x844; no cut-off Planned/In Progress/Completed/Blocked; CI-gated PR.
+
+- [ ] T-596 Worker Center / Agent Office factual live observability
+  Owner: Claude
+  Priority: P1
+  Spec: #52, #55, #56; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M2.
+  Goal: distinguish EC2 IAM instance visibility, systemd/OAuth, heartbeat, Relay claim, real current Claude task; existing worker detail, timeline, scoped heatmap, errors, last verified time, branch/PR/CI. Clickable workers in Agent Office. Correct distinct progress denominators (87% vs 49% historical), no fake progress, actionable HUMAN blockers.
+  DONE: deterministic offline/stale/idle/running test cases, source links, web↔Telegram consistency, RU/UK/EN mobile/desktop screens and CI-gated PR.
+
+- [ ] T-597 Contextual assistance and accessibility
+  Owner: Claude
+  Priority: P2
+  Spec: #57, T-578; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M5.
+  Goal: reusable info/help icon, microcopy and small factual diagrams for Relay, workers, connectors, stages, approval, video, Content Brain, Discovery; RU/UK/EN, desktop hover/mobile tap/keyboard focus. Audio/video tutorial placeholders marked not yet supported; no metered generation.
+  DONE: all target surfaces covered, no overlapping help/popovers, accessible tests, mobile screenshots and CI.
+
+- [ ] T-598 Stable autonomous engineering handoff and report
+  Owner: Claude
+  Priority: P1
+  Spec: #61, #40, #49–51, T-593; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M6.
+  Goal: verified GitHub Issue/ROADMAP/Relay task dedupe, Depends/Owner scheduler from merged #62, bounded retries, no endless git pull represented as busy, truthful parent run state and checkpoint reports, PR/CI/Render verification. GitHub workflow scope and EC2 describe IAM read permissions escalated as optional HUMAN tasks with least privilege, not blocking code.
+  DONE: safe queued→claimed→running→checks→PR/CI evidenced, automation survives restart, error-handling regression and concise owner-visible milestone report; no paid resources.
+
 ## v5.0 — Self-Building FactoryOS
 
 - [x] T-500 Repository autopilot contract
