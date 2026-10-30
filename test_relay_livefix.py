@@ -27,6 +27,18 @@ class TestTelegramLiveFix(unittest.TestCase):
         self.assertIn("/work " + t["id"], text)
         self.assertIsNone(self.queue.claim("ec2"))
 
+    def test_work_requeues_open_but_unclaimable_ticket_once(self):
+        ticket, _ = self.store.create("Legacy status")
+        self.store.set_status(ticket["id"], "in_progress")
+        self.assertIsNone(self.queue.claim("ec2"))
+        repaired = self.queue.enqueue(ticket["id"], actor="telegram")
+        self.assertEqual(repaired["status"], "inbox")
+        self.assertEqual(repaired["execution"]["state"], "queued")
+        length = len(self.store.get(ticket["id"])["history"])
+        self.queue.enqueue(ticket["id"], actor="telegram")
+        self.assertEqual(len(self.store.get(ticket["id"])["history"]), length)
+        self.assertEqual(self.queue.claim("ec2")["id"], ticket["id"])
+
     def test_blocked_heartbeat_is_not_running_task(self):
         text = _relay_status_text(self.store, lambda: {"claude": {
             "online": True, "active_task_id": "", "last_task_id": "T-590",
