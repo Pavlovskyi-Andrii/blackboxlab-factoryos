@@ -99,7 +99,7 @@ def parse_tables(i18n, assigns):
 
 
 def referenced_keys(html, script):
-    keys = set(re.findall(r'data-i18n(?:-placeholder)?="([^"]+)"', html)) | set(re.findall(r'data-help="([^"]+)"', html))
+    keys = set(re.findall(r'data-i18n(?:-placeholder|-title|-aria-label)?="([^"]+)"', html)) | set(re.findall(r'data-help="([^"]+)"', html))
     # tr('literal') calls; prefixes such as tr('stage.'+st) are dynamic families, not literal keys.
     keys |= {m.group(2) for m in re.finditer(r"""\btr\((['"])([A-Za-z0-9_.]+)\1(?!\s*\+)""", script) if not m.group(2).endswith(".")}
     keys |= set(re.findall(r"""\btr\([a-zA-Z_.]+\?'([A-Za-z0-9_.]+)':'[A-Za-z0-9_.]+'\)""", script))
@@ -237,7 +237,7 @@ def main():
         print("SKIPPED locale fixture check: node is not installed (CI runs it with FACTORYOS_REQUIRE_NODE=1)")
         return
     _, _, _, task_fn, _, tr = extract(html)
-    shell = sorted(set(re.findall(r'data-i18n(?:-placeholder)?="([^"]+)"', html)))
+    shell = sorted(set(re.findall(r'data-i18n(?:-placeholder|-title|-aria-label)?="([^"]+)"', html)))
     program = HARNESS % {"i18n": i18n, "task_copy": task_copy, "assigns": "\n".join(assigns), "task_fn": task_fn, "tr": tr,
                          "shell": json.dumps(shell), "keys": json.dumps(sorted(referenced))}
     result = subprocess.run([node, "-"], input=program, capture_output=True, text=True, timeout=60)
