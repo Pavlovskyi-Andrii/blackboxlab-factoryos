@@ -8,6 +8,7 @@ Rules:
 - Tasks that require credentials, payment, account ownership, irreversible decisions, or an external human approval are marked `[HUMAN]`.
 - Autopilot skips `[HUMAN]` tasks and continues with the next safe task.
 - `Depends: T-x,T-y` — a task is selected only after every listed task is checked `[x]`; an unknown ID keeps it waiting.
+- Lane policy 2026-10-30 (owner decision): Claude is the single coordinator and executor. The `chatgpt` lane is paused; ChatGPT is reconnected later only through tasks Claude explicitly labels `Owner: chatgpt`.
 - `Owner: chatgpt | claude | gemini | any` — the lane that implements the task. Each runner (`AUTOPILOT_OPERATOR`, default `claude`) only takes tasks with its own Owner or no Owner/`any`. A planner that starts coding a task itself must set `Owner:` to its own lane first, so two agents never build the same task.
 - Human approval remains mandatory before any real social publishing action.
 - ZERO ADDITIONAL SPEND: do not connect paid API billing, metered AI/browser calls, new paid cloud resources, or paid publisher plans without explicit fresh owner approval. Use existing subscriptions and free-tier resources only, with a fail-closed spending guard. Subscription access must never be silently replaced with PAYG API usage.
@@ -15,6 +16,14 @@ Rules:
 ## P0 — CLAUDE TAKES OVER (owner priority 2026-10-29)
 
 Owner directed Claude Code to be the principal engineering/operator coordinator. **Read docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md FIRST, then CLAUDE.md, and verify live state**. Do not claim owner Telegram works until live end-to-end proof. Do not enable paid APIs/cloud resources or unauthorized publishing. Separate worker service 'online' from actual task claims. Do not push to main; PR+CI+verification required.
+
+- [ ] T-599 Verified task claims: assignment ≠ execution
+  Owner: claude
+  Priority: P0
+  Depends: T-537
+  Spec: docs/handoff/T-599_VERIFIED_EXECUTION.md; Issue #67
+  Goal: route ROADMAP tasks and owner GitHub Issues through the existing RelayQueue claim/run_id/event journal; remove head-of-line blocking; require explicit Owner on every open task; derive Workers/Build Progress/Telegram state only from worker events.
+  DONE: deterministic tests A–E pass; no open ROADMAP task lacks Owner; a blocked task no longer stalls the queue; an Owner-assigned task without a claim renders as "assigned, not claimed"; CI-gated PRs; evidence posted to Issue #67.
 
 - [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
   Planner: owner; Executor: Claude Code Pro (primary). P0.
@@ -32,7 +41,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: real test message in paired owner chat -> one ticket -> authenticated Claude claim -> running -> final evidence -> owner reply with exact IDs and GitHub links, redacted transcript and timestamps. If needs owner 2FA, mark HUMAN with exact ask and do not claim done.
 
 - [ ] T-591-A Telegram Relay P0 status/queue/stale hotfix (ChatGPT owner, Claude follow-up acceptance)
-  Owner: ChatGPT. Depends: T-590 (implementation merged in #63; final live acceptance remains T-591).
+  Owner: claude. Depends: T-590 (implementation merged in #63; final live acceptance remains T-591).
   Scope: truthful heartbeat vs active task, claimable queue counts, stale-claim handling without auto-rerun, owner retry instructions.
   Test: test_relay_livefix.py and existing Relay suites; CI before merge, then Render and owner live E2E. Never mark T-591 done until actual Telegram task executes.
 
@@ -401,7 +410,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 ## v5.0.3 — Runner Supervisor (Subscription-only Recovery)
 
 - [ ] T-562 Local self-healing supervisor and zero-paid-API guards
-  Owner: ChatGPT
+  Owner: claude
   Planner: ChatGPT
   Spec: docs/roadmap/T-562_RUNNER_SUPERVISOR.md
   Goal: use a bounded local systemd recovery timer on the existing EC2 instance to restart only when subscription OAuth, internal worker token, non-main branch, and zero paid API billing gates all pass. Record safe local recovery status, never recover or copy OAuth tokens, never bypass account security.
@@ -410,8 +419,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 ## v5.0.4 — Self-service EC2 pairing
 
 - [ ] T-564 Interactive Claude worker pairing (no shell history/secrets)
-  Owner: ChatGPT
+  Owner: claude
   Planner: ChatGPT
-  Depends: T-562,T-563
+  Depends: T-562
   Goal: one interactive root-only command on the existing EC2 reads the internal FactoryOS worker token without terminal echo, atomically edits root-owned config with restrictive permissions, refuses paid API override, and requests ONLY a Supervisor preflight, never a direct unguarded Claude start.
   DONE: `python -m autopilot.test_pair_worker` passes, CI green, host CLI verified and documented; no secret is printed/logged or stored in git.

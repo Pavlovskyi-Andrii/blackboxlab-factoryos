@@ -288,3 +288,9 @@ Autonomous workers record reversible engineering decisions here so the owner can
 ## 2026-10-30 — T-537 follow-up: inline roadmap metadata
 - The live ROADMAP writes `Depends:` / `Owner:` mid-line (`Planner: owner; Executor: ... Depends: T-590.`, `Owner: ChatGPT. Depends: ...`). The line-start parser missed them, so T-591/T-592/T-593 looked dependency-free and T-591-A got owner `chatgpt.`, matching no lane.
 - The scheduler now finds both fields anywhere on an indented metadata line and drops trailing punctuation. `Executor:` is intentionally not treated as an owner lane; lanes stay explicit via `Owner:`.
+
+## 2026-10-30 — Single coordinator: Claude
+- Owner decision: Claude coordinates and executes all engineering work; the `chatgpt` lane is paused and is reconnected later only via tasks Claude labels `Owner: chatgpt`.
+- Retagged open ChatGPT tasks to `Owner: claude`: T-591-A, T-562, T-564. Completed T-560-B/C keep their historical owner.
+- T-564 `Depends: T-562,T-563` → `Depends: T-562`: T-563 never existed in the ROADMAP, so T-564 could never be selected.
+- Added T-599 at the top of P0 so the worker fixes head-of-line blocking before it reaches T-590's owner-dependent remainder.
