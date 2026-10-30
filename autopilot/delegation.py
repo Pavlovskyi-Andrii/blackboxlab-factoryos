@@ -47,6 +47,31 @@ DISALLOWED_TOOLS = (
     "Bash(gh workflow run:*)",
     "Bash(gh pr merge:*)",
 )
+# Headless `claude -p` cannot ask for approval, so anything not pre-allowed is denied.
+# The verification loop from CLAUDE.md (edit, run python tests, node --check, local commit)
+# must work without a human; push/deploy stay blocked by DISALLOWED_TOOLS above.
+ALLOWED_TOOLS = (
+    "Read",
+    "Edit",
+    "Write",
+    "Glob",
+    "Grep",
+    "Bash(python:*)",
+    "Bash(python3:*)",
+    "Bash(node --check:*)",
+    "Bash(env DATA_DIR=:*)",
+    "Bash(git status:*)",
+    "Bash(git diff:*)",
+    "Bash(git log:*)",
+    "Bash(git show:*)",
+    "Bash(git add:*)",
+    "Bash(git commit:*)",
+    "Bash(ls:*)",
+    "Bash(mkdir:*)",
+    "Bash(rm -rf /tmp/factoryos-:*)",
+)
+VENV_DIR = ".venv"
+VENV_TIMEOUT_SECONDS = 900
 TASK_ID_RE = re.compile(r"^T-[A-Za-z0-9-]+$")
 
 Runner = Callable[..., subprocess.CompletedProcess]
@@ -84,7 +109,11 @@ def task_prompt(task: dict[str, Any]) -> str:
         f"Работай строго по CLAUDE.md. Выполни только задачу {task['id']} — {task['title']}. "
         "Не переходи к другой задаче в этом запуске. Доведи её до проверяемого DONE, "
         "отметь checkbox в ROADMAP.md, запиши решения, тесты и .autopilot/status.json, "
-        "сделай один commit с ID задачи. Не трогай main и production."
+        "сделай один commit с ID задачи. Не трогай main и production. "
+        "Python: `python`/`python3` уже указывают на подготовленное .venv с requirements.txt; "
+        "не создавай свой venv и не используй /tmp для окружения. "
+        "Переменные окружения для команд задавай через `env`, например "
+        "`env DATA_DIR=/tmp/factoryos-autopilot FACTORY_PASSWORD= FACTORY_LLM_API_KEY= python smoke_tests.py`."
     )
 
 
@@ -118,6 +147,8 @@ def build_delegation(
         "json",
         "--max-turns",
         str(turns),
+        "--allowedTools",
+        *ALLOWED_TOOLS,
         "--disallowedTools",
         *DISALLOWED_TOOLS,
     ]
@@ -139,6 +170,46 @@ def delegated_env(base: dict[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ if base is None else base)
     for key in SCRUBBED_ENV:
         env.pop(key, None)
+    return env
+
+
+def ensure_venv(repo: pathlib.Path, *, runner: Runner = subprocess.run) -> tuple[pathlib.Path | None, str]:
+    """Keep a persistent `<repo>/.venv` matching requirements.txt for the delegated agent.
+
+    Lives in the (gitignored) checkout, not /tmp, so it survives reboots. Rebuilt only when
+    requirements.txt changes. Uses the free PyPI index; no paid resource is involved.
+    """
+    requirements = repo / "requirements.txt"
+    if not requirements.exists():
+        return None, "no requirements.txt"
+    venv = repo / VENV_DIR
+    python = venv / "bin" / "python"
+    marker = venv / ".requirements.sha256"
+    digest = __import__("hashlib").sha256(requirements.read_bytes()).hexdigest()
+    if python.exists() and marker.exists() and marker.read_text(encoding="utf-8").strip() == digest:
+        return venv, "ready"
+    try:
+        if not python.exists():
+            created = runner(["python3", "-m", "venv", str(venv)], cwd=repo, check=False,
+                             text=True, capture_output=True, timeout=VENV_TIMEOUT_SECONDS)
+            if created.returncode != 0:
+                return None, "venv creation failed: " + _tail(created.stderr)[-300:]
+        installed = runner([str(python), "-m", "pip", "install", "-q", "-r", str(requirements)], cwd=repo,
+                           check=False, text=True, capture_output=True, timeout=VENV_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, "venv setup failed: " + type(exc).__name__
+    if installed.returncode != 0:
+        return None, "pip install failed: " + _tail(installed.stderr)[-300:]
+    marker.write_text(digest + "\n", encoding="utf-8")
+    return venv, "installed"
+
+
+def venv_env(env: dict[str, str], venv: pathlib.Path | None) -> dict[str, str]:
+    if venv is None:
+        return env
+    env = dict(env)
+    env["VIRTUAL_ENV"] = str(venv)
+    env["PATH"] = str(venv / "bin") + os.pathsep + env.get("PATH", "")
     return env
 
 
@@ -225,9 +296,11 @@ def _iso(stamp: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stamp))
 
 
-def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run) -> dict[str, Any]:
+def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run,
+                   venv_fn: Callable[[pathlib.Path], tuple[pathlib.Path | None, str]] = ensure_venv) -> dict[str, Any]:
     """Execute a delegation spec and return captured, verified evidence."""
     repo = pathlib.Path(spec["repo"])
+    venv, venv_note = venv_fn(repo)
     status_path = repo / ".autopilot" / "status.json"
     status_path.parent.mkdir(parents=True, exist_ok=True)
     status_path.unlink(missing_ok=True)
@@ -254,7 +327,7 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run) -> 
         result = runner(
             spec["cmd"],
             cwd=repo,
-            env=delegated_env(),
+            env=venv_env(delegated_env(), venv),
             timeout=spec["timeout_seconds"],
             check=False,
             text=True,
@@ -286,6 +359,7 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run) -> 
         "duration_seconds": round(time.time() - started, 3),
         "exit_code": exit_code,
         "timed_out": timed_out,
+        "python_env": venv_note,
         "before": before,
         "after": after,
         "commits": commits,
