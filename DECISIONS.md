@@ -445,3 +445,10 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Default selectors/URLs (`/compose/tweet`, Instagram create dialog, `web.telegram.org/k/#@channel`) were not verified on the live sites: there are no accounts and no browser on this worker. Known selector keys can be overridden by trusted config. `/compose/tweet` is used instead of `/compose/post` because the T-560-C path guard rejects "post".
 - CI without a workflow edit: `test_browser_playwright.py` (existing CI step) imports the `test_browser_social.py` classes under `__main__`. This is the same route as T-596/T-599-E, because the token lacks `workflow` scope.
 
+
+## CI dashboard screenshots (2026-10-31)
+- UI tasks T-594..T-597 were blocked only on "screenshots desktop/mobile": the EC2 worker has no browser. Instead of installing Chromium on the production worker host, a separate CI job (`ui-screenshots`) starts FactoryOS locally without a password or provider keys (zero spend) and captures EN/UK/RU × 1440x900 / 1024x768 / 390x844 × home, menu open, Build Progress, Worker Center, help tip (45 PNGs) with Playwright.
+- Output is a 14-day `ui-screenshots` artifact (PNG + `index.html` contact sheet + `report.json`) and a findings table in the job summary.
+- Horizontal overflow, uncaught page errors and failed scene actions are **reported, not enforced**: the job fails only when the dashboard cannot load or a scene cannot be captured. Reason: the first baseline is unknown; making it blocking before seeing it would turn every PR red. Tighten once the baseline is clean.
+- Playwright is installed only in that job, not in `requirements.txt`, so the Render build is unchanged.
+- Separate job (not a step in `syntax-and-smoke`) so a browser install problem cannot hide or delay the core regression results.
