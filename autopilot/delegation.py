@@ -213,13 +213,73 @@ def venv_env(env: dict[str, str], venv: pathlib.Path | None) -> dict[str, str]:
     return env
 
 
-def _load_status(path: pathlib.Path) -> dict[str, Any]:
+def _safe_cli_output(value: Any) -> str:
+    """Bound and redact local CLI evidence. Never send raw agent output to Relay."""
+    tail = _tail(value)
+    tail = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", tail)
+    tail = re.sub(r"(?i)(authorization:\s*bearer\s+)[^\s\"']+", r"\1[REDACTED]", tail)
+    tail = re.sub(r"(?i)\b(?:sk-ant-[A-Za-z0-9_-]{8,}|github_pat_[A-Za-z0-9_]{12,}|gh[pousr]_[A-Za-z0-9_]{12,})\b", "[REDACTED]", tail)
+    tail = re.sub(
+        r"(?i)([\"']?(?:access_token|refresh_token|api_key|client_secret|authorization_code)[\"']?\s*[:=]\s*[\"']?)[^\"'\s,}]+",
+        r"\1[REDACTED]", tail,
+    )
+    tail = re.sub(r"(?i)([?&](?:code|token|access_token|refresh_token|state)=)[^&\s\"']+", r"\1[REDACTED]", tail)
+    return tail[-OUTPUT_TAIL_CHARS:]
+
+
+def diagnose_missing_status(*, exit_code: int | None, timed_out: bool, output: str) -> dict[str, Any]:
+    """Fail closed while telling the owner what kind of early CLI failure happened.
+
+    We cannot treat a Claude process as successful without its fresh status file.
+    Classifications are fixed strings: raw CLI output stays in redacted local evidence.
+    """
+    lower = output.lower()
+    code = "unknown" if exit_code is None else str(exit_code)
+    prefix = f"Claude CLI exit={code}; .autopilot/status.json absent."
+    if timed_out:
+        return {"status": "failed", "error_category": "timeout",
+                "summary": prefix + " Execution timed out; inspect local evidence."}
+    if any(word in lower for word in (
+        "not logged in", "not logged into", "please log in", "please login",
+        "login required", "authentication required", "not authenticated",
+        "oauth token expired", "oauth expired", "session expired",
+        "authentication_error", "unauthorized", "invalid oauth",
+    )):
+        return {"status": "blocked", "error_category": "subscription_auth_required",
+                "summary": prefix + " Subscription authentication unavailable.",
+                "need": "On the existing EC2, ec2-user must check 'claude auth status' and complete official subscription login if needed; do not use API billing."}
+    if any(word in lower for word in (
+        "usage limit", "rate limit", "rate_limit", "limit reached",
+        "out of extra usage", "usage exhausted", "quota exceeded",
+    )):
+        return {"status": "blocked", "error_category": "subscription_limit",
+                "summary": prefix + " Claude subscription usage limit reached.",
+                "need": "Check subscription allowance/reset in the official Claude session. Do not enable pay-as-you-go API billing."}
+    if any(word in lower for word in (
+        "permission denied", "permissions denied", "tool use denied",
+        "tool permission", "not allowed to use", "disallowed tool",
+    )):
+        return {"status": "blocked", "error_category": "permission_policy",
+                "summary": prefix + " Headless tool permissions blocked execution.",
+                "need": "Review the permitted CLI tools and local evidence without bypassing safety restrictions."}
+    if "could not start" in lower or "command not found" in lower:
+        return {"status": "blocked", "error_category": "claude_cli_unavailable",
+                "summary": prefix + " Claude CLI is unavailable.",
+                "need": "Check 'command -v claude' and 'claude --version' on the existing worker host."}
+    return {"status": "failed", "error_category": "missing_status",
+            "summary": prefix + (" Claude returned nonzero; inspect redacted local evidence."
+                                  if exit_code not in (0, None) else
+                                  " Claude returned without a verified completion record.")}
+
+
+def _load_status(path: pathlib.Path, *, exit_code: int | None = None,
+                 timed_out: bool = False, output: str = "") -> dict[str, Any]:
     if not path.exists():
-        return {"status": "failed", "summary": "agent did not write .autopilot/status.json"}
+        return diagnose_missing_status(exit_code=exit_code, timed_out=timed_out, output=output)
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        return {"status": "failed", "summary": f"invalid status.json: {exc}"}
+    except (OSError, ValueError) as exc:
+        return {"status": "failed", "summary": f"invalid status.json: {type(exc).__name__}"}
     if not isinstance(value, dict):
         return {"status": "failed", "summary": "status.json is not an object"}
     return value
@@ -258,6 +318,8 @@ def verify_evidence(spec: dict[str, Any], evidence: dict[str, Any]) -> list[str]
         violations.append(f"agent reported task {reported}; pinned task is {task_id}")
     if evidence.get("timed_out"):
         violations.append(f"agent exceeded {spec['timeout_seconds']}s bound")
+    if evidence.get("exit_code") not in (0, None) and str(status.get("status") or "").lower() == "done":
+        violations.append("CLI exited nonzero; cannot accept a done status")
     if str(status.get("status") or "").lower() == "done":
         commits = evidence["commits"]
         if len(commits) != 1:
@@ -364,8 +426,8 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run,
         "after": after,
         "commits": commits,
         "roadmap_done": _roadmap_task_done(repo, spec["task_id"]),
-        "status": _load_status(status_path),
-        "output_tail": output[-OUTPUT_TAIL_CHARS:],
+        "status": _load_status(status_path, exit_code=exit_code, timed_out=timed_out, output=output),
+        "output_tail": _safe_cli_output(output),
         "pushed": after.get("remote_refs") != before.get("remote_refs"),
         "deploy_credentials_scrubbed": True,
     }
