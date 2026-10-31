@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from relay_execution import lifecycle_text
 from lane_board import lane_board_text, telegram_lang
+from worker_observability import worker_overview_text
 
 RELAY_STATUSES = ("inbox", "in_progress", "need_you", "done", "archived")
 ACTIVE_STATUSES = ("inbox", "in_progress", "need_you")
@@ -588,12 +589,19 @@ def _lane_task_suffix(lane: dict) -> str:
     return ""
 
 
-def _lane_section(lane_board: Optional[Callable[[], dict]], lang: str) -> list:
-    """T-599-F: the same per-lane read model the web lane board renders."""
+def _lane_section(lane_board: Optional[Callable[[], dict]], lang: str, worker: bool = False) -> list:
+    """T-599-F: the same per-lane read model the web lane board renders.
+
+    T-596: with ``worker`` the per-source Claude worker block (the Worker Center signals) follows,
+    built from the same board snapshot so task/stage cannot differ from the lane line."""
     if lane_board is None:
         return []
     try:
-        return ["", lane_board_text(lane_board() or {}, lang)]
+        board = lane_board() or {}
+        out = ["", lane_board_text(board, lang)]
+        if worker and isinstance(board.get("worker_overview"), dict):
+            out.extend(["", worker_overview_text(board["worker_overview"], lang)])
+        return out
     except Exception:
         return ["", "Линии: данные недоступны"]
 
@@ -618,7 +626,7 @@ def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]]
                      " · работа: " + str(sum(x in ("claimed", "running", "checkpoint", "committed", "pushed") for x in stages)))
     if lane_board is not None:
         # T-599-F: lane state, task and stage come only from the verified-event lane board.
-        lines.extend(_lane_section(lane_board, lang))
+        lines.extend(_lane_section(lane_board, lang, worker=True))
         return "\n".join(lines)[:3900]
     lines.append("ChatGPT: нет автоматической телеметрии")
     if provider:

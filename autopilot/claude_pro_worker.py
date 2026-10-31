@@ -86,6 +86,19 @@ def task_snapshot() -> tuple[str, str, str]:
     )
 
 
+def supervisor_snapshot() -> dict:
+    """Secret-free systemd/OAuth report published by autopilot.supervisor (absent = unknown)."""
+    try:
+        value = json.loads((REPO / ".autopilot" / "supervisor.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    keep = ("checked_at", "status", "reason", "service_state", "subscription_authenticated",
+            "restart_attempts_last_hour", "recovery_action")
+    return {k: value[k] for k in keep if k in value}
+
+
 def heartbeat(version: str, *, state: str = "") -> None:
     if not WORKER_TOKEN:
         return
@@ -105,6 +118,7 @@ def heartbeat(version: str, *, state: str = "") -> None:
         "status": state or task_state or "idle",
         "task_id": task_id,
         "last_error": detail if (state == "failed" or task_state == "failed") else "",
+        "supervisor": supervisor_snapshot(),
     }
     response = requests.post(
         f"{FACTORY_URL}/api/claude-worker/heartbeat",

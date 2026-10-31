@@ -8,6 +8,8 @@ data/
 .autopilot/status.json
 .autopilot/run.json
 .autopilot/run.json.tmp
+.autopilot/supervisor.json
+.autopilot/supervisor.tmp
 .autopilot/telegram.json
 .autopilot/evidence/
 autopilot-ssh/
