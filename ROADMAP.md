@@ -78,6 +78,13 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
   Progress 2026-10-30: first live claimed runs on EC2 blocked because the agent's Python lived in /tmp/fos-venv (wiped on reboot) and headless `claude -p` denied python3. Delegation now keeps a persistent gitignored `<repo>/.venv` rebuilt only when requirements.txt changes, puts it first on PATH, and pre-allows the CLAUDE.md verification loop (Read/Edit/Write, python, node --check, local git add/commit) while push/deploy stay disallowed.
 
+- [ ] T-600 Fail-closed Claude CLI error diagnostics / retry classification
+  Owner: chatgpt
+  Priority: P0 support fix (owner-requested 2026-10-31, independent of Claude-owned T-562)
+  Depends: T-537
+  Goal: when a headless Claude process exits before writing .autopilot/status.json, retain truthful, redacted diagnostic evidence (exit code, structured CLI error category) instead of reporting only the missing file. Distinguish subscription login/auth-blocked from retryable execution failures; never treat absent status as DONE; do not leak secrets or bypass OAuth; preserve bounded retries and server run_id reporting.
+  DONE: deterministic fake-CLI tests for auth missing, CLI stderr failure, success-without-status, sanitized output and normal status-writing success; CI green, non-main PR, and live EC2 re-test separately verified. No paid APIs, new resources, or direct main pushes.
+
 ## P1 / P2 — Owner UI and agent management batch (2026-10-30)
 Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independent safe Claude engineering tasks**, except where dependency is explicitly stated. Owner is currently using EC2; avoid unnecessary service restarts or credential changes. When T-590 is blocked awaiting PR/CI/owner Telegram, do not silently claim that these UI tasks are running; use a new verifiable task claim/branch and continue safe independent work as scheduler permits. No new paid API, no bypass, no direct main push.
 
