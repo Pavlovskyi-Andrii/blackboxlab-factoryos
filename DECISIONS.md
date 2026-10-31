@@ -437,3 +437,11 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - The optional least-privilege grants (GitHub `workflow` scope, `ec2:DescribeInstances`) are `[HUMAN]` tasks T-598-H1/H2 at the **end** of ROADMAP. `first_human_blocker` reports the first open HUMAN task in file order, so the idle notice keeps showing the real blocker T-506 and not an optional grant.
 - No new CI step (no `workflow` scope). The new regressions live in `autopilot/test_autopilot.py`, which CI already runs.
 
+## T-560-D Social web draft recipes (2026-10-31)
+- One module, `browser_runner/social.py`, with a per-provider profile (`SOCIAL_SITES`: origin, text/media limits, submit action class, default selectors). There is no subclass per site. Reason: the three flows differ only in step order and selectors, and the T-560-C executor/guards stay the single execution path.
+- The recipe resolves `session_ref` from `SessionRegistry` itself and has no session/credential parameter. `run_social_draft` checks the binding again at run time. Reason: the T-550 portability contract (disconnect/replace/no cross-workspace reuse) is enforced by construction, not by caller discipline.
+- The draft plan never contains `submit`. `final_submit_plan` builds the irreversible plan separately and always clears approval fields. There is deliberately no "approve" helper, so approval can only come from the owner gate. Telegram's final step is classed `send`, X/Instagram `publish`.
+- The X 280-char check is a conservative plain character count (X weights URLs/emoji differently). It is a pre-check, not the authority.
+- Default selectors/URLs (`/compose/tweet`, Instagram create dialog, `web.telegram.org/k/#@channel`) were not verified on the live sites: there are no accounts and no browser on this worker. Known selector keys can be overridden by trusted config. `/compose/tweet` is used instead of `/compose/post` because the T-560-C path guard rejects "post".
+- CI without a workflow edit: `test_browser_playwright.py` (existing CI step) imports the `test_browser_social.py` classes under `__main__`. This is the same route as T-596/T-599-E, because the token lacks `workflow` scope.
+

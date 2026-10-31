@@ -485,4 +485,9 @@ class OptionalRealChromiumFixture(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    # T-560-D social recipes run in this existing CI step (no `workflow` scope).
+    from test_browser_social import (  # noqa: F401
+        SocialAccountBindings, SocialChallenges, SocialDraftPreparation,
+        SocialNoPlaintextCredentials, SocialPublishGate,
+    )
     unittest.main()

@@ -201,7 +201,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Progress 2026-10-29: `generic_form_recipe` + deterministic fixture regression (form flow, redacted evidence, off-domain rejection, step/timeout limits, submit blocked without valid approval and still blocked pending a trusted approval verifier). Real Chromium run remains operator opt-in.
   DONE: local deterministic fixture executes a generic allowlisted form flow, captures redacted evidence, rejects off-domain navigation, respects timeout/step limits and keeps submit disabled unless the plan carries valid approval.
 
-- [ ] T-560-D Social web draft recipes
+- [x] T-560-D Social web draft recipes
   Owner: claude
   Planner: ChatGPT
   Depends: T-560-C,T-550
