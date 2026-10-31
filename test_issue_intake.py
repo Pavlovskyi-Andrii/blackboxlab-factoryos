@@ -1,7 +1,6 @@
 """T-599-E: owner GitHub Issue auto-intake (deterministic; no network, no Claude)."""
 import io
 import json
-import sys
 import tempfile
 import unittest
 import unittest.mock
@@ -122,7 +121,6 @@ class TestIssueIntake(unittest.TestCase):
         self.assertNotIn(FAKE_TOKEN, ticket["body"])  # redacted at intake
         self.assertNotIn(FAKE_TOKEN, json.dumps(result))
 
-    @unittest.skipIf(sys.version_info < (3, 10), "app.py needs Python 3.10+ (CI runs 3.13)")
     def test_app_intake_pass_logs_no_secrets(self):
         import os
         os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-intake-"))

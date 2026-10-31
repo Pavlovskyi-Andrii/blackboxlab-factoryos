@@ -2472,10 +2472,10 @@ class ClaudeWorkerTaskResult(BaseModel):
     commit: str = ""
     commit_count: int = 0
     files: list[str] = []
-    exit_code: int | None = None
+    exit_code: Optional[int] = None
     timed_out: bool = False
     duration_seconds: float = 0
-    started_at: float | None = None
+    started_at: Optional[float] = None
     max_turns: int = 0
     timeout_seconds: int = 0
     violations: list[str] = []
@@ -9323,7 +9323,7 @@ async def rerun_single_agent(job_id, agent_name, stage):
         running_jobs.discard(job_id)
 
 @app.post("/api/jobs/{job_id}/agents/{agent_name}/rerun")
-async def rerun_agent(job_id:str,agent_name:str,expected_run_id:str | None=None,confirm_uncertain:bool=False):
+async def rerun_agent(job_id:str,agent_name:str,expected_run_id:Optional[str]=None,confirm_uncertain:bool=False):
     job=get_job(job_id)
     if not job:
         raise HTTPException(404,"Job not found")

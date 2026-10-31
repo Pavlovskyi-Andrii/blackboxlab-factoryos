@@ -9,7 +9,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 import unittest
@@ -277,7 +276,6 @@ class TestWebRenderer(LaneBoardCase):
 
 
 class TestApi(unittest.TestCase):
-    @unittest.skipIf(sys.version_info < (3, 10), "app.py needs Python 3.10+ (CI runs 3.13)")
     def test_endpoint_uses_relay_events_and_heartbeat(self):
         os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-lanes-"))
         import app
