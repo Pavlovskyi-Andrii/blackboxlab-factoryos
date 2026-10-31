@@ -190,6 +190,8 @@ def build_lane_board(roadmap_tasks: Iterable[dict], tickets: Iterable[dict], hea
             "last_event": run.get("last_event") or {},
             "pr_url": run.get("pr_url", ""),
             "run_id": run.get("run_id", ""),
+            # Worker note of the blocked/failed run (redacted when the event was recorded).
+            "reason": run.get("note", "") if state == "blocked" else "",
             "columns": col_counts,
             "done": col_counts["done"],
             "remaining": len(mine) - col_counts["done"],
@@ -209,17 +211,17 @@ TEXT = {
     "en": {"title": "Lanes (verified events)", "working": "Working", "blocked": "Blocked", "stale": "Stale",
            "idle": "Idle", "offline": "Offline", "task": "task", "stage": "stage", "since": "since",
            "last": "last event", "pr": "PR", "done": "done", "remaining": "remaining",
-           "unclaimed": "assigned, not claimed", "planned": "Planned", "in_progress": "In progress",
+           "reason": "reason", "unclaimed": "assigned, not claimed", "planned": "Planned", "in_progress": "In progress",
            "review": "Review", "none": "—"},
     "uk": {"title": "Лінії (підтверджені події)", "working": "Працює", "blocked": "Заблоковано", "stale": "Немає зв'язку",
            "idle": "Вільний", "offline": "Офлайн", "task": "задача", "stage": "етап", "since": "з",
            "last": "остання подія", "pr": "PR", "done": "готово", "remaining": "залишилось",
-           "unclaimed": "призначено, не взято", "planned": "Заплановано", "in_progress": "У роботі",
+           "reason": "причина", "unclaimed": "призначено, не взято", "planned": "Заплановано", "in_progress": "У роботі",
            "review": "Перевірка", "none": "—"},
     "ru": {"title": "Линии (подтверждённые события)", "working": "Работает", "blocked": "Заблокирован", "stale": "Нет связи",
            "idle": "Свободен", "offline": "Офлайн", "task": "задача", "stage": "этап", "since": "с",
            "last": "последнее событие", "pr": "PR", "done": "готово", "remaining": "осталось",
-           "unclaimed": "назначено, не взято", "planned": "Запланировано", "in_progress": "В работе",
+           "reason": "причина", "unclaimed": "назначено, не взято", "planned": "Запланировано", "in_progress": "В работе",
            "review": "Проверка", "none": "—"},
 }
 ICONS = {"working": "🟢", "blocked": "🙋", "stale": "🟡", "idle": "⚪", "offline": "⚫"}
@@ -250,6 +252,8 @@ def lane_board_text(board: dict, lang: str = "ru") -> str:
             detail.append(t["last"] + ": " + event["action"] + " " + str(event.get("at") or "")[:16].replace("T", " "))
         if row.get("pr_url"):
             detail.append(t["pr"] + " " + row["pr_url"])
+        if row.get("reason"):
+            detail.append(t["reason"] + ": " + str(row["reason"])[:200])
         detail.append(t["done"] + " " + str(row.get("done", 0)) + " · " + t["remaining"] + " " + str(row.get("remaining", 0)))
         lines.append("   " + " · ".join(detail))
         unclaimed = row.get("assigned_not_claimed") or []

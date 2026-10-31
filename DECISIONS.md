@@ -366,3 +366,11 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - When the lane board is wired in (always in `app.py`), the old heartbeat-only Telegram executor lines are replaced instead of being mixed in. The lane block is localized RU/UK/EN by Telegram `language_code` (default RU). The rest of the Relay text stays RU as before.
 - CI: `test_lane_board.py` is imported by `test_relay_execution.py`, so the existing "Relay worker queue" CI step runs it. No workflow edit was needed (the worker token lacks `workflow` scope). The Node render case skips only when Node is absent and `FACTORYOS_REQUIRE_NODE` is unset.
 
+## T-599 umbrella acceptance (2026-10-31)
+- `test_t599_acceptance.py` runs spec §3 scenarios A–E end to end: ROADMAP text → `claim_roadmap` (run_id) → worker events → `build_lane_board` → Telegram `/status`/`/tasks`. The slice suites keep the depth; this suite checks that the slices agree with each other.
+- Refused claims (the run is active or stale) now leave a `claim_rejected` history entry on the ticket. It is written once per (run_id, rejected worker), so a loser that retries every 5 min does not flood the journal. A claim for another lane's task still creates no ticket at all, so there is nothing to journal it on. `claim_rejected` is not a worker stage, so lane state and columns ignore it.
+- Scenario Г asks for the blocked reason in the API and Telegram. A lane row now carries `reason`: the redacted worker note of the blocked/failed run, shown only while the lane is `blocked`. Telegram `/status`/`/tasks` and the web lane card render it (`lb.reason`, RU/UK/EN).
+- CI wiring without a workflow edit: `test_relay_execution.py` imports the acceptance suite and `TestIssueIntake`. Until now the T-599-E tests were outside CI because the worker token lacks `workflow` scope.
+- PR/CI and the Issue #67 evidence comment happen after the worker pushes. The agent run cannot push and does not publish comments. In line with T-599-C/D, the worker reports done/pushed, and PR/CI are verified by the server/owner rather than claimed.
+- Known gap, left alone: if the final push fails, the ticket ends `blocked`. A later successful push-only retry does not emit a new event for that ticket, so the lane shows the old blocked reason until the next claim.
+

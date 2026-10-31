@@ -270,6 +270,10 @@ class TestWebRenderer(LaneBoardCase):
         self.assertIn('data-task="T-901" data-claim="claimed"', out["en:working"])
         self.assertIn('data-task="T-901" data-claim="assigned_not_claimed"', out["en:idle"])
         self.assertNotIn('data-state="working"', out["en:idle"])
+        # T-599: the blocked run's worker note is shown as the reason, only on a blocked lane.
+        self.assertIn('data-reason="1">Reason: blocked<', out["en:blocked"])
+        self.assertIn('data-reason="1">Причина: blocked<', out["ru:blocked"])
+        self.assertNotIn("data-reason", out["en:working"])
 
 
 class TestApi(unittest.TestCase):

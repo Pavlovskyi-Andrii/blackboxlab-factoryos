@@ -14,6 +14,9 @@ from test_relay_lifecycle import TestEndToEndSlice, TestOwnerIntake, TestWorkerL
 from test_relay_livefix import TestTelegramLiveFix  # noqa: F401
 from test_roadmap_claims import TestRoadmapClaims, TestWorkerSide  # noqa: F401  (T-599-C/D)
 from test_lane_board import TestApi, TestLaneStates, TestTelegramMatchesWeb, TestWebRenderer  # noqa: F401  (T-599-F)
+from test_issue_intake import TestIssueIntake  # noqa: F401  (T-599-E; no workflow edit possible)
+from test_t599_acceptance import (TestA_NormalTask, TestB_Conflict, TestC_Restart, TestD_Blocked,  # noqa: F401  (T-599)
+                                  TestE_Freshness, TestF_NoFabricatedActivity, TestRealRoadmap)
 
 
 

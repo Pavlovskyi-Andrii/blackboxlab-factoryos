@@ -411,14 +411,30 @@ class RelayQueue:
             item = next(x for x in state["tickets"] if x.get("id") == ticket["id"])
             current = self.view(dict(item))["execution"]
             stage = str(current.get("state") or "")
+            reason = ""
             if stage == "stale":
-                return None, f"{task_id}: previous run lost contact; owner Retry required"
-            if stage in ACTIVE_STATES:
-                return None, f"{task_id} is already {stage} by {current.get('worker_id') or '?'}"
+                reason = f"{task_id}: previous run lost contact; owner Retry required"
+            elif stage in ACTIVE_STATES:
+                reason = f"{task_id} is already {stage} by {current.get('worker_id') or '?'}"
+            if reason:
+                self._claim_rejected_unlocked(item, worker_id, lane, current, reason)
+                self.store._save_unlocked(state)
+                return None, reason
             item.setdefault("source", {}).update({"owner": owner or "any"})
             self._claim_unlocked(item, worker_id, f"ROADMAP {task_id} взята исполнителем {worker_id} (lane {lane})", lane)
             self.store._save_unlocked(state)
             return self.view(dict(item)), ""
+
+    def _claim_rejected_unlocked(self, item: dict, worker_id: str, lane: str, current: dict, reason: str) -> None:
+        """Journal a refused claim once per (run, worker), so periodic retries don't flood history."""
+        run_id = str(current.get("run_id") or "")
+        if any(h.get("action") == "claim_rejected" and h.get("actor") == worker_id and h.get("run_id") == run_id
+               for h in item.get("history") or []):
+            return
+        item.setdefault("history", []).append({
+            "at": utc_now(), "actor": worker_id, "action": "claim_rejected", "run_id": run_id,
+            "note": f"{reason} (lane {lane})"[:300],
+        })
 
     def _release_stale_unlocked(self, item: dict, worker_id: str) -> None:
         now = utc_now()
