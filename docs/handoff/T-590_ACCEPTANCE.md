@@ -26,6 +26,11 @@ Rule: a stage counts as verified only with evidence. Everything else is UNVERIFI
 ## Fixed in this run
 `app.py` (3 annotations) and `media_finisher_worker/app.py` (9) used `X | None`, which fails at import on the EC2 worker's Python 3.9. So the CLAUDE.md smoke and planner checks could not run on the worker at all. They now use `Optional[...]`. The two `skipIf(py<3.10)` app-level tests run on 3.9 too.
 
+## Re-check (2026-10-31, run `run-20261031162233-a7b938`, head `62ffd5e`)
+- All deterministic stages above re-ran green on Python 3.9: compile, the planner (with `FINISHER_DATA_DIR` as in CI), `smoke_tests.py`, `test_relay_execution` (58 tests: lifecycle, livefix, roadmap claims, lane board, issue intake, T-599 A–E), `test_relay_telegram` + `test_worker_token_binding` + `autopilot.test_delegation` (11), and `autopilot.test_autopilot`.
+- `autopilot/aws-worker` is 10 commits ahead of `origin/main` (`76ba72f`). `ae18547` and the T-599-E/F/T-599 commits are **not** on main yet, so no deployed revision can contain them.
+- The agent still has no network, `gh` or `curl`, so the PR, CI, `build_sha`, Telegram pairing and Issue #41 stages remain UNVERIFIED. Nothing new was claimed.
+
 ## Exact remaining actions
 
 1. **Session with GitHub access (Claude interactive, standing grant):** push `autopilot/aws-worker`, then open PR `autopilot/aws-worker → main`. Wait for CI on the current head; merge only when it is green.
