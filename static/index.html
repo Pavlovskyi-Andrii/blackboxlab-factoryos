@@ -195,11 +195,18 @@
 .helpTipWrap.helpTipWrap{position:relative;display:inline-block;vertical-align:middle;margin:0 0 0 4px;max-height:none;overflow:visible;white-space:normal}
 .helpTip{display:inline-grid;place-items:center;width:18px;height:18px;min-width:18px;padding:0;border:1px solid #2f5873;border-radius:50%;background:#0b2233;color:#9fdcff;font:700 11px/1 Inter,system-ui;text-transform:none;letter-spacing:0;cursor:help}
 .helpTip:focus-visible{outline:2px solid #63d9ff;outline-offset:2px}
-.helpTipWrap.helpTipWrap .helpTipText{display:none;position:absolute;z-index:60;left:50%;top:calc(100% + 6px);transform:translateX(-50%);width:max-content;max-width:min(260px,80vw);max-height:none;overflow:visible;padding:8px 10px;border:1px solid #2f5873;border-radius:8px;background:#06141f;color:#d7ebf7;font:400 11px/1.45 Inter,system-ui;text-transform:none;letter-spacing:0;white-space:normal;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.helpTipWrap.helpTipWrap .helpTipText{display:none;position:absolute;z-index:80;left:50%;top:calc(100% + 6px);transform:translateX(-50%);width:max-content;max-width:min(300px,86vw);max-height:none;overflow:visible;padding:8px 10px;border:1px solid #2f5873;border-radius:8px;background:#06141f;color:#d7ebf7;font:400 11px/1.45 Inter,system-ui;text-transform:none;letter-spacing:0;white-space:normal;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 .helpTipWrap.helpTipWrap.open .helpTipText,.helpTipWrap.helpTipWrap .helpTip:focus-visible+.helpTipText{display:block}
 @media(hover:hover){.helpTipWrap.helpTipWrap:hover .helpTipText{display:block}}
 .helpTipWrap.helpTipWrap.muted .helpTipText{display:none}
 @media(max-width:820px){.helpTip{width:28px;height:28px;min-width:28px;font-size:13px}.helpTipWrap.helpTipWrap .helpTipText{position:fixed;left:12px;right:12px;top:auto;bottom:12px;transform:none;width:auto;max-width:none}}
+.helpTipFlow{display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-top:7px}
+.helpTipStep{padding:2px 6px;border:1px solid #2f5873;border-radius:6px;background:#0b2233;color:#bfe6fb;font-size:10.5px;white-space:nowrap}
+.helpTipArrow{color:#63d9ff;font-size:10px}
+.helpTipSoon{display:block;margin-top:7px;color:#8aa3b5;font-size:10.5px;font-style:italic}
+@media(min-width:821px){.helpTipWrap.helpTipWrap.alignL .helpTipText{left:0;right:auto;transform:none}.helpTipWrap.helpTipWrap.alignR .helpTipText{left:auto;right:0;transform:none}}
+.helpHead{display:flex;align-items:center;gap:2px;flex-wrap:wrap;min-width:0}.helpHead>h2,.helpHead>h3{margin-bottom:0}
+.helpHead+p{margin-top:4px}
 .workerSelectedResult{margin:10px 0 12px;padding:12px;border:1px solid rgba(76,207,255,.28);border-radius:12px;background:rgba(18,42,58,.7)}
 .workerSelectedResult h3{margin:0 0 8px;font-size:13px}
 .workerSelectedResult .selectedResultMeta{display:flex;gap:6px;flex-wrap:wrap;margin:7px 0}
@@ -626,13 +633,13 @@
 <section class="grid">
 <div class="card officeCard"><div class="head"><h3><span data-i18n="office.title" style="font-size:13px;color:inherit;font-weight:inherit;margin:0">Agent Office</span> <span data-i18n="office.sub">Your AI team working together</span></h3><div class="officeTools"><div class="officeWorkers" id="officeWorkers" aria-label="Workers"></div><span class="officePill"><span class="green" id="officeDot"></span><span id="agentCount">agents</span></span><button class="btn ghost" onclick="openAgentDirectory()">◉ <span data-i18n="nav.agents">Agents</span></button></div></div><div class="office"><div class="officeStage"><svg class="officeScene" id="officeScene" viewBox="0 0 1600 1100" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Agent Office"></svg><div id="agentBadges"></div></div></div></div>
 <div class="rightRail">
-  <aside class="card connections"><h3 data-i18n="connections.title">Connections</h3><p data-i18n="connections.sub">Publishing, intelligence and generation services.</p><div id="connections"></div><p class="connectionNote" data-i18n="connections.portability">Connections belong to this workspace. Disconnecting an account keeps all content history and lets another customer account be connected later.</p><div class="connectionTools"><button class="connAction" onclick="disconnectAllIntegrations()" data-i18n="connections.disconnectAll">Disconnect all accounts</button></div></aside>
+  <aside class="card connections"><div class="helpHead"><h3 data-i18n="connections.title">Connections</h3><span class="helpTipMount" data-help-tip="connector" data-help-term="connections.title"></span></div><p data-i18n="connections.sub">Publishing, intelligence and generation services.</p><div id="connections"></div><p class="connectionNote" data-i18n="connections.portability">Connections belong to this workspace. Disconnecting an account keeps all content history and lets another customer account be connected later.</p><div class="connectionTools"><button class="connAction" onclick="disconnectAllIntegrations()" data-i18n="connections.disconnectAll">Disconnect all accounts</button></div></aside>
 </div>
 </section>
 
 <section class="workArea">
 <div class="workMain">
-<div class="card pipelineCard"><div class="pipeHead"><h3 data-i18n="pipeline.title">Content Pipeline</h3><div class="tiny" data-i18n="pipeline.legend">Green completed · Cyan current · Dim waiting</div></div><div class="pipeline" id="pipeline"></div><div class="pipeFlow" id="pipelineFlow" aria-live="polite"></div></div>
+<div class="card pipelineCard"><div class="pipeHead"><div class="helpHead"><h3 data-i18n="pipeline.title">Content Pipeline</h3><span class="helpTipMount" data-help-tip="stage" data-help-term="pipeline.title"></span></div><div class="tiny" data-i18n="pipeline.legend">Green completed · Cyan current · Dim waiting</div></div><div class="pipeline" id="pipeline"></div><div class="pipeFlow" id="pipelineFlow" aria-live="polite"></div></div>
 <div class="card jobs"><div class="rowHead"><div><h3 data-i18n="jobs.current">Current Jobs</h3><div class="tiny" id="jobSummary"></div></div><div><button class="btn" onclick="openNew()">+ <span data-i18n="nav.newJob">New Job</span></button> <button class="btn primary" id="runTop" onclick="runSelected()">▶ <span data-i18n="step.run">Run Factory</span></button></div></div><div id="jobs"></div></div>
 </div>
 <aside class="card selected"><div class="rowHead"><h3 data-i18n="jobs.selected">Selected Job</h3><div class="sjTools"><button class="btn ghost" onclick="S&&S.selectedJobId&&openJobOutputs(S.selectedJobId)"><span data-i18n="sj.open">Open</span> →</button> <button class="btn good" id="approveBtn" style="display:none" onclick="openApprovalStudio()" data-i18n="jobs.approve">Review & approve</button></div></div><div id="detail"></div><div class="logs" id="log"></div></aside>
@@ -651,7 +658,7 @@
 
 <section class="card errorCenterCard"><div class="errorCenterHead"><div><h3 data-i18n="error.title">Operations / Error Center</h3><p data-i18n="error.sub">Classified worker incidents, spend-safe recovery and resolved failure history for the selected job.</p></div><div class="errorSummary" id="errorSummary"></div></div><div class="errorList" id="errorCenter"></div></section>
 
-<section class="card workerFlowCard"><div class="workerFlowHead"><div><h3 class="helpable" data-help="help.worker" data-i18n="worker.title">Worker Results & Handoffs</h3><p data-i18n="worker.sub">Latest output from every worker, visible handoffs, and current failures for the selected job.</p></div><div class="tiny" data-i18n="worker.clickHint">click a worker → full artifact ledger</div></div><div class="factoryErrors" id="factoryErrors"></div><div class="workerResults" id="workerResults"></div><div class="handoffStream" id="handoffStream"></div></section>
+<section class="card workerFlowCard"><div class="workerFlowHead"><div><div class="helpHead"><h3 class="helpable" data-help="help.worker" data-i18n="worker.title">Worker Results & Handoffs</h3><span class="helpTipMount" data-help-tip="worker" data-help-term="worker.title"></span></div><p data-i18n="worker.sub">Latest output from every worker, visible handoffs, and current failures for the selected job.</p></div><div class="tiny" data-i18n="worker.clickHint">click a worker → full artifact ledger</div></div><div class="factoryErrors" id="factoryErrors"></div><div class="workerResults" id="workerResults"></div><div class="handoffStream" id="handoffStream"></div></section>
 
 
 </main></div>
@@ -663,13 +670,13 @@
 <div class="flowShade" id="cycleShade" onclick="closeAutonomousFactory()"></div>
 <section class="flowPage" id="cyclePage"><div class="flowTop"><div><h2 class="helpable" data-help="help.cycle" data-i18n="cycle.title">Autonomous Content Factory / Cycle Control</h2><p data-i18n="cycle.sub">Signals → ideas → production → human approval → publishing → real analytics → learning, with no manual data handoff.</p></div><button class="closeX" onclick="closeAutonomousFactory()">×</button></div><div class="flowBody" id="cycleBody"></div></section>
 <div class="flowShade" id="discoveryShade" onclick="closeDiscoveryStudio()"></div>
-<section class="flowPage" id="discoveryPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.discovery" data-i18n="discovery.title">Viral Discovery / Outlier Inbox</h2><p data-i18n="discovery.sub">Store real breakout candidates, compare public metrics and send the best source into Revideo without copying it.</p></div><button class="closeX" onclick="closeDiscoveryStudio()">×</button></div><div class="flowBody" id="discoveryBody"></div></section>
+<section class="flowPage" id="discoveryPage"><div class="flowTop"><div><div class="helpHead"><h2 class="helpable" data-help="help.discovery" data-i18n="discovery.title">Viral Discovery / Outlier Inbox</h2><span class="helpTipMount" data-help-tip="discovery" data-help-term="discovery.title"></span></div><p data-i18n="discovery.sub">Store real breakout candidates, compare public metrics and send the best source into Revideo without copying it.</p></div><button class="closeX" onclick="closeDiscoveryStudio()">×</button></div><div class="flowBody" id="discoveryBody"></div></section>
 <div class="flowShade" id="revideoShade" onclick="closeRevideoStudio()"></div>
 <section class="flowPage" id="revideoPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.revideo" data-i18n="revideo.title">Revideo / Original Rewrite Studio</h2><p data-i18n="revideo.sub">Analyze a successful public video/topic, extract reusable structure, create an original evidence-bounded rewrite, then send it into FactoryOS production.</p></div><button class="closeX" onclick="closeRevideoStudio()">×</button></div><div class="flowBody" id="revideoBody"></div></section>
 <div class="flowShade" id="finisherShade" onclick="closeMediaFinisher()"></div>
-<section class="flowPage" id="finisherPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.finisher" data-i18n="finisher.title">AI Media Finisher</h2><p data-i18n="finisher.sub">Raw/generated video → word timing → cuts → captions/graphics → audio → safe-zone QA → final video → human review.</p></div><button class="closeX" onclick="closeMediaFinisher()">×</button></div><div class="flowBody" id="finisherBody"></div></section>
+<section class="flowPage" id="finisherPage"><div class="flowTop"><div><div class="helpHead"><h2 class="helpable" data-help="help.finisher" data-i18n="finisher.title">AI Media Finisher</h2><span class="helpTipMount" data-help-tip="video" data-help-term="finisher.title"></span></div><p data-i18n="finisher.sub">Raw/generated video → word timing → cuts → captions/graphics → audio → safe-zone QA → final video → human review.</p></div><button class="closeX" onclick="closeMediaFinisher()">×</button></div><div class="flowBody" id="finisherBody"></div></section>
 <div class="flowShade" id="approvalShade" onclick="closeApprovalStudio()"></div>
-<section class="flowPage" id="approvalPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.approval" data-i18n="approval.title">Approval Studio</h2><p data-i18n="approval.sub">Preview, evidence, targeted regeneration and decisions before publishing.</p></div><button class="closeX" onclick="closeApprovalStudio()">×</button></div><div class="flowBody" id="approvalBody"></div></section>
+<section class="flowPage" id="approvalPage"><div class="flowTop"><div><div class="helpHead"><h2 class="helpable" data-help="help.approval" data-i18n="approval.title">Approval Studio</h2><span class="helpTipMount" data-help-tip="approval" data-help-term="approval.title"></span></div><p data-i18n="approval.sub">Preview, evidence, targeted regeneration and decisions before publishing.</p></div><button class="closeX" onclick="closeApprovalStudio()">×</button></div><div class="flowBody" id="approvalBody"></div></section>
 <div class="flowShade" id="publishingShade" onclick="closePublishingStudio()"></div>
 <section class="flowPage" id="publishingPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.publishing" data-i18n="publishing.title">Publishing Engine</h2><p data-i18n="publishing.sub">Approved packages, schedule, duplicate-safe publish attempts and real receipts.</p></div><button class="closeX" onclick="closePublishingStudio()">×</button></div><div class="flowBody" id="publishingBody"></div></section>
 <div class="flowShade" id="performanceShade" onclick="closePerformanceStudio()"></div>
@@ -706,7 +713,7 @@
 
 <div class="brainShade" id="brainShade" onclick="closeContentBrain()"></div>
 <section class="brainPage" id="brainPage">
-  <div class="brainTop"><div><h2 class="helpable" data-help="help.brain" data-i18n="brain.title">Content Brain / Idea Factory</h2><p data-i18n="brain.sub">Signals → Scout → Researcher → Strategist → Verifier → shortlist, with provenance and measured spend.</p></div><button class="closeX" onclick="closeContentBrain()">×</button></div>
+  <div class="brainTop"><div><div class="helpHead"><h2 class="helpable" data-help="help.brain" data-i18n="brain.title">Content Brain / Idea Factory</h2><span class="helpTipMount" data-help-tip="brain" data-help-term="brain.title"></span></div><p data-i18n="brain.sub">Signals → Scout → Researcher → Strategist → Verifier → shortlist, with provenance and measured spend.</p></div><button class="closeX" onclick="closeContentBrain()">×</button></div>
   <div class="brainBody">
     <div class="brainSummary" id="brainSummary"></div>
     <div class="brainToolbar">
@@ -763,7 +770,7 @@
 
 <div class="dcShade" id="dcShade" onclick="closeDelegationCenter()"></div>
 <section class="dcPage" id="dcPage">
-  <div class="dcTop"><div><h2 data-i18n="dc.title">Worker / Delegation Control Center</h2><p data-i18n="dc.sub">What ChatGPT/Planner delegated, what the Claude runner is doing now, and what is left.</p></div><button class="closeX" onclick="closeDelegationCenter()">×</button></div>
+  <div class="dcTop"><div><div class="helpHead"><h2 data-i18n="dc.title">Worker / Delegation Control Center</h2><span class="helpTipMount" data-help-tip="relay" data-help-term="dc.title"></span></div><p data-i18n="dc.sub">What ChatGPT/Planner delegated, what the Claude runner is doing now, and what is left.</p></div><button class="closeX" onclick="closeDelegationCenter()">×</button></div>
   <div class="dcBody" id="dcBody"><div class="sub" style="padding:20px" data-i18n="dc.loading">Loading delegation board…</div></div>
 </section>
 
@@ -826,11 +833,18 @@ const esc=v=>textValue(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&g
 function safeDate(v){return textValue(v).replace('T',' ').slice(0,19)}
 function helpTitle(key){const v=tr(key);return v===key?'':v}
 // --- explain:begin — T-533 canonical concept help: keyboard (focus/Enter/Space/Escape), hover and tap safe; text comes from explain.<concept> in EN/UK/RU.
-const EXPLAIN_CONCEPTS=['hook','script','caption','voice','cycle','idea','job','review','learned'];
+// T-597 surface help (relay…discovery) adds a factual mini flow (explainFlow.<concept>, steps split by " → ") and a not-yet-supported tutorial note.
+const EXPLAIN_CONCEPTS=['hook','script','caption','voice','cycle','idea','job','review','learned','relay','worker','connector','stage','approval','video','brain','discovery'];
 let _helpTipSeq=0;
-function helpTip(concept,term){if(!EXPLAIN_CONCEPTS.includes(concept))return '';const id='helpTip'+(++_helpTipSeq);return '<span class="helpTipWrap"><button type="button" class="helpTip" data-explain="'+concept+'" aria-expanded="false" aria-describedby="'+id+'" aria-label="'+esc(tr('explain.aria',{term:term||concept}))+'">?</button><span class="helpTipText" role="tooltip" id="'+id+'">'+esc(tr('explain.'+concept))+'</span></span>'}
+function helpTipFlow(concept){const raw=tr('explainFlow.'+concept);if(raw==='explainFlow.'+concept)return '';return '<span class="helpTipFlow">'+raw.split(' → ').map(s=>'<span class="helpTipStep">'+esc(s)+'</span>').join('<span class="helpTipArrow">→</span>')+'</span><span class="helpTipSoon">'+esc(tr('explain.tutorial'))+'</span>'}
+function helpTip(concept,term){if(!EXPLAIN_CONCEPTS.includes(concept))return '';const id='helpTip'+(++_helpTipSeq);return '<span class="helpTipWrap"><button type="button" class="helpTip" data-explain="'+concept+'" aria-expanded="false" aria-describedby="'+id+'" aria-label="'+esc(tr('explain.aria',{term:term||concept}))+'">?</button><span class="helpTipText" role="tooltip" id="'+id+'">'+esc(tr('explain.'+concept))+helpTipFlow(concept)+'</span></span>'}
 function closeHelpTips(except){document.querySelectorAll('.helpTipWrap.open').forEach(w=>{if(w===except)return;w.classList.remove('open');const b=w.querySelector('.helpTip');if(b)b.setAttribute('aria-expanded','false')})}
-document.addEventListener('click',e=>{const b=e.target&&e.target.closest?e.target.closest('.helpTip'):null;if(!b){closeHelpTips();return}e.preventDefault();e.stopPropagation();const w=b.parentNode,open=!w.classList.contains('open');closeHelpTips(w);w.classList.remove('muted');w.classList.toggle('open',open);b.setAttribute('aria-expanded',String(open))},true);
+// Keep the bubble inside the viewport on desktop (mobile uses a fixed bottom sheet).
+function placeHelpTip(w){if(!w||!w.getBoundingClientRect||typeof window==='undefined')return;const r=w.getBoundingClientRect(),vw=window.innerWidth||0;w.classList.toggle('alignL',r.left<160);w.classList.toggle('alignR',vw>0&&vw-r.right<160)}
+document.addEventListener('click',e=>{const b=e.target&&e.target.closest?e.target.closest('.helpTip'):null;if(!b){closeHelpTips();return}e.preventDefault();e.stopPropagation();const w=b.parentNode,open=!w.classList.contains('open');closeHelpTips(w);w.classList.remove('muted');placeHelpTip(w);w.classList.toggle('open',open);b.setAttribute('aria-expanded',String(open))},true);
+// Only one bubble at a time: hovering or focusing another tip closes a tap-opened one.
+document.addEventListener('mouseover',e=>{const w=e.target&&e.target.closest?e.target.closest('.helpTipWrap'):null;if(w){placeHelpTip(w);closeHelpTips(w)}});
+document.addEventListener('focusin',e=>{const w=e.target&&e.target.closest?e.target.closest('.helpTipWrap'):null;if(w){placeHelpTip(w);closeHelpTips(w)}});
 document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;const a=document.activeElement,w=a&&a.closest?a.closest('.helpTipWrap'):null;if(w)w.classList.add('muted');closeHelpTips()});
 document.addEventListener('focusout',e=>{const w=e.target&&e.target.closest?e.target.closest('.helpTipWrap'):null;if(w){w.classList.remove('muted','open');const b=w.querySelector('.helpTip');if(b)b.setAttribute('aria-expanded','false')}});
 // --- explain:end
@@ -902,6 +916,23 @@ const I18N={
   "explain.job":"Job — the production run for one idea: workers write, check and package it. It stops at review and never publishes by itself.",
   "explain.review":"Review — the human approval gate. Nothing is published until the owner approves this exact package.",
   "explain.learned":"Learned — real metrics from a published video were analysed and a recommendation was saved for the next cycle. No metrics means nothing is learned.",
+  "explain.relay":"Relay — the task queue between the planner and workers. A task is created, claimed by exactly one worker, run, checked and reported back. Created is not claimed, and claimed is not done.",
+  "explain.worker":"Worker — an executor such as Claude Code on a paired server that claims Relay tasks. Its state comes only from a verified heartbeat and run events; no heartbeat means unknown, not working.",
+  "explain.connector":"Connector — an account or service linked to this workspace for publishing, analytics or generation. Connecting never turns on paid calls by itself; disconnecting keeps the content history.",
+  "explain.stage":"Stage — one step of a job in the content pipeline. Green is completed, cyan is current, dim is waiting. A job moves on only after the previous stage produced its artifact.",
+  "explain.approval":"Approval — the human gate before publishing. The owner checks the exact package (preview, evidence, cost) and approves, rejects or regenerates a part. Nothing is published without it.",
+  "explain.video":"Video finishing — the Media Finisher turns raw or generated video into a final cut: word timing, cuts, captions, audio and safe-zone QA. It stops at human review and never publishes.",
+  "explain.brain":"Content Brain — turns collected signals into a verified idea shortlist through Scout, Researcher, Strategist and Verifier, with provenance. Building the shortlist uses paid LLM calls inside the budget guards.",
+  "explain.discovery":"Discovery — stores real public performance signals (views, views per hour, engagement, breakout score) for candidate videos. It does not invent quality scores, copy videos or publish anything.",
+  "explain.tutorial":"Audio/video tutorial: not yet supported.",
+  "explainFlow.relay":"Created → Claimed → Running → Checks → Reported",
+  "explainFlow.worker":"Paired → Heartbeat → Claims task → Runs → Reports",
+  "explainFlow.connector":"Connect → Verify → Use within budget → Disconnect",
+  "explainFlow.stage":"Completed → Current → Waiting",
+  "explainFlow.approval":"Package → Preview + evidence → Owner decision → Publishing queue",
+  "explainFlow.video":"Raw video → Word timing → Cuts → Captions + audio → QA → Review",
+  "explainFlow.brain":"Signals → Scout → Researcher → Strategist → Verifier → Shortlist",
+  "explainFlow.discovery":"Candidate → Public metrics → Compare → Revideo",
   "approval.statWaiting":"waiting for review","approval.statApproved":"approved","approval.statRejected":"rejected","approval.statItems":"review items",
   "approval.empty":"No jobs are currently in the approval workflow.","approval.preview":"Preview","approval.hook":"Hook","approval.script":"Script","approval.sources":"Sources",
   "approval.warnings":"Fact / QA warnings","approval.variantDiff":"Variant diff","approval.publishTarget":"Publish target","approval.history":"Decision history",
@@ -1164,6 +1195,23 @@ const I18N={
   "explain.job":"Job — виробничий запуск однієї ідеї: workers пишуть, перевіряють і пакують контент. Він зупиняється на перевірці й ніколи не публікує сам.",
   "explain.review":"Review — людська перевірка перед публікацією. Нічого не публікується, доки власник не схвалить саме цей пакет.",
   "explain.learned":"Learned — реальні метрики опублікованого відео проаналізовано, а рекомендацію збережено для наступного циклу. Без метрик нічого не навчається.",
+  "explain.relay":"Relay — черга завдань між планувальником і виконавцями. Завдання створюється, його бере рівно один виконавець, запускає, перевіряє й звітує. Створено — ще не взято, взято — ще не виконано.",
+  "explain.worker":"Виконавець — наприклад, Claude Code на спареному сервері, що бере завдання з Relay. Його стан береться лише з підтвердженого heartbeat і подій запуску; без heartbeat стан невідомий, а не «працює».",
+  "explain.connector":"Підключення — акаунт або сервіс цього робочого простору для публікації, аналітики чи генерації. Підключення саме по собі не вмикає платних викликів; відключення зберігає історію контенту.",
+  "explain.stage":"Етап — один крок завдання в контент-конвеєрі. Зелений — завершено, блакитний — поточний, тьмяний — очікує. Завдання переходить далі лише після артефакту попереднього етапу.",
+  "explain.approval":"Схвалення — людська перевірка перед публікацією. Власник перевіряє саме цей пакет (превʼю, докази, вартість) і схвалює, відхиляє або перегенеровує частину. Без цього нічого не публікується.",
+  "explain.video":"Доведення відео — Media Finisher робить із сирого чи згенерованого відео фінальний монтаж: таймінг слів, нарізка, субтитри, аудіо й QA безпечних зон. Зупиняється на перевірці людиною й ніколи не публікує.",
+  "explain.brain":"Content Brain — перетворює зібрані сигнали на перевірений шортлист ідей через Scout, Researcher, Strategist і Verifier із джерелами. Побудова шортлиста використовує платні LLM-виклики в межах бюджету.",
+  "explain.discovery":"Discovery — зберігає реальні публічні показники (перегляди, перегляди за годину, залученість, breakout score) для відео-кандидатів. Не вигадує оцінок якості, не копіює відео й нічого не публікує.",
+  "explain.tutorial":"Аудіо/відео-туторіал: поки не підтримується.",
+  "explainFlow.relay":"Створено → Взято → Виконується → Перевірки → Звіт",
+  "explainFlow.worker":"Спарено → Heartbeat → Бере завдання → Виконує → Звітує",
+  "explainFlow.connector":"Підключити → Перевірити → Використання в межах бюджету → Відключити",
+  "explainFlow.stage":"Завершено → Поточний → Очікує",
+  "explainFlow.approval":"Пакет → Превʼю + докази → Рішення власника → Черга публікації",
+  "explainFlow.video":"Сире відео → Таймінг слів → Нарізка → Субтитри + аудіо → QA → Перевірка",
+  "explainFlow.brain":"Сигнали → Scout → Researcher → Strategist → Verifier → Шортлист",
+  "explainFlow.discovery":"Кандидат → Публічні метрики → Порівняння → Revideo",
   "approval.statWaiting":"очікують перевірки","approval.statApproved":"схвалено","approval.statRejected":"відхилено","approval.statItems":"на перевірці",
   "approval.empty":"Зараз немає job у workflow схвалення.","approval.preview":"Прев’ю","approval.hook":"Hook","approval.script":"Сценарій","approval.sources":"Джерела",
   "approval.warnings":"Fact / QA попередження","approval.variantDiff":"Різниця варіантів","approval.publishTarget":"Ціль публікації","approval.history":"Історія рішень",
@@ -1426,6 +1474,23 @@ const I18N={
   "explain.job":"Job — производственный запуск одной идеи: workers пишут, проверяют и упаковывают контент. Он останавливается на проверке и никогда не публикует сам.",
   "explain.review":"Review — человеческая проверка перед публикацией. Ничего не публикуется, пока владелец не одобрит именно этот пакет.",
   "explain.learned":"Learned — реальные метрики опубликованного видео проанализированы, а рекомендация сохранена для следующего цикла. Без метрик ничего не обучается.",
+  "explain.relay":"Relay — очередь задач между планировщиком и исполнителями. Задача создаётся, её берёт ровно один исполнитель, запускает, проверяет и отчитывается. Создано — ещё не взято, взято — ещё не выполнено.",
+  "explain.worker":"Исполнитель — например, Claude Code на сопряжённом сервере, который берёт задачи из Relay. Его состояние берётся только из подтверждённого heartbeat и событий запуска; без heartbeat состояние неизвестно, а не «работает».",
+  "explain.connector":"Подключение — аккаунт или сервис этого рабочего пространства для публикации, аналитики или генерации. Подключение само по себе не включает платных вызовов; отключение сохраняет историю контента.",
+  "explain.stage":"Этап — один шаг задачи в контент-конвейере. Зелёный — завершён, голубой — текущий, тусклый — ожидает. Задача переходит дальше только после артефакта предыдущего этапа.",
+  "explain.approval":"Одобрение — человеческая проверка перед публикацией. Владелец проверяет именно этот пакет (превью, доказательства, стоимость) и одобряет, отклоняет или перегенерирует часть. Без этого ничего не публикуется.",
+  "explain.video":"Доводка видео — Media Finisher делает из сырого или сгенерированного видео финальный монтаж: тайминг слов, нарезка, субтитры, аудио и QA безопасных зон. Останавливается на проверке человеком и никогда не публикует.",
+  "explain.brain":"Content Brain — превращает собранные сигналы в проверенный шортлист идей через Scout, Researcher, Strategist и Verifier с источниками. Построение шортлиста использует платные LLM-вызовы в пределах бюджета.",
+  "explain.discovery":"Discovery — хранит реальные публичные показатели (просмотры, просмотры в час, вовлечённость, breakout score) для видео-кандидатов. Не выдумывает оценок качества, не копирует видео и ничего не публикует.",
+  "explain.tutorial":"Аудио/видео-туториал: пока не поддерживается.",
+  "explainFlow.relay":"Создано → Взято → Выполняется → Проверки → Отчёт",
+  "explainFlow.worker":"Сопряжён → Heartbeat → Берёт задачу → Выполняет → Отчитывается",
+  "explainFlow.connector":"Подключить → Проверить → Использование в пределах бюджета → Отключить",
+  "explainFlow.stage":"Завершён → Текущий → Ожидает",
+  "explainFlow.approval":"Пакет → Превью + доказательства → Решение владельца → Очередь публикации",
+  "explainFlow.video":"Сырое видео → Тайминг слов → Нарезка → Субтитры + аудио → QA → Проверка",
+  "explainFlow.brain":"Сигналы → Scout → Researcher → Strategist → Verifier → Шортлист",
+  "explainFlow.discovery":"Кандидат → Публичные метрики → Сравнение → Revideo",
   "approval.statWaiting":"ждут проверки","approval.statApproved":"одобрено","approval.statRejected":"отклонено","approval.statItems":"на проверке",
   "approval.empty":"Сейчас нет job в workflow одобрения.","approval.preview":"Превью","approval.hook":"Hook","approval.script":"Сценарий","approval.sources":"Источники",
   "approval.warnings":"Fact / QA предупреждения","approval.variantDiff":"Разница вариантов","approval.publishTarget":"Цель публикации","approval.history":"История решений",
@@ -2066,6 +2131,7 @@ function applyLanguage(){
  document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=tr(el.dataset.i18n)});
  document.querySelectorAll('[data-i18n-placeholder]').forEach(el=>{el.placeholder=tr(el.dataset.i18nPlaceholder)});
  document.querySelectorAll('[data-help]').forEach(el=>{el.title=helpTitle(el.dataset.help)});
+ document.querySelectorAll('[data-help-tip]').forEach(el=>{el.innerHTML=helpTip(el.dataset.helpTip,el.dataset.helpTerm?tr(el.dataset.helpTerm):'')});
  document.querySelectorAll('[data-i18n-title]').forEach(el=>{el.title=tr(el.dataset.i18nTitle)});
  document.querySelectorAll('[data-i18n-aria-label]').forEach(el=>{el.setAttribute('aria-label',tr(el.dataset.i18nAriaLabel))});
  ['en','uk','ru'].forEach(x=>{const b=$('#lang-'+x);if(b)b.classList.toggle('active',x===LANG)});
@@ -3182,7 +3248,7 @@ function lbItem(t){
 function renderLaneBoard(board){
  board=board||{};const lanes=board.lanes||{},tasks=board.tasks||[];
  const cols=LB_COLUMNS.map(c=>{const items=tasks.filter(t=>t.column===c);return '<div class="lbCol" data-column="'+c+'"><h4>'+esc(tr('lb.col.'+c))+' · '+items.length+'</h4>'+(c==='done'?'':items.slice(0,40).map(lbItem).join(''))+'</div>'}).join('');
- return '<section class="lbRoot" data-source="'+esc(board.source||'')+'"><h3>'+esc(tr('lb.title'))+'</h3><div class="lbLanes">'+LB_LANES.map(id=>lbLane(id,lanes[id])).join('')+'</div><div class="lbBoard">'+cols+'</div></section>';
+ return '<section class="lbRoot" data-source="'+esc(board.source||'')+'"><h3>'+esc(tr('lb.title'))+helpTip('relay',tr('lb.title'))+'</h3><div class="lbLanes">'+LB_LANES.map(id=>lbLane(id,lanes[id])).join('')+'</div><div class="lbBoard">'+cols+'</div></section>';
 }
 // --- lane-board:end
 // --- worker-overview:begin (T-596: pure renderers; every value comes from /api/factory/worker-overview or the lane board)
@@ -3233,7 +3299,7 @@ function renderWorkerOverview(o){
  const hb=o.human_blockers||[];
  const human='<div class="woPanel" data-panel="human"><h4>'+esc(tr('wo.human'))+' · '+hb.length+'</h4>'+(hb.length?hb.map(b=>'<details class="woHuman" data-human="'+esc(b.id)+'" data-answered="'+(b.answered?'1':'0')+'"><summary><b>'+esc(b.id)+'</b> '+esc(b.title||'')+' <em class="woBadge '+(b.answered?'ok':'warn')+'">'+esc(tr(b.answered?'wo.h.answered':'wo.h.open'))+'</em></summary>'
   +(b.need?'<div>'+esc(tr('dc.need'))+': '+esc(b.need)+'</div>':'')+'<div>'+esc(tr(b.answered?'wo.h.verify':'wo.h.action',{path:b.answer_path||'.autopilot/answers.md'}))+'</div>'+(b.roadmap_url?'<div>'+woLink(b.roadmap_url,'ROADMAP.md')+'</div>':'')+'</details>').join(''):'<span class="dcNa">'+esc(tr('wo.h.none'))+'</span>')+'</div>';
- return '<section class="woRoot" data-source="'+esc(o.source||'')+'"><h3>'+esc(tr('wo.title'))+'</h3>'+cur+sigs+'<div class="woGrid">'+evid+'<div class="woPanel" data-panel="heatmap"><h4>'+esc(tr('wo.heat.title'))+'</h4>'+woHeatmap(o.heatmap)+'</div>'+timeline+prog+human+'</div>'+errors+'</section>';
+ return '<section class="woRoot" data-source="'+esc(o.source||'')+'"><h3>'+esc(tr('wo.title'))+helpTip('worker',tr('wo.title'))+'</h3>'+cur+sigs+'<div class="woGrid">'+evid+'<div class="woPanel" data-panel="heatmap"><h4>'+esc(tr('wo.heat.title'))+'</h4>'+woHeatmap(o.heatmap)+'</div>'+timeline+prog+human+'</div>'+errors+'</section>';
 }
 function renderOfficeWorkers(board){
  const lanes=(board&&board.lanes)||{};

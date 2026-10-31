@@ -119,6 +119,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Spec: #57, T-578; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M5.
   Goal: reusable info/help icon, microcopy and small factual diagrams for Relay, workers, connectors, stages, approval, video, Content Brain, Discovery; RU/UK/EN, desktop hover/mobile tap/keyboard focus. Audio/video tutorial placeholders marked not yet supported; no metered generation.
   DONE: all target surfaces covered, no overlapping help/popovers, accessible tests, mobile screenshots and CI.
+  Progress 2026-10-31: code slice done. The shared T-533 help tip now covers Relay (Delegation Center + lane board), workers (Worker Results + Worker Center), Connections, pipeline stages, Approval, Media Finisher video, Content Brain and Discovery. Each has EN/UK/RU copy, a factual mini flow and a "tutorial not yet supported" note. Hover/focus on one tip closes the others, and desktop edges are aligned. `test_explainability.py` covers this locally and in the existing CI step. Open: mobile screenshots (no browser on the worker) and CI after the worker push.
 
 - [ ] T-598 Stable autonomous engineering handoff and report
   Owner: Claude

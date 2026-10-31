@@ -212,7 +212,10 @@ def ui_program():
     helpers = script[script.index("function textValue(v){"):]
     helpers = helpers[:helpers.index("\n", helpers.index("const esc="))]
     tr = re.search(r"^function tr\(key,vars=\{\}\)\{.*\}$", script, re.M).group(0)
-    return html, block, "let LANG='en';\n" + helpers + "\n" + i18n + "\n" + assigns + "\n" + tr + "\n" + block
+    # T-597: the lane heading carries the shared Relay help tip, so load the real explain helper.
+    explain = script.split("// --- explain:begin", 1)[1].split("\n", 1)[1].split("// --- explain:end", 1)[0]
+    stub = "const document={addEventListener(){},querySelectorAll(){return []}};\n"
+    return html, block, "let LANG='en';\n" + stub + helpers + "\n" + i18n + "\n" + assigns + "\n" + tr + "\n" + explain + "\n" + block
 
 
 class TestWebRenderer(LaneBoardCase):

@@ -251,7 +251,11 @@ def ui_program():
     helpers = script[script.index("function textValue(v){"):]
     helpers = helpers[:helpers.index("\n", helpers.index("const esc="))]
     tr = re.search(r"^function tr\(key,vars=\{\}\)\{.*\}$", script, re.M).group(0)
-    return html, block, "let LANG='en';\n" + helpers + "\n" + i18n + "\n" + assigns + "\n" + tr + "\n" + dc + "\n" + lane + "\n" + block
+    # T-597: Worker Center and lane headings carry the shared help tip, so load the real explain helper.
+    explain = script.split("// --- explain:begin", 1)[1].split("\n", 1)[1].split("// --- explain:end", 1)[0]
+    stub = "const document={addEventListener(){},querySelectorAll(){return []}};\n"
+    return html, block, ("let LANG='en';\n" + stub + helpers + "\n" + i18n + "\n" + assigns + "\n" + tr + "\n" + explain + "\n"
+                         + dc + "\n" + lane + "\n" + block)
 
 
 class TestWebRenderer(OverviewCase):
