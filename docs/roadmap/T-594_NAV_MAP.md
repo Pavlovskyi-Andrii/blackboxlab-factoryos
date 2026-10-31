@@ -69,3 +69,13 @@ closes, the location returns to Control Room.
   A tap is simulated as a click event. This is not a real touch device and does not render CSS. Visibility follows the pinned CSS rules.
 - Desktop/mobile screenshots: **not captured yet**. No runner session so far has had a browser
   (no Chromium/Playwright on the EC2 worker).
+- CI-gated PR: **not opened yet**. As of 2026-10-31 only increment 1 (#66) is on `origin/main`.
+  Increments 2–3 are only on `autopilot/aws-worker`.
+
+### Remaining steps (owner or a runner with a browser + GitHub access)
+
+1. Serve the dashboard (`uvicorn app:app`, `FACTORY_PASSWORD=""`) and capture `static/index.html` at
+   1440×900 and 390×844, menu closed and open, in EN plus one of UK/RU. Save them under `docs/roadmap/T-594_screens/`.
+2. On a touch device or in device emulation, check that tapping the backdrop closes the menu and that ☰ opens it.
+3. Open the PR `autopilot/aws-worker` → `main`, wait for green CI on the head and merge it. CI runs `test_navigation.py`
+   inside the locale parity step.
