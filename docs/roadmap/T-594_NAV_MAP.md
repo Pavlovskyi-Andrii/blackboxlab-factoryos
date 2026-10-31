@@ -61,5 +61,11 @@ closes, the location returns to Control Room.
 
 ## Evidence status
 
-- Static + script-syntax regression: `python test_navigation.py` (CI step "Left navigation groups / slide-out / breadcrumbs regression").
-- Desktop/mobile screenshots: **not captured yet**. The runner session that built increment 2 had no browser available.
+- Static + script-syntax regression: `python test_navigation.py`. In CI it runs inside the existing
+  "EN/UK/RU locale parity regression" step: `test_locale_parity.py` calls it, because the worker token cannot edit the workflow.
+- Behaviour run (increment 3): the real sidebar markup and the real nav script run in Node against a minimal DOM.
+  It covers 48 taps (24 destinations, with and without a selected job), the slide-out at 1440/1024/800/390px,
+  outside tap, Escape and destination close, the keyboard order, remembered sections, breadcrumbs, and EN/UK/RU rendering.
+  A tap is simulated as a click event. This is not a real touch device and does not render CSS. Visibility follows the pinned CSS rules.
+- Desktop/mobile screenshots: **not captured yet**. No runner session so far has had a browser
+  (no Chromium/Playwright on the EC2 worker).

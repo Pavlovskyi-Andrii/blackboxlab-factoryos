@@ -341,6 +341,13 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 ```
 (after the "Locale parity" step). Until then `test_navigation.py` runs locally only.
 
+## T-594 (increment 3) Nav behaviour run without a browser (2026-10-31)
+- The nav script is now fenced by `// --- nav:begin` / `// --- nav:end` (comments only). `test_navigation.py` runs that block in Node, together with the real I18N tables, `tr`, `esc` and `applyLanguage`, against the real sidebar, toggle, backdrop and breadcrumb markup, on a ~100-line DOM stub. Studio openers are stubs that open one fake overlay.
+  **Reason:** no browser exists on the worker, and jsdom/Playwright are not dependencies. Installing them would download software, and a hand-sized DOM keeps the test dependency-free. Mutation-checked: removing destination-close, Escape focus return, the hidden-button filter or the close-overlay observer each fails the run.
+- The stub's `offsetParent` mirrors the CSS rules that `check_behaviour()` pins: collapsed items are hidden in the open menu and in the ≥901px sidebar, and toggles are hidden in the closed ≤900px rails. If that CSS changes, both must change.
+- CI wiring: `test_locale_parity.py` (already a CI step with `FACTORYOS_REQUIRE_NODE=1`) runs `test_navigation.main()` after its own checks. This replaces the deferred workflow step from the note below. The token still lacks `workflow` scope.
+- **Still open, so T-594 stays unchecked:** real desktop/mobile screenshots (1440×900, 390×844) need a browser on a runner or from the owner, and the CI-gated PR happens after the worker push.
+
 ## T-599-E owner GitHub Issue auto-intake (2026-10-31)
 - "Repo owner" means the login before the `/` in `FACTORY_GITHUB_REPO`. The API call filters with `creator=<owner>`, and `RelayQueue.auto_intake_owner_issues` re-checks the author login, so a foreign Issue is ignored even if the API filter misbehaves. PRs, malformed entries and Issues whose first non-blank body line is not exactly `Owner: Claude|ChatGPT|Gemini` (case-insensitive) are ignored too.
 - T-ID linking: every `T-ddd[d][-X]` in the title and body is checked against `roadmap:T-xxx` tickets. If any match, the Issue reference goes into `source.linked_issues` on those tickets with a `linked` history event, and no new ticket is created. A claim/run_id is never touched. T-IDs without a ROADMAP ticket fall through to a normal import.

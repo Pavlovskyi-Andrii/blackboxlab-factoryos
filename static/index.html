@@ -2046,6 +2046,7 @@ function stageLabel(st){return tr('stage.'+st)}
 function stageSub(st){return tr('stagesub.'+st)}
 const icons={inbox:'○',research:'⌕',script:'▤',visual:'▧',voice:'≋',render:'▷',qa:'✓',publish:'⇧',analytics:'▥'};
 const pos={"Scout":[7,39],"Researcher":[20,39],"Tech Verifier":[33,39],"Angle Strategist":[46,39],"Hook Generator":[59,39],"Scriptwriter":[72,39],"Fact Checker":[85,39],"Hook Optimizer":[20,75],"Editor":[33,75],"Visual Director":[46,75],"Voice Agent":[59,75],"Render Agent":[72,75],"QA Agent":[85,75],"Publisher":[59,91],"Analyst":[72,91],"Supervisor":[92,91],"Hook Writer":[7,91],"Content Packager":[46,91]};
+// --- nav:begin — T-594 sidebar behaviour, driven against the real markup by test_navigation.py
 function mobileNavEnabled(){return window.matchMedia('(max-width:700px)').matches}
 // T-594: one slide-out menu for every width. Phones use the floating ☰, wider screens the » rail button.
 function navMenuOpen(){const side=document.getElementById('appSideNav');return !!(side&&side.classList.contains('navOpen'))}
@@ -2113,6 +2114,7 @@ document.addEventListener('keydown',e=>{
  const items=[...side.querySelectorAll('.nav button')].filter(x=>x.offsetParent!==null),i=items.indexOf(e.target);if(i<0)return;
  e.preventDefault();const n=e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;items[n].focus();
 });
+// --- nav:end
 async function api(u,o){const r=await fetch(u,o);if(!r.ok)throw Error(await r.text());return r.json()}async function copyViewerInvite(){try{const d=await api('/api/viewer-invite');await navigator.clipboard.writeText(d.url);toast(tr('toast.viewerCopied'))}catch(e){toast(e.message)}}async function refresh(){try{S=await api('/api/status');render()}catch(e){toast(tr('toast.refreshFailed'))}}
 function render(){mission();usage();buildBadge();contentBrainBadge();discoveryNavBadge();revideoNavBadge();variantBadge();packageBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const readOnly=!!(S.auth&&S.auth.readOnly),invite=$('#viewerInviteBtn'),newJob=$('#newJobBtn');if(invite)invite.style.display=readOnly?'none':'';if(newJob)newJob.style.display=readOnly?'none':'';const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8)+(readOnly?' · VIEWER':'');$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
 function buildBadge(){const b=S.buildProgress||{};const el=$('#buildNavPct');if(el)el.textContent=Math.round(Number(b.progress||0))+'%'}

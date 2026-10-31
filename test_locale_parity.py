@@ -250,6 +250,9 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+        # T-594 sidebar regression runs inside this CI step: the worker token cannot edit the workflow.
+        import test_navigation
+        test_navigation.main()
     except AssertionError as exc:
         print(f"FAIL: {exc}")
         sys.exit(1)
