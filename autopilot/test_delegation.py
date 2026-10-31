@@ -266,7 +266,8 @@ def test_parent_owned_run_state_visible_during_cli():
         raise FileNotFoundError("claude")
 
     evidence = dg.run_delegation(dg.build_delegation(TASK, make_repo()), runner=missing_cli)
-    assert evidence["result"] == "failed" and "could not start" in evidence["output_tail"]
+    assert evidence["result"] == "blocked" and evidence["status"]["error_category"] == "claude_cli_unavailable"
+    assert "could not start" in evidence["output_tail"]
 
 
 def test_persistent_venv_and_allowed_tools():
