@@ -7,13 +7,13 @@ import time
 from typing import Any
 
 try:
-    from .delegation import build_delegation, report_result, run_delegation, write_evidence
+    from .delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from .notify import configured as telegram_configured
     from .notify import send, wait_answer
     from . import control
     from . import relay_tasks
 except ImportError:
-    from delegation import build_delegation, report_result, run_delegation, write_evidence
+    from delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
     import control
@@ -56,6 +56,10 @@ RELAY_ONLY = os.environ.get("AUTOPILOT_RELAY_ONLY", "0").strip().lower() in {"1"
 # T-598: network git (pull/fetch/push) is bounded and never waits on a credential prompt, so an
 # unreachable remote is a short failed sync, not an endless "busy" worker.
 GIT_NET_TIMEOUT = max(10, min(600, int(os.environ.get("AUTOPILOT_GIT_TIMEOUT_SECONDS", "120"))))
+# T-600: a subscription limit is account-wide, so the whole queue waits for the reset. When the CLI
+# gives no readable reset time we retry after this back-off; the grace avoids racing the reset.
+LIMIT_BACKOFF_SECONDS = max(300, min(21600, int(os.environ.get("AUTOPILOT_LIMIT_BACKOFF_SECONDS", "1800"))))
+LIMIT_GRACE_SECONDS = 120
 
 
 def run(cmd: list[str], *, check: bool = True, capture: bool = False, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
@@ -260,18 +264,25 @@ def load_parking() -> dict[str, Any]:
         failures = max(0, int(value.get("failures") or 0))
     except (TypeError, ValueError):
         failures = 0
+    try:
+        limit_until = max(0.0, float(value.get("limit_until") or 0))
+    except (TypeError, ValueError):
+        limit_until = 0.0
     return {
         "blocked": {str(k): int(v) for k, v in blocked.items() if TASK_ID_RE.match(str(k)) and isinstance(v, int)},
         "failed": {str(x) for x in failed if TASK_ID_RE.match(str(x))},
         "failures_task": str(value.get("failures_task") or ""),
         "failures": failures,
+        "limit_until": limit_until,
     }
 
 
-def save_parking(blocked: dict[str, int], failed: set[str], failures_task: str, failures: int) -> None:
+def save_parking(blocked: dict[str, int], failed: set[str], failures_task: str, failures: int,
+                 limit_until: float = 0.0) -> None:
     path = parking_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"blocked": blocked, "failed": sorted(failed), "failures_task": failures_task, "failures": failures}
+    payload = {"blocked": blocked, "failed": sorted(failed), "failures_task": failures_task, "failures": failures,
+               "limit_until": limit_until}
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
@@ -282,6 +293,14 @@ def commit_files(sha: str) -> list[str]:
         return []
     result = run(["git", "show", "--name-only", "--format=", sha], check=False, capture=True)
     return [line for line in result.stdout.splitlines() if line.strip()] if result.returncode == 0 else []
+
+
+def limit_notice(until: float) -> str:
+    import datetime as dt
+
+    moment = dt.datetime.fromtimestamp(until, dt.timezone.utc)
+    return (f"⏳ Claude subscription limit reached. Queue paused until {moment:%H:%M} UTC ({_kyiv_label(moment)}); "
+            "no task is parked or counted as failed. Resumes automatically.")
 
 
 def _kyiv_label(moment: Any) -> str:
@@ -370,9 +389,10 @@ def main() -> int:
     failed_hold: set[str] = parking["failed"]
     failures_task = parking["failures_task"]
     failures = parking["failures"]
+    limit_until = parking["limit_until"]
 
     def persist() -> None:
-        save_parking(blocked, failed_hold, failures_task, failures)
+        save_parking(blocked, failed_hold, failures_task, failures, limit_until)
 
     # Tasks the server refused to hand us (another lane/run owns them): retry after a pause.
     deferred: dict[str, float] = {}
@@ -427,6 +447,20 @@ def main() -> int:
                     return 4
                 time.sleep(IDLE_SECONDS if DAEMON_MODE else PAUSE_SECONDS)
                 continue
+
+        # T-600: while the subscription limit holds, every Claude run would fail the same way.
+        # Pushing verified commits (above) still happens; starting Claude does not.
+        remaining = limit_until - time.time()
+        if remaining > 0:
+            write_runtime_status("idle", summary=limit_notice(limit_until))
+            if not DAEMON_MODE:
+                return 6
+            time.sleep(max(1.0, min(float(IDLE_SECONDS), remaining)))
+            continue
+        if limit_until:
+            limit_until = 0.0
+            persist()
+            send("▶️ Claude subscription limit window has passed; the queue resumes.")
 
         # Relay owner tickets have priority over ordinary roadmap work. This is
         # an actual claim + bounded Claude CLI invocation, not a UI status flip.
@@ -508,6 +542,20 @@ def main() -> int:
         if head_after and head_after != head_before:
             evidence["commit"] = head_after
             report("committed", f"{target['id']}: commit {head_after[:10]} on {branch}", evidence)
+
+        if status.get("error_category") == "subscription_limit":
+            # Not the task's fault: no attempt counted, nothing parked; the next task would hit the same wall.
+            reset_at = limit_reset_epoch(str(status.get("limit_resets") or ""), time.time())
+            limit_until = (reset_at + LIMIT_GRACE_SECONDS) if reset_at else time.time() + LIMIT_BACKOFF_SECONDS
+            persist()
+            notice = limit_notice(limit_until)
+            report("blocked", f"{target['id']}: not run — {notice}", evidence)
+            write_runtime_status("idle", task=target["id"], summary=notice)
+            send(notice)
+            if not DAEMON_MODE:
+                return 6
+            time.sleep(PAUSE_SECONDS)
+            continue
 
         if state == "done":
             failures = 0

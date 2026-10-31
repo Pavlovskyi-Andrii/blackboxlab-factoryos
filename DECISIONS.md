@@ -445,3 +445,12 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Default selectors/URLs (`/compose/tweet`, Instagram create dialog, `web.telegram.org/k/#@channel`) were not verified on the live sites: there are no accounts and no browser on this worker. Known selector keys can be overridden by trusted config. `/compose/tweet` is used instead of `/compose/post` because the T-560-C path guard rejects "post".
 - CI without a workflow edit: `test_browser_playwright.py` (existing CI step) imports the `test_browser_social.py` classes under `__main__`. This is the same route as T-596/T-599-E, because the token lacks `workflow` scope.
 
+
+## T-600 Subscription limit pauses the queue (2026-10-31)
+- Executed by an interactive Claude session at the owner's direct request, although the ROADMAP lane says `Owner: chatgpt`.
+- Limit detection reads the CLI's structured result first (`api_error`, `api_error_status: 429`) with a regex, not `json.loads`: the evidence is a 4000-char tail where stdout and stderr are concatenated, so the result line may be cut at the start or have stderr glued to its end. On 2026-10-31 the CLI returned `"api_error":"usage_limit_reached"` and none of the old plain-text keywords matched, so 13 tasks were parked as "failed" in ~20 minutes.
+- The limit check runs before the auth keywords: a limit response is also an error response and must not be read as a logged-out session.
+- A limit is account-wide, so the worker holds the **whole queue** (`limit_until`, persisted in `parking.json` so a restart cannot skip it). The task that hit the limit is not counted as an attempt and is not parked. Pushing already verified commits still happens during the hold; starting Claude (roadmap or Relay ticket) does not.
+- The reset time is taken from the CLI text only when it is an unambiguous clock time (`6pm (UTC)`, `18:00 (Europe/Kyiv)`); +120 s grace. Dated or weekly resets and unknown zones fall back to `AUTOPILOT_LIMIT_BACKOFF_SECONDS` (default 1800, clamped 300–21600). One quick failed call per back-off window is the accepted cost.
+- Only a charset-restricted reset hint (max 40 chars) leaves the evidence; the raw CLI text stays in redacted local evidence.
+- Not covered: a limit hit inside a Relay ticket run (`relay_tasks.run_one`) does not set the hold itself; the next roadmap run detects it.
