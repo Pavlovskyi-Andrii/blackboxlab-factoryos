@@ -17,7 +17,7 @@ Rules:
 
 Owner directed Claude Code to be the principal engineering/operator coordinator. **Read docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md FIRST, then CLAUDE.md, and verify live state**. Do not claim owner Telegram works until live end-to-end proof. Do not enable paid APIs/cloud resources or unauthorized publishing. Separate worker service 'online' from actual task claims. Do not push to main; PR+CI+verification required.
 
-- [ ] T-599-E Owner GitHub Issue auto-intake
+- [x] T-599-E Owner GitHub Issue auto-intake
   Owner: claude
   Priority: P0
   Spec: docs/handoff/T-599_VERIFIED_EXECUTION.md §2 T-599-E; Issue #67

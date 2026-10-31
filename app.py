@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot
+from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues
 from relay_execution import RelayQueue
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
@@ -34,6 +34,9 @@ APP_VERSION = "v5.7.1"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
+# T-599-E: owner Issue auto-intake; never polls more often than every 5 minutes.
+FACTORY_GITHUB_ISSUE_INTAKE_ENABLED = os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE", "1").strip().lower() not in ("0","false","no","off")
+FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC = max(300, int(os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC", "300") or 300))
 BUILDER_WORKFLOW = os.environ.get("FACTORY_BUILDER_WORKFLOW", "factory-builder.yml")
 FACTORY_MCP_TOKEN = os.environ.get("FACTORY_MCP_TOKEN", "").strip()
 
@@ -6955,6 +6958,8 @@ async def start_factory_cycle_reconciler():
     }
     print(json.dumps(publisher_state),flush=True)
     asyncio.create_task(factory_cycle_reconcile_loop())
+    if FACTORY_GITHUB_ISSUE_INTAKE_ENABLED:
+        asyncio.create_task(github_issue_intake_loop())
     if FACTORY_PUBLISHER_SCHEDULER_ENABLED:
         asyncio.create_task(publisher_scheduler_loop())
     asyncio.create_task(run_real_world_pilot_once())
@@ -8400,6 +8405,27 @@ def sync_cycle_for_job(job_id):
 def sync_cycle_for_publish(publish_id):
     cycle=_cycle_for_publish(publish_id)
     return sync_factory_cycle(cycle["id"]) if cycle else None
+
+def github_issue_intake_once(fetch=None):
+    """T-599-E: one owner-Issue intake pass; logs counts/IDs only, never bodies or tokens."""
+    result=relay_auto_intake_issues(RELAY_QUEUE,GITHUB_REPO,GITHUB_TOKEN,fetch=fetch)
+    print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":result["ok"],"error":result.get("error",""),
+                      "imported":[x["issue"] for x in result["imported"]],"linked":[x["issue"] for x in result["linked"]],
+                      "existing":len(result["existing"]),"ignored":result["ignored"]}),flush=True)
+    for row in result["imported"]:
+        try:_telegram_send(f"📥 Relay {row['ticket']}: GitHub #{row['issue']} (Owner: {row['lane']})\nВ очереди, выполнение ещё не началось.")
+        except Exception:pass
+    return result
+
+
+async def github_issue_intake_loop():
+    await asyncio.sleep(60)
+    while True:
+        try:await asyncio.to_thread(github_issue_intake_once)
+        except Exception as exc:
+            print(json.dumps({"event":"GITHUB_ISSUE_INTAKE_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC)
+
 
 async def factory_cycle_reconcile_loop():
     while True:

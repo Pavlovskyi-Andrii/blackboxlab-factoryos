@@ -340,3 +340,21 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
           python test_navigation.py
 ```
 (after the "Locale parity" step). Until then `test_navigation.py` runs locally only.
+
+## T-599-E owner GitHub Issue auto-intake (2026-10-31)
+- "Repo owner" means the login before the `/` in `FACTORY_GITHUB_REPO`. The API call filters with `creator=<owner>`, and `RelayQueue.auto_intake_owner_issues` re-checks the author login, so a foreign Issue is ignored even if the API filter misbehaves. PRs, malformed entries and Issues whose first non-blank body line is not exactly `Owner: Claude|ChatGPT|Gemini` (case-insensitive) are ignored too.
+- T-ID linking: every `T-ddd[d][-X]` in the title and body is checked against `roadmap:T-xxx` tickets. If any match, the Issue reference goes into `source.linked_issues` on those tickets with a `linked` history event, and no new ticket is created. A claim/run_id is never touched. T-IDs without a ROADMAP ticket fall through to a normal import.
+- Imported tickets get their lane in `source.owner`/`execution.owner`. The generic Claude `claim()` now skips tickets owned by another lane (`chatgpt`, `gemini`), and `counts()` reports them as `other_lane`, so a ChatGPT Issue is never executed by Claude.
+- Poll: a startup task waits 60 s, then runs every `FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC` (clamped to at least 300 s). It is on by default and `FACTORY_GITHUB_ISSUE_INTAKE=0` turns it off. That is one free GitHub REST call per pass, using the existing optional token. Unavailable GitHub means `ok: false` with an `HTTP nnn`/`GitHub unavailable` code and no state change. Logs contain only issue numbers and counts.
+- CI step not added: the worker token lacks `workflow` scope (see T-594 note). Someone with that scope should add this after "Relay worker queue / Claude execution unit tests", plus `test_issue_intake.py` in the py_compile list:
+```yaml
+      - name: Owner GitHub Issue auto-intake (T-599-E)
+        env:
+          DATA_DIR: /tmp/factoryos-issue-intake-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+          FACTORY_GITHUB_ISSUE_INTAKE: "0"
+        run: python test_issue_intake.py
+```
+- The EC2 worker venv is Python 3.9 while `app.py` needs 3.10+. `test_issue_intake.py` therefore skips its app-level case on 3.9, and `smoke_tests.py` can only run in CI (3.13).
+

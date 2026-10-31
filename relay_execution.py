@@ -99,6 +99,25 @@ def _is_roadmap(ticket: dict) -> bool:
     return (ticket.get("source") or {}).get("channel") == "roadmap"
 
 
+def _claude_claimable(ticket: dict) -> bool:
+    """Generic Relay claims are Claude's; ROADMAP and other-lane Issue tickets are not."""
+    owner = str((ticket.get("source") or {}).get("owner") or "").lower()
+    return not _is_roadmap(ticket) and (owner in SHARED_LANES or owner == "claude")
+
+
+# T-599-E: an owner Issue is imported only when its first non-blank body line names a lane.
+ISSUE_OWNER_LINE_RE = re.compile(r"^\s*Owner:\s*(Claude|ChatGPT|Gemini)\s*$", re.IGNORECASE)
+ISSUE_TASK_ID_RE = re.compile(r"\bT-\d{3,4}(?:-[A-Z])?\b")
+
+
+def issue_owner_lane(body: str) -> str:
+    for line in str(body or "").splitlines():
+        if line.strip():
+            match = ISSUE_OWNER_LINE_RE.fullmatch(line.strip())
+            return match.group(1).lower() if match else ""
+    return ""
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -185,6 +204,84 @@ class RelayQueue:
         )
         return self.view(ticket), created
 
+    def auto_intake_owner_issues(self, issues: list, repo: str, owner_login: str) -> dict:
+        """T-599-E: import open owner Issues carrying an ``Owner:`` first line.
+
+        Only Issues authored by ``owner_login`` are considered (foreign task
+        injection is ignored). An Issue that names a T-ID with an existing
+        ``roadmap:T-xxx`` ticket is linked to it instead of creating a duplicate;
+        everything else goes through the idempotent ``intake_github_issue``.
+        """
+        owner_login = str(owner_login or "").strip().lower()
+        summary = {"imported": [], "existing": [], "linked": [], "ignored": 0}
+        if not owner_login or not GITHUB_REPO_RE.fullmatch(str(repo or "")):
+            raise ValueError("Repository owner is required")
+        for issue in issues or []:
+            if not isinstance(issue, dict) or issue.get("pull_request") or str(issue.get("state") or "open") != "open":
+                summary["ignored"] += 1
+                continue
+            author = str(issue.get("author") or "").strip().lower()
+            lane = issue_owner_lane(str(issue.get("body") or ""))
+            try:
+                number = int(issue.get("number"))
+            except (TypeError, ValueError):
+                number = 0
+            if author != owner_login or not lane or number <= 0:
+                summary["ignored"] += 1
+                continue
+            title, body, url = str(issue.get("title") or ""), str(issue.get("body") or ""), str(issue.get("url") or "")
+            task_ids = sorted(set(ISSUE_TASK_ID_RE.findall(title + "\n" + body)))
+            linked = self._link_issue_to_roadmap(task_ids, number, url, repo)
+            if linked:
+                summary["linked"].append({"issue": number, "tickets": linked})
+                continue
+            ticket, created = self.intake_github_issue(number, title, url=url, repo=repo, body=body,
+                                                       actor="github-auto-intake")
+            if created:
+                ticket = self._set_issue_lane(ticket["id"], lane)
+            summary["imported" if created else "existing"].append({"issue": number, "ticket": ticket["id"], "lane": lane})
+        return summary
+
+    def _set_issue_lane(self, ticket_id: str, lane: str) -> dict:
+        with self.store.lock:
+            state = self.store._load_unlocked()
+            item = next(x for x in state["tickets"] if x.get("id") == ticket_id)
+            item.setdefault("source", {})["owner"] = lane
+            item.setdefault("execution", {})["owner"] = lane
+            self.store._save_unlocked(state)
+            return self.view(dict(item))
+
+    def _link_issue_to_roadmap(self, task_ids: list, number: int, url: str, repo: str) -> list:
+        """Attach an Issue reference to existing ROADMAP tickets; repeat calls change nothing."""
+        if not task_ids:
+            return []
+        keys = {"roadmap:" + tid for tid in task_ids}
+        ref = {"number": number, "repo": repo, "url": url}
+        linked = []
+        with self.store.lock:
+            state = self.store._load_unlocked()
+            changed = False
+            for item in state["tickets"]:
+                source = item.get("source") or {}
+                if source.get("source_key") not in keys:
+                    continue
+                linked.append(str(item.get("id") or ""))
+                refs = source.setdefault("linked_issues", [])
+                if any(int(r.get("number") or 0) == number for r in refs):
+                    continue
+                refs.append(ref)
+                item["source"] = source
+                now = utc_now()
+                item.setdefault("history", []).append({
+                    "at": now, "actor": "github-auto-intake", "action": "linked",
+                    "note": "GitHub #" + str(number) + " привязан к " + str(source.get("task_id") or ""),
+                    "from_status": item.get("status"), "to_status": item.get("status"),
+                })
+                changed = True
+            if changed:
+                self.store._save_unlocked(state)
+        return sorted(linked)
+
     def enqueue(self, ticket_id: str, actor: str = "owner") -> dict:
         tid = str(ticket_id).strip().upper()
         with self.store.lock:
@@ -251,7 +348,7 @@ class RelayQueue:
             if released:
                 self.store._save_unlocked(state)
             pending = [item for item in state["tickets"] if item.get("status") == "inbox"
-                       and (item.get("execution") or {}).get("state") == "queued" and not _is_roadmap(item)]
+                       and (item.get("execution") or {}).get("state") == "queued" and _claude_claimable(item)]
             pending.sort(key=lambda item: (item.get("execution") or {}).get("queued_at") or "")
             if not pending:
                 return None
@@ -339,14 +436,16 @@ class RelayQueue:
 
     def counts(self, tickets: list[dict]) -> dict:
         """Effective queue depth must reflect the same predicates as claim()."""
-        counts = {"claimable": 0, "running": 0, "stale": 0, "need_you": 0, "not_queued": []}
+        counts = {"claimable": 0, "other_lane": 0, "running": 0, "stale": 0, "need_you": 0, "not_queued": []}
         for ticket in tickets:
             status = str(ticket.get("status") or "")
             if status not in ("inbox", "in_progress", "need_you"):
                 continue
             stage = str(self.view(ticket)["execution"].get("state") or "")
-            if status == "inbox" and stage == "queued" and not _is_roadmap(ticket):
+            if status == "inbox" and stage == "queued" and _claude_claimable(ticket):
                 counts["claimable"] += 1
+            elif status == "inbox" and stage == "queued" and not _is_roadmap(ticket):
+                counts["other_lane"] += 1
             elif stage == "stale":
                 counts["stale"] += 1
             elif stage in ACTIVE_STATES:
