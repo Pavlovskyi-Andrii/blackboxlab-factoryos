@@ -266,7 +266,8 @@ def test_parent_owned_run_state_visible_during_cli():
         raise FileNotFoundError("claude")
 
     evidence = dg.run_delegation(dg.build_delegation(TASK, make_repo()), runner=missing_cli)
-    assert evidence["result"] == "failed" and "could not start" in evidence["output_tail"]
+    assert evidence["result"] == "blocked" and evidence["status"]["error_category"] == "claude_cli_unavailable"
+    assert "could not start" in evidence["output_tail"]
 
 
 def test_persistent_venv_and_allowed_tools():
@@ -300,7 +301,68 @@ def test_persistent_venv_and_allowed_tools():
     assert dg.ensure_venv(repo, runner=failing) == (None, "pip install failed: no network")
 
 
+def test_early_cli_failures_are_actionable_and_fail_closed():
+    """No real Claude calls: exercise the exact missing-status failure seen on EC2."""
+    def run_case(code: int, stdout: str = "", stderr: str = ""):
+        repo = make_repo()
+        spec = dg.build_delegation(TASK, repo)
+        def runner(cmd, **_kw):
+            return subprocess.CompletedProcess(cmd, code, stdout=stdout, stderr=stderr)
+        return dg.run_delegation(spec, runner=runner)
+
+    missing = run_case(0, stdout='{"type":"result","is_error":false,"result":"done"}')
+    assert missing["result"] == "failed", missing
+    assert missing["status"]["error_category"] == "missing_status"
+    assert "exit=0" in missing["status"]["summary"]
+
+    logged_out = run_case(1, stdout='{"is_error":true,"result":"Not logged in; please login"}')
+    assert logged_out["result"] == "blocked", logged_out
+    assert logged_out["status"]["error_category"] == "subscription_auth_required"
+    assert "claude auth status" in logged_out["status"]["need"]
+
+    rate_limited = run_case(1, stderr="Rate limit exceeded")
+    assert rate_limited["result"] == "blocked"
+    assert rate_limited["status"]["error_category"] == "subscription_limit"
+
+    permission = run_case(1, stderr="Tool permission denied")
+    assert permission["result"] == "blocked"
+    assert permission["status"]["error_category"] == "permission_policy"
+
+    generic = run_case(2, stderr="Unexpected CLI error")
+    assert generic["result"] == "failed"
+    assert generic["status"]["error_category"] == "missing_status"
+    assert "exit=2" in generic["status"]["summary"]
+
+    secret = "sk-ant-" + "A" * 24
+    token = "github_pat_" + "B" * 24
+    redacted = run_case(1, stderr=f"Unknown failure; Authorization: Bearer verysecrettoken {secret} {token} access_token=privatesession")
+    tail = redacted["output_tail"]
+    assert "verysecrettoken" not in tail and secret not in tail
+    assert token not in tail and "privatesession" not in tail
+    assert "[REDACTED]" in tail
+    # Never leak untrusted CLI text into Relay/Telegram owner summary.
+    payload = dg.result_payload(redacted)
+    assert "verysecrettoken" not in payload["summary"]
+    assert "privatesession" not in payload["summary"]
+
+    # If CLI writes DONE and exits nonzero, the evidence remains failed.
+    repo = make_repo()
+    spec = dg.build_delegation(TASK, repo)
+    def invalid_success(cmd, *, cwd, **_kw):
+        complete_task(Path(cwd))
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="process failed")
+    mismatch = dg.run_delegation(spec, runner=invalid_success)
+    assert mismatch["result"] == "failed"
+    assert any("CLI exited nonzero" in violation for violation in mismatch["violations"])
+
+    # Normal verified happy path is unchanged.
+    success_repo = make_repo()
+    success = dg.run_delegation(dg.build_delegation(TASK, success_repo), runner=fake_runner(complete_task))
+    assert success["result"] == "done" and success["violations"] == []
+
+
 def main():
+    test_early_cli_failures_are_actionable_and_fail_closed()
     test_persistent_venv_and_allowed_tools()
     test_spec_pins_and_bounds()
     test_env_scrubs_payg_and_deploy_credentials()
