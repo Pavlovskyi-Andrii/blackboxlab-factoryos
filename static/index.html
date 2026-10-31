@@ -573,6 +573,28 @@
 #claudeSetupModal [hidden]{display:none!important}
 .lbRoot{margin:0 0 12px;padding:11px;background:#0a1826;border:1px solid #24445f;border-radius:12px}.lbRoot h3{margin:0 0 8px;font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:#8da4b8}.lbLanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:9px}.lbLane{padding:9px;border:1px solid #22445f;border-radius:10px;background:#0b1a2a;font-size:8px;color:#8499ad}.lbHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}.lbHead b{font-size:10px;color:#dff6ff}.lbState{padding:3px 7px;border-radius:999px;border:1px solid #36556d;font-size:8px}.lbState.working{background:#103724;border-color:#1f7448;color:#71e79a}.lbState.blocked{background:#271318;border-color:#6e2e3a;color:#ff9dac}.lbState.stale{background:#2a210f;border-color:#6e551f;color:#ffd16f}.lbState.idle{color:#9fb6c9}.lbState.offline{color:#6f879d}.lbTask{color:#dff6ff;margin:3px 0}.lbTask.lbNone{color:#6f879d}.lbLine{margin:2px 0}.lbLine a{color:#6cddff}.lbCounts{margin-top:4px;color:#b8cad9}.lbCols{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}.lbCols span{padding:2px 5px;border:1px solid #203a50;border-radius:6px}.lbCols b{margin-right:3px;color:#dff6ff}.lbUnclaimed{margin-top:5px;color:#ffd16f}.lbBoard{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}.lbCol{background:#07121c;border:1px solid #1b354e;border-radius:10px;padding:7px;max-height:260px;overflow:auto}.lbCol h4{margin:0 0 6px;font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:#8da4b8}.lbItem{padding:6px;border:1px solid #22445f;border-radius:8px;margin-bottom:5px;font-size:8px;color:#b8cad9}.lbItem b{color:#dff6ff}.lbMeta{display:block;margin-top:3px;color:#6f879d}
 @media(max-width:820px){.lbLanes{grid-template-columns:1fr}.lbBoard{grid-template-columns:1fr 1fr}}
+/* T-595 — resizable/maximizable right-side drawers + Build Progress column overflow. Width comes from --drawer-w (set by the drawer script); --drawer-side is the sidebar's right edge, so a drawer never covers the sidebar. */
+.dcPage{inset:0 0 0 auto!important;height:100vh!important;border-radius:0!important;transform:translateX(103%)!important;opacity:1!important}.dcPage.open{transform:translateX(0)!important}
+.resizableDrawer{width:var(--drawer-w,min(65vw,calc(100vw - var(--drawer-side,0px) - 16px)))!important;max-width:calc(100vw - var(--drawer-side,0px) - 16px)!important;min-width:0!important}
+.resizableDrawer.maximized{width:calc(100vw - var(--drawer-side,0px) - 16px)!important}
+.resizableDrawer.resizing{transition:none!important;user-select:none}
+.drawerGrip{position:absolute;left:0;top:0;bottom:0;width:12px;margin-left:-6px;z-index:5;cursor:ew-resize;touch-action:none;display:flex;align-items:center;justify-content:center;outline:none}
+.drawerGrip::before{content:"";width:4px;height:56px;border-radius:999px;background:#2b5776;box-shadow:0 0 0 1px #0a1826}
+.drawerGrip:hover::before,.drawerGrip:focus-visible::before,.resizableDrawer.resizing .drawerGrip::before{background:#5fd8ff;height:84px}
+.drawerGrip:focus-visible{box-shadow:inset 0 0 0 2px #5fd8ff88}
+.drawerHeadActions{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.drawerMax{border:1px solid #2a4965;background:#0d1c2c;color:#cfe6f5;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px;line-height:1}
+.drawerMax:hover,.drawerMax[aria-pressed="true"]{border-color:#5fd8ff;color:#fff}
+.drawerMax:focus-visible,.resizableDrawer .closeX:focus-visible{outline:2px solid #5fd8ff;outline-offset:1px}
+.resizableDrawer :is(.taskTop,.dcTop,.qaTop,.intelTop,.flowTop,.packageTop,.variantTop,.brainTop,.drawerTop)>div:first-child{min-width:0}
+.taskBody,.dcBody,.qaBody,.intelBody,.flowBody,.drawerBody{min-width:0;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.taskBoard{grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr))}
+.lbBoard{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}
+.lbLanes{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
+.dcSummary{grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr))}
+.taskCol,.lbCol,.lbLane,.lbItem{min-width:0;overflow-wrap:anywhere}
+.addTaskRow>*{min-width:0}
+@media(max-width:900px){.resizableDrawer,.resizableDrawer.maximized{width:100vw!important;max-width:none!important;left:0!important}.drawerGrip,.drawerMax{display:none!important}}
 </style></head>
 <body><button class="mobileNavToggle" id="mobileNavToggle" aria-label="Open navigation" aria-controls="appSideNav" aria-expanded="false" onclick="toggleMobileNav()">☰</button><div class="navBackdrop" id="navBackdrop" onclick="closeMobileNav()"></div><div class="shell">
 <aside class="side" id="appSideNav">
@@ -2028,6 +2050,9 @@ Object.assign(I18N.ru,{"worker.rotateConfirm":"Новый токен EC2 зам�
 Object.assign(I18N.en,{"navMenu.open":"Expand navigation with descriptions","navMenu.close":"Collapse navigation","navCrumb.aria":"Breadcrumb","navCrumb.home":"Back to Control Room"});
 Object.assign(I18N.uk,{"navMenu.open":"Розгорнути меню з описами","navMenu.close":"Згорнути меню","navCrumb.aria":"Навігаційний ланцюжок","navCrumb.home":"Назад до Центру керування"});
 Object.assign(I18N.ru,{"navMenu.open":"Развернуть меню с описаниями","navMenu.close":"Свернуть меню","navCrumb.aria":"Навигационная цепочка","navCrumb.home":"Назад в Центр управления"});
+Object.assign(I18N.en,{"drawerCtl.resize":"Resize panel","drawerCtl.resizeHint":"Drag the edge, or use ←/→ (Shift for bigger steps) and Home/End; Enter maximizes","drawerCtl.maximize":"Maximize panel","drawerCtl.restore":"Restore panel size","drawerCtl.close":"Close panel","drawerCtl.width":"{px} px, {pct}% of the window"});
+Object.assign(I18N.uk,{"drawerCtl.resize":"Змінити ширину панелі","drawerCtl.resizeHint":"Перетягніть край або натисніть ←/→ (Shift — більший крок), Home/End; Enter — на весь екран","drawerCtl.maximize":"Розгорнути панель","drawerCtl.restore":"Відновити розмір панелі","drawerCtl.close":"Закрити панель","drawerCtl.width":"{px} пкс, {pct}% вікна"});
+Object.assign(I18N.ru,{"drawerCtl.resize":"Изменить ширину панели","drawerCtl.resizeHint":"Перетащите край или нажмите ←/→ (Shift — крупный шаг), Home/End; Enter — на весь экран","drawerCtl.maximize":"Развернуть панель","drawerCtl.restore":"Восстановить размер панели","drawerCtl.close":"Закрыть панель","drawerCtl.width":"{px} пкс, {pct}% окна"});
 function applyLanguage(){
  document.documentElement.lang=LANG;
  localStorage.setItem('factoryos_lang',LANG);
@@ -2115,6 +2140,81 @@ document.addEventListener('keydown',e=>{
  e.preventDefault();const n=e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;items[n].focus();
 });
 // --- nav:end
+// --- drawer:begin — T-595 resizable/maximizable side drawers, driven against the real markup by test_drawers.py
+// Left-edge grip (pointer = mouse/pen/touch, keyboard as an ARIA separator), max/restore beside ×, Escape closes the top drawer.
+// Width and maximized state are remembered per drawer for the browser session; bounds keep the sidebar visible. <=900px: full screen.
+const DRAWER_IDS=['taskPage','dcPage','qaPage','intelPage','brainPage','variantPage','packagePage','cyclePage','discoveryPage','revideoPage','finisherPage','approvalPage','publishingPage','performancePage','experimentPage','agentDrawer'];
+const DRAWER_WIDTH_KEY='factoryos_drawer_w.',DRAWER_MAX_KEY='factoryos_drawer_max.',DRAWER_MIN=360,DRAWER_GAP=16,DRAWER_STEP=32;
+const DRAWER_DEFAULT={agentDrawer:.42};
+let drawerStack=[],drawerDrag=null;
+function drawerFull(){return window.matchMedia('(max-width:900px)').matches}
+function drawerSideEdge(){const s=document.getElementById('appSideNav');if(!s||drawerFull())return 0;return Math.max(0,Math.round(s.getBoundingClientRect().right))}
+function drawerBounds(){const max=Math.max(DRAWER_MIN,window.innerWidth-drawerSideEdge()-DRAWER_GAP);return {min:DRAWER_MIN,max}}
+function drawerSession(key){try{return sessionStorage.getItem(key)}catch(e){return null}}
+function drawerRemember(key,v){try{sessionStorage.setItem(key,v)}catch(e){}}
+function drawerSetWidth(el,w,persist){
+ const b=drawerBounds(),px=Math.round(Math.min(b.max,Math.max(b.min,Number(w)||0)));
+ document.documentElement.style.setProperty('--drawer-side',drawerSideEdge()+'px');
+ el.style.setProperty('--drawer-w',px+'px');el._drawerW=px;
+ const g=el.querySelector('.drawerGrip'),now=el.classList.contains('maximized')?b.max:px;
+ if(g){g.setAttribute('aria-valuemin',String(b.min));g.setAttribute('aria-valuemax',String(b.max));g.setAttribute('aria-valuenow',String(now));g.setAttribute('aria-valuetext',tr('drawerCtl.width',{px:now,pct:Math.round(now*100/window.innerWidth)}))}
+ if(persist)drawerRemember(DRAWER_WIDTH_KEY+el.id,String(px));
+ return px;
+}
+function drawerSetMax(el,on,persist){
+ el.classList.toggle('maximized',on);
+ const b=el.querySelector('.drawerMax');
+ if(b){const label=tr(on?'drawerCtl.restore':'drawerCtl.maximize');b.setAttribute('aria-pressed',on?'true':'false');b.setAttribute('aria-label',label);b.title=label;b.textContent=on?'❐':'⤢'}
+ if(persist)drawerRemember(DRAWER_MAX_KEY+el.id,on?'1':'0');
+ if(el._drawerW)drawerSetWidth(el,el._drawerW,false);
+}
+function toggleDrawerMax(id){const el=document.getElementById(id);if(el&&!drawerFull())drawerSetMax(el,!el.classList.contains('maximized'),true)}
+function drawerApply(el){
+ const saved=parseInt(drawerSession(DRAWER_WIDTH_KEY+el.id),10);
+ el._drawerW=0;drawerSetMax(el,drawerSession(DRAWER_MAX_KEY+el.id)==='1',false);
+ drawerSetWidth(el,saved>0?saved:Math.round(window.innerWidth*(DRAWER_DEFAULT[el.id]||.65)),false);
+}
+function drawerEnhance(el){
+ const close=el.querySelector('.closeX');if(!close||el.querySelector('.drawerGrip'))return;
+ el.classList.add('resizableDrawer');
+ el.insertAdjacentHTML('afterbegin','<div class="drawerGrip" role="separator" aria-orientation="vertical" tabindex="0" aria-controls="'+el.id+'" aria-label="'+esc(tr('drawerCtl.resize'))+'" title="'+esc(tr('drawerCtl.resizeHint'))+'" data-i18n-aria-label="drawerCtl.resize" data-i18n-title="drawerCtl.resizeHint"></div>');
+ close.insertAdjacentHTML('beforebegin','<div class="drawerHeadActions"><button type="button" class="drawerMax" aria-pressed="false" aria-controls="'+el.id+'" onclick="toggleDrawerMax(\''+el.id+'\')">⤢</button></div>');
+ close.previousElementSibling.appendChild(close);
+ if(!close.getAttribute('aria-label'))close.setAttribute('aria-label',tr('drawerCtl.close'));
+ drawerSetMax(el,false,false);
+}
+function drawerTop(){drawerStack=drawerStack.filter(el=>el.classList.contains('open'));return drawerStack[drawerStack.length-1]||null}
+function drawerInit(){
+ DRAWER_IDS.forEach(id=>{
+  const el=document.getElementById(id);if(!el)return;drawerEnhance(el);
+  new MutationObserver(()=>{const open=el.classList.contains('open'),known=drawerStack.includes(el);if(open&&!known){drawerStack.push(el);drawerApply(el)}else if(!open&&known)drawerStack=drawerStack.filter(x=>x!==el)}).observe(el,{attributes:true,attributeFilter:['class']});
+ });
+}
+function drawerEndDrag(){if(!drawerDrag)return;const el=drawerDrag;drawerDrag=null;el.classList.remove('resizing');drawerSetWidth(el,el._drawerW,true)}
+document.addEventListener('pointerdown',e=>{
+ const g=e.target&&e.target.closest?e.target.closest('.drawerGrip'):null;if(!g||drawerFull()||(e.button!==undefined&&e.button!==0))return;
+ const el=g.parentNode;e.preventDefault();try{if(g.setPointerCapture&&e.pointerId!==undefined)g.setPointerCapture(e.pointerId)}catch(_){}
+ if(el.classList.contains('maximized')){drawerSetWidth(el,drawerBounds().max,false);drawerSetMax(el,false,true)}
+ drawerDrag=el;el.classList.add('resizing');
+});
+document.addEventListener('pointermove',e=>{if(!drawerDrag)return;e.preventDefault();drawerSetWidth(drawerDrag,window.innerWidth-e.clientX,false)});
+document.addEventListener('pointerup',drawerEndDrag);
+document.addEventListener('pointercancel',drawerEndDrag);
+document.addEventListener('keydown',e=>{
+ const g=e.target&&e.target.closest?e.target.closest('.drawerGrip'):null;if(!g)return;
+ const el=g.parentNode,b=drawerBounds(),cur=el.classList.contains('maximized')?b.max:(el._drawerW||b.min),step=e.shiftKey?DRAWER_STEP*4:DRAWER_STEP;
+ if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleDrawerMax(el.id);return}
+ const w=e.key==='ArrowLeft'?cur+step:e.key==='ArrowRight'?cur-step:e.key==='Home'?b.min:e.key==='End'?b.max:null;if(w===null)return;
+ e.preventDefault();drawerSetMax(el,false,true);drawerSetWidth(el,w,true);
+});
+// Capture phase: runs before the nav and help-tip Escape handlers, so an open menu, tooltip or modal is closed first instead of the drawer.
+document.addEventListener('keydown',e=>{
+ if(e.key!=='Escape'||navMenuOpen()||document.querySelector('.helpTipWrap.open')||document.querySelector('.modal.open'))return;
+ const el=drawerTop(),x=el&&el.querySelector('.closeX');if(!x)return;e.preventDefault();x.click();
+},true);
+window.addEventListener('resize',()=>{drawerStack.forEach(el=>{if(el.classList.contains('open'))drawerApply(el)})});
+drawerInit();
+// --- drawer:end
 async function api(u,o){const r=await fetch(u,o);if(!r.ok)throw Error(await r.text());return r.json()}async function copyViewerInvite(){try{const d=await api('/api/viewer-invite');await navigator.clipboard.writeText(d.url);toast(tr('toast.viewerCopied'))}catch(e){toast(e.message)}}async function refresh(){try{S=await api('/api/status');render()}catch(e){toast(tr('toast.refreshFailed'))}}
 function render(){mission();usage();buildBadge();contentBrainBadge();discoveryNavBadge();revideoNavBadge();variantBadge();packageBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const readOnly=!!(S.auth&&S.auth.readOnly),invite=$('#viewerInviteBtn'),newJob=$('#newJobBtn');if(invite)invite.style.display=readOnly?'none':'';if(newJob)newJob.style.display=readOnly?'none':'';const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8)+(readOnly?' · VIEWER':'');$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
 function buildBadge(){const b=S.buildProgress||{};const el=$('#buildNavPct');if(el)el.textContent=Math.round(Number(b.progress||0))+'%'}
