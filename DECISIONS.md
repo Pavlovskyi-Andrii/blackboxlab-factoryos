@@ -328,3 +328,15 @@ Autonomous workers record reversible engineering decisions here so the owner can
 - Live evidence: claimed runs of T-599-E and T-590 blocked. `~/.local/bin/python` exec'd `/tmp/fos-venv`, which the reboot wiped, and headless `claude -p` denied `python3` and venv recreation.
 - The parent process now keeps `<repo>/.venv` (already gitignored) in sync with `requirements.txt` using a sha256 marker, so pip runs only when requirements change. The venv is prepended to the agent's PATH. If setup fails, the run proceeds and evidence records the reason in `python_env`.
 - `--allowedTools` pre-allows exactly the CLAUDE.md loop: file tools, `python`/`python3`, `node --check`, `env DATA_DIR=…`, read-only git plus `git add`/`git commit`. `git push`, branch switches to main, `render` and `gh pr merge` remain in `--disallowedTools`, and the parent still refuses a pushed or off-branch run.
+
+## T-594 CI step deferred (2026-10-31)
+The worker's GitHub token has no `workflow` scope, so pushing a commit that edits `.github/workflows/ci.yml` was rejected (the worker looped on this from 2026-10-30 15:14 to 2026-10-31 08:29). The CI step was removed from the worker commit. It must be added separately by someone with `workflow` scope:
+```yaml
+      - name: Left navigation groups / slide-out / breadcrumbs regression
+        env:
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_navigation.py
+          python test_navigation.py
+```
+(after the "Locale parity" step). Until then `test_navigation.py` runs locally only.
