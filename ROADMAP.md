@@ -24,7 +24,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Goal: FactoryOS periodically (≤ every 5 min, free GitHub API) imports open Issues authored by the repo owner whose first body line is `Owner: Claude|ChatGPT|Gemini` via the existing idempotent `intake_github_issue`; an Issue referencing a T-ID that already has a `roadmap:T-xxx` ticket is linked instead of duplicated; other authors are ignored.
   DONE: deterministic tests cover import, dedupe on repeat, T-ID linking, foreign-author rejection and GitHub-unavailable fallback; no secrets in logs; CI green.
 
-- [ ] T-599-F Workers / Build Progress / Telegram from verified events
+- [x] T-599-F Workers / Build Progress / Telegram from verified events
   Owner: claude
   Priority: P0
   Depends: T-599-E

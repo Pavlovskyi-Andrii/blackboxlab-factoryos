@@ -26,6 +26,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues
 from relay_execution import RelayQueue
+from lane_board import build_lane_board
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 
@@ -767,7 +768,7 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE)
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_lane_board)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}
@@ -10532,6 +10533,18 @@ def factory_delegation_board(request: Request):
     identity=request_identity(request) or {}
     if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
     return get_delegation_board()
+
+def get_lane_board():
+    """T-599-F: per-lane state and Build Progress columns from Relay events + heartbeats only."""
+    lanes=get_operator_lanes()
+    beats={k:{"last_seen":v.get("last_seen") or None,"online":v.get("online") is True} for k,v in lanes.items()}
+    return build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds)
+
+@app.get("/api/factory/lane-board")
+def factory_lane_board(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return get_lane_board()
 
 # --- T-580 Role / Operator separation.
 # A role is what a canonical worker does; an operator is the model/runtime assigned to it. Canonical worker

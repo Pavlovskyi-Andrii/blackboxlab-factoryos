@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from relay_execution import lifecycle_text
+from lane_board import lane_board_text, telegram_lang
 
 RELAY_STATUSES = ("inbox", "in_progress", "need_you", "done", "archived")
 ACTIVE_STATUSES = ("inbox", "in_progress", "need_you")
@@ -587,7 +588,18 @@ def _lane_task_suffix(lane: dict) -> str:
     return ""
 
 
-def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]], queue=None) -> str:
+def _lane_section(lane_board: Optional[Callable[[], dict]], lang: str) -> list:
+    """T-599-F: the same per-lane read model the web lane board renders."""
+    if lane_board is None:
+        return []
+    try:
+        return ["", lane_board_text(lane_board() or {}, lang)]
+    except Exception:
+        return ["", "Линии: данные недоступны"]
+
+
+def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]], queue=None,
+                       lane_board: Optional[Callable[[], dict]] = None, lang: str = "ru") -> str:
     summary = store.summary()
     tickets = store.list(limit=500)
     lines = ["📡 FactoryOS Relay", "Связь с Telegram: ✅",
@@ -604,6 +616,10 @@ def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]]
         stages = [str((t.get("execution") or {}).get("state") or "") for t in tickets]
         lines.append("Очередь: " + str(stages.count("queued")) +
                      " · работа: " + str(sum(x in ("claimed", "running", "checkpoint", "committed", "pushed") for x in stages)))
+    if lane_board is not None:
+        # T-599-F: lane state, task and stage come only from the verified-event lane board.
+        lines.extend(_lane_section(lane_board, lang))
+        return "\n".join(lines)[:3900]
     lines.append("ChatGPT: нет автоматической телеметрии")
     if provider:
         try:
@@ -624,8 +640,8 @@ def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]]
     return "\n".join(lines)[:3900]
 
 
-def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]], github: Optional[Callable[[], dict]]) -> str:
-    lines = [_active_list_text(store), "", "— Исполнители —"]
+def _legacy_lane_lines(provider: Optional[Callable[[], dict]]) -> list:
+    lines = []
     if provider:
         try:
             lanes = provider() or {}
@@ -638,6 +654,17 @@ def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]],
     else:
         lines.append("Нет телеметрии воркеров")
     lines.append("ChatGPT: нет автоматической телеметрии")
+    return lines
+
+
+def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]], github: Optional[Callable[[], dict]],
+                      lane_board: Optional[Callable[[], dict]] = None, lang: str = "ru") -> str:
+    lines = [_active_list_text(store)]
+    if lane_board is not None:
+        lines.extend(_lane_section(lane_board, lang))
+    else:
+        lines.extend(["", "— Исполнители —"])
+        lines.extend(_legacy_lane_lines(provider))
     if github:
         try:
             snapshot = github() or {}
@@ -745,6 +772,7 @@ def relay_handle_telegram_update(
     operator_status_provider: Optional[Callable[[], dict]] = None,
     github_provider: Optional[Callable[[], dict]] = None,
     queue=None,
+    lane_board_provider: Optional[Callable[[], dict]] = None,
 ) -> Optional[dict]:
     """Handle Relay-specific Telegram traffic.
 
@@ -766,11 +794,12 @@ def relay_handle_telegram_update(
             return {"handled": True}
         data = str(callback.get("data") or "")
         callback_id = str(callback.get("id") or "")
+        lang = telegram_lang((callback.get("from") or {}).get("language_code"))
         if data.startswith("relay:overview:"):
             action = data.split(":")[-1]
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
             if action == "tasks":
-                value = _relay_tasks_text(store, operator_status_provider, github_provider)
+                value = _relay_tasks_text(store, operator_status_provider, github_provider, lane_board_provider, lang)
             elif action == "history":
                 value = _relay_history_text(store, github_provider)
             elif action == "github":
@@ -829,13 +858,14 @@ def relay_handle_telegram_update(
 
     text = str(message.get("text") or message.get("caption") or "").strip()
     command = text.split(maxsplit=1)[0].lower() if text.startswith("/") else ""
+    lang = telegram_lang((message.get("from") or {}).get("language_code"))
     if command in ("/pair", "/start"):
         return None
     if command == "/status":
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_status_text(store, operator_status_provider, queue), "reply_markup": _relay_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_status_text(store, operator_status_provider, queue, lane_board_provider, lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "status"}
     if command in ("/relay", "/tasks"):
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider), "reply_markup": _relay_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider, lane_board_provider, lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "list"}
     if command == "/history":
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_history_text(store, github_provider), "reply_markup": _relay_keyboard()})
@@ -844,7 +874,7 @@ def relay_handle_telegram_update(
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _github_text(github_provider() if github_provider else {"available": False}), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "github"}
     if command == "/roadmap":
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider), "reply_markup": _relay_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider, lane_board_provider, lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "roadmap"}
     if command == "/task":
         parts = text.split(maxsplit=1)

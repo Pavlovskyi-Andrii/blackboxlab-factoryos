@@ -358,3 +358,11 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 ```
 - The EC2 worker venv is Python 3.9 while `app.py` needs 3.10+. `test_issue_intake.py` therefore skips its app-level case on 3.9, and `smoke_tests.py` can only run in CI (3.13).
 
+## T-599-F lane board from verified events (2026-10-31)
+- One pure read model, `lane_board.build_lane_board`, feeds `GET /api/factory/lane-board` (owner only), the web lane cards (Build Progress and the Workers center) and Telegram `/status` + `/tasks`. Web and Telegram both show the board's raw `task_id` and `stage`, so they cannot disagree.
+- Lane state order: a claimed run with a fresh event (within `RelayQueue.stale_seconds`) means **working**. A claimed run without one means **stale**. If the heartbeat is not online: seen within 1 h means **stale**, otherwise **offline**. If it is online: a latest final event of `blocked`/`failed` means **blocked**, otherwise **idle**. The heartbeat's online verdict comes from the server's existing TTL (`get_operator_lanes`). ChatGPT has no heartbeat reporter, so it shows working only while its own claimed run keeps sending events.
+- Columns: `[x]` in ROADMAP means Done. An active run means In progress. `blocked`/`failed`/stale means Blocked. A worker `done` event while the ROADMAP checkbox on main is still open means **Review** (awaiting PR/merge). Everything else is Planned. HUMAN tasks stay in Planned with a "HUMAN step" tag.
+- "Assigned, not claimed" covers any open task with a non-shared `Owner:` and no claimed event, including a `queued` ticket. Owner GitHub Issue tickets with an `Owner:` lane appear as tasks too.
+- When the lane board is wired in (always in `app.py`), the old heartbeat-only Telegram executor lines are replaced instead of being mixed in. The lane block is localized RU/UK/EN by Telegram `language_code` (default RU). The rest of the Relay text stays RU as before.
+- CI: `test_lane_board.py` is imported by `test_relay_execution.py`, so the existing "Relay worker queue" CI step runs it. No workflow edit was needed (the worker token lacks `workflow` scope). The Node render case skips only when Node is absent and `FACTORYOS_REQUIRE_NODE` is unset.
+

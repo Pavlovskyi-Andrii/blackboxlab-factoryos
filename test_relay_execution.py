@@ -13,6 +13,7 @@ from autopilot import relay_tasks
 from test_relay_lifecycle import TestEndToEndSlice, TestOwnerIntake, TestWorkerLifecycle  # noqa: F401
 from test_relay_livefix import TestTelegramLiveFix  # noqa: F401
 from test_roadmap_claims import TestRoadmapClaims, TestWorkerSide  # noqa: F401  (T-599-C/D)
+from test_lane_board import TestApi, TestLaneStates, TestTelegramMatchesWeb, TestWebRenderer  # noqa: F401  (T-599-F)
 
 
 
