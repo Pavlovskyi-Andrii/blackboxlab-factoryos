@@ -11,5 +11,7 @@ data/
 .autopilot/supervisor.json
 .autopilot/supervisor.tmp
 .autopilot/telegram.json
+.autopilot/parking.json
+.autopilot/parking.tmp
 .autopilot/evidence/
 autopilot-ssh/

@@ -121,12 +121,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: all target surfaces covered, no overlapping help/popovers, accessible tests, mobile screenshots and CI.
   Progress 2026-10-31: code slice done. The shared T-533 help tip now covers Relay (Delegation Center + lane board), workers (Worker Results + Worker Center), Connections, pipeline stages, Approval, Media Finisher video, Content Brain and Discovery. Each has EN/UK/RU copy, a factual mini flow and a "tutorial not yet supported" note. Hover/focus on one tip closes the others, and desktop edges are aligned. `test_explainability.py` covers this locally and in the existing CI step. Open: mobile screenshots (no browser on the worker) and CI after the worker push.
 
-- [ ] T-598 Stable autonomous engineering handoff and report
+- [x] T-598 Stable autonomous engineering handoff and report
   Owner: Claude
   Priority: P1
   Spec: #61, #40, #49–51, T-593; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M6.
   Goal: verified GitHub Issue/ROADMAP/Relay task dedupe, Depends/Owner scheduler from merged #62, bounded retries, no endless git pull represented as busy, truthful parent run state and checkpoint reports, PR/CI/Render verification. GitHub workflow scope and EC2 describe IAM read permissions escalated as optional HUMAN tasks with least privilege, not blocking code.
   DONE: safe queued→claimed→running→checks→PR/CI evidenced, automation survives restart, error-handling regression and concise owner-visible milestone report; no paid resources.
+  Progress 2026-10-31: report is in docs/handoff/T-598_AUTONOMOUS_HANDOFF.md, with the chain mapped to code and tests. Parking state and retry counters are now persisted in `.autopilot/parking.json`, so a restart (or a code-update re-exec) no longer resets the bounded retries. Network git runs with a timeout and without a credential prompt, and reports `offline` instead of hanging. A concise UTC+Kyiv milestone report goes out on done/blocked and never claims PR/CI/Render. Regressions in autopilot/test_autopilot.py: restart_survival, git_timeout, milestone_report. Optional least-privilege HUMAN requests: T-598-H1/H2 (end of file). The worker verifies PR/CI/Render after its push; this agent did not.
 
 ## v5.0 — Self-Building FactoryOS
 
@@ -477,3 +478,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Depends: T-562
   Goal: one interactive root-only command on the existing EC2 reads the internal FactoryOS worker token without terminal echo, atomically edits root-owned config with restrictive permissions, refuses paid API override, and requests ONLY a Supervisor preflight, never a direct unguarded Claude start.
   DONE: `python -m autopilot.test_pair_worker` passes, CI green, host CLI verified and documented; no secret is printed/logged or stored in git.
+
+## Optional least-privilege owner grants (T-598, non-blocking)
+
+- [ ] [HUMAN] T-598-H1 Optional GitHub `workflow` scope for the worker credential
+  Need: only if CI workflow files must be edited by the worker; until then new tests ride existing CI steps. Spec: docs/handoff/T-598_AUTONOMOUS_HANDOFF.md.
+  DONE: worker push touching `.github/workflows/` is accepted by GitHub.
+
+- [ ] [HUMAN] T-598-H2 Optional `ec2:DescribeInstances` read permission on the instance role
+  Need: owner attaches the read-only policy from docs/handoff/T-598_AUTONOMOUS_HANDOFF.md (no AWS access keys); Worker Center `ec2_api` stays `unknown` until then.
+  DONE: Worker Center `ec2_api` reports a real instance state.
