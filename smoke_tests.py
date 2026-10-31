@@ -1277,3 +1277,29 @@ lanes=app.get_operator_lanes()
 require(lanes["gemini"]["online"] is True and lanes["gemini"]["active_task_id"]=="T-TEST","operator worker telemetry regression: live heartbeat missing")
 require(lanes["gemini"]["branch"]=="gemini/test" and lanes["gemini"]["runtime"]=="antigravity","operator worker telemetry regression: provenance missing")
 require("token" not in json.dumps(lanes).lower(),"operator worker telemetry regression: secret-shaped field leaked")
+
+# T-596 Worker Center observability: per-source signals, supervisor whitelist, Telegram from the same snapshot.
+require(route_exists("/api/factory/worker-overview","GET"),"worker overview route missing")
+old_runtime=dict(app.claude_worker_runtime)
+try:
+    app.claude_worker_runtime.clear()
+    wo=app.get_worker_overview()
+    sig={s["id"]:s for s in wo["signals"]}
+    require(sig["heartbeat"]["state"]=="fail" and sig["host"]["state"]=="unknown","never-seen worker must not look online")
+    require(sig["ec2_api"]["state"]=="unknown" and sig["ec2_api"]["value"]=="describe_instances_not_granted","EC2 IAM visibility must be unknown, not offline")
+    require(wo["task_id"]=="" and wo["evidence"]["ci"]=="unverified","no claim must mean no current task; CI unverified")
+    app.claude_worker_heartbeat(app.ClaudeWorkerHeartbeat(node_id="ci-ec2",hostname="ci-host",branch="autopilot/ci",status="idle",
+        supervisor={"checked_at":app.datetime.now(app.timezone.utc).isoformat(),"service_state":"active","subscription_authenticated":True,
+                    "status":"running","reason":"healthy","oauth_token":"must-not-survive"}))
+    require("oauth_token" not in app.claude_worker_runtime["node"]["supervisor"],"supervisor report must be whitelisted on receipt")
+    wo=app.get_worker_overview()
+    sig={s["id"]:s for s in wo["signals"]}
+    require(sig["systemd"]["state"]=="ok" and sig["oauth"]["state"]=="ok" and sig["heartbeat"]["state"]=="ok","fresh supervisor + heartbeat must verify systemd/OAuth/heartbeat")
+    require(sig["current_task"]["state"]=="idle","heartbeat without a Relay claim must not invent a current task")
+    require({p["id"] for p in wo["progress"]}>={"roadmap"} and wo["heatmap"]["days"]==28,"progress scopes / heatmap missing")
+    require(any(b["id"]=="T-506" for b in wo["human_blockers"]),"open HUMAN T-506 must be an actionable blocker")
+    tg=app.get_telegram_lane_board()
+    require(tg["worker_overview"]["task_id"]==(tg["lanes"]["claude"]["task_id"] if tg["lanes"]["claude"]["state"]=="working" else ""),"Telegram overview must match lane board task")
+    require("must-not-survive" not in json.dumps(wo),"worker overview leaked supervisor extras")
+finally:
+    app.claude_worker_runtime.clear();app.claude_worker_runtime.update(old_runtime)

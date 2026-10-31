@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from urllib import request as urlrequest, error as urlerror
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
@@ -52,7 +52,7 @@ _whisper_model = None
 class JobRequest(BaseModel):
     edit_job_id: str = ""
     job_id: str
-    factory_cycle_id: str | None = None
+    factory_cycle_id: Optional[str] = None
     input_url: str
     profile: dict[str, Any]
     platform: str = "reels"
@@ -88,7 +88,7 @@ def _read_state(job_id: str) -> dict:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def _write_state(job_id: str, patch: dict | None = None, replace: dict | None = None) -> dict:
+def _write_state(job_id: str, patch: Optional[dict] = None, replace: Optional[dict] = None) -> dict:
     with _state_lock:
         state = replace if replace is not None else (_read_state(job_id) if _state_path(job_id).exists() else {})
         if patch:
@@ -100,7 +100,7 @@ def _write_state(job_id: str, patch: dict | None = None, replace: dict | None = 
         return state
 
 
-def _run(cmd: list[str], *, capture: bool = True, cwd: Path | None = None, timeout: int = 1800) -> subprocess.CompletedProcess:
+def _run(cmd: list[str], *, capture: bool = True, cwd: Optional[Path] = None, timeout: int = 1800) -> subprocess.CompletedProcess:
     return subprocess.run(
         cmd,
         cwd=str(cwd) if cwd else None,
@@ -415,7 +415,7 @@ def _caption(group: list[dict]) -> dict:
     return {"start":round(float(group[0]["start"]),3),"end":round(float(group[-1]["end"])+0.08,3),"words":words,"text":" ".join(words),"keyword":keyword}
 
 
-def group_captions(words: list[dict], profile: dict, cut_output_times: list[float] | None = None) -> list[dict]:
+def group_captions(words: list[dict], profile: dict, cut_output_times: Optional[list[float]] = None) -> list[dict]:
     cfg=profile.get("captions") or {}
     max_words=max(1,min(3,int(cfg.get("max_words") or 3)))
     cut_output_times=cut_output_times or []
@@ -454,7 +454,7 @@ def _motion_timeline(output_duration: float, cuts: list[dict], profile: dict) ->
     return sorted(events,key=lambda x:x["start"])
 
 
-def _graphics_timeline(content_package: dict, output_duration: float, profile: dict, transcript_words: list[dict] | None = None) -> list[dict]:
+def _graphics_timeline(content_package: dict, output_duration: float, profile: dict, transcript_words: Optional[list[dict]] = None) -> list[dict]:
     cfg=profile.get("graphics") or {};limit=max(0,min(6,int(cfg.get("emphasis_max",5))))
     entries=[];source_type="approved_emphasis"
     for scene in content_package.get("scenes") or []:
@@ -609,7 +609,7 @@ def _frame_sampling_report(final: Path, cuts: list[dict], graphics: list[dict], 
     }
 
 
-def _safe_zone_report(profile: dict, captions: list[dict], graphics: list[dict], frame_sampling: dict | None = None) -> dict:
+def _safe_zone_report(profile: dict, captions: list[dict], graphics: list[dict], frame_sampling: Optional[dict] = None) -> dict:
     zones=profile.get("safe_zones") or {}
     frame_sampling=frame_sampling or {"method":"not_run","captured":0,"samples":[],"visual_review_required":True}
     return {
@@ -689,7 +689,7 @@ def _callback(state: dict) -> None:
         pass
 
 
-def _stage(job_id: str, stage: str, percent: int | None = None, **extra) -> dict:
+def _stage(job_id: str, stage: str, percent: Optional[int] = None, **extra) -> dict:
     patch={"stage":stage}
     if percent is not None:patch["percent"]=max(0,min(100,int(percent)))
     if extra:patch["progress"]=extra
@@ -792,7 +792,7 @@ def _process(job_id: str) -> None:
 
 
 
-def _ensure_pilot_fixture() -> Path | None:
+def _ensure_pilot_fixture() -> Optional[Path]:
     if not ENABLE_PILOT_FIXTURE:
         return None
     pilot_dir = DATA_DIR / "_pilot"

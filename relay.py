@@ -20,6 +20,8 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from relay_execution import lifecycle_text
+from lane_board import lane_board_text, telegram_lang
+from worker_observability import worker_overview_text
 
 RELAY_STATUSES = ("inbox", "in_progress", "need_you", "done", "archived")
 ACTIVE_STATUSES = ("inbox", "in_progress", "need_you")
@@ -504,6 +506,62 @@ def relay_github_snapshot(repo: str = "", token: str = "") -> dict:
         return {"available": False, "repo": repo, "error": ("HTTP " + str(code)) if code else "GitHub unavailable", "issues": [], "pulls": []}
 
 
+def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> dict:
+    """T-599-E: list open Issues created by the repo owner (one free GitHub API call).
+
+    Failure is reported as ``available: False`` with a short code only — never
+    request headers, tokens or response bodies.
+    """
+    import urllib.error
+    import urllib.request
+    import json as _json
+
+    repo = (repo or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+        return {"available": False, "repo": repo, "error": "Invalid repository", "issues": []}
+    owner = repo.split("/", 1)[0]
+
+    def _fetch(path: str):
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "FactoryOS-Relay/1.0",
+                   "X-GitHub-Api-Version": "2022-11-28"}
+        if (token or "").strip():
+            headers["Authorization"] = "Bearer " + token.strip()
+        req = urllib.request.Request("https://api.github.com/repos/" + repo + path, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            return _json.load(response)
+
+    try:
+        raw = (fetch or _fetch)("/issues?state=open&per_page=50&creator=" + owner)
+        if not isinstance(raw, list):
+            raise ValueError("Unexpected GitHub response")
+        # A malformed entry is passed through as-is so intake counts it as ignored
+        # instead of failing the whole pass.
+        issues = [{
+            "number": x.get("number"),
+            "title": str(x.get("title") or "")[:300],
+            "body": str(x.get("body") or "")[:20000],
+            "url": str(x.get("html_url") or ""),
+            "state": str(x.get("state") or "unknown"),
+            "author": str((x.get("user") or {}).get("login") or "") if isinstance(x.get("user"), dict) else "",
+            "pull_request": bool(x.get("pull_request")),
+        } if isinstance(x, dict) else x for x in raw]
+        return {"available": True, "repo": repo, "owner": owner, "checked_at": _now(), "issues": issues}
+    except Exception as exc:  # network, HTTP, JSON: all mean UNKNOWN, never success
+        code = getattr(exc, "code", None)
+        return {"available": False, "repo": repo, "owner": owner,
+                "error": ("HTTP " + str(code)) if code else "GitHub unavailable", "issues": []}
+
+
+def relay_auto_intake_issues(queue, repo: str, token: str = "", fetch=None) -> dict:
+    """Poll owner Issues once and import/link them; GitHub outage changes nothing."""
+    snapshot = relay_github_owner_issues(repo, token, fetch=fetch)
+    if not snapshot.get("available"):
+        return {"ok": False, "error": snapshot.get("error") or "GitHub unavailable",
+                "imported": [], "existing": [], "linked": [], "ignored": 0}
+    summary = queue.auto_intake_owner_issues(snapshot["issues"], snapshot["repo"], snapshot["owner"])
+    return {"ok": True, **summary}
+
+
 def _github_text(snapshot: dict) -> str:
     if not snapshot.get("available"):
         return "🔗 GitHub: проверка недоступна (" + str(snapshot.get("error") or "unknown")[:60] + "). Статусы неизвестны."
@@ -531,7 +589,25 @@ def _lane_task_suffix(lane: dict) -> str:
     return ""
 
 
-def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]], queue=None) -> str:
+def _lane_section(lane_board: Optional[Callable[[], dict]], lang: str, worker: bool = False) -> list:
+    """T-599-F: the same per-lane read model the web lane board renders.
+
+    T-596: with ``worker`` the per-source Claude worker block (the Worker Center signals) follows,
+    built from the same board snapshot so task/stage cannot differ from the lane line."""
+    if lane_board is None:
+        return []
+    try:
+        board = lane_board() or {}
+        out = ["", lane_board_text(board, lang)]
+        if worker and isinstance(board.get("worker_overview"), dict):
+            out.extend(["", worker_overview_text(board["worker_overview"], lang)])
+        return out
+    except Exception:
+        return ["", "Линии: данные недоступны"]
+
+
+def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]], queue=None,
+                       lane_board: Optional[Callable[[], dict]] = None, lang: str = "ru") -> str:
     summary = store.summary()
     tickets = store.list(limit=500)
     lines = ["📡 FactoryOS Relay", "Связь с Telegram: ✅",
@@ -548,6 +624,10 @@ def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]]
         stages = [str((t.get("execution") or {}).get("state") or "") for t in tickets]
         lines.append("Очередь: " + str(stages.count("queued")) +
                      " · работа: " + str(sum(x in ("claimed", "running", "checkpoint", "committed", "pushed") for x in stages)))
+    if lane_board is not None:
+        # T-599-F: lane state, task and stage come only from the verified-event lane board.
+        lines.extend(_lane_section(lane_board, lang, worker=True))
+        return "\n".join(lines)[:3900]
     lines.append("ChatGPT: нет автоматической телеметрии")
     if provider:
         try:
@@ -568,8 +648,8 @@ def _relay_status_text(store: RelayStore, provider: Optional[Callable[[], dict]]
     return "\n".join(lines)[:3900]
 
 
-def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]], github: Optional[Callable[[], dict]]) -> str:
-    lines = [_active_list_text(store), "", "— Исполнители —"]
+def _legacy_lane_lines(provider: Optional[Callable[[], dict]]) -> list:
+    lines = []
     if provider:
         try:
             lanes = provider() or {}
@@ -582,6 +662,17 @@ def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]],
     else:
         lines.append("Нет телеметрии воркеров")
     lines.append("ChatGPT: нет автоматической телеметрии")
+    return lines
+
+
+def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]], github: Optional[Callable[[], dict]],
+                      lane_board: Optional[Callable[[], dict]] = None, lang: str = "ru") -> str:
+    lines = [_active_list_text(store)]
+    if lane_board is not None:
+        lines.extend(_lane_section(lane_board, lang))
+    else:
+        lines.extend(["", "— Исполнители —"])
+        lines.extend(_legacy_lane_lines(provider))
     if github:
         try:
             snapshot = github() or {}
@@ -689,6 +780,7 @@ def relay_handle_telegram_update(
     operator_status_provider: Optional[Callable[[], dict]] = None,
     github_provider: Optional[Callable[[], dict]] = None,
     queue=None,
+    lane_board_provider: Optional[Callable[[], dict]] = None,
 ) -> Optional[dict]:
     """Handle Relay-specific Telegram traffic.
 
@@ -710,11 +802,12 @@ def relay_handle_telegram_update(
             return {"handled": True}
         data = str(callback.get("data") or "")
         callback_id = str(callback.get("id") or "")
+        lang = telegram_lang((callback.get("from") or {}).get("language_code"))
         if data.startswith("relay:overview:"):
             action = data.split(":")[-1]
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
             if action == "tasks":
-                value = _relay_tasks_text(store, operator_status_provider, github_provider)
+                value = _relay_tasks_text(store, operator_status_provider, github_provider, lane_board_provider, lang)
             elif action == "history":
                 value = _relay_history_text(store, github_provider)
             elif action == "github":
@@ -773,13 +866,14 @@ def relay_handle_telegram_update(
 
     text = str(message.get("text") or message.get("caption") or "").strip()
     command = text.split(maxsplit=1)[0].lower() if text.startswith("/") else ""
+    lang = telegram_lang((message.get("from") or {}).get("language_code"))
     if command in ("/pair", "/start"):
         return None
     if command == "/status":
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_status_text(store, operator_status_provider, queue), "reply_markup": _relay_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_status_text(store, operator_status_provider, queue, lane_board_provider, lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "status"}
     if command in ("/relay", "/tasks"):
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider), "reply_markup": _relay_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider, lane_board_provider, lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "list"}
     if command == "/history":
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_history_text(store, github_provider), "reply_markup": _relay_keyboard()})
@@ -788,7 +882,7 @@ def relay_handle_telegram_update(
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _github_text(github_provider() if github_provider else {"available": False}), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "github"}
     if command == "/roadmap":
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider), "reply_markup": _relay_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider, lane_board_provider, lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "roadmap"}
     if command == "/task":
         parts = text.split(maxsplit=1)

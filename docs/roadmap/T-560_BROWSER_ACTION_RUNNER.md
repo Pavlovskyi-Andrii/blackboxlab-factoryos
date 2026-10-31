@@ -233,4 +233,31 @@ Implementation: `browser_runner/sessions.py`, `test_browser_sessions.py`.
 - run verified real Chromium fixture on the intended host and measure memory;
 - wire redacted events/artifacts to Worker Results and Trace Viewer (T-560-E);
 - implement trusted owner approval verifier for any real submit/publish action;
-- integrate social-specific recipes separately under T-560-D.
+- verify the T-560-D default social selectors on the live sites (owner-approved runner only).
+
+## T-560-D social web draft recipes (2026-10-31)
+
+Implementation: `browser_runner/social.py`, `test_browser_social.py` (run in CI via
+`test_browser_playwright.py`).
+
+- `social_draft_recipe(provider="x"|"instagram"|"telegram", …)` builds a draft-only
+  plan: open composer → text and/or staged media → wait for the attachment preview →
+  screenshot. It stops before the final click; `SocialDraft.submit_step` only
+  describes that click.
+- Account portability: the recipe takes no `session_ref`/credential argument. It looks
+  up the active session in `SessionRegistry` by workspace + provider + account binding.
+  `run_social_draft` checks the binding again before launch, so a disconnected,
+  replaced or cross-workspace binding is blocked before the browser starts.
+- Bounds checked by the recipe: X ≤280 chars/≤4 media; Instagram ≤2200 chars and 1–10
+  media; Telegram ≤4096 chars (≤1024 caption with media), ≤10 media, `@channel` handle.
+  The X limit is a conservative character count, not X's weighted count. Media are
+  relative image/video paths in the trusted staging root.
+- Challenge pages → `waiting_human`; with a `CheckpointStore`, a redacted checkpoint
+  (provider, hostname, next step, reason, payload hash) is persisted.
+- `final_submit_plan(draft)` appends the submit step as `publish` (Telegram: `send`),
+  with no approval set. The mock executor runs it only with the exact matching approval
+  snapshot hash. The real executor always blocks it
+  (`trusted_approval_verifier_not_configured`).
+- Default selectors and composer URLs are unverified against the live sites. Trusted
+  runner config may override known selector keys only. The real Instagram "New post"
+  control may be refused by the DOM click guard (it contains "post"). That fails closed.

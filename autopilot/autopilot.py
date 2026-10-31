@@ -53,15 +53,26 @@ CLAIM_RETRY_SECONDS = 300
 BASE_BRANCH = os.environ.get("AUTOPILOT_BASE_BRANCH", "main").strip() or "main"
 EXIT_CODE_UPDATED = 75
 RELAY_ONLY = os.environ.get("AUTOPILOT_RELAY_ONLY", "0").strip().lower() in {"1", "true", "yes", "on"}
+# T-598: network git (pull/fetch/push) is bounded and never waits on a credential prompt, so an
+# unreachable remote is a short failed sync, not an endless "busy" worker.
+GIT_NET_TIMEOUT = max(10, min(600, int(os.environ.get("AUTOPILOT_GIT_TIMEOUT_SECONDS", "120"))))
 
-def run(cmd: list[str], *, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        cmd,
-        cwd=REPO,
-        check=check,
-        text=True,
-        capture_output=capture,
-    )
+
+def run(cmd: list[str], *, check: bool = True, capture: bool = False, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            cmd,
+            cwd=REPO,
+            check=check,
+            text=True,
+            capture_output=capture,
+            timeout=timeout,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except subprocess.TimeoutExpired:
+        if check:
+            raise
+        return subprocess.CompletedProcess(cmd, 124, "", f"timed out after {timeout}s")
 
 
 def current_branch() -> str:
@@ -190,11 +201,11 @@ def append_answer(task: str, answer: str) -> None:
 
 
 def sync_branch(branch: str) -> str:
-    """Pull the worker branch, then bring in main. Returns "", "code_updated" or "conflict"."""
-    run(["git", "pull", "--rebase", "origin", branch], check=False)
+    """Pull the worker branch, then bring in main. Returns "", "code_updated", "conflict" or "offline"."""
+    run(["git", "pull", "--rebase", "origin", branch], check=False, timeout=GIT_NET_TIMEOUT)
     before = git_head()
-    if run(["git", "fetch", "origin", BASE_BRANCH], check=False).returncode != 0:
-        return ""
+    if run(["git", "fetch", "origin", BASE_BRANCH], check=False, timeout=GIT_NET_TIMEOUT).returncode != 0:
+        return "offline"
     target = f"origin/{BASE_BRANCH}"
     if run(["git", "merge", "--ff-only", target], check=False, capture=True).returncode != 0:
         if run(["git", "merge", "--no-edit", target], check=False, capture=True).returncode != 0:
@@ -208,7 +219,7 @@ def sync_branch(branch: str) -> str:
 
 
 def push_branch(branch: str) -> bool:
-    return run(["git", "push", "origin", branch], check=False).returncode == 0
+    return run(["git", "push", "origin", branch], check=False, timeout=GIT_NET_TIMEOUT).returncode == 0
 
 
 def git_head() -> str:
@@ -229,6 +240,83 @@ def answers_marker() -> int:
         return ANSWERS.stat().st_mtime_ns
     except FileNotFoundError:
         return 0
+
+
+def parking_path() -> pathlib.Path:
+    # Next to answers.md so it follows the repo (and test fixtures); gitignored.
+    return ANSWERS.with_name("parking.json")
+
+
+def load_parking() -> dict[str, Any]:
+    """T-598: parked/failed tasks and the attempt counter survive a worker restart."""
+    try:
+        value = json.loads(parking_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        value = {}
+    value = value if isinstance(value, dict) else {}
+    blocked = value.get("blocked") if isinstance(value.get("blocked"), dict) else {}
+    failed = value.get("failed") if isinstance(value.get("failed"), list) else []
+    try:
+        failures = max(0, int(value.get("failures") or 0))
+    except (TypeError, ValueError):
+        failures = 0
+    return {
+        "blocked": {str(k): int(v) for k, v in blocked.items() if TASK_ID_RE.match(str(k)) and isinstance(v, int)},
+        "failed": {str(x) for x in failed if TASK_ID_RE.match(str(x))},
+        "failures_task": str(value.get("failures_task") or ""),
+        "failures": failures,
+    }
+
+
+def save_parking(blocked: dict[str, int], failed: set[str], failures_task: str, failures: int) -> None:
+    path = parking_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"blocked": blocked, "failed": sorted(failed), "failures_task": failures_task, "failures": failures}
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def commit_files(sha: str) -> list[str]:
+    if not sha:
+        return []
+    result = run(["git", "show", "--name-only", "--format=", sha], check=False, capture=True)
+    return [line for line in result.stdout.splitlines() if line.strip()] if result.returncode == 0 else []
+
+
+def _kyiv_label(moment: Any) -> str:
+    try:
+        from zoneinfo import ZoneInfo
+
+        return moment.astimezone(ZoneInfo("Europe/Kyiv")).strftime("%H:%M Kyiv")
+    except Exception:  # tzdata missing: say so instead of pretending
+        return "Kyiv time unavailable"
+
+
+def milestone_report(task_id: str, stage: str, *, summary: str = "", owner: str = "", branch: str = "",
+                     commit: str = "", files: list[str] | None = None, checks: list[Any] | None = None,
+                     blocker: str = "", next_task: str = "", now: float | None = None) -> str:
+    """Concise owner-visible checkpoint (M6). PR/CI/Render are never claimed by the worker."""
+    from datetime import datetime, timezone
+
+    moment = datetime.fromtimestamp(time.time() if now is None else now, timezone.utc)
+    files = list(files or [])
+    shown_files = ", ".join(files[:5]) + (f" (+{len(files) - 5})" if len(files) > 5 else "") if files else "—"
+    shown_checks = "; ".join(str(c)[:80] for c in (checks or [])[:4]) or "none reported"
+    lines = [
+        f"🧭 {task_id} · {stage}",
+        f"🕒 {moment.strftime('%Y-%m-%d %H:%M')} UTC · {_kyiv_label(moment)}",
+        f"👤 owner {owner or 'any'} · executor {OPERATOR}",
+        f"🌿 {branch or '?'} @ {commit[:10] if commit else 'no commit'}",
+        f"📄 files: {shown_files}",
+        f"🧪 checks: {shown_checks}",
+        "🔎 PR / CI / Render: not verified by the worker",
+        f"⛔ blocker: {blocker or '—'}",
+        f"➡️ next: {next_task or '—'}",
+    ]
+    if summary:
+        lines.append(summary[:300])
+    return "\n".join(lines)
 
 
 def write_runtime_status(status: str, *, task: str = "", summary: str = "", need: str = "") -> None:
@@ -274,12 +362,18 @@ def idle_notice(path: pathlib.Path = ROADMAP, parked: set[str] | frozenset[str] 
 
 def main() -> int:
     branch = assert_safe_branch()
-    failures = 0
-    failures_task = ""
     # T-599-A: a blocked or failed task is parked instead of stalling the whole queue.
     # Blocked tasks wake up when answers/HEAD change; failed ones only on an owner Retry.
-    blocked: dict[str, int] = {}
-    failed_hold: set[str] = set()
+    # T-598: this state is persisted, so a restart cannot reset the bounded retries.
+    parking = load_parking()
+    blocked: dict[str, int] = parking["blocked"]
+    failed_hold: set[str] = parking["failed"]
+    failures_task = parking["failures_task"]
+    failures = parking["failures"]
+
+    def persist() -> None:
+        save_parking(blocked, failed_hold, failures_task, failures)
+
     # Tasks the server refused to hand us (another lane/run owns them): retry after a pause.
     deferred: dict[str, float] = {}
     last_idle_notice = ""
@@ -295,6 +389,7 @@ def main() -> int:
             failures = 0
             blocked.pop(decision["retry"], None)
             failed_hold.discard(decision["retry"])
+            persist()
         if decision["paused"]:
             if not paused:
                 paused_status = STATUS.read_text(encoding="utf-8") if STATUS.exists() else ""
@@ -352,8 +447,11 @@ def main() -> int:
         # Only new owner input (answers.md) or an explicit Retry wakes a blocked task; our own
         # commits on other tasks must not make it burn another turn.
         marker = answers_marker()
-        for task_id in [t for t, m in blocked.items() if m != marker]:
+        woken = [t for t, m in blocked.items() if m != marker]
+        for task_id in woken:
             del blocked[task_id]
+        if woken:
+            persist()
         now = time.time()
         for task_id in [t for t, until in deferred.items() if until <= now]:
             del deferred[task_id]
@@ -375,6 +473,7 @@ def main() -> int:
         if failures_task != target["id"]:
             failures_task = target["id"]
             failures = 0
+            persist()
         if current_branch() != branch:
             raise RuntimeError(f"Branch changed from {branch} while running; autopilot refuses to continue.")
 
@@ -420,17 +519,26 @@ def main() -> int:
                     return 4
                 time.sleep(IDLE_SECONDS)
                 continue
+            persist()
             report("pushed", f"{target['id']}: pushed to {branch}; PR/CI/merge not verified by the worker", {**evidence, "pushed": True})
             checks = ", ".join(str(c) for c in (status.get("checks") or [])[:6])
             report("done", f"{target['id']}: {summary}" + (f" · checks: {checks}" if checks else ""), {**evidence, "pushed": True})
-            send(f"✅ {task}: {summary}")
+            upcoming = next_safe_task(ROADMAP, skip=set(blocked) | failed_hold | set(deferred))
+            send("✅ " + milestone_report(
+                task, "done · pushed", summary=summary, owner=str(target.get("owner") or ""), branch=branch,
+                commit=evidence.get("commit", ""), files=commit_files(evidence.get("commit", "")),
+                checks=list(status.get("checks") or []), next_task=upcoming["id"] if upcoming else "",
+            ))
             time.sleep(PAUSE_SECONDS)
             continue
 
         if state == "blocked":
             need = str(status.get("need") or "Owner input required").strip()
             report("blocked", f"{target['id']}: {need}", evidence)
-            send(f"🙋 {task} ждёт тебя:\n{need}")
+            send("🙋 " + milestone_report(
+                task, "blocked · waiting for owner", owner=str(target.get("owner") or ""), branch=branch,
+                commit=evidence.get("commit", ""), blocker=need,
+            ))
             if WAIT_FOR_HUMAN and telegram_configured():
                 answer = wait_answer()
                 if answer:
@@ -439,11 +547,13 @@ def main() -> int:
                     continue
             if DAEMON_MODE:
                 blocked[target["id"]] = answers_marker()
+                persist()
                 time.sleep(PAUSE_SECONDS)
                 continue
             return 2
 
         failures += 1
+        persist()
         report("failed", f"{target['id']}: attempt {failures}/{MAX_FAILS} failed. {summary}", evidence)
         send(f"⚠️ {task}: autonomous attempt failed ({failures}/{MAX_FAILS}). {summary}")
         if failures >= MAX_FAILS:
@@ -452,6 +562,7 @@ def main() -> int:
                 return 3
             failed_hold.add(target["id"])
             failures = 0
+            persist()
             send(f"⛔ {MAX_FAILS} failures in a row on {target['id']}. Parked without new attempts; moving to the next safe task. "
                  f"use Retry in FactoryOS Workers to try again. Last: {summary}")
         time.sleep(PAUSE_SECONDS)

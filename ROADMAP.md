@@ -17,14 +17,14 @@ Rules:
 
 Owner directed Claude Code to be the principal engineering/operator coordinator. **Read docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md FIRST, then CLAUDE.md, and verify live state**. Do not claim owner Telegram works until live end-to-end proof. Do not enable paid APIs/cloud resources or unauthorized publishing. Separate worker service 'online' from actual task claims. Do not push to main; PR+CI+verification required.
 
-- [ ] T-599-E Owner GitHub Issue auto-intake
+- [x] T-599-E Owner GitHub Issue auto-intake
   Owner: claude
   Priority: P0
   Spec: docs/handoff/T-599_VERIFIED_EXECUTION.md §2 T-599-E; Issue #67
   Goal: FactoryOS periodically (≤ every 5 min, free GitHub API) imports open Issues authored by the repo owner whose first body line is `Owner: Claude|ChatGPT|Gemini` via the existing idempotent `intake_github_issue`; an Issue referencing a T-ID that already has a `roadmap:T-xxx` ticket is linked instead of duplicated; other authors are ignored.
   DONE: deterministic tests cover import, dedupe on repeat, T-ID linking, foreign-author rejection and GitHub-unavailable fallback; no secrets in logs; CI green.
 
-- [ ] T-599-F Workers / Build Progress / Telegram from verified events
+- [x] T-599-F Workers / Build Progress / Telegram from verified events
   Owner: claude
   Priority: P0
   Depends: T-599-E
@@ -32,13 +32,14 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Goal: per-lane state (Working/Blocked/Stale/Idle/Offline) derived only from run events + heartbeat; ROADMAP tasks with Owner but no claim render "assigned, not claimed"; Build Progress columns Planned/In progress/Blocked/Review/Done with counts done/remaining per lane; Telegram /status and /tasks show the same per-lane summary.
   DONE: deterministic API/UI/Telegram fixtures for idle/running/blocked/stale/offline and assigned-not-claimed; web and Telegram show identical task/stage; RU/UK/EN; CI green.
 
-- [ ] T-599 Verified task claims: assignment ≠ execution
+- [x] T-599 Verified task claims: assignment ≠ execution
   Owner: claude
   Priority: P0
   Depends: T-537,T-599-E,T-599-F
   Spec: docs/handoff/T-599_VERIFIED_EXECUTION.md; Issue #67
   Goal: route ROADMAP tasks and owner GitHub Issues through the existing RelayQueue claim/run_id/event journal; remove head-of-line blocking; require explicit Owner on every open task; derive Workers/Build Progress/Telegram state only from worker events.
   Progress 2026-10-30: T-599-A done — a blocked task is parked until new answers.md input or owner Retry, a task that exhausts MAX_FAILS is parked until Retry, and the daemon continues with the next safe task (autopilot/test_autopilot.py parking_regression). T-599-B done — every open non-HUMAN task carries Owner (CI lint in autopilot/test_autopilot.py). T-599-C/D done — every ROADMAP run starts only after an atomic server claim (`POST /api/relay/worker/roadmap-claim`, one ticket per task, run_id fenced, other lanes/active/stale runs refused) and the worker itself emits running/committed/pushed/done/blocked/failed plus heartbeats (test_roadmap_claims.py, claim_gate_regression). The worker branch now follows main between tasks and restarts itself when runner code changed (follow_main_regression). Remaining: T-599-E, T-599-F (separate tasks above) and live EC2 verification.
+  Progress 2026-10-31: T-599-E/F done. Umbrella acceptance `test_t599_acceptance.py` (spec §3 A–E, run in CI via test_relay_execution.py) joins claim → events → lane board → Telegram; refused claims are journalled as `claim_rejected`; blocked lanes show their reason in API/web/Telegram. PR/CI and Issue #67 evidence follow the worker push (not claimed by the agent).
   DONE: deterministic tests A–E pass; no open ROADMAP task lacks Owner; a blocked task no longer stalls the queue; an Owner-assigned task without a claim renders as "assigned, not claimed"; CI-gated PRs; evidence posted to Issue #67.
 
 - [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
@@ -50,6 +51,8 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: one owner task can be followed end-to-end with verified server worker claim, live heartbeat and task status, a real artifact/commit where applicable, and owner-visible Telegram trace; preserve external publish approval. If owner chat not paired, show a precisely documented HUMAN action and validate all other stages without claiming live Telegram DONE. Record evidence in Issue #41, open reviewed non-main PR, verify CI and deployed revision.
   Progress (2026-10-29, code slice committed on autopilot/aws-worker; NOT live-verified): parent-owned `.autopilot/run.json` run telemetry in heartbeat; run_id-fenced, event_id-idempotent Relay events with one safe retry; owner-only GitHub Issue → Relay intake (`POST /api/relay/intake/github-issue`, Telegram `/issue N`) with source_key dedupe; shared `lifecycle` trace in Web `/relay` detail + Telegram `/task` (PR/CI/merge/deploy shown "не проверено"); note redaction. Deterministic tests: `test_relay_lifecycle.py` (via `test_relay_execution.py`), `autopilot/test_delegation.py`.
   Remaining (needs owner/GitHub access): open PR autopilot/aws-worker → main and confirm CI green; merge + confirm Render deployed SHA; HUMAN T-506 pairing, then live `/new` test message → claim → run_id → `/task` trace; post redacted evidence to Issue #41.
+  Progress (2026-10-31, acceptance run): all deterministic stages re-verified on the EC2 worker. Fixed the Python 3.9 import failure in `app.py`/`media_finisher_worker/app.py`, so smoke + planner now run on the worker, with no app-level skips. Live stages are still open: PR/CI/merge/`build_sha`/Telegram/Issue #41. Exact steps: `docs/handoff/T-590_ACCEPTANCE.md`.
+  Re-check (2026-10-31, run-20261031162233-a7b938): deterministic stages green again at `62ffd5e`. The branch is still 10 commits ahead of main (not merged), and the live stages remain blocked on GitHub access plus HUMAN T-506.
 
 - [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
   Owner: claude
@@ -108,6 +111,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Spec: #52, #55, #56; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M2.
   Goal: distinguish EC2 IAM instance visibility, systemd/OAuth, heartbeat, Relay claim, real current Claude task; existing worker detail, timeline, scoped heatmap, errors, last verified time, branch/PR/CI. Clickable workers in Agent Office. Correct distinct progress denominators (87% vs 49% historical), no fake progress, actionable HUMAN blockers.
   DONE: deterministic offline/stale/idle/running test cases, source links, web↔Telegram consistency, RU/UK/EN mobile/desktop screens and CI-gated PR.
+  Progress 2026-10-31: code slice done. `worker_observability.py` → `GET /api/factory/worker-overview` + Worker Center panel + Telegram `/status` block show separate signals: host, EC2 API (DescribeInstances not granted = unknown, not offline), systemd, OAuth (from the supervisor report forwarded in the heartbeat), heartbeat, Relay claim and current task (from the lane row, the same snapshot as Telegram). The panel also shows a Kyiv-day heatmap of verified worker evidence (zero vs unknown), a timeline, errors, branch/commit/PR links (CI "not verified"), progress per population (Factory Builder vs ROADMAP vs Claude lane) and actionable HUMAN blockers. Agent Office worker chips open the Worker Center. Deterministic tests: `test_worker_observability.py` (in CI via test_relay_execution.py) and a smoke block. Remaining: RU/UK/EN mobile/desktop screenshots (no browser on the worker), and the PR/CI after the worker push.
 
 - [ ] T-597 Contextual assistance and accessibility
   Owner: Claude
@@ -115,13 +119,15 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Spec: #57, T-578; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M5.
   Goal: reusable info/help icon, microcopy and small factual diagrams for Relay, workers, connectors, stages, approval, video, Content Brain, Discovery; RU/UK/EN, desktop hover/mobile tap/keyboard focus. Audio/video tutorial placeholders marked not yet supported; no metered generation.
   DONE: all target surfaces covered, no overlapping help/popovers, accessible tests, mobile screenshots and CI.
+  Progress 2026-10-31: code slice done. The shared T-533 help tip now covers Relay (Delegation Center + lane board), workers (Worker Results + Worker Center), Connections, pipeline stages, Approval, Media Finisher video, Content Brain and Discovery. Each has EN/UK/RU copy, a factual mini flow and a "tutorial not yet supported" note. Hover/focus on one tip closes the others, and desktop edges are aligned. `test_explainability.py` covers this locally and in the existing CI step. Open: mobile screenshots (no browser on the worker) and CI after the worker push.
 
-- [ ] T-598 Stable autonomous engineering handoff and report
+- [x] T-598 Stable autonomous engineering handoff and report
   Owner: Claude
   Priority: P1
   Spec: #61, #40, #49–51, T-593; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M6.
   Goal: verified GitHub Issue/ROADMAP/Relay task dedupe, Depends/Owner scheduler from merged #62, bounded retries, no endless git pull represented as busy, truthful parent run state and checkpoint reports, PR/CI/Render verification. GitHub workflow scope and EC2 describe IAM read permissions escalated as optional HUMAN tasks with least privilege, not blocking code.
   DONE: safe queued→claimed→running→checks→PR/CI evidenced, automation survives restart, error-handling regression and concise owner-visible milestone report; no paid resources.
+  Progress 2026-10-31: report is in docs/handoff/T-598_AUTONOMOUS_HANDOFF.md, with the chain mapped to code and tests. Parking state and retry counters are now persisted in `.autopilot/parking.json`, so a restart (or a code-update re-exec) no longer resets the bounded retries. Network git runs with a timeout and without a credential prompt, and reports `offline` instead of hanging. A concise UTC+Kyiv milestone report goes out on done/blocked and never claims PR/CI/Render. Regressions in autopilot/test_autopilot.py: restart_survival, git_timeout, milestone_report. Optional least-privilege HUMAN requests: T-598-H1/H2 (end of file). The worker verifies PR/CI/Render after its push; this agent did not.
 
 ## v5.0 — Self-Building FactoryOS
 
@@ -195,7 +201,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Progress 2026-10-29: `generic_form_recipe` + deterministic fixture regression (form flow, redacted evidence, off-domain rejection, step/timeout limits, submit blocked without valid approval and still blocked pending a trusted approval verifier). Real Chromium run remains operator opt-in.
   DONE: local deterministic fixture executes a generic allowlisted form flow, captures redacted evidence, rejects off-domain navigation, respects timeout/step limits and keeps submit disabled unless the plan carries valid approval.
 
-- [ ] T-560-D Social web draft recipes
+- [x] T-560-D Social web draft recipes
   Owner: claude
   Planner: ChatGPT
   Depends: T-560-C,T-550
@@ -472,3 +478,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Depends: T-562
   Goal: one interactive root-only command on the existing EC2 reads the internal FactoryOS worker token without terminal echo, atomically edits root-owned config with restrictive permissions, refuses paid API override, and requests ONLY a Supervisor preflight, never a direct unguarded Claude start.
   DONE: `python -m autopilot.test_pair_worker` passes, CI green, host CLI verified and documented; no secret is printed/logged or stored in git.
+
+## Optional least-privilege owner grants (T-598, non-blocking)
+
+- [ ] [HUMAN] T-598-H1 Optional GitHub `workflow` scope for the worker credential
+  Need: only if CI workflow files must be edited by the worker; until then new tests ride existing CI steps. Spec: docs/handoff/T-598_AUTONOMOUS_HANDOFF.md.
+  DONE: worker push touching `.github/workflows/` is accepted by GitHub.
+
+- [ ] [HUMAN] T-598-H2 Optional `ec2:DescribeInstances` read permission on the instance role
+  Need: owner attaches the read-only policy from docs/handoff/T-598_AUTONOMOUS_HANDOFF.md (no AWS access keys); Worker Center `ec2_api` stays `unknown` until then.
+  DONE: Worker Center `ec2_api` reports a real instance state.

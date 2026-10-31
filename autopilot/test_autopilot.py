@@ -137,6 +137,9 @@ def dependency_and_owner_regression():
     roadmap_owner_lint()
     claim_gate_regression()
     follow_main_regression()
+    restart_survival_regression()
+    git_timeout_regression()
+    milestone_report_regression()
 
 
 def claim_gate_regression():
@@ -334,6 +337,113 @@ def parking_regression():
     assert "T-032" in calls, calls
     assert calls.count("T-030") == 2, calls
     print("Autopilot blocked/failed parking tests passed")
+
+
+def _run_once(path, fake_agent, sent):
+    """One daemon iteration, then a simulated crash/restart at the next sleep."""
+    patches = {
+        "ROADMAP": path, "ANSWERS": path.parent / "answers.md", "DAEMON_MODE": True, "ALLOW_UNCLAIMED": True,
+        "OPERATOR": "claude", "RELAY_ONLY": False,
+        "assert_safe_branch": lambda: "autopilot/test", "current_branch": lambda: "autopilot/test",
+        "sync_branch": lambda _b: "", "commits_ahead": lambda _b: 0, "push_branch": lambda _b: True,
+        "poll_control": lambda *a, **k: {"paused": False, "retry": "", "acks": []},
+        "run_agent": fake_agent, "send": sent.append, "write_runtime_status": lambda *a, **k: None,
+        "done_status_is_consistent": lambda status, target, path=None: True,
+        "git_head": lambda: "c" * 40, "commit_files": lambda _sha: [],
+    }
+    saved = {name: getattr(ap, name) for name in patches}
+    saved_relay, saved_sleep = ap.relay_tasks.run_one, ap.time.sleep
+
+    def crash(_seconds):
+        raise _StopLoop
+
+    try:
+        for name, value in patches.items():
+            setattr(ap, name, value)
+        ap.relay_tasks.run_one = lambda *a, **k: False
+        ap.time.sleep = crash
+        try:
+            ap.main()
+        except _StopLoop:
+            pass
+    finally:
+        for name, value in saved.items():
+            setattr(ap, name, value)
+        ap.relay_tasks.run_one, ap.time.sleep = saved_relay, saved_sleep
+
+
+def restart_survival_regression():
+    # T-598: bounded retries and parking survive a worker restart (crash or code-update re-exec).
+    path = write_roadmap(
+        "# Roadmap\n\n## v5\n- [ ] T-050 Always red\n  Owner: claude\n- [ ] T-051 Needs owner\n  Owner: claude\n"
+        "- [ ] T-052 Healthy\n  Owner: claude\n"
+    )
+    calls, sent = [], []
+
+    def fake_agent(target):
+        calls.append(target["id"])
+        if target["id"] == "T-050":
+            return {"task": "T-050", "status": "failed", "summary": "tests red"}
+        if target["id"] == "T-051":
+            return {"task": "T-051", "status": "blocked", "need": "owner decision"}
+        path.write_text(path.read_text(encoding="utf-8").replace("- [ ] T-052", "- [x] T-052"), encoding="utf-8")
+        return {"task": "T-052", "status": "done", "summary": "ok", "checks": ["python -m autopilot.test_autopilot"]}
+
+    for _ in range(ap.MAX_FAILS + 6):
+        _run_once(path, fake_agent, sent)
+    # Without persistence every restart would reset the counter and T-050 would run forever.
+    assert calls == ["T-050"] * ap.MAX_FAILS + ["T-051", "T-052"], calls
+    parking = ap.json.loads((path.parent / "parking.json").read_text(encoding="utf-8"))
+    assert parking["failed"] == ["T-050"] and "T-051" in parking["blocked"], parking
+    assert any(m.startswith("✅ 🧭 T-052 · done") for m in sent), sent
+    assert any("blocker: owner decision" in m for m in sent), sent
+
+    # Corrupt state is ignored instead of crashing the worker.
+    (path.parent / "parking.json").write_text("{not json", encoding="utf-8")
+    saved_answers = ap.ANSWERS
+    try:
+        ap.ANSWERS = path.parent / "answers.md"
+        assert ap.load_parking() == {"blocked": {}, "failed": set(), "failures_task": "", "failures": 0}
+    finally:
+        ap.ANSWERS = saved_answers
+    print("Autopilot restart survival tests passed")
+
+
+def git_timeout_regression():
+    # T-598: an unreachable/hung remote is a bounded failed sync, never an endless "busy" pull.
+    seen = []
+
+    def hung(cmd, **kwargs):
+        seen.append((cmd[:2], kwargs.get("timeout"), kwargs.get("env", {}).get("GIT_TERMINAL_PROMPT")))
+        if cmd[1] in {"pull", "fetch", "push"}:
+            raise ap.subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+        return ap.subprocess.CompletedProcess(cmd, 0, "a" * 40 + "\n", "")
+
+    saved = ap.subprocess.run
+    try:
+        ap.subprocess.run = hung
+        assert ap.sync_branch("autopilot/w") == "offline"
+        assert ap.push_branch("autopilot/w") is False
+    finally:
+        ap.subprocess.run = saved
+    network = [s for s in seen if s[0][1] in {"pull", "fetch", "push"}]
+    assert network and all(t == ap.GIT_NET_TIMEOUT and prompt == "0" for _, t, prompt in network), seen
+    print("Autopilot git timeout tests passed")
+
+
+def milestone_report_regression():
+    # T-598/M6: concise checkpoint with UTC + Kyiv, stage, lanes, files, checks, SHA; no claimed PR/CI/deploy.
+    text = ap.milestone_report(
+        "T-598", "done · pushed", summary="ok", owner="claude", branch="autopilot/aws-worker", commit="0123456789abcdef",
+        files=[f"f{i}.py" for i in range(7)], checks=["python -m autopilot.test_autopilot"], next_task="T-600",
+        now=1793464200,  # 2026-10-31 16:30 UTC
+    )
+    assert "2026-10-31 16:30 UTC" in text, text
+    assert "18:30 Kyiv" in text or "Kyiv time unavailable" in text, text
+    assert "autopilot/aws-worker @ 0123456789" in text and "(+2)" in text, text
+    assert "PR / CI / Render: not verified by the worker" in text and "next: T-600" in text, text
+    assert len(text.splitlines()) <= 10
+    print("Autopilot milestone report tests passed")
 
 
 if __name__ == "__main__":

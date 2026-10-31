@@ -6,6 +6,11 @@ helpTip() call site must use a known concept, and the tooltip CSS/handlers must 
 hover and tap safe. The fixture check runs the real inline helper under Node with a minimal fake
 DOM. Node is required when FACTORYOS_REQUIRE_NODE=1 (CI); without it the check is reported as
 SKIPPED, never as passed.
+
+T-597 extends the same helper to the Relay, worker, connector, stage, approval, video, Content Brain
+and Discovery surfaces: each heading has exactly one tip, each surface tip carries a factual mini flow
+and a "tutorial not yet supported" note in EN/UK/RU, and hovering or focusing one tip closes any other
+open tip so bubbles never overlap.
 """
 import json
 import os
@@ -18,7 +23,14 @@ from pathlib import Path
 HTML = Path(__file__).resolve().parent / "static" / "index.html"
 BEGIN = "// --- explain:begin"
 END = "// --- explain:end"
-CANONICAL = ["hook", "script", "caption", "voice", "cycle", "idea", "job", "review", "learned"]
+CANONICAL = ["hook", "script", "caption", "voice", "cycle", "idea", "job", "review", "learned",
+             "relay", "worker", "connector", "stage", "approval", "video", "brain", "discovery"]
+# T-597 surface help: each concept carries a factual mini flow and a not-yet-supported tutorial note.
+SURFACES = ["relay", "worker", "connector", "stage", "approval", "video", "brain", "discovery"]
+# Static headings get a mounted tip (applyLanguage); JS-rendered headings call helpTip() directly.
+MOUNTS = {"dc.title": "relay", "worker.title": "worker", "connections.title": "connector", "pipeline.title": "stage",
+          "approval.title": "approval", "finisher.title": "video", "brain.title": "brain", "discovery.title": "discovery"}
+RENDERED = {"lb.title": "relay", "wo.title": "worker"}
 LOCALES = ("en", "uk", "ru")
 
 
@@ -46,6 +58,41 @@ def explain_copy(block):
     return dict(re.findall(r'"(explain\.[a-zA-Z]+)":"((?:[^"\\]|\\.)*)"', block))
 
 
+def flow_copy(block):
+    return dict(re.findall(r'"explainFlow\.([a-zA-Z]+)":"((?:[^"\\]|\\.)*)"', block))
+
+
+def surface_checks(html, script, block, i18n):
+    flows = {lang: flow_copy(b) for lang, b in locale_blocks(i18n).items()}
+    for lang in LOCALES:
+        require(set(flows[lang]) == set(SURFACES), f"{lang} explainFlow.* must cover exactly {SURFACES}")
+        for c in SURFACES:
+            steps = flows[lang][c].split(" → ")
+            require(len(steps) >= 3 and all(s.strip() for s in steps), f"{lang} {c} flow needs >=3 non-empty steps")
+            require(len(steps) == len(flows["en"][c].split(" → ")), f"{lang} {c} flow step count differs from EN")
+    tutorial = {lang: explain_copy(b).get("explain.tutorial", "") for lang, b in locale_blocks(i18n).items()}
+    require(re.search(r"not yet supported", tutorial["en"], re.I), "EN tutorial placeholder must say not yet supported")
+    require("не підтримується" in tutorial["uk"] and "не поддерживается" in tutorial["ru"], "UK/RU tutorial placeholder missing")
+    # No metered generation and no media player behind the placeholder.
+    require(not re.search(r"<(audio|video|iframe)\b", block) and "fetch(" not in block, "tutorial placeholder must not load or generate media")
+    body = html.split("<body>", 1)[1]
+    for term, concept in MOUNTS.items():
+        m = re.search(r'data-i18n="' + re.escape(term) + r'">[^<]*</h([23])><span class="helpTipMount" data-help-tip="([a-z]+)" data-help-term="'
+                      + re.escape(term) + r'"></span></div>', body)
+        require(m is not None, f"{term} heading needs a mounted help tip beside it (outside the heading's native title)")
+        require(m.group(2) == concept, f"{term} must explain {concept}, got {m.group(2)}")
+        require(body.count(f'data-help-term="{term}"') == 1, f"{term} has more than one help tip")
+    for term, concept in RENDERED.items():
+        require(f"esc(tr('{term}'))+helpTip('{concept}',tr('{term}'))" in script, f"{term} renderer must show the {concept} help tip")
+    require("document.querySelectorAll('[data-help-tip]').forEach(el=>{el.innerHTML=helpTip(el.dataset.helpTip," in script,
+            "applyLanguage must (re)mount heading tips in the active language")
+    require("addEventListener('mouseover'" in block and "addEventListener('focusin'" in block, "hover/focus must close other open tips")
+    css = html.split("<style>", 1)[1].split("</style>", 1)[0]
+    require(re.search(r"@media\(min-width:821px\)\{\.helpTipWrap\.helpTipWrap\.alignL", css), "edge alignment must not override the mobile sheet")
+    require(not re.search(r"\n\.helpTipWrap\.helpTipWrap \.helpTipText\{max-width", css), "a later max-width rule would override the mobile sheet")
+    return flows
+
+
 def static_checks(html, script, block, i18n):
     concepts = re.search(r"const EXPLAIN_CONCEPTS=\[([^\]]*)\]", block)
     require(concepts is not None, "EXPLAIN_CONCEPTS missing")
@@ -62,9 +109,9 @@ def static_checks(html, script, block, i18n):
     for lang in ("uk", "ru"):
         for key in required:
             require(copies[lang][key] != copies["en"][key], f"{lang} {key} is an untranslated EN fallback")
-    calls = re.findall(r"helpTip\('([a-z]+)'", script)
-    require(set(calls) <= set(CANONICAL), f"helpTip() uses unknown concepts: {sorted(set(calls) - set(CANONICAL))}")
-    require(set(calls) == set(CANONICAL), f"concepts without a UI help entry: {sorted(set(CANONICAL) - set(calls))}")
+    calls = set(re.findall(r"helpTip\('([a-z]+)'", script)) | set(re.findall(r'data-help-tip="([a-z]+)"', html))
+    require(calls <= set(CANONICAL), f"helpTip() uses unknown concepts: {sorted(calls - set(CANONICAL))}")
+    require(calls == set(CANONICAL), f"concepts without a UI help entry: {sorted(set(CANONICAL) - calls)}")
     for anchor in ("cycle.statCycles", "cycle.statReview", "cycle.statLearned", "cycle.idea", "cycle.job", "cycle.learning",
                    "package.hook", "package.script", "package.voice", "package.srt", "approval.hook", "approval.script"):
         require(re.search(r"helpTip\('[a-z]+',tr\('" + re.escape(anchor) + r"'\)\)", script), f"help entry missing next to {anchor}")
@@ -107,15 +154,34 @@ listeners.click(ev(b2));out.dom.tapClose=st();
 listeners.click(ev(b1));listeners.click(ev(body));out.dom.outside=st();
 listeners.click(ev(b1));document.activeElement=b1;listeners.keydown({key:'Escape'});out.dom.escape=st();out.dom.muted=w1.classList.contains('muted');
 listeners.focusout({target:b1});out.dom.blurUnmuted=!w1.classList.contains('muted');
+listeners.click(ev(b1));listeners.mouseover({target:b2});out.dom.hoverOther=st();
+listeners.click(ev(b1));listeners.focusin({target:b2});out.dom.focusOther=st();
+listeners.click(ev(b1));listeners.mouseover({target:b1});out.dom.hoverSelf=st();
 process.stdout.write(JSON.stringify(out));
 """
 
 
-def render_checks(out, copies):
+def escape(text):
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("'", "&#39;").replace('"', "&quot;")
+
+
+def render_checks(out, copies, flows):
     for lang in LOCALES:
         ids = set()
         for concept in CANONICAL:
             m = out["markup"][lang][concept]
+            require("explainFlow." not in m, f"{lang}/{concept} untranslated flow key leaked")
+            if concept in SURFACES:
+                steps = flows[lang][concept].split(" → ")
+                expected_flow = ('<span class="helpTipFlow">' + '<span class="helpTipArrow">→</span>'.join(
+                    f'<span class="helpTipStep">{escape(s)}</span>' for s in steps) + "</span>")
+                require(expected_flow in m, f"{lang}/{concept} mini flow diagram missing or out of order")
+                require(f'<span class="helpTipSoon">{escape(copies[lang]["explain.tutorial"])}</span>' in m,
+                        f"{lang}/{concept} tutorial placeholder missing")
+                require(m.index("helpTipFlow") > m.index('role="tooltip"') and m.endswith("</span></span>"),
+                        f"{lang}/{concept} flow must live inside the tooltip described by the button")
+            else:
+                require("helpTipFlow" not in m and "helpTipSoon" not in m, f"{lang}/{concept} must keep the plain T-533 tooltip")
             require(m.startswith('<span class="helpTipWrap"><button type="button" class="helpTip" data-explain="' + concept + '" aria-expanded="false"'),
                     f"{lang}/{concept} must render a focusable button")
             tip_id = re.search(r'aria-describedby="(helpTip\d+)"', m).group(1)
@@ -138,13 +204,17 @@ def render_checks(out, copies):
     require(dom["outside"] == [False, "false", False, "false"], f"tap outside must close: {dom}")
     require(dom["escape"] == [False, "false", False, "false"] and dom["muted"], f"Escape must close and hide the focused tip: {dom}")
     require(dom["blurUnmuted"], "leaving focus must reset the Escape mute")
+    require(dom["hoverOther"] == [False, "false", False, "false"], f"hovering another tip must close the open one (no overlap): {dom}")
+    require(dom["focusOther"] == [False, "false", False, "false"], f"focusing another tip must close the open one (no overlap): {dom}")
+    require(dom["hoverSelf"] == [True, "true", False, "false"], f"hovering the open tip must keep it open: {dom}")
 
 
 def main():
     html = HTML.read_text(encoding="utf-8")
     script, block, i18n, helpers, tr = extract(html)
     copies = static_checks(html, script, block, i18n)
-    print(f"Explainability static checks passed ({len(CANONICAL)} concepts x EN/UK/RU)")
+    flows = surface_checks(html, script, block, i18n)
+    print(f"Explainability static checks passed ({len(CANONICAL)} concepts, {len(MOUNTS) + len(RENDERED)} surface headings x EN/UK/RU)")
     node = shutil.which("node")
     if not node:
         if os.environ.get("FACTORYOS_REQUIRE_NODE") == "1":
@@ -155,8 +225,9 @@ def main():
     result = subprocess.run([node, "-"], input=program, capture_output=True, text=True, timeout=60)
     if result.returncode:
         raise SystemExit(f"help harness failed:\n{result.stderr[-2000:]}")
-    render_checks(json.loads(result.stdout), copies)
-    print("Explainability fixture checks passed (accessible markup, escaping, tap/outside/Escape/blur, EN/UK/RU)")
+    render_checks(json.loads(result.stdout), copies, flows)
+    print("Explainability fixture checks passed (accessible markup, flows, tutorial placeholder, escaping, "
+          "tap/outside/Escape/blur/hover/focus, EN/UK/RU)")
 
 
 if __name__ == "__main__":

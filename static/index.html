@@ -195,11 +195,18 @@
 .helpTipWrap.helpTipWrap{position:relative;display:inline-block;vertical-align:middle;margin:0 0 0 4px;max-height:none;overflow:visible;white-space:normal}
 .helpTip{display:inline-grid;place-items:center;width:18px;height:18px;min-width:18px;padding:0;border:1px solid #2f5873;border-radius:50%;background:#0b2233;color:#9fdcff;font:700 11px/1 Inter,system-ui;text-transform:none;letter-spacing:0;cursor:help}
 .helpTip:focus-visible{outline:2px solid #63d9ff;outline-offset:2px}
-.helpTipWrap.helpTipWrap .helpTipText{display:none;position:absolute;z-index:60;left:50%;top:calc(100% + 6px);transform:translateX(-50%);width:max-content;max-width:min(260px,80vw);max-height:none;overflow:visible;padding:8px 10px;border:1px solid #2f5873;border-radius:8px;background:#06141f;color:#d7ebf7;font:400 11px/1.45 Inter,system-ui;text-transform:none;letter-spacing:0;white-space:normal;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.helpTipWrap.helpTipWrap .helpTipText{display:none;position:absolute;z-index:80;left:50%;top:calc(100% + 6px);transform:translateX(-50%);width:max-content;max-width:min(300px,86vw);max-height:none;overflow:visible;padding:8px 10px;border:1px solid #2f5873;border-radius:8px;background:#06141f;color:#d7ebf7;font:400 11px/1.45 Inter,system-ui;text-transform:none;letter-spacing:0;white-space:normal;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.45)}
 .helpTipWrap.helpTipWrap.open .helpTipText,.helpTipWrap.helpTipWrap .helpTip:focus-visible+.helpTipText{display:block}
 @media(hover:hover){.helpTipWrap.helpTipWrap:hover .helpTipText{display:block}}
 .helpTipWrap.helpTipWrap.muted .helpTipText{display:none}
 @media(max-width:820px){.helpTip{width:28px;height:28px;min-width:28px;font-size:13px}.helpTipWrap.helpTipWrap .helpTipText{position:fixed;left:12px;right:12px;top:auto;bottom:12px;transform:none;width:auto;max-width:none}}
+.helpTipFlow{display:flex;flex-wrap:wrap;align-items:center;gap:3px;margin-top:7px}
+.helpTipStep{padding:2px 6px;border:1px solid #2f5873;border-radius:6px;background:#0b2233;color:#bfe6fb;font-size:10.5px;white-space:nowrap}
+.helpTipArrow{color:#63d9ff;font-size:10px}
+.helpTipSoon{display:block;margin-top:7px;color:#8aa3b5;font-size:10.5px;font-style:italic}
+@media(min-width:821px){.helpTipWrap.helpTipWrap.alignL .helpTipText{left:0;right:auto;transform:none}.helpTipWrap.helpTipWrap.alignR .helpTipText{left:auto;right:0;transform:none}}
+.helpHead{display:flex;align-items:center;gap:2px;flex-wrap:wrap;min-width:0}.helpHead>h2,.helpHead>h3{margin-bottom:0}
+.helpHead+p{margin-top:4px}
 .workerSelectedResult{margin:10px 0 12px;padding:12px;border:1px solid rgba(76,207,255,.28);border-radius:12px;background:rgba(18,42,58,.7)}
 .workerSelectedResult h3{margin:0 0 8px;font-size:13px}
 .workerSelectedResult .selectedResultMeta{display:flex;gap:6px;flex-wrap:wrap;margin:7px 0}
@@ -486,13 +493,54 @@
 }
 /* T-594 semantic nav sections: labelled groups when text is visible, thin dividers in icon-only rails. */
 .navSection{padding:12px 11px 3px;color:#5f7d96;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.navSection:first-child{padding-top:0}
+.navGroup:first-child .navSection{padding-top:0}
 @media(max-width:900px){
   .navSection{font-size:0!important;height:1px;min-height:1px;padding:0;margin:5px 6px;background:#1c344a;flex:0 0 1px}
-  .navSection:first-child{display:none}
-  .side.navOpen .navSection{font-size:9px!important;height:auto;min-height:0;padding:8px 7px 2px;margin:0;background:none;flex:0 0 auto}
+  .navGroup:first-child .navSection{display:none}
+  .side.navOpen .navSection{font-size:10px!important;height:auto;min-height:0;padding:8px 7px 2px;margin:0;background:none;flex:0 0 auto}
+  .side.navOpen .navGroup:first-child .navSection{display:block}
+  .side:not(.navOpen) .nav .navSection .navSectionToggle{display:none!important}
 }
 .nav button:focus-visible{outline:2px solid var(--cyan);outline-offset:-2px}
+/* T-594 collapsible groups: the heading is a real toggle button; collapsed state is remembered.
+   Icon-only rails always show every destination, because their headings are 1px dividers. */
+.navGroup,.navItems{display:grid;gap:4px;min-width:0;flex:0 0 auto}
+.navGroup.collapsed .navItems{display:none}
+.side:not(.navOpen) .navGroup.collapsed .navItems{display:grid}
+@media(min-width:901px){.side:not(.navOpen) .navGroup.collapsed .navItems{display:none}}
+.nav .navSection .navSectionToggle,.nav .navSection .navSectionToggle:not(.active){display:flex!important;align-items:center;justify-content:space-between!important;gap:6px!important;width:100%!important;min-width:0!important;height:auto!important;min-height:24px!important;margin:0!important;padding:2px 2px!important;border:0;border-radius:6px;background:none!important;box-shadow:none!important;color:inherit;font-size:inherit!important;font-weight:inherit;letter-spacing:inherit;text-transform:inherit;text-align:left!important;cursor:pointer}
+.nav .navSection .navSectionToggle>span{display:inline!important;font-size:inherit!important;line-height:1.3!important;overflow:hidden;text-overflow:ellipsis}
+.nav .navSection .navSectionToggle:hover{color:#bfe9ff}
+.navChevron{flex:0 0 auto;transition:transform .15s ease}.navGroup.collapsed .navChevron{transform:rotate(-90deg)}
+.navGroup.current .navSection{color:#8fdcff}
+.navExpand{display:none}
+/* T-594 slide-out menu: ~1/3 of capable viewports with full labels and one-line descriptions;
+   tapping the backdrop, Escape or choosing a destination closes it. The grid column stays reserved. */
+@media(min-width:701px){
+  .main{grid-column:2}
+  .side>.nav{min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}
+  .navExpand{display:grid;place-items:center;width:30px;height:30px;margin:0 auto 10px;border:1px solid #28506c;border-radius:8px;background:#0b2031;color:#d9f6ff;cursor:pointer;font-size:15px;line-height:1}
+  .navExpand:hover,.navExpand[aria-expanded="true"]{background:#123a55;border-color:#39bfe8}
+  .navExpand:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .navBackdrop{display:block;position:fixed;inset:0;z-index:69;background:#02070d88;opacity:0;pointer-events:none;transition:opacity .18s ease}
+  .navBackdrop.open{opacity:1;pointer-events:auto}
+  .side.navOpen{position:fixed;left:0;top:0;bottom:0;z-index:70;width:clamp(320px,33.333vw,520px);height:100vh;padding:18px 14px;overflow:hidden;box-shadow:18px 0 46px #000a}
+  .side.navOpen .brand{justify-content:flex-start;padding:2px 8px 14px}
+  .side.navOpen .brand>div:last-child{display:block!important;font-size:initial!important}
+  .side.navOpen .foot{font-size:10px;text-align:left;padding:10px}
+}
+@media(min-width:901px){.navExpand{position:absolute;top:20px;right:10px;margin:0}}
+.side.navOpen .nav .navItems>button,.side.navOpen .nav .navItems>button:not(.active){display:grid!important;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;justify-items:start;column-gap:10px!important;row-gap:1px;width:100%!important;height:auto!important;min-height:44px!important;margin:0!important;padding:7px 10px!important;text-align:left!important;white-space:normal;font-size:13px!important}
+.side.navOpen .nav .navItems>button>span[data-i18n]{display:block!important;font-size:13px!important;line-height:1.25!important;max-width:100%}
+.side.navOpen .nav .navItems>button>span[id]{display:block!important;font-size:11px!important}
+.side.navOpen .nav .navItems>button::after{content:attr(title);grid-column:2/-1;font-size:11px;line-height:1.3;color:#7f97ab;white-space:normal}
+.side.navOpen .nav .navItems>button.active::after,.side.navOpen .nav .navItems>button:hover::after{color:#b9d4e6}
+@media(max-width:700px){.side.navOpen{width:min(86vw,360px);max-width:none;min-width:0;overflow-y:auto}}
+/* T-594 breadcrumbs: where the operator is now, derived from the sidebar destination. */
+.navCrumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:4px;font-size:11px;color:#7f97ab;min-height:16px}
+.navCrumbs button{border:0;background:none;color:#8fdcff;padding:0 2px;border-radius:4px;cursor:pointer;font:inherit}
+.navCrumbs button:hover{text-decoration:underline}.navCrumbs button:focus-visible{outline:2px solid var(--cyan);outline-offset:1px}
+.navCrumbs [aria-current]{color:#e6f6ff;font-weight:600}.navCrumbSep{opacity:.55}
 /* T-536-D Worker / Delegation Control Center: desktop two columns, phones stack planner above worker with a sticky mini status. */
 .dcShade{position:fixed;inset:0;background:#02070dcc;backdrop-filter:blur(5px);z-index:84;opacity:0;pointer-events:none;transition:.2s}.dcShade.open{opacity:1;pointer-events:auto}
 .dcPage{position:fixed;inset:24px;background:radial-gradient(900px 520px at 85% 0,#173e5b55,transparent 62%),linear-gradient(180deg,#091621,#06101a);border:1px solid #2b5776;border-radius:18px;box-shadow:0 30px 110px #000e;z-index:85;transform:translateY(12px) scale(.985);opacity:0;pointer-events:none;transition:.22s;display:flex;flex-direction:column;overflow:hidden}.dcPage.open{opacity:1;pointer-events:auto;transform:none}
@@ -530,15 +578,42 @@
 #claudeSetupModal select{display:block;width:100%;padding:10px;margin:6px 0 12px;color:var(--text);background:var(--panel2);border:1px solid var(--line2);border-radius:9px}
 #claudeSetupModal label{display:block;font-weight:600;margin-top:8px}
 #claudeSetupModal [hidden]{display:none!important}
+.lbRoot{margin:0 0 12px;padding:11px;background:#0a1826;border:1px solid #24445f;border-radius:12px}.lbRoot h3{margin:0 0 8px;font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:#8da4b8}.lbLanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:9px}.lbLane{padding:9px;border:1px solid #22445f;border-radius:10px;background:#0b1a2a;font-size:8px;color:#8499ad}.lbHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}.lbHead b{font-size:10px;color:#dff6ff}.lbState{padding:3px 7px;border-radius:999px;border:1px solid #36556d;font-size:8px}.lbState.working{background:#103724;border-color:#1f7448;color:#71e79a}.lbState.blocked{background:#271318;border-color:#6e2e3a;color:#ff9dac}.lbState.stale{background:#2a210f;border-color:#6e551f;color:#ffd16f}.lbState.idle{color:#9fb6c9}.lbState.offline{color:#6f879d}.lbTask{color:#dff6ff;margin:3px 0}.lbTask.lbNone{color:#6f879d}.lbLine{margin:2px 0}.lbLine a{color:#6cddff}.lbCounts{margin-top:4px;color:#b8cad9}.lbCols{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}.lbCols span{padding:2px 5px;border:1px solid #203a50;border-radius:6px}.lbCols b{margin-right:3px;color:#dff6ff}.lbUnclaimed{margin-top:5px;color:#ffd16f}.lbBoard{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}.lbCol{background:#07121c;border:1px solid #1b354e;border-radius:10px;padding:7px;max-height:260px;overflow:auto}.lbCol h4{margin:0 0 6px;font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:#8da4b8}.lbItem{padding:6px;border:1px solid #22445f;border-radius:8px;margin-bottom:5px;font-size:8px;color:#b8cad9}.lbItem b{color:#dff6ff}.lbMeta{display:block;margin-top:3px;color:#6f879d}
+.officeWorkers{display:flex;gap:6px;flex-wrap:wrap}.owChip{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#dff6ff;border:1px solid #23445f;background:#0a1826;border-radius:9px;padding:5px 8px;cursor:pointer}.owChip:hover,.owChip:focus-visible{border-color:#6cddff;outline:none}
+.woRoot{margin:0 0 12px;padding:11px;background:#0a1826;border:1px solid #24445f;border-radius:12px;min-width:0;overflow-wrap:anywhere}.woRoot h3{margin:0 0 8px;font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:#8da4b8}.woCurrent{font-size:11px;color:#dff6ff;margin-bottom:8px}.woSigs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:7px;margin-bottom:9px}.woSig{padding:8px;border:1px solid #22445f;border-radius:10px;background:#0b1a2a;font-size:10px;color:#b8cad9;min-width:0}.woSig[data-state=ok]{border-color:#1f7448}.woSig[data-state=warn]{border-color:#6e551f}.woSig[data-state=fail]{border-color:#6e2e3a}.woSigHead{display:flex;justify-content:space-between;gap:6px;margin-bottom:4px}.woSigHead b{color:#dff6ff}.woVal{color:#dff6ff;margin-bottom:3px}.woExtra{margin-bottom:3px}.woSrc{color:#6f879d;font-size:9px}.woBadge{font-style:normal;padding:1px 6px;border-radius:999px;border:1px solid #36556d;font-size:9px;white-space:nowrap}.woBadge.ok{color:#71e79a;border-color:#1f7448}.woBadge.warn{color:#ffd16f;border-color:#6e551f}.woBadge.fail{color:#ff9dac;border-color:#6e2e3a}.woBadge.idle,.woBadge.unknown{color:#9fb6c9}.woGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:8px}.woPanel{padding:8px;border:1px solid #1b354e;border-radius:10px;background:#07121c;font-size:10px;color:#b8cad9;min-width:0}.woPanel h4{margin:0 0 6px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#8da4b8}.woPanel code{display:block;white-space:pre-wrap}.woPanel a{color:#6cddff}.woHeatGrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;max-width:260px}.woCell{display:inline-block;min-width:14px;min-height:14px;border-radius:3px;font-size:8px;text-align:center;color:#06101a;line-height:14px}.woCell.active{background:#34dc7d}.woCell.zero{background:#173048}.woCell.unknown{background:repeating-linear-gradient(45deg,#0b1a2a,#0b1a2a 3px,#22445f 3px,#22445f 5px)}.woLegend{margin-top:5px;display:flex;flex-wrap:wrap;align-items:center;gap:4px;color:#6f879d}.woTl{margin:0;padding-left:16px;max-height:240px;overflow:auto}.woTl li{margin-bottom:4px}.woProg{margin-bottom:6px}.woHuman{margin-bottom:5px}.woErrors{margin-top:8px}
+@media(max-width:820px){.lbLanes{grid-template-columns:1fr}.lbBoard{grid-template-columns:1fr 1fr}}
+/* T-595 — resizable/maximizable right-side drawers + Build Progress column overflow. Width comes from --drawer-w (set by the drawer script); --drawer-side is the sidebar's right edge, so a drawer never covers the sidebar. */
+.dcPage{inset:0 0 0 auto!important;height:100vh!important;border-radius:0!important;transform:translateX(103%)!important;opacity:1!important}.dcPage.open{transform:translateX(0)!important}
+.resizableDrawer{width:var(--drawer-w,min(65vw,calc(100vw - var(--drawer-side,0px) - 16px)))!important;max-width:calc(100vw - var(--drawer-side,0px) - 16px)!important;min-width:0!important}
+.resizableDrawer.maximized{width:calc(100vw - var(--drawer-side,0px) - 16px)!important}
+.resizableDrawer.resizing{transition:none!important;user-select:none}
+.drawerGrip{position:absolute;left:0;top:0;bottom:0;width:12px;margin-left:-6px;z-index:5;cursor:ew-resize;touch-action:none;display:flex;align-items:center;justify-content:center;outline:none}
+.drawerGrip::before{content:"";width:4px;height:56px;border-radius:999px;background:#2b5776;box-shadow:0 0 0 1px #0a1826}
+.drawerGrip:hover::before,.drawerGrip:focus-visible::before,.resizableDrawer.resizing .drawerGrip::before{background:#5fd8ff;height:84px}
+.drawerGrip:focus-visible{box-shadow:inset 0 0 0 2px #5fd8ff88}
+.drawerHeadActions{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.drawerMax{border:1px solid #2a4965;background:#0d1c2c;color:#cfe6f5;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px;line-height:1}
+.drawerMax:hover,.drawerMax[aria-pressed="true"]{border-color:#5fd8ff;color:#fff}
+.drawerMax:focus-visible,.resizableDrawer .closeX:focus-visible{outline:2px solid #5fd8ff;outline-offset:1px}
+.resizableDrawer :is(.taskTop,.dcTop,.qaTop,.intelTop,.flowTop,.packageTop,.variantTop,.brainTop,.drawerTop)>div:first-child{min-width:0}
+.taskBody,.dcBody,.qaBody,.intelBody,.flowBody,.drawerBody{min-width:0;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.taskBoard{grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr))}
+.lbBoard{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}
+.lbLanes{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
+.dcSummary{grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr))}
+.taskCol,.lbCol,.lbLane,.lbItem{min-width:0;overflow-wrap:anywhere}
+.addTaskRow>*{min-width:0}
+@media(max-width:900px){.resizableDrawer,.resizableDrawer.maximized{width:100vw!important;max-width:none!important;left:0!important}.drawerGrip,.drawerMax{display:none!important}}
 </style></head>
-<body><button class="mobileNavToggle" id="mobileNavToggle" aria-label="Open navigation" aria-expanded="false" onclick="toggleMobileNav()">☰</button><div class="navBackdrop" id="navBackdrop" onclick="closeMobileNav()"></div><div class="shell">
+<body><button class="mobileNavToggle" id="mobileNavToggle" aria-label="Open navigation" aria-controls="appSideNav" aria-expanded="false" onclick="toggleMobileNav()">☰</button><div class="navBackdrop" id="navBackdrop" onclick="closeMobileNav()"></div><div class="shell">
 <aside class="side" id="appSideNav">
 <div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v5.3</span></small></div></div>
-<nav class="nav" data-i18n-aria-label="navGroup.aria" aria-label="Main navigation"><div class="navSection" role="heading" aria-level="2" data-nav-group="overview" data-i18n="navGroup.overview">Overview</div><button class="active" data-nav-group="overview" data-nav-id="control" data-i18n-title="navHint.control"><span class="navIcon" aria-hidden="true">▣</span><span data-i18n="nav.control">Control Room</span></button><button data-nav-group="overview" data-nav-id="pipeline" data-i18n-title="navHint.pipeline" onclick="document.querySelector('.pipelineCard').scrollIntoView()"><span class="navIcon" aria-hidden="true">⌁</span><span data-i18n="nav.pipeline">Pipeline</span></button><button data-nav-group="overview" data-nav-id="supervisor" data-i18n-title="navHint.supervisor" onclick="document.querySelector('.supervisor').scrollIntoView()"><span class="navIcon" aria-hidden="true">◆</span><span data-i18n="nav.supervisor">Supervisor</span></button><button data-nav-group="overview" data-nav-id="errors" data-i18n-title="navHint.errors" onclick="document.querySelector('.errorCenterCard').scrollIntoView()"><span class="navIcon" aria-hidden="true">⚠</span><span data-i18n="nav.errors">Error Center</span></button><div class="navSection" role="heading" aria-level="2" data-nav-group="create" data-i18n="navGroup.create">Create content</div><button data-nav-group="create" data-nav-id="newJob" data-i18n-title="navHint.newJob" onclick="openNew()"><span class="navIcon" aria-hidden="true">＋</span><span data-i18n="nav.newJob">New Job</span></button><button data-nav-group="create" data-nav-id="jobs" data-i18n-title="navHint.jobs" onclick="document.querySelector('.jobs').scrollIntoView()"><span class="navIcon" aria-hidden="true">▤</span><span data-i18n="nav.jobs">Jobs</span></button><button data-nav-group="create" data-nav-id="discovery" data-i18n-title="navHint.discovery" onclick="openDiscoveryStudio()"><span class="navIcon" aria-hidden="true">⌁</span><span data-i18n="discovery.nav">Discovery</span> <span id="discoveryNavCount" style="float:right;color:#63d9ff"></span></button><button data-nav-group="create" data-nav-id="revideo" data-i18n-title="navHint.revideo" onclick="openRevideoStudio()"><span class="navIcon" aria-hidden="true">⟳</span><span data-i18n="revideo.nav">Revideo</span> <span id="revideoNavCount" style="float:right;color:#63d9ff"></span></button><button data-nav-group="create" data-nav-id="brain" data-i18n-title="navHint.brain" onclick="openContentBrain()"><span class="navIcon" aria-hidden="true">✦</span><span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button data-nav-group="create" data-nav-id="finisher" data-i18n-title="navHint.finisher" onclick="openMediaFinisher()"><span class="navIcon" aria-hidden="true">✂</span><span data-i18n="finisher.nav">Media Finisher</span></button><button data-nav-group="create" data-nav-id="variants" data-i18n-title="navHint.variants" onclick="S&&S.selectedJobId?openVariantStudio():toast(tr('toast.selectJob'))"><span class="navIcon" aria-hidden="true">◇</span><span data-i18n="variant.nav">Variants</span> <span id="variantNavCount" style="float:right;color:#63d9ff"></span></button><button data-nav-group="create" data-nav-id="package" data-i18n-title="navHint.package" onclick="S&&S.selectedJobId?openPackageStudio():toast(tr('toast.selectJob'))"><span class="navIcon" aria-hidden="true">▤</span><span data-i18n="package.nav">Package</span> <span id="packageNavState" style="float:right;color:#63d9ff"></span></button><button data-nav-group="create" data-nav-id="outputs" data-i18n-title="navHint.outputs" onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))"><span class="navIcon" aria-hidden="true">▦</span><span data-i18n="nav.outputs">Outputs</span></button><div class="navSection" role="heading" aria-level="2" data-nav-group="publish" data-i18n="navGroup.publish">Review &amp; publish</div><button data-nav-group="publish" data-nav-id="review" data-i18n-title="navHint.review" onclick="openApprovalStudio()"><span class="navIcon" aria-hidden="true">✓</span><span data-i18n="approval.nav">Review</span></button><button data-nav-group="publish" data-nav-id="publish" data-i18n-title="navHint.publish" onclick="openPublishingStudio()"><span class="navIcon" aria-hidden="true">⇧</span><span data-i18n="publishing.nav">Publish</span></button><div class="navSection" role="heading" aria-level="2" data-nav-group="grow" data-i18n="navGroup.grow">Growth &amp; learning</div><button data-nav-group="grow" data-nav-id="performance" data-i18n-title="navHint.performance" onclick="openPerformanceStudio()"><span class="navIcon" aria-hidden="true">↗</span><span data-i18n="performance.nav">Performance</span></button><button data-nav-group="grow" data-nav-id="analytics" data-i18n-title="navHint.analytics" onclick="openFactoryIntelligence()"><span class="navIcon" aria-hidden="true">▥</span><span data-i18n="nav.analytics">Analytics</span></button><button data-nav-group="grow" data-nav-id="experiments" data-i18n-title="navHint.experiments" onclick="openExperimentLab()"><span class="navIcon" aria-hidden="true">⌘</span><span data-i18n="experiment.nav">Experiments</span></button><div class="navSection" role="heading" aria-level="2" data-nav-group="automation" data-i18n="navGroup.automation">Automation &amp; team</div><button data-nav-group="automation" data-nav-id="autopilot" data-i18n-title="navHint.autopilot" onclick="openAutonomousFactory()"><span class="navIcon" aria-hidden="true">∞</span><span data-i18n="cycle.nav">Autopilot</span></button><button data-nav-group="automation" data-nav-id="agents" data-i18n-title="navHint.agents" onclick="openAgentDirectory()"><span class="navIcon" aria-hidden="true">◉</span><span data-i18n="nav.agents">Agents</span></button><button data-nav-group="automation" data-nav-id="workers" data-i18n-title="navHint.workers" onclick="openDelegationCenter()"><span class="navIcon" aria-hidden="true">⇄</span><span data-i18n="dc.nav">Workers</span></button><div class="navSection" role="heading" aria-level="2" data-nav-group="system" data-i18n="navGroup.system">System</div><button data-nav-group="system" data-nav-id="build" data-i18n-title="navHint.build" onclick="openBuildProgress()"><span class="navIcon" aria-hidden="true">☑</span><span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button data-nav-group="system" data-nav-id="qa" data-i18n-title="navHint.qa" onclick="openReleaseReadiness()"><span class="navIcon" aria-hidden="true">✓</span><span data-i18n="nav.qa">Release QA</span></button><button data-nav-group="system" data-nav-id="settings" data-i18n-title="navHint.settings"><span class="navIcon" aria-hidden="true">⚙</span><span data-i18n="nav.settings">Settings</span></button></nav>
+<button type="button" class="navExpand" id="navExpandToggle" aria-controls="appSideNav" aria-expanded="false" aria-label="Expand navigation with descriptions" title="Expand navigation with descriptions" onclick="toggleMobileNav()"><span aria-hidden="true">»</span></button>
+<nav class="nav" data-i18n-aria-label="navGroup.aria" aria-label="Main navigation"><div class="navGroup" data-nav-group="overview"><div class="navSection" role="heading" aria-level="2" data-nav-group="overview"><button type="button" class="navSectionToggle" id="navHead-overview" aria-expanded="true" aria-controls="navItems-overview" onclick="toggleNavGroup('overview')"><span data-i18n="navGroup.overview">Overview</span><span class="navChevron" aria-hidden="true">▾</span></button></div><div class="navItems" id="navItems-overview" role="group" aria-labelledby="navHead-overview"><button class="active" aria-current="page" data-nav-group="overview" data-nav-id="control" data-i18n-title="navHint.control"><span class="navIcon" aria-hidden="true">▣</span><span data-i18n="nav.control">Control Room</span></button><button data-nav-group="overview" data-nav-id="pipeline" data-i18n-title="navHint.pipeline" onclick="document.querySelector('.pipelineCard').scrollIntoView()"><span class="navIcon" aria-hidden="true">⌁</span><span data-i18n="nav.pipeline">Pipeline</span></button><button data-nav-group="overview" data-nav-id="supervisor" data-i18n-title="navHint.supervisor" onclick="document.querySelector('.supervisor').scrollIntoView()"><span class="navIcon" aria-hidden="true">◆</span><span data-i18n="nav.supervisor">Supervisor</span></button><button data-nav-group="overview" data-nav-id="errors" data-i18n-title="navHint.errors" onclick="document.querySelector('.errorCenterCard').scrollIntoView()"><span class="navIcon" aria-hidden="true">⚠</span><span data-i18n="nav.errors">Error Center</span></button></div></div><div class="navGroup" data-nav-group="create"><div class="navSection" role="heading" aria-level="2" data-nav-group="create"><button type="button" class="navSectionToggle" id="navHead-create" aria-expanded="true" aria-controls="navItems-create" onclick="toggleNavGroup('create')"><span data-i18n="navGroup.create">Create content</span><span class="navChevron" aria-hidden="true">▾</span></button></div><div class="navItems" id="navItems-create" role="group" aria-labelledby="navHead-create"><button data-nav-group="create" data-nav-id="newJob" data-i18n-title="navHint.newJob" onclick="openNew()"><span class="navIcon" aria-hidden="true">＋</span><span data-i18n="nav.newJob">New Job</span></button><button data-nav-group="create" data-nav-id="jobs" data-i18n-title="navHint.jobs" onclick="document.querySelector('.jobs').scrollIntoView()"><span class="navIcon" aria-hidden="true">▤</span><span data-i18n="nav.jobs">Jobs</span></button><button data-nav-group="create" data-nav-id="discovery" data-i18n-title="navHint.discovery" onclick="openDiscoveryStudio()"><span class="navIcon" aria-hidden="true">⌁</span><span data-i18n="discovery.nav">Discovery</span> <span id="discoveryNavCount" style="float:right;color:#63d9ff"></span></button><button data-nav-group="create" data-nav-id="revideo" data-i18n-title="navHint.revideo" onclick="openRevideoStudio()"><span class="navIcon" aria-hidden="true">⟳</span><span data-i18n="revideo.nav">Revideo</span> <span id="revideoNavCount" style="float:right;color:#63d9ff"></span></button><button data-nav-group="create" data-nav-id="brain" data-i18n-title="navHint.brain" onclick="openContentBrain()"><span class="navIcon" aria-hidden="true">✦</span><span data-i18n="brain.nav">Content Brain</span> <span id="brainNavCount" style="float:right;color:#63d9ff"></span></button><button data-nav-group="create" data-nav-id="finisher" data-i18n-title="navHint.finisher" onclick="openMediaFinisher()"><span class="navIcon" aria-hidden="true">✂</span><span data-i18n="finisher.nav">Media Finisher</span></button><button data-nav-group="create" data-nav-id="variants" data-i18n-title="navHint.variants" onclick="S&&S.selectedJobId?openVariantStudio():toast(tr('toast.selectJob'))"><span class="navIcon" aria-hidden="true">◇</span><span data-i18n="variant.nav">Variants</span> <span id="variantNavCount" style="float:right;color:#63d9ff"></span></button><button data-nav-group="create" data-nav-id="package" data-i18n-title="navHint.package" onclick="S&&S.selectedJobId?openPackageStudio():toast(tr('toast.selectJob'))"><span class="navIcon" aria-hidden="true">▤</span><span data-i18n="package.nav">Package</span> <span id="packageNavState" style="float:right;color:#63d9ff"></span></button><button data-nav-group="create" data-nav-id="outputs" data-i18n-title="navHint.outputs" onclick="S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))"><span class="navIcon" aria-hidden="true">▦</span><span data-i18n="nav.outputs">Outputs</span></button></div></div><div class="navGroup" data-nav-group="publish"><div class="navSection" role="heading" aria-level="2" data-nav-group="publish"><button type="button" class="navSectionToggle" id="navHead-publish" aria-expanded="true" aria-controls="navItems-publish" onclick="toggleNavGroup('publish')"><span data-i18n="navGroup.publish">Review &amp; publish</span><span class="navChevron" aria-hidden="true">▾</span></button></div><div class="navItems" id="navItems-publish" role="group" aria-labelledby="navHead-publish"><button data-nav-group="publish" data-nav-id="review" data-i18n-title="navHint.review" onclick="openApprovalStudio()"><span class="navIcon" aria-hidden="true">✓</span><span data-i18n="approval.nav">Review</span></button><button data-nav-group="publish" data-nav-id="publish" data-i18n-title="navHint.publish" onclick="openPublishingStudio()"><span class="navIcon" aria-hidden="true">⇧</span><span data-i18n="publishing.nav">Publish</span></button></div></div><div class="navGroup" data-nav-group="grow"><div class="navSection" role="heading" aria-level="2" data-nav-group="grow"><button type="button" class="navSectionToggle" id="navHead-grow" aria-expanded="true" aria-controls="navItems-grow" onclick="toggleNavGroup('grow')"><span data-i18n="navGroup.grow">Growth &amp; learning</span><span class="navChevron" aria-hidden="true">▾</span></button></div><div class="navItems" id="navItems-grow" role="group" aria-labelledby="navHead-grow"><button data-nav-group="grow" data-nav-id="performance" data-i18n-title="navHint.performance" onclick="openPerformanceStudio()"><span class="navIcon" aria-hidden="true">↗</span><span data-i18n="performance.nav">Performance</span></button><button data-nav-group="grow" data-nav-id="analytics" data-i18n-title="navHint.analytics" onclick="openFactoryIntelligence()"><span class="navIcon" aria-hidden="true">▥</span><span data-i18n="nav.analytics">Analytics</span></button><button data-nav-group="grow" data-nav-id="experiments" data-i18n-title="navHint.experiments" onclick="openExperimentLab()"><span class="navIcon" aria-hidden="true">⌘</span><span data-i18n="experiment.nav">Experiments</span></button></div></div><div class="navGroup" data-nav-group="automation"><div class="navSection" role="heading" aria-level="2" data-nav-group="automation"><button type="button" class="navSectionToggle" id="navHead-automation" aria-expanded="true" aria-controls="navItems-automation" onclick="toggleNavGroup('automation')"><span data-i18n="navGroup.automation">Automation &amp; team</span><span class="navChevron" aria-hidden="true">▾</span></button></div><div class="navItems" id="navItems-automation" role="group" aria-labelledby="navHead-automation"><button data-nav-group="automation" data-nav-id="autopilot" data-i18n-title="navHint.autopilot" onclick="openAutonomousFactory()"><span class="navIcon" aria-hidden="true">∞</span><span data-i18n="cycle.nav">Autopilot</span></button><button data-nav-group="automation" data-nav-id="agents" data-i18n-title="navHint.agents" onclick="openAgentDirectory()"><span class="navIcon" aria-hidden="true">◉</span><span data-i18n="nav.agents">Agents</span></button><button data-nav-group="automation" data-nav-id="workers" data-i18n-title="navHint.workers" onclick="openDelegationCenter()"><span class="navIcon" aria-hidden="true">⇄</span><span data-i18n="dc.nav">Workers</span></button></div></div><div class="navGroup" data-nav-group="system"><div class="navSection" role="heading" aria-level="2" data-nav-group="system"><button type="button" class="navSectionToggle" id="navHead-system" aria-expanded="true" aria-controls="navItems-system" onclick="toggleNavGroup('system')"><span data-i18n="navGroup.system">System</span><span class="navChevron" aria-hidden="true">▾</span></button></div><div class="navItems" id="navItems-system" role="group" aria-labelledby="navHead-system"><button data-nav-group="system" data-nav-id="build" data-i18n-title="navHint.build" onclick="openBuildProgress()"><span class="navIcon" aria-hidden="true">☑</span><span data-i18n="nav.build">Build Progress</span> <span id="buildNavPct" style="float:right;color:#63d9ff"></span></button><button data-nav-group="system" data-nav-id="qa" data-i18n-title="navHint.qa" onclick="openReleaseReadiness()"><span class="navIcon" aria-hidden="true">✓</span><span data-i18n="nav.qa">Release QA</span></button><button data-nav-group="system" data-nav-id="settings" data-i18n-title="navHint.settings"><span class="navIcon" aria-hidden="true">⚙</span><span data-i18n="nav.settings">Settings</span></button></div></div></nav>
 <div class="foot"><span class="green"></span><span data-i18n="factory.online">Factory online</span><br><span id="runState">No active run</span></div>
 </aside>
 <main class="main">
-<header class="top"><div><h1>Blackbox Lab — FactoryOS</h1><div class="sub"><span data-i18n="top.subtitle">AI content production control room</span> · <span id="buildStamp">loading build…</span></div></div><input class="search" id="globalSearch" data-i18n-placeholder="top.search" placeholder="⌕  Search jobs or agents…" oninput="applySearch(this.value)"><div class="topActions"><div class="langSwitch" aria-label="Language"><button id="lang-en" onclick="switchLanguage('en')">EN</button><button id="lang-uk" onclick="switchLanguage('uk')">УКР</button><button id="lang-ru" onclick="switchLanguage('ru')">RU</button></div><button class="btn" onclick="refresh()">↻ <span data-i18n="action.refresh">Refresh</span></button><button class="btn" id="viewerInviteBtn" onclick="copyViewerInvite()">👁 Share Viewer</button><button class="btn primary" id="newJobBtn" onclick="openNew()">+ <span data-i18n="nav.newJob">New Job</span></button><form action="/logout" method="post"><button class="btn" data-i18n="action.logout">Logout</button></form></div></header>
+<header class="top"><div><h1>Blackbox Lab — FactoryOS</h1><div class="sub"><span data-i18n="top.subtitle">AI content production control room</span> · <span id="buildStamp">loading build…</span></div><nav class="navCrumbs" id="navCrumbs" data-i18n-aria-label="navCrumb.aria" aria-label="Breadcrumb"></nav></div><input class="search" id="globalSearch" data-i18n-placeholder="top.search" placeholder="⌕  Search jobs or agents…" oninput="applySearch(this.value)"><div class="topActions"><div class="langSwitch" aria-label="Language"><button id="lang-en" onclick="switchLanguage('en')">EN</button><button id="lang-uk" onclick="switchLanguage('uk')">УКР</button><button id="lang-ru" onclick="switchLanguage('ru')">RU</button></div><button class="btn" onclick="refresh()">↻ <span data-i18n="action.refresh">Refresh</span></button><button class="btn" id="viewerInviteBtn" onclick="copyViewerInvite()">👁 Share Viewer</button><button class="btn primary" id="newJobBtn" onclick="openNew()">+ <span data-i18n="nav.newJob">New Job</span></button><form action="/logout" method="post"><button class="btn" data-i18n="action.logout">Logout</button></form></div></header>
 
 <section class="mission">
 <div class="missionTitle"><h2 id="missionTitle">What to do next</h2><p id="missionCopy">Create a content job and start the factory.</p></div>
@@ -556,15 +631,15 @@
 </section>
 
 <section class="grid">
-<div class="card officeCard"><div class="head"><h3><span data-i18n="office.title" style="font-size:13px;color:inherit;font-weight:inherit;margin:0">Agent Office</span> <span data-i18n="office.sub">Your AI team working together</span></h3><div class="officeTools"><span class="officePill"><span class="green" id="officeDot"></span><span id="agentCount">agents</span></span><button class="btn ghost" onclick="openAgentDirectory()">◉ <span data-i18n="nav.agents">Agents</span></button></div></div><div class="office"><div class="officeStage"><svg class="officeScene" id="officeScene" viewBox="0 0 1600 1100" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Agent Office"></svg><div id="agentBadges"></div></div></div></div>
+<div class="card officeCard"><div class="head"><h3><span data-i18n="office.title" style="font-size:13px;color:inherit;font-weight:inherit;margin:0">Agent Office</span> <span data-i18n="office.sub">Your AI team working together</span></h3><div class="officeTools"><div class="officeWorkers" id="officeWorkers" aria-label="Workers"></div><span class="officePill"><span class="green" id="officeDot"></span><span id="agentCount">agents</span></span><button class="btn ghost" onclick="openAgentDirectory()">◉ <span data-i18n="nav.agents">Agents</span></button></div></div><div class="office"><div class="officeStage"><svg class="officeScene" id="officeScene" viewBox="0 0 1600 1100" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Agent Office"></svg><div id="agentBadges"></div></div></div></div>
 <div class="rightRail">
-  <aside class="card connections"><h3 data-i18n="connections.title">Connections</h3><p data-i18n="connections.sub">Publishing, intelligence and generation services.</p><div id="connections"></div><p class="connectionNote" data-i18n="connections.portability">Connections belong to this workspace. Disconnecting an account keeps all content history and lets another customer account be connected later.</p><div class="connectionTools"><button class="connAction" onclick="disconnectAllIntegrations()" data-i18n="connections.disconnectAll">Disconnect all accounts</button></div></aside>
+  <aside class="card connections"><div class="helpHead"><h3 data-i18n="connections.title">Connections</h3><span class="helpTipMount" data-help-tip="connector" data-help-term="connections.title"></span></div><p data-i18n="connections.sub">Publishing, intelligence and generation services.</p><div id="connections"></div><p class="connectionNote" data-i18n="connections.portability">Connections belong to this workspace. Disconnecting an account keeps all content history and lets another customer account be connected later.</p><div class="connectionTools"><button class="connAction" onclick="disconnectAllIntegrations()" data-i18n="connections.disconnectAll">Disconnect all accounts</button></div></aside>
 </div>
 </section>
 
 <section class="workArea">
 <div class="workMain">
-<div class="card pipelineCard"><div class="pipeHead"><h3 data-i18n="pipeline.title">Content Pipeline</h3><div class="tiny" data-i18n="pipeline.legend">Green completed · Cyan current · Dim waiting</div></div><div class="pipeline" id="pipeline"></div><div class="pipeFlow" id="pipelineFlow" aria-live="polite"></div></div>
+<div class="card pipelineCard"><div class="pipeHead"><div class="helpHead"><h3 data-i18n="pipeline.title">Content Pipeline</h3><span class="helpTipMount" data-help-tip="stage" data-help-term="pipeline.title"></span></div><div class="tiny" data-i18n="pipeline.legend">Green completed · Cyan current · Dim waiting</div></div><div class="pipeline" id="pipeline"></div><div class="pipeFlow" id="pipelineFlow" aria-live="polite"></div></div>
 <div class="card jobs"><div class="rowHead"><div><h3 data-i18n="jobs.current">Current Jobs</h3><div class="tiny" id="jobSummary"></div></div><div><button class="btn" onclick="openNew()">+ <span data-i18n="nav.newJob">New Job</span></button> <button class="btn primary" id="runTop" onclick="runSelected()">▶ <span data-i18n="step.run">Run Factory</span></button></div></div><div id="jobs"></div></div>
 </div>
 <aside class="card selected"><div class="rowHead"><h3 data-i18n="jobs.selected">Selected Job</h3><div class="sjTools"><button class="btn ghost" onclick="S&&S.selectedJobId&&openJobOutputs(S.selectedJobId)"><span data-i18n="sj.open">Open</span> →</button> <button class="btn good" id="approveBtn" style="display:none" onclick="openApprovalStudio()" data-i18n="jobs.approve">Review & approve</button></div></div><div id="detail"></div><div class="logs" id="log"></div></aside>
@@ -583,7 +658,7 @@
 
 <section class="card errorCenterCard"><div class="errorCenterHead"><div><h3 data-i18n="error.title">Operations / Error Center</h3><p data-i18n="error.sub">Classified worker incidents, spend-safe recovery and resolved failure history for the selected job.</p></div><div class="errorSummary" id="errorSummary"></div></div><div class="errorList" id="errorCenter"></div></section>
 
-<section class="card workerFlowCard"><div class="workerFlowHead"><div><h3 class="helpable" data-help="help.worker" data-i18n="worker.title">Worker Results & Handoffs</h3><p data-i18n="worker.sub">Latest output from every worker, visible handoffs, and current failures for the selected job.</p></div><div class="tiny" data-i18n="worker.clickHint">click a worker → full artifact ledger</div></div><div class="factoryErrors" id="factoryErrors"></div><div class="workerResults" id="workerResults"></div><div class="handoffStream" id="handoffStream"></div></section>
+<section class="card workerFlowCard"><div class="workerFlowHead"><div><div class="helpHead"><h3 class="helpable" data-help="help.worker" data-i18n="worker.title">Worker Results & Handoffs</h3><span class="helpTipMount" data-help-tip="worker" data-help-term="worker.title"></span></div><p data-i18n="worker.sub">Latest output from every worker, visible handoffs, and current failures for the selected job.</p></div><div class="tiny" data-i18n="worker.clickHint">click a worker → full artifact ledger</div></div><div class="factoryErrors" id="factoryErrors"></div><div class="workerResults" id="workerResults"></div><div class="handoffStream" id="handoffStream"></div></section>
 
 
 </main></div>
@@ -595,13 +670,13 @@
 <div class="flowShade" id="cycleShade" onclick="closeAutonomousFactory()"></div>
 <section class="flowPage" id="cyclePage"><div class="flowTop"><div><h2 class="helpable" data-help="help.cycle" data-i18n="cycle.title">Autonomous Content Factory / Cycle Control</h2><p data-i18n="cycle.sub">Signals → ideas → production → human approval → publishing → real analytics → learning, with no manual data handoff.</p></div><button class="closeX" onclick="closeAutonomousFactory()">×</button></div><div class="flowBody" id="cycleBody"></div></section>
 <div class="flowShade" id="discoveryShade" onclick="closeDiscoveryStudio()"></div>
-<section class="flowPage" id="discoveryPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.discovery" data-i18n="discovery.title">Viral Discovery / Outlier Inbox</h2><p data-i18n="discovery.sub">Store real breakout candidates, compare public metrics and send the best source into Revideo without copying it.</p></div><button class="closeX" onclick="closeDiscoveryStudio()">×</button></div><div class="flowBody" id="discoveryBody"></div></section>
+<section class="flowPage" id="discoveryPage"><div class="flowTop"><div><div class="helpHead"><h2 class="helpable" data-help="help.discovery" data-i18n="discovery.title">Viral Discovery / Outlier Inbox</h2><span class="helpTipMount" data-help-tip="discovery" data-help-term="discovery.title"></span></div><p data-i18n="discovery.sub">Store real breakout candidates, compare public metrics and send the best source into Revideo without copying it.</p></div><button class="closeX" onclick="closeDiscoveryStudio()">×</button></div><div class="flowBody" id="discoveryBody"></div></section>
 <div class="flowShade" id="revideoShade" onclick="closeRevideoStudio()"></div>
 <section class="flowPage" id="revideoPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.revideo" data-i18n="revideo.title">Revideo / Original Rewrite Studio</h2><p data-i18n="revideo.sub">Analyze a successful public video/topic, extract reusable structure, create an original evidence-bounded rewrite, then send it into FactoryOS production.</p></div><button class="closeX" onclick="closeRevideoStudio()">×</button></div><div class="flowBody" id="revideoBody"></div></section>
 <div class="flowShade" id="finisherShade" onclick="closeMediaFinisher()"></div>
-<section class="flowPage" id="finisherPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.finisher" data-i18n="finisher.title">AI Media Finisher</h2><p data-i18n="finisher.sub">Raw/generated video → word timing → cuts → captions/graphics → audio → safe-zone QA → final video → human review.</p></div><button class="closeX" onclick="closeMediaFinisher()">×</button></div><div class="flowBody" id="finisherBody"></div></section>
+<section class="flowPage" id="finisherPage"><div class="flowTop"><div><div class="helpHead"><h2 class="helpable" data-help="help.finisher" data-i18n="finisher.title">AI Media Finisher</h2><span class="helpTipMount" data-help-tip="video" data-help-term="finisher.title"></span></div><p data-i18n="finisher.sub">Raw/generated video → word timing → cuts → captions/graphics → audio → safe-zone QA → final video → human review.</p></div><button class="closeX" onclick="closeMediaFinisher()">×</button></div><div class="flowBody" id="finisherBody"></div></section>
 <div class="flowShade" id="approvalShade" onclick="closeApprovalStudio()"></div>
-<section class="flowPage" id="approvalPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.approval" data-i18n="approval.title">Approval Studio</h2><p data-i18n="approval.sub">Preview, evidence, targeted regeneration and decisions before publishing.</p></div><button class="closeX" onclick="closeApprovalStudio()">×</button></div><div class="flowBody" id="approvalBody"></div></section>
+<section class="flowPage" id="approvalPage"><div class="flowTop"><div><div class="helpHead"><h2 class="helpable" data-help="help.approval" data-i18n="approval.title">Approval Studio</h2><span class="helpTipMount" data-help-tip="approval" data-help-term="approval.title"></span></div><p data-i18n="approval.sub">Preview, evidence, targeted regeneration and decisions before publishing.</p></div><button class="closeX" onclick="closeApprovalStudio()">×</button></div><div class="flowBody" id="approvalBody"></div></section>
 <div class="flowShade" id="publishingShade" onclick="closePublishingStudio()"></div>
 <section class="flowPage" id="publishingPage"><div class="flowTop"><div><h2 class="helpable" data-help="help.publishing" data-i18n="publishing.title">Publishing Engine</h2><p data-i18n="publishing.sub">Approved packages, schedule, duplicate-safe publish attempts and real receipts.</p></div><button class="closeX" onclick="closePublishingStudio()">×</button></div><div class="flowBody" id="publishingBody"></div></section>
 <div class="flowShade" id="performanceShade" onclick="closePerformanceStudio()"></div>
@@ -638,7 +713,7 @@
 
 <div class="brainShade" id="brainShade" onclick="closeContentBrain()"></div>
 <section class="brainPage" id="brainPage">
-  <div class="brainTop"><div><h2 class="helpable" data-help="help.brain" data-i18n="brain.title">Content Brain / Idea Factory</h2><p data-i18n="brain.sub">Signals → Scout → Researcher → Strategist → Verifier → shortlist, with provenance and measured spend.</p></div><button class="closeX" onclick="closeContentBrain()">×</button></div>
+  <div class="brainTop"><div><div class="helpHead"><h2 class="helpable" data-help="help.brain" data-i18n="brain.title">Content Brain / Idea Factory</h2><span class="helpTipMount" data-help-tip="brain" data-help-term="brain.title"></span></div><p data-i18n="brain.sub">Signals → Scout → Researcher → Strategist → Verifier → shortlist, with provenance and measured spend.</p></div><button class="closeX" onclick="closeContentBrain()">×</button></div>
   <div class="brainBody">
     <div class="brainSummary" id="brainSummary"></div>
     <div class="brainToolbar">
@@ -673,6 +748,7 @@
   <div class="taskBody">
     <div class="builderMode" id="builderMode"><strong>Factory Builder</strong><span>Checking execution mode…</span><span class="pill hourly">hourly queue</span></div>
     <div class="autopilotStatus" id="autopilotStatus"><div class="autopilotLead"><strong data-i18n="autopilot.buildTitle">Builder Autopilot</strong><span data-i18n="autopilot.loading">Reading repository roadmap…</span></div></div>
+    <div class="laneBoard" id="laneBoardBuild"></div>
     <div class="telegramBridge" id="telegramBridge"><div><strong data-i18n="telegram.title">Telegram Owner Channel</strong><span data-i18n="telegram.loading">Checking pairing…</span></div></div>
     <div class="buildProgress"><div><div class="buildPct" id="buildPct">0%</div><div class="sub" id="buildCounts">0 / 0 complete</div></div><div><div class="buildTrack"><i id="buildTrack" style="width:0%"></i></div><div class="sub" style="margin-top:5px"><span data-i18n="build.legend">✓ completed · ● in progress · ○ planned · ! blocked</span></div></div></div>
     <div class="addTaskRow"><input id="newTaskTitle" data-i18n-placeholder="build.addPlaceholder" placeholder="Add a product/development task…"><select id="newTaskPriority"><option value="high" data-i18n="priority.high">High priority</option><option value="medium" selected data-i18n="priority.medium">Medium priority</option><option value="low" data-i18n="priority.low">Low priority</option></select><button class="btn primary" onclick="addBuildTask()">+ <span data-i18n="build.add">Add task</span></button></div>
@@ -694,7 +770,7 @@
 
 <div class="dcShade" id="dcShade" onclick="closeDelegationCenter()"></div>
 <section class="dcPage" id="dcPage">
-  <div class="dcTop"><div><h2 data-i18n="dc.title">Worker / Delegation Control Center</h2><p data-i18n="dc.sub">What ChatGPT/Planner delegated, what the Claude runner is doing now, and what is left.</p></div><button class="closeX" onclick="closeDelegationCenter()">×</button></div>
+  <div class="dcTop"><div><div class="helpHead"><h2 data-i18n="dc.title">Worker / Delegation Control Center</h2><span class="helpTipMount" data-help-tip="relay" data-help-term="dc.title"></span></div><p data-i18n="dc.sub">What ChatGPT/Planner delegated, what the Claude runner is doing now, and what is left.</p></div><button class="closeX" onclick="closeDelegationCenter()">×</button></div>
   <div class="dcBody" id="dcBody"><div class="sub" style="padding:20px" data-i18n="dc.loading">Loading delegation board…</div></div>
 </section>
 
@@ -757,11 +833,18 @@ const esc=v=>textValue(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&g
 function safeDate(v){return textValue(v).replace('T',' ').slice(0,19)}
 function helpTitle(key){const v=tr(key);return v===key?'':v}
 // --- explain:begin — T-533 canonical concept help: keyboard (focus/Enter/Space/Escape), hover and tap safe; text comes from explain.<concept> in EN/UK/RU.
-const EXPLAIN_CONCEPTS=['hook','script','caption','voice','cycle','idea','job','review','learned'];
+// T-597 surface help (relay…discovery) adds a factual mini flow (explainFlow.<concept>, steps split by " → ") and a not-yet-supported tutorial note.
+const EXPLAIN_CONCEPTS=['hook','script','caption','voice','cycle','idea','job','review','learned','relay','worker','connector','stage','approval','video','brain','discovery'];
 let _helpTipSeq=0;
-function helpTip(concept,term){if(!EXPLAIN_CONCEPTS.includes(concept))return '';const id='helpTip'+(++_helpTipSeq);return '<span class="helpTipWrap"><button type="button" class="helpTip" data-explain="'+concept+'" aria-expanded="false" aria-describedby="'+id+'" aria-label="'+esc(tr('explain.aria',{term:term||concept}))+'">?</button><span class="helpTipText" role="tooltip" id="'+id+'">'+esc(tr('explain.'+concept))+'</span></span>'}
+function helpTipFlow(concept){const raw=tr('explainFlow.'+concept);if(raw==='explainFlow.'+concept)return '';return '<span class="helpTipFlow">'+raw.split(' → ').map(s=>'<span class="helpTipStep">'+esc(s)+'</span>').join('<span class="helpTipArrow">→</span>')+'</span><span class="helpTipSoon">'+esc(tr('explain.tutorial'))+'</span>'}
+function helpTip(concept,term){if(!EXPLAIN_CONCEPTS.includes(concept))return '';const id='helpTip'+(++_helpTipSeq);return '<span class="helpTipWrap"><button type="button" class="helpTip" data-explain="'+concept+'" aria-expanded="false" aria-describedby="'+id+'" aria-label="'+esc(tr('explain.aria',{term:term||concept}))+'">?</button><span class="helpTipText" role="tooltip" id="'+id+'">'+esc(tr('explain.'+concept))+helpTipFlow(concept)+'</span></span>'}
 function closeHelpTips(except){document.querySelectorAll('.helpTipWrap.open').forEach(w=>{if(w===except)return;w.classList.remove('open');const b=w.querySelector('.helpTip');if(b)b.setAttribute('aria-expanded','false')})}
-document.addEventListener('click',e=>{const b=e.target&&e.target.closest?e.target.closest('.helpTip'):null;if(!b){closeHelpTips();return}e.preventDefault();e.stopPropagation();const w=b.parentNode,open=!w.classList.contains('open');closeHelpTips(w);w.classList.remove('muted');w.classList.toggle('open',open);b.setAttribute('aria-expanded',String(open))},true);
+// Keep the bubble inside the viewport on desktop (mobile uses a fixed bottom sheet).
+function placeHelpTip(w){if(!w||!w.getBoundingClientRect||typeof window==='undefined')return;const r=w.getBoundingClientRect(),vw=window.innerWidth||0;w.classList.toggle('alignL',r.left<160);w.classList.toggle('alignR',vw>0&&vw-r.right<160)}
+document.addEventListener('click',e=>{const b=e.target&&e.target.closest?e.target.closest('.helpTip'):null;if(!b){closeHelpTips();return}e.preventDefault();e.stopPropagation();const w=b.parentNode,open=!w.classList.contains('open');closeHelpTips(w);w.classList.remove('muted');placeHelpTip(w);w.classList.toggle('open',open);b.setAttribute('aria-expanded',String(open))},true);
+// Only one bubble at a time: hovering or focusing another tip closes a tap-opened one.
+document.addEventListener('mouseover',e=>{const w=e.target&&e.target.closest?e.target.closest('.helpTipWrap'):null;if(w){placeHelpTip(w);closeHelpTips(w)}});
+document.addEventListener('focusin',e=>{const w=e.target&&e.target.closest?e.target.closest('.helpTipWrap'):null;if(w){placeHelpTip(w);closeHelpTips(w)}});
 document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;const a=document.activeElement,w=a&&a.closest?a.closest('.helpTipWrap'):null;if(w)w.classList.add('muted');closeHelpTips()});
 document.addEventListener('focusout',e=>{const w=e.target&&e.target.closest?e.target.closest('.helpTipWrap'):null;if(w){w.classList.remove('muted','open');const b=w.querySelector('.helpTip');if(b)b.setAttribute('aria-expanded','false')}});
 // --- explain:end
@@ -833,6 +916,23 @@ const I18N={
   "explain.job":"Job — the production run for one idea: workers write, check and package it. It stops at review and never publishes by itself.",
   "explain.review":"Review — the human approval gate. Nothing is published until the owner approves this exact package.",
   "explain.learned":"Learned — real metrics from a published video were analysed and a recommendation was saved for the next cycle. No metrics means nothing is learned.",
+  "explain.relay":"Relay — the task queue between the planner and workers. A task is created, claimed by exactly one worker, run, checked and reported back. Created is not claimed, and claimed is not done.",
+  "explain.worker":"Worker — an executor such as Claude Code on a paired server that claims Relay tasks. Its state comes only from a verified heartbeat and run events; no heartbeat means unknown, not working.",
+  "explain.connector":"Connector — an account or service linked to this workspace for publishing, analytics or generation. Connecting never turns on paid calls by itself; disconnecting keeps the content history.",
+  "explain.stage":"Stage — one step of a job in the content pipeline. Green is completed, cyan is current, dim is waiting. A job moves on only after the previous stage produced its artifact.",
+  "explain.approval":"Approval — the human gate before publishing. The owner checks the exact package (preview, evidence, cost) and approves, rejects or regenerates a part. Nothing is published without it.",
+  "explain.video":"Video finishing — the Media Finisher turns raw or generated video into a final cut: word timing, cuts, captions, audio and safe-zone QA. It stops at human review and never publishes.",
+  "explain.brain":"Content Brain — turns collected signals into a verified idea shortlist through Scout, Researcher, Strategist and Verifier, with provenance. Building the shortlist uses paid LLM calls inside the budget guards.",
+  "explain.discovery":"Discovery — stores real public performance signals (views, views per hour, engagement, breakout score) for candidate videos. It does not invent quality scores, copy videos or publish anything.",
+  "explain.tutorial":"Audio/video tutorial: not yet supported.",
+  "explainFlow.relay":"Created → Claimed → Running → Checks → Reported",
+  "explainFlow.worker":"Paired → Heartbeat → Claims task → Runs → Reports",
+  "explainFlow.connector":"Connect → Verify → Use within budget → Disconnect",
+  "explainFlow.stage":"Completed → Current → Waiting",
+  "explainFlow.approval":"Package → Preview + evidence → Owner decision → Publishing queue",
+  "explainFlow.video":"Raw video → Word timing → Cuts → Captions + audio → QA → Review",
+  "explainFlow.brain":"Signals → Scout → Researcher → Strategist → Verifier → Shortlist",
+  "explainFlow.discovery":"Candidate → Public metrics → Compare → Revideo",
   "approval.statWaiting":"waiting for review","approval.statApproved":"approved","approval.statRejected":"rejected","approval.statItems":"review items",
   "approval.empty":"No jobs are currently in the approval workflow.","approval.preview":"Preview","approval.hook":"Hook","approval.script":"Script","approval.sources":"Sources",
   "approval.warnings":"Fact / QA warnings","approval.variantDiff":"Variant diff","approval.publishTarget":"Publish target","approval.history":"Decision history",
@@ -1095,6 +1195,23 @@ const I18N={
   "explain.job":"Job — виробничий запуск однієї ідеї: workers пишуть, перевіряють і пакують контент. Він зупиняється на перевірці й ніколи не публікує сам.",
   "explain.review":"Review — людська перевірка перед публікацією. Нічого не публікується, доки власник не схвалить саме цей пакет.",
   "explain.learned":"Learned — реальні метрики опублікованого відео проаналізовано, а рекомендацію збережено для наступного циклу. Без метрик нічого не навчається.",
+  "explain.relay":"Relay — черга завдань між планувальником і виконавцями. Завдання створюється, його бере рівно один виконавець, запускає, перевіряє й звітує. Створено — ще не взято, взято — ще не виконано.",
+  "explain.worker":"Виконавець — наприклад, Claude Code на спареному сервері, що бере завдання з Relay. Його стан береться лише з підтвердженого heartbeat і подій запуску; без heartbeat стан невідомий, а не «працює».",
+  "explain.connector":"Підключення — акаунт або сервіс цього робочого простору для публікації, аналітики чи генерації. Підключення саме по собі не вмикає платних викликів; відключення зберігає історію контенту.",
+  "explain.stage":"Етап — один крок завдання в контент-конвеєрі. Зелений — завершено, блакитний — поточний, тьмяний — очікує. Завдання переходить далі лише після артефакту попереднього етапу.",
+  "explain.approval":"Схвалення — людська перевірка перед публікацією. Власник перевіряє саме цей пакет (превʼю, докази, вартість) і схвалює, відхиляє або перегенеровує частину. Без цього нічого не публікується.",
+  "explain.video":"Доведення відео — Media Finisher робить із сирого чи згенерованого відео фінальний монтаж: таймінг слів, нарізка, субтитри, аудіо й QA безпечних зон. Зупиняється на перевірці людиною й ніколи не публікує.",
+  "explain.brain":"Content Brain — перетворює зібрані сигнали на перевірений шортлист ідей через Scout, Researcher, Strategist і Verifier із джерелами. Побудова шортлиста використовує платні LLM-виклики в межах бюджету.",
+  "explain.discovery":"Discovery — зберігає реальні публічні показники (перегляди, перегляди за годину, залученість, breakout score) для відео-кандидатів. Не вигадує оцінок якості, не копіює відео й нічого не публікує.",
+  "explain.tutorial":"Аудіо/відео-туторіал: поки не підтримується.",
+  "explainFlow.relay":"Створено → Взято → Виконується → Перевірки → Звіт",
+  "explainFlow.worker":"Спарено → Heartbeat → Бере завдання → Виконує → Звітує",
+  "explainFlow.connector":"Підключити → Перевірити → Використання в межах бюджету → Відключити",
+  "explainFlow.stage":"Завершено → Поточний → Очікує",
+  "explainFlow.approval":"Пакет → Превʼю + докази → Рішення власника → Черга публікації",
+  "explainFlow.video":"Сире відео → Таймінг слів → Нарізка → Субтитри + аудіо → QA → Перевірка",
+  "explainFlow.brain":"Сигнали → Scout → Researcher → Strategist → Verifier → Шортлист",
+  "explainFlow.discovery":"Кандидат → Публічні метрики → Порівняння → Revideo",
   "approval.statWaiting":"очікують перевірки","approval.statApproved":"схвалено","approval.statRejected":"відхилено","approval.statItems":"на перевірці",
   "approval.empty":"Зараз немає job у workflow схвалення.","approval.preview":"Прев’ю","approval.hook":"Hook","approval.script":"Сценарій","approval.sources":"Джерела",
   "approval.warnings":"Fact / QA попередження","approval.variantDiff":"Різниця варіантів","approval.publishTarget":"Ціль публікації","approval.history":"Історія рішень",
@@ -1357,6 +1474,23 @@ const I18N={
   "explain.job":"Job — производственный запуск одной идеи: workers пишут, проверяют и упаковывают контент. Он останавливается на проверке и никогда не публикует сам.",
   "explain.review":"Review — человеческая проверка перед публикацией. Ничего не публикуется, пока владелец не одобрит именно этот пакет.",
   "explain.learned":"Learned — реальные метрики опубликованного видео проанализированы, а рекомендация сохранена для следующего цикла. Без метрик ничего не обучается.",
+  "explain.relay":"Relay — очередь задач между планировщиком и исполнителями. Задача создаётся, её берёт ровно один исполнитель, запускает, проверяет и отчитывается. Создано — ещё не взято, взято — ещё не выполнено.",
+  "explain.worker":"Исполнитель — например, Claude Code на сопряжённом сервере, который берёт задачи из Relay. Его состояние берётся только из подтверждённого heartbeat и событий запуска; без heartbeat состояние неизвестно, а не «работает».",
+  "explain.connector":"Подключение — аккаунт или сервис этого рабочего пространства для публикации, аналитики или генерации. Подключение само по себе не включает платных вызовов; отключение сохраняет историю контента.",
+  "explain.stage":"Этап — один шаг задачи в контент-конвейере. Зелёный — завершён, голубой — текущий, тусклый — ожидает. Задача переходит дальше только после артефакта предыдущего этапа.",
+  "explain.approval":"Одобрение — человеческая проверка перед публикацией. Владелец проверяет именно этот пакет (превью, доказательства, стоимость) и одобряет, отклоняет или перегенерирует часть. Без этого ничего не публикуется.",
+  "explain.video":"Доводка видео — Media Finisher делает из сырого или сгенерированного видео финальный монтаж: тайминг слов, нарезка, субтитры, аудио и QA безопасных зон. Останавливается на проверке человеком и никогда не публикует.",
+  "explain.brain":"Content Brain — превращает собранные сигналы в проверенный шортлист идей через Scout, Researcher, Strategist и Verifier с источниками. Построение шортлиста использует платные LLM-вызовы в пределах бюджета.",
+  "explain.discovery":"Discovery — хранит реальные публичные показатели (просмотры, просмотры в час, вовлечённость, breakout score) для видео-кандидатов. Не выдумывает оценок качества, не копирует видео и ничего не публикует.",
+  "explain.tutorial":"Аудио/видео-туториал: пока не поддерживается.",
+  "explainFlow.relay":"Создано → Взято → Выполняется → Проверки → Отчёт",
+  "explainFlow.worker":"Сопряжён → Heartbeat → Берёт задачу → Выполняет → Отчитывается",
+  "explainFlow.connector":"Подключить → Проверить → Использование в пределах бюджета → Отключить",
+  "explainFlow.stage":"Завершён → Текущий → Ожидает",
+  "explainFlow.approval":"Пакет → Превью + доказательства → Решение владельца → Очередь публикации",
+  "explainFlow.video":"Сырое видео → Тайминг слов → Нарезка → Субтитры + аудио → QA → Проверка",
+  "explainFlow.brain":"Сигналы → Scout → Researcher → Strategist → Verifier → Шортлист",
+  "explainFlow.discovery":"Кандидат → Публичные метрики → Сравнение → Revideo",
   "approval.statWaiting":"ждут проверки","approval.statApproved":"одобрено","approval.statRejected":"отклонено","approval.statItems":"на проверке",
   "approval.empty":"Сейчас нет job в workflow одобрения.","approval.preview":"Превью","approval.hook":"Hook","approval.script":"Сценарий","approval.sources":"Источники",
   "approval.warnings":"Fact / QA предупреждения","approval.variantDiff":"Разница вариантов","approval.publishTarget":"Цель публикации","approval.history":"История решений",
@@ -1629,6 +1763,12 @@ let LANG=['en','uk','ru'].includes(pathLang)?pathLang:(localStorage.getItem('fac
 Object.assign(I18N.en,{"office.working":"{n} agents · {w} working","office.standby":"{n} agents · standing by","sj.completed":"Completed","sj.inProgress":"In progress","sj.pending":"Pending","sj.needsYou":"Needs you","sj.currentStage":"Current stage","sj.nextAction":"Next action","sj.open":"Open","jobs.review":"Review","jobs.viewOutputsShort":"View outputs","time.now":"just now","time.min":"{n} min ago","time.hour":"{n} h ago","time.day":"{n} d ago"});
 Object.assign(I18N.uk,{"office.working":"{n} агентів · {w} працюють","office.standby":"{n} агентів · у режимі очікування","sj.completed":"Завершено","sj.inProgress":"Виконується","sj.pending":"Очікує","sj.needsYou":"Потрібні ви","sj.currentStage":"Поточний етап","sj.nextAction":"Наступна дія","sj.open":"Відкрити","jobs.review":"Переглянути","jobs.viewOutputsShort":"Результати","time.now":"щойно","time.min":"{n} хв тому","time.hour":"{n} год тому","time.day":"{n} дн тому"});
 Object.assign(I18N.ru,{"office.working":"{n} агентов · {w} работают","office.standby":"{n} агентов · в режиме ожидания","sj.completed":"Завершено","sj.inProgress":"Выполняется","sj.pending":"Ожидает","sj.needsYou":"Нужны вы","sj.currentStage":"Текущий этап","sj.nextAction":"Следующее действие","sj.open":"Открыть","jobs.review":"Проверить","jobs.viewOutputsShort":"Результаты","time.now":"только что","time.min":"{n} мин назад","time.hour":"{n} ч назад","time.day":"{n} дн назад"});
+Object.assign(I18N.en,{"lb.reason":"Reason","lb.title":"Lanes · verified events","lb.state.working":"Working","lb.state.blocked":"Blocked","lb.state.stale":"Stale","lb.state.idle":"Idle","lb.state.offline":"Offline","lb.task":"Task","lb.stage":"stage","lb.noTask":"No claimed task","lb.since":"Since","lb.lastEvent":"Last event","lb.doneRemaining":"{done} done · {remaining} remaining","lb.col.planned":"Planned","lb.col.in_progress":"In progress","lb.col.blocked":"Blocked","lb.col.review":"Review","lb.col.done":"Done","lb.unclaimed":"assigned, not claimed","lb.unassigned":"unassigned","lb.claim.unassigned":"no owner","lb.claim.queued":"queued","lb.claim.claimed":"claimed","lb.human":"HUMAN step","lb.unavailable":"Lane board unavailable"});
+Object.assign(I18N.uk,{"lb.reason":"Причина","lb.title":"Лінії · підтверджені події","lb.state.working":"Працює","lb.state.blocked":"Заблоковано","lb.state.stale":"Немає зв'язку","lb.state.idle":"Вільний","lb.state.offline":"Офлайн","lb.task":"Задача","lb.stage":"етап","lb.noTask":"Немає взятої задачі","lb.since":"З","lb.lastEvent":"Остання подія","lb.doneRemaining":"готово {done} · залишилось {remaining}","lb.col.planned":"Заплановано","lb.col.in_progress":"У роботі","lb.col.blocked":"Заблоковано","lb.col.review":"Перевірка","lb.col.done":"Готово","lb.unclaimed":"призначено, не взято","lb.unassigned":"без виконавця","lb.claim.unassigned":"без власника","lb.claim.queued":"у черзі","lb.claim.claimed":"взято","lb.human":"крок власника","lb.unavailable":"Дошка ліній недоступна"});
+Object.assign(I18N.ru,{"lb.reason":"Причина","lb.title":"Линии · подтверждённые события","lb.state.working":"Работает","lb.state.blocked":"Заблокирован","lb.state.stale":"Нет связи","lb.state.idle":"Свободен","lb.state.offline":"Офлайн","lb.task":"Задача","lb.stage":"этап","lb.noTask":"Нет взятой задачи","lb.since":"С","lb.lastEvent":"Последнее событие","lb.doneRemaining":"готово {done} · осталось {remaining}","lb.col.planned":"Запланировано","lb.col.in_progress":"В работе","lb.col.blocked":"Заблокировано","lb.col.review":"Проверка","lb.col.done":"Готово","lb.unclaimed":"назначено, не взято","lb.unassigned":"без исполнителя","lb.claim.unassigned":"без владельца","lb.claim.queued":"в очереди","lb.claim.claimed":"взято","lb.human":"шаг владельца","lb.unavailable":"Доска линий недоступна"});
+Object.assign(I18N.en,{"wo.title":"Claude worker · sources checked separately","wo.s.host":"EC2 host","wo.s.ec2_api":"EC2 API visibility","wo.s.systemd":"systemd service","wo.s.oauth":"Subscription OAuth","wo.s.heartbeat":"Heartbeat to Render","wo.s.relay_claim":"Relay claim","wo.s.current_task":"Current task","wo.state.ok":"OK","wo.state.warn":"Check","wo.state.fail":"Failed","wo.state.idle":"Idle","wo.state.unknown":"Unknown","wo.v.never_reported":"never reported","wo.v.no_recent_heartbeat":"no recent heartbeat","wo.v.describe_instances_not_granted":"not visible: role lacks ec2:DescribeInstances","wo.v.supervisor_not_reported":"supervisor did not report","wo.v.supervisor_report_stale":"supervisor report is stale","wo.v.active":"active","wo.v.activating":"activating","wo.v.deactivating":"deactivating","wo.v.inactive":"inactive","wo.v.failed":"failed","wo.v.unknown":"unknown","wo.v.subscription_logged_in":"claude auth status: logged in","wo.v.subscription_logged_out":"claude auth status: logged out","wo.v.self_reported":"self-reported, not verified:","wo.v.not_reported":"not reported","wo.v.online":"online","wo.v.stale":"stale","wo.v.never_seen":"never received","wo.v.claim_without_fresh_event":"claimed, no fresh event","wo.v.lane_stale":"lane stale","wo.v.last_run_blocked":"last run blocked","wo.v.no_active_claim":"no active claim","wo.v.heartbeat_only":"heartbeat names a task without a claim:","wo.v.none":"none","wo.source":"source","wo.checked":"checked","wo.notChecked":"not checked","wo.lastVerified":"last verified","wo.mismatch":"Heartbeat reports {id}; only the Relay claim counts","wo.age":"{n} s ago","wo.ec2Action":"Missing visibility, not an offline EC2. Optional HUMAN: grant the read-only ec2:DescribeInstances to FactoryOSWorkerRole.","wo.loginAction":"HUMAN: run claude auth login on the EC2 worker","wo.evidence":"Branch · commit · PR · CI","wo.commit":"Last commit","wo.notLinked":"not linked","wo.ci.unverified":"not verified","wo.ci.passed":"passed","wo.ci.failed":"failed","wo.checks":"Reported checks","wo.timeline":"Activity timeline","wo.noEvents":"No worker events recorded","wo.errors":"Errors and blocked reasons","wo.progress":"Progress · separate populations","wo.p.factory_builder":"Factory Builder tasks","wo.p.roadmap":"ROADMAP tasks (all versions)","wo.p.claude_lane":"Claude lane tasks","wo.pNote":"Each percentage has its own denominator; they are not combined.","wo.human":"HUMAN blockers","wo.h.answered":"answer recorded","wo.h.open":"waiting for owner","wo.h.verify":"An answer is recorded; the next claim verifies it.","wo.h.action":"Add the answer under {path} or reply in Telegram.","wo.h.none":"No open HUMAN tasks","wo.heat.title":"Verified worker activity · 28 days","wo.heat.unknown":"no data","wo.heat.count":"{n} verified task(s)","wo.heat.active":"verified","wo.heat.zero":"zero","wo.heat.unknownLegend":"unknown (before first record)","wo.heat.tz":"timezone {tz}","wo.heat.scope":"Counts only worker results with a commit and Relay committed/done events of the Claude lane, not all repository commits.","wo.openWorker":"Open worker details"});
+Object.assign(I18N.uk,{"wo.title":"Claude-виконавець · джерела перевіряються окремо","wo.s.host":"Хост EC2","wo.s.ec2_api":"Видимість EC2 API","wo.s.systemd":"Сервіс systemd","wo.s.oauth":"OAuth підписки","wo.s.heartbeat":"Heartbeat до Render","wo.s.relay_claim":"Claim у Relay","wo.s.current_task":"Поточна задача","wo.state.ok":"Норма","wo.state.warn":"Перевірити","wo.state.fail":"Помилка","wo.state.idle":"Вільний","wo.state.unknown":"Невідомо","wo.v.never_reported":"ніколи не звітував","wo.v.no_recent_heartbeat":"немає свіжого heartbeat","wo.v.describe_instances_not_granted":"не видно: роль не має ec2:DescribeInstances","wo.v.supervisor_not_reported":"супервізор не звітував","wo.v.supervisor_report_stale":"звіт супервізора застарів","wo.v.active":"активний","wo.v.activating":"запускається","wo.v.deactivating":"зупиняється","wo.v.inactive":"неактивний","wo.v.failed":"збій","wo.v.unknown":"невідомо","wo.v.subscription_logged_in":"claude auth status: вхід виконано","wo.v.subscription_logged_out":"claude auth status: вхід не виконано","wo.v.self_reported":"зі слів виконавця, не перевірено:","wo.v.not_reported":"немає звіту","wo.v.online":"онлайн","wo.v.stale":"застарів","wo.v.never_seen":"не отримано жодного","wo.v.claim_without_fresh_event":"взято, немає свіжої події","wo.v.lane_stale":"лінія без зв'язку","wo.v.last_run_blocked":"останній запуск заблоковано","wo.v.no_active_claim":"немає активного claim","wo.v.heartbeat_only":"heartbeat називає задачу без claim:","wo.v.none":"немає","wo.source":"джерело","wo.checked":"перевірено","wo.notChecked":"не перевірено","wo.lastVerified":"остання перевірка","wo.mismatch":"Heartbeat повідомляє {id}; враховується лише claim у Relay","wo.age":"{n} с тому","wo.ec2Action":"Бракує видимості, EC2 не офлайн. Необов'язково (HUMAN): надати FactoryOSWorkerRole право лише на читання ec2:DescribeInstances.","wo.loginAction":"HUMAN: виконайте claude auth login на EC2-виконавці","wo.evidence":"Гілка · коміт · PR · CI","wo.commit":"Останній коміт","wo.notLinked":"не прив'язано","wo.ci.unverified":"не перевірено","wo.ci.passed":"пройдено","wo.ci.failed":"помилка","wo.checks":"Заявлені перевірки","wo.timeline":"Хронологія дій","wo.noEvents":"Подій виконавця не записано","wo.errors":"Помилки та причини блокування","wo.progress":"Прогрес · окремі сукупності","wo.p.factory_builder":"Задачі Factory Builder","wo.p.roadmap":"Задачі ROADMAP (усі версії)","wo.p.claude_lane":"Задачі лінії Claude","wo.pNote":"Кожен відсоток має власний знаменник; вони не поєднуються.","wo.human":"HUMAN-блокери","wo.h.answered":"відповідь записано","wo.h.open":"чекає власника","wo.h.verify":"Відповідь записано; наступний claim її перевірить.","wo.h.action":"Додайте відповідь у {path} або відповідайте в Telegram.","wo.h.none":"Немає відкритих HUMAN-задач","wo.heat.title":"Підтверджена активність виконавця · 28 днів","wo.heat.unknown":"немає даних","wo.heat.count":"підтверджених задач: {n}","wo.heat.active":"підтверджено","wo.heat.zero":"нуль","wo.heat.unknownLegend":"невідомо (до першого запису)","wo.heat.tz":"часовий пояс {tz}","wo.heat.scope":"Враховуються лише результати виконавця з комітом і події committed/done лінії Claude у Relay, а не всі коміти репозиторію.","wo.openWorker":"Відкрити деталі виконавця"});
+Object.assign(I18N.ru,{"wo.title":"Claude-исполнитель · источники проверяются отдельно","wo.s.host":"Хост EC2","wo.s.ec2_api":"Видимость EC2 API","wo.s.systemd":"Сервис systemd","wo.s.oauth":"OAuth подписки","wo.s.heartbeat":"Heartbeat до Render","wo.s.relay_claim":"Claim в Relay","wo.s.current_task":"Текущая задача","wo.state.ok":"Норма","wo.state.warn":"Проверить","wo.state.fail":"Ошибка","wo.state.idle":"Свободен","wo.state.unknown":"Неизвестно","wo.v.never_reported":"ни разу не отчитывался","wo.v.no_recent_heartbeat":"нет свежего heartbeat","wo.v.describe_instances_not_granted":"не видно: у роли нет ec2:DescribeInstances","wo.v.supervisor_not_reported":"супервизор не отчитался","wo.v.supervisor_report_stale":"отчёт супервизора устарел","wo.v.active":"активен","wo.v.activating":"запускается","wo.v.deactivating":"останавливается","wo.v.inactive":"неактивен","wo.v.failed":"сбой","wo.v.unknown":"неизвестно","wo.v.subscription_logged_in":"claude auth status: вход выполнен","wo.v.subscription_logged_out":"claude auth status: вход не выполнен","wo.v.self_reported":"со слов исполнителя, не проверено:","wo.v.not_reported":"нет отчёта","wo.v.online":"онлайн","wo.v.stale":"устарел","wo.v.never_seen":"ни одного не получено","wo.v.claim_without_fresh_event":"взято, нет свежего события","wo.v.lane_stale":"линия без связи","wo.v.last_run_blocked":"последний запуск заблокирован","wo.v.no_active_claim":"нет активного claim","wo.v.heartbeat_only":"heartbeat называет задачу без claim:","wo.v.none":"нет","wo.source":"источник","wo.checked":"проверено","wo.notChecked":"не проверено","wo.lastVerified":"последняя проверка","wo.mismatch":"Heartbeat сообщает {id}; учитывается только claim в Relay","wo.age":"{n} с назад","wo.ec2Action":"Не хватает видимости, EC2 не офлайн. Необязательно (HUMAN): выдать FactoryOSWorkerRole право только на чтение ec2:DescribeInstances.","wo.loginAction":"HUMAN: выполните claude auth login на EC2-исполнителе","wo.evidence":"Ветка · коммит · PR · CI","wo.commit":"Последний коммит","wo.notLinked":"не привязан","wo.ci.unverified":"не проверено","wo.ci.passed":"пройдено","wo.ci.failed":"ошибка","wo.checks":"Заявленные проверки","wo.timeline":"Хронология действий","wo.noEvents":"Событий исполнителя не записано","wo.errors":"Ошибки и причины блокировки","wo.progress":"Прогресс · отдельные совокупности","wo.p.factory_builder":"Задачи Factory Builder","wo.p.roadmap":"Задачи ROADMAP (все версии)","wo.p.claude_lane":"Задачи линии Claude","wo.pNote":"У каждого процента свой знаменатель; они не объединяются.","wo.human":"HUMAN-блокеры","wo.h.answered":"ответ записан","wo.h.open":"ждёт владельца","wo.h.verify":"Ответ записан; следующий claim его проверит.","wo.h.action":"Добавьте ответ в {path} или ответьте в Telegram.","wo.h.none":"Нет открытых HUMAN-задач","wo.heat.title":"Подтверждённая активность исполнителя · 28 дней","wo.heat.unknown":"нет данных","wo.heat.count":"подтверждённых задач: {n}","wo.heat.active":"подтверждено","wo.heat.zero":"ноль","wo.heat.unknownLegend":"неизвестно (до первой записи)","wo.heat.tz":"часовой пояс {tz}","wo.heat.scope":"Учитываются только результаты исполнителя с коммитом и события committed/done линии Claude в Relay, а не все коммиты репозитория.","wo.openWorker":"Открыть детали исполнителя"});
 
 const OFFICE={w:1600,h:1100,wallY:230,backL:300,backR:1300};
 const OFFICE_ROWS=[{y:390,s:.6},{y:590,s:.74},{y:800,s:.88},{y:1020,s:1}];
@@ -1821,6 +1961,7 @@ function agents(){
  });
  $('#agentCount').textContent=working?tr('office.working',{n:names.length,w:working}):tr('office.standby',{n:names.length});
  const dot=$('#officeDot');if(dot)dot.classList.toggle('idleDot',!working);
+ refreshOfficeWorkers();
 }
 function officeFlow(){
  const g=$('#officeFlow');if(!g||!S)return;
@@ -1977,6 +2118,12 @@ Object.assign(I18N.ru,{"connections.providerConfigured":"Настроено · �
 Object.assign(I18N.en,{"worker.rotateConfirm":"Generating a new EC2 token invalidates the previous EC2 pairing token. Continue?","worker.tokenLifetime":"The pairing token stays valid until you rotate it; keep it private."});
 Object.assign(I18N.uk,{"worker.rotateConfirm":"Новий токен EC2 скасує попередній токен підключення EC2. Продовжити?","worker.tokenLifetime":"Токен підключення діє до його заміни; зберігайте його в таємниці."});
 Object.assign(I18N.ru,{"worker.rotateConfirm":"Новый токен EC2 заменит предыдущий токен привязки EC2. Продолжить?","worker.tokenLifetime":"Токен привязки действует до замены; храните его в секрете."});
+Object.assign(I18N.en,{"navMenu.open":"Expand navigation with descriptions","navMenu.close":"Collapse navigation","navCrumb.aria":"Breadcrumb","navCrumb.home":"Back to Control Room"});
+Object.assign(I18N.uk,{"navMenu.open":"Розгорнути меню з описами","navMenu.close":"Згорнути меню","navCrumb.aria":"Навігаційний ланцюжок","navCrumb.home":"Назад до Центру керування"});
+Object.assign(I18N.ru,{"navMenu.open":"Развернуть меню с описаниями","navMenu.close":"Свернуть меню","navCrumb.aria":"Навигационная цепочка","navCrumb.home":"Назад в Центр управления"});
+Object.assign(I18N.en,{"drawerCtl.resize":"Resize panel","drawerCtl.resizeHint":"Drag the edge, or use ←/→ (Shift for bigger steps) and Home/End; Enter maximizes","drawerCtl.maximize":"Maximize panel","drawerCtl.restore":"Restore panel size","drawerCtl.close":"Close panel","drawerCtl.width":"{px} px, {pct}% of the window"});
+Object.assign(I18N.uk,{"drawerCtl.resize":"Змінити ширину панелі","drawerCtl.resizeHint":"Перетягніть край або натисніть ←/→ (Shift — більший крок), Home/End; Enter — на весь екран","drawerCtl.maximize":"Розгорнути панель","drawerCtl.restore":"Відновити розмір панелі","drawerCtl.close":"Закрити панель","drawerCtl.width":"{px} пкс, {pct}% вікна"});
+Object.assign(I18N.ru,{"drawerCtl.resize":"Изменить ширину панели","drawerCtl.resizeHint":"Перетащите край или нажмите ←/→ (Shift — крупный шаг), Home/End; Enter — на весь экран","drawerCtl.maximize":"Развернуть панель","drawerCtl.restore":"Восстановить размер панели","drawerCtl.close":"Закрыть панель","drawerCtl.width":"{px} пкс, {pct}% окна"});
 function applyLanguage(){
  document.documentElement.lang=LANG;
  localStorage.setItem('factoryos_lang',LANG);
@@ -1984,9 +2131,11 @@ function applyLanguage(){
  document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=tr(el.dataset.i18n)});
  document.querySelectorAll('[data-i18n-placeholder]').forEach(el=>{el.placeholder=tr(el.dataset.i18nPlaceholder)});
  document.querySelectorAll('[data-help]').forEach(el=>{el.title=helpTitle(el.dataset.help)});
+ document.querySelectorAll('[data-help-tip]').forEach(el=>{el.innerHTML=helpTip(el.dataset.helpTip,el.dataset.helpTerm?tr(el.dataset.helpTerm):'')});
  document.querySelectorAll('[data-i18n-title]').forEach(el=>{el.title=tr(el.dataset.i18nTitle)});
  document.querySelectorAll('[data-i18n-aria-label]').forEach(el=>{el.setAttribute('aria-label',tr(el.dataset.i18nAriaLabel))});
  ['en','uk','ru'].forEach(x=>{const b=$('#lang-'+x);if(b)b.classList.toggle('active',x===LANG)});
+ syncNavToggles();restoreNavGroups();renderNavCrumbs();
  if(S)render();
 }
 function switchLanguage(lang){if(!I18N[lang])return;localStorage.setItem('factoryos_lang',lang);location.href='/'+lang}
@@ -1994,16 +2143,150 @@ function stageLabel(st){return tr('stage.'+st)}
 function stageSub(st){return tr('stagesub.'+st)}
 const icons={inbox:'○',research:'⌕',script:'▤',visual:'▧',voice:'≋',render:'▷',qa:'✓',publish:'⇧',analytics:'▥'};
 const pos={"Scout":[7,39],"Researcher":[20,39],"Tech Verifier":[33,39],"Angle Strategist":[46,39],"Hook Generator":[59,39],"Scriptwriter":[72,39],"Fact Checker":[85,39],"Hook Optimizer":[20,75],"Editor":[33,75],"Visual Director":[46,75],"Voice Agent":[59,75],"Render Agent":[72,75],"QA Agent":[85,75],"Publisher":[59,91],"Analyst":[72,91],"Supervisor":[92,91],"Hook Writer":[7,91],"Content Packager":[46,91]};
+// --- nav:begin — T-594 sidebar behaviour, driven against the real markup by test_navigation.py
 function mobileNavEnabled(){return window.matchMedia('(max-width:700px)').matches}
+// T-594: one slide-out menu for every width. Phones use the floating ☰, wider screens the » rail button.
+function navMenuOpen(){const side=document.getElementById('appSideNav');return !!(side&&side.classList.contains('navOpen'))}
+function syncNavToggles(){
+ const open=navMenuOpen(),btn=document.getElementById('mobileNavToggle'),expand=document.getElementById('navExpandToggle'),label=tr(open?'navMenu.close':'navMenu.open');
+ [btn,expand].forEach(b=>{if(!b)return;b.setAttribute('aria-expanded',open?'true':'false');b.setAttribute('aria-label',label);b.title=label});
+ if(btn)btn.textContent=open?'×':'☰';
+ if(expand)expand.firstElementChild.textContent=open?'«':'»';
+}
 function toggleMobileNav(force){
- const side=document.getElementById('appSideNav'),backdrop=document.getElementById('navBackdrop'),btn=document.getElementById('mobileNavToggle');if(!side||!backdrop||!btn)return;
+ const side=document.getElementById('appSideNav'),backdrop=document.getElementById('navBackdrop');if(!side||!backdrop)return;
  const open=typeof force==='boolean'?force:!side.classList.contains('navOpen');
- side.classList.toggle('navOpen',open);backdrop.classList.toggle('open',open);document.body.classList.toggle('mobileNavOpen',open);btn.setAttribute('aria-expanded',open?'true':'false');btn.textContent=open?'×':'☰';
+ side.classList.toggle('navOpen',open);backdrop.classList.toggle('open',open);document.body.classList.toggle('mobileNavOpen',open);syncNavToggles();
+ if(open&&!side.contains(document.activeElement)){const first=side.querySelector('.navItems>button.active')||side.querySelector('.nav button');if(first)setTimeout(()=>first.focus({preventScroll:true}),0)}
 }
 function closeMobileNav(){toggleMobileNav(false)}
-window.addEventListener('resize',()=>{if(!mobileNavEnabled())closeMobileNav()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMobileNav()});
-document.addEventListener('click',e=>{if(!mobileNavEnabled())return;const b=e.target.closest('.nav button');if(b)setTimeout(closeMobileNav,0)});
+const NAV_COLLAPSED_KEY='factoryos_nav_collapsed';
+let NAV_CURRENT='control',navOverlayObserver=null,navOpenBefore=null;
+function navCollapsedGroups(){try{const v=JSON.parse(localStorage.getItem(NAV_COLLAPSED_KEY)||'[]');return new Set(Array.isArray(v)?v:[])}catch(e){return new Set()}}
+function setNavGroupCollapsed(group,collapsed,persist){
+ const box=document.querySelector('.navGroup[data-nav-group="'+group+'"]');if(!box)return;
+ box.classList.toggle('collapsed',collapsed);const t=box.querySelector('.navSectionToggle');if(t)t.setAttribute('aria-expanded',collapsed?'false':'true');
+ if(persist===false)return;const set=navCollapsedGroups();if(collapsed)set.add(group);else set.delete(group);
+ try{localStorage.setItem(NAV_COLLAPSED_KEY,JSON.stringify([...set]))}catch(e){}
+}
+function toggleNavGroup(group){const box=document.querySelector('.navGroup[data-nav-group="'+group+'"]');if(box)setNavGroupCollapsed(group,!box.classList.contains('collapsed'))}
+// The group holding the current destination is always shown, without overwriting the remembered choice.
+function restoreNavGroups(){const set=navCollapsedGroups();document.querySelectorAll('.navGroup').forEach(box=>{const g=box.dataset.navGroup;setNavGroupCollapsed(g,set.has(g)&&!box.querySelector('.navItems>button.active'),false)})}
+function navButton(id){return document.querySelector('.navItems>button[data-nav-id="'+id+'"]')}
+function setNavCurrent(id){
+ const btn=navButton(id);if(!btn)return;NAV_CURRENT=id;
+ document.querySelectorAll('.navItems>button').forEach(b=>{const on=b===btn;b.classList.toggle('active',on);if(on)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});
+ document.querySelectorAll('.navGroup').forEach(g=>g.classList.toggle('current',g.dataset.navGroup===btn.dataset.navGroup));
+ setNavGroupCollapsed(btn.dataset.navGroup,false,false);renderNavCrumbs();
+}
+function renderNavCrumbs(){
+ const el=document.getElementById('navCrumbs'),btn=navButton(NAV_CURRENT);if(!el||!btn)return;
+ const group=btn.dataset.navGroup,label=btn.querySelector('[data-i18n]'),sep='<span class="navCrumbSep" aria-hidden="true">›</span>';
+ el.innerHTML='<button type="button" onclick="navGoHome()" aria-label="'+esc(tr('navCrumb.home'))+'" title="'+esc(tr('navCrumb.home'))+'">⌂</button>'+sep
+  +'<button type="button" onclick="navRevealGroup(\''+esc(group)+'\')">'+esc(tr('navGroup.'+group))+'</button>'+sep
+  +'<span aria-current="location">'+esc(label?tr(label.dataset.i18n):NAV_CURRENT)+'</span>';
+}
+function navGoHome(){stopNavOverlayWatch();setNavCurrent('control');window.scrollTo({top:0,behavior:'smooth'})}
+function navRevealGroup(group){setNavGroupCollapsed(group,false);toggleMobileNav(true);const first=document.querySelector('#navItems-'+group+'>button');if(first)setTimeout(()=>first.focus({preventScroll:true}),0)}
+function stopNavOverlayWatch(){if(navOverlayObserver)navOverlayObserver.disconnect();navOverlayObserver=null}
+// A studio counts as the current location only while the overlay it opened is still open.
+function watchNavOverlay(els){stopNavOverlayWatch();navOverlayObserver=new MutationObserver(()=>{if(els.every(el=>!el.classList.contains('open'))){stopNavOverlayWatch();setNavCurrent('control')}});els.forEach(el=>navOverlayObserver.observe(el,{attributes:true,attributeFilter:['class']}))}
+document.addEventListener('click',e=>{navOpenBefore=e.target.closest('.navItems>button')?new Set(document.querySelectorAll('.open')):null},true);
+document.addEventListener('click',e=>{
+ const b=e.target.closest('.navItems>button');if(!b)return;
+ const before=navOpenBefore||new Set(),opened=[...document.querySelectorAll('.open')].filter(el=>!before.has(el)&&el.id!=='navBackdrop');navOpenBefore=null;
+ const id=b.dataset.navId,handler=b.getAttribute('onclick')||'';
+ if(opened.length){watchNavOverlay(opened);setNavCurrent(id)}
+ else if(id==='control'){navGoHome()}
+ else if(handler.includes('scrollIntoView')){stopNavOverlayWatch();setNavCurrent(id)}
+ if(navMenuOpen())setTimeout(closeMobileNav,0);
+});
+const navPhoneQuery=window.matchMedia('(max-width:700px)');
+if(navPhoneQuery.addEventListener)navPhoneQuery.addEventListener('change',closeMobileNav);
+document.addEventListener('keydown',e=>{
+ if(e.key==='Escape'&&navMenuOpen()){closeMobileNav();const t=mobileNavEnabled()?document.getElementById('mobileNavToggle'):document.getElementById('navExpandToggle');if(t)t.focus({preventScroll:true});return}
+ const side=document.getElementById('appSideNav');if(!side||!side.contains(e.target)||!e.target.matches('.nav button'))return;
+ if(e.target.matches('.navSectionToggle')&&(e.key==='ArrowRight'||e.key==='ArrowLeft')){e.preventDefault();setNavGroupCollapsed(e.target.closest('.navGroup').dataset.navGroup,e.key==='ArrowLeft');return}
+ if(!['ArrowDown','ArrowUp','Home','End'].includes(e.key))return;
+ const items=[...side.querySelectorAll('.nav button')].filter(x=>x.offsetParent!==null),i=items.indexOf(e.target);if(i<0)return;
+ e.preventDefault();const n=e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;items[n].focus();
+});
+// --- nav:end
+// --- drawer:begin — T-595 resizable/maximizable side drawers, driven against the real markup by test_drawers.py
+// Left-edge grip (pointer = mouse/pen/touch, keyboard as an ARIA separator), max/restore beside ×, Escape closes the top drawer.
+// Width and maximized state are remembered per drawer for the browser session; bounds keep the sidebar visible. <=900px: full screen.
+const DRAWER_IDS=['taskPage','dcPage','qaPage','intelPage','brainPage','variantPage','packagePage','cyclePage','discoveryPage','revideoPage','finisherPage','approvalPage','publishingPage','performancePage','experimentPage','agentDrawer'];
+const DRAWER_WIDTH_KEY='factoryos_drawer_w.',DRAWER_MAX_KEY='factoryos_drawer_max.',DRAWER_MIN=360,DRAWER_GAP=16,DRAWER_STEP=32;
+const DRAWER_DEFAULT={agentDrawer:.42};
+let drawerStack=[],drawerDrag=null;
+function drawerFull(){return window.matchMedia('(max-width:900px)').matches}
+function drawerSideEdge(){const s=document.getElementById('appSideNav');if(!s||drawerFull())return 0;return Math.max(0,Math.round(s.getBoundingClientRect().right))}
+function drawerBounds(){const max=Math.max(DRAWER_MIN,window.innerWidth-drawerSideEdge()-DRAWER_GAP);return {min:DRAWER_MIN,max}}
+function drawerSession(key){try{return sessionStorage.getItem(key)}catch(e){return null}}
+function drawerRemember(key,v){try{sessionStorage.setItem(key,v)}catch(e){}}
+function drawerSetWidth(el,w,persist){
+ const b=drawerBounds(),px=Math.round(Math.min(b.max,Math.max(b.min,Number(w)||0)));
+ document.documentElement.style.setProperty('--drawer-side',drawerSideEdge()+'px');
+ el.style.setProperty('--drawer-w',px+'px');el._drawerW=px;
+ const g=el.querySelector('.drawerGrip'),now=el.classList.contains('maximized')?b.max:px;
+ if(g){g.setAttribute('aria-valuemin',String(b.min));g.setAttribute('aria-valuemax',String(b.max));g.setAttribute('aria-valuenow',String(now));g.setAttribute('aria-valuetext',tr('drawerCtl.width',{px:now,pct:Math.round(now*100/window.innerWidth)}))}
+ if(persist)drawerRemember(DRAWER_WIDTH_KEY+el.id,String(px));
+ return px;
+}
+function drawerSetMax(el,on,persist){
+ el.classList.toggle('maximized',on);
+ const b=el.querySelector('.drawerMax');
+ if(b){const label=tr(on?'drawerCtl.restore':'drawerCtl.maximize');b.setAttribute('aria-pressed',on?'true':'false');b.setAttribute('aria-label',label);b.title=label;b.textContent=on?'❐':'⤢'}
+ if(persist)drawerRemember(DRAWER_MAX_KEY+el.id,on?'1':'0');
+ if(el._drawerW)drawerSetWidth(el,el._drawerW,false);
+}
+function toggleDrawerMax(id){const el=document.getElementById(id);if(el&&!drawerFull())drawerSetMax(el,!el.classList.contains('maximized'),true)}
+function drawerApply(el){
+ const saved=parseInt(drawerSession(DRAWER_WIDTH_KEY+el.id),10);
+ el._drawerW=0;drawerSetMax(el,drawerSession(DRAWER_MAX_KEY+el.id)==='1',false);
+ drawerSetWidth(el,saved>0?saved:Math.round(window.innerWidth*(DRAWER_DEFAULT[el.id]||.65)),false);
+}
+function drawerEnhance(el){
+ const close=el.querySelector('.closeX');if(!close||el.querySelector('.drawerGrip'))return;
+ el.classList.add('resizableDrawer');
+ el.insertAdjacentHTML('afterbegin','<div class="drawerGrip" role="separator" aria-orientation="vertical" tabindex="0" aria-controls="'+el.id+'" aria-label="'+esc(tr('drawerCtl.resize'))+'" title="'+esc(tr('drawerCtl.resizeHint'))+'" data-i18n-aria-label="drawerCtl.resize" data-i18n-title="drawerCtl.resizeHint"></div>');
+ close.insertAdjacentHTML('beforebegin','<div class="drawerHeadActions"><button type="button" class="drawerMax" aria-pressed="false" aria-controls="'+el.id+'" onclick="toggleDrawerMax(\''+el.id+'\')">⤢</button></div>');
+ close.previousElementSibling.appendChild(close);
+ if(!close.getAttribute('aria-label'))close.setAttribute('aria-label',tr('drawerCtl.close'));
+ drawerSetMax(el,false,false);
+}
+function drawerTop(){drawerStack=drawerStack.filter(el=>el.classList.contains('open'));return drawerStack[drawerStack.length-1]||null}
+function drawerInit(){
+ DRAWER_IDS.forEach(id=>{
+  const el=document.getElementById(id);if(!el)return;drawerEnhance(el);
+  new MutationObserver(()=>{const open=el.classList.contains('open'),known=drawerStack.includes(el);if(open&&!known){drawerStack.push(el);drawerApply(el)}else if(!open&&known)drawerStack=drawerStack.filter(x=>x!==el)}).observe(el,{attributes:true,attributeFilter:['class']});
+ });
+}
+function drawerEndDrag(){if(!drawerDrag)return;const el=drawerDrag;drawerDrag=null;el.classList.remove('resizing');drawerSetWidth(el,el._drawerW,true)}
+document.addEventListener('pointerdown',e=>{
+ const g=e.target&&e.target.closest?e.target.closest('.drawerGrip'):null;if(!g||drawerFull()||(e.button!==undefined&&e.button!==0))return;
+ const el=g.parentNode;e.preventDefault();try{if(g.setPointerCapture&&e.pointerId!==undefined)g.setPointerCapture(e.pointerId)}catch(_){}
+ if(el.classList.contains('maximized')){drawerSetWidth(el,drawerBounds().max,false);drawerSetMax(el,false,true)}
+ drawerDrag=el;el.classList.add('resizing');
+});
+document.addEventListener('pointermove',e=>{if(!drawerDrag)return;e.preventDefault();drawerSetWidth(drawerDrag,window.innerWidth-e.clientX,false)});
+document.addEventListener('pointerup',drawerEndDrag);
+document.addEventListener('pointercancel',drawerEndDrag);
+document.addEventListener('keydown',e=>{
+ const g=e.target&&e.target.closest?e.target.closest('.drawerGrip'):null;if(!g)return;
+ const el=g.parentNode,b=drawerBounds(),cur=el.classList.contains('maximized')?b.max:(el._drawerW||b.min),step=e.shiftKey?DRAWER_STEP*4:DRAWER_STEP;
+ if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleDrawerMax(el.id);return}
+ const w=e.key==='ArrowLeft'?cur+step:e.key==='ArrowRight'?cur-step:e.key==='Home'?b.min:e.key==='End'?b.max:null;if(w===null)return;
+ e.preventDefault();drawerSetMax(el,false,true);drawerSetWidth(el,w,true);
+});
+// Capture phase: runs before the nav and help-tip Escape handlers, so an open menu, tooltip or modal is closed first instead of the drawer.
+document.addEventListener('keydown',e=>{
+ if(e.key!=='Escape'||navMenuOpen()||document.querySelector('.helpTipWrap.open')||document.querySelector('.modal.open'))return;
+ const el=drawerTop(),x=el&&el.querySelector('.closeX');if(!x)return;e.preventDefault();x.click();
+},true);
+window.addEventListener('resize',()=>{drawerStack.forEach(el=>{if(el.classList.contains('open'))drawerApply(el)})});
+drawerInit();
+// --- drawer:end
 async function api(u,o){const r=await fetch(u,o);if(!r.ok)throw Error(await r.text());return r.json()}async function copyViewerInvite(){try{const d=await api('/api/viewer-invite');await navigator.clipboard.writeText(d.url);toast(tr('toast.viewerCopied'))}catch(e){toast(e.message)}}async function refresh(){try{S=await api('/api/status');render()}catch(e){toast(tr('toast.refreshFailed'))}}
 function render(){mission();usage();buildBadge();contentBrainBadge();discoveryNavBadge();revideoNavBadge();variantBadge();packageBadge();connections();agents();officeFlow();errorCenter();workerResults();supervisor();designPartnerState();pipeline();jobs();detail();const readOnly=!!(S.auth&&S.auth.readOnly),invite=$('#viewerInviteBtn'),newJob=$('#newJobBtn');if(invite)invite.style.display=readOnly?'none':'';if(newJob)newJob.style.display=readOnly?'none':'';const bs=$('#buildStamp');if(bs)bs.textContent=(S.version||'FactoryOS')+' · '+String(S.buildSha||'local').slice(0,8)+(readOnly?' · VIEWER':'');$('#runState').textContent=S.runningJobs.length?tr('factory.running',{n:S.runningJobs.length}):tr('factory.noRun')}
 function buildBadge(){const b=S.buildProgress||{};const el=$('#buildNavPct');if(el)el.textContent=Math.round(Number(b.progress||0))+'%'}
@@ -2437,7 +2720,7 @@ async function copyClaudeTermuxBootstrap(){
 }
 async function copyTelegramPairCommand(){if(!telegramPairCommand)return;try{await navigator.clipboard.writeText(telegramPairCommand);toast(tr('telegram.copied'))}catch(e){toast(telegramPairCommand)}}
 async function testTelegramPush(){try{await api('/api/factory/telegram/test',{method:'POST'});toast(tr('telegram.sent'))}catch(e){toast(e.message)}}
-async function renderBuildProgress(){const root=$('#taskBoard');root.innerHTML='<div class="sub">Loading build roadmap…</div>';try{const [d,builder,autopilot,telegram]=await Promise.all([api('/api/factory/tasks'),api('/api/factory/builder'),api('/api/factory/autopilot'),api('/api/factory/telegram/status')]);const auto=$('#autopilotStatus');if(auto){const next=autopilot.next_task||{},runtime=autopilot.runtime||{};auto.innerHTML='<div class="autopilotLead"><strong>'+esc(tr('autopilot.buildTitle'))+' · '+(autopilot.enabled?'ON':'OFF')+'</strong><span>'+esc(autopilot.enabled?tr('autopilot.enabled'):'OFF')+' · '+Number(autopilot.progress||0).toFixed(0)+'%</span><div class="autoNext">'+esc(tr('autopilot.next'))+': '+esc(next.id?next.id+' · '+next.title:'—')+'</div></div><div class="autopilotStat"><b>'+Number(autopilot.done||0)+'/'+Number(autopilot.total||0)+'</b><span>'+esc(tr('autopilot.done'))+'</span></div><div class="autopilotStat"><b>'+Number(autopilot.safe_pending||0)+'</b><span>'+esc(tr('autopilot.safe'))+'</span></div><div class="autopilotStat human"><b>'+Number(autopilot.human_pending||0)+'</b><span>'+esc(tr('autopilot.human'))+'</span></div><div class="autopilotStat"><b>'+esc(runtime.status||'idle')+'</b><span>'+esc(tr('autopilot.runtime'))+(runtime.task?' · '+esc(runtime.task):'')+'</span></div><div class="autopilotDecisions"><strong>'+esc(tr('autopilot.decisions'))+'</strong>'+((autopilot.recent_decisions||[]).length?(autopilot.recent_decisions||[]).slice().reverse().map(x=>{const lines=String(x||'').split('\\n'),title=lines.shift()||'Decision';return '<details class="autopilotDecision"><summary>'+esc(title)+'</summary><pre>'+esc(lines.join('\\n').trim())+'</pre></details>'}).join(''):'<div class="sub" style="margin-top:6px">'+esc(tr('autopilot.noDecisions'))+'</div>')+'</div>'}renderTelegramBridge(telegram);const mode=$('#builderMode');if(mode){const instant=!!builder.instant_dispatch;mode.innerHTML='<strong>Factory Builder</strong><span>'+(instant?tr('build.modeInstant'):tr('build.modeHourly'))+'</span><span class="pill '+(instant?'instant':'hourly')+'">'+(instant?tr('build.modeInstantPill'):tr('build.modeHourlyPill'))+'</span>'}$('#buildPct').textContent=Math.round(Number(d.progress||0))+'%';$('#buildCounts').textContent=tr('build.completeCount',{done:d.done,total:d.total})+' · '+(d.queued||0)+' queued · '+(d.building||0)+' active';$('#buildTrack').style.width=Number(d.progress||0)+'%';const cols=[['todo',tr('build.planned')],['in_progress',tr('build.inProgress')],['done',tr('build.completed')],['blocked',tr('build.blocked')]];root.innerHTML='<div class="sub" style="grid-column:1/-1;margin-bottom:2px">'+(builder.instant_dispatch?tr('build.modeInstant'):tr('build.nextSweep'))+'</div>'+cols.map(([key,label])=>'<div class="taskCol"><h3>'+label+' · '+d.tasks.filter(x=>x.status===key).length+'</h3>'+d.tasks.filter(x=>x.status===key).map(taskCard).join('')+'</div>').join('')}catch(e){root.innerHTML='<div class="finding critical"><strong>'+tr('toast.refreshFailed')+'</strong><span>'+esc(e.message)+'</span></div>'}}
+async function renderBuildProgress(){const root=$('#taskBoard');root.innerHTML='<div class="sub">Loading build roadmap…</div>';refreshLaneBoardBuild();try{const [d,builder,autopilot,telegram]=await Promise.all([api('/api/factory/tasks'),api('/api/factory/builder'),api('/api/factory/autopilot'),api('/api/factory/telegram/status')]);const auto=$('#autopilotStatus');if(auto){const next=autopilot.next_task||{},runtime=autopilot.runtime||{};auto.innerHTML='<div class="autopilotLead"><strong>'+esc(tr('autopilot.buildTitle'))+' · '+(autopilot.enabled?'ON':'OFF')+'</strong><span>'+esc(autopilot.enabled?tr('autopilot.enabled'):'OFF')+' · '+esc(tr('wo.p.roadmap'))+' · '+Number(autopilot.progress||0).toFixed(0)+'%</span><div class="autoNext">'+esc(tr('autopilot.next'))+': '+esc(next.id?next.id+' · '+next.title:'—')+'</div></div><div class="autopilotStat"><b>'+Number(autopilot.done||0)+'/'+Number(autopilot.total||0)+'</b><span>'+esc(tr('autopilot.done'))+'</span></div><div class="autopilotStat"><b>'+Number(autopilot.safe_pending||0)+'</b><span>'+esc(tr('autopilot.safe'))+'</span></div><div class="autopilotStat human"><b>'+Number(autopilot.human_pending||0)+'</b><span>'+esc(tr('autopilot.human'))+'</span></div><div class="autopilotStat"><b>'+esc(runtime.status||'idle')+'</b><span>'+esc(tr('autopilot.runtime'))+(runtime.task?' · '+esc(runtime.task):'')+'</span></div><div class="autopilotDecisions"><strong>'+esc(tr('autopilot.decisions'))+'</strong>'+((autopilot.recent_decisions||[]).length?(autopilot.recent_decisions||[]).slice().reverse().map(x=>{const lines=String(x||'').split('\\n'),title=lines.shift()||'Decision';return '<details class="autopilotDecision"><summary>'+esc(title)+'</summary><pre>'+esc(lines.join('\\n').trim())+'</pre></details>'}).join(''):'<div class="sub" style="margin-top:6px">'+esc(tr('autopilot.noDecisions'))+'</div>')+'</div>'}renderTelegramBridge(telegram);const mode=$('#builderMode');if(mode){const instant=!!builder.instant_dispatch;mode.innerHTML='<strong>Factory Builder</strong><span>'+(instant?tr('build.modeInstant'):tr('build.modeHourly'))+'</span><span class="pill '+(instant?'instant':'hourly')+'">'+(instant?tr('build.modeInstantPill'):tr('build.modeHourlyPill'))+'</span>'}$('#buildPct').textContent=Math.round(Number(d.progress||0))+'%';$('#buildCounts').textContent=tr('wo.p.factory_builder')+': '+tr('build.completeCount',{done:d.done,total:d.total})+' · '+(d.queued||0)+' queued · '+(d.building||0)+' active';$('#buildTrack').style.width=Number(d.progress||0)+'%';const cols=[['todo',tr('build.planned')],['in_progress',tr('build.inProgress')],['done',tr('build.completed')],['blocked',tr('build.blocked')]];root.innerHTML='<div class="sub" style="grid-column:1/-1;margin-bottom:2px">'+(builder.instant_dispatch?tr('build.modeInstant'):tr('build.nextSweep'))+'</div>'+cols.map(([key,label])=>'<div class="taskCol"><h3>'+label+' · '+d.tasks.filter(x=>x.status===key).length+'</h3>'+d.tasks.filter(x=>x.status===key).map(taskCard).join('')+'</div>').join('')}catch(e){root.innerHTML='<div class="finding critical"><strong>'+tr('toast.refreshFailed')+'</strong><span>'+esc(e.message)+'</span></div>'}}
 function taskStepHtml(step){const status=step.status||'todo',icon=status==='done'?'✓':status==='in_progress'?'●':status==='blocked'?'!':'',label=tr('task.'+(step.step_key||''))!==('task.'+(step.step_key||''))?tr('task.'+step.step_key):(step.label||step.step_key);return '<div class="taskStepMini '+esc(status)+'"><div class="scheck">'+icon+'</div><span>'+esc(label)+'</span><em>'+Number(step.progress||0)+'%</em></div>'}
 function taskCard(t){
   const steps=t.steps||[],pct=Number(t.execution_progress||0),copy=taskCopy(t);
@@ -2928,7 +3211,7 @@ function renderDelegationCenter(board,opts){
 }
 // --- delegation-center:end
 let dcPollTimer=null,dcShowDone=false,dcOpenGroups={},dcLastBoard=null,dcSelected='';
-function dcRender(){const body=$('#dcBody');if(body&&dcLastBoard)body.innerHTML=renderDelegationCenter(dcLastBoard,{showDone:dcShowDone,open:dcOpenGroups,selected:dcSelected})}
+function dcRender(){const body=$('#dcBody');if(body&&dcLastBoard)body.innerHTML=(woLast?renderWorkerOverview(woLast):'')+(lbWorkersBoard?renderLaneBoard(lbWorkersBoard):'')+renderDelegationCenter(dcLastBoard,{showDone:dcShowDone,open:dcOpenGroups,selected:dcSelected})}
 function dcSelectTask(id){dcSelected=id||'';dcRender()}
 function dcRememberToggle(el){if(el&&el.dataset.group)dcOpenGroups[el.dataset.group]=el.open}
 function dcRequestId(){return (window.crypto&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g,'').slice(0,64)}
@@ -2939,9 +3222,96 @@ async function dcControl(action,taskId){
 }
 function toggleDelegationDone(){dcShowDone=!dcShowDone;dcRender()}
 async function refreshDelegationCenter(){
- try{dcLastBoard=await api('/api/factory/delegation-board');dcRender()}
+ try{const [board,lanes,overview]=await Promise.all([api('/api/factory/delegation-board'),loadLaneBoard(),loadWorkerOverview()]);dcLastBoard=board;lbWorkersBoard=lanes;woLast=overview;dcRender()}
  catch(e){const body=$('#dcBody');if(body)body.innerHTML='<div class="finding critical"><strong>'+esc(tr('dc.loadFailed'))+'</strong><span>'+esc(e.message)+'</span></div>'}
 }
+// --- lane-board:begin (T-599-F: pure renderer; lane state, task and stage come only from /api/factory/lane-board)
+const LB_LANES=['claude','chatgpt','gemini'],LB_COLUMNS=['planned','in_progress','blocked','review','done'],LB_LABEL={claude:'Claude',chatgpt:'ChatGPT',gemini:'Gemini'};
+function lbTime(v){return String(v||'').slice(0,16).replace('T',' ')}
+function lbLane(id,l){
+ l=l||{};const state=String(l.state||'offline'),cols=l.columns||{},ev=l.last_event||{},open=l.assigned_not_claimed||[];
+ return '<div class="lbLane" data-lane="'+esc(id)+'" data-state="'+esc(state)+'"><div class="lbHead"><b>'+esc(LB_LABEL[id]||id)+'</b><span class="lbState '+esc(state)+'">'+esc(tr('lb.state.'+state))+'</span></div>'
+  +(l.task_id?'<div class="lbTask" data-task="'+esc(l.task_id)+'" data-stage="'+esc(l.stage||'')+'">'+esc(tr('lb.task'))+' '+esc(l.task_id)+' · '+esc(tr('lb.stage'))+' '+esc(l.stage||'—')+'</div>':'<div class="lbTask lbNone">'+esc(tr('lb.noTask'))+'</div>')
+  +(l.task_id&&l.started_at?'<div class="lbLine">'+esc(tr('lb.since'))+' '+esc(lbTime(l.started_at))+' UTC</div>':'')
+  +(ev.action?'<div class="lbLine" data-event="'+esc(ev.action)+'">'+esc(tr('lb.lastEvent'))+': '+esc(ev.action)+' '+esc(lbTime(ev.at))+'</div>':'')
+  +(l.reason?'<div class="lbLine" data-reason="1">'+esc(tr('lb.reason'))+': '+esc(String(l.reason).slice(0,200))+'</div>':'')
+  +(/^https:\/\/github\.com\//.test(String(l.pr_url||''))?'<div class="lbLine"><a href="'+esc(l.pr_url)+'" target="_blank" rel="noopener">PR</a></div>':'')
+  +'<div class="lbCounts">'+esc(tr('lb.doneRemaining',{done:Number(l.done||0),remaining:Number(l.remaining||0)}))+'</div>'
+  +'<div class="lbCols">'+LB_COLUMNS.map(c=>'<span data-col="'+c+'"><b>'+Number(cols[c]||0)+'</b>'+esc(tr('lb.col.'+c))+'</span>').join('')+'</div>'
+  +(open.length?'<div class="lbUnclaimed" data-unclaimed="'+esc(open.join(','))+'">'+esc(tr('lb.unclaimed'))+': '+esc(open.slice(0,6).join(', '))+(open.length>6?' …':'')+'</div>':'')+'</div>';
+}
+function lbItem(t){
+ const who=t.lane==='unassigned'?tr('lb.unassigned'):(LB_LABEL[t.lane]||t.lane);
+ const what=t.claim==='assigned_not_claimed'?tr('lb.unclaimed'):(t.stage||tr('lb.claim.'+(t.claim||'unassigned')));
+ return '<div class="lbItem" data-task="'+esc(t.id)+'" data-claim="'+esc(t.claim||'')+'"><b>'+esc(t.id)+'</b> '+esc(t.title||'')+'<span class="lbMeta">'+esc(who)+' · '+esc(what)+(t.human?' · '+esc(tr('lb.human')):'')+'</span></div>';
+}
+function renderLaneBoard(board){
+ board=board||{};const lanes=board.lanes||{},tasks=board.tasks||[];
+ const cols=LB_COLUMNS.map(c=>{const items=tasks.filter(t=>t.column===c);return '<div class="lbCol" data-column="'+c+'"><h4>'+esc(tr('lb.col.'+c))+' · '+items.length+'</h4>'+(c==='done'?'':items.slice(0,40).map(lbItem).join(''))+'</div>'}).join('');
+ return '<section class="lbRoot" data-source="'+esc(board.source||'')+'"><h3>'+esc(tr('lb.title'))+helpTip('relay',tr('lb.title'))+'</h3><div class="lbLanes">'+LB_LANES.map(id=>lbLane(id,lanes[id])).join('')+'</div><div class="lbBoard">'+cols+'</div></section>';
+}
+// --- lane-board:end
+// --- worker-overview:begin (T-596: pure renderers; every value comes from /api/factory/worker-overview or the lane board)
+const WO_SIGNALS=['host','ec2_api','systemd','oauth','heartbeat','relay_claim','current_task'],WO_STATES=['ok','warn','fail','idle','unknown'];
+function woState(s){return WO_STATES.includes(s)?s:'unknown'}
+function woTime(v){const t=String(v||'');return t?t.slice(0,16).replace('T',' ')+' UTC':''}
+function woValue(v){v=String(v||'');const i=v.indexOf(':'),code=i>0?v.slice(0,i):v,rest=i>0?v.slice(i+1):'',k='wo.v.'+code,t=tr(k);return (t===k?code:t)+(rest?' '+rest:'')}
+function woLink(url,label){url=String(url||'');return /^https:\/\/github\.com\//.test(url)?'<a href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(label)+'</a>':esc(label)}
+function woSignal(x){
+ x=x||{};const id=WO_SIGNALS.includes(x.id)?x.id:'host',st=woState(x.state);
+ const extra=[];
+ if(id==='current_task'&&x.stage)extra.push(esc(tr('lb.stage'))+' '+esc(x.stage));
+ if(id==='current_task'&&x.mismatch)extra.push('<span class="dcErr">'+esc(tr('wo.mismatch',{id:x.heartbeat_task||'—'}))+'</span>');
+ if(id==='heartbeat'&&typeof x.age_seconds==='number')extra.push(esc(tr('wo.age',{n:Math.round(x.age_seconds)})));
+ if(id==='systemd'&&x.reason)extra.push(esc(woValue(x.reason)));
+ if(id==='ec2_api')extra.push(esc(tr('wo.ec2Action')));
+ if(id==='oauth'&&x.human==='required')extra.push('<span class="dcErr">'+esc(tr('wo.loginAction'))+'</span>');
+ return '<div class="woSig" data-signal="'+id+'" data-state="'+st+'"><div class="woSigHead"><b>'+esc(tr('wo.s.'+id))+'</b><em class="woBadge '+st+'">'+esc(tr('wo.state.'+st))+'</em></div>'
+  +'<div class="woVal">'+esc(woValue(x.value))+'</div>'+(extra.length?'<div class="woExtra">'+extra.join('<br>')+'</div>':'')
+  +'<small class="woSrc">'+esc(tr('wo.source'))+': '+esc(x.source||'—')+' · '+(x.checked_at?esc(tr('wo.checked'))+' '+esc(woTime(x.checked_at)):esc(tr('wo.notChecked')))+'</small></div>';
+}
+function woHeatmap(h){
+ h=h||{};const cells=h.cells||[];
+ return '<div class="woHeat" data-tz="'+esc(h.timezone||'')+'" data-scope="'+esc(h.scope||'')+'"><div class="woHeatGrid">'+cells.map(c=>{const st=['active','zero','unknown'].includes(c.state)?c.state:'unknown';
+  const label=String(c.date||'')+' · '+(st==='unknown'?tr('wo.heat.unknown'):tr('wo.heat.count',{n:Number(c.count||0)}))+((c.tasks||[]).length?' · '+(c.tasks||[]).join(', '):'');
+  return '<span class="woCell '+st+'" data-date="'+esc(c.date||'')+'" data-state="'+st+'" title="'+esc(label)+'" aria-label="'+esc(label)+'">'+(st==='active'?Number(c.count||0):'')+'</span>'}).join('')+'</div>'
+  +'<div class="woLegend"><span class="woCell active"></span>'+esc(tr('wo.heat.active'))+' <span class="woCell zero"></span>'+esc(tr('wo.heat.zero'))+' <span class="woCell unknown"></span>'+esc(tr('wo.heat.unknownLegend'))+' · '+esc(tr('wo.heat.tz',{tz:h.timezone||'UTC'}))+'</div>'
+  +'<p class="dcNote">'+esc(tr('wo.heat.scope'))+'</p></div>';
+}
+function renderWorkerOverview(o){
+ if(!o||!o.signals)return '';
+ const ev=o.evidence||{},files=ev.changed_files||[],checks=ev.checks||[];
+ const sigs='<div class="woSigs">'+(o.signals||[]).map(woSignal).join('')+'</div>';
+ const cur='<div class="woCurrent" data-task="'+esc(o.task_id||'')+'" data-stage="'+esc(o.stage||'')+'" data-lane-state="'+esc(o.lane_state||'')+'">'+(o.task_id?esc(tr('lb.task'))+' '+esc(o.task_id)+' · '+esc(tr('lb.stage'))+' '+esc(o.stage||'—'):esc(tr('lb.noTask')))
+  +' · '+esc(tr('wo.lastVerified'))+': '+(o.last_verified_at?esc(woTime(o.last_verified_at)):esc(tr('wo.notChecked')))+'</div>';
+ const evid='<div class="woPanel" data-panel="evidence"><h4>'+esc(tr('wo.evidence'))+'</h4><dl class="dcRows">'
+  +'<dt>'+esc(tr('dc.branch'))+'</dt><dd>'+(ev.branch?woLink(ev.branch_url,ev.branch):dcVal(''))+'</dd>'
+  +'<dt>'+esc(tr('wo.commit'))+'</dt><dd data-commit="'+esc(ev.last_commit||'')+'">'+(ev.last_commit?woLink(ev.last_commit_url,ev.last_commit)+(ev.last_result_task?' · '+esc(ev.last_result_task)+' '+esc(ev.last_result||''):''):dcVal(''))+'</dd>'
+  +'<dt>PR</dt><dd>'+(ev.pr_url?woLink(ev.pr_url,'PR'):esc(tr('wo.notLinked')))+'</dd>'
+  +'<dt>CI</dt><dd data-ci="'+esc(ev.ci||'unverified')+'">'+esc(tr('wo.ci.'+(ev.ci==='passed'||ev.ci==='failed'?ev.ci:'unverified')))+'</dd></dl>'
+  +(files.length?'<details><summary>'+esc(tr('dc.tl.changedFiles'))+' · '+files.length+'</summary>'+files.map(f=>'<code>'+esc(f)+'</code>').join('')+'</details>':'')
+  +(checks.length?'<details><summary>'+esc(tr('wo.checks'))+' · '+checks.length+'</summary>'+checks.map(c=>'<code>$ '+esc(c)+'</code>').join('')+'</details>':'')+'</div>';
+ const tl=(o.timeline||[]).slice(0,12);
+ const timeline='<div class="woPanel" data-panel="timeline"><h4>'+esc(tr('wo.timeline'))+'</h4>'+(tl.length?'<ol class="woTl">'+tl.map(e=>'<li data-action="'+esc(e.action||'')+'" data-source="'+esc(e.source||'')+'"><b>'+esc(e.task_id||'—')+'</b> '+esc(e.action||'')+' <span class="woSrc">'+esc(woTime(e.at))+' · '+esc(e.source||'')+(e.commit?' · '+esc(e.commit):'')+'</span>'+(e.note?'<br><span class="woSrc">'+esc(e.note)+'</span>':'')+'</li>').join('')+'</ol>':'<span class="dcNa">'+esc(tr('wo.noEvents'))+'</span>')+'</div>';
+ const errs=o.errors||[];
+ const errors=errs.length?'<details class="woPanel woErrors" data-panel="errors"><summary>'+esc(tr('wo.errors'))+' · '+errs.length+'</summary>'+errs.map(e=>'<div class="dcErr" data-error-source="'+esc(e.source||'')+'">'+esc(e.task_id||'—')+' · '+esc(e.detail||'')+(e.at?' · '+esc(woTime(e.at)):'')+'</div>').join('')+'</details>':'';
+ const prog='<div class="woPanel" data-panel="progress"><h4>'+esc(tr('wo.progress'))+'</h4>'+(o.progress||[]).map(p=>'<div class="woProg" data-scope="'+esc(p.id||'')+'"><b>'+esc(tr('wo.p.'+p.id))+'</b> '+Number(p.done||0)+' / '+Number(p.total||0)+' · '+Number(p.percent||0).toFixed(0)+'%<br><span class="woSrc">'+esc(tr('wo.source'))+': '+esc(p.source||'')+'</span></div>').join('')+'<p class="dcNote">'+esc(tr('wo.pNote'))+'</p></div>';
+ const hb=o.human_blockers||[];
+ const human='<div class="woPanel" data-panel="human"><h4>'+esc(tr('wo.human'))+' · '+hb.length+'</h4>'+(hb.length?hb.map(b=>'<details class="woHuman" data-human="'+esc(b.id)+'" data-answered="'+(b.answered?'1':'0')+'"><summary><b>'+esc(b.id)+'</b> '+esc(b.title||'')+' <em class="woBadge '+(b.answered?'ok':'warn')+'">'+esc(tr(b.answered?'wo.h.answered':'wo.h.open'))+'</em></summary>'
+  +(b.need?'<div>'+esc(tr('dc.need'))+': '+esc(b.need)+'</div>':'')+'<div>'+esc(tr(b.answered?'wo.h.verify':'wo.h.action',{path:b.answer_path||'.autopilot/answers.md'}))+'</div>'+(b.roadmap_url?'<div>'+woLink(b.roadmap_url,'ROADMAP.md')+'</div>':'')+'</details>').join(''):'<span class="dcNa">'+esc(tr('wo.h.none'))+'</span>')+'</div>';
+ return '<section class="woRoot" data-source="'+esc(o.source||'')+'"><h3>'+esc(tr('wo.title'))+helpTip('worker',tr('wo.title'))+'</h3>'+cur+sigs+'<div class="woGrid">'+evid+'<div class="woPanel" data-panel="heatmap"><h4>'+esc(tr('wo.heat.title'))+'</h4>'+woHeatmap(o.heatmap)+'</div>'+timeline+prog+human+'</div>'+errors+'</section>';
+}
+function renderOfficeWorkers(board){
+ const lanes=(board&&board.lanes)||{};
+ return LB_LANES.map(id=>{const l=lanes[id]||{},st=String(l.state||'offline');return '<button class="owChip" data-lane="'+esc(id)+'" data-state="'+esc(st)+'" onclick="openDelegationCenter()" title="'+esc(tr('wo.openWorker'))+'"><span class="lbState '+esc(st)+'">'+esc(tr('lb.state.'+st))+'</span> '+esc(LB_LABEL[id]||id)+(l.task_id?' · '+esc(l.task_id):'')+'</button>'}).join('');
+}
+// --- worker-overview:end
+let woLast=null,owFetchedAt=0;
+async function loadWorkerOverview(){try{return await api('/api/factory/worker-overview')}catch(e){return null}}
+async function refreshOfficeWorkers(force){const el=$('#officeWorkers');if(!el)return;if(!force&&Date.now()-owFetchedAt<15000)return;owFetchedAt=Date.now();const b=await loadLaneBoard();el.innerHTML=b?renderOfficeWorkers(b):''}
+let lbWorkersBoard=null;
+async function loadLaneBoard(){try{return await api('/api/factory/lane-board')}catch(e){return null}}
+async function refreshLaneBoardBuild(){const el=$('#laneBoardBuild');if(!el)return;const b=await loadLaneBoard();el.innerHTML=b?renderLaneBoard(b):'<div class="sub">'+esc(tr('lb.unavailable'))+'</div>'}
 async function openDelegationCenter(){closeAgent();$('#dcShade').classList.add('open');$('#dcPage').classList.add('open');await refreshDelegationCenter();clearInterval(dcPollTimer);dcPollTimer=setInterval(()=>{if($('#dcPage').classList.contains('open'))refreshDelegationCenter()},10000)}
 function closeDelegationCenter(){clearInterval(dcPollTimer);dcPollTimer=null;$('#dcShade').classList.remove('open');$('#dcPage').classList.remove('open')}
 async function openReleaseReadiness(){

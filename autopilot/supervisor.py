@@ -158,6 +158,20 @@ def save_json(path: Path, data: object) -> None:
     path.chmod(0o600)
 
 
+def publish_report(path: Path, report: dict) -> None:
+    """T-596: world-readable copy for the unprivileged worker's heartbeat.
+
+    The report holds booleans and short state codes only (no tokens or command output), so 0644
+    is safe; STATUS_FILE itself stays 0600 under the root-only /var/lib/factoryos."""
+    try:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(report, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp.chmod(0o644)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 def run_once(now: float | None = None) -> dict[str, object]:
     now = time.time() if now is None else now
     env = parse_env(ENV_FILE)
@@ -207,6 +221,8 @@ def run_once(now: float | None = None) -> dict[str, object]:
         "recovery_action": decision.action,
     }
     save_json(STATUS_FILE, report)
+    if has_repo:
+        publish_report(repo / ".autopilot" / "supervisor.json", report)
     print(json.dumps(report, ensure_ascii=False))
     return report
 

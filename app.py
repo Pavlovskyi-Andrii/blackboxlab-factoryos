@@ -24,8 +24,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot
+from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues
 from relay_execution import RelayQueue
+from lane_board import build_lane_board
+from worker_observability import build_worker_overview, sanitize_supervisor
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 
@@ -34,6 +36,9 @@ APP_VERSION = "v5.7.1"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
+# T-599-E: owner Issue auto-intake; never polls more often than every 5 minutes.
+FACTORY_GITHUB_ISSUE_INTAKE_ENABLED = os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE", "1").strip().lower() not in ("0","false","no","off")
+FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC = max(300, int(os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC", "300") or 300))
 BUILDER_WORKFLOW = os.environ.get("FACTORY_BUILDER_WORKFLOW", "factory-builder.yml")
 FACTORY_MCP_TOKEN = os.environ.get("FACTORY_MCP_TOKEN", "").strip()
 
@@ -764,7 +769,7 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE)
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}
@@ -2439,6 +2444,8 @@ class ClaudeWorkerHeartbeat(BaseModel):
     last_error: str = ""
     run_id: str = ""
     run_started_at: str = ""
+    # T-596: secret-free systemd/OAuth report of the local runner supervisor (whitelisted on receipt).
+    supervisor: dict = {}
 
 class OperatorWorkerHeartbeat(BaseModel):
     operator_id: str
@@ -2468,10 +2475,10 @@ class ClaudeWorkerTaskResult(BaseModel):
     commit: str = ""
     commit_count: int = 0
     files: list[str] = []
-    exit_code: int | None = None
+    exit_code: Optional[int] = None
     timed_out: bool = False
     duration_seconds: float = 0
-    started_at: float | None = None
+    started_at: Optional[float] = None
     max_turns: int = 0
     timeout_seconds: int = 0
     violations: list[str] = []
@@ -6955,6 +6962,8 @@ async def start_factory_cycle_reconciler():
     }
     print(json.dumps(publisher_state),flush=True)
     asyncio.create_task(factory_cycle_reconcile_loop())
+    if FACTORY_GITHUB_ISSUE_INTAKE_ENABLED:
+        asyncio.create_task(github_issue_intake_loop())
     if FACTORY_PUBLISHER_SCHEDULER_ENABLED:
         asyncio.create_task(publisher_scheduler_loop())
     asyncio.create_task(run_real_world_pilot_once())
@@ -8401,6 +8410,27 @@ def sync_cycle_for_publish(publish_id):
     cycle=_cycle_for_publish(publish_id)
     return sync_factory_cycle(cycle["id"]) if cycle else None
 
+def github_issue_intake_once(fetch=None):
+    """T-599-E: one owner-Issue intake pass; logs counts/IDs only, never bodies or tokens."""
+    result=relay_auto_intake_issues(RELAY_QUEUE,GITHUB_REPO,GITHUB_TOKEN,fetch=fetch)
+    print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":result["ok"],"error":result.get("error",""),
+                      "imported":[x["issue"] for x in result["imported"]],"linked":[x["issue"] for x in result["linked"]],
+                      "existing":len(result["existing"]),"ignored":result["ignored"]}),flush=True)
+    for row in result["imported"]:
+        try:_telegram_send(f"📥 Relay {row['ticket']}: GitHub #{row['issue']} (Owner: {row['lane']})\nВ очереди, выполнение ещё не началось.")
+        except Exception:pass
+    return result
+
+
+async def github_issue_intake_loop():
+    await asyncio.sleep(60)
+    while True:
+        try:await asyncio.to_thread(github_issue_intake_once)
+        except Exception as exc:
+            print(json.dumps({"event":"GITHUB_ISSUE_INTAKE_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC)
+
+
 async def factory_cycle_reconcile_loop():
     while True:
         try:
@@ -9296,7 +9326,7 @@ async def rerun_single_agent(job_id, agent_name, stage):
         running_jobs.discard(job_id)
 
 @app.post("/api/jobs/{job_id}/agents/{agent_name}/rerun")
-async def rerun_agent(job_id:str,agent_name:str,expected_run_id:str | None=None,confirm_uncertain:bool=False):
+async def rerun_agent(job_id:str,agent_name:str,expected_run_id:Optional[str]=None,confirm_uncertain:bool=False):
     job=get_job(job_id)
     if not job:
         raise HTTPException(404,"Job not found")
@@ -9674,7 +9704,9 @@ def claude_code_pair_token_status(request: Request):
 @app.post("/api/claude-worker/heartbeat")
 def claude_worker_heartbeat(payload: ClaudeWorkerHeartbeat):
     claude_worker_runtime["last_seen"]=time.time()
-    claude_worker_runtime["node"]=payload.model_dump()
+    node=payload.model_dump()
+    node["supervisor"]=sanitize_supervisor(node.get("supervisor"))
+    claude_worker_runtime["node"]=node
     claude_worker_runtime["active_task_id"]=payload.task_id or ""
     claude_worker_runtime["last_error"]=payload.last_error or ""
     return {"ok":True,**get_claude_code_status()}
@@ -10318,7 +10350,7 @@ def _redact_board_value(value, secret_values):
     for secret in secret_values:value=value.replace(secret,"[redacted]")
     return value
 
-_DELEGATION_NODE_FIELDS=("node_id","hostname","platform","claude_version","auth_mode","subscription","branch","repo","status")
+_DELEGATION_NODE_FIELDS=("node_id","hostname","platform","claude_version","auth_mode","subscription","branch","repo","status","supervisor")
 _DELEGATION_RESULT_FIELDS=("task_id","result","branch","summary","need","checks","commit","commit_count","files","exit_code",
                            "timed_out","duration_seconds","violations","received_at","started_at","pushed")
 _TIMELINE_AFTER_PICK=("checks","commit","push","outcome")
@@ -10506,6 +10538,52 @@ def factory_delegation_board(request: Request):
     identity=request_identity(request) or {}
     if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
     return get_delegation_board()
+
+def get_lane_board():
+    """T-599-F: per-lane state and Build Progress columns from Relay events + heartbeats only."""
+    lanes=get_operator_lanes()
+    beats={k:{"last_seen":v.get("last_seen") or None,"online":v.get("online") is True} for k,v in lanes.items()}
+    return build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds)
+
+@app.get("/api/factory/lane-board")
+def factory_lane_board(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return get_lane_board()
+
+def _board_secret_values():
+    return sorted([s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,
+                               GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,
+                               FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,
+                               FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8],key=len,reverse=True)
+
+def get_worker_overview(board=None):
+    """T-596: per-source Claude worker observability (host, EC2 API, systemd, OAuth, heartbeat, claim, task)."""
+    board=board if board is not None else get_lane_board()
+    answers=BASE/".autopilot"/"answers.md"
+    try:
+        con=db();row=con.execute("SELECT COUNT(*) AS total,SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done FROM factory_tasks").fetchone();con.close()
+        factory={"total":int(row["total"] or 0),"done":int(row["done"] or 0)}
+    except Exception:factory=None
+    overview=build_worker_overview(get_claude_code_status(),board,results=_load_claude_worker_results(),
+                                   tickets=RELAY_STORE.list(limit=500),roadmap_tasks=_parse_roadmap_tasks(),
+                                   factory_tasks=factory,
+                                   answers_text=answers.read_text(encoding="utf-8") if answers.exists() else "",
+                                   repo=GITHUB_REPO)
+    return _redact_board_value(overview,_board_secret_values())
+
+def get_telegram_lane_board():
+    """Lane board plus the worker overview built from the same snapshot (Telegram /status)."""
+    board=get_lane_board()
+    try:board={**board,"worker_overview":get_worker_overview(board)}
+    except Exception:pass
+    return board
+
+@app.get("/api/factory/worker-overview")
+def factory_worker_overview(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return get_worker_overview()
 
 # --- T-580 Role / Operator separation.
 # A role is what a canonical worker does; an operator is the model/runtime assigned to it. Canonical worker
