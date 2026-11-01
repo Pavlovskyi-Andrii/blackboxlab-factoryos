@@ -233,6 +233,13 @@ jobs:
         run: |
           python -m py_compile test_publishing_dry_run.py
           python test_publishing_dry_run.py
+      - name: OAuth framework scaffold regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile oauth_framework.py test_oauth_framework.py
+          python test_oauth_framework.py
   ui-screenshots:
     # Evidence for UI tasks (T-594..T-597): EN/UK/RU × desktop/tablet/mobile screenshots of a local,
     # password-less, key-less FactoryOS (zero spend). Findings are reported in the job summary, not enforced.

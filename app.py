@@ -31,6 +31,7 @@ from worker_observability import build_worker_overview, sanitize_supervisor, san
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import QuestionStore, install_owner_desk_routes
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
+from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -9382,6 +9383,61 @@ async def switch_integration(provider: str):
         ),
         "history_preserved":True,
     }
+
+# T-551-A: provider OAuth scaffold. No real adapters and no token vault yet (T-552), so
+# authorize refuses with blockers in production; tests inject mock adapters + memory vault.
+OAUTH_FLOW = OAuthFlow(
+    redirect_base=FACTORY_PUBLIC_BASE_URL,
+    client_id_lookup=lambda spec: os.environ.get(spec.client_id_env,""),
+    vault=UnavailableTokenVault(),
+)
+
+def _oauth_subject(request: Request) -> str:
+    identity=request_identity(request) or {}
+    return f"{identity.get('role','')}|{identity.get('email','')}|{identity.get('provider','')}"
+
+@app.get("/api/oauth/providers")
+def oauth_providers():
+    return {"workspace":INTEGRATION_WORKSPACE_KEY,"providers":OAUTH_FLOW.public_registry(),"secrets_exposed":False}
+
+@app.post("/api/oauth/{provider}/authorize")
+def oauth_authorize(provider: str, request: Request):
+    try:
+        return {"ok":True,**OAUTH_FLOW.start(provider,INTEGRATION_WORKSPACE_KEY,_oauth_subject(request))}
+    except OAuthError as e:
+        if e.code=="unknown_provider":raise HTTPException(404,"Unknown OAuth provider")
+        return JSONResponse({"ok":False,"provider":provider,"state":"not_ready","reason":e.code},status_code=409)
+
+@app.get("/api/oauth/{provider}/callback")
+def oauth_callback(provider: str, request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":
+        return JSONResponse({"detail":"owner session required"},status_code=403)
+    try:
+        result=OAUTH_FLOW.complete(provider,dict(request.query_params),_oauth_subject(request))
+    except OAuthError as e:
+        if e.code=="unknown_provider":raise HTTPException(404,"Unknown OAuth provider")
+        event(None,f"OAuth callback rejected: {provider} ({e.code})")
+        return RedirectResponse(f"/?{urlparse.urlencode({'oauth':provider,'result':'error','reason':e.code})}",status_code=303)
+    _integration_set(result["integration"],"connected",account_label=result["account_label"],
+                     external_account_id=result["account_id"],auth_mode="oauth",connected_via="oauth",
+                     meta={"oauth_provider":result["provider"],"scopes":result["scopes"],
+                           "token_storage":result["token_storage"]["vault"]})
+    event(None,f"OAuth connected: {provider}")
+    return RedirectResponse(f"/?{urlparse.urlencode({'oauth':provider,'result':'connected'})}",status_code=303)
+
+@app.post("/api/oauth/{provider}/disconnect")
+async def oauth_disconnect(provider: str):
+    try:
+        result=OAUTH_FLOW.disconnect(provider,INTEGRATION_WORKSPACE_KEY)
+    except OAuthError:
+        raise HTTPException(404,"Unknown OAuth provider")
+    name=result["integration"]
+    _integration_set(name,"disconnected",auth_mode=PORTABLE_INTEGRATIONS[name]["auth_mode"],
+                     connected_via="oauth",meta={"reason":"owner_oauth_disconnect","revoke":result["revoke"]})
+    event(None,f"OAuth disconnected: {provider} (revoke: {result['revoke']})")
+    await broadcast({"type":"integration","provider":name,"state":"disconnected"})
+    return {**result,"connection":_integration_public_payload(name)}
 
 @app.get("/api/status")
 def status(request: Request=None):

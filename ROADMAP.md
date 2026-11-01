@@ -367,7 +367,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: remove owner-specific social identity from the runtime connection registry, add durable workspace/provider binding metadata, expose safe Disconnect / Change account controls, add HubSpot as a CRM/Growth connector slot, and ensure disconnect never deletes FactoryOS content history.
   DONE: deterministic regression proves Metricool / YouTube / Instagram / TikTok / HubSpot are portable connection slots, provider secrets never appear in the connection registry, YouTube can be detached independently, Metricool disconnect fences real publishing, and integration routes are owner-write protected by the existing auth middleware.
 
-- [ ] T-551-A OAuth framework scaffold
+- [x] T-551-A OAuth framework scaffold
   Owner: claude
   Planner: ChatGPT
   Depends: T-537,T-550
