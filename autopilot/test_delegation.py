@@ -324,6 +324,23 @@ def test_early_cli_failures_are_actionable_and_fail_closed():
     assert rate_limited["result"] == "blocked"
     assert rate_limited["status"]["error_category"] == "subscription_limit"
 
+    # T-600: the exact result line the EC2 worker got on 2026-10-31 (no plain-text keyword matched it).
+    ec2_limit = ('{"duration_api_ms":0,"total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0},'
+                 '"terminal_reason":"api_error","is_error":true,"num_turns":1,"subtype":"success",'
+                 '"api_error_status":429,"api_error_origin":"first_party","api_error":"usage_limit_reached",'
+                 '"result":"You\'ve hit your session limit \\u00b7 resets 6pm (UTC)","type":"result"}')
+    limited = run_case(1, stdout=ec2_limit)
+    assert limited["result"] == "blocked", limited
+    assert limited["status"]["error_category"] == "subscription_limit", limited["status"]
+    assert limited["status"]["limit_resets"] == "6pm (UTC)", limited["status"]
+    assert "resets 6pm (UTC)" in limited["status"]["summary"]
+    # Cut at the start and followed by stderr on the same line: still recognised.
+    assert dg.diagnose_missing_status(exit_code=1, timed_out=False,
+                                      output=ec2_limit[40:] + "warn")["error_category"] == "subscription_limit"
+    # Structured status alone is enough, without any human-readable text.
+    assert dg.diagnose_missing_status(exit_code=1, timed_out=False,
+                                      output='{"api_error_status":429}')["error_category"] == "subscription_limit"
+
     permission = run_case(1, stderr="Tool permission denied")
     assert permission["result"] == "blocked"
     assert permission["status"]["error_category"] == "permission_policy"
@@ -361,8 +378,28 @@ def test_early_cli_failures_are_actionable_and_fail_closed():
     assert success["result"] == "done" and success["violations"] == []
 
 
+def test_limit_reset_parsing():
+    # 2026-10-31 17:15:00 UTC
+    now = 1793466900.0
+    assert dg.limit_reset_hint("You've hit your session limit · resets 6pm (UTC)") == "6pm (UTC)"
+    assert dg.limit_reset_hint("Limit reached") == ""
+    assert dg.limit_reset_epoch("6pm (UTC)", now) == now + 45 * 60
+    assert dg.limit_reset_epoch("6:30pm", now) == now + 75 * 60
+    assert dg.limit_reset_epoch("18:00 (UTC)", now) == now + 45 * 60
+    # Already past today -> tomorrow, never in the past.
+    assert dg.limit_reset_epoch("5pm (UTC)", now) == now - 15 * 60 + 24 * 3600
+    assert dg.limit_reset_epoch("12am (UTC)", now) == now + (6 * 60 + 45) * 60
+    # Named zone: 20:00 Kyiv on 2026-10-31 is 18:00 UTC (EET, UTC+2).
+    kyiv = dg.limit_reset_epoch("8pm (Europe/Kyiv)", now)
+    assert kyiv in (now + 45 * 60, None), kyiv  # None only where tzdata is missing
+    # Anything uncertain falls back to the caller's back-off.
+    for hint in ("", "Nov 3, 6pm", "Monday 9am", "6 (UTC)", "13pm", "25:00", "6pm (Mars/Olympus)"):
+        assert dg.limit_reset_epoch(hint, now) is None, hint
+
+
 def main():
     test_early_cli_failures_are_actionable_and_fail_closed()
+    test_limit_reset_parsing()
     test_persistent_venv_and_allowed_tools()
     test_spec_pins_and_bounds()
     test_env_scrubs_payg_and_deploy_credentials()

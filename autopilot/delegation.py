@@ -227,6 +227,79 @@ def _safe_cli_output(value: Any) -> str:
     return tail[-OUTPUT_TAIL_CHARS:]
 
 
+# Structured `api_error` values the Claude CLI reports when the account is out of allowance.
+LIMIT_API_ERRORS = {"usage_limit_reached", "rate_limit_error", "rate_limit_exceeded", "rate_limit"}
+
+
+def cli_error_fields(output: str) -> dict[str, Any]:
+    """Error fields from the CLI's JSON result line.
+
+    Regex instead of json.loads: the evidence is a tail (the line may be cut at the
+    start) and stdout+stderr are concatenated, so the line need not parse on its own.
+    """
+    fields: dict[str, Any] = {}
+    api_error = re.findall(r'"api_error"\s*:\s*"([A-Za-z_]{1,64})"', output)
+    if api_error:
+        fields["api_error"] = api_error[-1].lower()
+    status = re.findall(r'"api_error_status"\s*:\s*(\d{3})\b', output)
+    if status:
+        fields["api_error_status"] = int(status[-1])
+    result = re.findall(r'"result"\s*:\s*"((?:[^"\\]|\\.){0,400})"', output)
+    if result:
+        try:
+            fields["result"] = json.loads('"' + result[-1] + '"')
+        except ValueError:
+            fields["result"] = result[-1]
+    return fields
+
+
+def limit_reset_hint(text: str) -> str:
+    """'resets 6pm (UTC)' -> '6pm (UTC)'. Charset-restricted so CLI text never reaches the owner verbatim."""
+    found = re.search(r"(?i)\bresets?\s+(?:at\s+)?([0-9][0-9A-Za-z:/_+ ().,-]{0,40})", text or "")
+    if not found:
+        return ""
+    return re.sub(r"[^0-9A-Za-z:/_+ ().,-]", "", found.group(1)).strip(" .,")[:40]
+
+
+def limit_reset_epoch(hint: str, now: float) -> float | None:
+    """Next moment matching a clock-time hint such as '6pm (UTC)', '6:30pm', '18:00 (Europe/Kyiv)'.
+
+    Returns None for anything we cannot read with certainty (dated weekly resets,
+    unknown zones); the caller then falls back to a fixed back-off.
+    """
+    import datetime as dt
+
+    hint = (hint or "").strip()
+    if not hint or re.search(r"(?i)\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|mon|tue|wed|thu|fri|sat|sun)", hint):
+        return None
+    clock = re.match(r"(?i)^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([^)]{1,40})\))?$", hint)
+    if not clock or (clock.group(3) is None and clock.group(2) is None):
+        return None
+    hour, minute = int(clock.group(1)), int(clock.group(2) or 0)
+    meridiem = (clock.group(3) or "").lower()
+    if meridiem:
+        if not 1 <= hour <= 12:
+            return None
+        hour = hour % 12 + (12 if meridiem == "pm" else 0)
+    if hour > 23 or minute > 59:
+        return None
+    zone_name = (clock.group(4) or "UTC").strip()
+    if zone_name.upper() in {"UTC", "GMT"}:
+        zone: dt.tzinfo = dt.timezone.utc
+    else:
+        try:
+            from zoneinfo import ZoneInfo
+
+            zone = ZoneInfo(zone_name)
+        except Exception:
+            return None
+    local_now = dt.datetime.fromtimestamp(now, zone)
+    moment = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if moment.timestamp() <= now:
+        moment += dt.timedelta(days=1)
+    return moment.timestamp()
+
+
 def diagnose_missing_status(*, exit_code: int | None, timed_out: bool, output: str) -> dict[str, Any]:
     """Fail closed while telling the owner what kind of early CLI failure happened.
 
@@ -234,11 +307,24 @@ def diagnose_missing_status(*, exit_code: int | None, timed_out: bool, output: s
     Classifications are fixed strings: raw CLI output stays in redacted local evidence.
     """
     lower = output.lower()
+    fields = cli_error_fields(output)
     code = "unknown" if exit_code is None else str(exit_code)
     prefix = f"Claude CLI exit={code}; .autopilot/status.json absent."
     if timed_out:
         return {"status": "failed", "error_category": "timeout",
                 "summary": prefix + " Execution timed out; inspect local evidence."}
+    # T-600: the structured result is authoritative. Checked before the auth keywords because a
+    # limit response is also an error response and must not be mistaken for a logged-out session.
+    if fields.get("api_error") in LIMIT_API_ERRORS or fields.get("api_error_status") == 429 or any(word in lower for word in (
+        "usage limit", "usage_limit", "rate limit", "rate_limit", "limit reached",
+        "session limit", "weekly limit", "hit your limit",
+        "out of extra usage", "usage exhausted", "quota exceeded",
+    )):
+        hint = limit_reset_hint(str(fields.get("result") or output))
+        return {"status": "blocked", "error_category": "subscription_limit",
+                "summary": prefix + " Claude subscription usage limit reached" + (f"; resets {hint}." if hint else "."),
+                "limit_resets": hint,
+                "need": "Wait for the subscription limit to reset; the worker resumes automatically. Do not enable pay-as-you-go API billing."}
     if any(word in lower for word in (
         "not logged in", "not logged into", "please log in", "please login",
         "login required", "authentication required", "not authenticated",
@@ -248,13 +334,6 @@ def diagnose_missing_status(*, exit_code: int | None, timed_out: bool, output: s
         return {"status": "blocked", "error_category": "subscription_auth_required",
                 "summary": prefix + " Subscription authentication unavailable.",
                 "need": "On the existing EC2, ec2-user must check 'claude auth status' and complete official subscription login if needed; do not use API billing."}
-    if any(word in lower for word in (
-        "usage limit", "rate limit", "rate_limit", "limit reached",
-        "out of extra usage", "usage exhausted", "quota exceeded",
-    )):
-        return {"status": "blocked", "error_category": "subscription_limit",
-                "summary": prefix + " Claude subscription usage limit reached.",
-                "need": "Check subscription allowance/reset in the official Claude session. Do not enable pay-as-you-go API billing."}
     if any(word in lower for word in (
         "permission denied", "permissions denied", "tool use denied",
         "tool permission", "not allowed to use", "disallowed tool",
