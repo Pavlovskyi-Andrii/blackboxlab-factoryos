@@ -1,6 +1,8 @@
+import calendar
 import json
 import os
 import pathlib
+import re
 import socket
 import subprocess
 import sys
@@ -99,6 +101,92 @@ def supervisor_snapshot() -> dict:
     return {k: value[k] for k in keep if k in value}
 
 
+_STARTED = time.time()
+_cpu_prev = None  # last (idle, total) jiffies from /proc/stat; the delta between heartbeats is the CPU percent
+_ROADMAP_OPEN_RE = re.compile(r"^- \[ \]\s+T-[A-Za-z0-9-]+\s")
+
+
+def _git(*args) -> str:
+    try:
+        result = subprocess.run(["git", *args], cwd=REPO, text=True, capture_output=True, check=False, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _iso_epoch(value):
+    try:
+        return float(calendar.timegm(time.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ")))
+    except (ValueError, OverflowError):
+        return None
+
+
+def cpu_sample(proc="/proc"):
+    """(percent, source). /proc/stat delta when readable (Linux, older Termux); else loadavg/cores; else unsupported."""
+    global _cpu_prev
+    try:
+        with open(os.path.join(proc, "stat"), encoding="ascii") as handle:
+            fields = [int(x) for x in handle.readline().split()[1:]]
+        idle, total = fields[3] + (fields[4] if len(fields) > 4 else 0), sum(fields[:8])
+    except (OSError, ValueError, IndexError):
+        idle = total = None
+    if total is not None:
+        prev, _cpu_prev = _cpu_prev, (idle, total)
+        if prev and total > prev[1]:
+            return round(max(0.0, min(100.0, 100.0 * (1 - (idle - prev[0]) / (total - prev[1])))), 1), "proc_stat"
+        # First sample has no delta yet; fall through to loadavg instead of inventing a number.
+    try:
+        load = os.getloadavg()[0]
+        cores = os.cpu_count() or 1
+        return round(max(0.0, min(100.0, 100.0 * load / cores)), 1), "loadavg"
+    except (OSError, AttributeError):
+        return None, "unsupported"
+
+
+def memory_sample(proc="/proc"):
+    """(used_mb, total_mb, source) from /proc/meminfo; unsupported elsewhere."""
+    try:
+        values = {}
+        with open(os.path.join(proc, "meminfo"), encoding="ascii") as handle:
+            for line in handle:
+                key, _, rest = line.partition(":")
+                values[key] = int(rest.split()[0])
+        total = values["MemTotal"]
+        available = values.get("MemAvailable", values.get("MemFree", 0) + values.get("Cached", 0))
+    except (OSError, ValueError, KeyError, IndexError):
+        return None, None, "unsupported"
+    return round((total - available) / 1024.0, 1), round(total / 1024.0, 1), "proc_meminfo"
+
+
+def queue_depth():
+    """Unchecked, non-HUMAN ROADMAP tasks (the worker's remaining queue); None when ROADMAP is unreadable."""
+    try:
+        lines = (REPO / "ROADMAP.md").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    return sum(1 for line in lines if _ROADMAP_OPEN_RE.match(line.strip()))
+
+
+def collect_telemetry(task_state: str, run: dict, *, proc="/proc", now=None) -> dict:
+    """T-536-B: secret-free runtime telemetry. Unknown values are None with an explicit source, never guessed."""
+    now = time.time() if now is None else now
+    started = _iso_epoch(run.get("started_at")) if run.get("state") == "running" else None
+    cpu, cpu_source = cpu_sample(proc)
+    memory, memory_total, memory_source = memory_sample(proc)
+    return {
+        "available": True,
+        "stage": task_state or "idle",
+        "task_started_at": started,
+        "elapsed_seconds": round(max(0.0, now - started), 1) if started is not None else None,
+        "branch": current_branch() or None,
+        "head_sha": _git("rev-parse", "HEAD") or None,
+        "queue_depth": queue_depth(),
+        "cpu_percent": cpu, "cpu_source": cpu_source,
+        "memory_mb": memory, "memory_total_mb": memory_total, "memory_source": memory_source,
+        "worker_uptime_seconds": round(max(0.0, now - _STARTED), 1),
+    }
+
+
 def heartbeat(version: str, *, state: str = "") -> None:
     if not WORKER_TOKEN:
         return
@@ -119,6 +207,7 @@ def heartbeat(version: str, *, state: str = "") -> None:
         "task_id": task_id,
         "last_error": detail if (state == "failed" or task_state == "failed") else "",
         "supervisor": supervisor_snapshot(),
+        "telemetry": collect_telemetry(state or task_state or "idle", run if run.get("task") == task_id else {}),
     }
     response = requests.post(
         f"{FACTORY_URL}/api/claude-worker/heartbeat",

@@ -74,6 +74,52 @@ def sanitize_supervisor(raw) -> dict:
     return out
 
 
+TELEMETRY_SOURCES = {"cpu_source": ("proc_stat", "loadavg", "unsupported"),
+                     "memory_source": ("proc_meminfo", "unsupported")}
+TELEMETRY_LIMITS = {"elapsed_seconds": 7 * 86400, "worker_uptime_seconds": 365 * 86400, "queue_depth": 10000,
+                    "cpu_percent": 100, "memory_mb": 1 << 22, "memory_total_mb": 1 << 22}
+
+
+def _bounded(value, limit):
+    """Finite, non-negative number within limit; anything else (bool, str, NaN, negative, too large) is None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value:
+        return None
+    if value < 0 or value > limit:
+        return None
+    return round(float(value), 1) if isinstance(value, float) else value
+
+
+def sanitize_telemetry(raw, now: Optional[float] = None) -> dict:
+    """T-536-B: whitelist + type check of runner telemetry. Invalid values degrade to None, never to a guess."""
+    if not isinstance(raw, dict) or not raw:
+        return {}
+    now = time.time() if now is None else now
+    out = {"available": True}
+    stage = re.sub(r"[^a-z_]", "", str(raw.get("stage") or "").lower())[:32]
+    out["stage"] = stage or None
+    # Epoch seconds (the timeline contract); a start in the future (+60 s skew) is not plausible.
+    started = _bounded(raw.get("task_started_at"), now + 60)
+    out["task_started_at"] = float(started) if started else None
+    for key, limit in TELEMETRY_LIMITS.items():
+        out[key] = _bounded(raw.get(key), limit)
+    if out["queue_depth"] is not None and not isinstance(out["queue_depth"], int):
+        out["queue_depth"] = None
+    if out["task_started_at"] is None:
+        out["elapsed_seconds"] = None
+    branch = str(raw.get("branch") or "")
+    out["branch"] = branch[:120] if branch and re.match(r"^[A-Za-z0-9_./-]+$", branch) else None
+    head = str(raw.get("head_sha") or "").lower()
+    out["head_sha"] = head if SHA_RE.match(head) else None
+    for key, allowed in TELEMETRY_SOURCES.items():
+        source = raw.get(key)
+        out[key] = source if source in allowed else "unsupported"
+    if out["cpu_source"] == "unsupported" or out["cpu_percent"] is None:
+        out["cpu_percent"], out["cpu_source"] = None, "unsupported"
+    if out["memory_source"] == "unsupported" or out["memory_mb"] is None:
+        out["memory_mb"], out["memory_total_mb"], out["memory_source"] = None, None, "unsupported"
+    return out
+
+
 def _github(repo: str, kind: str, ref: str) -> str:
     if not repo or not re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", repo):
         return ""

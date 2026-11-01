@@ -285,7 +285,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: expose one owner-safe API contract that combines the ROADMAP queue, hierarchy/dependencies, Claude worker heartbeat, active task, recent verified results and queue counts.
   DONE: deterministic regression returns planner queue + worker state + done/running/queued/blocked/HUMAN counts without returning worker tokens or other secrets.
 
-- [ ] T-536-B Live worker telemetry
+- [x] T-536-B Live worker telemetry
   Owner: claude
   Planner: ChatGPT
   Parent: T-536

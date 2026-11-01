@@ -27,7 +27,7 @@ from google.oauth2 import id_token as google_id_token
 from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
-from worker_observability import build_worker_overview, sanitize_supervisor
+from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import QuestionStore, install_owner_desk_routes
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
@@ -173,8 +173,10 @@ FACTORY_OPERATOR_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY
 operator_worker_runtime={"claude":{"last_seen":0.0},"gemini":{"last_seen":0.0}}
 _operator_worker_lock=threading.Lock()
 FACTORY_CLAUDE_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_CLAUDE_WORKER_TTL_SECONDS","45"))))
-claude_worker_runtime={"last_seen":0.0,"node":{},"active_task_id":"","last_error":""}
+claude_worker_runtime={"last_seen":0.0,"node":{},"active_task_id":"","last_error":"","telemetry":{}}
 CLAUDE_WORKER_RESULTS_FILE = DATA_DIR / "claude_worker_results.json"
+# T-536-B: last sanitized heartbeat survives restarts; the TTL still decides online/stale.
+CLAUDE_WORKER_HEARTBEAT_FILE = DATA_DIR / "claude_worker_heartbeat.json"
 _claude_worker_results_lock=threading.Lock()
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
 FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS","").split(",") if x.strip()}
@@ -396,7 +398,39 @@ def get_claude_code_status():
         "api_key_required":False,
         "recommended_auth":"Claude account with subscription",
         "recent_results":_load_claude_worker_results()[-5:],
+        "telemetry":_live_claude_worker_telemetry(),
     }
+
+def _live_claude_worker_telemetry(now=None):
+    """Persisted telemetry with elapsed time advanced to now while a task is running; {} when never reported."""
+    telemetry=dict(claude_worker_runtime.get("telemetry") or {})
+    started=telemetry.get("task_started_at")
+    if telemetry.get("stage")=="running" and isinstance(started,(int,float)) and started>0:
+        telemetry["elapsed_seconds"]=round(max(0.0,(now or time.time())-float(started)),1)
+    return telemetry
+
+def _persist_claude_worker_heartbeat():
+    keep={k:claude_worker_runtime.get(k) for k in ("last_seen","node","active_task_id","last_error","telemetry")}
+    try:
+        CLAUDE_WORKER_HEARTBEAT_FILE.parent.mkdir(parents=True,exist_ok=True)
+        tmp=CLAUDE_WORKER_HEARTBEAT_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(keep,ensure_ascii=False)+"\n",encoding="utf-8")
+        os.replace(tmp,CLAUDE_WORKER_HEARTBEAT_FILE)
+    except OSError as exc:
+        print(json.dumps({"event":"CLAUDE_WORKER_HEARTBEAT_PERSIST_FAILED","error":type(exc).__name__}),flush=True)
+
+def _restore_claude_worker_heartbeat():
+    if not CLAUDE_WORKER_HEARTBEAT_FILE.exists():return
+    value=_decode_json(CLAUDE_WORKER_HEARTBEAT_FILE.read_text(encoding="utf-8"),{})
+    if not isinstance(value,dict):return
+    node=value.get("node") if isinstance(value.get("node"),dict) else {}
+    node["supervisor"]=sanitize_supervisor(node.get("supervisor"))
+    claude_worker_runtime.update({
+        "last_seen":float(value.get("last_seen") or 0) if isinstance(value.get("last_seen"),(int,float)) else 0.0,
+        "node":node,"active_task_id":str(value.get("active_task_id") or ""),
+        "last_error":str(value.get("last_error") or "")[:500],
+        "telemetry":sanitize_telemetry(value.get("telemetry")),
+    })
 
 def _load_claude_worker_results():
     if not CLAUDE_WORKER_RESULTS_FILE.exists():return []
@@ -2478,6 +2512,8 @@ class ClaudeWorkerHeartbeat(BaseModel):
     run_started_at: str = ""
     # T-596: secret-free systemd/OAuth report of the local runner supervisor (whitelisted on receipt).
     supervisor: dict = {}
+    # T-536-B: stage/elapsed/branch/head/queue/CPU/memory; whitelisted by sanitize_telemetry on receipt.
+    telemetry: dict = {}
 
 class OperatorWorkerHeartbeat(BaseModel):
     operator_id: str
@@ -7049,6 +7085,10 @@ async def report_llm_readiness():
     asyncio.create_task(run_paid_verification_once())
 
 @app.on_event("startup")
+async def restore_claude_worker_heartbeat():
+    _restore_claude_worker_heartbeat()
+
+@app.on_event("startup")
 async def start_builder_reconciler():
     asyncio.create_task(builder_reconcile_loop())
 
@@ -9840,9 +9880,11 @@ def claude_worker_heartbeat(payload: ClaudeWorkerHeartbeat):
     claude_worker_runtime["last_seen"]=time.time()
     node=payload.model_dump()
     node["supervisor"]=sanitize_supervisor(node.get("supervisor"))
+    claude_worker_runtime["telemetry"]=sanitize_telemetry(node.pop("telemetry",None))
     claude_worker_runtime["node"]=node
     claude_worker_runtime["active_task_id"]=payload.task_id or ""
     claude_worker_runtime["last_error"]=payload.last_error or ""
+    _persist_claude_worker_heartbeat()
     return {"ok":True,**get_claude_code_status()}
 
 @app.post("/api/claude-worker/task-result")
@@ -10603,6 +10645,7 @@ def get_delegation_board():
             "active_task_id":active_task_id or None,
             "last_error":worker["last_error"] or "",
             "node":{k:worker["node"].get(k) for k in _DELEGATION_NODE_FIELDS if k in worker["node"]},
+            "telemetry":worker.get("telemetry") or None,
         },
         "active_task":next((x for x in queue if x["id"]==active_task_id),None) if active_task_id else None,
         "next_task":next((x for x in queue if x["state"]=="queued"),None),
