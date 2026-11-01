@@ -5,7 +5,10 @@ provenance of every step: role, requested operator, the operator it resolved to,
 operator status at planning time. Recorded step results add the operator/model/runtime that actually
 produced the output. A battle never executes a provider, never creates a publishing item and never
 publishes: `publish.automatic` is always false and any publication still goes through the normal human
-approval gate. Outcome attribution (T-583), judging (T-584) and routing (T-588) build on this record.
+approval gate. Judging (T-584) and routing (T-588) build on this record.
+
+T-583 outcome attribution: after a human-approved publish, the owner links the published item to the completed
+chain that produced it; the leaderboard compares chains using only real performance snapshots.
 """
 import hashlib
 import json
@@ -32,7 +35,26 @@ CREATE TABLE IF NOT EXISTS battle_runs(
   payload_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_battle_runs_created ON battle_runs(created_at);
+CREATE TABLE IF NOT EXISTS battle_outcome_links(
+  publish_id TEXT PRIMARY KEY,
+  battle_id TEXT NOT NULL,
+  chain_id TEXT NOT NULL,
+  job_id TEXT DEFAULT '',
+  platform TEXT DEFAULT '',
+  linked_by TEXT DEFAULT '',
+  linked_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_battle_outcome_battle ON battle_outcome_links(battle_id, chain_id);
 """
+
+# T-583 outcome metrics: (name, aggregation). Counts are summed and compared per measured item; rates are averaged
+# over the items that report them. A metric no linked item reports stays unavailable (None), never zero.
+OUTCOME_METRICS = (
+    ("views", "sum"), ("reach", "sum"), ("likes", "sum"), ("comments", "sum"), ("shares", "sum"),
+    ("saves", "sum"), ("conversions", "sum"), ("ctr_pct", "mean"), ("retention_pct", "mean"),
+    ("completion_rate_pct", "mean"),
+)
+OUTCOME_AGGREGATION = dict(OUTCOME_METRICS)
 
 
 class BattleError(ValueError):
@@ -289,3 +311,128 @@ class BattleStore:
             raise
         finally:
             con.close()
+
+    def link_outcome(self, battle_id, body, publish_lookup, linked_by=""):
+        """Attribute one already-published item to the completed chain that produced it.
+
+        `publish_lookup(publish_id)` returns the visible publishing row (dict) or None. A publish item belongs to
+        exactly one chain across all battles; links are immutable. Linking never publishes anything.
+        """
+        if not isinstance(body, dict):
+            raise BattleError(422, "outcome body must be an object")
+        battle = self.get(battle_id)
+        chain = next((c for c in battle["chains"] if c["chain_id"] == body.get("chain_id")), None)
+        if not chain:
+            raise BattleError(404, "chain not found")
+        if chain["status"] != "completed":
+            raise BattleError(409, "only a completed chain can be credited with an outcome")
+        publish_id = _clean(body.get("publish_id"), 120)
+        if not publish_id:
+            raise BattleError(422, "publish_id is required")
+        pub = publish_lookup(publish_id)
+        if not pub:
+            raise BattleError(404, "published item not found")
+        if pub.get("status") != "published":
+            raise BattleError(409, "only a published item can be attributed; publishing stays behind human approval")
+        con = self._connect()
+        try:
+            row = con.execute("SELECT * FROM battle_outcome_links WHERE publish_id=?", (publish_id,)).fetchone()
+            if row:
+                if row["battle_id"] == battle["battle_id"] and row["chain_id"] == chain["chain_id"]:
+                    return dict(row), False
+                raise BattleError(409, f"published item is already attributed to {row['chain_id']}")
+            link = {"publish_id": publish_id, "battle_id": battle["battle_id"], "chain_id": chain["chain_id"],
+                    "job_id": str(pub.get("job_id") or ""), "platform": str(pub.get("platform") or ""),
+                    "linked_by": linked_by, "linked_at": _now()}
+            try:
+                con.execute("INSERT INTO battle_outcome_links(publish_id,battle_id,chain_id,job_id,platform,linked_by,linked_at)"
+                            " VALUES(:publish_id,:battle_id,:chain_id,:job_id,:platform,:linked_by,:linked_at)", link)
+                con.commit()
+            except sqlite3.IntegrityError:
+                raise BattleError(409, "published item is already attributed to a chain")
+            return link, True
+        finally:
+            con.close()
+
+    def outcome_links(self, battle_id):
+        con = self._connect()
+        try:
+            rows = con.execute("SELECT * FROM battle_outcome_links WHERE battle_id=? ORDER BY linked_at, publish_id",
+                               (str(battle_id or ""),)).fetchall()
+        finally:
+            con.close()
+        return [dict(r) for r in rows]
+
+    def leaderboard(self, battle_id, latest_snapshot, metric="views"):
+        battle = self.get(battle_id)
+        return build_leaderboard(battle, self.outcome_links(battle_id), latest_snapshot, metric)
+
+
+def _number(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _aggregate(metric, values, published):
+    """values: numbers reported by the chain's measured items. Missing data stays None with an explicit status."""
+    n = len(values)
+    status = "unavailable" if n == 0 else ("available" if n == published else "partial")
+    if not n:
+        return {"value": None, "total": None, "items_reporting": 0, "status": status}
+    if OUTCOME_AGGREGATION[metric] == "sum":
+        total = sum(values)
+        return {"value": round(total / n, 4), "total": total, "items_reporting": n, "status": status}
+    return {"value": round(sum(values) / n, 4), "total": None, "items_reporting": n, "status": status}
+
+
+def build_leaderboard(battle, links, latest_snapshot, metric="views"):
+    """Rank a battle's chains by one factual metric using the latest real snapshot of each attributed publish.
+
+    `latest_snapshot(publish_id)` returns {id, captured_at, source, platform, metrics} or None. Chains whose
+    attributed items never reported the metric are listed unranked; nothing is imputed.
+    """
+    metric = str(metric or "views").strip().lower()
+    if metric not in OUTCOME_AGGREGATION:
+        raise BattleError(422, f"metric must be one of {', '.join(OUTCOME_AGGREGATION)}")
+    by_chain = {}
+    for link in links:
+        by_chain.setdefault(link["chain_id"], []).append(link)
+    rows = []
+    for chain in battle["chains"]:
+        items = []
+        for link in by_chain.get(chain["chain_id"], []):
+            snap = latest_snapshot(link["publish_id"])
+            reported = {k: _number((snap or {}).get("metrics", {}).get(k)) for k in OUTCOME_AGGREGATION}
+            items.append({
+                "publish_id": link["publish_id"], "job_id": link["job_id"], "platform": link["platform"],
+                "linked_at": link["linked_at"],
+                "snapshot": {k: snap.get(k) for k in ("id", "captured_at", "source")} if snap else None,
+                "metrics": {k: v for k, v in reported.items() if v is not None},
+            })
+        measured = [i for i in items if i["snapshot"]]
+        metrics = {m: _aggregate(m, [i["metrics"][m] for i in measured if m in i["metrics"]], len(measured))
+                   for m in OUTCOME_AGGREGATION}
+        rows.append({
+            "chain_id": chain["chain_id"], "label": chain["label"], "chain_hash": chain["chain_hash"],
+            "status": chain["status"],
+            "provenance": [{"role": s["role"], "operator": s["operator"], "resolved_operator": s["resolved_operator"],
+                            "produced_by": (s.get("result") or {}).get("operator"),
+                            "model": (s.get("result") or {}).get("model") or s.get("model"),
+                            "runtime": (s.get("result") or {}).get("runtime") or s.get("runtime")}
+                           for s in chain["steps"]],
+            "published_items": len(items), "measured_items": len(measured),
+            "score": metrics[metric]["value"], "metrics": metrics, "items": items, "rank": None,
+        })
+    ranked = sorted((r for r in rows if r["score"] is not None), key=lambda r: (-r["score"], r["chain_id"]))
+    previous, rank = None, 0
+    for position, row in enumerate(ranked, start=1):
+        if row["score"] != previous:
+            rank, previous = position, row["score"]
+        row["rank"] = rank
+    unranked = [r for r in rows if r["score"] is None]
+    return {
+        "battle_id": battle["battle_id"], "metric": metric, "aggregation": OUTCOME_AGGREGATION[metric],
+        "score_basis": "mean per measured item reporting the metric",
+        "chains": ranked + unranked,
+        "unranked_reason": "no attributed published item has reported this metric yet" if unranked else None,
+        "measurement_note": "Only real platform snapshots count. Missing metrics stay unavailable (null), never zero or estimated.",
+    }

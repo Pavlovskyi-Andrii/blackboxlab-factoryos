@@ -261,6 +261,13 @@ jobs:
         run: |
           python -m py_compile battle_runs.py test_battle_runs.py
           python test_battle_runs.py
+      - name: Battle outcome attribution + leaderboard regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile battle_runs.py test_battle_outcomes.py
+          python test_battle_outcomes.py
   ui-screenshots:
     # Evidence for UI tasks (T-594..T-597): EN/UK/RU × desktop/tablet/mobile screenshots of a local,
     # password-less, key-less FactoryOS (zero spend). Findings are reported in the job summary, not enforced.

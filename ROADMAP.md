@@ -425,7 +425,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: run the same task/content brief through two or more role→operator chains and preserve exact chain provenance for each variant.
   DONE: deterministic regression creates at least two competing chains, preserves role/operator/model/runtime provenance per step, and records a battle/run ID without publishing automatically.
 
-- [ ] T-583 Outcome attribution + leaderboard
+- [x] T-583 Outcome attribution + leaderboard
   Owner: claude
   Planner: ChatGPT
   Depends: T-582

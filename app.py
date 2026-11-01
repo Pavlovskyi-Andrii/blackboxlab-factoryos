@@ -7668,11 +7668,14 @@ class PerformanceSnapshotCreate(BaseModel):
     saves: Optional[int] = None
     follower_delta: Optional[int] = None
     content_duration_sec: Optional[float] = None
+    ctr_pct: Optional[float] = None
+    conversions: Optional[int] = None
     source: str = "manual"
 
 PERFORMANCE_FIELDS=(
     "views","reach","watch_time_sec","retention_pct","completion_rate_pct",
     "likes","comments","shares","saves","follower_delta","content_duration_sec",
+    "ctr_pct","conversions",
 )
 
 EXPERIMENT_METRICS.update(PERFORMANCE_FIELDS)
@@ -11283,6 +11286,37 @@ async def battle_record_result(battle_id:str,request:Request):
     who=_battle_owner(request)
     body=await request.json()
     return {"ok":True,"battle":_battle_call(BATTLE_STORE.record_step_result,battle_id,body,who)}
+
+# --- T-583 Outcome attribution + leaderboard: credit an already-published item to the completed chain that made it,
+# then compare chains on real performance snapshots only. Missing metrics stay null; nothing publishes here.
+def _battle_publish_lookup(publish_id):
+    con=db()
+    try:
+        row=con.execute("SELECT id,job_id,platform,status FROM publishing_queue WHERE id=?",(publish_id,)).fetchone()
+        return dict(row) if row and tenancy.visible(tenancy.job_workspace(con,row["job_id"])) else None
+    finally:con.close()
+
+def _battle_latest_snapshot(publish_id):
+    con=db()
+    try:row=con.execute("""SELECT id,platform,captured_at,source,metrics_json FROM performance_snapshots
+                           WHERE publish_id=? ORDER BY captured_at DESC,rowid DESC LIMIT 1""",(publish_id,)).fetchone()
+    finally:con.close()
+    if not row:return None
+    return {"id":row["id"],"platform":row["platform"],"captured_at":row["captured_at"],"source":row["source"],
+            "metrics":_decode_json(row["metrics_json"],{})}
+
+@app.post("/api/battles/{battle_id}/outcomes")
+async def battle_link_outcome(battle_id:str,request:Request):
+    who=_battle_owner(request)
+    body=await request.json()
+    link,created=_battle_call(BATTLE_STORE.link_outcome,battle_id,body,_battle_publish_lookup,who)
+    if created:event(link["job_id"] or None,f"Battle outcome: publish {link['publish_id']} attributed to {link['chain_id']}")
+    return {"ok":True,"created":created,"link":link}
+
+@app.get("/api/battles/{battle_id}/leaderboard")
+def battle_leaderboard(battle_id:str,request:Request,metric:str="views"):
+    _battle_owner(request)
+    return _battle_call(BATTLE_STORE.leaderboard,battle_id,_battle_latest_snapshot,metric)
 
 # --- T-536-F safe operator controls: owner -> FactoryOS -> Claude runner command channel.
 # Only these three actions exist. Nothing here can push, switch branches, deploy, publish or touch secrets;
