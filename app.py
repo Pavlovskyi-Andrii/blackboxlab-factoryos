@@ -599,7 +599,7 @@ def _owner_desk_status():
         out["T-520"]={"state":"todo","detail":f"Сейчас выбран {reg.get('selected') or 'manual'}"}
     out["T-521"]={"state":"todo","detail":"Можно начинать"} if out["T-520"]["state"]=="done" else {"state":"blocked","detail":"Ждёт T-520"}
     out["T-551"]={"state":"blocked","detail":"Ждёт T-552 (адреса возврата OAuth)"}
-    out["T-598-H1"]={"state":"todo","detail":"Рекомендую: без этого воркер застревает на правках CI"}
+    out["T-598-H1"]={"state":"done","detail":"Сделано 01.11: push воркера с правкой CI принят GitHub"}
     out["T-598-H2"]={"state":"optional","detail":"Пока бесполезно: код ещё не использует это право"}
     return out
 
