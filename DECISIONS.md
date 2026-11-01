@@ -469,3 +469,7 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Store is a JSON file in `DATA_DIR` with a 15-minute claim lease (a crashed worker cannot strand a question), max 20 open and 200 kept questions.
 - The Worker Center poll does not re-render while text is selected inside a runbook or the question box is open, and remembers which runbooks are expanded; otherwise the periodic refresh would close the runbook and drop the selection mid-question.
 - Raw CLI error text never reaches the owner page: a failed answer shows a fixed message.
+
+## Worker reloads runner code that arrives on its own branch (2026-11-01)
+- `sync_branch` now takes the "before" HEAD ahead of `git pull --rebase` on the worker branch. Previously only code merged from main counted as `code_updated`, so a fix pushed directly to `autopilot/aws-worker` (as done on 2026-11-01 to unstick the worker) sat on disk while the old code kept running, and a manual restart was needed — which interrupted a running task (T-536-B, ~2 min of work, backed up and stashed).
+- T-598-H1 (`workflow` scope for the worker's gh credential) changed from "optional, not recommended" to "recommended": the worker keeps adding CI steps, and without the scope each such commit stalls the queue for hours. Merging to main still needs the owner.

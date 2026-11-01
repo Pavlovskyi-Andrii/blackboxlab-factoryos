@@ -243,6 +243,13 @@ def follow_main_regression():
         (seed / "autopilot" / "x.py").write_text("X = 1\n", encoding="utf-8")
         git(seed, "add", "."); git(seed, "commit", "-m", "runner code"); git(seed, "push", "origin", "main")
         assert ap.sync_branch("autopilot/w") == "code_updated"
+        # Runner code pushed straight to the worker branch (not via main) must also trigger a reload.
+        (seed / "autopilot" / "y.py").write_text("Y = 1\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "runner fix on worker branch")
+        git(seed, "push", "origin", "main:autopilot/w")
+        assert ap.sync_branch("autopilot/w") == "code_updated"
+        assert (worker / "autopilot" / "y.py").exists()
+        git(seed, "push", "origin", "main")
         # Conflict: both sides edit the same line; merge is aborted and the tree stays clean.
         (worker / "ROADMAP.md").write_text("worker\n", encoding="utf-8")
         git(worker, "commit", "-am", "worker edit")

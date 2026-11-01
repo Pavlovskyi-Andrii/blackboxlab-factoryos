@@ -489,7 +489,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
-- [ ] [HUMAN] T-598-H1 Optional GitHub `workflow` scope for the worker credential
+- [ ] [HUMAN] T-598-H1 GitHub `workflow` scope for the worker credential (recommended since 2026-11-01)
+  Progress 2026-11-01: the worker was stuck twice (2026-10-30 15:14→2026-10-31 08:29, 2026-11-01 08:06→11:23, 655 rejected pushes) because its commits edited ci.yml. Recommended now; owner runbook in Worker Center → «Ваши задачи».
   Need: only if CI workflow files must be edited by the worker; until then new tests ride existing CI steps. Spec: docs/handoff/T-598_AUTONOMOUS_HANDOFF.md.
   DONE: worker push touching `.github/workflows/` is accepted by GitHub.
 

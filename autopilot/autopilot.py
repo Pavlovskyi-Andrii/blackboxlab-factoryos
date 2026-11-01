@@ -207,9 +207,13 @@ def append_answer(task: str, answer: str) -> None:
 
 
 def sync_branch(branch: str) -> str:
-    """Pull the worker branch, then bring in main. Returns "", "code_updated", "conflict" or "offline"."""
-    run(["git", "pull", "--rebase", "origin", branch], check=False, timeout=GIT_NET_TIMEOUT)
+    """Pull the worker branch, then bring in main. Returns "", "code_updated", "conflict" or "offline".
+
+    Runner code can arrive through either step (a fix pushed to the worker branch, or main), so the
+    comparison starts before the pull; otherwise new runner code sits on disk without being loaded.
+    """
     before = git_head()
+    run(["git", "pull", "--rebase", "origin", branch], check=False, timeout=GIT_NET_TIMEOUT)
     if run(["git", "fetch", "origin", BASE_BRANCH], check=False, timeout=GIT_NET_TIMEOUT).returncode != 0:
         return "offline"
     target = f"origin/{BASE_BRANCH}"
