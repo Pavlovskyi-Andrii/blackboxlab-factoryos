@@ -82,7 +82,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Progress 2026-10-30: first live claimed runs on EC2 blocked because the agent's Python lived in /tmp/fos-venv (wiped on reboot) and headless `claude -p` denied python3. Delegation now keeps a persistent gitignored `<repo>/.venv` rebuilt only when requirements.txt changes, puts it first on PATH, and pre-allows the CLAUDE.md verification loop (Read/Edit/Write, python, node --check, local git add/commit) while push/deploy stay disallowed.
 
 - [ ] T-600 Fail-closed Claude CLI error diagnostics / retry classification
-  Owner: chatgpt
+  Owner: claude-session (implemented by the interactive Claude session in PR #81; was `chatgpt`)
   Priority: P0 support fix (owner-requested 2026-10-31, independent of Claude-owned T-562)
   Depends: T-537
   Goal: when a headless Claude process exits before writing .autopilot/status.json, retain truthful, redacted diagnostic evidence (exit code, structured CLI error category) instead of reporting only the missing file. Distinguish subscription login/auth-blocked from retryable execution failures; never treat absent status as DONE; do not leak secrets or bypass OAuth; preserve bounded retries and server run_id reporting.
