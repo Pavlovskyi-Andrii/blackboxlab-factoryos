@@ -418,7 +418,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: let the owner assign ChatGPT / Claude / Gemini / Auto to any eligible role from the worker/agent UI and clearly show the current operator on every worker card.
   DONE: deterministic UI fixture changes operator assignment for representative Content and Engineering roles and displays offline/auth-pending states without fabricating readiness.
 
-- [ ] T-582 Battle Run experiment model
+- [x] T-582 Battle Run experiment model
   Owner: claude
   Planner: ChatGPT
   Depends: T-580

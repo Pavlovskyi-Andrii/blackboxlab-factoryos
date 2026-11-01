@@ -33,6 +33,7 @@ from owner_desk import QuestionStore, install_owner_desk_routes
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
+from battle_runs import BattleError, BattleStore
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -2034,6 +2035,8 @@ def init_db():
     con.commit(); con.close()
 
 init_db()
+BATTLE_STORE=BattleStore(db)
+BATTLE_STORE.ensure_schema()
 
 def sync_factory_tasks():
     tasks=[
@@ -11245,6 +11248,41 @@ def factory_role_assignment(item:RoleAssignmentRequest,request:Request):
         tmp.write_text(json.dumps(state,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
         os.replace(tmp,ROLE_ASSIGNMENTS_FILE)
     return {"ok":True,**get_role_operator_board()}
+
+# --- T-582 Battle Run experiment model: one brief, two or more competing role->operator chains, exact per-step
+# provenance. Owner-only operator surface (not a member route). Never runs a provider and never publishes.
+def _battle_owner(request:Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return str(identity.get("email") or identity.get("role") or "owner")
+
+def _battle_call(fn,*args):
+    try:return fn(*args)
+    except BattleError as exc:raise HTTPException(exc.status_code,exc.detail)
+
+@app.get("/api/battles")
+def battle_list(request:Request):
+    _battle_owner(request)
+    return {"battles":BATTLE_STORE.list()}
+
+@app.post("/api/battles")
+async def battle_create(request:Request):
+    who=_battle_owner(request)
+    body=await request.json()
+    battle,created=_battle_call(BATTLE_STORE.create,body,get_role_operator_board(),who)
+    if created:event(None,f"Battle Run {battle['battle_id']} planned with {len(battle['chains'])} chains")
+    return {"ok":True,"created":created,"battle":battle}
+
+@app.get("/api/battles/{battle_id}")
+def battle_get(battle_id:str,request:Request):
+    _battle_owner(request)
+    return {"battle":_battle_call(BATTLE_STORE.get,battle_id)}
+
+@app.post("/api/battles/{battle_id}/results")
+async def battle_record_result(battle_id:str,request:Request):
+    who=_battle_owner(request)
+    body=await request.json()
+    return {"ok":True,"battle":_battle_call(BATTLE_STORE.record_step_result,battle_id,body,who)}
 
 # --- T-536-F safe operator controls: owner -> FactoryOS -> Claude runner command channel.
 # Only these three actions exist. Nothing here can push, switch branches, deploy, publish or touch secrets;
