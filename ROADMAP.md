@@ -90,6 +90,13 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: deterministic fake-CLI tests for auth missing, CLI stderr failure, success-without-status, sanitized output and normal status-writing success; CI green, non-main PR, and live EC2 re-test separately verified. No paid APIs, new resources, or direct main pushes.
   Progress 2026-10-31: subscription limits are now recognised from the CLI's structured result (`api_error: usage_limit_reached`, HTTP 429) and hold the whole queue until the reported reset (persisted, survives restart) instead of parking each task as failed. Fake-CLI tests use the exact EC2 output. Open: live EC2 re-test on the next real limit.
 
+- [ ] T-601 Owner desk: step-by-step HUMAN runbooks + ask Claude about selected text
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P0 (owner-requested 2026-11-01)
+  Goal: Worker Center shows every open [HUMAN] task as a runbook (what to do, how to check, what to do for each known error) with live status from server facts; the owner selects any runbook text (or a step) and asks Claude; the EC2 worker answers read-only between tasks with the existing subscription and the answer appears under the task (+ Telegram notice). Secrets are never requested and are scrubbed from questions.
+  DONE: every open HUMAN task has a runbook (CI-enforced), queue/auth/scrubbing tests, read-only worker CLI tests, EN/UK/RU UI strings, CI screenshots, and one live question answered on production.
+  Progress 2026-11-01: implemented in owner_desk.py, autopilot/owner_questions.py and the Worker Center; open: live question/answer on production after merge and worker restart.
+
 ## P1 / P2 — Owner UI and agent management batch (2026-10-30)
 Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independent safe Claude engineering tasks**, except where dependency is explicitly stated. Owner is currently using EC2; avoid unnecessary service restarts or credential changes. When T-590 is blocked awaiting PR/CI/owner Telegram, do not silently claim that these UI tasks are running; use a new verifiable task claim/branch and continue safe independent work as scheduler permits. No new paid API, no bypass, no direct main push.
 

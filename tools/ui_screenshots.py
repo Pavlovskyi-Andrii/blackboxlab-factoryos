@@ -33,6 +33,8 @@ SCENES = (
     ("build-progress", "T-595", "openBuildProgress()"),
     ("worker-center", "T-596", "openDelegationCenter()"),
     ("help-tip", "T-597", "(document.querySelector('.helpTip')||{click(){throw new Error('no .helpTip on page')}}).click()"),
+    ("owner-desk-ask", "owner desk", "(async () => { await openDelegationCenter(); "
+     "(document.querySelector('.odAskStep')||{click(){throw new Error('no owner desk on page')}}).click(); })()"),
 )
 
 

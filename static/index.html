@@ -604,7 +604,7 @@
 .taskCol,.lbCol,.lbLane,.lbItem{min-width:0;overflow-wrap:anywhere}
 .addTaskRow>*{min-width:0}
 @media(max-width:900px){.resizableDrawer,.resizableDrawer.maximized{width:100vw!important;max-width:none!important;left:0!important}.drawerGrip,.drawerMax{display:none!important}}
-</style></head>
+/* Owner desk: HUMAN-task runbooks + ask Claude about selected text */.odDesk{margin-bottom:12px;padding:12px;border:1px solid #2a5d86;border-radius:12px;background:linear-gradient(180deg,#0c2033,#081523);color:#c9d8e6;font-size:12px}.odHead h3{margin:0 0 4px;font-size:16px;color:#e8f3ff}.odHead p{margin:2px 0}.odBook{margin-top:8px;border:1px solid #1d3d58;border-radius:10px;background:#07121c}.odBook[data-state=todo]{border-color:#c98a2b}.odBook>summary{cursor:pointer;padding:9px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;list-style:none}.odBook>summary::-webkit-details-marker{display:none}.odBook>summary b{color:#78d9ff}.odDetail{flex-basis:100%;font-size:11px;color:#8fa6ba}.odState{font-style:normal;font-size:10px;padding:2px 7px;border-radius:999px;background:#152637;color:#91a7b9;margin-left:auto}.odState.done{background:#123724;color:#77e6a0}.odState.todo{background:#3a2a10;color:#ffc56b}.odState.blocked{background:#2a2235;color:#c3a8ff}.odBody{padding:0 12px 12px;line-height:1.5}.odSteps{padding-left:20px;margin:8px 0}.odStep{margin:10px 0}.odStep ul{margin:4px 0;padding-left:18px}.odStepTitle{color:#e8f3ff}.odCheck{margin-top:4px;color:#9fe0b8}.odIf{margin-top:4px;padding:6px 8px;border-left:3px solid #c98a2b;background:#1a150b}.odBranch{margin-top:3px}.odBranch span{color:#ffc56b}.odDone{margin-top:8px;color:#9fe0b8}.odAskStep{margin-top:6px;font-size:11px;padding:4px 9px;border-radius:8px;border:1px solid #2a5d86;background:#0c2033;color:#9fd6ff;cursor:pointer}.odQs{margin-top:10px;border-top:1px solid #1d3d58;padding-top:6px}.odQs h4{margin:4px 0}.odQ{margin:8px 0;padding:8px;border-radius:8px;background:#0b1a2a}.odQ blockquote{margin:0 0 4px;padding-left:8px;border-left:3px solid #2a5d86;color:#8fa6ba}.odA{margin-top:6px;padding:8px;border-radius:8px;background:#0e2a1d;color:#d6f5e3;white-space:pre-wrap}.odQ[data-status=failed] .odA{background:#2a1015}.odSelAsk{position:fixed;z-index:10001;padding:7px 12px;border-radius:999px;border:0;background:#1f7aff;color:#fff;font-weight:600;box-shadow:0 6px 18px #0009;cursor:pointer}.odComposer{position:fixed;z-index:10002;right:16px;bottom:16px;width:min(440px,calc(100vw - 32px));padding:12px;border-radius:12px;border:1px solid #2a5d86;background:#0a1826;color:#c9d8e6;box-shadow:0 12px 40px #000b}.odComposer blockquote{margin:6px 0;padding-left:8px;border-left:3px solid #2a5d86;color:#8fa6ba;max-height:120px;overflow:auto}.odComposer textarea{width:100%;min-height:90px;box-sizing:border-box;margin-top:6px;border-radius:8px;border:1px solid #2a5d86;background:#07121c;color:#e8f3ff;padding:8px;font:inherit}.odComposer .odRow{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}@media(max-width:700px){.odComposer{right:8px;left:8px;bottom:8px;width:auto}}</style></head>
 <body><button class="mobileNavToggle" id="mobileNavToggle" aria-label="Open navigation" aria-controls="appSideNav" aria-expanded="false" onclick="toggleMobileNav()">☰</button><div class="navBackdrop" id="navBackdrop" onclick="closeMobileNav()"></div><div class="shell">
 <aside class="side" id="appSideNav">
 <div class="brand"><div class="cube"></div><div><b>Blackbox Lab</b><small>FactoryOS <span class="version">v5.3</span></small></div></div>
@@ -2124,6 +2124,9 @@ Object.assign(I18N.ru,{"navMenu.open":"Развернуть меню с опис
 Object.assign(I18N.en,{"drawerCtl.resize":"Resize panel","drawerCtl.resizeHint":"Drag the edge, or use ←/→ (Shift for bigger steps) and Home/End; Enter maximizes","drawerCtl.maximize":"Maximize panel","drawerCtl.restore":"Restore panel size","drawerCtl.close":"Close panel","drawerCtl.width":"{px} px, {pct}% of the window"});
 Object.assign(I18N.uk,{"drawerCtl.resize":"Змінити ширину панелі","drawerCtl.resizeHint":"Перетягніть край або натисніть ←/→ (Shift — більший крок), Home/End; Enter — на весь екран","drawerCtl.maximize":"Розгорнути панель","drawerCtl.restore":"Відновити розмір панелі","drawerCtl.close":"Закрити панель","drawerCtl.width":"{px} пкс, {pct}% вікна"});
 Object.assign(I18N.ru,{"drawerCtl.resize":"Изменить ширину панели","drawerCtl.resizeHint":"Перетащите край или нажмите ←/→ (Shift — крупный шаг), Home/End; Enter — на весь экран","drawerCtl.maximize":"Развернуть панель","drawerCtl.restore":"Восстановить размер панели","drawerCtl.close":"Закрыть панель","drawerCtl.width":"{px} пкс, {pct}% окна"});
+Object.assign(I18N.en,{"od.title":"Your tasks","od.subtitle":"Step by step: what to do, how to check it, what to do if it fails. Select any text in a step and ask Claude about it.","od.ruOnly":"The step-by-step instructions are in Russian for now.","od.state.done":"Done","od.state.todo":"To do","od.state.blocked":"Waiting","od.state.optional":"Optional","od.state.info":"Check","od.state.unknown":"Unknown","od.time":"Time","od.requires":"after","od.check":"How to check","od.ifError":"If something goes wrong","od.askStep":"Ask about this step","od.done":"Done when","od.questions":"Questions and answers","od.you":"You","od.q.pending":"Waiting for Claude","od.q.answering":"Claude is answering…","od.q.failed":"No answer","od.ask":"Ask Claude","od.composerTitle":"Question to Claude","od.placeholder":"What exactly is unclear or what error do you see? Do not paste tokens or passwords.","od.send":"Send","od.cancel":"Cancel","od.sent":"Question sent. The answer appears here and Telegram notifies you.","od.latency":"The worker answers between its tasks, usually within minutes, sometimes up to an hour.","od.empty":"Write the question first."});
+Object.assign(I18N.uk,{"od.title":"Ваші задачі","od.subtitle":"Крок за кроком: що зробити, як перевірити, що робити, якщо не вийшло. Виділіть будь-який текст у кроці й запитайте Claude.","od.ruOnly":"Покрокові інструкції поки що російською.","od.state.done":"Готово","od.state.todo":"Зробити","od.state.blocked":"Чекає","od.state.optional":"Необов’язково","od.state.info":"Перевірити","od.state.unknown":"Невідомо","od.time":"Час","od.requires":"після","od.check":"Як перевірити","od.ifError":"Якщо щось пішло не так","od.askStep":"Запитати про цей крок","od.done":"Готово, коли","od.questions":"Питання та відповіді","od.you":"Ви","od.q.pending":"Чекає на Claude","od.q.answering":"Claude відповідає…","od.q.failed":"Немає відповіді","od.ask":"Запитати Claude","od.composerTitle":"Питання до Claude","od.placeholder":"Що саме незрозуміло або яку помилку ви бачите? Не вставляйте токени та паролі.","od.send":"Надіслати","od.cancel":"Скасувати","od.sent":"Питання надіслано. Відповідь з’явиться тут, Telegram повідомить.","od.latency":"Воркер відповідає між своїми задачами: зазвичай за кілька хвилин, інколи до години.","od.empty":"Спочатку напишіть питання."});
+Object.assign(I18N.ru,{"od.title":"Ваши задачи","od.subtitle":"Шаг за шагом: что сделать, как проверить, что делать, если не получилось. Выделите любой текст в шаге и спросите Claude.","od.ruOnly":"Пошаговые инструкции пока на русском.","od.state.done":"Готово","od.state.todo":"Сделать","od.state.blocked":"Ждёт","od.state.optional":"Необязательно","od.state.info":"Проверить","od.state.unknown":"Неизвестно","od.time":"Время","od.requires":"после","od.check":"Как проверить","od.ifError":"Если что-то пошло не так","od.askStep":"Спросить про этот шаг","od.done":"Готово, когда","od.questions":"Вопросы и ответы","od.you":"Вы","od.q.pending":"Ждёт Claude","od.q.answering":"Claude отвечает…","od.q.failed":"Нет ответа","od.ask":"Спросить Claude","od.composerTitle":"Вопрос к Claude","od.placeholder":"Что именно непонятно или какую ошибку вы видите? Не вставляйте токены и пароли.","od.send":"Отправить","od.cancel":"Отмена","od.sent":"Вопрос отправлен. Ответ появится здесь, Telegram сообщит.","od.latency":"Воркер отвечает между своими задачами: обычно за несколько минут, иногда до часа.","od.empty":"Сначала напишите вопрос."});
 function applyLanguage(){
  document.documentElement.lang=LANG;
  localStorage.setItem('factoryos_lang',LANG);
@@ -3253,7 +3256,56 @@ function renderDelegationCenter(board,opts){
 }
 // --- delegation-center:end
 let dcPollTimer=null,dcShowDone=false,dcOpenGroups={},dcLastBoard=null,dcSelected='';
-function dcRender(){const body=$('#dcBody');if(body&&dcLastBoard)body.innerHTML=(woLast?renderWorkerOverview(woLast):'')+(lbWorkersBoard?renderLaneBoard(lbWorkersBoard):'')+renderDelegationCenter(dcLastBoard,{showDone:dcShowDone,open:dcOpenGroups,selected:dcSelected})}
+let odLast=null,odSel=null,odSelTimer=0;const odOpen={};
+document.addEventListener('toggle',e=>{const t=e.target;if(t&&t.classList&&t.classList.contains('odBook'))odOpen[t.dataset.task]=t.open},true);
+function odBusy(){if(document.getElementById('odComposer'))return true;const s=window.getSelection?window.getSelection():null;if(!s||s.isCollapsed||!s.anchorNode)return false;const n=s.anchorNode,el=n.nodeType===1?n:n.parentElement;return !!(el&&el.closest&&el.closest('.odBody'))}
+const OD_STATES=['done','todo','blocked','optional','info'];
+function odText(t){return esc(t||'').replace(/\n/g,'<br>')}
+function odQuestion(q){const st=q.status||'pending';
+ return '<div class="odQ" data-status="'+esc(st)+'" data-qid="'+esc(q.id||'')+'">'+(q.quote?'<blockquote>'+odText(q.quote)+'</blockquote>':'')
+  +'<div><b>'+esc(tr('od.you'))+':</b> '+odText(q.question)+'</div>'
+  +(st==='answered'||st==='failed'?'<div class="odA"><b>Claude:</b> '+odText(q.answer)+'</div>':'<div class="dcNote">'+esc(tr(st==='answering'?'od.q.answering':'od.q.pending'))+'</div>')+'</div>'}
+function renderOwnerDesk(d){
+ if(!d||!d.runbooks)return '';
+ const qs=d.questions||[],rank={todo:0,info:1,blocked:2,unknown:3,optional:4,done:5};
+ const books=d.runbooks.slice().sort((a,b)=>(rank[(a.status||{}).state]??3)-(rank[(b.status||{}).state]??3));
+ let opened=false;
+ return '<section class="odDesk" data-panel="owner-desk"><div class="odHead"><h3>'+esc(tr('od.title'))+'</h3><p class="dcNote">'+esc(tr('od.subtitle'))+'</p>'
+  +(LANG!=='ru'?'<p class="dcNote">'+esc(tr('od.ruOnly'))+'</p>':'')+'<p class="dcNote">'+esc(tr('od.latency'))+'</p></div>'
+  +books.map(r=>{const status=r.status||{},st=OD_STATES.includes(status.state)?status.state:'unknown',open=r.id in odOpen?odOpen[r.id]:(!opened&&st==='todo');if(open)opened=true;
+   const rq=qs.filter(q=>q.task_id===r.id).slice().reverse();
+   return '<details class="odBook" data-task="'+esc(r.id)+'" data-state="'+st+'"'+(open?' open':'')+'><summary><b>'+esc(r.id)+'</b> '+esc(r.title)
+    +'<em class="odState '+st+'">'+esc(tr('od.state.'+st))+'</em>'+(status.detail?'<span class="odDetail">'+esc(status.detail)+'</span>':'')+'</summary>'
+    +'<div class="odBody" data-task="'+esc(r.id)+'"><p>'+esc(r.why||'')+'</p><p class="dcNote">'+esc(tr('od.time'))+': '+esc(r.time||'—')+(r.requires?' · '+esc(tr('od.requires'))+' '+esc(r.requires):'')+'</p>'
+    +'<ol class="odSteps">'+(r.steps||[]).map(s=>'<li class="odStep" data-step="'+esc(s.id)+'"><b class="odStepTitle">'+esc(s.title)+'</b><ul>'+(s.do||[]).map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>'
+     +'<div class="odCheck"><b>'+esc(tr('od.check'))+':</b> '+esc(s.check||'')+'</div>'
+     +((s.if||[]).length?'<div class="odIf"><b>'+esc(tr('od.ifError'))+':</b>'+(s.if||[]).map(b=>'<div class="odBranch"><span>'+esc(b.when)+'</span> → '+esc(b.then)+'</div>').join('')+'</div>':'')
+     +'<button type="button" class="odAskStep" data-ask-task="'+esc(r.id)+'" data-ask-step="'+esc(s.id)+'">'+esc(tr('od.askStep'))+'</button></li>').join('')+'</ol>'
+    +'<p class="odDone"><b>'+esc(tr('od.done'))+':</b> '+esc(r.done||'')+'</p>'
+    +(rq.length?'<div class="odQs"><h4>'+esc(tr('od.questions'))+'</h4>'+rq.map(odQuestion).join('')+'</div>':'')+'</div></details>'}).join('')+'</section>'}
+function odSelButton(){let b=document.getElementById('odSelAsk');if(!b){b=document.createElement('button');b.id='odSelAsk';b.type='button';b.className='odSelAsk';b.hidden=true;
+ b.addEventListener('mousedown',e=>e.preventDefault());b.addEventListener('click',()=>{if(odSel)odOpenComposer(odSel.task,odSel.step,odSel.quote);b.hidden=true});document.body.appendChild(b)}
+ b.textContent=tr('od.ask');return b}
+function odSelectionCheck(){const b=odSelButton(),sel=window.getSelection?window.getSelection():null;
+ if(!sel||sel.isCollapsed||!sel.rangeCount){b.hidden=true;return}
+ const text=sel.toString().trim(),n=sel.anchorNode,el=n&&(n.nodeType===1?n:n.parentElement),body=el&&el.closest?el.closest('.odBody'):null;
+ if(!text||!body){b.hidden=true;return}
+ const step=el.closest('.odStep'),rect=sel.getRangeAt(0).getBoundingClientRect();
+ odSel={task:body.dataset.task,step:step?step.dataset.step:'',quote:text.slice(0,800)};
+ b.style.top=Math.max(8,rect.top-44)+'px';b.style.left=Math.min(window.innerWidth-170,Math.max(8,rect.left))+'px';b.hidden=false}
+document.addEventListener('selectionchange',()=>{clearTimeout(odSelTimer);odSelTimer=setTimeout(odSelectionCheck,250)});
+document.addEventListener('click',e=>{const t=e.target&&e.target.closest?e.target.closest('[data-ask-task]'):null;if(!t)return;
+ const step=t.closest('.odStep'),title=step?step.querySelector('.odStepTitle'):null;odOpenComposer(t.dataset.askTask,t.dataset.askStep,title?title.textContent:'')});
+function odOpenComposer(task,step,quote){let c=document.getElementById('odComposer');if(c)c.remove();c=document.createElement('div');c.id='odComposer';c.className='odComposer';c.setAttribute('role','dialog');
+ c.innerHTML='<b>'+esc(tr('od.composerTitle'))+' · '+esc(task)+'</b>'+(quote?'<blockquote>'+odText(quote)+'</blockquote>':'')
+  +'<textarea id="odQuestion" maxlength="1500" placeholder="'+esc(tr('od.placeholder'))+'"></textarea>'
+  +'<div class="odRow"><button type="button" class="odAskStep" id="odCancel">'+esc(tr('od.cancel'))+'</button><button type="button" class="odAskStep" id="odSend">'+esc(tr('od.send'))+'</button></div>';
+ document.body.appendChild(c);const ta=c.querySelector('#odQuestion');ta.focus();
+ c.querySelector('#odCancel').onclick=()=>c.remove();
+ c.querySelector('#odSend').onclick=async()=>{const q=ta.value.trim();if(!q){toast(tr('od.empty'));return}
+  try{await api('/api/factory/owner-desk/questions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:task,step_id:step||'',quote:quote||'',question:q})});
+   c.remove();toast(tr('od.sent'));const s=window.getSelection&&window.getSelection();if(s)s.removeAllRanges();await refreshDelegationCenter()}catch(e){toast(e.message)}}}
+function dcRender(){if(odBusy())return;const body=$('#dcBody');if(body&&dcLastBoard)body.innerHTML=(odLast?renderOwnerDesk(odLast):'')+(woLast?renderWorkerOverview(woLast):'')+(lbWorkersBoard?renderLaneBoard(lbWorkersBoard):'')+renderDelegationCenter(dcLastBoard,{showDone:dcShowDone,open:dcOpenGroups,selected:dcSelected})}
 function dcSelectTask(id){dcSelected=id||'';dcRender()}
 function dcRememberToggle(el){if(el&&el.dataset.group)dcOpenGroups[el.dataset.group]=el.open}
 function dcRequestId(){return (window.crypto&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g,'').slice(0,64)}
@@ -3264,7 +3316,7 @@ async function dcControl(action,taskId){
 }
 function toggleDelegationDone(){dcShowDone=!dcShowDone;dcRender()}
 async function refreshDelegationCenter(){
- try{const [board,lanes,overview]=await Promise.all([api('/api/factory/delegation-board'),loadLaneBoard(),loadWorkerOverview()]);dcLastBoard=board;lbWorkersBoard=lanes;woLast=overview;dcRender()}
+ try{const [board,lanes,overview,desk]=await Promise.all([api('/api/factory/delegation-board'),loadLaneBoard(),loadWorkerOverview(),api('/api/factory/owner-desk').catch(()=>null)]);dcLastBoard=board;lbWorkersBoard=lanes;woLast=overview;odLast=desk;dcRender()}
  catch(e){const body=$('#dcBody');if(body)body.innerHTML='<div class="finding critical"><strong>'+esc(tr('dc.loadFailed'))+'</strong><span>'+esc(e.message)+'</span></div>'}
 }
 // --- lane-board:begin (T-599-F: pure renderer; lane state, task and stage come only from /api/factory/lane-board)

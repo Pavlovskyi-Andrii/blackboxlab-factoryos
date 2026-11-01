@@ -176,6 +176,11 @@ jobs:
         run: |
           python -m py_compile test_locale_parity.py
           python test_locale_parity.py
+      - name: Owner desk runbooks and question queue
+        run: |
+          python -m py_compile owner_desk.py test_owner_desk.py autopilot/owner_questions.py autopilot/test_owner_questions.py
+          python test_owner_desk.py
+          python -m autopilot.test_owner_questions
       - name: Delegation execution timeline regression
         env:
           FACTORY_PASSWORD: ""
