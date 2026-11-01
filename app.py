@@ -35,6 +35,7 @@ from connection_capabilities import ai_provider_catalog, worker_projection, vide
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
+from telegram_battles import BattleTelegram
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -878,7 +879,7 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes)
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}
@@ -11352,6 +11353,10 @@ async def battle_record_review(battle_id:str,request:Request):
     review,created=_battle_call(BATTLE_STORE.record_review,battle_id,body,get_role_operator_board(),who)
     if created:event(None,f"Battle review: {review['judge']['operator']} selected {review['selected_chain_id']} in {review['battle_id']}")
     return {"ok":True,"created":created,"review":review}
+
+# --- T-587 Telegram Battle controls: the paired owner chat views battles, candidate chains and factual metrics and
+# records only approve/reject owner decisions. Nothing here publishes or runs a provider.
+TELEGRAM_BATTLES=BattleTelegram(BATTLE_STORE,_battle_latest_snapshot)
 
 # --- T-536-F safe operator controls: owner -> FactoryOS -> Claude runner command channel.
 # Only these three actions exist. Nothing here can push, switch branches, deploy, publish or touch secrets;

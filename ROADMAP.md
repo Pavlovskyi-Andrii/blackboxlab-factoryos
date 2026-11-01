@@ -453,7 +453,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: extend the paired Telegram owner bridge with two operator buttons/lists for Claude and Gemini plus open tickets and current status.
   DONE: Telegram callback regression renders Claude/Gemini buttons, lists each operator's open tickets/status, and existing Relay ticket controls continue to work.
 
-- [ ] T-587 Telegram Battle controls
+- [x] T-587 Telegram Battle controls
   Owner: claude
   Planner: ChatGPT
   Depends: T-582,T-586

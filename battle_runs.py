@@ -60,7 +60,21 @@ CREATE TABLE IF NOT EXISTS battle_reviews(
   payload_json TEXT NOT NULL,
   UNIQUE(battle_id, judge_operator)
 );
+CREATE TABLE IF NOT EXISTS battle_owner_decisions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  battle_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  chain_id TEXT DEFAULT '',
+  decided_by TEXT DEFAULT '',
+  channel TEXT DEFAULT '',
+  decided_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_battle_owner_decisions ON battle_owner_decisions(battle_id, id);
 """
+
+# T-587 owner decisions: the only next actions an owner can take on a battle from a remote channel. Neither one
+# publishes, runs a provider, creates a job or changes a candidate; publication stays behind the normal approval gate.
+OWNER_ACTIONS = ("approve", "reject")
 
 # T-583 outcome metrics: (name, aggregation). Counts are summed and compared per measured item; rates are averaged
 # over the items that report them. A metric no linked item reports stays unavailable (None), never zero.
@@ -429,6 +443,53 @@ class BattleStore:
             except sqlite3.IntegrityError:
                 raise BattleError(409, f"{review['judge']['operator']} already reviewed this battle; reviews are immutable")
             return review, True
+        finally:
+            con.close()
+
+    def owner_decisions(self, battle_id):
+        con = self._connect()
+        try:
+            rows = con.execute("SELECT battle_id,action,chain_id,decided_by,channel,decided_at FROM battle_owner_decisions"
+                               " WHERE battle_id=? ORDER BY id", (str(battle_id or ""),)).fetchall()
+        finally:
+            con.close()
+        return [dict(r) for r in rows]
+
+    def record_owner_decision(self, battle_id, action, chain_id="", decided_by="", channel=""):
+        """T-587: owner approves one completed chain as the battle winner, or rejects the battle's candidates.
+
+        Append-only; the latest decision is current. Repeating the current decision (e.g. a replayed Telegram
+        callback) adds nothing. A decision never publishes: the approved candidate still needs the normal human
+        publish approval.
+        """
+        battle = self.get(battle_id)
+        action = str(action or "").strip().lower()
+        if action not in OWNER_ACTIONS:
+            raise BattleError(422, f"action must be one of {', '.join(OWNER_ACTIONS)}")
+        chain_id = str(chain_id or "").strip() if action == "approve" else ""
+        if action == "approve":
+            chain = next((c for c in battle["chains"] if c["chain_id"] == chain_id), None)
+            if not chain:
+                raise BattleError(404, "chain not found")
+            if chain["status"] != "completed":
+                raise BattleError(409, "only a completed chain can be approved")
+        con = self._connect()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute("SELECT action,chain_id FROM battle_owner_decisions WHERE battle_id=? ORDER BY id DESC LIMIT 1",
+                              (battle["battle_id"],)).fetchone()
+            if row and row["action"] == action and row["chain_id"] == chain_id:
+                con.rollback()
+                return self.owner_decisions(battle["battle_id"])[-1], False
+            decision = {"battle_id": battle["battle_id"], "action": action, "chain_id": chain_id,
+                        "decided_by": _clean(decided_by, 120), "channel": _clean(channel, 40), "decided_at": _now()}
+            con.execute("INSERT INTO battle_owner_decisions(battle_id,action,chain_id,decided_by,channel,decided_at)"
+                        " VALUES(:battle_id,:action,:chain_id,:decided_by,:channel,:decided_at)", decision)
+            con.commit()
+            return decision, True
+        except Exception:
+            con.rollback()
+            raise
         finally:
             con.close()
 

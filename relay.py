@@ -825,6 +825,7 @@ def _relay_keyboard() -> dict:
         [{"text": "🔗 GitHub / CI", "callback_data": "relay:overview:github"},
          {"text": "🧠 Воркеры", "callback_data": "relay:overview:workers"}],
         _operator_buttons(),
+        [{"text": "⚔️ Battles", "callback_data": "battle:list"}],
     ]}
 
 def _telegram_attachment(message: dict) -> dict:
@@ -884,6 +885,7 @@ def relay_handle_telegram_update(
     queue=None,
     lane_board_provider: Optional[Callable[[], dict]] = None,
     operator_lanes_provider: Optional[Callable[[], list]] = None,
+    battle_controls=None,
 ) -> Optional[dict]:
     """Handle Relay-specific Telegram traffic.
 
@@ -894,6 +896,9 @@ def relay_handle_telegram_update(
     ``operator_lanes_provider`` (T-586) returns the T-585 delegation ``operator_lanes`` list; when it
     is given, the Claude/Gemini buttons render those lanes (status + open tickets) instead of the
     legacy heartbeat map from ``operator_status_provider``.
+
+    ``battle_controls`` (T-587) is a ``telegram_battles.BattleTelegram``: ``battle:*`` callbacks and
+    ``/battles`` / ``/battle <id>`` show Battle Runs and record only the safe owner approve/reject decision.
     """
     if not isinstance(update, dict):
         return None
@@ -910,6 +915,11 @@ def relay_handle_telegram_update(
         data = str(callback.get("data") or "")
         callback_id = str(callback.get("id") or "")
         lang = telegram_lang((callback.get("from") or {}).get("language_code"))
+        if data.startswith("battle:"):
+            if battle_controls is None:
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Battle Runs не подключены"})
+                return {"handled": True}
+            return battle_controls.callback(data, chat_id, callback_id, telegram_api)
         if data.startswith("relay:overview:"):
             action = data.split(":")[-1]
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
@@ -1055,6 +1065,8 @@ def relay_handle_telegram_update(
         head = "Issue поставлен в очередь Claude (ещё не запущен).\n\n" if created else "Issue уже связан с тикетом; повторно не ставлю.\n\n"
         telegram_api("sendMessage", {"chat_id": chat_id, "text": head + _ticket_card(ticket), "reply_markup": _ticket_keyboard(ticket["id"])})
         return {"handled": True, "action": "issue_intake", "ticket_id": ticket["id"], "created": created}
+    if command in ("/battles", "/battle") and battle_controls is not None:
+        return battle_controls.command(command, text, chat_id, telegram_api)
     if command in ("/operators","/workers"):
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _operators_text(operator_status_provider, operator_lanes_provider), "reply_markup": _operator_keyboard()})
         return {"handled": True, "action": "operators"}
@@ -1087,7 +1099,7 @@ def relay_handle_telegram_update(
 
     explicit_new = command == "/new"
     if command and not explicit_new:
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": "Команды: /status /tasks /task R-0001 /history /github /issue 41 /new ЗАДАЧА"})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": "Команды: /status /tasks /task R-0001 /history /github /issue 41 /battles /new ЗАДАЧА"})
         return {"handled": True, "action": "help"}
     if explicit_new:
         parts = text.split(maxsplit=1)
