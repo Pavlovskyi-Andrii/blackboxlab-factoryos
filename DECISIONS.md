@@ -460,3 +460,12 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - The reset time is taken from the CLI text only when it is an unambiguous clock time (`6pm (UTC)`, `18:00 (Europe/Kyiv)`); +120 s grace. Dated or weekly resets and unknown zones fall back to `AUTOPILOT_LIMIT_BACKOFF_SECONDS` (default 1800, clamped 300–21600). One quick failed call per back-off window is the accepted cost.
 - Only a charset-restricted reset hint (max 40 chars) leaves the evidence; the raw CLI text stays in redacted local evidence.
 - Not covered: a limit hit inside a Relay ticket run (`relay_tasks.run_one`) does not set the hold itself; the next roadmap run detects it.
+
+## T-601 Owner desk (2026-11-01)
+- Runbooks are static, reviewed data in `owner_desk.py`, not generated per request: the owner must get the same instructions every time, and CI can check them (`test_owner_desk.py` fails if an open `[HUMAN]` ROADMAP task has no runbook). Russian only for now (owner's working language); the UI chrome is EN/UK/RU and says so.
+- Live status comes only from facts the server already holds (Telegram pairing state, selected/configured publisher adapter, `BUILD_SHA`); nothing calls a provider. T-598-H2 is marked "useless for now" because `ec2_api` is hard-coded `unknown` in `worker_observability.py` — granting the IAM right would change nothing.
+- Answers come from the existing EC2 Claude worker (subscription, no API key), between tasks, so there is never a second concurrent Claude process. Latency is minutes, up to the length of a running task (≤1 h); the UI says so. The worker CLI gets only Read/Grep/Glob and an 8-turn / 300 s budget. A subscription limit requeues the question and starts the T-600 queue hold.
+- Questions are scrubbed twice: pattern-based (Telegram bot token, Anthropic/GitHub/AWS keys, `token=…`) inside `owner_desk`, then the app's known-secret redaction. Reason: an owner may paste a brand-new BotFather token that the server does not know yet.
+- Store is a JSON file in `DATA_DIR` with a 15-minute claim lease (a crashed worker cannot strand a question), max 20 open and 200 kept questions.
+- The Worker Center poll does not re-render while text is selected inside a runbook or the question box is open, and remembers which runbooks are expanded; otherwise the periodic refresh would close the runbook and drop the selection mid-question.
+- Raw CLI error text never reaches the owner page: a failed answer shows a fixed message.

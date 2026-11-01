@@ -29,6 +29,7 @@ from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from worker_observability import build_worker_overview, sanitize_supervisor
 from relay_pairing import create_pairing, valid_pairing, pairing_status
+from owner_desk import QuestionStore, install_owner_desk_routes
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 
 BASE = Path(__file__).resolve().parent
@@ -576,6 +577,37 @@ class TelegramBridgeNotify(BaseModel):
 
 
 install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send)
+
+def _owner_desk_status():
+    """Live facts for the owner runbooks; never calls a provider."""
+    out={}
+    tg=_telegram_public_status()
+    if tg.get("paired"):
+        out["T-506"]={"state":"done","detail":"Telegram привязан"+(f" (@{tg['bot_username']})" if tg.get("bot_username") else "")}
+    elif tg.get("configured"):
+        out["T-506"]={"state":"todo","detail":"Бот настроен, чат владельца ещё не привязан"}
+    else:
+        out["T-506"]={"state":"todo","detail":"Токен бота ещё не добавлен в Render"}
+    out["T-590-H"]={"state":"info","detail":f"Сейчас на проде: {BUILD_SHA[:12]}"}
+    reg=get_publisher_adapter_registry()
+    metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
+    if reg.get("selected")=="metricool" and metricool.get("configured"):
+        out["T-520"]={"state":"done","detail":"Metricool настроен"+("" if metricool.get("youtube_audience_configured") else "; не задан FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS")}
+    elif reg.get("selected")=="metricool":
+        out["T-520"]={"state":"todo","detail":"metricool выбран, но не настроен (не хватает TOKEN / USER_ID / BLOG_ID)"}
+    else:
+        out["T-520"]={"state":"todo","detail":f"Сейчас выбран {reg.get('selected') or 'manual'}"}
+    out["T-521"]={"state":"todo","detail":"Можно начинать"} if out["T-520"]["state"]=="done" else {"state":"blocked","detail":"Ждёт T-520"}
+    out["T-551"]={"state":"blocked","detail":"Ждёт T-552 (адреса возврата OAuth)"}
+    out["T-598-H1"]={"state":"optional","detail":"Рекомендую не делать"}
+    out["T-598-H2"]={"state":"optional","detail":"Пока бесполезно: код ещё не использует это право"}
+    return out
+
+OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
+install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
+                          status_fn=_owner_desk_status,
+                          redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
+                          notify_owner=_telegram_send)
 
 
 @app.middleware("http")
