@@ -81,7 +81,8 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
   Progress 2026-10-30: first live claimed runs on EC2 blocked because the agent's Python lived in /tmp/fos-venv (wiped on reboot) and headless `claude -p` denied python3. Delegation now keeps a persistent gitignored `<repo>/.venv` rebuilt only when requirements.txt changes, puts it first on PATH, and pre-allows the CLAUDE.md verification loop (Read/Edit/Write, python, node --check, local git add/commit) while push/deploy stay disallowed.
 
-- [ ] T-600 Fail-closed Claude CLI error diagnostics / retry classification
+- [x] T-600 Fail-closed Claude CLI error diagnostics / retry classification
+  Live EC2 re-test 2026-11-01: at 12:01 UTC T-551-A hit `usage_limit_reached` ("resets 4:20pm (UTC)"); the worker held the whole queue (no task parked or failed) and resumed T-551-A at 16:22 UTC (reset + 120 s grace).
   Owner: claude-session (implemented by the interactive Claude session in PR #81; was `chatgpt`)
   Priority: P0 support fix (owner-requested 2026-10-31, independent of Claude-owned T-562)
   Depends: T-537
