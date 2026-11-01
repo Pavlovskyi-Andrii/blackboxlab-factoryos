@@ -12,12 +12,14 @@ try:
     from .notify import send, wait_answer
     from . import control
     from . import relay_tasks
+    from . import owner_questions
 except ImportError:
     from delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
     import control
     import relay_tasks
+    import owner_questions
 
 def _default_repo() -> pathlib.Path:
     """AUTOPILOT_REPO wins; otherwise the container path; otherwise this checkout (EC2/phone runs)."""
@@ -394,6 +396,13 @@ def main() -> int:
     def persist() -> None:
         save_parking(blocked, failed_hold, failures_task, failures, limit_until)
 
+    def hold_for_limit(hint: str) -> str:
+        nonlocal limit_until
+        reset_at = limit_reset_epoch(hint, time.time())
+        limit_until = (reset_at + LIMIT_GRACE_SECONDS) if reset_at else time.time() + LIMIT_BACKOFF_SECONDS
+        persist()
+        return limit_notice(limit_until)
+
     # Tasks the server refused to hand us (another lane/run owns them): retry after a pause.
     deferred: dict[str, float] = {}
     last_idle_notice = ""
@@ -461,6 +470,16 @@ def main() -> int:
             limit_until = 0.0
             persist()
             send("▶️ Claude subscription limit window has passed; the queue resumes.")
+
+        # Owner desk questions are short and read-only, so they go before any long task.
+        asked, hint = owner_questions.answer_one(REPO)
+        if asked == "limit":
+            notice = hold_for_limit(hint)
+            write_runtime_status("idle", summary=notice)
+            send(notice)
+            continue
+        if asked in ("answered", "failed"):
+            continue
 
         # Relay owner tickets have priority over ordinary roadmap work. This is
         # an actual claim + bounded Claude CLI invocation, not a UI status flip.
@@ -545,10 +564,7 @@ def main() -> int:
 
         if status.get("error_category") == "subscription_limit":
             # Not the task's fault: no attempt counted, nothing parked; the next task would hit the same wall.
-            reset_at = limit_reset_epoch(str(status.get("limit_resets") or ""), time.time())
-            limit_until = (reset_at + LIMIT_GRACE_SECONDS) if reset_at else time.time() + LIMIT_BACKOFF_SECONDS
-            persist()
-            notice = limit_notice(limit_until)
+            notice = hold_for_limit(str(status.get("limit_resets") or ""))
             report("blocked", f"{target['id']}: not run — {notice}", evidence)
             write_runtime_status("idle", task=target["id"], summary=notice)
             send(notice)
