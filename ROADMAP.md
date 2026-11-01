@@ -446,7 +446,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: generalize the current Claude-only delegation board into operator lanes (Claude, Gemini, ChatGPT) showing open ticket, stage, branch/runtime, heartbeat, last result and queue depth.
   DONE: API/UI renders at least Claude and Gemini lanes; offline/unconfigured Gemini is explicit; secrets are never returned.
 
-- [ ] T-586 Telegram operator lanes
+- [x] T-586 Telegram operator lanes
   Owner: claude
   Planner: ChatGPT
   Depends: T-585

@@ -279,16 +279,22 @@ def _owner_guard(request: Request, request_identity: Callable) -> dict:
     return identity
 
 
-def _operator_keyboard() -> dict:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "🟠 Claude", "callback_data": "relay:operator:claude"},
-                {"text": "🔵 Gemini", "callback_data": "relay:operator:gemini"},
-            ],
-            [{"text": "📋 Все открытые тикеты", "callback_data": "relay:list:active"}],
-        ]
-    }
+def _operator_buttons() -> list:
+    return [
+        {"text": "🟠 Claude", "callback_data": "relay:operator:claude"},
+        {"text": "🔵 Gemini", "callback_data": "relay:operator:gemini"},
+    ]
+
+
+def _operator_keyboard(lane: Optional[dict] = None) -> dict:
+    rows = [_operator_buttons()]
+    # T-586: one button per open Relay ticket of this operator; it opens the normal ticket card + controls.
+    relay_ids = [str(t.get("id") or "") for t in ((lane or {}).get("open_tickets") or []) if isinstance(t, dict)]
+    relay_ids = [x for x in relay_ids if re.fullmatch(r"R-\d{4,8}", x)][:OPERATOR_TICKET_BUTTONS]
+    for i in range(0, len(relay_ids), 2):
+        rows.append([{"text": "📡 " + x, "callback_data": "relay:ticket:" + x} for x in relay_ids[i:i + 2]])
+    rows.append([{"text": "📋 Все открытые тикеты", "callback_data": "relay:list:active"}])
+    return {"inline_keyboard": rows}
 
 
 def _ticket_keyboard(ticket_id: str) -> dict:
@@ -408,6 +414,92 @@ def _operator_lane_text(name: str, provider: Optional[Callable[[], dict]]) -> st
     return "\n".join(lines)
 
 
+OPERATOR_TICKET_BUTTONS = 6
+_OPERATOR_LABELS = {"claude": "🟠 Claude", "gemini": "🔵 Gemini"}
+_AVAILABILITY_TEXT = {
+    "online": "🟢 online",
+    "stale": "🟡 stale (heartbeat просрочен)",
+    "offline": "⚪ offline",
+    "unconfigured": "⛔ не настроен — runner ни разу не отчитывался",
+}
+
+
+def _t585_lanes(provider: Optional[Callable[[], list]]) -> Optional[dict]:
+    """T-586: operator -> T-585 delegation lane; None when the provider is absent or failed."""
+    if provider is None:
+        return None
+    try:
+        lanes = provider() or []
+    except Exception:
+        return None
+    return {str(x.get("operator_id") or ""): x for x in lanes if isinstance(x, dict)}
+
+
+def _t585_status_line(lane: dict) -> str:
+    availability = str(lane.get("availability") or "unconfigured")
+    text = _AVAILABILITY_TEXT.get(availability, "⚪ " + availability)
+    ticket = lane.get("open_ticket") or {}
+    if ticket.get("id"):
+        text += " · тикет " + str(ticket["id"])[:80] + (" · " + str(ticket.get("stage"))[:40] if ticket.get("stage") else "")
+    count = len(lane.get("open_tickets") or [])
+    return text + " · открытых: " + str(count)
+
+
+def _t585_lane_text(name: str, lane: Optional[dict]) -> str:
+    """One operator lane from the T-585 delegation board: status, current ticket, open tickets, last result."""
+    label = _OPERATOR_LABELS.get(name, name.title())
+    if not isinstance(lane, dict):
+        return f"{label}\n\nСтатус: {_AVAILABILITY_TEXT['unconfigured']}\nОткрытых тикетов нет."
+    lines = [label, "Статус: " + _AVAILABILITY_TEXT.get(str(lane.get("availability") or ""), "⚪ " + str(lane.get("availability") or "unknown"))]
+    beat = lane.get("heartbeat") or {}
+    if beat.get("age_seconds") is not None:
+        lines.append("Heartbeat: " + str(int(float(beat["age_seconds"]))) + " сек назад (" + str(beat.get("source") or "?") + ")")
+    else:
+        lines.append("Heartbeat: нет данных")
+    ticket = lane.get("open_ticket") or {}
+    if ticket.get("id"):
+        parts = [str(ticket["id"])[:80], str(ticket.get("stage") or "")[:40], str(ticket.get("title") or "")[:100]]
+        lines.append("Текущий тикет: " + " · ".join(p for p in parts if p) + " (" + str(ticket.get("source") or "?") + ")")
+    else:
+        lines.append("Текущий тикет: нет подтверждённой работы")
+    branch = str(lane.get("branch") or "").strip()
+    runtime = str(lane.get("runtime") or "").strip()
+    if branch or runtime:
+        lines.append("Ветка: " + (branch or "неизвестно") + (" · runtime: " + runtime if runtime else ""))
+    queue = lane.get("queue_depth")
+    lines.append("Очередь: " + (str(queue) + " (" + str(lane.get("queue_depth_source") or "?") + ")" if queue is not None else "неизвестно"))
+    tickets = [t for t in (lane.get("open_tickets") or []) if isinstance(t, dict)]
+    lines.append("")
+    if tickets:
+        lines.append(f"Открытые тикеты ({len(tickets)}):")
+        for t in tickets[:10]:
+            parts = [str(t.get("id") or "")[:80], str(t.get("title") or "")[:90], str(t.get("state") or "")[:40]]
+            lines.append("• " + " · ".join(p for p in parts if p))
+        if len(tickets) > 10:
+            lines.append(f"… ещё {len(tickets) - 10}")
+    else:
+        lines.append("Открытых тикетов нет.")
+    waiting = [str(x) for x in (lane.get("assigned_not_claimed") or [])]
+    if waiting:
+        lines.append("Назначено, не взято: " + ", ".join(waiting[:8]))
+    last = lane.get("last_result") or {}
+    if last.get("summary") or last.get("result"):
+        head = " · ".join(str(x) for x in (last.get("result"), last.get("task_id")) if x)
+        lines.extend(["", "Последний результат: " + (head + " — " if head else "") + str(last.get("summary") or "")[:400]])
+    if lane.get("last_error"):
+        lines.append("Ошибка: " + str(lane["last_error"])[:200])
+    return "\n".join(lines)[:3900]
+
+
+def _t585_overview_text(lanes: dict) -> str:
+    rows = ["🧠 FactoryOS Operators"]
+    for key, label in _OPERATOR_LABELS.items():
+        lane = lanes.get(key)
+        rows.append(label + ": " + (_t585_status_line(lane) if isinstance(lane, dict) else _AVAILABILITY_TEXT["unconfigured"]))
+    rows.append("ChatGPT: Planner, нет runner-телеметрии")
+    return "\n".join(rows)
+
+
 def _operators_overview_text(provider: Optional[Callable[[], dict]]) -> str:
     if provider is None:
         return "🧠 Operators\n\nClaude: статус не подключён\nGemini: статус не подключён"
@@ -422,6 +514,15 @@ def _operators_overview_text(provider: Optional[Callable[[], dict]]) -> str:
         state=str(lane.get("state") or ("online" if online else "offline"))
         rows.append(f"{label}: {'🟢 online' if online else '⚪ '+state}{_lane_task_suffix(lane)}")
     return "\n".join(rows)
+
+
+def _operators_text(provider: Optional[Callable[[], dict]], lanes_provider: Optional[Callable[[], list]]) -> str:
+    if lanes_provider is None:
+        return _operators_overview_text(provider)
+    lanes = _t585_lanes(lanes_provider)
+    if lanes is None:
+        return "🧠 Operators\n\n⚠️ Статус линий недоступен; состояние неизвестно."
+    return _t585_overview_text(lanes)
 
 
 
@@ -723,6 +824,7 @@ def _relay_keyboard() -> dict:
          {"text": "🕘 История", "callback_data": "relay:overview:history"}],
         [{"text": "🔗 GitHub / CI", "callback_data": "relay:overview:github"},
          {"text": "🧠 Воркеры", "callback_data": "relay:overview:workers"}],
+        _operator_buttons(),
     ]}
 
 def _telegram_attachment(message: dict) -> dict:
@@ -781,12 +883,17 @@ def relay_handle_telegram_update(
     github_provider: Optional[Callable[[], dict]] = None,
     queue=None,
     lane_board_provider: Optional[Callable[[], dict]] = None,
+    operator_lanes_provider: Optional[Callable[[], list]] = None,
 ) -> Optional[dict]:
     """Handle Relay-specific Telegram traffic.
 
     Returns {"handled": True, ...} when app.py should stop processing the update.
     For ordinary text messages it creates a Relay ticket but returns handled=False
     so the legacy bridge inbox still receives the text for agent-side processing.
+
+    ``operator_lanes_provider`` (T-586) returns the T-585 delegation ``operator_lanes`` list; when it
+    is given, the Claude/Gemini buttons render those lanes (status + open tickets) instead of the
+    legacy heartbeat map from ``operator_status_provider``.
     """
     if not isinstance(update, dict):
         return None
@@ -813,7 +920,7 @@ def relay_handle_telegram_update(
             elif action == "github":
                 value = _github_text(github_provider() if github_provider else {"available": False})
             elif action == "workers":
-                value = _operators_overview_text(operator_status_provider)
+                value = _operators_text(operator_status_provider, operator_lanes_provider)
             else:
                 return {"handled": True}
             telegram_api("sendMessage", {"chat_id": chat_id, "text": value, "reply_markup": _relay_keyboard()})
@@ -826,12 +933,26 @@ def relay_handle_telegram_update(
         if match_operator:
             name=match_operator.group(1)
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": name.title()})
-            telegram_api("sendMessage", {
-                "chat_id": chat_id,
-                "text": _operator_lane_text(name,operator_status_provider),
-                "reply_markup": _operator_keyboard(),
-            })
+            lanes=_t585_lanes(operator_lanes_provider)
+            if lanes is not None:
+                text, keyboard = _t585_lane_text(name, lanes.get(name)), _operator_keyboard(lanes.get(name))
+            elif operator_lanes_provider is not None:
+                text, keyboard = f"{_OPERATOR_LABELS[name]}\n\n⚠️ Статус линии недоступен; состояние неизвестно.", _operator_keyboard()
+            else:
+                text, keyboard = _operator_lane_text(name,operator_status_provider), _operator_keyboard()
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": text, "reply_markup": keyboard})
             return {"handled": True, "action": "operator", "operator": name}
+        match_ticket = re.fullmatch(r"relay:ticket:(R-\d{4,8})", data)
+        if match_ticket:
+            ticket_id = match_ticket.group(1)
+            ticket = store.get(ticket_id)
+            if not ticket:
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Тикет не найден"})
+                return {"handled": True}
+            telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": _ticket_card(queue.view(ticket) if queue else ticket),
+                                         "reply_markup": _ticket_keyboard(ticket_id)})
+            return {"handled": True, "action": "ticket", "ticket_id": ticket_id}
         match = re.fullmatch(r"relay:status:(R-\d{4,8}):(inbox|in_progress|need_you|done|archived)", data)
         if match:
             ticket_id, status = match.group(1), match.group(2)
@@ -935,7 +1056,7 @@ def relay_handle_telegram_update(
         telegram_api("sendMessage", {"chat_id": chat_id, "text": head + _ticket_card(ticket), "reply_markup": _ticket_keyboard(ticket["id"])})
         return {"handled": True, "action": "issue_intake", "ticket_id": ticket["id"], "created": created}
     if command in ("/operators","/workers"):
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _operators_overview_text(operator_status_provider), "reply_markup": _operator_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _operators_text(operator_status_provider, operator_lanes_provider), "reply_markup": _operator_keyboard()})
         return {"handled": True, "action": "operators"}
 
     command_status = {

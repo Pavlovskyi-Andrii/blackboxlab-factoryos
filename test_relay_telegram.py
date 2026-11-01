@@ -119,5 +119,17 @@ class TestRelayTelegram(unittest.TestCase):
         self.assertEqual(result["commits"][0]["message"], "Implement Relay")
 
 
+class TestTelegramOperatorLanes(unittest.TestCase):
+    """T-586: rides this existing CI step (worker token lacks `workflow` scope)."""
+
+    def test_operator_lane_callbacks(self):
+        import test_telegram_operator_lanes as t586
+        t586.pure_checks()
+
+    def test_webhook_operator_lanes(self):
+        import test_telegram_operator_lanes as t586
+        t586.app_checks()
+
+
 if __name__ == "__main__":
     unittest.main()
