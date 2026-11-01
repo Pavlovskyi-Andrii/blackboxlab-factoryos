@@ -53,6 +53,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Remaining (needs owner/GitHub access): open PR autopilot/aws-worker → main and confirm CI green; merge + confirm Render deployed SHA; HUMAN T-506 pairing, then live `/new` test message → claim → run_id → `/task` trace; post redacted evidence to Issue #41.
   Progress (2026-10-31, acceptance run): all deterministic stages re-verified on the EC2 worker. Fixed the Python 3.9 import failure in `app.py`/`media_finisher_worker/app.py`, so smoke + planner now run on the worker, with no app-level skips. Live stages are still open: PR/CI/merge/`build_sha`/Telegram/Issue #41. Exact steps: `docs/handoff/T-590_ACCEPTANCE.md`.
   Re-check (2026-10-31, run-20261031162233-a7b938): deterministic stages green again at `62ffd5e`. The branch is still 10 commits ahead of main (not merged), and the live stages remain blocked on GitHub access plus HUMAN T-506.
+  Re-check (2026-11-01): `autopilot/aws-worker` == `origin/main` == `c2879b9`, so the T-590 slice is merged into main. Deterministic stages are green again (smoke, planner, relay 74, telegram 9, token binding, delegation, autopilot). This run was denied network/`gh`/`curl`, so CI on `c2879b9`, Render `build_sha`, Telegram pairing (HUMAN T-506), the live `/new` trace and the Issue #41 evidence are still unverified.
 
 - [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
   Owner: claude

@@ -375,6 +375,10 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - The headless allow rule `Bash(env DATA_DIR=:*)` did not match in this run: every `env DATA_DIR=… python …` command was denied. The checks were run as `python -c` with `os.environ.update(...)` and `runpy`, which is the same test command with the same env. Fixing the rule is T-593 scope and is not changed here.
 - T-590 stays unchecked. The remaining DONE stages (PR, CI, merge, Render `build_sha`, paired Telegram live trace, Issue #41 comment) need GitHub/network access and HUMAN T-506. The delegated agent has neither. Stage-by-stage evidence and the exact steps are in `docs/handoff/T-590_ACCEPTANCE.md`.
 
+## T-590 re-check (2026-11-01)
+- T-590 stays unchecked. The slice is now on main (`autopilot/aws-worker` == `origin/main` == `c2879b9`), and the deterministic stages are green. The DONE criterion still needs CI, the deployed `build_sha`, a paired owner chat (HUMAN T-506), a live trace and Issue #41 evidence. This run was denied network/`gh`, so none of them could be observed, and a merge alone does not count as DONE.
+- The unrelated uncommitted `app.py`/`static/index.html`/`browser_runner/observability.py` work in the tree was left untouched and was not committed.
+
 ## T-590 re-check (2026-10-31, run-20261031162233-a7b938)
 - T-590 stays unchecked, for the same reason as the run above: no new live evidence exists, and the T-590/T-599 commits are not on `origin/main` yet.
 - The CLAUDE.md planner command without `FINISHER_DATA_DIR` fails on the worker, because `/var/data` is not writable. The run used CI's `FINISHER_DATA_DIR=/tmp/factoryos-finisher-ci`, so this is an environment fact, not a code change.

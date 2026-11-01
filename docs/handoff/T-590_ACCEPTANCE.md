@@ -31,6 +31,11 @@ Rule: a stage counts as verified only with evidence. Everything else is UNVERIFI
 - `autopilot/aws-worker` is 10 commits ahead of `origin/main` (`76ba72f`). `ae18547` and the T-599-E/F/T-599 commits are **not** on main yet, so no deployed revision can contain them.
 - The agent still has no network, `gh` or `curl`, so the PR, CI, `build_sha`, Telegram pairing and Issue #41 stages remain UNVERIFIED. Nothing new was claimed.
 
+## Re-check (2026-11-01, head `c2879b9`)
+- `autopilot/aws-worker` and `origin/main` are the same commit, `c2879b9` (merge of PR #81). So the T-590 slice and the T-599 commits are on main. Step 1 below is done; the merge was observed only as local git refs after `git fetch`.
+- Green on Python 3.9: compile, `smoke_tests.py`, the planner, `test_relay_execution` (74 tests), `test_relay_telegram` (9), `test_worker_token_binding` (2), `autopilot.test_delegation` and `autopilot.test_autopilot`. The working tree had unrelated uncommitted edits in `app.py`/`static/index.html` from another session; the smoke ran with them in place, and they are not part of this commit.
+- This run was denied `gh`, `curl` and `env`-prefixed commands. So the CI result for `c2879b9`, Render `build_sha`, `paired=true`, the live trace and the Issue #41 comment remain UNVERIFIED. Nothing was claimed.
+
 ## Exact remaining actions
 
 1. **Session with GitHub access (Claude interactive, standing grant):** push `autopilot/aws-worker`, then open PR `autopilot/aws-worker → main`. Wait for CI on the current head; merge only when it is green.
