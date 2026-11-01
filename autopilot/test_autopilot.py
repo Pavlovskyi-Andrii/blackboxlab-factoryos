@@ -139,6 +139,7 @@ def dependency_and_owner_regression():
     follow_main_regression()
     restart_survival_regression()
     git_timeout_regression()
+    subscription_limit_regression()
     milestone_report_regression()
 
 
@@ -403,7 +404,7 @@ def restart_survival_regression():
     saved_answers = ap.ANSWERS
     try:
         ap.ANSWERS = path.parent / "answers.md"
-        assert ap.load_parking() == {"blocked": {}, "failed": set(), "failures_task": "", "failures": 0}
+        assert ap.load_parking() == {"blocked": {}, "failed": set(), "failures_task": "", "failures": 0, "limit_until": 0.0}
     finally:
         ap.ANSWERS = saved_answers
     print("Autopilot restart survival tests passed")
@@ -429,6 +430,99 @@ def git_timeout_regression():
     network = [s for s in seen if s[0][1] in {"pull", "fetch", "push"}]
     assert network and all(t == ap.GIT_NET_TIMEOUT and prompt == "0" for _, t, prompt in network), seen
     print("Autopilot git timeout tests passed")
+
+
+def subscription_limit_regression():
+    # T-600: an account-wide limit pauses the whole queue until the reset instead of burning and
+    # parking one task after another (2026-10-31: 13 tasks parked in 20 minutes).
+    path = write_roadmap(
+        "# Roadmap\n\n## v5\n- [ ] T-060 First\n  Owner: claude\n- [ ] T-061 Second\n  Owner: claude\n"
+    )
+    clock = {"now": 1793466900.0}  # 2026-10-31 17:15 UTC
+    calls, sent = [], []
+    limited = {"status": "blocked", "error_category": "subscription_limit", "limit_resets": "6pm (UTC)",
+               "summary": "Claude subscription usage limit reached; resets 6pm (UTC)."}
+
+    def fake_agent(target):
+        calls.append((target["id"], clock["now"]))
+        if len(calls) == 1:
+            return dict(limited, task=target["id"])
+        text = path.read_text(encoding="utf-8").replace(f"- [ ] {target['id']}", f"- [x] {target['id']}")
+        path.write_text(text, encoding="utf-8")
+        return {"task": target["id"], "status": "done", "summary": "ok"}
+
+    def fake_sleep(seconds):
+        clock["now"] += seconds
+        if clock["now"] > 1793466900.0 + 3 * 3600:
+            raise _StopLoop
+
+    patches = {
+        "ROADMAP": path, "ANSWERS": path.parent / "answers.md", "DAEMON_MODE": True, "ALLOW_UNCLAIMED": True,
+        "OPERATOR": "claude", "RELAY_ONLY": False,
+        "assert_safe_branch": lambda: "autopilot/test", "current_branch": lambda: "autopilot/test",
+        "sync_branch": lambda _b: "", "commits_ahead": lambda _b: 0, "push_branch": lambda _b: True,
+        "poll_control": lambda *a, **k: {"paused": False, "retry": "", "acks": []},
+        "run_agent": fake_agent, "send": sent.append, "write_runtime_status": lambda *a, **k: None,
+        "done_status_is_consistent": lambda status, target, path=None: True,
+        "git_head": lambda: "c" * 40, "commit_files": lambda _sha: [],
+    }
+    saved = {name: getattr(ap, name) for name in patches}
+    saved_relay, saved_sleep, saved_time = ap.relay_tasks.run_one, ap.time.sleep, ap.time.time
+    try:
+        for name, value in patches.items():
+            setattr(ap, name, value)
+        ap.relay_tasks.run_one = lambda *a, **k: False
+        ap.time.sleep = fake_sleep
+        ap.time.time = lambda: clock["now"]
+        try:
+            ap.main()
+        except _StopLoop:
+            pass
+    finally:
+        for name, value in saved.items():
+            setattr(ap, name, value)
+        ap.relay_tasks.run_one, ap.time.sleep, ap.time.time = saved_relay, saved_sleep, saved_time
+
+    reset = 1793466900.0 + 45 * 60 + ap.LIMIT_GRACE_SECONDS  # 18:00 UTC + grace
+    # Exactly one call hit the limit; nothing else started before the reset; then both tasks ran.
+    assert [c[0] for c in calls] == ["T-060", "T-060", "T-061"], calls
+    assert all(t >= reset for _, t in calls[1:]), (calls, reset)
+    assert any(m.startswith("⏳") and "18:02 UTC" in m and "no task is parked" in m for m in sent), sent
+    assert any("limit window has passed" in m for m in sent), sent
+    assert not any("failed" in m and "T-060" in m for m in sent), sent
+
+    # The pause survives a worker restart: a fresh daemon start must not run Claude before the reset.
+    path2 = write_roadmap("# Roadmap\n\n## v5\n- [ ] T-070 Waits\n  Owner: claude\n")
+    answers2 = path2.parent / "answers.md"
+    saved_answers = ap.ANSWERS
+    try:
+        ap.ANSWERS = answers2
+        ap.save_parking({}, set(), "", 0, 1793466900.0 + 600)
+        state = ap.load_parking()
+    finally:
+        ap.ANSWERS = saved_answers
+    assert state["limit_until"] == 1793466900.0 + 600 and state["failures"] == 0, state
+    started = []
+    clock["now"] = 1793466900.0
+    patches.update({"ROADMAP": path2, "ANSWERS": answers2, "run_agent": lambda t: started.append(clock["now"]) or
+                    {"task": t["id"], "status": "failed", "summary": "stop"}})
+    saved = {name: getattr(ap, name) for name in patches}
+    try:
+        for name, value in patches.items():
+            setattr(ap, name, value)
+        ap.relay_tasks.run_one = lambda *a, **k: False
+        ap.time.sleep = fake_sleep
+        ap.time.time = lambda: clock["now"]
+        try:
+            ap.main()
+        except _StopLoop:
+            pass
+    finally:
+        for name, value in saved.items():
+            setattr(ap, name, value)
+        ap.relay_tasks.run_one, ap.time.sleep, ap.time.time = saved_relay, saved_sleep, saved_time
+    assert started and started[0] >= 1793466900.0 + 600, started
+    print("Autopilot subscription limit pause tests passed")
 
 
 def milestone_report_regression():
