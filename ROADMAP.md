@@ -476,7 +476,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 
 ## v5.0.3 — Runner Supervisor (Subscription-only Recovery)
 
-- [ ] T-562 Local self-healing supervisor and zero-paid-API guards
+- [x] T-562 Local self-healing supervisor and zero-paid-API guards
   Owner: claude
   Planner: ChatGPT
   Spec: docs/roadmap/T-562_RUNNER_SUPERVISOR.md
