@@ -432,7 +432,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: attribute factual analytics (views, likes, comments, shares/reposts, saves, CTR/conversion when available) back to the exact role/operator chain and compare chains without inventing missing metrics.
   DONE: analytics fixtures produce a factual leaderboard by chain; missing platform metrics remain unavailable rather than zero/fabricated.
 
-- [ ] T-584 Reviewer / Judge mode
+- [x] T-584 Reviewer / Judge mode
   Owner: claude
   Planner: ChatGPT
   Depends: T-582

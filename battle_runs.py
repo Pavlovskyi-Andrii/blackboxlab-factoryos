@@ -9,6 +9,11 @@ approval gate. Judging (T-584) and routing (T-588) build on this record.
 
 T-583 outcome attribution: after a human-approved publish, the owner links the published item to the completed
 chain that produced it; the leaderboard compares chains using only real performance snapshots.
+
+T-584 Reviewer / Judge mode: a separately assigned judge (an operator that produced no step of the compared chains)
+scores the final outputs of two or more completed chains against explicit criteria, pins each candidate by its
+evidence hash and selects one with a rationale. Reviews are append-only records beside the battle; a judge can
+never rewrite a candidate, and a decision never publishes anything.
 """
 import hashlib
 import json
@@ -45,6 +50,16 @@ CREATE TABLE IF NOT EXISTS battle_outcome_links(
   linked_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_battle_outcome_battle ON battle_outcome_links(battle_id, chain_id);
+CREATE TABLE IF NOT EXISTS battle_reviews(
+  id TEXT PRIMARY KEY,
+  battle_id TEXT NOT NULL,
+  judge_operator TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  reviewed_by TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  UNIQUE(battle_id, judge_operator)
+);
 """
 
 # T-583 outcome metrics: (name, aggregation). Counts are summed and compared per measured item; rates are averaged
@@ -55,6 +70,14 @@ OUTCOME_METRICS = (
     ("completion_rate_pct", "mean"),
 )
 OUTCOME_AGGREGATION = dict(OUTCOME_METRICS)
+
+# T-584 judge limits. Scores are 0..SCORE_MAX per candidate and criterion; weights 1..MAX_WEIGHT.
+MAX_CRITERIA = 10
+SCORE_MAX = 10
+MAX_WEIGHT = 5
+MAX_RATIONALE = 4000
+# Any of these keys in a review means the judge tried to supply new candidate content instead of judging it.
+REWRITE_KEYS = ("output", "output_ref", "revised_output", "rewrite", "edits", "patched_output")
 
 
 class BattleError(ValueError):
@@ -366,6 +389,186 @@ class BattleStore:
     def leaderboard(self, battle_id, latest_snapshot, metric="views"):
         battle = self.get(battle_id)
         return build_leaderboard(battle, self.outcome_links(battle_id), latest_snapshot, metric)
+
+    def candidates(self, battle_id):
+        return review_candidates(self.get(battle_id))
+
+    def reviews(self, battle_id):
+        battle = self.get(battle_id)
+        con = self._connect()
+        try:
+            rows = con.execute("SELECT payload_json FROM battle_reviews WHERE battle_id=? ORDER BY created_at, id",
+                               (battle["battle_id"],)).fetchall()
+        finally:
+            con.close()
+        return [json.loads(r["payload_json"]) for r in rows]
+
+    def record_review(self, battle_id, body, role_board, reviewed_by=""):
+        """Record one judge decision. One review per judge operator per battle; reviews are immutable."""
+        battle = self.get(battle_id)
+        review = plan_review(battle, body, role_board)
+        request_hash = _sha({"judge": {k: review["judge"][k] for k in ("operator", "model", "runtime")},
+                             "candidates": [c["evidence_hash"] for c in review["candidates"]],
+                             **{k: review[k] for k in ("criteria", "scores", "selected_chain_id", "rationale")}})
+        review_id = f"{battle['battle_id']}.r.{review['judge']['operator']}"
+        con = self._connect()
+        try:
+            row = con.execute("SELECT request_hash,payload_json FROM battle_reviews WHERE battle_id=? AND judge_operator=?",
+                              (battle["battle_id"], review["judge"]["operator"])).fetchone()
+            if row:
+                if row["request_hash"] == request_hash:
+                    return json.loads(row["payload_json"]), False
+                raise BattleError(409, f"{review['judge']['operator']} already reviewed this battle; reviews are immutable")
+            review.update({"review_id": review_id, "reviewed_by": reviewed_by, "created_at": _now()})
+            try:
+                con.execute("INSERT INTO battle_reviews(id,battle_id,judge_operator,request_hash,reviewed_by,created_at,payload_json)"
+                            " VALUES(?,?,?,?,?,?,?)",
+                            (review_id, battle["battle_id"], review["judge"]["operator"], request_hash, reviewed_by,
+                             review["created_at"], json.dumps(review, ensure_ascii=False)))
+                con.commit()
+            except sqlite3.IntegrityError:
+                raise BattleError(409, f"{review['judge']['operator']} already reviewed this battle; reviews are immutable")
+            return review, True
+        finally:
+            con.close()
+
+
+def _candidate(chain):
+    final = chain["steps"][-1]["result"]
+    producers = sorted({s["result"]["operator"] for s in chain["steps"]})
+    evidence = {
+        "chain_id": chain["chain_id"], "chain_hash": chain["chain_hash"],
+        "produced_by": final["operator"], "model": final["model"], "runtime": final["runtime"],
+        "output_hash": final["output_hash"], "output_ref": final["output_ref"], "recorded_at": final["recorded_at"],
+    }
+    return {
+        **evidence,
+        "label": chain["label"],
+        "output_excerpt": final["output_excerpt"],
+        "producers": producers,
+        "provenance": [{"role": s["role"], "operator": s["operator"], "produced_by": s["result"]["operator"],
+                        "model": s["result"]["model"], "runtime": s["result"]["runtime"],
+                        "output_hash": s["result"]["output_hash"]} for s in chain["steps"]],
+        "evidence_hash": _sha(evidence),
+    }
+
+
+def review_candidates(battle):
+    """Final outputs of the battle's completed chains, each pinned by an evidence hash the judge must echo."""
+    return [_candidate(c) for c in battle["chains"] if c["status"] == "completed"]
+
+
+def _score(value, where):
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 <= value <= SCORE_MAX:
+        raise BattleError(422, f"{where}: score must be a number from 0 to {SCORE_MAX}")
+    return value
+
+
+def plan_review(battle, body, role_board):
+    """Validate a judge decision against the battle's completed candidates. Never touches the battle record."""
+    if not isinstance(body, dict):
+        raise BattleError(422, "review body must be an object")
+    rewrites = [k for k in REWRITE_KEYS if k in body]
+    if rewrites:
+        raise BattleError(422, "a judge cannot rewrite candidates; submit changes as a new chain, not in a review")
+    judge_in = body.get("judge") if isinstance(body.get("judge"), dict) else {}
+    operator = str(judge_in.get("operator") or "").strip().lower()
+    model = _clean(judge_in.get("model"), 120)
+    runtime = _clean(judge_in.get("runtime"), 60)
+    if not operator or not model or not runtime:
+        raise BattleError(422, "judge operator, model and runtime are required")
+    if operator == "auto":
+        raise BattleError(422, "a judge must be a concrete operator, not auto")
+    reviewer_role = next((r for r in role_board.get("roles") or [] if r["id"] == "reviewer"), None)
+    if not reviewer_role or operator not in reviewer_role["operators"]:
+        raise BattleError(409, f"operator {operator} is not eligible for the reviewer role")
+
+    available = {c["chain_id"]: c for c in review_candidates(battle)}
+    pins = body.get("candidates")
+    if not isinstance(pins, list) or len(pins) < 2:
+        raise BattleError(422, "a review compares at least two candidates, each pinned as {chain_id, evidence_hash}")
+    candidates = []
+    for pin in pins:
+        chain_id = pin.get("chain_id") if isinstance(pin, dict) else None
+        cand = available.get(chain_id)
+        if not cand:
+            known = any(c["chain_id"] == chain_id for c in battle["chains"])
+            raise BattleError(409 if known else 404,
+                              f"chain {chain_id} has no completed output to review" if known else f"chain not found: {chain_id}")
+        if pin.get("evidence_hash") != cand["evidence_hash"]:
+            raise BattleError(409, f"evidence for {chain_id} does not match the recorded candidate")
+        if cand in candidates:
+            raise BattleError(422, f"candidate {chain_id} listed twice")
+        candidates.append(cand)
+    conflicted = sorted({operator} & {p for c in candidates for p in c["producers"]})
+    if conflicted:
+        raise BattleError(409, f"judge {operator} produced part of a compared candidate; assign a separate reviewer")
+
+    criteria_in = body.get("criteria")
+    if not isinstance(criteria_in, list) or not criteria_in:
+        raise BattleError(422, "explicit criteria are required")
+    if len(criteria_in) > MAX_CRITERIA:
+        raise BattleError(422, f"at most {MAX_CRITERIA} criteria")
+    criteria = []
+    for c in criteria_in:
+        cid = _clean((c or {}).get("id") if isinstance(c, dict) else None, 40).lower()
+        if not cid:
+            raise BattleError(422, "every criterion needs an id")
+        if any(x["id"] == cid for x in criteria):
+            raise BattleError(422, f"criterion {cid} listed twice")
+        weight = c.get("weight", 1)
+        if not isinstance(weight, int) or isinstance(weight, bool) or not 1 <= weight <= MAX_WEIGHT:
+            raise BattleError(422, f"criterion {cid}: weight must be an integer from 1 to {MAX_WEIGHT}")
+        criteria.append({"id": cid, "label": _clean(c.get("label"), 120) or cid,
+                         "description": _clean(c.get("description"), 500), "weight": weight})
+
+    scores_in = body.get("scores")
+    if not isinstance(scores_in, list):
+        raise BattleError(422, "scores must be a list of {chain_id, criterion, score, evidence}")
+    scores = {}
+    for s in scores_in:
+        if not isinstance(s, dict):
+            raise BattleError(422, "every score must be an object")
+        key = (s.get("chain_id"), _clean(s.get("criterion"), 40).lower())
+        if key[0] not in {c["chain_id"] for c in candidates} or key[1] not in {c["id"] for c in criteria}:
+            raise BattleError(422, f"score for unknown candidate/criterion: {key[0]} / {key[1]}")
+        if key in scores:
+            raise BattleError(422, f"duplicate score for {key[0]} / {key[1]}")
+        scores[key] = {"chain_id": key[0], "criterion": key[1], "score": _score(s.get("score"), f"{key[0]} / {key[1]}"),
+                       "evidence": _clean(s.get("evidence"), 1000)}
+    missing = [f"{c['chain_id']} / {k['id']}" for c in candidates for k in criteria if (c["chain_id"], k["id"]) not in scores]
+    if missing:
+        raise BattleError(422, "every candidate needs a score on every criterion; missing: " + ", ".join(missing))
+
+    selected = body.get("selected_chain_id")
+    if selected not in {c["chain_id"] for c in candidates}:
+        raise BattleError(422, "selected_chain_id must be one of the reviewed candidates")
+    rationale = str(body.get("rationale") or "").strip()
+    if not rationale:
+        raise BattleError(422, "a rationale is required")
+    if len(rationale) > MAX_RATIONALE:
+        raise BattleError(422, f"rationale exceeds {MAX_RATIONALE} characters")
+
+    total_weight = sum(k["weight"] for k in criteria)
+    totals = {c["chain_id"]: round(sum(scores[(c["chain_id"], k["id"])]["score"] * k["weight"] for k in criteria) / total_weight, 4)
+              for c in candidates}
+    best = max(totals.values())
+    return {
+        "battle_id": battle["battle_id"],
+        "judge": {"role": "reviewer", "operator": operator, "model": model, "runtime": runtime,
+                  "independent": True, "assigned_reviewer_operator": reviewer_role.get("assigned_operator")},
+        "candidates": candidates,
+        "criteria": criteria,
+        "scores": [scores[(c["chain_id"], k["id"])] for c in candidates for k in criteria],
+        "totals": totals,
+        "score_basis": f"weighted mean of 0-{SCORE_MAX} criterion scores",
+        "selected_chain_id": selected,
+        "selection_matches_scores": totals[selected] == best,
+        "rationale": rationale,
+        "candidates_modified": False,
+        "publish": dict(PUBLISH_POLICY),
+        "note": "A review selects among recorded outputs only. It does not change candidates, chains or publishing.",
+    }
 
 
 def _number(value):

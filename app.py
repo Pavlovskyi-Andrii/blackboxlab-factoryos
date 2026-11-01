@@ -11318,6 +11318,22 @@ def battle_leaderboard(battle_id:str,request:Request,metric:str="views"):
     _battle_owner(request)
     return _battle_call(BATTLE_STORE.leaderboard,battle_id,_battle_latest_snapshot,metric)
 
+# --- T-584 Reviewer / Judge mode: a separate reviewer-role operator scores completed chains' final outputs on explicit
+# criteria and selects one. Append-only; candidates are pinned by evidence hash and never rewritten; nothing publishes.
+@app.get("/api/battles/{battle_id}/reviews")
+def battle_reviews(battle_id:str,request:Request):
+    _battle_owner(request)
+    return {"battle_id":battle_id,"candidates":_battle_call(BATTLE_STORE.candidates,battle_id),
+            "reviews":_battle_call(BATTLE_STORE.reviews,battle_id)}
+
+@app.post("/api/battles/{battle_id}/reviews")
+async def battle_record_review(battle_id:str,request:Request):
+    who=_battle_owner(request)
+    body=await request.json()
+    review,created=_battle_call(BATTLE_STORE.record_review,battle_id,body,get_role_operator_board(),who)
+    if created:event(None,f"Battle review: {review['judge']['operator']} selected {review['selected_chain_id']} in {review['battle_id']}")
+    return {"ok":True,"created":created,"review":review}
+
 # --- T-536-F safe operator controls: owner -> FactoryOS -> Claude runner command channel.
 # Only these three actions exist. Nothing here can push, switch branches, deploy, publish or touch secrets;
 # commands carry only {action, task_id} and the runner applies them between tasks.
