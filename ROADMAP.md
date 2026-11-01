@@ -411,7 +411,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: represent a FactoryOS role (Scout, Researcher, Scriptwriter, Engineer, Reviewer, QA, Supervisor, etc.) separately from the operator/model assigned to it (ChatGPT, Claude, Gemini, Auto), without renaming existing canonical workers.
   DONE: API contract exposes roles, available operators, assignment state and operator online/auth status; existing pipelines remain backward-compatible.
 
-- [ ] T-581 Operator assignment UI
+- [x] T-581 Operator assignment UI
   Owner: claude
   Planner: ChatGPT
   Depends: T-580

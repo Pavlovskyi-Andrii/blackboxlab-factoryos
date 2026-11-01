@@ -158,6 +158,13 @@ jobs:
         env:
           FACTORYOS_REQUIRE_NODE: "1"
         run: python test_delegation_ui.py
+      - name: Role / operator API and operator assignment UI fixtures
+        env:
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_role_operator.py test_role_operator_ui.py
+          python test_role_operator.py
+          python test_role_operator_ui.py
       - name: Live pipeline handoff trace UI fixtures
         env:
           FACTORYOS_REQUIRE_NODE: "1"
