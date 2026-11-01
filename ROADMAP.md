@@ -345,7 +345,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 
 ## v5.4 — Revideo Production Hardening
 
-- [ ] T-540 Revideo zero-spend acceptance
+- [x] T-540 Revideo zero-spend acceptance
   Owner: claude
   Goal: prove the full safe content path Discovery candidate -> Revideo -> rewrite -> Content Package -> Media Finisher -> HUMAN APPROVAL on deterministic fixtures.
   DONE: acceptance reaches waiting_approval with provenance and originality evidence intact, creates no real provider spend and cannot auto-publish.

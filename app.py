@@ -4542,9 +4542,10 @@ async def run_revideo_analysis(project_id,language="English"):
 def create_revideo_production_job(project_id):
     project=get_revideo_project(project_id)
     if not project:raise ValueError("Revideo project not found")
-    if project.get("status")!="ready":raise ValueError("Revideo analysis must be ready and pass the originality guard first")
+    # T-540: a repeated create-job call after handoff (status in_production) returns the existing job, not an error.
     if project.get("job_id"):
         return {"created":False,"job":get_job(project["job_id"]),"project":project}
+    if project.get("status")!="ready":raise ValueError("Revideo analysis must be ready and pass the originality guard first")
     rewrite=project.get("rewrite") or {};analysis=project.get("analysis") or {}
     signal=ingest_source_signal(SignalCreate(
         title=project.get("source_title") or f"Revideo source {project_id[:8]}",
@@ -5923,7 +5924,7 @@ def _selected_production_variant(job_id):
 def _content_package_sources(job_id,variant):
     con=db()
     rows=[dict(x) for x in con.execute(
-        """SELECT id,agent,title,content,url,created_at FROM artifacts
+        """SELECT id,agent,title,content,url,created_at,meta_json FROM artifacts
            WHERE job_id=? AND agent IN ('Researcher','Tech Verifier')
            ORDER BY created_at DESC LIMIT 8""",(job_id,)
     ).fetchall()]
@@ -5933,6 +5934,9 @@ def _content_package_sources(job_id,variant):
         refs.append({"artifact_id":row["id"],"agent":row["agent"],"title":row["title"],"created_at":row["created_at"]})
         candidates=[]
         if row.get("url"):candidates.append(row["url"])
+        # T-540: Revideo source-structure artifacts keep the public source URL in meta, not in the JSON body.
+        meta_source=str(_decode_json(row.get("meta_json") or "{}",{}).get("source_url") or "").strip()
+        if _valid_public_url(meta_source):candidates.append(meta_source)
         candidates.extend(re.findall(r"https?://[^\s<>\"']+",row.get("content") or ""))
         for url in candidates:
             clean=url.rstrip(".,;:!?")
