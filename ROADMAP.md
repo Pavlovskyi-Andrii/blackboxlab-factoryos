@@ -485,7 +485,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 
 ## v5.0.4 — Self-service EC2 pairing
 
-- [ ] T-564 Interactive Claude worker pairing (no shell history/secrets)
+- [x] T-564 Interactive Claude worker pairing (no shell history/secrets)
   Owner: claude
   Planner: ChatGPT
   Depends: T-562

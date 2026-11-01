@@ -63,4 +63,17 @@ sudo python3 -m autopilot.pair_worker
 3. Paste the token into the hidden prompt and press Enter. It is not part of the command line or shell history; never paste it into ChatGPT, Git, logs, CI, or a normal shell assignment.
 4. The CLI validates the protected env file, writes only the internal worker-token setting, refuses PAYG overrides, then invokes `factoryos-runner-supervisor.service` (not Claude directly). Check `/var/lib/factoryos/supervisor-status.json` and the FactoryOS owner UI. Successful local pairing alone does not prove a functioning remote heartbeat; verify it separately.
 
+Refusals print only a reason code and save nothing:
+
+| Reason | Owner action |
+|---|---|
+| `invalid_factoryos_worker_token_format` | copy the token again (32–256 chars of `A-Z a-z 0-9 _ -`) |
+| `anthropic_api_key_not_accepted` | an Anthropic API key (`sk-ant-…`) was pasted; use the FactoryOS worker token instead |
+| `paid_api_override_present` | remove the PAYG key/Bedrock/Vertex/Foundry setting (same list as the supervisor's `PAID_KEYS`) |
+| `worker_env_not_regular_file` | create `/etc/factoryos/claude-worker.env` as a real file (no symlink) |
+| `worker_env_permissions_too_open` / `worker_env_not_owned_by_root` | `sudo chown root:root` + `sudo chmod 600` the env file |
+| `worker_env_directory_not_protected` | `/etc/factoryos` must be root-owned and not group/world-writable |
+
+Ctrl-C/Ctrl-D cancels without saving. Exit codes: `0` saved + supervisor check requested, `1` saved but the supervisor unit failed to start, `2` refused/cancelled.
+
 The command must run on an interactive trusted TTY. Root-only, no stdin pipe and no CLI token parameter are supported. The runner's periodic Supervisor remains the only automated process-start authority. No additional cloud resource, provider API key or subscription required.
