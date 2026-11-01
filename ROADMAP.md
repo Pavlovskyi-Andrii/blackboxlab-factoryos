@@ -355,7 +355,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: make the final-video review path obvious before approval, including source/final preview and the produced cuts/captions/audio/graphics artifacts that actually exist.
   DONE: deterministic UI/API regression exposes available before/after media plus generated artifact links, gracefully marks absent optional artifacts, and preserves the approval gate.
 
-- [ ] T-542 Publishing dry-run evidence
+- [x] T-542 Publishing dry-run evidence
   Owner: claude
   Goal: validate the exact immutable media+metadata snapshot that would be sent to YouTube Shorts, TikTok and Instagram Reels without making a real external post.
   DONE: zero-spend dry-run produces a traceable publisher plan/receipt preview bound to the approved snapshot; no external post ID is fabricated and real publish still requires T-520/T-521.

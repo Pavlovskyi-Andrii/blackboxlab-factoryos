@@ -8077,7 +8077,7 @@ def _metricool_post_text(content):
     if hashtags:parts.append(" ".join(hashtags))
     return "\n\n".join(parts).strip()
 
-def _metricool_scheduler_payload(item,content,media):
+def _metricool_scheduler_payload(item,content,media,normalize=True):
     network=_metricool_network(item.get("platform"))
     media_url=str((media or {}).get("url") or "").strip()
     if not media_url:
@@ -8085,7 +8085,8 @@ def _metricool_scheduler_payload(item,content,media):
     title=str((content or {}).get("title") or "").strip()
     if not title:title="FactoryOS approved video"
     publication=_metricool_publication_time(item.get("scheduled_at"))
-    normalized_media_url=_metricool_normalize_media_url(media_url)
+    # Dry-run (T-542) skips the normalize call: it is an outbound upload to Metricool hosting.
+    normalized_media_url=_metricool_normalize_media_url(media_url) if normalize else media_url
     payload={
         "publicationDate":{"dateTime":publication["dateTime"],"timezone":publication["timezone"]},
         "text":_metricool_post_text(content),
@@ -8304,6 +8305,97 @@ def _publish_via_adapter(item):
     return {"manual":False,"status":str(result.get("status") or "publishing"),
             "external_post_id":result.get("external_post_id") or result.get("id"),
             "external_url":result.get("external_url") or result.get("url"),"raw":result}
+
+# T-542 — Publishing dry-run evidence. Builds the exact per-platform publisher plan for an approved
+# publish item without any outbound call, status change or external post ID.
+PUBLISH_DRY_RUN_PLATFORMS=("youtube_shorts","tiktok","instagram_reels")
+
+def _publish_dry_run_binding(item):
+    """Verify the publish item still carries the immutable approved snapshot and its exact media."""
+    problems=[]
+    content=item.get("content_snapshot")
+    stored_hash=item.get("content_snapshot_hash") or ""
+    recomputed=_publish_snapshot_hash(content) if isinstance(content,dict) else ""
+    if not isinstance(content,dict):problems.append("approved content snapshot is missing")
+    elif not stored_hash or recomputed!=stored_hash:problems.append("content snapshot hash does not match the approved snapshot")
+    if not item.get("approved_at"):problems.append("publish item has no human approval record")
+    media=item.get("media") or {}
+    media_ok=False
+    if not media.get("artifact_id") or not media.get("url"):
+        problems.append("approved media artifact or URL is missing")
+    else:
+        con=db();row=con.execute("SELECT id,url,job_id FROM artifacts WHERE id=?",(media["artifact_id"],)).fetchone();con.close()
+        if not row:problems.append("approved media artifact no longer exists")
+        elif (row["url"] or "")!=media["url"] or row["job_id"]!=item["job_id"]:
+            problems.append("approved media artifact does not match the approved media URL/job")
+        else:media_ok=True
+    return {"ok":not problems,"problems":problems,"content_snapshot_hash":stored_hash,
+            "recomputed_hash":recomputed,"media_artifact_id":media.get("artifact_id"),
+            "media_url":media.get("url") or "","media_verified":media_ok,
+            "approval_decision_id":item.get("approval_decision_id"),"approved_at":item.get("approved_at")}
+
+def build_publish_dry_run(publish_id):
+    con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
+    if not row:raise LookupError("Publish item not found")
+    item=_publish_item(row)
+    if item["status"] not in ("approved","scheduled","failed"):
+        raise ValueError(f"Dry-run is only available for approved, unpublished items (status={item['status']})")
+    binding=_publish_dry_run_binding(item)
+    content=item.get("content_snapshot") or {}
+    media=item.get("media") or {}
+    plans=[]
+    for platform in PUBLISH_DRY_RUN_PLATFORMS:
+        entry={"platform":platform,"ready":False,"blockers":[],"payload":None,"network":None}
+        if not binding["ok"]:
+            entry["blockers"]=list(binding["problems"])
+        else:
+            try:
+                payload,scheduled_utc,network=_metricool_scheduler_payload(
+                    {**item,"platform":platform,"scheduled_at":item.get("scheduled_at") or ts()},content,media,normalize=False)
+                entry.update({"ready":True,"network":network,"payload":payload,"scheduled_at_utc":scheduled_utc,
+                              "media_binding":"exact approved media URL (Metricool normalization skipped in dry-run)"})
+            except RuntimeError as exc:
+                entry["blockers"].append(str(exc))
+        plans.append(entry)
+    registry=get_publisher_adapter_registry()
+    metricool=next((a for a in registry["adapters"] if a["kind"]=="metricool"),{})
+    real_blockers=[]
+    if not metricool.get("configured") or FACTORY_PUBLISHER_ADAPTER=="manual":
+        real_blockers.append("T-520: no configured real publisher adapter")
+    real_blockers.append("T-521: explicit owner approval of this exact snapshot for a real post")
+    # The plan hash excludes publication times so re-running the same snapshot is idempotent.
+    stable=[{k:v for k,v in p.items() if k!="scheduled_at_utc"} for p in plans]
+    for p in stable:
+        if p.get("payload"):p["payload"]={k:v for k,v in p["payload"].items() if k!="publicationDate"}
+    plan_hash=_publish_snapshot_hash({"publish_id":item["id"],"idempotency_key":item["idempotency_key"],
+                                      "binding":{k:binding[k] for k in ("content_snapshot_hash","media_artifact_id","media_url")},
+                                      "plans":stable})
+    receipt_preview={"dry_run":True,"status":"not_published","external_post_id":None,"external_url":None,
+                     "publish_id":item["id"],"job_id":item["job_id"],"idempotency_key":item["idempotency_key"],
+                     "approval_decision_id":item.get("approval_decision_id"),
+                     "content_snapshot_hash":binding["content_snapshot_hash"],
+                     "media_artifact_id":binding["media_artifact_id"],"plan_hash":plan_hash,
+                     "platforms":[p["platform"] for p in plans if p["ready"]]}
+    result={"dry_run":True,"publish_id":item["id"],"job_id":item["job_id"],"plan_hash":plan_hash,
+            "binding":binding,"content_snapshot":content,"media":media,"plans":plans,
+            "receipt_preview":receipt_preview,
+            "real_publish":{"allowed":False,"blockers":real_blockers,"adapter":FACTORY_PUBLISHER_ADAPTER,
+                            "adapter_configured":bool(metricool.get("configured"))},
+            "spend_usd":0.0,"outbound_calls":0,"generated_at":ts()}
+    con=db();existing=con.execute("""SELECT id FROM artifacts WHERE job_id=? AND agent='Publisher'
+                                    AND kind='publish_dry_run' AND meta_json LIKE ? LIMIT 1""",
+                                  (item["job_id"],f'%"plan_hash": "{plan_hash}"%')).fetchone();con.close()
+    if existing:
+        result["artifact_id"]=existing["id"];result["idempotent"]=True
+        return result
+    result["artifact_id"]=save_artifact("Publisher","publish_dry_run",f"Publishing dry-run · {len(receipt_preview['platforms'])}/{len(plans)} platforms",
+        json.dumps(result,ensure_ascii=False,indent=2,default=str),job_id=item["job_id"],mime_type="application/json",
+        meta={"publish_id":item["id"],"plan_hash":plan_hash,"dry_run":True,"idempotency_key":item["idempotency_key"],
+              "content_snapshot_hash":binding["content_snapshot_hash"],"media_artifact_id":binding["media_artifact_id"],
+              "binding_ok":binding["ok"]})
+    result["idempotent"]=False
+    event(item["job_id"],f"Publishing dry-run: {len(receipt_preview['platforms'])}/{len(plans)} platform plan(s) · no external post")
+    return result
 
 # v4.0 — Autonomous Content Factory coordinator.
 # It automates handoffs and production up to the human review gate. It never auto-approves or auto-publishes.
@@ -9115,6 +9207,12 @@ async def publish_scheduled_item(publish_id:str,confirm_uncertain:bool=False):
                              (str(exc)[:900],ts(),json.dumps({**meta,"outcome_uncertain":uncertain}),publish_id))
         con.commit();con.close();event(item["job_id"],f"Publishing failed: {str(exc)[:180]}")
         return {"ok":False,"status":"failed","outcomeUncertain":uncertain,"message":str(exc)}
+
+@app.post("/api/publishing/{publish_id}/dry-run")
+async def publishing_dry_run(publish_id:str):
+    try:return {"ok":True,**await asyncio.to_thread(build_publish_dry_run,publish_id)}
+    except LookupError as exc:raise HTTPException(404,str(exc))
+    except ValueError as exc:return {"ok":False,"message":str(exc)}
 
 @app.post("/api/publishing/{publish_id}/confirm")
 async def confirm_manual_publish(publish_id:str,payload:PublishConfirmRequest):
