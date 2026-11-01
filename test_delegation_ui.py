@@ -52,6 +52,9 @@ def static_checks(html, script, block):
     keys |= {f"dc.tl.status.{s}" for s in ("observed", "unavailable", "pending", "skipped")}
     keys |= {f"dc.ctl.mode.{s}" for s in ("running", "pause_requested", "paused")}
     keys |= {"dc.ctl.confirmRetry", "dc.ctl.sent", "dc.ctl.unchanged"}
+    keys |= {f"dc.lane.avail.{s}" for s in ("online", "stale", "offline", "unconfigured")}
+    keys |= {f"dc.lane.reason.{s}" for s in ("never_reported", "no_runner", "heartbeat_expired", "no_heartbeat")}
+    keys |= {f"dc.lane.src.{s}" for s in ("relay", "operator_heartbeat", "claude_heartbeat", "worker_result")}
     require("/api/factory/delegation-control" in script and "request_id:dcRequestId()" in script, "controls must post idempotent commands")
     for word in ("force", "deploy", "publish", "checkout", "main"):
         require(f"data-control=\"{word}" not in block and f"'{word}'" not in block, f"controls must not offer {word}")
@@ -137,8 +140,40 @@ CONTROLS = {
 }
 
 
-def board(connection, age, telemetry, active="T-536-B", controls="running"):
+def lane(op, label, availability, reason="", **extra):
+    base = {"operator_id": op, "label": label, "kind": "planner" if op == "chatgpt" else "runner", "availability": availability,
+            "configured": availability != "unconfigured", "reason": reason,
+            "heartbeat": {"source": None, "last_seen": None, "age_seconds": None}, "open_ticket": None, "stage": "", "branch": "",
+            "head_sha": "", "runtime": "", "node_id": "", "last_result": None, "queue_depth": None, "queue_depth_source": None,
+            "roadmap_open": 0, "assigned_not_claimed": [], "open_tickets": [], "relay_state": "offline",
+            "provider_status": "auth_pending", "assigned_roles": [], "last_error": ""}
+    return {**base, **extra}
+
+
+LANES = {
+    "live": [
+        lane("claude", "Claude", "online", heartbeat={"source": "claude_heartbeat", "last_seen": T0, "age_seconds": 7},
+             open_ticket={"id": "T-536-B", "title": "Telemetry <script>alert(1)</script>", "stage": "running", "source": "claude_heartbeat"},
+             stage="running", branch="autopilot-phone", head_sha="21bacb1abc", runtime="claude-code", queue_depth=4, roadmap_open=3,
+             last_result={"task_id": "T-536-C", "result": "blocked", "summary": "parser needs owner input", "commit": "",
+                          "at": T0, "source": "worker_result"}),
+        lane("gemini", "Gemini", "unconfigured", "never_reported"),
+        lane("chatgpt", "ChatGPT", "unconfigured", "no_runner"),
+    ],
+    "stale": [
+        lane("claude", "Claude", "unconfigured", "never_reported"),
+        lane("gemini", "Gemini", "stale", "heartbeat_expired", heartbeat={"source": "operator_heartbeat", "last_seen": T0, "age_seconds": 400},
+             open_ticket={"id": "T-589", "title": "Engineering battle pilot", "stage": "blocked", "source": "relay"}, stage="blocked",
+             branch="gemini/t-589", runtime="antigravity", queue_depth=0, token=SECRET,
+             last_result={"task_id": "T-589", "result": "blocked", "summary": "needs review", "commit": "", "at": T0, "source": "relay"}),
+        lane("chatgpt", "ChatGPT", "offline", "no_heartbeat"),
+    ],
+}
+
+
+def board(connection, age, telemetry, active="T-536-B", controls="running", lanes="live"):
     return {
+        "operator_lanes": LANES.get(lanes),
         "controls": CONTROLS.get(controls),
         "tree": NOW_TREE, "planner_queue": QUEUE, "counts": COUNTS, "recent_results": RESULTS, "timelines": TIMELINES,
         "next_task": {"id": "T-536-D", "title": "UI"},
@@ -153,8 +188,8 @@ def board(connection, age, telemetry, active="T-536-B", controls="running"):
 FIXTURES = {
     "online": board("online", 7, TELEMETRY),
     "stale": board("stale", 4000, {**TELEMETRY, "cpu_percent": None, "cpu_source": "unsupported", "memory_mb": None,
-                                   "memory_total_mb": None, "memory_source": "unsupported"}),
-    "offline": board("offline", None, None, active=None, controls=None),
+                                   "memory_total_mb": None, "memory_source": "unsupported"}, lanes="stale"),
+    "offline": board("offline", None, None, active=None, controls=None, lanes=None),
     "paused": board("online", 7, TELEMETRY, controls="paused"),
     "pause_requested": board("online", 7, TELEMETRY, controls="pause_requested"),
 }
@@ -203,6 +238,41 @@ def render_checks(out):
     require("Онлайн" in out["uk:online"] and "Офлайн" in out["ru:offline"], "localized connection labels missing")
     timeline_checks(out)
     control_checks(out)
+    lane_checks(out)
+
+
+def lane_block(html, op):
+    start = html.index(f'data-operator="{op}"')
+    end = html.find('<div class="dcLane"', start)
+    return html[start:end if end > 0 else html.index('class="dcGrid"')]
+
+
+def lane_checks(out):
+    online, stale = out["en:online"], out["en:stale"]
+    require(online.index('class="dcCounts"') < online.index('data-panel="operator-lanes"') < online.index('class="dcGrid"'),
+            "operator lanes must render between counts and the planner/worker grid")
+    require(re.findall(r'data-operator="([a-z]+)"', online) == ["claude", "gemini", "chatgpt"], "Claude, Gemini and ChatGPT lanes")
+    claude = lane_block(online, "claude")
+    require('data-availability="online"' in claude and 'data-ticket="T-536-B"' in claude and "&lt;script&gt;" in claude,
+            "Claude lane open ticket (escaped)")
+    require(all(x in claude for x in ("<dt>Stage</dt><dd>running</dd>", "autopilot-phone@21bacb1 · claude-code", "7s ago", "T-536-C · blocked",
+                                      "parser needs owner input", ">verified<", "<dd>4</dd>", "<dd>3</dd>")),
+            f"Claude lane stage/branch/runtime/heartbeat/result/queue missing: {claude}")
+    gemini = lane_block(online, "gemini")
+    require('data-availability="unconfigured"' in gemini and "Not configured" in gemini
+            and "Gemini runner is not configured: no heartbeat has ever been received." in gemini,
+            "unconfigured Gemini must be explicit")
+    require("No open ticket" in gemini and "No verified results yet" in gemini and gemini.count('class="dcNa"') >= 4,
+            "unconfigured Gemini must not show invented ticket/result/heartbeat/queue values")
+    require("only through Relay runs" in lane_block(online, "chatgpt"), "ChatGPT planner lane reason missing")
+    sg = lane_block(stale, "gemini")
+    require('data-availability="stale"' in sg and "Gemini heartbeat expired." in sg and "last known" in sg, "stale Gemini lane")
+    require("gemini/t-589 · antigravity" in sg and "6m ago" in sg and "<dd>0</dd>" in sg and ">relay<" in sg,
+            "stale Gemini last-known branch/runtime/heartbeat/queue/source")
+    require('data-availability="offline"' in lane_block(stale, "chatgpt") and "Relay history but no heartbeat" in stale, "offline lane")
+    require('data-panel="operator-lanes"' not in out["en:offline"], "no lane panel without lane data")
+    require("Не налаштовано" in out["uk:online"] and "Не настроено" in out["ru:online"] and "Линии операторов" in out["ru:stale"],
+            "localized lane labels missing")
 
 
 def control_checks(out):

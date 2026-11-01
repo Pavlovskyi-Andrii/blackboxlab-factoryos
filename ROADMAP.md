@@ -439,7 +439,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: allow one or more operators to independently produce candidate outputs while a separately assigned Reviewer/Judge compares them using explicit criteria and preserved evidence.
   DONE: deterministic fixture produces two candidate outputs + one review decision with criteria, selected candidate, rationale and provenance; Reviewer cannot silently rewrite candidates.
 
-- [ ] T-585 Multi-operator delegation board
+- [x] T-585 Multi-operator delegation board
   Owner: claude
   Planner: ChatGPT
   Depends: T-580

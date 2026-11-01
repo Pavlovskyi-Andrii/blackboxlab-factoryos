@@ -27,6 +27,7 @@ from google.oauth2 import id_token as google_id_token
 from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
+from operator_lanes import build_operator_lanes
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import QuestionStore, install_owner_desk_routes
@@ -11000,6 +11001,19 @@ def build_delegation_timeline(task, attempts, telemetry=None, now=None):
         events+=[_timeline_event(k,"pending") for k in ("picked","running")+_TIMELINE_AFTER_PICK]
     return {"task_id":task["id"],"phase":phase,"attempts":len(attempts),"events":events}
 
+def get_delegation_operator_lanes(worker,results,queue):
+    """T-585: Claude / Gemini / ChatGPT lanes from observed heartbeats, verified results and Relay runs only."""
+    roles=get_role_operator_board()
+    assigned={}
+    for role in roles["roles"]:
+        if role["assigned_operator"]!="auto":assigned.setdefault(role["assigned_operator"],[]).append(role["id"])
+    with _operator_worker_lock:
+        runners={k:dict(v) for k,v in operator_worker_runtime.items() if isinstance(v,dict)}
+    return build_operator_lanes(runners=runners,runner_ttl=FACTORY_OPERATOR_WORKER_TTL_SECONDS,claude_worker=worker,
+                                claude_results=results,lane_board=get_lane_board(),
+                                provider_status={o["id"]:o["status"] for o in roles["operators"]},
+                                task_titles={x["id"]:x["title"] for x in queue},assigned_roles=assigned)
+
 def get_delegation_board():
     """Owner-safe read model: ROADMAP queue + Claude worker state + verified results. Never returns tokens."""
     tasks=_parse_roadmap_tasks()
@@ -11059,6 +11073,7 @@ def get_delegation_board():
         "safety":{"secrets_returned":False,"main_push_forbidden":True,"production_direct_deploy_forbidden":True,
                   "human_publish_approval_required":True},
     }
+    board["operator_lanes"]=get_delegation_operator_lanes(board["worker"],results,queue)
     secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
                                FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,
                                FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,
