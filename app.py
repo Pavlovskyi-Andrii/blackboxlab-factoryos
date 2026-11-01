@@ -4765,14 +4765,66 @@ def artifact_media(artifact_id:str,download:bool=False):
             if not str(artifact.get("url") or ""):
                 raise HTTPException(410,f"Media is no longer available: {str(exc)[:220]}")
     if path and archive_meta:
-        return FileResponse(path,media_type=archive_meta.get("content_type") or artifact.get("mime_type") or "application/octet-stream",
-                            filename=archive_meta.get("filename") or path.name,
-                            content_disposition_type="attachment" if download else "inline")
+        response=FileResponse(path,media_type=archive_meta.get("content_type") or artifact.get("mime_type") or "application/octet-stream",
+                              filename=archive_meta.get("filename") or path.name,
+                              content_disposition_type="attachment" if download else "inline")
+        response.headers["X-Content-Type-Options"]="nosniff"
+        return response
     source_url=str(artifact.get("url") or "").strip()
-    if not source_url:raise HTTPException(404,"Artifact has no media URL")
+    if not source_url:
+        # T-535: text/JSON/subtitle artifacts live in the DB; serve them through the same authenticated route.
+        if artifact.get("kind") not in ARTIFACT_BINARY_KINDS and str(artifact.get("content") or ""):
+            return _artifact_text_response(artifact,download)
+        raise HTTPException(404,"Artifact has no media URL")
     if _is_ephemeral_finisher_url(source_url):
         raise HTTPException(410,"This temporary Media Finisher file expired before durable archival. Rerun the Media Finisher output to restore it.")
+    if not _artifact_redirect_allowed(source_url):
+        raise HTTPException(422,"Artifact media URL is not an http(s) or same-origin location")
     return RedirectResponse(source_url,status_code=307)
+
+ARTIFACT_BINARY_KINDS={"video","audio","image"}
+# Stored mime → (download extension, inline type). Inline subtitles/markdown/csv render as text/plain so the browser
+# shows them instead of downloading; anything outside this table (text/html, SVG, …) is never served as active content.
+ARTIFACT_TEXT_TYPES={
+    "application/json":(".json","application/json"),
+    "application/x-subrip":(".srt","text/plain"),
+    "text/vtt":(".vtt","text/plain"),
+    "text/markdown":(".md","text/plain"),
+    "text/csv":(".csv","text/plain"),
+    "text/plain":(".txt","text/plain"),
+}
+
+def _artifact_text_type(artifact):
+    content=str(artifact.get("content") or "")
+    mime=str(artifact.get("mime_type") or "").split(";")[0].strip().lower()
+    meta=_decode_json(artifact.get("meta_json") or "{}",{})
+    if mime not in ARTIFACT_TEXT_TYPES:
+        if artifact.get("kind")=="json":mime="application/json"
+        elif content.lstrip().startswith("WEBVTT"):mime="text/vtt"
+        elif (meta or {}).get("component")=="srt" or artifact.get("kind")=="subtitle":mime="application/x-subrip"
+        else:mime="text/plain"
+    if mime=="application/json":
+        try:json.loads(content)
+        except ValueError:mime="text/plain"
+    return mime
+
+def _artifact_text_response(artifact,download=False):
+    mime=_artifact_text_type(artifact)
+    ext,inline_type=ARTIFACT_TEXT_TYPES[mime]
+    stem=re.sub(r"[^A-Za-z0-9._-]+","-",str(artifact.get("title") or "artifact")).strip("-.")[:80] or "artifact"
+    filename=stem+ext
+    disposition=("attachment" if download else "inline")+f"; filename=\"{filename}\"; filename*=UTF-8''{urlparse.quote(filename)}"
+    return Response(str(artifact.get("content") or "").encode("utf-8"),
+                    media_type=f"{mime if download else inline_type}; charset=utf-8",
+                    headers={"Content-Disposition":disposition,"X-Content-Type-Options":"nosniff",
+                             "Content-Security-Policy":"default-src 'none'; sandbox","Cache-Control":"private, no-store"})
+
+def _artifact_redirect_allowed(url):
+    """Only real media locations: absolute http(s) or a same-origin path (not scheme-relative //host)."""
+    if url.startswith("/"):return not url.startswith("//") and "\\" not in url
+    try:parsed=urlparse.urlparse(url)
+    except ValueError:return False
+    return parsed.scheme in ("http","https") and bool(parsed.netloc)
 
 def _is_ephemeral_finisher_url(value):
     raw=str(value or "").strip()

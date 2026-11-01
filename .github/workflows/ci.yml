@@ -195,6 +195,14 @@ jobs:
         run: |
           python -m py_compile test_delegation_controls.py
           python test_delegation_controls.py
+      - name: Artifact + media viewer regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_artifact_viewer.py
+          python test_artifact_viewer.py
   ui-screenshots:
     # Evidence for UI tasks (T-594..T-597): EN/UK/RU × desktop/tablet/mobile screenshots of a local,
     # password-less, key-less FactoryOS (zero spend). Findings are reported in the job summary, not enforced.

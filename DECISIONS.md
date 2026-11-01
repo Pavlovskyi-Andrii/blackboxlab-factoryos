@@ -489,3 +489,12 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Store is a JSON file in `DATA_DIR` with a 15-minute claim lease (a crashed worker cannot strand a question), max 20 open and 200 kept questions.
 - The Worker Center poll does not re-render while text is selected inside a runbook or the question box is open, and remembers which runbooks are expanded; otherwise the periodic refresh would close the runbook and drop the selection mid-question.
 - Raw CLI error text never reaches the owner page: a failed answer shows a fixed message.
+
+## T-535 Artifact + media viewer hardening (2026-11-01)
+- One viewer route for everything: `/api/artifacts/{id}/media` now also serves DB-stored text/JSON/subtitle artifacts (no URL, only `content`) instead of 404. It stays behind the normal session auth (viewer sessions may read); `/media-archive` / `/media-source` keep their HMAC tokens unchanged.
+- Content types come from a fixed table (`ARTIFACT_TEXT_TYPES`): JSON → `application/json`; SRT/VTT/Markdown/CSV are shown inline as `text/plain` (browsers would otherwise download them) and download with their real type and extension. Any other stored mime (e.g. `text/html`, SVG) is served as `text/plain`, plus `nosniff`, `CSP: default-src 'none'; sandbox` and `Cache-Control: private, no-store`, so a model-written artifact can never run script on the FactoryOS origin. Invalid JSON falls back to `text/plain`.
+- Video/audio/image artifacts without a media URL still 404: their `content` is a description, not media.
+- Redirects from the route are limited to absolute http(s) or same-origin paths; `javascript:`, `data:` and scheme-relative `//host` URLs get 422 instead of a redirect.
+- UI: Approval and Publishing previews used the raw provider URL (which may be an expired ephemeral Media Finisher file); they now use the stable artifact route, which archives/serves durably. The immutable publishing snapshot (`media_url`) is unchanged — only the viewer link moved. Trace Viewer and the Worker Results selected result reuse `artifactMediaActions`, which now also offers open/download for text artifacts.
+- The regression (`test_artifact_viewer.py`) drives the real ASGI app directly (httpx/TestClient is not a dependency) and runs the real dashboard renderer under Node, then requests every link it emits.
+
