@@ -154,3 +154,9 @@ if __name__ == "__main__":
     print("operator lane builder checks passed (unconfigured/stale/offline/online, ticket/result/queue provenance, field whitelist)")
     api_checks()
     print("delegation board operator lanes API checks passed (owner-only, explicit unconfigured Gemini, secrets redacted)")
+    # T-588 routes on these lanes; run it here (own process, own DATA_DIR) since the CI workflow cannot be edited
+    # until T-598-H1 grants the workflow scope.
+    import subprocess
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    subprocess.run([sys.executable, os.path.join(here, "test_supervisor_routing.py")], check=True)

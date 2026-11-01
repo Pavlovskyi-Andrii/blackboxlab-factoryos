@@ -460,7 +460,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: let the owner view a Battle Run from Telegram, compare candidate chains, see factual outcome metrics and approve/reject only safe next actions.
   DONE: deterministic Telegram fixture shows battle summary + candidate chains + metrics while preserving human publish approval.
 
-- [ ] T-588 Supervisor routing policy
+- [x] T-588 Supervisor routing policy
   Owner: claude
   Planner: ChatGPT
   Depends: T-580,T-585

@@ -28,6 +28,7 @@ from relay import RelayStore, install_relay_routes, relay_handle_telegram_update
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from operator_lanes import build_operator_lanes
+from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import QuestionStore, install_owner_desk_routes
@@ -11271,6 +11272,25 @@ def factory_role_assignment(item:RoleAssignmentRequest,request:Request):
         tmp.write_text(json.dumps(state,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
         os.replace(tmp,ROLE_ASSIGNMENTS_FILE)
     return {"ok":True,**get_role_operator_board()}
+
+# --- T-588 Supervisor routing policy: a read-only decision per open roadmap task (explicit owner assignment >
+# bounded Auto; offline skipped; HUMAN blocked). Executes nothing and grants no publish/production privilege.
+def get_supervisor_routing(lanes=None):
+    board=get_role_operator_board()
+    if lanes is None:lanes=get_delegation_board().get("operator_lanes") or []
+    availability=operator_availability(lanes,board["operators"])
+    engineer=next(r for r in ROLE_CATALOG if r["id"]=="engineer")
+    open_tasks=[t for t in _parse_roadmap_tasks() if not t["done"]]
+    return {"routes":route_tasks(open_tasks,role="engineer",role_assignments=board["assignments"],
+                                 availability=availability,eligible=engineer["operators"]),
+            "availability":availability,"auto_policy":{k:list(v) for k,v in ROUTING_AUTO_POLICY.items()},
+            "privileges":dict(ROUTING_PRIVILEGES),"executes":False}
+
+@app.get("/api/factory/routing")
+def factory_routing(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return get_supervisor_routing()
 
 # --- T-582 Battle Run experiment model: one brief, two or more competing role->operator chains, exact per-step
 # provenance. Owner-only operator surface (not a member route). Never runs a provider and never publishes.
