@@ -69,8 +69,10 @@ closes, the location returns to Control Room.
   A tap is simulated as a click event. This is not a real touch device and does not render CSS. Visibility follows the pinned CSS rules.
 - Desktop/mobile screenshots: **not captured yet**. No runner session so far has had a browser
   (no Chromium/Playwright on the EC2 worker).
-- CI-gated PR: **not opened yet**. As of 2026-10-31 only increment 1 (#66) is on `origin/main`.
-  Increments 2–3 are only on `autopilot/aws-worker`.
+- CI-gated PR: as of 2026-11-01, increments 1–3 and the re-check (`aac3b8c`) are on `origin/main` (`c2879b9`),
+  merged through the normal PR flow. The agent run had no network/`gh`, so it did not see the CI result of those merges.
+- Re-check 2026-11-01: there is still no browser on the worker (no Chromium/Chrome/Firefox, and no
+  Playwright/Selenium/pyppeteer in the venv). Steps 1–2 below are still open. Step 3 is done if CI on the merge was green.
 
 ### Remaining steps (owner or a runner with a browser + GitHub access)
 

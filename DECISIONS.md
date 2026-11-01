@@ -353,6 +353,12 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - T-594 stays unchecked. The two remaining DONE items cannot be done from this agent run. (1) Screenshots: there is no browser (Chromium/Firefox/Playwright/Selenium) on the worker. Installing one means downloading software into the prepared venv/host, so that was not done. (2) CI-gated PR: the agent cannot push or open PRs, and increments 2–3 are not on `origin/main` yet. Exact steps are in `docs/roadmap/T-594_NAV_MAP.md` → "Remaining steps".
 - `env …` commands were denied again, so checks ran as `python -c` + `os.environ.update` + `runpy`, as in the T-590 runs.
 
+## T-594 re-check (2026-11-01)
+- No code change. The nav code is on `origin/main` (`c2879b9` contains increments 1–3 and `aac3b8c`), so the PR part is now met by the normal merge flow. This run had no network/`gh`, so it did not see the CI result.
+- T-594 stays unchecked. The DONE criterion asks for desktop/mobile screenshots and a real touch check. The worker still has no browser (`which` finds no Chromium/Chrome/Firefox, and the venv has no Playwright/Selenium/pyppeteer). Screenshots cannot be produced honestly without a browser, and installing one was not done, for the same reason as before.
+- The unrelated uncommitted T-560-E work (`app.py`, `static/index.html`, `browser_runner/observability.py`, `.autopilot/ui-check.js`) was left in the tree and not committed. Parking it with `git stash` was denied by the permission mode. The checks below therefore ran against the tree **with** that WIP included.
+- `env …` was denied again, so the planner/smoke checks ran as `python -c` + `os.environ.update` + `runpy`.
+
 ## T-599-E owner GitHub Issue auto-intake (2026-10-31)
 - "Repo owner" means the login before the `/` in `FACTORY_GITHUB_REPO`. The API call filters with `creator=<owner>`, and `RelayQueue.auto_intake_owner_issues` re-checks the author login, so a foreign Issue is ignored even if the API filter misbehaves. PRs, malformed entries and Issues whose first non-blank body line is not exactly `Owner: Claude|ChatGPT|Gemini` (case-insensitive) are ignored too.
 - T-ID linking: every `T-ddd[d][-X]` in the title and body is checked against `roadmap:T-xxx` tickets. If any match, the Issue reference goes into `source.linked_issues` on those tickets with a `linked` history event, and no new ticket is created. A claim/run_id is never touched. T-IDs without a ROADMAP ticket fall through to a normal import.

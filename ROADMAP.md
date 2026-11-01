@@ -99,6 +99,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Spec: #53, T-574; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M3.
   Goal: audit and preserve all current routes; clear section grouping and descriptive RU/UK/EN labels, icon rail, hover/click expanding text, slide-out adaptive one-third desktop menu, outside-tap closes, breadcrumbs, current section and keyboard accessibility.
   DONE: before/after nav map, screenshots desktop/mobile, all existing destinations reachable, keyboard/touch and RU/UK/EN regressions, CI-gated PR.
+  Progress 2026-11-01: code and regressions are done and on `origin/main` (`c2879b9`). `test_navigation.py` is green: 24 destinations, 6 sections, slide-out at 1440/1024/800/390, keyboard, EN/UK/RU. Still open: desktop/mobile screenshots and a real touch check. The worker has no browser. Steps are in `docs/roadmap/T-594_NAV_MAP.md`.
 
 - [ ] T-595 Resizable/maximizable sliding drawers and overflow repair
   Owner: Claude
