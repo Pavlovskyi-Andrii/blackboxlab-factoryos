@@ -6366,6 +6366,44 @@ def get_job_handoffs(job_id, limit=60):
     con.close()
     return rows
 
+# T-560-E — Browser Runner observability. Runs are recorded in trusted server code only
+# (no HTTP ingest), as redacted views built by browser_runner.observability.
+BROWSER_RUNNER_AGENT="Browser Runner"
+BROWSER_RUN_KIND="browser_run"
+
+def record_browser_run(job_id, plan, result, checkpoint=None, started_at=None, finished_at=None):
+    from browser_runner.observability import build_run_view, run_view_title
+    view=build_run_view(plan,result,checkpoint,started_at=started_at,finished_at=finished_at)
+    meta={"component":BROWSER_RUN_KIND,"mode":"deterministic" if view["executor"]=="mock" else view["executor"],
+          "plan_id":view["plan"]["plan_id"],"status":view["status"]}
+    artifact_id=save_artifact(BROWSER_RUNNER_AGENT,BROWSER_RUN_KIND,run_view_title(view),view,
+                              job_id=job_id,mime_type="application/json",meta=meta)
+    return {"id":artifact_id,"view":view}
+
+def _browser_run_row(row):
+    from browser_runner.core import redact
+    view=_decode_json(row.get("content") or "",None)
+    if not isinstance(view,dict) or "plan" not in view:
+        return None
+    return {"id":row["id"],"job_id":row.get("job_id"),"created_at":row.get("created_at"),"view":redact(view)}
+
+def get_job_browser_runs(job_id, limit=10):
+    if not job_id:
+        return []
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        "SELECT id,job_id,content,created_at FROM artifacts WHERE job_id=? AND agent=? AND kind=? ORDER BY created_at DESC LIMIT ?",
+        (job_id,BROWSER_RUNNER_AGENT,BROWSER_RUN_KIND,max(1,min(int(limit),50)))).fetchall()]
+    con.close()
+    return [x for x in map(_browser_run_row,rows) if x]
+
+def get_browser_run(artifact_id):
+    con=db()
+    row=con.execute("SELECT id,job_id,content,created_at FROM artifacts WHERE id=? AND agent=? AND kind=?",
+                    (artifact_id,BROWSER_RUNNER_AGENT,BROWSER_RUN_KIND)).fetchone()
+    con.close()
+    return _browser_run_row(dict(row)) if row else None
+
 # T-532 — live pipeline handoff trace. Ordered read model of persisted runs only:
 # source artifact -> worker run -> output artifacts -> downstream worker runs.
 FLOW_BLOCKED_CATEGORIES={"dependency","budget"}
@@ -9057,6 +9095,7 @@ def status(request: Request=None):
         "selectedJobQuality": get_job_quality(sid) if sid else None,
         "selectedJobWorkerResults": get_job_worker_results(sid),
         "selectedJobHandoffs": get_job_handoffs(sid),
+        "selectedJobBrowserRuns": get_job_browser_runs(sid),
         "selectedJobFlow": get_job_flow(sid),
         "selectedJobAgentErrors": get_job_agent_errors(sid),
         "selectedJobErrorCenter": get_job_error_center(sid),
@@ -9461,6 +9500,17 @@ def handoff_trace(run_id:str, artifact_id:str):
     con.close()
     data["source_run"]=dict(source_run) if source_run else None
     return data
+
+@app.get("/api/browser-runs")
+def browser_runs(job_id:str, limit:int=10):
+    return {"job_id":job_id,"runs":get_job_browser_runs(job_id,limit)}
+
+@app.get("/api/browser-runs/{artifact_id}")
+def browser_run_trace(artifact_id:str):
+    run=get_browser_run(artifact_id)
+    if not run:
+        raise HTTPException(404,"Browser run not found")
+    return run
 
 
 

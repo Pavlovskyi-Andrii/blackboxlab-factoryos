@@ -215,7 +215,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: add account-portable draft preparation recipes for X/Twitter web, Instagram web and Telegram web/channel UI when an official API/connector is unavailable; final publish/send remains approval-gated.
   DONE: fixture recipes can prepare text/media up to the final submit boundary, account bindings are workspace-scoped, no plaintext credentials are stored, challenge pages become waiting_human, and no fixture can publish without a matching human approval snapshot.
 
-- [ ] T-560-E Browser runner observability
+- [x] T-560-E Browser runner observability
   Owner: claude
   Planner: ChatGPT
   Depends: T-560-A,T-560-C
