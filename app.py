@@ -5132,22 +5132,23 @@ def _durable_media_inventory(limit=200):
         if len(archive_ids)<5:archive_ids.append(archive_id[:12])
     return {"checked":checked,"present":present,"missing":missing,"bytes":bytes_total,"archive_ids":archive_ids}
 
+MEDIA_FINISHER_EVIDENCE={
+  "transcript_words":("json","Word-level transcript"),
+  "transcript_corrections":("json","Transcript corrections"),
+  "cut_list":("json","Edit cut list"),
+  "caption_timeline":("json","Caption timeline"),
+  "motion_timeline":("json","Motion / zoom timeline"),
+  "graphics_timeline":("json","Emphasis graphics timeline"),
+  "shorts_manifest":("json","Shorts / Reels cut manifest"),
+  "audio_report":("analysis","Audio finishing report"),
+  "safe_zone_report":("analysis","Safe-zone / frame QA"),
+  "edit_summary":("analysis","Media Finisher edit summary"),
+}
+
 def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,output_url=""):
     report=report if isinstance(report,dict) else {}
-    evidence_map={
-      "transcript_words":("json","Word-level transcript"),
-      "transcript_corrections":("json","Transcript corrections"),
-      "cut_list":("json","Edit cut list"),
-      "caption_timeline":("json","Caption timeline"),
-      "motion_timeline":("json","Motion / zoom timeline"),
-      "graphics_timeline":("json","Emphasis graphics timeline"),
-      "shorts_manifest":("json","Shorts / Reels cut manifest"),
-      "audio_report":("analysis","Audio finishing report"),
-      "safe_zone_report":("analysis","Safe-zone / frame QA"),
-      "edit_summary":("analysis","Media Finisher edit summary"),
-    }
     now=ts();con=db()
-    for key,(kind,title) in evidence_map.items():
+    for key,(kind,title) in MEDIA_FINISHER_EVIDENCE.items():
         if key not in report:continue
         value=report.get(key)
         content=value if isinstance(value,dict) else {"items":value} if isinstance(value,list) else {"value":value}
@@ -7725,6 +7726,75 @@ def _media_review_state(job_id):
             "durability_required":durability_required,"durability_ready":durability_ready,
             "durable_media_status":archive_status}
 
+# T-541: evidence groups shown to the operator before approval. Every finisher artifact is optional; an absent one is
+# reported as not produced instead of being hidden, so the reviewer can tell "missing" from "not looked at".
+MEDIA_FINISHER_PREVIEW_GROUPS=(
+  ("cuts",("cut_list","shorts_manifest")),
+  ("captions",("caption_timeline","transcript_words","transcript_corrections")),
+  ("audio",("audio_report",)),
+  ("graphics",("graphics_timeline","motion_timeline")),
+  ("qa",("safe_zone_report","edit_summary")),
+)
+
+def _preview_media_item(item):
+    if not item:return None
+    return {"id":item.get("id"),"agent":item.get("agent"),"kind":item.get("kind"),"title":item.get("title"),
+            "url":item.get("url") or "","mime_type":item.get("mime_type"),"created_at":item.get("created_at"),
+            "component":(item.get("meta") or {}).get("component")}
+
+def _media_finisher_operator_preview(job_id,media_review=None):
+    media_review=media_review or _media_review_state(job_id)
+    edit=media_review.get("edit_job")
+    gate={"required":bool(media_review.get("required")),"ready":bool(media_review.get("ready")),
+          "reason":media_review.get("reason") or "","human_approval_required":True,"auto_publish":False}
+    if not edit:
+        return {"available":False,"edit_job":None,"source":None,"final":_preview_media_item(media_review.get("artifact")),
+                "shorts":[],"groups":[],"approval_gate":gate}
+    edit_job_id=edit["id"]
+    con=db()
+    rows=[dict(x) for x in con.execute("""SELECT id,agent,kind,title,url,mime_type,created_at,meta_json FROM artifacts
+                                          WHERE job_id=? AND agent IN ('AI Media Finisher','QA Agent') AND meta_json LIKE ?
+                                          ORDER BY created_at""",(job_id,f'%"edit_job_id": "{edit_job_id}"%')).fetchall()]
+    source_row=None
+    if edit.get("input_artifact_id"):
+        source_row=con.execute("""SELECT id,agent,kind,title,url,mime_type,created_at,meta_json FROM artifacts
+                                  WHERE id=? AND job_id=?""",(edit["input_artifact_id"],job_id)).fetchone()
+    if not source_row and edit.get("input_url"):
+        source_row=con.execute("""SELECT id,agent,kind,title,url,mime_type,created_at,meta_json FROM artifacts
+                                  WHERE job_id=? AND kind='video' AND url=? ORDER BY created_at DESC LIMIT 1""",
+                               (job_id,edit["input_url"])).fetchone()
+    con.close()
+    for row in rows:row["meta"]=_decode_json(row.pop("meta_json","{}"),{})
+    rows=[x for x in rows if x["meta"].get("edit_job_id")==edit_job_id]
+    if source_row:
+        source=dict(source_row);source["meta"]=_decode_json(source.pop("meta_json","{}"),{})
+        source=_preview_media_item(source)
+    elif re.match(r"^https?://",str(edit.get("input_url") or "")):
+        source={"id":None,"agent":"","kind":"video","title":"Source video","url":edit["input_url"],"mime_type":"video/mp4",
+                "created_at":edit.get("created_at"),"component":"source"}
+    else:
+        source=None
+    by_component={}
+    for row in rows:
+        component=row["meta"].get("component")
+        if row["agent"]=="AI Media Finisher" and component in MEDIA_FINISHER_EVIDENCE:by_component[component]=row
+    groups=[]
+    for group,components in MEDIA_FINISHER_PREVIEW_GROUPS:
+        items=[]
+        for component in components:
+            row=by_component.get(component)
+            items.append({"component":component,"title":MEDIA_FINISHER_EVIDENCE[component][1],"available":bool(row),
+                          "artifact_id":row["id"] if row else None,"kind":row["kind"] if row else MEDIA_FINISHER_EVIDENCE[component][0]})
+        groups.append({"group":group,"items":items,"available":sum(1 for x in items if x["available"]),"total":len(items)})
+    shorts=[_preview_media_item(x) for x in rows if x["agent"]=="AI Media Finisher" and x["kind"]=="video"
+            and x["meta"].get("component")=="short_render" and x.get("url")]
+    shorts.sort(key=lambda x:str(x.get("title") or ""))
+    qa=next((x for x in rows if x["agent"]=="QA Agent"),None)
+    return {"available":True,
+            "edit_job":{k:edit.get(k) for k in ("id","status","profile_id","profile_version","platform","rerun_stage","created_at","updated_at","error")},
+            "source":source,"final":_preview_media_item(media_review.get("artifact")),"shorts":shorts,"groups":groups,
+            "qa_gate_artifact_id":qa["id"] if qa else None,"approval_gate":gate}
+
 def get_variant_diff(job_id):
     data=get_job_variants(job_id); variants=data.get("variants") or []
     selected=next((x for x in variants if x.get("status")=="selected"),None)
@@ -8739,6 +8809,7 @@ def get_approval_queue(limit=60):
         review_ready=bool(package_record and package_record.get("status")=="ready" and variant_count>0 and media_review.get("ready"))
         items.append({"job":job,"package":package_record,"package_status":package.get("status"),
                       "variants":variants,"preview":_latest_render_preview(job["id"]),"media_review":media_review,
+                      "finisher_preview":_media_finisher_operator_preview(job["id"],media_review),
                       "history":get_approval_history(job["id"],20),"variant_diff":get_variant_diff(job["id"]),
                       "publish":_publish_item(pub),"review_ready":review_ready,
                       "legacy_incomplete":bool(not package_record or variant_count==0)})
@@ -8908,6 +8979,11 @@ def approval_studio(job_id: Optional[str]=None):
 def approval_history(job_id:str):
     if not get_job(job_id):raise HTTPException(404,"Job not found")
     return {"history":get_approval_history(job_id),"variant_diff":get_variant_diff(job_id)}
+
+@app.get("/api/jobs/{job_id}/media-finisher/preview")
+def media_finisher_operator_preview(job_id:str):
+    if not get_job(job_id):raise HTTPException(404,"Job not found")
+    return _media_finisher_operator_preview(job_id)
 
 @app.get("/api/jobs/{job_id}/approval/quote/{component}")
 def approval_regeneration_quote(job_id:str,component:str):
