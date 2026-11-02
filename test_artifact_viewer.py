@@ -45,9 +45,16 @@ def call(path, query="", cookie=None):
              "path": path, "raw_path": path.encode("utf-8"), "query_string": query.encode("ascii"),
              "headers": headers, "server": ("testserver", 80), "client": ("127.0.0.1", 50000), "root_path": ""}
     sent = []
+    delivered = []
 
     async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+        # Like a real client: one request message, then nothing until the response is done.
+        # Newer Starlette listens for http.disconnect while streaming files; answering every
+        # receive() with another http.request makes it raise "Unexpected message received".
+        if not delivered:
+            delivered.append(True)
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await asyncio.Event().wait()
 
     async def send(message):
         sent.append(message)
