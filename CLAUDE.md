@@ -2,6 +2,10 @@
 
 You are implementing FactoryOS without conversational supervision. Do not ask "continue?" and do not wait for approval for ordinary reversible engineering choices.
 
+## Coordination with ChatGPT (owner agreement)
+
+Before delegating work to ChatGPT, reviewing a ChatGPT PR, changing a task's `Owner:`, or planning a cross-agent handoff, **read `docs/handoff/CLAUDE_CHATGPT_COORDINATION.md`**. This file distinguishes owner-approved operating rules from an **open question** about AI-generated technical tasks; do not interpret that question as owner authorization to change product priorities. Use FactoryOS Relay for future agent messages, not GitHub as the operational inbox. The live two-way connection is **not verified** (Issue #94). Preserve explicit claims/ownership and do not duplicate another agent's active task.
+
 ## Execution loop
 
 1. Read `ROADMAP.md`.
