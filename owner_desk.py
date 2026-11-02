@@ -1,6 +1,7 @@
 """Owner desk: step-by-step runbooks for [HUMAN] ROADMAP tasks and owner questions answered by the Claude worker.
 
-Runbooks are static, reviewed text (Russian, the owner's working language). Every step says what to do,
+Runbooks are static, reviewed text. Russian (the owner's working language) is the source; EN and UK
+translations live in owner_desk_i18n.py and are served by `?lang=`. Every step says what to do,
 how to check it worked, and what to do for each known failure. Live status comes from facts the server
 already has (Telegram pairing, publisher adapter, build SHA); nothing here calls a provider.
 
@@ -23,6 +24,8 @@ from typing import Any, Callable, Optional
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel
+
+from owner_desk_i18n import RUNBOOK_I18N, STATUS_DETAILS
 
 QUOTE_MAX = 800
 QUESTION_MAX = 1500
@@ -212,6 +215,35 @@ RUNBOOKS: list[dict[str, Any]] = [
 RUNBOOK_BY_ID = {r["id"]: r for r in RUNBOOKS}
 
 
+RUNBOOK_LANGS = ("ru", "en", "uk")
+
+
+def localize_runbook(runbook: dict[str, Any], lang: str) -> dict[str, Any]:
+    """The runbook in `lang`; the Russian source is the fallback for anything not translated."""
+    tr = (RUNBOOK_I18N.get(lang) or {}).get(runbook["id"])
+    if not tr:
+        return {**runbook, "lang": "ru"}
+    steps = []
+    for step in runbook.get("steps") or []:
+        st = (tr.get("steps") or {}).get(step["id"]) or {}
+        steps.append({**step, **{k: st[k] for k in ("title", "do", "check", "if") if k in st}})
+    return {**runbook, **{k: tr[k] for k in ("title", "why", "time", "done") if k in tr}, "steps": steps, "lang": lang}
+
+
+def status_detail(status: dict[str, Any], lang: str) -> dict[str, Any]:
+    """Live status with its line in `lang`: status_fn gives `detail_key` + `args`, or a plain `detail`."""
+    key = status.get("detail_key")
+    if not key:
+        return status
+    table = STATUS_DETAILS.get(lang) or STATUS_DETAILS["ru"]
+    template = table.get(key) or STATUS_DETAILS["ru"].get(key) or ""
+    try:
+        detail = template.format(**(status.get("args") or {}))
+    except (KeyError, IndexError, ValueError):
+        detail = template
+    return {k: v for k, v in status.items() if k not in ("detail_key", "args")} | {"detail": detail}
+
+
 def runbook_text(runbook: dict[str, Any]) -> str:
     """Plain-text rendering for the worker prompt."""
     lines = [f"{runbook['id']} — {runbook['title']}", runbook.get("why", "")]
@@ -368,14 +400,16 @@ def install_owner_desk_routes(app, store: QuestionStore, identity_fn: Callable[[
             raise HTTPException(401, "Worker token required")
 
     @app.get("/api/factory/owner-desk")
-    def owner_desk(request: Request):
+    def owner_desk(request: Request, lang: str = "ru"):
         require_owner(request)
+        lang = lang if lang in RUNBOOK_LANGS else "ru"
         try:
             status = status_fn() or {}
         except Exception:
             status = {}
-        books = [{**r, "status": status.get(r["id"]) or {"state": "unknown", "detail": ""}} for r in RUNBOOKS]
-        return {"runbooks": books, "questions": store.list(), "answer_mode": "worker_between_tasks"}
+        books = [{**localize_runbook(r, lang), "status": status_detail(status.get(r["id"]) or {"state": "unknown", "detail": ""}, lang)}
+                 for r in RUNBOOKS]
+        return {"runbooks": books, "lang": lang, "questions": store.list(), "answer_mode": "worker_between_tasks"}
 
     @app.post("/api/factory/owner-desk/questions")
     def owner_desk_ask(payload: OwnerQuestionRequest, request: Request):

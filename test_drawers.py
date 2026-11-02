@@ -144,7 +144,7 @@ const out={fails,viewports:[],langs:{}};
  ok(IDS.every(id=>D(e,id).querySelectorAll('.drawerGrip').length===1&&D(e,id).querySelectorAll('.drawerMax').length===1),'drawerInit is not idempotent');
 }
 
-// 2. Default ~65% width (agent drawer keeps its compact size), bounds keep the sidebar visible, at each DONE viewport.
+// 2. Default ~65% width, ~56% on tablets (agent drawer keeps its compact size), bounds keep the sidebar visible, at each DONE viewport.
 for(const [width,side] of VIEWPORTS){
  const e=boot({width,side}),r={width,side,drawers:{}};
  for(const id of IDS){open(e,id);const w=W(e,id),g=grip(e,id);r.drawers[id]={w,left:width-w,max:+g.getAttribute('aria-valuemax'),now:+g.getAttribute('aria-valuenow')};D(e,id).classList.remove('open');tick(e)}
@@ -271,7 +271,8 @@ def check_dom_behaviour(html, script, i18n, assigns, tr, tables):
         require(not r["full"] and r["sideVar"] == f"{side}px", f"{width}px: sidebar edge not published: {r['sideVar']}")
         cap = width - side - 16
         for d, v in r["drawers"].items():
-            expected = min(cap, round(width * (0.42 if d == "agentDrawer" else 0.65)))
+            # T-602: on tablets (<=1280px) the default leaves the main area readable.
+            expected = min(cap, round(width * (0.42 if d == "agentDrawer" else 0.56 if width <= 1280 else 0.65)))
             require(v["w"] == expected, f"{width}px {d}: default width {v['w']} != {expected}")
             require(v["left"] >= side + 16 and v["max"] == cap and v["now"] == v["w"], f"{width}px {d}: covers the sidebar or wrong bounds {v}")
     for lang, r in out["langs"].items():

@@ -97,5 +97,71 @@ class LocalStateTests(unittest.TestCase):
             self.assertEqual(s.subscription_status(), (True, True))
 
 
+class RunOnceTests(unittest.TestCase):
+    """End-to-end tick with fake systemctl/git/claude: the persisted status is truthful."""
+
+    def tick(self, env_text: str, auth: dict, service: str = "active"):
+        calls: list[list[str]] = []
+
+        def fake(argv, *, timeout=15):
+            calls.append(argv)
+            if argv[:2] == ["git", "-C"]:
+                return 0, "autopilot/aws-worker"
+            if "auth" in argv:
+                return 0, json.dumps(auth)
+            if argv[:2] == ["systemctl", "is-active"]:
+                return 0, service
+            return 0, ""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / "repo"
+            (repo / ".git").mkdir(parents=True)
+            (repo / ".autopilot").mkdir()
+            (repo / "ROADMAP.md").write_text("# roadmap\n")
+            env_file = root / "worker.env"
+            env_file.write_text(f'AUTOPILOT_REPO="{repo}"\n' + env_text)
+            with mock.patch.multiple(
+                s, ENV_FILE=env_file, STATUS_FILE=root / "status.json",
+                RESTART_FILE=root / "restarts.json", command=fake,
+            ), mock.patch.dict(s.os.environ, {k: "" for k in s.PAID_KEYS}), \
+                    mock.patch("builtins.print"):
+                report = s.run_once(now=1000.0)
+                persisted = (root / "status.json").read_text()
+                published = (repo / ".autopilot" / "supervisor.json").read_text()
+        return report, persisted, published, calls
+
+    SUBSCRIPTION = {"loggedIn": True, "apiProvider": "firstParty", "authMethod": "claude.ai"}
+
+    def test_paid_key_stops_active_worker_and_never_leaks_values(self):
+        report, persisted, published, calls = self.tick(
+            "FACTORY_CLAUDE_WORKER_TOKEN=tok-secret-123\nANTHROPIC_API_KEY=sk-ant-secret-456\n",
+            self.SUBSCRIPTION,
+        )
+        self.assertEqual((report["status"], report["recovery_action"]), ("blocked", "stop"))
+        self.assertEqual(report["reason"], "paid_api_credentials")
+        self.assertIn(["systemctl", "stop", s.WORKER_SERVICE], calls)
+        for text in (persisted, published):
+            self.assertNotIn("tok-secret-123", text)
+            self.assertNotIn("sk-ant-secret-456", text)
+
+    def test_logged_out_is_reported_blocked_not_running(self):
+        report, _, _, calls = self.tick(
+            "FACTORY_CLAUDE_WORKER_TOKEN=tok\n",
+            {"loggedIn": False, "apiProvider": "firstParty", "authMethod": "none"},
+            service="inactive",
+        )
+        self.assertEqual((report["status"], report["reason"]), ("blocked", "subscription_auth_required"))
+        self.assertFalse(report["subscription_authenticated"])
+        self.assertFalse(any(c[:2] == ["systemctl", "start"] for c in calls))
+
+    def test_all_gates_pass_restarts_stopped_worker(self):
+        report, _, _, calls = self.tick(
+            "FACTORY_CLAUDE_WORKER_TOKEN=tok\n", self.SUBSCRIPTION, service="failed",
+        )
+        self.assertEqual((report["status"], report["recovery_action"]), ("recovering", "start"))
+        self.assertIn(["systemctl", "start", "--no-block", s.WORKER_SERVICE], calls)
+
+
 if __name__ == "__main__":
     unittest.main()

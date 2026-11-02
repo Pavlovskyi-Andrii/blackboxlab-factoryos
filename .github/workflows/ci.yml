@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Compile Python
-        run: python -m py_compile app.py relay.py relay_execution.py relay_pairing.py test_relay_pairing.py test_relay_execution.py test_relay_telegram.py autopilot/relay_tasks.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py autopilot/autopilot.py autopilot/notify.py autopilot/claude_pro_worker.py autopilot/pair_worker.py autopilot/test_pair_worker.py autopilot/supervisor.py autopilot/test_supervisor.py test_worker_token_binding.py autopilot/delegation.py autopilot/test_autopilot.py autopilot/test_notify.py autopilot/test_delegation.py autopilot/control.py autopilot/test_control.py test_delegation_ui.py browser_runner/__init__.py browser_runner/core.py browser_runner/sessions.py browser_runner/playwright_executor.py test_browser_runner.py test_browser_sessions.py test_browser_playwright.py
+        run: python -m py_compile app.py relay.py relay_execution.py relay_pairing.py test_relay_pairing.py test_relay_execution.py test_relay_telegram.py autopilot/relay_tasks.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py autopilot/autopilot.py autopilot/notify.py autopilot/claude_pro_worker.py autopilot/pair_worker.py autopilot/test_pair_worker.py autopilot/supervisor.py autopilot/test_supervisor.py test_worker_token_binding.py autopilot/delegation.py autopilot/test_autopilot.py autopilot/test_notify.py autopilot/test_delegation.py autopilot/control.py autopilot/test_control.py test_delegation_ui.py browser_runner/__init__.py browser_runner/core.py browser_runner/sessions.py browser_runner/playwright_executor.py browser_runner/observability.py test_browser_runner.py test_browser_sessions.py test_browser_playwright.py test_browser_observability.py
       - name: Install runtime dependencies
         run: python -m pip install -r requirements.txt
       - name: Verify provider and worker connection contracts (zero spend)
@@ -120,6 +120,13 @@ jobs:
         run: python test_browser_sessions.py
       - name: Browser executor isolated fake-browser fixture
         run: python test_browser_playwright.py
+      - name: Browser Runner observability view/API/UI fixtures
+        env:
+          DATA_DIR: /tmp/factoryos-browser-obs-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: python test_browser_observability.py
       - name: Validate autopilot compose
         run: |
           cp .env.autopilot.example .env.autopilot
@@ -151,6 +158,13 @@ jobs:
         env:
           FACTORYOS_REQUIRE_NODE: "1"
         run: python test_delegation_ui.py
+      - name: Role / operator API and operator assignment UI fixtures
+        env:
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_role_operator.py test_role_operator_ui.py
+          python test_role_operator.py
+          python test_role_operator_ui.py
       - name: Live pipeline handoff trace UI fixtures
         env:
           FACTORYOS_REQUIRE_NODE: "1"
@@ -188,6 +202,86 @@ jobs:
         run: |
           python -m py_compile test_delegation_controls.py
           python test_delegation_controls.py
+      - name: Live worker telemetry regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile worker_observability.py test_worker_telemetry.py
+          python test_worker_telemetry.py
+      - name: Artifact + media viewer regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_artifact_viewer.py
+          python test_artifact_viewer.py
+      - name: Revideo zero-spend acceptance
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile test_revideo_acceptance.py
+          python test_revideo_acceptance.py
+      - name: Media Finisher operator preview regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_media_finisher_preview.py
+          python test_media_finisher_preview.py
+      - name: Publishing dry-run evidence regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile test_publishing_dry_run.py
+          python test_publishing_dry_run.py
+      - name: OAuth framework scaffold regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile oauth_framework.py test_oauth_framework.py
+          python test_oauth_framework.py
+      - name: Workspace data tenancy regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile workspace_tenancy.py test_workspace_tenancy.py
+          python test_workspace_tenancy.py
+      - name: Battle Run experiment model regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile battle_runs.py test_battle_runs.py
+          python test_battle_runs.py
+      - name: Battle outcome attribution + leaderboard regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile battle_runs.py test_battle_outcomes.py
+          python test_battle_outcomes.py
+      - name: Battle reviewer / judge regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile battle_runs.py test_battle_review.py
+          python test_battle_review.py
+      - name: Multi-operator delegation lanes regression
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile operator_lanes.py test_operator_lanes.py
+          python test_operator_lanes.py
   ui-screenshots:
     # Evidence for UI tasks (T-594..T-597): EN/UK/RU × desktop/tablet/mobile screenshots of a local,
     # password-less, key-less FactoryOS (zero spend). Findings are reported in the job summary, not enforced.

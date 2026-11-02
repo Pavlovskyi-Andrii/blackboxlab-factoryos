@@ -47,6 +47,56 @@ def test_runbook_shape():
                 assert "никогда не отправляйте" in joined.lower(), (book["id"], step["id"])
 
 
+_CYRILLIC = re.compile(r"[\u0400-\u04ff]")
+_RU_ONLY = re.compile(r"[ыэъёЫЭЪЁ]")
+_KEEP = re.compile(r"FACTORY_[A-Z_]+|@BotFather|/mybots|/newbot|/pair|gh auth [a-z]+|blackboxlab-factoryos|blackboxlab7")
+_NEVER_SEND = {"ru": "никогда не отправляйте", "en": "never send", "uk": "ніколи не надсилайте"}
+_SECRET_WORDS = {"ru": ("токен", "секрет"), "en": ("token", "secret"), "uk": ("токен", "секрет")}
+
+
+def _texts(book):
+    yield from (book["title"], book["why"], book["time"], book["done"])
+    for step in book["steps"]:
+        yield from (step["title"], step["check"], *step["do"])
+        for branch in step.get("if") or []:
+            yield from (branch["when"], branch["then"])
+
+
+def test_runbooks_localized_en_uk_ru():
+    for lang in od.RUNBOOK_LANGS:
+        for src in od.RUNBOOKS:
+            book = od.localize_runbook(src, lang)
+            assert book["lang"] == lang, (lang, src["id"])
+            assert [s["id"] for s in book["steps"]] == [s["id"] for s in src["steps"]], (lang, src["id"])
+            for step, orig in zip(book["steps"], src["steps"]):
+                assert len(step["do"]) == len(orig["do"]) and len(step.get("if") or []) == len(orig.get("if") or []), (lang, src["id"], step["id"])
+            texts = list(_texts(book))
+            assert all(str(t).strip() for t in texts), (lang, src["id"])
+            if lang != "ru":
+                assert list(_texts(book)) != list(_texts(src)), (lang, src["id"])
+            if lang == "en":
+                bad = [t for t in texts if _CYRILLIC.search(t)]
+                assert not bad, (src["id"], bad[:2])
+            if lang == "uk":
+                bad = [t for t in texts if _RU_ONLY.search(t)]
+                assert not bad, (src["id"], bad[:2])
+            # Variable names, commands and product handles are never translated.
+            assert sorted(_KEEP.findall(" ".join(texts))) == sorted(_KEEP.findall(" ".join(_texts(src)))), (lang, src["id"])
+            for step in book["steps"]:
+                joined = " ".join(step["do"]).lower()
+                if all(w in joined for w in _SECRET_WORDS[lang]):
+                    assert _NEVER_SEND[lang] in joined, (lang, src["id"], step["id"])
+    # Every status line exists in every language with the same placeholders.
+    for lang in od.RUNBOOK_LANGS:
+        assert set(od.STATUS_DETAILS[lang]) == set(od.STATUS_DETAILS["ru"]), lang
+        for key, text in od.STATUS_DETAILS[lang].items():
+            assert re.findall(r"{\w+}", text) == re.findall(r"{\w+}", od.STATUS_DETAILS["ru"][key]), (lang, key)
+    got = od.status_detail({"state": "info", "detail_key": "prod_sha", "args": {"sha": "abc1234"}}, "en")
+    assert got == {"state": "info", "detail": "Now in production: abc1234"}, got
+    assert od.status_detail({"state": "todo", "detail_key": "waits", "args": {"task": "T-520"}}, "uk")["detail"] == "Чекає на T-520"
+    assert od.status_detail({"state": "done", "detail": "plain"}, "en") == {"state": "done", "detail": "plain"}
+
+
 def test_secret_scrubbing():
     bot = "123456789:" + "A" * 35
     text = od.scrub_secrets(f"мой токен {bot} и ghp_{'b' * 20} и AKIA{'C' * 16} password=hunter2hunter2")
@@ -124,7 +174,8 @@ def test_routes_and_auth():
     store = od.QuestionStore(Path(tempfile.mkdtemp()) / "q.json")
     od.install_owner_desk_routes(app, store, lambda r: {"role": r.role} if r.role else None,
                                  authorize_worker=lambda r: r.worker,
-                                 status_fn=lambda: {"T-506": {"state": "done", "detail": "ok"}},
+                                 status_fn=lambda: {"T-506": {"state": "done", "detail": "ok"},
+                                                    "T-521": {"state": "blocked", "detail_key": "waits", "args": {"task": "T-520"}}},
                                  redact_fn=lambda s: s.replace("SERVERSECRET", "[redacted]"),
                                  notify_owner=sent.append)
     desk, ask = app.routes[("GET", "/api/factory/owner-desk")], app.routes[("POST", "/api/factory/owner-desk/questions")]
@@ -144,6 +195,12 @@ def test_routes_and_auth():
     data = desk(owner)
     by_id = {b["id"]: b for b in data["runbooks"]}
     assert by_id["T-506"]["status"]["state"] == "done" and by_id["T-520"]["status"]["state"] == "unknown"
+    assert data["lang"] == "ru" and by_id["T-506"]["title"] == od.RUNBOOK_BY_ID["T-506"]["title"]
+    assert by_id["T-521"]["status"] == {"state": "blocked", "detail": "Ждёт T-520"}
+    for lang, title in (("en", "Connect the owner's Telegram bot"), ("uk", "Підключити Telegram-бота власника"), ("xx", od.RUNBOOK_BY_ID["T-506"]["title"])):
+        loc = {b["id"]: b for b in desk(owner, lang)["runbooks"]}
+        assert loc["T-506"]["title"] == title, (lang, loc["T-506"]["title"])
+    assert {b["id"]: b for b in desk(owner, "en")["runbooks"]}["T-521"]["status"]["detail"] == "Waiting for T-520"
     made = ask(od.OwnerQuestionRequest(task_id="T-506", step_id="render", quote="Add Environment Variable",
                                        question="Где кнопка? SERVERSECRET"), owner)["question"]
     assert "[redacted]" in made["question"]
@@ -167,10 +224,11 @@ def test_routes_and_auth():
 def main():
     test_every_open_human_task_has_a_runbook()
     test_runbook_shape()
+    test_runbooks_localized_en_uk_ru()
     test_secret_scrubbing()
     test_question_queue()
     test_routes_and_auth()
-    print("Owner desk tests passed: runbooks cover every open HUMAN task, queue, scrubbing, auth")
+    print("Owner desk tests passed: runbooks cover every open HUMAN task, EN/UK/RU runbooks, queue, scrubbing, auth")
 
 
 if __name__ == "__main__":

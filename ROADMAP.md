@@ -53,6 +53,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Remaining (needs owner/GitHub access): open PR autopilot/aws-worker → main and confirm CI green; merge + confirm Render deployed SHA; HUMAN T-506 pairing, then live `/new` test message → claim → run_id → `/task` trace; post redacted evidence to Issue #41.
   Progress (2026-10-31, acceptance run): all deterministic stages re-verified on the EC2 worker. Fixed the Python 3.9 import failure in `app.py`/`media_finisher_worker/app.py`, so smoke + planner now run on the worker, with no app-level skips. Live stages are still open: PR/CI/merge/`build_sha`/Telegram/Issue #41. Exact steps: `docs/handoff/T-590_ACCEPTANCE.md`.
   Re-check (2026-10-31, run-20261031162233-a7b938): deterministic stages green again at `62ffd5e`. The branch is still 10 commits ahead of main (not merged), and the live stages remain blocked on GitHub access plus HUMAN T-506.
+  Re-check (2026-11-01): `autopilot/aws-worker` == `origin/main` == `c2879b9`, so the T-590 slice is merged into main. Deterministic stages are green again (smoke, planner, relay 74, telegram 9, token binding, delegation, autopilot). This run was denied network/`gh`/`curl`, so CI on `c2879b9`, Render `build_sha`, Telegram pairing (HUMAN T-506), the live `/new` trace and the Issue #41 evidence are still unverified.
 
 - [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
   Owner: claude
@@ -120,6 +121,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Spec: docs/reviews/ui-review-2026-11.md (PR #92, from Issue #88). Evidence source: CI `ui-screenshots` artifact (54 PNG, EN/UK/RU × 1440x900 / 1024x768 / 390x844).
   Goal: fix, in static/index.html (and owner_desk.py for the runbook text): (1) mobile 390 px header actions (Refresh / Share Viewer / New) clipped on the right — wrap or move into an overflow menu, no hidden text; (2) Build Progress: status lanes Planned / In Progress / Completed / Blocked visible on the first screen, the "Recent autonomous decisions" log collapsed/height-limited below them; (3) Agent Office header: title/subtitle and Offline chips in separate grid zones, no overlap at 1440/1024/390; (4) 1024 px tablet: drawer width keeps the main area readable; (5) decision log: short cards with date/type, long raw text behind "details", marked raw worker evidence when untranslated; (6) owner-desk question box keeps the selected step visible (sticky caption, max-height); (7) owner-desk runbooks localized to UK and EN (keep RU; product names and variable names untranslated; test_owner_desk.py must check all three).
   DONE: before/after `ui-screenshots` from CI attached in the PR description (same scenes), test_navigation.py / test_locale_parity.py / test_explainability.py / test_owner_desk.py green, no new horizontal overflow, CI-gated PR.
+  Progress 2026-11-02: all 7 fixes are committed on `autopilot/aws-worker` (see DECISIONS.md T-602). These are green on the worker: test_navigation, test_locale_parity, test_explainability, test_owner_desk (EN/UK/RU runbooks), test_drawers (56% tablet default), py_compile, planner, smoke, and dashboard `node --check`. Still open: the after `ui-screenshots` from CI on the pushed commit, and the before (artifact 13083380060) / after comparison in the PR description. This run had no `gh`/network access and no browser.
 
 - [ ] T-594 Left navigation with collapsible semantic submenus
   Owner: Claude
@@ -127,6 +129,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Spec: #53, T-574; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M3.
   Goal: audit and preserve all current routes; clear section grouping and descriptive RU/UK/EN labels, icon rail, hover/click expanding text, slide-out adaptive one-third desktop menu, outside-tap closes, breadcrumbs, current section and keyboard accessibility.
   DONE: before/after nav map, screenshots desktop/mobile, all existing destinations reachable, keyboard/touch and RU/UK/EN regressions, CI-gated PR.
+  Progress 2026-11-01: code and regressions are done and on `origin/main` (`c2879b9`). `test_navigation.py` is green: 24 destinations, 6 sections, slide-out at 1440/1024/800/390, keyboard, EN/UK/RU. Still open: desktop/mobile screenshots and a real touch check. The worker has no browser. Steps are in `docs/roadmap/T-594_NAV_MAP.md`.
 
 - [ ] T-595 Resizable/maximizable sliding drawers and overflow repair
   Owner: Claude
@@ -134,6 +137,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Spec: #54, T-575; docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md M4.
   Goal: resize large panels by left-edge drag slider/handle, max/restore beside X, bounds that keep sidebar visible, session width memory, fix horizontal overflow and clipped Build Progress columns, mobile full-screen drawers and keyboard/touch controls.
   DONE: tests and before/after screenshots 1440x900, 1024x768, 390x844; no cut-off Planned/In Progress/Completed/Blocked; CI-gated PR.
+  Progress 2026-11-01: code and regressions are done and on `origin/main` (14f1e35 via PR #80). `test_drawers.py` is green: 16 drawers at 1440/1024/390, pointer/touch drag, keyboard separator, max/restore, Escape order, session width memory, sidebar-safe bounds, wrapping Planned/In Progress/Completed/Blocked columns, EN/UK/RU. Still open: the before/after screenshots. The worker has no browser, so the owner must capture them or approve a Playwright/Chromium install on the worker.
 
 - [ ] T-596 Worker Center / Agent Office factual live observability
   Owner: Claude
@@ -142,6 +146,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: distinguish EC2 IAM instance visibility, systemd/OAuth, heartbeat, Relay claim, real current Claude task; existing worker detail, timeline, scoped heatmap, errors, last verified time, branch/PR/CI. Clickable workers in Agent Office. Correct distinct progress denominators (87% vs 49% historical), no fake progress, actionable HUMAN blockers.
   DONE: deterministic offline/stale/idle/running test cases, source links, web↔Telegram consistency, RU/UK/EN mobile/desktop screens and CI-gated PR.
   Progress 2026-10-31: code slice done. `worker_observability.py` → `GET /api/factory/worker-overview` + Worker Center panel + Telegram `/status` block show separate signals: host, EC2 API (DescribeInstances not granted = unknown, not offline), systemd, OAuth (from the supervisor report forwarded in the heartbeat), heartbeat, Relay claim and current task (from the lane row, the same snapshot as Telegram). The panel also shows a Kyiv-day heatmap of verified worker evidence (zero vs unknown), a timeline, errors, branch/commit/PR links (CI "not verified"), progress per population (Factory Builder vs ROADMAP vs Claude lane) and actionable HUMAN blockers. Agent Office worker chips open the Worker Center. Deterministic tests: `test_worker_observability.py` (in CI via test_relay_execution.py) and a smoke block. Remaining: RU/UK/EN mobile/desktop screenshots (no browser on the worker), and the PR/CI after the worker push.
+  Re-check 2026-11-01: the code is on `origin/main` (`c2879b9`). These are green on the worker: `test_worker_observability.py` (16), `test_relay_execution.py` (74), py_compile, planner, smoke, and `node --check` on the committed dashboard JS. Still open: RU/UK/EN mobile/desktop screenshots (still no browser; Playwright is not in the venv) and the CI result on `c2879b9` (this run had no network/`gh`).
 
 - [ ] T-597 Contextual assistance and accessibility
   Owner: Claude
@@ -150,6 +155,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: reusable info/help icon, microcopy and small factual diagrams for Relay, workers, connectors, stages, approval, video, Content Brain, Discovery; RU/UK/EN, desktop hover/mobile tap/keyboard focus. Audio/video tutorial placeholders marked not yet supported; no metered generation.
   DONE: all target surfaces covered, no overlapping help/popovers, accessible tests, mobile screenshots and CI.
   Progress 2026-10-31: code slice done. The shared T-533 help tip now covers Relay (Delegation Center + lane board), workers (Worker Results + Worker Center), Connections, pipeline stages, Approval, Media Finisher video, Content Brain and Discovery. Each has EN/UK/RU copy, a factual mini flow and a "tutorial not yet supported" note. Hover/focus on one tip closes the others, and desktop edges are aligned. `test_explainability.py` covers this locally and in the existing CI step. Open: mobile screenshots (no browser on the worker) and CI after the worker push.
+  Re-check 2026-11-01: the code slice (`a44a432`) and the `ui-screenshots` CI job (#82) are on `origin/main`. Local checks are green. The checkbox stays open because this worker cannot see GitHub Actions: it has not seen CI pass on main or opened the `ui-screenshots` artifact. Owner: confirm CI is green on main, then check `{en,uk,ru}/mobile-390x844/help-tip.png` for one bubble with no overlap and an empty T-597 row in the job-summary findings. Then mark this `[x]`.
 
 - [x] T-598 Stable autonomous engineering handoff and report
   Owner: Claude
@@ -239,7 +245,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: add account-portable draft preparation recipes for X/Twitter web, Instagram web and Telegram web/channel UI when an official API/connector is unavailable; final publish/send remains approval-gated.
   DONE: fixture recipes can prepare text/media up to the final submit boundary, account bindings are workspace-scoped, no plaintext credentials are stored, challenge pages become waiting_human, and no fixture can publish without a matching human approval snapshot.
 
-- [ ] T-560-E Browser runner observability
+- [x] T-560-E Browser runner observability
   Owner: claude
   Planner: ChatGPT
   Depends: T-560-A,T-560-C
@@ -302,7 +308,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: expose one owner-safe API contract that combines the ROADMAP queue, hierarchy/dependencies, Claude worker heartbeat, active task, recent verified results and queue counts.
   DONE: deterministic regression returns planner queue + worker state + done/running/queued/blocked/HUMAN counts without returning worker tokens or other secrets.
 
-- [ ] T-536-B Live worker telemetry
+- [x] T-536-B Live worker telemetry
   Owner: claude
   Planner: ChatGPT
   Parent: T-536
@@ -355,24 +361,24 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: remove mixed-language UI leftovers and keep the three supported locales structurally in sync.
   DONE: an automated locale-parity regression catches missing canonical dashboard keys and the representative EN/UK/RU dashboard fixture contains no known cross-locale fallback strings.
 
-- [ ] T-535 Artifact + media viewer hardening
+- [x] T-535 Artifact + media viewer hardening
   Owner: claude
   Goal: make agent artifacts and finished media reliably open from Worker Results, Trace Viewer and Approval flows while preserving signed-media/auth boundaries.
   DONE: deterministic regression opens representative text, JSON, subtitle and video artifacts through the intended viewer/media routes with correct content handling and no broken known-artifact links.
 
 ## v5.4 — Revideo Production Hardening
 
-- [ ] T-540 Revideo zero-spend acceptance
+- [x] T-540 Revideo zero-spend acceptance
   Owner: claude
   Goal: prove the full safe content path Discovery candidate -> Revideo -> rewrite -> Content Package -> Media Finisher -> HUMAN APPROVAL on deterministic fixtures.
   DONE: acceptance reaches waiting_approval with provenance and originality evidence intact, creates no real provider spend and cannot auto-publish.
 
-- [ ] T-541 Media Finisher operator preview
+- [x] T-541 Media Finisher operator preview
   Owner: claude
   Goal: make the final-video review path obvious before approval, including source/final preview and the produced cuts/captions/audio/graphics artifacts that actually exist.
   DONE: deterministic UI/API regression exposes available before/after media plus generated artifact links, gracefully marks absent optional artifacts, and preserves the approval gate.
 
-- [ ] T-542 Publishing dry-run evidence
+- [x] T-542 Publishing dry-run evidence
   Owner: claude
   Goal: validate the exact immutable media+metadata snapshot that would be sent to YouTube Shorts, TikTok and Instagram Reels without making a real external post.
   DONE: zero-spend dry-run produces a traceable publisher plan/receipt preview bound to the approved snapshot; no external post ID is fabricated and real publish still requires T-520/T-521.
@@ -384,7 +390,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: remove owner-specific social identity from the runtime connection registry, add durable workspace/provider binding metadata, expose safe Disconnect / Change account controls, add HubSpot as a CRM/Growth connector slot, and ensure disconnect never deletes FactoryOS content history.
   DONE: deterministic regression proves Metricool / YouTube / Instagram / TikTok / HubSpot are portable connection slots, provider secrets never appear in the connection registry, YouTube can be detached independently, Metricool disconnect fences real publishing, and integration routes are owner-write protected by the existing auth middleware.
 
-- [ ] T-551-A OAuth framework scaffold
+- [x] T-551-A OAuth framework scaffold
   Owner: claude
   Planner: ChatGPT
   Depends: T-537,T-550
@@ -405,7 +411,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: implement provider-specific authorize/callback/refresh/revoke flows so a customer can connect, disconnect and replace accounts from FactoryOS without editing Render environment variables.
   DONE: deterministic mocks cover OAuth state/PKCE where supported, token refresh, encrypted secret storage, revoke/disconnect and account replacement without exposing tokens to the browser or logs.
 
-- [ ] T-553 Workspace data tenancy
+- [x] T-553 Workspace data tenancy
   Owner: claude
   Planner: ChatGPT
   Depends: T-550
@@ -428,56 +434,56 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: represent a FactoryOS role (Scout, Researcher, Scriptwriter, Engineer, Reviewer, QA, Supervisor, etc.) separately from the operator/model assigned to it (ChatGPT, Claude, Gemini, Auto), without renaming existing canonical workers.
   DONE: API contract exposes roles, available operators, assignment state and operator online/auth status; existing pipelines remain backward-compatible.
 
-- [ ] T-581 Operator assignment UI
+- [x] T-581 Operator assignment UI
   Owner: claude
   Planner: ChatGPT
   Depends: T-580
   Goal: let the owner assign ChatGPT / Claude / Gemini / Auto to any eligible role from the worker/agent UI and clearly show the current operator on every worker card.
   DONE: deterministic UI fixture changes operator assignment for representative Content and Engineering roles and displays offline/auth-pending states without fabricating readiness.
 
-- [ ] T-582 Battle Run experiment model
+- [x] T-582 Battle Run experiment model
   Owner: claude
   Planner: ChatGPT
   Depends: T-580
   Goal: run the same task/content brief through two or more role→operator chains and preserve exact chain provenance for each variant.
   DONE: deterministic regression creates at least two competing chains, preserves role/operator/model/runtime provenance per step, and records a battle/run ID without publishing automatically.
 
-- [ ] T-583 Outcome attribution + leaderboard
+- [x] T-583 Outcome attribution + leaderboard
   Owner: claude
   Planner: ChatGPT
   Depends: T-582
   Goal: attribute factual analytics (views, likes, comments, shares/reposts, saves, CTR/conversion when available) back to the exact role/operator chain and compare chains without inventing missing metrics.
   DONE: analytics fixtures produce a factual leaderboard by chain; missing platform metrics remain unavailable rather than zero/fabricated.
 
-- [ ] T-584 Reviewer / Judge mode
+- [x] T-584 Reviewer / Judge mode
   Owner: claude
   Planner: ChatGPT
   Depends: T-582
   Goal: allow one or more operators to independently produce candidate outputs while a separately assigned Reviewer/Judge compares them using explicit criteria and preserved evidence.
   DONE: deterministic fixture produces two candidate outputs + one review decision with criteria, selected candidate, rationale and provenance; Reviewer cannot silently rewrite candidates.
 
-- [ ] T-585 Multi-operator delegation board
+- [x] T-585 Multi-operator delegation board
   Owner: claude
   Planner: ChatGPT
   Depends: T-580
   Goal: generalize the current Claude-only delegation board into operator lanes (Claude, Gemini, ChatGPT) showing open ticket, stage, branch/runtime, heartbeat, last result and queue depth.
   DONE: API/UI renders at least Claude and Gemini lanes; offline/unconfigured Gemini is explicit; secrets are never returned.
 
-- [ ] T-586 Telegram operator lanes
+- [x] T-586 Telegram operator lanes
   Owner: claude
   Planner: ChatGPT
   Depends: T-585
   Goal: extend the paired Telegram owner bridge with two operator buttons/lists for Claude and Gemini plus open tickets and current status.
   DONE: Telegram callback regression renders Claude/Gemini buttons, lists each operator's open tickets/status, and existing Relay ticket controls continue to work.
 
-- [ ] T-587 Telegram Battle controls
+- [x] T-587 Telegram Battle controls
   Owner: claude
   Planner: ChatGPT
   Depends: T-582,T-586
   Goal: let the owner view a Battle Run from Telegram, compare candidate chains, see factual outcome metrics and approve/reject only safe next actions.
   DONE: deterministic Telegram fixture shows battle summary + candidate chains + metrics while preserving human publish approval.
 
-- [ ] T-588 Supervisor routing policy
+- [x] T-588 Supervisor routing policy
   Owner: claude
   Planner: ChatGPT
   Depends: T-580,T-585
@@ -493,7 +499,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 
 ## v5.0.3 — Runner Supervisor (Subscription-only Recovery)
 
-- [ ] T-562 Local self-healing supervisor and zero-paid-API guards
+- [x] T-562 Local self-healing supervisor and zero-paid-API guards
   Owner: claude
   Planner: ChatGPT
   Spec: docs/roadmap/T-562_RUNNER_SUPERVISOR.md
@@ -502,7 +508,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 
 ## v5.0.4 — Self-service EC2 pairing
 
-- [ ] T-564 Interactive Claude worker pairing (no shell history/secrets)
+- [x] T-564 Interactive Claude worker pairing (no shell history/secrets)
   Owner: claude
   Planner: ChatGPT
   Depends: T-562

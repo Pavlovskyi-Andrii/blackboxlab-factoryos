@@ -27,10 +27,16 @@ from google.oauth2 import id_token as google_id_token
 from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
-from worker_observability import build_worker_overview, sanitize_supervisor
+from operator_lanes import build_operator_lanes
+from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
+from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import QuestionStore, install_owner_desk_routes
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
+from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
+import workspace_tenancy as tenancy
+from battle_runs import BattleError, BattleStore
+from telegram_battles import BattleTelegram
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -173,8 +179,10 @@ FACTORY_OPERATOR_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY
 operator_worker_runtime={"claude":{"last_seen":0.0},"gemini":{"last_seen":0.0}}
 _operator_worker_lock=threading.Lock()
 FACTORY_CLAUDE_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_CLAUDE_WORKER_TTL_SECONDS","45"))))
-claude_worker_runtime={"last_seen":0.0,"node":{},"active_task_id":"","last_error":""}
+claude_worker_runtime={"last_seen":0.0,"node":{},"active_task_id":"","last_error":"","telemetry":{}}
 CLAUDE_WORKER_RESULTS_FILE = DATA_DIR / "claude_worker_results.json"
+# T-536-B: last sanitized heartbeat survives restarts; the TTL still decides online/stale.
+CLAUDE_WORKER_HEARTBEAT_FILE = DATA_DIR / "claude_worker_heartbeat.json"
 _claude_worker_results_lock=threading.Lock()
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
 FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS","").split(",") if x.strip()}
@@ -182,6 +190,8 @@ FACTORY_GOOGLE_VIEWER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTO
 FACTORY_GOOGLE_ALLOWED_EMAILS = ({x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_EMAILS","").split(",") if x.strip()} | FACTORY_GOOGLE_OWNER_EMAILS | FACTORY_GOOGLE_VIEWER_EMAILS)
 FACTORY_GOOGLE_ALLOWED_DOMAINS = {x.strip().lower().lstrip("@") for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_DOMAINS","").split(",") if x.strip()}
 FACTORY_VIEWER_INVITE_TOKEN = os.environ.get("FACTORY_VIEWER_INVITE_TOKEN","").strip()
+# T-553: customer users, "email=workspace,..."; they sign in with Google and only see their workspace.
+FACTORY_WORKSPACE_MEMBERS = tenancy.parse_members(os.environ.get("FACTORY_WORKSPACE_MEMBERS",""))
 FACTORY_LOCAL_BOOSTER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_LOCAL_BOOSTER_TTL_SECONDS","45"))))
 local_booster_runtime={"last_seen":0.0,"node":{},"active_job_id":"","last_error":""}
 _local_booster_claim_lock=threading.Lock()
@@ -255,6 +265,11 @@ def _role_session_token(role: str, email: str) -> str:
     sig=hmac.new(FACTORY_SECRET.encode("utf-8"),payload.encode("utf-8"),hashlib.sha256).hexdigest()
     return payload+"|"+sig
 
+def _member_session_token(email: str, workspace: str) -> str:
+    payload=f"v3|member|{(email or '').strip().lower()}|{tenancy.normalize_workspace(workspace)}"
+    sig=hmac.new(FACTORY_SECRET.encode("utf-8"),payload.encode("utf-8"),hashlib.sha256).hexdigest()
+    return payload+"|"+sig
+
 def _identity_from_session_token(token: str):
     token=(token or "").strip()
     if not token:
@@ -262,6 +277,12 @@ def _identity_from_session_token(token: str):
     if hmac.compare_digest(token,session_token(FACTORY_USER)):
         return {"role":"owner","email":"","provider":"password"}
     parts=token.split("|")
+    if len(parts)==5 and parts[0]=="v3" and parts[1]=="member":
+        expected=hmac.new(FACTORY_SECRET.encode("utf-8"),"|".join(parts[:4]).encode("utf-8"),hashlib.sha256).hexdigest()
+        # A removed or re-assigned member loses the old workspace immediately, even with a valid cookie.
+        if not hmac.compare_digest(parts[4],expected) or FACTORY_WORKSPACE_MEMBERS.get(parts[2])!=parts[3]:
+            return None
+        return {"role":"member","email":parts[2],"provider":"google","workspace":parts[3]}
     if len(parts)!=4 or parts[0]!="v2" or parts[1] not in ("owner","viewer"):
         return None
     payload="|".join(parts[:3])
@@ -279,7 +300,7 @@ def request_is_authed(request: Request) -> bool:
     return bool(request_identity(request))
 
 def _google_login_enabled() -> bool:
-    return bool(FACTORY_GOOGLE_CLIENT_ID and (FACTORY_GOOGLE_ALLOWED_EMAILS or FACTORY_GOOGLE_ALLOWED_DOMAINS))
+    return bool(FACTORY_GOOGLE_CLIENT_ID and (FACTORY_GOOGLE_ALLOWED_EMAILS or FACTORY_GOOGLE_ALLOWED_DOMAINS or FACTORY_WORKSPACE_MEMBERS))
 
 def _google_identity_role(email: str):
     email=(email or "").strip().lower()
@@ -287,6 +308,8 @@ def _google_identity_role(email: str):
         return None
     if email in FACTORY_GOOGLE_OWNER_EMAILS:
         return "owner"
+    if email in FACTORY_WORKSPACE_MEMBERS:
+        return "member"
     if email in FACTORY_GOOGLE_VIEWER_EMAILS:
         return "viewer"
     if email in FACTORY_GOOGLE_ALLOWED_EMAILS:
@@ -299,8 +322,10 @@ def _google_identity_allowed(email: str) -> bool:
 
 def _auth_cookie_response(target: str, role: str="owner", email: str="") -> RedirectResponse:
     response=RedirectResponse(target,status_code=303)
+    token=(_member_session_token(email,FACTORY_WORKSPACE_MEMBERS[email.strip().lower()]) if role=="member"
+           else _role_session_token(role,email))
     response.set_cookie(
-        COOKIE_NAME,_role_session_token(role,email),httponly=True,
+        COOKIE_NAME,token,httponly=True,
         secure=bool(os.environ.get("RENDER")),samesite="lax",max_age=60*60*24*30,
     )
     return response
@@ -396,7 +421,39 @@ def get_claude_code_status():
         "api_key_required":False,
         "recommended_auth":"Claude account with subscription",
         "recent_results":_load_claude_worker_results()[-5:],
+        "telemetry":_live_claude_worker_telemetry(),
     }
+
+def _live_claude_worker_telemetry(now=None):
+    """Persisted telemetry with elapsed time advanced to now while a task is running; {} when never reported."""
+    telemetry=dict(claude_worker_runtime.get("telemetry") or {})
+    started=telemetry.get("task_started_at")
+    if telemetry.get("stage")=="running" and isinstance(started,(int,float)) and started>0:
+        telemetry["elapsed_seconds"]=round(max(0.0,(now or time.time())-float(started)),1)
+    return telemetry
+
+def _persist_claude_worker_heartbeat():
+    keep={k:claude_worker_runtime.get(k) for k in ("last_seen","node","active_task_id","last_error","telemetry")}
+    try:
+        CLAUDE_WORKER_HEARTBEAT_FILE.parent.mkdir(parents=True,exist_ok=True)
+        tmp=CLAUDE_WORKER_HEARTBEAT_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(keep,ensure_ascii=False)+"\n",encoding="utf-8")
+        os.replace(tmp,CLAUDE_WORKER_HEARTBEAT_FILE)
+    except OSError as exc:
+        print(json.dumps({"event":"CLAUDE_WORKER_HEARTBEAT_PERSIST_FAILED","error":type(exc).__name__}),flush=True)
+
+def _restore_claude_worker_heartbeat():
+    if not CLAUDE_WORKER_HEARTBEAT_FILE.exists():return
+    value=_decode_json(CLAUDE_WORKER_HEARTBEAT_FILE.read_text(encoding="utf-8"),{})
+    if not isinstance(value,dict):return
+    node=value.get("node") if isinstance(value.get("node"),dict) else {}
+    node["supervisor"]=sanitize_supervisor(node.get("supervisor"))
+    claude_worker_runtime.update({
+        "last_seen":float(value.get("last_seen") or 0) if isinstance(value.get("last_seen"),(int,float)) else 0.0,
+        "node":node,"active_task_id":str(value.get("active_task_id") or ""),
+        "last_error":str(value.get("last_error") or "")[:500],
+        "telemetry":sanitize_telemetry(value.get("telemetry")),
+    })
 
 def _load_claude_worker_results():
     if not CLAUDE_WORKER_RESULTS_FILE.exists():return []
@@ -579,28 +636,28 @@ class TelegramBridgeNotify(BaseModel):
 install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send)
 
 def _owner_desk_status():
-    """Live facts for the owner runbooks; never calls a provider."""
+    """Live facts for the owner runbooks; never calls a provider. Lines are keys localized by owner_desk_i18n."""
     out={}
     tg=_telegram_public_status()
     if tg.get("paired"):
-        out["T-506"]={"state":"done","detail":"Telegram привязан"+(f" (@{tg['bot_username']})" if tg.get("bot_username") else "")}
+        out["T-506"]={"state":"done","detail_key":"tg_paired","args":{"bot":f" (@{tg['bot_username']})" if tg.get("bot_username") else ""}}
     elif tg.get("configured"):
-        out["T-506"]={"state":"todo","detail":"Бот настроен, чат владельца ещё не привязан"}
+        out["T-506"]={"state":"todo","detail_key":"tg_configured"}
     else:
-        out["T-506"]={"state":"todo","detail":"Токен бота ещё не добавлен в Render"}
-    out["T-590-H"]={"state":"info","detail":f"Сейчас на проде: {BUILD_SHA[:12]}"}
+        out["T-506"]={"state":"todo","detail_key":"tg_no_token"}
+    out["T-590-H"]={"state":"info","detail_key":"prod_sha","args":{"sha":BUILD_SHA[:12]}}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
     if reg.get("selected")=="metricool" and metricool.get("configured"):
-        out["T-520"]={"state":"done","detail":"Metricool настроен"+("" if metricool.get("youtube_audience_configured") else "; не задан FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS")}
+        out["T-520"]={"state":"done","detail_key":"metricool_ok" if metricool.get("youtube_audience_configured") else "metricool_no_audience"}
     elif reg.get("selected")=="metricool":
-        out["T-520"]={"state":"todo","detail":"metricool выбран, но не настроен (не хватает TOKEN / USER_ID / BLOG_ID)"}
+        out["T-520"]={"state":"todo","detail_key":"metricool_unconfigured"}
     else:
-        out["T-520"]={"state":"todo","detail":f"Сейчас выбран {reg.get('selected') or 'manual'}"}
-    out["T-521"]={"state":"todo","detail":"Можно начинать"} if out["T-520"]["state"]=="done" else {"state":"blocked","detail":"Ждёт T-520"}
-    out["T-551"]={"state":"blocked","detail":"Ждёт T-552 (адреса возврата OAuth)"}
-    out["T-598-H1"]={"state":"done","detail":"Сделано 01.11: push воркера с правкой CI принят GitHub"}
-    out["T-598-H2"]={"state":"optional","detail":"Пока бесполезно: код ещё не использует это право"}
+        out["T-520"]={"state":"todo","detail_key":"publisher_selected","args":{"adapter":reg.get("selected") or "manual"}}
+    out["T-521"]={"state":"todo","detail_key":"can_start"} if out["T-520"]["state"]=="done" else {"state":"blocked","detail_key":"waits","args":{"task":"T-520"}}
+    out["T-551"]={"state":"blocked","detail_key":"waits_t552"}
+    out["T-598-H1"]={"state":"done","detail_key":"h1_done"}
+    out["T-598-H2"]={"state":"optional","detail_key":"h2_optional"}
     return out
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
@@ -635,7 +692,29 @@ async def auth_middleware(request: Request, call_next):
             return JSONResponse({"detail":"viewer access is read-only"},status_code=403)
         if request.method.upper() not in ("GET","HEAD","OPTIONS") and request.url.path!="/logout":
             return JSONResponse({"detail":"viewer access is read-only"},status_code=403)
-    return await call_next(request)
+    scope=tenancy.identity_workspace(identity)
+    if scope is not None:
+        denied=_workspace_member_denial(request.method,request.url.path,scope)
+        if denied:return denied
+    token=tenancy.set_scope(scope)
+    try:
+        return await call_next(request)
+    finally:
+        tenancy.reset_scope(token)
+
+def _workspace_member_denial(method, path, scope):
+    """T-553: members only reach tenant-aware routes, and every id in the path must belong to their workspace."""
+    if not tenancy.member_route_allowed(method,path):
+        return JSONResponse({"detail":"workspace members cannot access operator surfaces"},status_code=403)
+    resources=tenancy.path_resources(path)
+    if resources:
+        con=db()
+        try:owners=[tenancy.resource_workspace(con,kind,rid) for kind,rid in resources]
+        finally:con.close()
+        # Foreign and missing resources look identical so ids from other workspaces are not confirmed.
+        if any(owner!=scope for owner in owners):
+            return JSONResponse({"detail":"Not found"},status_code=404)
+    return None
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, lang: str = "en"):
@@ -801,7 +880,7 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board)
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}
@@ -1083,9 +1162,11 @@ def health():
     }
 
 clients: set[WebSocket] = set()
+member_clients: set[WebSocket] = set()
 running_jobs: set[str] = set()
 package_building: set[str] = set()
 selected_job_id: Optional[str] = None
+selected_job_by_workspace: dict = {}
 agent_runtime = {name: "idle" for name in AGENTS}
 agent_progress = {
     name: {"progress":0,"step":"Idle","job_id":None,"run_id":None,"started_at":None,"updated_at":None}
@@ -1125,7 +1206,8 @@ CONNECTIONS = {
     "Video": {"state":"not_configured","detail":"Provider not selected"},
 }
 
-def _integration_row(provider, workspace_key=INTEGRATION_WORKSPACE_KEY):
+def _integration_row(provider, workspace_key=None):
+    workspace_key=workspace_key or tenancy.binding_workspace()
     con=db()
     row=con.execute("""SELECT * FROM integration_accounts
                        WHERE workspace_key=? AND provider=?""",(workspace_key,provider)).fetchone()
@@ -1137,9 +1219,10 @@ def _integration_row(provider, workspace_key=INTEGRATION_WORKSPACE_KEY):
     return item
 
 def _integration_set(provider,state,account_label="",external_account_id="",auth_mode="",connected_via="",meta=None,
-                     workspace_key=INTEGRATION_WORKSPACE_KEY):
+                     workspace_key=None):
     if provider not in PORTABLE_INTEGRATIONS:
         raise ValueError("Unsupported portable integration")
+    workspace_key=workspace_key or tenancy.binding_workspace()
     now=ts(); existing=_integration_row(provider,workspace_key)
     connected_at=(existing or {}).get("connected_at")
     if state=="connected" and not connected_at:connected_at=now
@@ -1162,11 +1245,13 @@ def _integration_set(provider,state,account_label="",external_account_id="",auth
     con.commit();con.close()
     return _integration_row(provider,workspace_key)
 
-def _integration_explicitly_disconnected(provider,workspace_key=INTEGRATION_WORKSPACE_KEY):
+def _integration_explicitly_disconnected(provider,workspace_key=None):
     row=_integration_row(provider,workspace_key)
     return bool(row and row.get("state")=="disconnected")
 
 def _metricool_credentials_present():
+    # T-553: the server Metricool secret is the default workspace's account, never another customer's.
+    if tenancy.binding_workspace()!=tenancy.DEFAULT_WORKSPACE:return False
     return bool(FACTORY_METRICOOL_TOKEN and FACTORY_METRICOOL_USER_ID and FACTORY_METRICOOL_BLOG_ID)
 
 def _portable_connection(provider):
@@ -1383,6 +1468,12 @@ def init_db():
     );
     CREATE INDEX IF NOT EXISTS idx_integration_accounts_workspace
       ON integration_accounts(workspace_key, provider);
+    CREATE TABLE IF NOT EXISTS job_workspaces(
+      job_id TEXT PRIMARY KEY,
+      workspace_key TEXT NOT NULL DEFAULT 'default',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_job_workspaces_workspace ON job_workspaces(workspace_key, job_id);
     CREATE TABLE IF NOT EXISTS system_verifications(
       tag TEXT PRIMARY KEY,
       status TEXT NOT NULL,
@@ -1947,6 +2038,8 @@ def init_db():
     con.commit(); con.close()
 
 init_db()
+BATTLE_STORE=BattleStore(db)
+BATTLE_STORE.ensure_schema()
 
 def sync_factory_tasks():
     tasks=[
@@ -2314,6 +2407,7 @@ class JobCreate(BaseModel):
     format: str = "Long + Shorts"
     language: str = "English"
     outputs: int = 8
+    workspace_key: Optional[str] = None  # owner/admin only; members always create in their own workspace
 
 class Move(BaseModel): stage: str
 
@@ -2478,6 +2572,8 @@ class ClaudeWorkerHeartbeat(BaseModel):
     run_started_at: str = ""
     # T-596: secret-free systemd/OAuth report of the local runner supervisor (whitelisted on receipt).
     supervisor: dict = {}
+    # T-536-B: stage/elapsed/branch/head/queue/CPU/memory; whitelisted by sanitize_telemetry on receipt.
+    telemetry: dict = {}
 
 class OperatorWorkerHeartbeat(BaseModel):
     operator_id: str
@@ -2541,12 +2637,34 @@ def event(job_id, message):
 
 def job_dict(r): return dict(r) if r else None
 
+_JOB_COLUMNS_SQL=f"jobs.*,{tenancy.JOB_WORKSPACE_SQL.format(col='jobs.id')} AS workspace_key"
+
 def get_jobs():
-    con=db(); rows=con.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall(); con.close(); return [dict(x) for x in rows]
+    where,params=tenancy.sql_filter("jobs.id")
+    con=db(); rows=con.execute(f"SELECT {_JOB_COLUMNS_SQL} FROM jobs WHERE 1=1{where} ORDER BY created_at DESC",params).fetchall(); con.close()
+    return [dict(x) for x in rows]
 
 def get_job(job_id):
-    con=db(); row=con.execute("SELECT * FROM jobs WHERE id=?",(job_id,)).fetchone(); con.close()
+    """Job in the active workspace scope; jobs of other workspaces look missing."""
+    where,params=tenancy.sql_filter("jobs.id")
+    con=db(); row=con.execute(f"SELECT {_JOB_COLUMNS_SQL} FROM jobs WHERE id=?{where}",[job_id,*params]).fetchone(); con.close()
     return dict(row) if row else None
+
+async def run_in_job_workspace(job_id, coro):
+    """Background job work runs under the job's own workspace identity, not the caller's."""
+    with tenancy.workspace_scope(job_workspace_key(job_id)):
+        return await coro
+
+def assign_job_workspace(con, job_id, workspace_key=None):
+    """Bind a new job to the explicit workspace, else the active scope (default for admin/system work)."""
+    key=tenancy.normalize_workspace(workspace_key or tenancy.binding_workspace())
+    con.execute("INSERT OR IGNORE INTO job_workspaces(job_id,workspace_key,created_at) VALUES(?,?,?)",(job_id,key,ts()))
+    return key
+
+def job_workspace_key(job_id):
+    con=db()
+    try:return tenancy.job_workspace(con,job_id)
+    finally:con.close()
 
 
 def _signal_fingerprint(source_type, title, url, content):
@@ -4506,9 +4624,10 @@ async def run_revideo_analysis(project_id,language="English"):
 def create_revideo_production_job(project_id):
     project=get_revideo_project(project_id)
     if not project:raise ValueError("Revideo project not found")
-    if project.get("status")!="ready":raise ValueError("Revideo analysis must be ready and pass the originality guard first")
+    # T-540: a repeated create-job call after handoff (status in_production) returns the existing job, not an error.
     if project.get("job_id"):
         return {"created":False,"job":get_job(project["job_id"]),"project":project}
+    if project.get("status")!="ready":raise ValueError("Revideo analysis must be ready and pass the originality guard first")
     rewrite=project.get("rewrite") or {};analysis=project.get("analysis") or {}
     signal=ingest_source_signal(SignalCreate(
         title=project.get("source_title") or f"Revideo source {project_id[:8]}",
@@ -4765,14 +4884,66 @@ def artifact_media(artifact_id:str,download:bool=False):
             if not str(artifact.get("url") or ""):
                 raise HTTPException(410,f"Media is no longer available: {str(exc)[:220]}")
     if path and archive_meta:
-        return FileResponse(path,media_type=archive_meta.get("content_type") or artifact.get("mime_type") or "application/octet-stream",
-                            filename=archive_meta.get("filename") or path.name,
-                            content_disposition_type="attachment" if download else "inline")
+        response=FileResponse(path,media_type=archive_meta.get("content_type") or artifact.get("mime_type") or "application/octet-stream",
+                              filename=archive_meta.get("filename") or path.name,
+                              content_disposition_type="attachment" if download else "inline")
+        response.headers["X-Content-Type-Options"]="nosniff"
+        return response
     source_url=str(artifact.get("url") or "").strip()
-    if not source_url:raise HTTPException(404,"Artifact has no media URL")
+    if not source_url:
+        # T-535: text/JSON/subtitle artifacts live in the DB; serve them through the same authenticated route.
+        if artifact.get("kind") not in ARTIFACT_BINARY_KINDS and str(artifact.get("content") or ""):
+            return _artifact_text_response(artifact,download)
+        raise HTTPException(404,"Artifact has no media URL")
     if _is_ephemeral_finisher_url(source_url):
         raise HTTPException(410,"This temporary Media Finisher file expired before durable archival. Rerun the Media Finisher output to restore it.")
+    if not _artifact_redirect_allowed(source_url):
+        raise HTTPException(422,"Artifact media URL is not an http(s) or same-origin location")
     return RedirectResponse(source_url,status_code=307)
+
+ARTIFACT_BINARY_KINDS={"video","audio","image"}
+# Stored mime → (download extension, inline type). Inline subtitles/markdown/csv render as text/plain so the browser
+# shows them instead of downloading; anything outside this table (text/html, SVG, …) is never served as active content.
+ARTIFACT_TEXT_TYPES={
+    "application/json":(".json","application/json"),
+    "application/x-subrip":(".srt","text/plain"),
+    "text/vtt":(".vtt","text/plain"),
+    "text/markdown":(".md","text/plain"),
+    "text/csv":(".csv","text/plain"),
+    "text/plain":(".txt","text/plain"),
+}
+
+def _artifact_text_type(artifact):
+    content=str(artifact.get("content") or "")
+    mime=str(artifact.get("mime_type") or "").split(";")[0].strip().lower()
+    meta=_decode_json(artifact.get("meta_json") or "{}",{})
+    if mime not in ARTIFACT_TEXT_TYPES:
+        if artifact.get("kind")=="json":mime="application/json"
+        elif content.lstrip().startswith("WEBVTT"):mime="text/vtt"
+        elif (meta or {}).get("component")=="srt" or artifact.get("kind")=="subtitle":mime="application/x-subrip"
+        else:mime="text/plain"
+    if mime=="application/json":
+        try:json.loads(content)
+        except ValueError:mime="text/plain"
+    return mime
+
+def _artifact_text_response(artifact,download=False):
+    mime=_artifact_text_type(artifact)
+    ext,inline_type=ARTIFACT_TEXT_TYPES[mime]
+    stem=re.sub(r"[^A-Za-z0-9._-]+","-",str(artifact.get("title") or "artifact")).strip("-.")[:80] or "artifact"
+    filename=stem+ext
+    disposition=("attachment" if download else "inline")+f"; filename=\"{filename}\"; filename*=UTF-8''{urlparse.quote(filename)}"
+    return Response(str(artifact.get("content") or "").encode("utf-8"),
+                    media_type=f"{mime if download else inline_type}; charset=utf-8",
+                    headers={"Content-Disposition":disposition,"X-Content-Type-Options":"nosniff",
+                             "Content-Security-Policy":"default-src 'none'; sandbox","Cache-Control":"private, no-store"})
+
+def _artifact_redirect_allowed(url):
+    """Only real media locations: absolute http(s) or a same-origin path (not scheme-relative //host)."""
+    if url.startswith("/"):return not url.startswith("//") and "\\" not in url
+    try:parsed=urlparse.urlparse(url)
+    except ValueError:return False
+    return parsed.scheme in ("http","https") and bool(parsed.netloc)
 
 def _is_ephemeral_finisher_url(value):
     raw=str(value or "").strip()
@@ -5043,22 +5214,23 @@ def _durable_media_inventory(limit=200):
         if len(archive_ids)<5:archive_ids.append(archive_id[:12])
     return {"checked":checked,"present":present,"missing":missing,"bytes":bytes_total,"archive_ids":archive_ids}
 
+MEDIA_FINISHER_EVIDENCE={
+  "transcript_words":("json","Word-level transcript"),
+  "transcript_corrections":("json","Transcript corrections"),
+  "cut_list":("json","Edit cut list"),
+  "caption_timeline":("json","Caption timeline"),
+  "motion_timeline":("json","Motion / zoom timeline"),
+  "graphics_timeline":("json","Emphasis graphics timeline"),
+  "shorts_manifest":("json","Shorts / Reels cut manifest"),
+  "audio_report":("analysis","Audio finishing report"),
+  "safe_zone_report":("analysis","Safe-zone / frame QA"),
+  "edit_summary":("analysis","Media Finisher edit summary"),
+}
+
 def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,output_url=""):
     report=report if isinstance(report,dict) else {}
-    evidence_map={
-      "transcript_words":("json","Word-level transcript"),
-      "transcript_corrections":("json","Transcript corrections"),
-      "cut_list":("json","Edit cut list"),
-      "caption_timeline":("json","Caption timeline"),
-      "motion_timeline":("json","Motion / zoom timeline"),
-      "graphics_timeline":("json","Emphasis graphics timeline"),
-      "shorts_manifest":("json","Shorts / Reels cut manifest"),
-      "audio_report":("analysis","Audio finishing report"),
-      "safe_zone_report":("analysis","Safe-zone / frame QA"),
-      "edit_summary":("analysis","Media Finisher edit summary"),
-    }
     now=ts();con=db()
-    for key,(kind,title) in evidence_map.items():
+    for key,(kind,title) in MEDIA_FINISHER_EVIDENCE.items():
         if key not in report:continue
         value=report.get(key)
         content=value if isinstance(value,dict) else {"items":value} if isinstance(value,list) else {"value":value}
@@ -5345,7 +5517,7 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     if route_target=="cloud" and not submit_endpoint:raise RuntimeError("Media Finisher cloud provider is not configured and Local Booster is offline")
     edit_job_id=str(uuid.uuid4());now=ts()
     request_payload={
-      "edit_job_id":edit_job_id,"job_id":job_id,"factory_cycle_id":sync_cycle_for_job(job_id).get("id") if sync_cycle_for_job(job_id) else None,
+      "edit_job_id":edit_job_id,"job_id":job_id,"workspace_key":job_workspace_key(job_id),"factory_cycle_id":sync_cycle_for_job(job_id).get("id") if sync_cycle_for_job(job_id) else None,
       "input_url":input_url,"profile":{"id":profile["id"],"version":profile["version"],"name":profile["name"],"config":profile["config"]},
       "platform":payload.platform,"content_package":content_package,"package_mode":package_mode,
       "options":{
@@ -5835,7 +6007,7 @@ def _selected_production_variant(job_id):
 def _content_package_sources(job_id,variant):
     con=db()
     rows=[dict(x) for x in con.execute(
-        """SELECT id,agent,title,content,url,created_at FROM artifacts
+        """SELECT id,agent,title,content,url,created_at,meta_json FROM artifacts
            WHERE job_id=? AND agent IN ('Researcher','Tech Verifier')
            ORDER BY created_at DESC LIMIT 8""",(job_id,)
     ).fetchall()]
@@ -5845,6 +6017,9 @@ def _content_package_sources(job_id,variant):
         refs.append({"artifact_id":row["id"],"agent":row["agent"],"title":row["title"],"created_at":row["created_at"]})
         candidates=[]
         if row.get("url"):candidates.append(row["url"])
+        # T-540: Revideo source-structure artifacts keep the public source URL in meta, not in the JSON body.
+        meta_source=str(_decode_json(row.get("meta_json") or "{}",{}).get("source_url") or "").strip()
+        if _valid_public_url(meta_source):candidates.append(meta_source)
         candidates.extend(re.findall(r"https?://[^\s<>\"']+",row.get("content") or ""))
         for url in candidates:
             clean=url.rstrip(".,;:!?")
@@ -6398,6 +6573,44 @@ def get_job_handoffs(job_id, limit=60):
     con.close()
     return rows
 
+# T-560-E — Browser Runner observability. Runs are recorded in trusted server code only
+# (no HTTP ingest), as redacted views built by browser_runner.observability.
+BROWSER_RUNNER_AGENT="Browser Runner"
+BROWSER_RUN_KIND="browser_run"
+
+def record_browser_run(job_id, plan, result, checkpoint=None, started_at=None, finished_at=None):
+    from browser_runner.observability import build_run_view, run_view_title
+    view=build_run_view(plan,result,checkpoint,started_at=started_at,finished_at=finished_at)
+    meta={"component":BROWSER_RUN_KIND,"mode":"deterministic" if view["executor"]=="mock" else view["executor"],
+          "plan_id":view["plan"]["plan_id"],"status":view["status"]}
+    artifact_id=save_artifact(BROWSER_RUNNER_AGENT,BROWSER_RUN_KIND,run_view_title(view),view,
+                              job_id=job_id,mime_type="application/json",meta=meta)
+    return {"id":artifact_id,"view":view}
+
+def _browser_run_row(row):
+    from browser_runner.core import redact
+    view=_decode_json(row.get("content") or "",None)
+    if not isinstance(view,dict) or "plan" not in view:
+        return None
+    return {"id":row["id"],"job_id":row.get("job_id"),"created_at":row.get("created_at"),"view":redact(view)}
+
+def get_job_browser_runs(job_id, limit=10):
+    if not job_id:
+        return []
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        "SELECT id,job_id,content,created_at FROM artifacts WHERE job_id=? AND agent=? AND kind=? ORDER BY created_at DESC LIMIT ?",
+        (job_id,BROWSER_RUNNER_AGENT,BROWSER_RUN_KIND,max(1,min(int(limit),50)))).fetchall()]
+    con.close()
+    return [x for x in map(_browser_run_row,rows) if x]
+
+def get_browser_run(artifact_id):
+    con=db()
+    row=con.execute("SELECT id,job_id,content,created_at FROM artifacts WHERE id=? AND agent=? AND kind=?",
+                    (artifact_id,BROWSER_RUNNER_AGENT,BROWSER_RUN_KIND)).fetchone()
+    con.close()
+    return _browser_run_row(dict(row)) if row else None
+
 # T-532 — live pipeline handoff trace. Ordered read model of persisted runs only:
 # source artifact -> worker run -> output artifacts -> downstream worker runs.
 FLOW_BLOCKED_CATEGORIES={"dependency","budget"}
@@ -6596,9 +6809,21 @@ def safe_auto_retry_agent_error(message):
 
 def current_selected(jobs):
     global selected_job_id
+    scope=tenancy.current()
+    if scope is not None:  # T-553: a member's selection never moves the owner's or another workspace's
+        chosen=selected_job_by_workspace.get(scope)
+        if not (chosen and any(j["id"]==chosen for j in jobs)):
+            chosen=jobs[0]["id"] if jobs else None;selected_job_by_workspace[scope]=chosen
+        return chosen
     if selected_job_id and any(j["id"]==selected_job_id for j in jobs): return selected_job_id
     selected_job_id = jobs[0]["id"] if jobs else None
     return selected_job_id
+
+def _set_selected_job(job_id):
+    global selected_job_id
+    scope=tenancy.current()
+    if scope is None:selected_job_id=job_id
+    else:selected_job_by_workspace[scope]=job_id
 
 def agent_states(jobs):
     states = {a:"idle" for a in AGENTS}
@@ -6959,6 +7184,10 @@ async def report_llm_readiness():
     asyncio.create_task(run_paid_verification_once())
 
 @app.on_event("startup")
+async def restore_claude_worker_heartbeat():
+    _restore_claude_worker_heartbeat()
+
+@app.on_event("startup")
 async def start_builder_reconciler():
     asyncio.create_task(builder_reconcile_loop())
 
@@ -7002,11 +7231,12 @@ async def start_factory_cycle_reconciler():
     asyncio.create_task(run_media_finisher_pilot_once())
 
 async def broadcast(payload=None):
-    dead=[]; msg=json.dumps(payload or {"type":"refresh"})
+    dead=[]; msg=json.dumps(payload or {"type":"refresh"}); scoped_msg=json.dumps({"type":"refresh"})
     for ws in list(clients):
-        try: await ws.send_text(msg)
+        # T-553: workspace members get a bare refresh so ids/states of other workspaces never reach them.
+        try: await ws.send_text(scoped_msg if ws in member_clients else msg)
         except Exception: dead.append(ws)
-    for ws in dead: clients.discard(ws)
+    for ws in dead: clients.discard(ws); member_clients.discard(ws)
 
 
 # v3.90 — Self-Improving Factory. Workflow changes are isolated, measured and owner-approved.
@@ -7441,11 +7671,14 @@ class PerformanceSnapshotCreate(BaseModel):
     saves: Optional[int] = None
     follower_delta: Optional[int] = None
     content_duration_sec: Optional[float] = None
+    ctr_pct: Optional[float] = None
+    conversions: Optional[int] = None
     source: str = "manual"
 
 PERFORMANCE_FIELDS=(
     "views","reach","watch_time_sec","retention_pct","completion_rate_pct",
     "likes","comments","shares","saves","follower_delta","content_duration_sec",
+    "ctr_pct","conversions",
 )
 
 EXPERIMENT_METRICS.update(PERFORMANCE_FIELDS)
@@ -7591,6 +7824,75 @@ def _media_review_state(job_id):
             "durability_required":durability_required,"durability_ready":durability_ready,
             "durable_media_status":archive_status}
 
+# T-541: evidence groups shown to the operator before approval. Every finisher artifact is optional; an absent one is
+# reported as not produced instead of being hidden, so the reviewer can tell "missing" from "not looked at".
+MEDIA_FINISHER_PREVIEW_GROUPS=(
+  ("cuts",("cut_list","shorts_manifest")),
+  ("captions",("caption_timeline","transcript_words","transcript_corrections")),
+  ("audio",("audio_report",)),
+  ("graphics",("graphics_timeline","motion_timeline")),
+  ("qa",("safe_zone_report","edit_summary")),
+)
+
+def _preview_media_item(item):
+    if not item:return None
+    return {"id":item.get("id"),"agent":item.get("agent"),"kind":item.get("kind"),"title":item.get("title"),
+            "url":item.get("url") or "","mime_type":item.get("mime_type"),"created_at":item.get("created_at"),
+            "component":(item.get("meta") or {}).get("component")}
+
+def _media_finisher_operator_preview(job_id,media_review=None):
+    media_review=media_review or _media_review_state(job_id)
+    edit=media_review.get("edit_job")
+    gate={"required":bool(media_review.get("required")),"ready":bool(media_review.get("ready")),
+          "reason":media_review.get("reason") or "","human_approval_required":True,"auto_publish":False}
+    if not edit:
+        return {"available":False,"edit_job":None,"source":None,"final":_preview_media_item(media_review.get("artifact")),
+                "shorts":[],"groups":[],"approval_gate":gate}
+    edit_job_id=edit["id"]
+    con=db()
+    rows=[dict(x) for x in con.execute("""SELECT id,agent,kind,title,url,mime_type,created_at,meta_json FROM artifacts
+                                          WHERE job_id=? AND agent IN ('AI Media Finisher','QA Agent') AND meta_json LIKE ?
+                                          ORDER BY created_at""",(job_id,f'%"edit_job_id": "{edit_job_id}"%')).fetchall()]
+    source_row=None
+    if edit.get("input_artifact_id"):
+        source_row=con.execute("""SELECT id,agent,kind,title,url,mime_type,created_at,meta_json FROM artifacts
+                                  WHERE id=? AND job_id=?""",(edit["input_artifact_id"],job_id)).fetchone()
+    if not source_row and edit.get("input_url"):
+        source_row=con.execute("""SELECT id,agent,kind,title,url,mime_type,created_at,meta_json FROM artifacts
+                                  WHERE job_id=? AND kind='video' AND url=? ORDER BY created_at DESC LIMIT 1""",
+                               (job_id,edit["input_url"])).fetchone()
+    con.close()
+    for row in rows:row["meta"]=_decode_json(row.pop("meta_json","{}"),{})
+    rows=[x for x in rows if x["meta"].get("edit_job_id")==edit_job_id]
+    if source_row:
+        source=dict(source_row);source["meta"]=_decode_json(source.pop("meta_json","{}"),{})
+        source=_preview_media_item(source)
+    elif re.match(r"^https?://",str(edit.get("input_url") or "")):
+        source={"id":None,"agent":"","kind":"video","title":"Source video","url":edit["input_url"],"mime_type":"video/mp4",
+                "created_at":edit.get("created_at"),"component":"source"}
+    else:
+        source=None
+    by_component={}
+    for row in rows:
+        component=row["meta"].get("component")
+        if row["agent"]=="AI Media Finisher" and component in MEDIA_FINISHER_EVIDENCE:by_component[component]=row
+    groups=[]
+    for group,components in MEDIA_FINISHER_PREVIEW_GROUPS:
+        items=[]
+        for component in components:
+            row=by_component.get(component)
+            items.append({"component":component,"title":MEDIA_FINISHER_EVIDENCE[component][1],"available":bool(row),
+                          "artifact_id":row["id"] if row else None,"kind":row["kind"] if row else MEDIA_FINISHER_EVIDENCE[component][0]})
+        groups.append({"group":group,"items":items,"available":sum(1 for x in items if x["available"]),"total":len(items)})
+    shorts=[_preview_media_item(x) for x in rows if x["agent"]=="AI Media Finisher" and x["kind"]=="video"
+            and x["meta"].get("component")=="short_render" and x.get("url")]
+    shorts.sort(key=lambda x:str(x.get("title") or ""))
+    qa=next((x for x in rows if x["agent"]=="QA Agent"),None)
+    return {"available":True,
+            "edit_job":{k:edit.get(k) for k in ("id","status","profile_id","profile_version","platform","rerun_stage","created_at","updated_at","error")},
+            "source":source,"final":_preview_media_item(media_review.get("artifact")),"shorts":shorts,"groups":groups,
+            "qa_gate_artifact_id":qa["id"] if qa else None,"approval_gate":gate}
+
 def get_variant_diff(job_id):
     data=get_job_variants(job_id); variants=data.get("variants") or []
     selected=next((x for x in variants if x.get("status")=="selected"),None)
@@ -7719,6 +8021,7 @@ def _publish_item(row):
     item["content_snapshot_hash"]=str(meta.get("content_snapshot_hash") or "")
     item["approval_decision_id"]=meta.get("approval_decision_id")
     item["approved_at"]=meta.get("approved_at")
+    item["workspace_key"]=job_workspace_key(item.get("job_id"))
     return item
 
 def _ensure_publish_item(job_id,approval_decision_id=None):
@@ -7755,8 +8058,9 @@ def _ensure_publish_item(job_id,approval_decision_id=None):
     return _publish_item(row)
 
 def get_publishing_queue(limit=100):
-    con=db();rows=con.execute("SELECT * FROM publishing_queue ORDER BY updated_at DESC LIMIT ?",
-                              (max(1,min(300,int(limit))),)).fetchall();con.close()
+    where,params=tenancy.sql_filter("publishing_queue.job_id")
+    con=db();rows=con.execute(f"SELECT * FROM publishing_queue WHERE 1=1{where} ORDER BY updated_at DESC LIMIT ?",
+                              (*params,max(1,min(300,int(limit))))).fetchall();con.close()
     items=[_publish_item(x) for x in rows];counts={}
     for item in items:counts[item["status"]]=counts.get(item["status"],0)+1
     return {"summary":{"total":len(items),**counts},"items":items,"adapter":get_publisher_adapter_registry()}
@@ -7873,7 +8177,7 @@ def _metricool_post_text(content):
     if hashtags:parts.append(" ".join(hashtags))
     return "\n\n".join(parts).strip()
 
-def _metricool_scheduler_payload(item,content,media):
+def _metricool_scheduler_payload(item,content,media,normalize=True):
     network=_metricool_network(item.get("platform"))
     media_url=str((media or {}).get("url") or "").strip()
     if not media_url:
@@ -7881,7 +8185,8 @@ def _metricool_scheduler_payload(item,content,media):
     title=str((content or {}).get("title") or "").strip()
     if not title:title="FactoryOS approved video"
     publication=_metricool_publication_time(item.get("scheduled_at"))
-    normalized_media_url=_metricool_normalize_media_url(media_url)
+    # Dry-run (T-542) skips the normalize call: it is an outbound upload to Metricool hosting.
+    normalized_media_url=_metricool_normalize_media_url(media_url) if normalize else media_url
     payload={
         "publicationDate":{"dateTime":publication["dateTime"],"timezone":publication["timezone"]},
         "text":_metricool_post_text(content),
@@ -8050,8 +8355,10 @@ def reconcile_metricool_publish(publish_id):
 def reconcile_metricool_publishing(limit=None):
     if not (FACTORY_METRICOOL_RECONCILE_ENABLED and _metricool_configured()):
         return {"processed":0,"changed":0,"results":[]}
-    con=db();rows=con.execute("""SELECT id FROM publishing_queue WHERE status='publishing'
-                                 ORDER BY updated_at LIMIT ?""",(int(limit or FACTORY_METRICOOL_RECONCILE_LIMIT),)).fetchall();con.close()
+    # Metricool runs on the default workspace's server credentials, so only default-workspace items reconcile.
+    con=db();rows=con.execute(f"""SELECT id FROM publishing_queue WHERE status='publishing'
+                                 AND {tenancy.JOB_WORKSPACE_SQL.format(col='publishing_queue.job_id')}=?
+                                 ORDER BY updated_at LIMIT ?""",(tenancy.DEFAULT_WORKSPACE,int(limit or FACTORY_METRICOOL_RECONCILE_LIMIT))).fetchall();con.close()
     results=[reconcile_metricool_publish(row["id"]) for row in rows]
     return {"processed":len(results),"changed":sum(1 for x in results if x.get("changed")),"results":results}
 
@@ -8079,6 +8386,10 @@ def _publish_receipt(item,external_post_id,external_url="",published_at=None,sou
 def _publish_via_adapter(item):
     if FACTORY_PUBLISHER_ADAPTER=="manual":
         return {"manual":True,"status":"publishing"}
+    workspace=item.get("workspace_key") or job_workspace_key(item.get("job_id"))
+    if workspace!=tenancy.DEFAULT_WORKSPACE:
+        # T-553: server publisher credentials belong to the default workspace; customer workspaces need their own (T-552).
+        raise RuntimeError(f"Workspace '{workspace}' has no publisher credentials of its own; server credentials are not shared across workspaces")
     content=item.get("content_snapshot")
     if not isinstance(content,dict):
         con=db();row=con.execute("SELECT * FROM content_packages WHERE id=? AND job_id=?",(item["package_id"],item["job_id"])).fetchone();con.close()
@@ -8090,7 +8401,7 @@ def _publish_via_adapter(item):
         return _publish_via_metricool(item,content,media)
     if not FACTORY_PUBLISHER_ENDPOINT:
         raise RuntimeError(f"Publisher adapter '{FACTORY_PUBLISHER_ADAPTER}' is not configured")
-    payload={"idempotency_key":item["idempotency_key"],"publish_id":item["id"],"job_id":item["job_id"],
+    payload={"idempotency_key":item["idempotency_key"],"publish_id":item["id"],"job_id":item["job_id"],"workspace_key":workspace,
              "package_id":item["package_id"],"approval_decision_id":item.get("approval_decision_id"),
              "content_snapshot_hash":item.get("content_snapshot_hash") or _publish_snapshot_hash(content),
              "target":item["target"],"platform":item["platform"],
@@ -8100,6 +8411,97 @@ def _publish_via_adapter(item):
     return {"manual":False,"status":str(result.get("status") or "publishing"),
             "external_post_id":result.get("external_post_id") or result.get("id"),
             "external_url":result.get("external_url") or result.get("url"),"raw":result}
+
+# T-542 — Publishing dry-run evidence. Builds the exact per-platform publisher plan for an approved
+# publish item without any outbound call, status change or external post ID.
+PUBLISH_DRY_RUN_PLATFORMS=("youtube_shorts","tiktok","instagram_reels")
+
+def _publish_dry_run_binding(item):
+    """Verify the publish item still carries the immutable approved snapshot and its exact media."""
+    problems=[]
+    content=item.get("content_snapshot")
+    stored_hash=item.get("content_snapshot_hash") or ""
+    recomputed=_publish_snapshot_hash(content) if isinstance(content,dict) else ""
+    if not isinstance(content,dict):problems.append("approved content snapshot is missing")
+    elif not stored_hash or recomputed!=stored_hash:problems.append("content snapshot hash does not match the approved snapshot")
+    if not item.get("approved_at"):problems.append("publish item has no human approval record")
+    media=item.get("media") or {}
+    media_ok=False
+    if not media.get("artifact_id") or not media.get("url"):
+        problems.append("approved media artifact or URL is missing")
+    else:
+        con=db();row=con.execute("SELECT id,url,job_id FROM artifacts WHERE id=?",(media["artifact_id"],)).fetchone();con.close()
+        if not row:problems.append("approved media artifact no longer exists")
+        elif (row["url"] or "")!=media["url"] or row["job_id"]!=item["job_id"]:
+            problems.append("approved media artifact does not match the approved media URL/job")
+        else:media_ok=True
+    return {"ok":not problems,"problems":problems,"content_snapshot_hash":stored_hash,
+            "recomputed_hash":recomputed,"media_artifact_id":media.get("artifact_id"),
+            "media_url":media.get("url") or "","media_verified":media_ok,
+            "approval_decision_id":item.get("approval_decision_id"),"approved_at":item.get("approved_at")}
+
+def build_publish_dry_run(publish_id):
+    con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
+    if not row:raise LookupError("Publish item not found")
+    item=_publish_item(row)
+    if item["status"] not in ("approved","scheduled","failed"):
+        raise ValueError(f"Dry-run is only available for approved, unpublished items (status={item['status']})")
+    binding=_publish_dry_run_binding(item)
+    content=item.get("content_snapshot") or {}
+    media=item.get("media") or {}
+    plans=[]
+    for platform in PUBLISH_DRY_RUN_PLATFORMS:
+        entry={"platform":platform,"ready":False,"blockers":[],"payload":None,"network":None}
+        if not binding["ok"]:
+            entry["blockers"]=list(binding["problems"])
+        else:
+            try:
+                payload,scheduled_utc,network=_metricool_scheduler_payload(
+                    {**item,"platform":platform,"scheduled_at":item.get("scheduled_at") or ts()},content,media,normalize=False)
+                entry.update({"ready":True,"network":network,"payload":payload,"scheduled_at_utc":scheduled_utc,
+                              "media_binding":"exact approved media URL (Metricool normalization skipped in dry-run)"})
+            except RuntimeError as exc:
+                entry["blockers"].append(str(exc))
+        plans.append(entry)
+    registry=get_publisher_adapter_registry()
+    metricool=next((a for a in registry["adapters"] if a["kind"]=="metricool"),{})
+    real_blockers=[]
+    if not metricool.get("configured") or FACTORY_PUBLISHER_ADAPTER=="manual":
+        real_blockers.append("T-520: no configured real publisher adapter")
+    real_blockers.append("T-521: explicit owner approval of this exact snapshot for a real post")
+    # The plan hash excludes publication times so re-running the same snapshot is idempotent.
+    stable=[{k:v for k,v in p.items() if k!="scheduled_at_utc"} for p in plans]
+    for p in stable:
+        if p.get("payload"):p["payload"]={k:v for k,v in p["payload"].items() if k!="publicationDate"}
+    plan_hash=_publish_snapshot_hash({"publish_id":item["id"],"idempotency_key":item["idempotency_key"],
+                                      "binding":{k:binding[k] for k in ("content_snapshot_hash","media_artifact_id","media_url")},
+                                      "plans":stable})
+    receipt_preview={"dry_run":True,"status":"not_published","external_post_id":None,"external_url":None,
+                     "publish_id":item["id"],"job_id":item["job_id"],"idempotency_key":item["idempotency_key"],
+                     "approval_decision_id":item.get("approval_decision_id"),
+                     "content_snapshot_hash":binding["content_snapshot_hash"],
+                     "media_artifact_id":binding["media_artifact_id"],"plan_hash":plan_hash,
+                     "platforms":[p["platform"] for p in plans if p["ready"]]}
+    result={"dry_run":True,"publish_id":item["id"],"job_id":item["job_id"],"plan_hash":plan_hash,
+            "binding":binding,"content_snapshot":content,"media":media,"plans":plans,
+            "receipt_preview":receipt_preview,
+            "real_publish":{"allowed":False,"blockers":real_blockers,"adapter":FACTORY_PUBLISHER_ADAPTER,
+                            "adapter_configured":bool(metricool.get("configured"))},
+            "spend_usd":0.0,"outbound_calls":0,"generated_at":ts()}
+    con=db();existing=con.execute("""SELECT id FROM artifacts WHERE job_id=? AND agent='Publisher'
+                                    AND kind='publish_dry_run' AND meta_json LIKE ? LIMIT 1""",
+                                  (item["job_id"],f'%"plan_hash": "{plan_hash}"%')).fetchone();con.close()
+    if existing:
+        result["artifact_id"]=existing["id"];result["idempotent"]=True
+        return result
+    result["artifact_id"]=save_artifact("Publisher","publish_dry_run",f"Publishing dry-run · {len(receipt_preview['platforms'])}/{len(plans)} platforms",
+        json.dumps(result,ensure_ascii=False,indent=2,default=str),job_id=item["job_id"],mime_type="application/json",
+        meta={"publish_id":item["id"],"plan_hash":plan_hash,"dry_run":True,"idempotency_key":item["idempotency_key"],
+              "content_snapshot_hash":binding["content_snapshot_hash"],"media_artifact_id":binding["media_artifact_id"],
+              "binding_ok":binding["ok"]})
+    result["idempotent"]=False
+    event(item["job_id"],f"Publishing dry-run: {len(receipt_preview['platforms'])}/{len(plans)} platform plan(s) · no external post")
+    return result
 
 # v4.0 — Autonomous Content Factory coordinator.
 # It automates handoffs and production up to the human review gate. It never auto-approves or auto-publishes.
@@ -8237,6 +8639,7 @@ def create_job_from_idea(idea_id,language="English"):
     brief=_idea_job_brief(idea)
     con.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         (jid,title,brief,"inbox","Faceless","Short only",language or "English",1,"idle",0,now,now))
+    assign_job_workspace(con,jid)
     con.execute("""INSERT INTO job_idea_links(job_id,idea_id,created_at) VALUES(?,?,?)
                    ON CONFLICT(job_id) DO UPDATE SET idea_id=excluded.idea_id,created_at=excluded.created_at""",
                 (jid,idea_id,now))
@@ -8575,25 +8978,29 @@ async def run_real_world_pilot_once():
         real_pilot_runtime["active"]=False
 
 def _approval_summary():
+    jw,jp=tenancy.sql_filter("jobs.id");dw,dp=tenancy.sql_filter("approval_decisions.job_id")
     con=db()
-    waiting=int(con.execute("SELECT COUNT(*) c FROM jobs WHERE status='waiting_approval'").fetchone()["c"] or 0)
-    decisions=int(con.execute("SELECT COUNT(*) c FROM approval_decisions").fetchone()["c"] or 0)
+    waiting=int(con.execute(f"SELECT COUNT(*) c FROM jobs WHERE status='waiting_approval'{jw}",jp).fetchone()["c"] or 0)
+    decisions=int(con.execute(f"SELECT COUNT(*) c FROM approval_decisions WHERE 1=1{dw}",dp).fetchone()["c"] or 0)
     con.close();return {"waiting":waiting,"decisions":decisions}
 
 def _publishing_summary():
-    con=db();rows=con.execute("SELECT status,COUNT(*) c FROM publishing_queue GROUP BY status").fetchall();con.close()
+    where,params=tenancy.sql_filter("publishing_queue.job_id")
+    con=db();rows=con.execute(f"SELECT status,COUNT(*) c FROM publishing_queue WHERE 1=1{where} GROUP BY status",params).fetchall();con.close()
     return {x["status"]:x["c"] for x in rows}
 
 def _performance_summary():
+    sw,sp=tenancy.sql_filter("performance_snapshots.job_id");pw,pp=tenancy.sql_filter("publishing_queue.job_id")
     con=db()
-    snapshots=int(con.execute("SELECT COUNT(*) c FROM performance_snapshots").fetchone()["c"] or 0)
-    published=int(con.execute("SELECT COUNT(*) c FROM publishing_queue WHERE status='published'").fetchone()["c"] or 0)
+    snapshots=int(con.execute(f"SELECT COUNT(*) c FROM performance_snapshots WHERE 1=1{sw}",sp).fetchone()["c"] or 0)
+    published=int(con.execute(f"SELECT COUNT(*) c FROM publishing_queue WHERE status='published'{pw}",pp).fetchone()["c"] or 0)
     con.close();return {"snapshots":snapshots,"published_items":published}
 
 def get_approval_queue(limit=60):
+    where,params=tenancy.sql_filter("jobs.id")
     con=db();jobs=[dict(x) for x in con.execute(
-        """SELECT * FROM jobs WHERE status IN ('waiting_approval','approved','rejected')
-           ORDER BY updated_at DESC LIMIT ?""",(max(1,min(200,int(limit))),)).fetchall()];con.close()
+        f"""SELECT {_JOB_COLUMNS_SQL} FROM jobs WHERE status IN ('waiting_approval','approved','rejected'){where}
+           ORDER BY updated_at DESC LIMIT ?""",(*params,max(1,min(200,int(limit))))).fetchall()];con.close()
     items=[]
     for job in jobs:
         package=get_content_package(job["id"]);variants=get_job_variants(job["id"])
@@ -8605,6 +9012,7 @@ def get_approval_queue(limit=60):
         review_ready=bool(package_record and package_record.get("status")=="ready" and variant_count>0 and media_review.get("ready"))
         items.append({"job":job,"package":package_record,"package_status":package.get("status"),
                       "variants":variants,"preview":_latest_render_preview(job["id"]),"media_review":media_review,
+                      "finisher_preview":_media_finisher_operator_preview(job["id"],media_review),
                       "history":get_approval_history(job["id"],20),"variant_diff":get_variant_diff(job["id"]),
                       "publish":_publish_item(pub),"review_ready":review_ready,
                       "legacy_incomplete":bool(not package_record or variant_count==0)})
@@ -8640,9 +9048,10 @@ def _performance_item(publish):
     return {"publish":publish,"snapshots":snapshots,"latest":latest,"attribution":attribution,"cost_per_1k_views_usd":cpk}
 
 def get_performance_dashboard(limit=100):
-    con=db();rows=con.execute("""SELECT * FROM publishing_queue WHERE status='published'
+    where,params=tenancy.sql_filter("publishing_queue.job_id")
+    con=db();rows=con.execute(f"""SELECT * FROM publishing_queue WHERE status='published'{where}
                                  ORDER BY published_at DESC,updated_at DESC LIMIT ?""",
-                              (max(1,min(300,int(limit))),)).fetchall();con.close()
+                              (*params,max(1,min(300,int(limit))))).fetchall();con.close()
     items=[_performance_item(_publish_item(x)) for x in rows];cohorts={}
     for item in items:
         key=(item["attribution"].get("angle") or "unknown").strip()
@@ -8663,7 +9072,7 @@ def get_performance_dashboard(limit=100):
 
 def record_performance_snapshot(payload):
     con=db();pub=con.execute("SELECT * FROM publishing_queue WHERE id=?",(payload.publish_id,)).fetchone()
-    if not pub:con.close();raise ValueError("Published item not found")
+    if not pub or not tenancy.visible(tenancy.job_workspace(con,pub["job_id"])):con.close();raise ValueError("Published item not found")
     if pub["status"]!="published":con.close();raise ValueError("Performance can only be attached to a published item")
     metrics={}
     for key in PERFORMANCE_FIELDS:
@@ -8774,6 +9183,11 @@ def approval_studio(job_id: Optional[str]=None):
 def approval_history(job_id:str):
     if not get_job(job_id):raise HTTPException(404,"Job not found")
     return {"history":get_approval_history(job_id),"variant_diff":get_variant_diff(job_id)}
+
+@app.get("/api/jobs/{job_id}/media-finisher/preview")
+def media_finisher_operator_preview(job_id:str):
+    if not get_job(job_id):raise HTTPException(404,"Job not found")
+    return _media_finisher_operator_preview(job_id)
 
 @app.get("/api/jobs/{job_id}/approval/quote/{component}")
 def approval_regeneration_quote(job_id:str,component:str):
@@ -8906,6 +9320,12 @@ async def publish_scheduled_item(publish_id:str,confirm_uncertain:bool=False):
         con.commit();con.close();event(item["job_id"],f"Publishing failed: {str(exc)[:180]}")
         return {"ok":False,"status":"failed","outcomeUncertain":uncertain,"message":str(exc)}
 
+@app.post("/api/publishing/{publish_id}/dry-run")
+async def publishing_dry_run(publish_id:str):
+    try:return {"ok":True,**await asyncio.to_thread(build_publish_dry_run,publish_id)}
+    except LookupError as exc:raise HTTPException(404,str(exc))
+    except ValueError as exc:return {"ok":False,"message":str(exc)}
+
 @app.post("/api/publishing/{publish_id}/confirm")
 async def confirm_manual_publish(publish_id:str,payload:PublishConfirmRequest):
     external=(payload.external_post_id or "").strip()
@@ -8929,10 +9349,15 @@ async def refresh_publishing_status(publish_id:str):
 
 @app.post("/api/publishing/run-due")
 async def run_due_publishing():
-    con=db();rows=con.execute("""SELECT id FROM publishing_queue WHERE status='scheduled' AND scheduled_at<=?
-                                 ORDER BY scheduled_at LIMIT 20""",(ts(),)).fetchall();con.close()
+    where,params=tenancy.sql_filter("publishing_queue.job_id")
+    con=db();rows=con.execute(f"""SELECT id,{tenancy.JOB_WORKSPACE_SQL.format(col='publishing_queue.job_id')} AS workspace_key
+                                 FROM publishing_queue WHERE status='scheduled' AND scheduled_at<=?{where}
+                                 ORDER BY scheduled_at LIMIT 20""",(ts(),*params)).fetchall();con.close()
     results=[]
-    for row in rows:results.append(await publish_scheduled_item(row["id"],False))
+    for row in rows:
+        # T-553: each item publishes under its own workspace identity (bindings + credential fence).
+        with tenancy.workspace_scope(row["workspace_key"]):
+            results.append({"workspace_key":row["workspace_key"],**(await publish_scheduled_item(row["id"],False))})
     return {"ok":True,"processed":len(results),"results":results}
 
 async def publisher_scheduler_loop():
@@ -8971,6 +9396,8 @@ async def add_performance_snapshot(payload:PerformanceSnapshotCreate):
 @app.post("/api/performance/{publish_id}/sync")
 async def sync_performance_snapshot(publish_id:str):
     if not FACTORY_ANALYTICS_ENDPOINT:raise HTTPException(503,"Analytics webhook adapter is not configured")
+    if tenancy.binding_workspace()!=tenancy.DEFAULT_WORKSPACE:
+        raise HTTPException(503,"Analytics webhook adapter is not configured for this workspace")
     con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone();con.close()
     if not row or row["status"]!="published":raise HTTPException(400,"Published item required")
     query=urlparse.urlencode({"external_post_id":row["external_post_id"] or "","platform":row["platform"]})
@@ -9008,10 +9435,10 @@ def _integration_public_payload(provider):
 @app.get("/api/integrations")
 def list_integrations():
     return {
-        "workspace":INTEGRATION_WORKSPACE_KEY,
+        "workspace":tenancy.binding_workspace(),
         "connections":{k:_integration_public_payload(k) for k in PORTABLE_INTEGRATIONS},
         "history_policy":"Disconnecting an account never deletes FactoryOS jobs, artifacts, approvals or analytics.",
-        "tenant_scope":"Provider bindings are workspace-ready; production content data is still single-workspace in this deployment.",
+        "tenant_scope":"Provider bindings, jobs, artifacts, approvals, publishing queue and analytics are scoped per workspace; server credentials belong to the default workspace only.",
     }
 
 @app.post("/api/integrations/{provider}/disconnect")
@@ -9075,9 +9502,67 @@ async def switch_integration(provider: str):
         "history_preserved":True,
     }
 
+# T-551-A: provider OAuth scaffold. No real adapters and no token vault yet (T-552), so
+# authorize refuses with blockers in production; tests inject mock adapters + memory vault.
+OAUTH_FLOW = OAuthFlow(
+    redirect_base=FACTORY_PUBLIC_BASE_URL,
+    client_id_lookup=lambda spec: os.environ.get(spec.client_id_env,""),
+    vault=UnavailableTokenVault(),
+)
+
+def _oauth_subject(request: Request) -> str:
+    identity=request_identity(request) or {}
+    return f"{identity.get('role','')}|{identity.get('email','')}|{identity.get('provider','')}"
+
+@app.get("/api/oauth/providers")
+def oauth_providers():
+    return {"workspace":tenancy.binding_workspace(),"providers":OAUTH_FLOW.public_registry(),"secrets_exposed":False}
+
+@app.post("/api/oauth/{provider}/authorize")
+def oauth_authorize(provider: str, request: Request):
+    try:
+        return {"ok":True,**OAUTH_FLOW.start(provider,tenancy.binding_workspace(),_oauth_subject(request))}
+    except OAuthError as e:
+        if e.code=="unknown_provider":raise HTTPException(404,"Unknown OAuth provider")
+        return JSONResponse({"ok":False,"provider":provider,"state":"not_ready","reason":e.code},status_code=409)
+
+@app.get("/api/oauth/{provider}/callback")
+def oauth_callback(provider: str, request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":
+        return JSONResponse({"detail":"owner session required"},status_code=403)
+    try:
+        result=OAUTH_FLOW.complete(provider,dict(request.query_params),_oauth_subject(request))
+    except OAuthError as e:
+        if e.code=="unknown_provider":raise HTTPException(404,"Unknown OAuth provider")
+        event(None,f"OAuth callback rejected: {provider} ({e.code})")
+        return RedirectResponse(f"/?{urlparse.urlencode({'oauth':provider,'result':'error','reason':e.code})}",status_code=303)
+    _integration_set(result["integration"],"connected",account_label=result["account_label"],
+                     external_account_id=result["account_id"],auth_mode="oauth",connected_via="oauth",
+                     meta={"oauth_provider":result["provider"],"scopes":result["scopes"],
+                           "token_storage":result["token_storage"]["vault"]},
+                     workspace_key=result["workspace"])
+    event(None,f"OAuth connected: {provider}")
+    return RedirectResponse(f"/?{urlparse.urlencode({'oauth':provider,'result':'connected'})}",status_code=303)
+
+@app.post("/api/oauth/{provider}/disconnect")
+async def oauth_disconnect(provider: str):
+    try:
+        result=OAUTH_FLOW.disconnect(provider,tenancy.binding_workspace())
+    except OAuthError:
+        raise HTTPException(404,"Unknown OAuth provider")
+    name=result["integration"]
+    _integration_set(name,"disconnected",auth_mode=PORTABLE_INTEGRATIONS[name]["auth_mode"],
+                     connected_via="oauth",meta={"reason":"owner_oauth_disconnect","revoke":result["revoke"]})
+    event(None,f"OAuth disconnected: {provider} (revoke: {result['revoke']})")
+    await broadcast({"type":"integration","provider":name,"state":"disconnected"})
+    return {**result,"connection":_integration_public_payload(name)}
+
 @app.get("/api/status")
 def status(request: Request=None):
     identity=(request_identity(request) if request is not None else None) or {"role":"owner","email":"","provider":"open"}
+    if tenancy.current() is not None:
+        return _workspace_status(identity)
     jobs=get_jobs(); sid=current_selected(jobs); selected=next((j for j in jobs if j["id"]==sid),None)
     con=db(); ev=[dict(x) for x in con.execute("SELECT * FROM events ORDER BY id DESC LIMIT 60").fetchall()]; con.close()
     report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
@@ -9089,6 +9574,7 @@ def status(request: Request=None):
         "selectedJobQuality": get_job_quality(sid) if sid else None,
         "selectedJobWorkerResults": get_job_worker_results(sid),
         "selectedJobHandoffs": get_job_handoffs(sid),
+        "selectedJobBrowserRuns": get_job_browser_runs(sid),
         "selectedJobFlow": get_job_flow(sid),
         "selectedJobAgentErrors": get_job_agent_errors(sid),
         "selectedJobErrorCenter": get_job_error_center(sid),
@@ -9128,6 +9614,52 @@ def status(request: Request=None):
             "job_budget_usd":FACTORY_JOB_BUDGET_USD
         }
     }
+
+def _workspace_status(identity):
+    """T-553: member dashboard state — only this workspace's jobs/events/summaries, no operator telemetry."""
+    workspace=tenancy.current()
+    jobs=get_jobs(); sid=current_selected(jobs); selected=next((j for j in jobs if j["id"]==sid),None)
+    where,params=tenancy.sql_filter("events.job_id")
+    con=db(); ev=[dict(x) for x in con.execute(f"SELECT * FROM events WHERE job_id IS NOT NULL{where} ORDER BY id DESC LIMIT 60",params).fetchall()]; con.close()
+    return {
+        "factory":"online","version":APP_VERSION,"workspace":workspace,
+        "auth":{"role":identity.get("role"),"email":identity.get("email",""),"provider":identity.get("provider",""),
+                "workspace":workspace,"readOnly":False},
+        "jobs":jobs,"selectedJobId":sid,"selectedJob":selected,
+        "selectedJobQuality": get_job_quality(sid) if sid else None,
+        "selectedJobVariants": get_job_variants(sid),
+        "selectedJobContentPackage": get_content_package(sid),
+        "events":ev,"stages":STAGES,"nextAction":next_action(selected),
+        "connections":{k:_integration_public_payload(k) for k in PORTABLE_INTEGRATIONS},
+        "approvalSummary": _approval_summary(),
+        "publishingSummary": _publishing_summary(),
+        "performanceSummary": _performance_summary(),
+        "runningJobs":[j["id"] for j in jobs if j["id"] in running_jobs],
+    }
+
+@app.get("/api/workspace")
+def current_workspace(request: Request):
+    identity=request_identity(request) or {}
+    scope=tenancy.current()
+    return {"workspace":scope or tenancy.DEFAULT_WORKSPACE,"scoped":scope is not None,
+            "role":identity.get("role"),"all_workspaces_visible":scope is None}
+
+@app.get("/api/workspaces")
+def list_workspaces():
+    """Owner/admin observability across tenants: counts only, no content."""
+    con=db()
+    jobs=con.execute(f"SELECT {tenancy.JOB_WORKSPACE_SQL.format(col='jobs.id')} AS w,COUNT(*) c FROM jobs GROUP BY w").fetchall()
+    pubs=con.execute(f"SELECT {tenancy.JOB_WORKSPACE_SQL.format(col='publishing_queue.job_id')} AS w,COUNT(*) c FROM publishing_queue GROUP BY w").fetchall()
+    bindings=con.execute("SELECT workspace_key w,COUNT(*) c FROM integration_accounts WHERE state='connected' GROUP BY w").fetchall()
+    con.close()
+    out={}
+    for key,rows in (("jobs",jobs),("publish_items",pubs),("connected_integrations",bindings)):
+        for row in rows:out.setdefault(row["w"],{"workspace":row["w"],"jobs":0,"publish_items":0,"connected_integrations":0})[key]=row["c"]
+    members={}
+    for email,workspace in FACTORY_WORKSPACE_MEMBERS.items():members[workspace]=members.get(workspace,0)+1
+    for workspace,count in members.items():
+        out.setdefault(workspace,{"workspace":workspace,"jobs":0,"publish_items":0,"connected_integrations":0})["members"]=count
+    return {"workspaces":sorted(out.values(),key=lambda x:x["workspace"]),"default":tenancy.DEFAULT_WORKSPACE}
 
 @app.get("/api/release-readiness")
 def release_readiness():
@@ -9212,18 +9744,22 @@ async def set_content_idea_status(idea_id: str, payload: IdeaStatus):
 
 @app.post("/api/jobs")
 async def create_job(j: JobCreate):
+    scope=tenancy.current()
+    try:workspace=tenancy.normalize_workspace(j.workspace_key or scope or tenancy.DEFAULT_WORKSPACE)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    if scope is not None and workspace!=scope:raise HTTPException(403,"Jobs can only be created in your own workspace")
     jid=str(uuid.uuid4()); con=db()
     con.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         (jid,j.title,j.brief,"inbox",j.presenter,j.format,j.language,j.outputs,"idle",0,ts(),ts()))
+    assign_job_workspace(con,jid,workspace)
     con.commit(); con.close(); event(jid,f"Created: {j.title}")
-    global selected_job_id; selected_job_id=jid
-    await broadcast(); return {"id":jid}
+    _set_selected_job(jid)
+    await broadcast(); return {"id":jid,"workspace_key":workspace}
 
 @app.post("/api/jobs/{job_id}/select")
 async def select_job(job_id:str):
-    global selected_job_id
     if not any(j["id"]==job_id for j in get_jobs()): raise HTTPException(404,"Job not found")
-    selected_job_id=job_id; await broadcast(); return {"ok":True}
+    _set_selected_job(job_id); await broadcast(); return {"ok":True}
 
 @app.post("/api/jobs/{job_id}/move")
 async def move_job(job_id:str,m:Move):
@@ -9259,7 +9795,7 @@ async def run_job(job_id:str):
     if get_job_cost(job_id) >= FACTORY_JOB_BUDGET_USD:
         return {"ok":False,"message":"This job reached its provider budget. Review its agent ledger before continuing."}
     running_jobs.add(job_id)
-    asyncio.create_task(run_until_review(job_id))
+    asyncio.create_task(run_in_job_workspace(job_id,run_until_review(job_id)))
     return {
         "ok":True,
         "message":"Factory restarted from Research with the approval gate preserved." if restarted_from_review else "Factory started."
@@ -9398,7 +9934,7 @@ async def rerun_agent(job_id:str,agent_name:str,expected_run_id:Optional[str]=No
     con.commit(); con.close()
     recovery_code=(incident or {}).get("policy",{}).get("code","manual_rerun")
     event(job_id,f"Manual recovery requested: {agent_name} ({recovery_code}); downstream outputs will require rebuild")
-    asyncio.create_task(rerun_single_agent(job_id,agent_name,stage))
+    asyncio.create_task(run_in_job_workspace(job_id,rerun_single_agent(job_id,agent_name,stage)))
     await broadcast()
     return {"ok":True,"message":f"{agent_name} recovery rerun started","recovery":(incident or {}).get("policy")}
 
@@ -9493,6 +10029,17 @@ def handoff_trace(run_id:str, artifact_id:str):
     con.close()
     data["source_run"]=dict(source_run) if source_run else None
     return data
+
+@app.get("/api/browser-runs")
+def browser_runs(job_id:str, limit:int=10):
+    return {"job_id":job_id,"runs":get_job_browser_runs(job_id,limit)}
+
+@app.get("/api/browser-runs/{artifact_id}")
+def browser_run_trace(artifact_id:str):
+    run=get_browser_run(artifact_id)
+    if not run:
+        raise HTTPException(404,"Browser run not found")
+    return run
 
 
 
@@ -9738,9 +10285,11 @@ def claude_worker_heartbeat(payload: ClaudeWorkerHeartbeat):
     claude_worker_runtime["last_seen"]=time.time()
     node=payload.model_dump()
     node["supervisor"]=sanitize_supervisor(node.get("supervisor"))
+    claude_worker_runtime["telemetry"]=sanitize_telemetry(node.pop("telemetry",None))
     claude_worker_runtime["node"]=node
     claude_worker_runtime["active_task_id"]=payload.task_id or ""
     claude_worker_runtime["last_error"]=payload.last_error or ""
+    _persist_claude_worker_heartbeat()
     return {"ok":True,**get_claude_code_status()}
 
 @app.post("/api/claude-worker/task-result")
@@ -9819,7 +10368,9 @@ def local_booster_claim(payload:LocalBoosterHeartbeat):
         local_booster_runtime["active_job_id"]=chosen["id"]
         req=dict(chosen.get("request") or {});req["callback_url"]=""
         event(chosen["production_job_id"],f"Local Render Booster claimed Media Finisher job {chosen['id'][:8]}")
-        return {"ok":True,"job":{"id":chosen["id"],"production_job_id":chosen["production_job_id"],"request":req}}
+        req["workspace_key"]=job_workspace_key(chosen["production_job_id"])
+        return {"ok":True,"job":{"id":chosen["id"],"production_job_id":chosen["production_job_id"],
+                                 "workspace_key":req["workspace_key"],"request":req}}
 
 @app.post("/api/local-booster/{edit_job_id}/progress")
 async def local_booster_progress(edit_job_id:str,payload:LocalBoosterProgress):
@@ -10080,7 +10631,7 @@ async def generate_job_content_package(job_id:str):
     if FACTORY_LLM_API_KEY:
         try:_variant_budget_guard(job_id,1800)
         except RuntimeError as exc:return {"ok":False,"message":str(exc)}
-    package_building.add(job_id);asyncio.create_task(_manual_package_build(job_id))
+    package_building.add(job_id);asyncio.create_task(run_in_job_workspace(job_id,_manual_package_build(job_id)))
     await broadcast({"type":"content_package","jobId":job_id,"status":"building"})
     return {"ok":True,"message":"Content Package build started"}
 
@@ -10123,7 +10674,7 @@ async def generate_job_variants(job_id:str):
     if FACTORY_LLM_API_KEY:
         try:_variant_budget_guard(job_id,1200)
         except RuntimeError as exc:return {"ok":False,"message":str(exc)}
-    running_jobs.add(job_id);con=db();con.execute("UPDATE jobs SET stage='script',status='running',progress=?,updated_at=? WHERE id=?",(int(STAGES.index("script")/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close();asyncio.create_task(_manual_variant_build(job_id));await broadcast();return {"ok":True,"message":"Production variant build started"}
+    running_jobs.add(job_id);con=db();con.execute("UPDATE jobs SET stage='script',status='running',progress=?,updated_at=? WHERE id=?",(int(STAGES.index("script")/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close();asyncio.create_task(run_in_job_workspace(job_id,_manual_variant_build(job_id)));await broadcast();return {"ok":True,"message":"Production variant build started"}
 
 @app.post("/api/jobs/{job_id}/variants/{variant_id}/rerun/{component}")
 async def rerun_job_variant(job_id:str,variant_id:str,component:str):
@@ -10452,6 +11003,19 @@ def build_delegation_timeline(task, attempts, telemetry=None, now=None):
         events+=[_timeline_event(k,"pending") for k in ("picked","running")+_TIMELINE_AFTER_PICK]
     return {"task_id":task["id"],"phase":phase,"attempts":len(attempts),"events":events}
 
+def get_delegation_operator_lanes(worker,results,queue):
+    """T-585: Claude / Gemini / ChatGPT lanes from observed heartbeats, verified results and Relay runs only."""
+    roles=get_role_operator_board()
+    assigned={}
+    for role in roles["roles"]:
+        if role["assigned_operator"]!="auto":assigned.setdefault(role["assigned_operator"],[]).append(role["id"])
+    with _operator_worker_lock:
+        runners={k:dict(v) for k,v in operator_worker_runtime.items() if isinstance(v,dict)}
+    return build_operator_lanes(runners=runners,runner_ttl=FACTORY_OPERATOR_WORKER_TTL_SECONDS,claude_worker=worker,
+                                claude_results=results,lane_board=get_lane_board(),
+                                provider_status={o["id"]:o["status"] for o in roles["operators"]},
+                                task_titles={x["id"]:x["title"] for x in queue},assigned_roles=assigned)
+
 def get_delegation_board():
     """Owner-safe read model: ROADMAP queue + Claude worker state + verified results. Never returns tokens."""
     tasks=_parse_roadmap_tasks()
@@ -10501,6 +11065,7 @@ def get_delegation_board():
             "active_task_id":active_task_id or None,
             "last_error":worker["last_error"] or "",
             "node":{k:worker["node"].get(k) for k in _DELEGATION_NODE_FIELDS if k in worker["node"]},
+            "telemetry":worker.get("telemetry") or None,
         },
         "active_task":next((x for x in queue if x["id"]==active_task_id),None) if active_task_id else None,
         "next_task":next((x for x in queue if x["state"]=="queued"),None),
@@ -10510,6 +11075,7 @@ def get_delegation_board():
         "safety":{"secrets_returned":False,"main_push_forbidden":True,"production_direct_deploy_forbidden":True,
                   "human_publish_approval_required":True},
     }
+    board["operator_lanes"]=get_delegation_operator_lanes(board["worker"],results,queue)
     secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
                                FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,
                                FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,
@@ -10611,6 +11177,10 @@ def get_telegram_lane_board():
     except Exception:pass
     return board
 
+def get_telegram_operator_lanes():
+    """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons."""
+    return get_delegation_board().get("operator_lanes") or []
+
 @app.get("/api/factory/worker-overview")
 def factory_worker_overview(request: Request):
     identity=request_identity(request) or {}
@@ -10702,6 +11272,111 @@ def factory_role_assignment(item:RoleAssignmentRequest,request:Request):
         tmp.write_text(json.dumps(state,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
         os.replace(tmp,ROLE_ASSIGNMENTS_FILE)
     return {"ok":True,**get_role_operator_board()}
+
+# --- T-588 Supervisor routing policy: a read-only decision per open roadmap task (explicit owner assignment >
+# bounded Auto; offline skipped; HUMAN blocked). Executes nothing and grants no publish/production privilege.
+def get_supervisor_routing(lanes=None):
+    board=get_role_operator_board()
+    if lanes is None:lanes=get_delegation_board().get("operator_lanes") or []
+    availability=operator_availability(lanes,board["operators"])
+    engineer=next(r for r in ROLE_CATALOG if r["id"]=="engineer")
+    open_tasks=[t for t in _parse_roadmap_tasks() if not t["done"]]
+    return {"routes":route_tasks(open_tasks,role="engineer",role_assignments=board["assignments"],
+                                 availability=availability,eligible=engineer["operators"]),
+            "availability":availability,"auto_policy":{k:list(v) for k,v in ROUTING_AUTO_POLICY.items()},
+            "privileges":dict(ROUTING_PRIVILEGES),"executes":False}
+
+@app.get("/api/factory/routing")
+def factory_routing(request: Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return get_supervisor_routing()
+
+# --- T-582 Battle Run experiment model: one brief, two or more competing role->operator chains, exact per-step
+# provenance. Owner-only operator surface (not a member route). Never runs a provider and never publishes.
+def _battle_owner(request:Request):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    return str(identity.get("email") or identity.get("role") or "owner")
+
+def _battle_call(fn,*args):
+    try:return fn(*args)
+    except BattleError as exc:raise HTTPException(exc.status_code,exc.detail)
+
+@app.get("/api/battles")
+def battle_list(request:Request):
+    _battle_owner(request)
+    return {"battles":BATTLE_STORE.list()}
+
+@app.post("/api/battles")
+async def battle_create(request:Request):
+    who=_battle_owner(request)
+    body=await request.json()
+    battle,created=_battle_call(BATTLE_STORE.create,body,get_role_operator_board(),who)
+    if created:event(None,f"Battle Run {battle['battle_id']} planned with {len(battle['chains'])} chains")
+    return {"ok":True,"created":created,"battle":battle}
+
+@app.get("/api/battles/{battle_id}")
+def battle_get(battle_id:str,request:Request):
+    _battle_owner(request)
+    return {"battle":_battle_call(BATTLE_STORE.get,battle_id)}
+
+@app.post("/api/battles/{battle_id}/results")
+async def battle_record_result(battle_id:str,request:Request):
+    who=_battle_owner(request)
+    body=await request.json()
+    return {"ok":True,"battle":_battle_call(BATTLE_STORE.record_step_result,battle_id,body,who)}
+
+# --- T-583 Outcome attribution + leaderboard: credit an already-published item to the completed chain that made it,
+# then compare chains on real performance snapshots only. Missing metrics stay null; nothing publishes here.
+def _battle_publish_lookup(publish_id):
+    con=db()
+    try:
+        row=con.execute("SELECT id,job_id,platform,status FROM publishing_queue WHERE id=?",(publish_id,)).fetchone()
+        return dict(row) if row and tenancy.visible(tenancy.job_workspace(con,row["job_id"])) else None
+    finally:con.close()
+
+def _battle_latest_snapshot(publish_id):
+    con=db()
+    try:row=con.execute("""SELECT id,platform,captured_at,source,metrics_json FROM performance_snapshots
+                           WHERE publish_id=? ORDER BY captured_at DESC,rowid DESC LIMIT 1""",(publish_id,)).fetchone()
+    finally:con.close()
+    if not row:return None
+    return {"id":row["id"],"platform":row["platform"],"captured_at":row["captured_at"],"source":row["source"],
+            "metrics":_decode_json(row["metrics_json"],{})}
+
+@app.post("/api/battles/{battle_id}/outcomes")
+async def battle_link_outcome(battle_id:str,request:Request):
+    who=_battle_owner(request)
+    body=await request.json()
+    link,created=_battle_call(BATTLE_STORE.link_outcome,battle_id,body,_battle_publish_lookup,who)
+    if created:event(link["job_id"] or None,f"Battle outcome: publish {link['publish_id']} attributed to {link['chain_id']}")
+    return {"ok":True,"created":created,"link":link}
+
+@app.get("/api/battles/{battle_id}/leaderboard")
+def battle_leaderboard(battle_id:str,request:Request,metric:str="views"):
+    _battle_owner(request)
+    return _battle_call(BATTLE_STORE.leaderboard,battle_id,_battle_latest_snapshot,metric)
+
+# --- T-584 Reviewer / Judge mode: a separate reviewer-role operator scores completed chains' final outputs on explicit
+# criteria and selects one. Append-only; candidates are pinned by evidence hash and never rewritten; nothing publishes.
+@app.get("/api/battles/{battle_id}/reviews")
+def battle_reviews(battle_id:str,request:Request):
+    _battle_owner(request)
+    return {"battle_id":battle_id,"candidates":_battle_call(BATTLE_STORE.candidates,battle_id),
+            "reviews":_battle_call(BATTLE_STORE.reviews,battle_id)}
+
+@app.post("/api/battles/{battle_id}/reviews")
+async def battle_record_review(battle_id:str,request:Request):
+    who=_battle_owner(request)
+    body=await request.json()
+    review,created=_battle_call(BATTLE_STORE.record_review,battle_id,body,get_role_operator_board(),who)
+    if created:event(None,f"Battle review: {review['judge']['operator']} selected {review['selected_chain_id']} in {review['battle_id']}")
+    return {"ok":True,"created":created,"review":review}
+
+# --- T-587 Telegram Battle controls: the paired owner chat views battles, candidate chains and factual metrics and
+# records only approve/reject owner decisions. Nothing here publishes or runs a provider.
+TELEGRAM_BATTLES=BattleTelegram(BATTLE_STORE,_battle_latest_snapshot)
 
 # --- T-536-F safe operator controls: owner -> FactoryOS -> Claude runner command channel.
 # Only these three actions exist. Nothing here can push, switch branches, deploy, publish or touch secrets;
@@ -11123,10 +11798,12 @@ async def run_supervisor_now():
 
 @app.websocket("/ws")
 async def ws(ws:WebSocket):
-    if FACTORY_PASSWORD and not _identity_from_session_token(ws.cookies.get(COOKIE_NAME,"")):
+    identity=_identity_from_session_token(ws.cookies.get(COOKIE_NAME,"")) if FACTORY_PASSWORD else {"role":"owner"}
+    if not identity:
         await ws.close(code=4401)
         return
     await ws.accept(); clients.add(ws)
+    if tenancy.identity_workspace(identity) is not None: member_clients.add(ws)
     try:
         while True: await ws.receive_text()
-    except WebSocketDisconnect: clients.discard(ws)
+    except WebSocketDisconnect: clients.discard(ws); member_clients.discard(ws)
