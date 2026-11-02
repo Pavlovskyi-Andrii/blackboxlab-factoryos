@@ -32,7 +32,7 @@ from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as 
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import QuestionStore, install_owner_desk_routes
-from mycast import DeliveryLog, install_mycast_routes, telegram_send_audio
+from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
@@ -667,9 +667,16 @@ def _mycast_send_audio(audio, filename, title, caption):
     telegram_send_audio(FACTORY_TELEGRAM_BOT_TOKEN, str(_telegram_load_state().get("chat_id") or ""), audio,
                         filename=filename, title=title, caption=caption)
 
-install_mycast_routes(app, DeliveryLog(DATA_DIR/"mycast_delivered.json"), authorize_worker=_claude_worker_authorized,
-                      send_audio=_mycast_send_audio,
-                      paired=lambda: bool(FACTORY_TELEGRAM_BOT_TOKEN and _telegram_public_status().get("paired")))
+MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
+_mycast_paired = lambda: bool(FACTORY_TELEGRAM_BOT_TOKEN and _telegram_public_status().get("paired"))
+install_mycast_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
+                      send_audio=_mycast_send_audio, paired=_mycast_paired)
+# Natural two-host voice with the owner's Gemini key; the worker falls back to Piper when this returns 409/502.
+install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
+                            send_audio=_mycast_send_audio, paired=_mycast_paired, api_key=lambda: FACTORY_GEMINI_API_KEY,
+                            model=os.environ.get("FACTORY_MYCAST_TTS_MODEL", "").strip(),
+                            voices=(os.environ.get("FACTORY_MYCAST_VOICE_A", "Charon").strip() or "Charon",
+                                    os.environ.get("FACTORY_MYCAST_VOICE_B", "Kore").strip() or "Kore"))
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
