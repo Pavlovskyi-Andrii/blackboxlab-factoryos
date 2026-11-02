@@ -636,28 +636,28 @@ class TelegramBridgeNotify(BaseModel):
 install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send)
 
 def _owner_desk_status():
-    """Live facts for the owner runbooks; never calls a provider."""
+    """Live facts for the owner runbooks; never calls a provider. Lines are keys localized by owner_desk_i18n."""
     out={}
     tg=_telegram_public_status()
     if tg.get("paired"):
-        out["T-506"]={"state":"done","detail":"Telegram привязан"+(f" (@{tg['bot_username']})" if tg.get("bot_username") else "")}
+        out["T-506"]={"state":"done","detail_key":"tg_paired","args":{"bot":f" (@{tg['bot_username']})" if tg.get("bot_username") else ""}}
     elif tg.get("configured"):
-        out["T-506"]={"state":"todo","detail":"Бот настроен, чат владельца ещё не привязан"}
+        out["T-506"]={"state":"todo","detail_key":"tg_configured"}
     else:
-        out["T-506"]={"state":"todo","detail":"Токен бота ещё не добавлен в Render"}
-    out["T-590-H"]={"state":"info","detail":f"Сейчас на проде: {BUILD_SHA[:12]}"}
+        out["T-506"]={"state":"todo","detail_key":"tg_no_token"}
+    out["T-590-H"]={"state":"info","detail_key":"prod_sha","args":{"sha":BUILD_SHA[:12]}}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
     if reg.get("selected")=="metricool" and metricool.get("configured"):
-        out["T-520"]={"state":"done","detail":"Metricool настроен"+("" if metricool.get("youtube_audience_configured") else "; не задан FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS")}
+        out["T-520"]={"state":"done","detail_key":"metricool_ok" if metricool.get("youtube_audience_configured") else "metricool_no_audience"}
     elif reg.get("selected")=="metricool":
-        out["T-520"]={"state":"todo","detail":"metricool выбран, но не настроен (не хватает TOKEN / USER_ID / BLOG_ID)"}
+        out["T-520"]={"state":"todo","detail_key":"metricool_unconfigured"}
     else:
-        out["T-520"]={"state":"todo","detail":f"Сейчас выбран {reg.get('selected') or 'manual'}"}
-    out["T-521"]={"state":"todo","detail":"Можно начинать"} if out["T-520"]["state"]=="done" else {"state":"blocked","detail":"Ждёт T-520"}
-    out["T-551"]={"state":"blocked","detail":"Ждёт T-552 (адреса возврата OAuth)"}
-    out["T-598-H1"]={"state":"done","detail":"Сделано 01.11: push воркера с правкой CI принят GitHub"}
-    out["T-598-H2"]={"state":"optional","detail":"Пока бесполезно: код ещё не использует это право"}
+        out["T-520"]={"state":"todo","detail_key":"publisher_selected","args":{"adapter":reg.get("selected") or "manual"}}
+    out["T-521"]={"state":"todo","detail_key":"can_start"} if out["T-520"]["state"]=="done" else {"state":"blocked","detail_key":"waits","args":{"task":"T-520"}}
+    out["T-551"]={"state":"blocked","detail_key":"waits_t552"}
+    out["T-598-H1"]={"state":"done","detail_key":"h1_done"}
+    out["T-598-H2"]={"state":"optional","detail_key":"h2_optional"}
     return out
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
