@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 
 try:
     from . import relay_tasks
@@ -68,18 +69,21 @@ def answer_one(repo, *, post_fn=None, run_cli=None) -> tuple[str, str]:
         return "none", ""
     try:
         claimed = post("/api/factory/owner-desk/worker/claim", {"worker_id": relay_tasks.worker_id()})
-    except Exception:
+    except Exception as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", "")
+        log(f"claim failed: {type(exc).__name__} {status}".strip())
         return "none", ""
     question = claimed.get("question") if isinstance(claimed, dict) else None
     if not question:
         return "none", ""
     qid = str(question.get("id") or "")
-    stdout, stderr = "", ""
+    log(f"claimed {qid} ({question.get('task_id')})")
+    stdout, stderr, exit_code = "", "", "?"
     try:
         result = (run_cli or subprocess.run)(build_command(build_prompt(question, claimed.get("runbook_text", ""))),
                                              cwd=repo, env=delegated_env(), text=True, capture_output=True,
                                              timeout=TIMEOUT_SECONDS, check=False)
-        stdout, stderr = str(result.stdout or ""), str(result.stderr or "")
+        stdout, stderr, exit_code = str(result.stdout or ""), str(result.stderr or ""), result.returncode
     except subprocess.TimeoutExpired:
         stderr = "timeout"
     except OSError:
@@ -88,17 +92,26 @@ def answer_one(repo, *, post_fn=None, run_cli=None) -> tuple[str, str]:
     lower = (stdout + stderr).lower()
     if fields.get("api_error") in LIMIT_API_ERRORS or fields.get("api_error_status") == 429 or "hit your" in lower and "limit" in lower:
         _finish(post, qid, "requeue", "")
+        log(f"{qid}: subscription limit, requeued")
         return "limit", limit_reset_hint(str(fields.get("result") or stdout))
     answer = _answer_text(stdout)
     if answer:
         _finish(post, qid, "answered", answer)
+        log(f"{qid}: answered ({len(answer)} chars)")
         return "answered", ""
+    log(f"{qid}: no answer (exit {exit_code})")
     _finish(post, qid, "failed", "Не получилось подготовить ответ (воркер не смог выполнить запрос). Задайте вопрос ещё раз или напишите мне в чат.")
     return "failed", ""
+
+
+def log(message: str) -> None:
+    """One journal line per question; never the question or answer text."""
+    print(f"owner-desk: {message}", file=sys.stderr, flush=True)
 
 
 def _finish(post, qid: str, outcome: str, answer: str) -> None:
     try:
         post("/api/factory/owner-desk/worker/answer", {"id": qid, "outcome": outcome, "answer": answer})
-    except Exception:
-        pass  # lease expires on the server and the question returns to the queue
+    except Exception as exc:
+        # The lease expires on the server and the question returns to the queue.
+        log(f"{qid}: posting {outcome} failed: {type(exc).__name__}")
