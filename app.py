@@ -659,6 +659,8 @@ def _owner_desk_status():
     out["T-551"]={"state":"blocked","detail_key":"waits_t552"}
     out["T-598-H1"]={"state":"done","detail_key":"h1_done"}
     out["T-598-H2"]={"state":"optional","detail_key":"h2_optional"}
+    out["T-605"]={"state":"done","detail_key":"gemini_key_ok"} if FACTORY_GEMINI_API_KEY else {"state":"todo","detail_key":"gemini_key_missing"}
+    out["T-606"]={"state":"todo","detail_key":"jules_pending"}
     return out
 
 def _mycast_send_audio(audio, filename, title, caption):

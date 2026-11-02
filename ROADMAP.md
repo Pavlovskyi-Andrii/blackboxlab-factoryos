@@ -520,6 +520,14 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
+- [ ] [HUMAN] T-605 Gemini API key in Render (FACTORY_GEMINI_API_KEY)
+  Need: owner creates a free Google AI Studio key and adds it to the Render environment; FACTORY_VIDEO_ADAPTER stays unset (no paid video). Runbook in Worker Center → «Ваши задачи».
+  DONE: owner desk shows the key present; MyCast Gemini voice test succeeds.
+
+- [ ] [HUMAN] T-606 Connect Gemini (Jules) to the GitHub repository
+  Need: owner connects Jules to this one repository (free tier) and labels the first `Owner: Gemini` issue with `jules`. Rules for Gemini: AGENTS.md, GEMINI.md, docs/handoff/GEMINI_MANUAL.md.
+  DONE: Jules opens its first PR from a gemini/ branch.
+
 - [x] [HUMAN] T-598-H1 GitHub `workflow` scope for the worker credential (recommended since 2026-11-01)
   Done 2026-11-01: owner ran `gh auth refresh -s workflow` for ec2-user (scopes now include `workflow`); the worker's T-535 commit 29cd05f, which edits `.github/workflows/ci.yml`, was accepted by GitHub at 11:40:17 UTC.
   Progress 2026-11-01: the worker was stuck twice (2026-10-30 15:14→2026-10-31 08:29, 2026-11-01 08:06→11:23, 655 rejected pushes) because its commits edited ci.yml. Recommended now; owner runbook in Worker Center → «Ваши задачи».
