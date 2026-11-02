@@ -520,6 +520,15 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
+- [ ] T-607 Gemini Worker — third authenticated engineering operator via existing Relay
+  Renumbered from T-605 (ChatGPT PR #120, Issue #119): T-605/T-606 are the owner's Gemini key and Jules connection. Depends on T-606 for the first Gemini runtime (Jules on GitHub); this task adds the Relay claim/run_id lane on top.
+  Owner: claude-session (integration coordination; do not give unverified Gemini tasks to the Claude EC2 worker)
+  Priority: P1 (owner-requested 2026-11-02; below P0 live Telegram/Relay acceptance)
+  Depends: T-590,T-604,T-606
+  Spec: Issue #119; reuse existing Gemini operator lane, task registry and Relay claim/event journal
+  Goal: add a **real** Gemini executor alongside Claude and ChatGPT, not only a provider/logo: prove a legitimately authenticated, zero-additional-spend Gemini runtime on an existing approved host; reuse the same atomic task claim, files_scope, run_id fencing, events and owner visibility. Only take Owner: gemini or explicitly delegated work; never duplicate Claude/ChatGPT active claims. No paid Gemini/Vertex/Google Cloud API or subscription upgrade; unsupported headless access => blocked, not a fake working badge.
+  DONE: tests for auth, no runtime, unique claim, Depends, quotas/rate limit, restart and redaction; one real harmless Gemini-owned task → claimed/running → commit/PR → review with verified Relay/Telegram/Web evidence and zero extra charges. Until then status = planned/unconfigured; never claim a deployed worker from this roadmap entry.
+
 - [ ] [HUMAN] T-605 Gemini API key in Render (FACTORY_GEMINI_API_KEY)
   Need: owner creates a free Google AI Studio key and adds it to the Render environment; FACTORY_VIDEO_ADAPTER stays unset (no paid video). Runbook in Worker Center → «Ваши задачи».
   DONE: owner desk shows the key present; MyCast Gemini voice test succeeds.
