@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -29,7 +31,10 @@ jobs:
           curl -fsSL -o voices/uk_UA-ukrainian_tts-medium.onnx.json "$base/uk_UA-ukrainian_tts-medium.onnx.json"
       - name: Render episodes
         run: |
-          for ep in docs/prototypes/mycast/episodes/*.json; do
+          # Render only the episodes changed by this commit (daily runs add one); fall back to all.
+          changed=$(git diff --name-only --diff-filter=AM HEAD~1 HEAD -- 'docs/prototypes/mycast/episodes/*.json' 2>/dev/null || true)
+          [ -n "$changed" ] || changed=$(ls docs/prototypes/mycast/episodes/*.json)
+          for ep in $changed; do
             python tools/mycast_render.py "$ep" voices/uk_UA-ukrainian_tts-medium.onnx out
           done
           for f in out/*.wav; do ffmpeg -loglevel error -y -i "$f" -codec:a libmp3lame -b:a 96k "${f%.wav}.mp3"; done
