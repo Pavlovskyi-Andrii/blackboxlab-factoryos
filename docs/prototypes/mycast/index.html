@@ -138,6 +138,46 @@ $("#savePrefs").addEventListener("click",()=>{try{const v=values();localStorage.
 $("#copyRequest").addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("#generatedRequest").textContent);$("#status").textContent="Запит скопійовано. Його можна вставити в будь-який AI-чат."; }catch(e){$("#status").textContent="Автоматичне копіювання недоступне. Виділи та скопіюй текст вручну."; }});
 try{const saved=JSON.parse(localStorage.getItem("mycast-preview-v1")||"null");if(saved){state.topics=new Set(saved.topics||[]);state.custom=Array.isArray(saved.custom)?saved.custom:[];state.channels=Array.isArray(saved.channels)?saved.channels.slice(0,10):[];$("#booksEnabled").checked=Boolean(saved.books);$("#bookInterests").value=saved.bookInterests||"";if(["5","10","15"].includes(saved.minutes))document.querySelector('input[name="minutes"][value="'+saved.minutes+'"]').checked=true;if(["українською","російською","англійською"].includes(saved.language))$("#language").value=saved.language;if(["діалог двох AI-ведучих","короткий аудіобрифінг","поглиблений тематичний подкаст"].includes(saved.format))$("#format").value=saved.format;}}catch(e){}
 renderGroups();document.querySelectorAll(".chip").forEach(el=>el.setAttribute("aria-pressed",String(state.topics.has(el.dataset.key))));renderSelections();renderChannels();setStep(0);
+
+/* Interactive four-agent demonstration. All content is fictional UI simulation. */
+const demoStages=[
+ {label:"01 / СКАУТ",title:"Скаут знаходить головне у світовому потоці",story:"Сценарій: з умовних 3 000 повідомлень Скаут обирає 30 за твоїми темами. Прибирає дублікати й відсіює нецікаве.",phone:"Скаут шукає новини",note:"Етап 1: відбір за інтересами."},
+ {label:"02 / РЕСЕРЧЕР",title:"Ресерчер звіряє джерела та факти",story:"Із 30 матеріалів у демо залишається 12. Дати, посилання, достовірність і контекст важливіші за гучний заголовок.",phone:"Перевіряємо факти",note:"Етап 2: звірка та контекст."},
+ {label:"03 / РЕДАКТОР",title:"Редактор стискає новини до 10 хвилин",story:"Редактор прибирає повтори й деталі без користі, залишає суть та відповідь на питання «чому це важливо для мене?».",phone:"Готуємо сценарій",note:"Етап 3: коротко і по суті."},
+ {label:"04 / ПРОДЮСЕР",title:"О 08:00 твій подкаст чекає в телефоні",story:"Ідея майбутнього MyCast: коротка заставка, два синтетичних ведучих і персональний ранковий аудіовипуск. Зараз це візуальний приклад — аудіо й доставку не запущено.",phone:"Демо: випуск готовий!",note:"10 хв твоїх тем · ▶ (концепт)"}
+];
+let demoStep=-1,demoTimer=null;
+function updateDemoTopics(){
+ const selected=[...state.topics,...state.custom];
+ const topics=selected.length?selected.slice(0,3):["спорт","технології","світові новини"];
+ $("#demoInterest").textContent=(selected.length?"Твої запити: ":"Приклад тем: ")+topics.join(" · ")+(selected.length>3?" · ще "+(selected.length-3):"");
+}
+function showDemoStage(index){
+ demoStep=Math.max(0,Math.min(3,index));const current=demoStages[demoStep];updateDemoTopics();
+ $("#demoQueue").textContent=current.label;
+ $("#demoHeadline").textContent=current.title;
+ $("#demoStory").textContent=current.story;
+ $("#demoPhoneTitle").textContent=current.phone;
+ $("#demoPhoneMessage").textContent=current.note;
+ $("#demoPhone").classList.toggle("ready",demoStep===3);
+ $("#agentProgress").style.transform="translateX("+(demoStep*100)+"%)";
+ document.querySelectorAll(".station").forEach((el,i)=>{el.classList.toggle("active",i===demoStep);el.classList.toggle("done",i<demoStep);el.setAttribute("aria-pressed",String(i===demoStep));});
+}
+function stopDemo(){if(demoTimer!==null){clearTimeout(demoTimer);demoTimer=null;}}
+function playDemo(){
+ stopDemo();showDemoStage(0);
+ const advance=()=>{if(demoStep>=3){demoTimer=null;return;}showDemoStage(demoStep+1);demoTimer=setTimeout(advance,2400);};
+ demoTimer=setTimeout(advance,2400);
+}
+$("#workflowPlay").addEventListener("click",playDemo);
+$("#workflowNext").addEventListener("click",()=>{stopDemo();showDemoStage((demoStep+1)%4);});
+document.querySelectorAll(".station").forEach(el=>el.addEventListener("click",()=>{stopDemo();showDemoStage(Number(el.dataset.agent));}));
+$("#showWorkflow").addEventListener("click",()=>{
+ $("#newsroom").scrollIntoView({behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"});
+ playDemo();
+});
+updateDemoTopics();
+
 })();
 </script>
 </body></html>
