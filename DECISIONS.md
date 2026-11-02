@@ -658,3 +658,10 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Render: not on EC2 (910 MB RAM shared with the worker). The script is committed to branch `mycast/daily` through the GitHub API with the worker's gh login, so the worker checkout and its task branch are never touched; the existing Piper workflow renders only the episodes changed by that commit.
 - Delivery: the worker uploads the mp3 to `POST /api/factory/mycast/worker/deliver` (worker token, middleware prefix added); the server sends it with Telegram `sendAudio` to the paired chat. The bot token never leaves Render. One delivery per episode id (`mycast_delivered.json`); a failed Telegram call releases the id so the worker can retry.
 - `AUTOPILOT_MYCAST=0` disables the step on the worker.
+
+## MyCast Gemini voices (2026-11-02, owner approved option 1A)
+- TTS runs on the server (Render), because the owner's `FACTORY_GEMINI_API_KEY` lives only there. The worker sends the validated script JSON to `POST /api/factory/mycast/worker/voice-deliver`; the server asks Gemini for a two-speaker dialogue (`multiSpeakerVoiceConfig`, labels Host1/Host2), encodes PCM to mp3 with `lameenc` (Render has no ffmpeg; LGPL library, server-side use) and sends it with Telegram `sendAudio`.
+- The script is split into ~1400-character chunks (several TTS calls, short pause between them) to stay inside per-request limits.
+- Model: `FACTORY_MYCAST_TTS_MODEL` or `gemini-2.5-flash-preview-tts`; on 404 the server lists the models the key can see and picks a `*tts*` one (flash first), because preview model names change. Voices: `FACTORY_MYCAST_VOICE_A/B`, default Charon/Kore.
+- Errors are reported as fixed categories (invalid_key, rate_limited, model_not_found, …); Google's response text and the key never reach logs or the worker. The key is sent in the `x-goog-api-key` header, never in the URL.
+- Fallback: no key (409) or any TTS failure (502) → the worker keeps the existing Piper path, so a morning episode still arrives. Both paths share one delivery log, so an episode is never sent twice.

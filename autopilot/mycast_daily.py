@@ -217,6 +217,31 @@ def download_mp3(run_id: str, episode_id: str, *, gh_fn=gh) -> bytes:
         return mp3.read_bytes() if code == 0 and mp3.exists() else b""
 
 
+def deliver_gemini(episode: dict) -> str:
+    """Server-side Gemini voices. Returns sent | duplicate | unavailable (→ Piper fallback)."""
+    import requests
+
+    url, token = relay_tasks.endpoint()
+    if not url or not token:
+        return "unavailable"
+    try:
+        response = requests.post(url + "/api/factory/mycast/worker/voice-deliver", headers={"Authorization": "Bearer " + token},
+                                 json={"episode": episode}, timeout=600)
+    except requests.RequestException as exc:
+        log(f"gemini voice request failed: {type(exc).__name__}; falling back to Piper")
+        return "unavailable"
+    if response.status_code == 200:
+        body = response.json()
+        log("delivered to Telegram with Gemini voices" if body.get("sent") else "already delivered earlier")
+        return "sent" if body.get("sent") else "duplicate"
+    try:
+        reason = str(response.json().get("detail", ""))[:60]
+    except ValueError:
+        reason = ""
+    log(f"gemini voice unavailable (HTTP {response.status_code} {reason}); falling back to Piper")
+    return "unavailable"
+
+
 def deliver(episode: dict, audio: bytes) -> bool:
     import requests
 
@@ -257,7 +282,12 @@ def run_daily(state_path: pathlib.Path, *, now: float | None = None, run_cli=Non
             state["attempts"][day] -= 1  # a subscription limit is not the episode's fault
             save_state(state_path, state)
         return status
-    sha = publish(episode)
+    sha = publish(episode)  # the script is kept on mycast/daily either way (history, Piper fallback)
+    voice = deliver_gemini(episode)
+    if voice in ("sent", "duplicate"):
+        state["delivered_date"] = day
+        save_state(state_path, state)
+        return "delivered"
     if not sha:
         log("publishing the script to GitHub failed")
         return "failed"

@@ -107,12 +107,13 @@ def test_publish_and_wait():
 def test_run_daily_orchestration():
     state_path = Path(tempfile.mkdtemp()) / "mycast.json"
     at = kyiv_ts(2026, 11, 3, 7, 30)
-    saved = {n: getattr(md, n) for n in ("generate_episode", "publish", "wait_render", "download_mp3", "deliver")}
+    saved = {n: getattr(md, n) for n in ("generate_episode", "publish", "wait_render", "download_mp3", "deliver", "deliver_gemini")}
     saved_conf = md.relay_tasks.configured
     try:
         md.relay_tasks.configured = lambda: True
         md.generate_episode = lambda day, run_cli=None: ("ok", dict(good_episode(), id="mycast-2026-11-03"))
         md.publish = lambda ep: "sha1"
+        md.deliver_gemini = lambda ep: "unavailable"  # no Gemini key yet → Piper path
         md.wait_render = lambda sha: "42"
         md.download_mp3 = lambda run_id, eid: b"ID3audio"
         delivered = []
@@ -120,6 +121,14 @@ def test_run_daily_orchestration():
         assert md.run_daily(state_path, now=at) == "delivered"
         assert delivered == [("mycast-2026-11-03", b"ID3audio")]
         assert md.run_daily(state_path, now=at + 3600) == "idle"  # once per day
+        # Gemini voices delivered by the server: no render wait, no Piper upload.
+        state_path.unlink()
+        delivered.clear()
+        md.deliver_gemini = lambda ep: "sent"
+        md.wait_render = lambda sha: (_ for _ in ()).throw(AssertionError("Piper render must not be awaited"))
+        assert md.run_daily(state_path, now=at) == "delivered" and delivered == []
+        md.wait_render = lambda sha: "42"
+        md.deliver_gemini = lambda ep: "unavailable"
         # A subscription limit does not use up one of the day's attempts.
         state_path.unlink()
         md.generate_episode = lambda day, run_cli=None: ("limit", None)

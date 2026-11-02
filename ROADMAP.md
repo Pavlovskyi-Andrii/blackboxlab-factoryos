@@ -109,6 +109,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: every morning ~07:30 Europe/Kyiv a fresh 5–10 min two-host episode (Ukrainian) on the owner's topics: AI releases/features worth adopting, startups launched/raised/earning, one actionable idea; sources dated and linked; script written by the existing Claude subscription between worker tasks (no API keys, no paid TTS); rendered by the zero-spend Piper workflow; delivered to the owner (Telegram after T-506, until then a GitHub link).
   DONE: 7 consecutive mornings delivered, each with transcript + sources; owner feedback recorded; cost stays zero.
   Progress 2026-11-02: pipeline implemented (autopilot/mycast_daily.py → branch mycast/daily via GitHub API → Piper render workflow → POST /api/factory/mycast/worker/deliver → Telegram sendAudio). Open: 7 live mornings.
+  Progress 2026-11-02 (later): Piper voice judged unlistenable by the owner; Gemini two-host voices on the server added (voice-deliver), Piper stays as fallback. Needs T-605 (key in Render).
 
 - [ ] T-604 Shared Claude ↔ ChatGPT workspace through the FactoryOS MCP server
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
