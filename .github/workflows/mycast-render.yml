@@ -21,6 +21,7 @@ jobs:
           python-version: "3.12"
       - name: Install Piper TTS and the Ukrainian voice
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
           python -m pip install piper-tts
           mkdir -p voices
           base=https://huggingface.co/rhasspy/piper-voices/resolve/main/uk/uk_UA/ukrainian_tts/medium
