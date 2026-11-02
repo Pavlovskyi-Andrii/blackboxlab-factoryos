@@ -100,6 +100,20 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
 ## P1 / P2 — Owner UI and agent management batch (2026-10-30)
 Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independent safe Claude engineering tasks**, except where dependency is explicitly stated. Owner is currently using EC2; avoid unnecessary service restarts or credential changes. When T-590 is blocked awaiting PR/CI/owner Telegram, do not silently claim that these UI tasks are running; use a new verifiable task claim/branch and continue safe independent work as scheduler permits. No new paid API, no bypass, no direct main push.
 
+- [ ] T-603 MyCast daily personal episode for the owner (dogfood)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner-requested 2026-11-02)
+  Spec: Issue #105 (MyCast concept), #106 (08:00 delivery). Pilot: docs/prototypes/mycast/ (script JSON → Piper TTS in GitHub Actions → mp3).
+  Goal: every morning ~07:30 Europe/Kyiv a fresh 5–10 min two-host episode (Ukrainian) on the owner's topics: AI releases/features worth adopting, startups launched/raised/earning, one actionable idea; sources dated and linked; script written by the existing Claude subscription between worker tasks (no API keys, no paid TTS); rendered by the zero-spend Piper workflow; delivered to the owner (Telegram after T-506, until then a GitHub link).
+  DONE: 7 consecutive mornings delivered, each with transcript + sources; owner feedback recorded; cost stays zero.
+
+- [ ] T-604 Shared Claude ↔ ChatGPT workspace through the FactoryOS MCP server
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner-requested 2026-11-02)
+  Spec: Issue #94, docs/handoff/CLAUDE_CHATGPT_COORDINATION.md. The FactoryOS MCP server (`/mcp` in app.py, already used by ChatGPT: list_build_tasks, get_design_context, submit_design_review) is ours, so ChatGPT can get authenticated tools without a new service.
+  Goal: MCP tools for a shared thread and handoffs backed by the existing Relay store: post_message / read_thread (brainstorm between agents, visible to the owner in Worker Center), list_handoffs / claim_handoff / submit_handoff_result (one claim per task, run_id, files_scope), with Claude reviewing results before merge.
+  DONE: a live round-trip — Claude posts a handoff, ChatGPT claims it via MCP and submits a PR link, Claude reviews and merges — visible in Worker Center; tests for auth, single claim, replay and secret scrubbing.
+
 - [ ] T-602 UI fixes from the 2026-11-01 screenshot review
   Owner: claude
   Priority: P1
