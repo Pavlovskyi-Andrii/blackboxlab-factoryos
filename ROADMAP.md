@@ -100,6 +100,13 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
 ## P1 / P2 — Owner UI and agent management batch (2026-10-30)
 Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independent safe Claude engineering tasks**, except where dependency is explicitly stated. Owner is currently using EC2; avoid unnecessary service restarts or credential changes. When T-590 is blocked awaiting PR/CI/owner Telegram, do not silently claim that these UI tasks are running; use a new verifiable task claim/branch and continue safe independent work as scheduler permits. No new paid API, no bypass, no direct main push.
 
+- [ ] T-602 UI fixes from the 2026-11-01 screenshot review
+  Owner: claude
+  Priority: P1
+  Spec: docs/reviews/ui-review-2026-11.md (PR #92, from Issue #88). Evidence source: CI `ui-screenshots` artifact (54 PNG, EN/UK/RU × 1440x900 / 1024x768 / 390x844).
+  Goal: fix, in static/index.html (and owner_desk.py for the runbook text): (1) mobile 390 px header actions (Refresh / Share Viewer / New) clipped on the right — wrap or move into an overflow menu, no hidden text; (2) Build Progress: status lanes Planned / In Progress / Completed / Blocked visible on the first screen, the "Recent autonomous decisions" log collapsed/height-limited below them; (3) Agent Office header: title/subtitle and Offline chips in separate grid zones, no overlap at 1440/1024/390; (4) 1024 px tablet: drawer width keeps the main area readable; (5) decision log: short cards with date/type, long raw text behind "details", marked raw worker evidence when untranslated; (6) owner-desk question box keeps the selected step visible (sticky caption, max-height); (7) owner-desk runbooks localized to UK and EN (keep RU; product names and variable names untranslated; test_owner_desk.py must check all three).
+  DONE: before/after `ui-screenshots` from CI attached in the PR description (same scenes), test_navigation.py / test_locale_parity.py / test_explainability.py / test_owner_desk.py green, no new horizontal overflow, CI-gated PR.
+
 - [ ] T-594 Left navigation with collapsible semantic submenus
   Owner: Claude
   Priority: P1
