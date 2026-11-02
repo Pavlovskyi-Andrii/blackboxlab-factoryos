@@ -1297,7 +1297,9 @@ try:
     require(sig["systemd"]["state"]=="ok" and sig["oauth"]["state"]=="ok" and sig["heartbeat"]["state"]=="ok","fresh supervisor + heartbeat must verify systemd/OAuth/heartbeat")
     require(sig["current_task"]["state"]=="idle","heartbeat without a Relay claim must not invent a current task")
     require({p["id"] for p in wo["progress"]}>={"roadmap"} and wo["heatmap"]["days"]==28,"progress scopes / heatmap missing")
-    require(any(b["id"]=="T-506" for b in wo["human_blockers"]),"open HUMAN T-506 must be an actionable blocker")
+    open_human={t["id"] for t in app._parse_roadmap_tasks() if t.get("human") and not t.get("done")}
+    require(open_human and open_human<={b["id"] for b in wo["human_blockers"]},"every open HUMAN ROADMAP task must be an actionable blocker")
+    require(not any(b["id"]=="T-506" for b in wo["human_blockers"]) or "T-506" in open_human,"a closed HUMAN task must not stay a blocker")
     tg=app.get_telegram_lane_board()
     require(tg["worker_overview"]["task_id"]==(tg["lanes"]["claude"]["task_id"] if tg["lanes"]["claude"]["state"]=="working" else ""),"Telegram overview must match lane board task")
     require("must-not-survive" not in json.dumps(wo),"worker overview leaked supervisor extras")

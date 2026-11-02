@@ -91,7 +91,8 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: deterministic fake-CLI tests for auth missing, CLI stderr failure, success-without-status, sanitized output and normal status-writing success; CI green, non-main PR, and live EC2 re-test separately verified. No paid APIs, new resources, or direct main pushes.
   Progress 2026-10-31: subscription limits are now recognised from the CLI's structured result (`api_error: usage_limit_reached`, HTTP 429) and hold the whole queue until the reported reset (persisted, survives restart) instead of parking each task as failed. Fake-CLI tests use the exact EC2 output. Open: live EC2 re-test on the next real limit.
 
-- [ ] T-601 Owner desk: step-by-step HUMAN runbooks + ask Claude about selected text
+- [x] T-601 Owner desk: step-by-step HUMAN runbooks + ask Claude about selected text
+  Live 2026-11-02 14:15–14:25 UTC: after the middleware fix (PR #112) the EC2 worker claimed and answered the owner's two questions (T-520, T-590-H) and the first automatic round-trip self-test; journal lines `owner-desk: Q-…: answered`.
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P0 (owner-requested 2026-11-01)
   Goal: Worker Center shows every open [HUMAN] task as a runbook (what to do, how to check, what to do for each known error) with live status from server facts; the owner selects any runbook text (or a step) and asks Claude; the EC2 worker answers read-only between tasks with the existing subscription and the answer appears under the task (+ Telegram notice). Secrets are never requested and are scrubbed from questions.
@@ -193,7 +194,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: pair one private Telegram chat with FactoryOS using a short-lived one-time code; never commit the bot token or owner chat ID.
   DONE: `python -m autopilot.test_notify` and runtime pair command persists only ignored pairing state.
 
-- [ ] [HUMAN] T-506 Pair owner Telegram bot
+- [x] [HUMAN] T-506 Pair owner Telegram bot
+  Done 2026-11-02: server reports paired (@FactoryOS_Blackboxbot, owner screenshot of Worker Center); automatic round-trip self-test messages go to this chat every 6 h.
   Need: owner places FACTORY_TELEGRAM_BOT_TOKEN in the existing FactoryOS Render secret environment, starts pairing in FactoryOS and sends the one-time `/pair CODE` command to the bot.
   DONE: `/api/factory/telegram/status` reports paired=true and a FactoryOS test push arrives in the paired chat.
 
