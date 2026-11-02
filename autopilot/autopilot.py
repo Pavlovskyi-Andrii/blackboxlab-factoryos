@@ -476,6 +476,7 @@ def main() -> int:
             send("▶️ Claude subscription limit window has passed; the queue resumes.")
 
         # Owner desk questions are short and read-only, so they go before any long task.
+        owner_questions.maybe_selftest()
         asked, hint = owner_questions.answer_one(REPO)
         if asked == "limit":
             notice = hold_for_limit(hint)

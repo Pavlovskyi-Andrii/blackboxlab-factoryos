@@ -34,6 +34,10 @@ MAX_OPEN_QUESTIONS = 20
 MAX_KEPT_QUESTIONS = 200
 CLAIM_LEASE_SECONDS = 900
 QUESTION_STATES = ("pending", "answering", "answered", "failed")
+# Internal round-trip probe: the worker asks itself a question so the site → worker → answer → Telegram
+# chain is proven regularly without the owner and without a Claude run. Never shown in the owner UI.
+SELFTEST_TASK = "SELFTEST"
+STALE_QUESTION_SECONDS = 3600
 
 RENDER_ENV = ("Render → Dashboard → сервис blackboxlab-factoryos → вкладка Environment → "
               "кнопка Add Environment Variable")
@@ -314,19 +318,39 @@ class QuestionStore:
         with self._lock:
             items = self._load()
             self._expire_leases(items)
-        return [{k: v for k, v in q.items() if k != "claimed_ts"} for q in items[-limit:]]
+        owner_items = [q for q in items if q.get("task_id") != SELFTEST_TASK]
+        return [{k: v for k, v in q.items() if k != "claimed_ts"} for q in owner_items[-limit:]]
+
+    def queue_stats(self) -> dict[str, Any]:
+        """Open owner questions and the age of the oldest one (seconds)."""
+        now = self.clock()
+        with self._lock:
+            items = self._load()
+            self._expire_leases(items)
+        open_items = [q for q in items if q.get("task_id") != SELFTEST_TASK and q.get("status") in ("pending", "answering")]
+        ages = []
+        for q in open_items:
+            try:
+                ages.append(now - datetime.fromisoformat(str(q.get("created_at"))).timestamp())
+            except ValueError:
+                pass
+        oldest = max(ages) if ages else 0.0
+        stale = [q.get("task_id") for q, age in zip(open_items, ages) if age > STALE_QUESTION_SECONDS]
+        return {"open": len(open_items), "oldest_seconds": oldest, "stale_tasks": stale}
 
     def create(self, task_id: str, step_id: str, quote: str, question: str) -> dict[str, Any]:
-        if task_id not in RUNBOOK_BY_ID:
+        if task_id not in RUNBOOK_BY_ID and task_id != SELFTEST_TASK:
             raise ValueError("unknown task")
         quote, question = _clean(quote, QUOTE_MAX), _clean(question, QUESTION_MAX)
         if not question:
             raise ValueError("empty question")
-        steps = {s["id"] for s in RUNBOOK_BY_ID[task_id]["steps"]}
+        steps = {s["id"] for s in RUNBOOK_BY_ID[task_id]["steps"]} if task_id in RUNBOOK_BY_ID else set()
         step_id = step_id if step_id in steps else ""
         with self._lock:
             items = self._load()
             self._expire_leases(items)
+            if task_id == SELFTEST_TASK and any(q.get("task_id") == SELFTEST_TASK and q.get("status") in ("pending", "answering") for q in items):
+                raise OverflowError("a self-test is already in flight")
             if sum(1 for q in items if q.get("status") in ("pending", "answering")) >= MAX_OPEN_QUESTIONS:
                 raise OverflowError("too many open questions")
             item = {"id": "Q-" + secrets.token_hex(4), "task_id": task_id, "step_id": step_id, "quote": quote,
@@ -422,6 +446,15 @@ def install_owner_desk_routes(app, store: QuestionStore, identity_fn: Callable[[
             raise HTTPException(400, str(exc))
         return {"ok": True, "question": item}
 
+    @app.post("/api/factory/owner-desk/worker/selftest")
+    def owner_desk_selftest(request: Request):
+        require_worker(request)
+        try:
+            item = store.create(SELFTEST_TASK, "", "", "round-trip self-test")
+        except OverflowError:
+            return {"ok": True, "queued": False, "reason": "already in flight"}
+        return {"ok": True, "queued": True, "id": item["id"]}
+
     @app.post("/api/factory/owner-desk/worker/claim")
     def owner_desk_claim(payload: WorkerClaimRequest, request: Request):
         require_worker(request)
@@ -442,7 +475,19 @@ def install_owner_desk_routes(app, store: QuestionStore, identity_fn: Callable[[
             raise HTTPException(409, str(exc))
         if notify_owner and item.get("status") == "answered":
             try:
-                notify_owner(f"💬 Ответ на ваш вопрос по {item['task_id']} готов: Worker Center → «Ваши задачи».")
+                notify_owner(selftest_message(store.queue_stats()) if item.get("task_id") == SELFTEST_TASK else
+                             f"💬 Ответ на ваш вопрос по {item['task_id']} готов: Worker Center → «Ваши задачи».")
             except Exception:
                 pass
         return {"ok": True, "status": item.get("status")}
+
+
+def selftest_message(stats: dict[str, Any]) -> str:
+    text = "✅ Круговая проверка: сайт → воркер → ответ → Telegram работают."
+    if stats.get("open"):
+        text += f" Ваших вопросов в очереди: {stats['open']}, самый старый ждёт {int(stats.get('oldest_seconds', 0) // 60)} мин."
+    else:
+        text += " Ваших вопросов в очереди нет."
+    if stats.get("stale_tasks"):
+        text += " ⚠️ Дольше часа без ответа: " + ", ".join(sorted(set(stats["stale_tasks"]))) + "."
+    return text
