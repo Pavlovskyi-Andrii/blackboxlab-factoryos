@@ -678,7 +678,8 @@ async def auth_middleware(request: Request, call_next):
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    owner_desk_worker_api=request.url.path.startswith("/api/factory/owner-desk/worker/") and _claude_worker_authorized(request)
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:

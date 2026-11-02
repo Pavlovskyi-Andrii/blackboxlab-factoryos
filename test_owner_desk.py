@@ -221,6 +221,42 @@ def test_routes_and_auth():
     assert app2.routes[("GET", "/api/factory/owner-desk")](owner)["runbooks"][0]["status"]["state"] == "unknown"
 
 
+def test_selftest_round_trip():
+    clock = {"t": 1_800_000_000.0}
+    store = od.QuestionStore(Path(tempfile.mkdtemp()) / "q.json", clock=lambda: clock["t"])
+    app, sent = _FakeApp(), []
+    od.install_owner_desk_routes(app, store, lambda r: {"role": r.role} if r.role else None,
+                                 authorize_worker=lambda r: r.worker, status_fn=lambda: {}, notify_owner=sent.append)
+    selftest = app.routes[("POST", "/api/factory/owner-desk/worker/selftest")]
+    claim = app.routes[("POST", "/api/factory/owner-desk/worker/claim")]
+    answer = app.routes[("POST", "/api/factory/owner-desk/worker/answer")]
+    worker = _Req(worker=True)
+    try:
+        selftest(_Req("owner"))
+        raise AssertionError("owner session must not trigger the worker self-test")
+    except HTTPException as exc:
+        assert exc.status_code == 401
+    first = selftest(worker)
+    assert first["queued"] is True
+    assert selftest(worker)["queued"] is False  # only one probe in flight
+    assert store.list() == []  # never shown to the owner
+    got = claim(od.WorkerClaimRequest(worker_id="w"), worker)
+    assert got["question"]["task_id"] == od.SELFTEST_TASK
+    answer(od.WorkerAnswerRequest(id=first["id"], outcome="answered", answer="self-test ok"), worker)
+    assert sent and sent[-1].startswith("✅ Круговая проверка") and "нет" in sent[-1], sent
+    # An owner question waiting over an hour is called out in the next round-trip message.
+    real = store.create("T-520", "", "", "Где blogId?")
+    # created_at uses the wall clock; move the store clock past the stale threshold
+    clock["t"] = od.datetime.fromisoformat(real["created_at"]).timestamp() + od.STALE_QUESTION_SECONDS + 60
+    second = selftest(worker)
+    claimed = claim(od.WorkerClaimRequest(worker_id="w"), worker)["question"]
+    assert claimed["task_id"] == "T-520"  # owner questions keep their place ahead of the probe
+    nxt = claim(od.WorkerClaimRequest(worker_id="w"), worker)["question"]  # T-520 stays open (answering)
+    assert nxt["id"] == second["id"], nxt
+    answer(od.WorkerAnswerRequest(id=second["id"], outcome="answered", answer="ok"), worker)
+    assert "1" in sent[-1] and "⚠️" in sent[-1] and "T-520" in sent[-1], sent[-1]
+
+
 def main():
     test_every_open_human_task_has_a_runbook()
     test_runbook_shape()
@@ -228,6 +264,7 @@ def main():
     test_secret_scrubbing()
     test_question_queue()
     test_routes_and_auth()
+    test_selftest_round_trip()
     print("Owner desk tests passed: runbooks cover every open HUMAN task, EN/UK/RU runbooks, queue, scrubbing, auth")
 
 

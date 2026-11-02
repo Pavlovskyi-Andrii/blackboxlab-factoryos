@@ -59,6 +59,29 @@ def main():
     outcome, posts, _ = run('{"type":"result","is_error":true,"result":"boom"}')
     assert outcome == ("failed", "") and posts[-1][1]["outcome"] == "failed"
     assert "boom" not in posts[-1][1]["answer"]  # raw CLI error text never reaches the owner page
+    # Self-test probe: answered without any Claude run.
+    probe = {"question": {"id": "Q-st", "task_id": "SELFTEST", "question": "round-trip self-test"}, "runbook_text": ""}
+    outcome, posts, commands = run("", claim=probe)
+    assert outcome == ("answered", "") and not commands, (outcome, commands)
+    assert posts[-1] == ("/api/factory/owner-desk/worker/answer", {"id": "Q-st", "outcome": "answered", "answer": "self-test ok"})
+
+    # Cadence: once at start-up, then not again for SELFTEST_EVERY_SECONDS.
+    queued = []
+    def post(path, data):
+        queued.append(path)
+        return {"queued": True}
+    oq._last_selftest = 0.0
+    assert oq.maybe_selftest(post_fn=post, now=1_000_000.0) is True
+    assert oq.maybe_selftest(post_fn=post, now=1_000_000.0 + 60) is False
+    assert oq.maybe_selftest(post_fn=post, now=1_000_000.0 + oq.SELFTEST_EVERY_SECONDS) is True
+    assert queued == ["/api/factory/owner-desk/worker/selftest"] * 2, queued
+    def failing(path, data):
+        raise RuntimeError("offline")
+    oq._last_selftest = 0.0
+    t0 = 5.0 + oq.SELFTEST_EVERY_SECONDS
+    assert oq.maybe_selftest(post_fn=failing, now=t0) is False
+    assert oq.maybe_selftest(post_fn=post, now=t0 + 60) is False  # not hammering
+    assert oq.maybe_selftest(post_fn=post, now=t0 + oq.SELFTEST_RETRY_SECONDS) is True  # retried after 10 min
     print("Owner question worker tests passed")
 
 

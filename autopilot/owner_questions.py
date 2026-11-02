@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 
 try:
     from . import relay_tasks
@@ -17,6 +18,10 @@ except ImportError:
     import relay_tasks
     from delegation import LIMIT_API_ERRORS, cli_error_fields, delegated_env, limit_reset_hint
 
+SELFTEST_TASK = "SELFTEST"
+SELFTEST_EVERY_SECONDS = 6 * 3600
+SELFTEST_RETRY_SECONDS = 600
+_last_selftest = 0.0  # 0 → run once right after the worker starts
 MAX_TURNS = 8
 TIMEOUT_SECONDS = 300
 READ_ONLY_TOOLS = ("Read", "Grep", "Glob")
@@ -78,6 +83,11 @@ def answer_one(repo, *, post_fn=None, run_cli=None) -> tuple[str, str]:
         return "none", ""
     qid = str(question.get("id") or "")
     log(f"claimed {qid} ({question.get('task_id')})")
+    if question.get("task_id") == SELFTEST_TASK:
+        # Plumbing probe only: no Claude run, no subscription usage.
+        _finish(post, qid, "answered", "self-test ok")
+        log(f"{qid}: self-test answered")
+        return "answered", ""
     stdout, stderr, exit_code = "", "", "?"
     try:
         result = (run_cli or subprocess.run)(build_command(build_prompt(question, claimed.get("runbook_text", ""))),
@@ -102,6 +112,27 @@ def answer_one(repo, *, post_fn=None, run_cli=None) -> tuple[str, str]:
     log(f"{qid}: no answer (exit {exit_code})")
     _finish(post, qid, "failed", "Не получилось подготовить ответ (воркер не смог выполнить запрос). Задайте вопрос ещё раз или напишите мне в чат.")
     return "failed", ""
+
+
+def maybe_selftest(*, post_fn=None, now=None) -> bool:
+    """Queue a round-trip self-test at start-up and then every SELFTEST_EVERY_SECONDS."""
+    global _last_selftest
+    now = time.time() if now is None else now
+    if now - _last_selftest < SELFTEST_EVERY_SECONDS:
+        return False
+    if post_fn is None and not relay_tasks.configured():
+        return False
+    _last_selftest = now
+    try:
+        result = (post_fn or relay_tasks.post)("/api/factory/owner-desk/worker/selftest", {})
+    except Exception as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", "")
+        log(f"self-test request failed: {type(exc).__name__} {status}".strip())
+        # Retry soon (e.g. the site is still deploying), not after the full interval.
+        _last_selftest = now - SELFTEST_EVERY_SECONDS + SELFTEST_RETRY_SECONDS
+        return False
+    log("self-test queued" if result.get("queued") else f"self-test not queued: {result.get('reason', '')}")
+    return bool(result.get("queued"))
 
 
 def log(message: str) -> None:
