@@ -1,0 +1,43 @@
+name: MyCast render
+# Renders MyCast episode scripts to audio with the open-source Piper TTS (zero spend, no API keys).
+# Runs on pushes to mycast/** branches or manually; output is a 14-day artifact, never published.
+on:
+  push:
+    branches: [ "mycast/**" ]
+    paths: [ "docs/prototypes/mycast/episodes/**", "tools/mycast_render.py", ".github/workflows/mycast-render.yml" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Piper TTS and the Ukrainian voice
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          python -m pip install piper-tts
+          mkdir -p voices
+          base=https://huggingface.co/rhasspy/piper-voices/resolve/main/uk/uk_UA/ukrainian_tts/medium
+          curl -fsSL -o voices/uk_UA-ukrainian_tts-medium.onnx "$base/uk_UA-ukrainian_tts-medium.onnx"
+          curl -fsSL -o voices/uk_UA-ukrainian_tts-medium.onnx.json "$base/uk_UA-ukrainian_tts-medium.onnx.json"
+      - name: Render episodes
+        run: |
+          for ep in docs/prototypes/mycast/episodes/*.json; do
+            python tools/mycast_render.py "$ep" voices/uk_UA-ukrainian_tts-medium.onnx out
+          done
+          for f in out/*.wav; do ffmpeg -loglevel error -y -i "$f" -codec:a libmp3lame -b:a 96k "${f%.wav}.mp3"; done
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mycast-episodes
+          path: |
+            out/*.mp3
+            out/*.md
+          retention-days: 14

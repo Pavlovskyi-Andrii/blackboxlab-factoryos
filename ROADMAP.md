@@ -82,8 +82,9 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
   Progress 2026-10-30: first live claimed runs on EC2 blocked because the agent's Python lived in /tmp/fos-venv (wiped on reboot) and headless `claude -p` denied python3. Delegation now keeps a persistent gitignored `<repo>/.venv` rebuilt only when requirements.txt changes, puts it first on PATH, and pre-allows the CLAUDE.md verification loop (Read/Edit/Write, python, node --check, local git add/commit) while push/deploy stay disallowed.
 
-- [ ] T-600 Fail-closed Claude CLI error diagnostics / retry classification
-  Owner: chatgpt
+- [x] T-600 Fail-closed Claude CLI error diagnostics / retry classification
+  Live EC2 re-test 2026-11-01: at 12:01 UTC T-551-A hit `usage_limit_reached` ("resets 4:20pm (UTC)"); the worker held the whole queue (no task parked or failed) and resumed T-551-A at 16:22 UTC (reset + 120 s grace).
+  Owner: claude-session (implemented by the interactive Claude session in PR #81; was `chatgpt`)
   Priority: P0 support fix (owner-requested 2026-10-31, independent of Claude-owned T-562)
   Depends: T-537
   Goal: when a headless Claude process exits before writing .autopilot/status.json, retain truthful, redacted diagnostic evidence (exit code, structured CLI error category) instead of reporting only the missing file. Distinguish subscription login/auth-blocked from retryable execution failures; never treat absent status as DONE; do not leak secrets or bypass OAuth; preserve bounded retries and server run_id reporting.
@@ -99,6 +100,27 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
 
 ## P1 / P2 — Owner UI and agent management batch (2026-10-30)
 Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independent safe Claude engineering tasks**, except where dependency is explicitly stated. Owner is currently using EC2; avoid unnecessary service restarts or credential changes. When T-590 is blocked awaiting PR/CI/owner Telegram, do not silently claim that these UI tasks are running; use a new verifiable task claim/branch and continue safe independent work as scheduler permits. No new paid API, no bypass, no direct main push.
+
+- [ ] T-603 MyCast daily personal episode for the owner (dogfood)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner-requested 2026-11-02)
+  Spec: Issue #105 (MyCast concept), #106 (08:00 delivery). Pilot: docs/prototypes/mycast/ (script JSON → Piper TTS in GitHub Actions → mp3).
+  Goal: every morning ~07:30 Europe/Kyiv a fresh 5–10 min two-host episode (Ukrainian) on the owner's topics: AI releases/features worth adopting, startups launched/raised/earning, one actionable idea; sources dated and linked; script written by the existing Claude subscription between worker tasks (no API keys, no paid TTS); rendered by the zero-spend Piper workflow; delivered to the owner (Telegram after T-506, until then a GitHub link).
+  DONE: 7 consecutive mornings delivered, each with transcript + sources; owner feedback recorded; cost stays zero.
+
+- [ ] T-604 Shared Claude ↔ ChatGPT workspace through the FactoryOS MCP server
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner-requested 2026-11-02)
+  Spec: Issue #94, docs/handoff/CLAUDE_CHATGPT_COORDINATION.md. The FactoryOS MCP server (`/mcp` in app.py, already used by ChatGPT: list_build_tasks, get_design_context, submit_design_review) is ours, so ChatGPT can get authenticated tools without a new service.
+  Goal: MCP tools for a shared thread and handoffs backed by the existing Relay store: post_message / read_thread (brainstorm between agents, visible to the owner in Worker Center), list_handoffs / claim_handoff / submit_handoff_result (one claim per task, run_id, files_scope), with Claude reviewing results before merge.
+  DONE: a live round-trip — Claude posts a handoff, ChatGPT claims it via MCP and submits a PR link, Claude reviews and merges — visible in Worker Center; tests for auth, single claim, replay and secret scrubbing.
+
+- [ ] T-602 UI fixes from the 2026-11-01 screenshot review
+  Owner: claude
+  Priority: P1
+  Spec: docs/reviews/ui-review-2026-11.md (PR #92, from Issue #88). Evidence source: CI `ui-screenshots` artifact (54 PNG, EN/UK/RU × 1440x900 / 1024x768 / 390x844).
+  Goal: fix, in static/index.html (and owner_desk.py for the runbook text): (1) mobile 390 px header actions (Refresh / Share Viewer / New) clipped on the right — wrap or move into an overflow menu, no hidden text; (2) Build Progress: status lanes Planned / In Progress / Completed / Blocked visible on the first screen, the "Recent autonomous decisions" log collapsed/height-limited below them; (3) Agent Office header: title/subtitle and Offline chips in separate grid zones, no overlap at 1440/1024/390; (4) 1024 px tablet: drawer width keeps the main area readable; (5) decision log: short cards with date/type, long raw text behind "details", marked raw worker evidence when untranslated; (6) owner-desk question box keeps the selected step visible (sticky caption, max-height); (7) owner-desk runbooks localized to UK and EN (keep RU; product names and variable names untranslated; test_owner_desk.py must check all three).
+  DONE: before/after `ui-screenshots` from CI attached in the PR description (same scenes), test_navigation.py / test_locale_parity.py / test_explainability.py / test_owner_desk.py green, no new horizontal overflow, CI-gated PR.
 
 - [ ] T-594 Left navigation with collapsible semantic submenus
   Owner: Claude
@@ -494,7 +516,9 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
-- [ ] [HUMAN] T-598-H1 Optional GitHub `workflow` scope for the worker credential
+- [x] [HUMAN] T-598-H1 GitHub `workflow` scope for the worker credential (recommended since 2026-11-01)
+  Done 2026-11-01: owner ran `gh auth refresh -s workflow` for ec2-user (scopes now include `workflow`); the worker's T-535 commit 29cd05f, which edits `.github/workflows/ci.yml`, was accepted by GitHub at 11:40:17 UTC.
+  Progress 2026-11-01: the worker was stuck twice (2026-10-30 15:14→2026-10-31 08:29, 2026-11-01 08:06→11:23, 655 rejected pushes) because its commits edited ci.yml. Recommended now; owner runbook in Worker Center → «Ваши задачи».
   Need: only if CI workflow files must be edited by the worker; until then new tests ride existing CI steps. Spec: docs/handoff/T-598_AUTONOMOUS_HANDOFF.md.
   DONE: worker push touching `.github/workflows/` is accepted by GitHub.
 

@@ -1,0 +1,27 @@
+{
+  "id": "mycast-pilot-2026-11-02",
+  "title": "MyCast · пілот · 2 листопада 2026",
+  "language": "uk",
+  "voice_model": "uk_UA-ukrainian_tts-medium",
+  "hosts": {"A": {"name": "Клод", "speaker": "mykyta"}, "B": {"name": "Джі-Пі-Ті", "speaker": "tetiana"}},
+  "note": "Pilot for the owner only. Script written by Claude from the sources below; facts are attributed, not independently confirmed. Hosts are synthetic voices.",
+  "sources": [
+    {"title": "Marble raises $3.75M to build AI coworkers that learn by watching", "url": "https://tech.eu/2026/11/02/marble-raises-375m-to-build-ai-coworkers-that-learn-by-watching", "date": "2026-11-02"},
+    {"title": "Sortrace lands $800K to improve waste sorting with AI-powered analysis", "url": "https://tech.eu/2026/11/02/sortrace-lands-800k-to-improve-waste-sorting-with-ai-powered-analysis", "date": "2026-11-02"},
+    {"title": "Startup Funding Round-Up: AI, Robotics Startups Raise Millions this Week", "url": "https://www.analyticsinsight.net/news/startup-funding-round-up-ai-robotics-startups-raise-millions-this-week", "date": "2026-10-30"},
+    {"title": "Mind and Machine Weekly: 1 November 2026", "url": "https://mindandmachineweekly.substack.com/p/mind-and-machine-weekly-1-november", "date": "2026-11-01"}
+  ],
+  "lines": [
+    ["A", "Доброго ранку! Це MyCast, ваш персональний ранковий подкаст. Я Клод."],
+    ["B", "А я Джі-Пі-Ті. Сьогодні друге листопада, і в нас три хвилини: новини штучного інтелекту, стартапи і одна ідея, яку можна забрати в роботу."],
+    ["A", "Почнімо зі стартапів. Мюнхенська компанія Marble залучила три мільйони сімсот п'ятдесят тисяч доларів. Вони роблять штучних колег, які вчаться, спостерігаючи, як людина виконує роботу на комп'ютері."],
+    ["B", "Тобто не треба писати інструкцію. Показав процес кілька разів, і агент повторює. Про це пише Tech.eu."],
+    ["A", "Саме так. І ще одна історія звідти ж: стокгольмська Sortrace отримала близько восьмисот тисяч доларів на комп'ютерний зір для сортування сміття."],
+    ["B", "А найбільша угода тижня, за даними огляду Analytics Insight, — Bedrock Robotics: шістсот мільйонів доларів, серія Сі. Роботизація будівництва."],
+    ["A", "Тепер про моделі. Тижневий огляд Mind and Machine пише, що OpenAI оновила свою Model Spec, тобто правила поведінки моделі, і прибрала більшість детальних правил стилю."],
+    ["B", "Там же: тиждень пройшов під знаком моделей, які шукають уразливості в коді. Це ми ще перевіримо за офіційними анонсами, тож поки що як чутка."],
+    ["A", "І ідея дня. Marble навчає агента на прикладах, а не на інструкціях. Подумайте: яку рутинну дію ви сьогодні повторюєте втретє? Запишіть її на відео. Це вже готове технічне завдання для агента."],
+    ["B", "Коротко і по ділу. Посилання на всі джерела — у тексті випуску. Гарної пробіжки!"],
+    ["A", "До завтра!"]
+  ]
+}
