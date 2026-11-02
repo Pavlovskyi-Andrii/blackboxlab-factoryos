@@ -32,6 +32,7 @@ from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as 
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import QuestionStore, install_owner_desk_routes
+from mycast import DeliveryLog, install_mycast_routes, telegram_send_audio
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
@@ -660,6 +661,14 @@ def _owner_desk_status():
     out["T-598-H2"]={"state":"optional","detail_key":"h2_optional"}
     return out
 
+def _mycast_send_audio(audio, filename, title, caption):
+    telegram_send_audio(FACTORY_TELEGRAM_BOT_TOKEN, str(_telegram_load_state().get("chat_id") or ""), audio,
+                        filename=filename, title=title, caption=caption)
+
+install_mycast_routes(app, DeliveryLog(DATA_DIR/"mycast_delivered.json"), authorize_worker=_claude_worker_authorized,
+                      send_audio=_mycast_send_audio,
+                      paired=lambda: bool(FACTORY_TELEGRAM_BOT_TOKEN and _telegram_public_status().get("paired")))
+
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
@@ -678,7 +687,7 @@ async def auth_middleware(request: Request, call_next):
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
-    owner_desk_worker_api=request.url.path.startswith("/api/factory/owner-desk/worker/") and _claude_worker_authorized(request)
+    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/")) and _claude_worker_authorized(request)
     if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)

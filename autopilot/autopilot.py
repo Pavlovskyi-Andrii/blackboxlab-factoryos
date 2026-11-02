@@ -13,6 +13,7 @@ try:
     from . import control
     from . import relay_tasks
     from . import owner_questions
+    from . import mycast_daily
 except ImportError:
     from delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
@@ -20,6 +21,7 @@ except ImportError:
     import control
     import relay_tasks
     import owner_questions
+    import mycast_daily
 
 def _default_repo() -> pathlib.Path:
     """AUTOPILOT_REPO wins; otherwise the container path; otherwise this checkout (EC2/phone runs)."""
@@ -62,6 +64,7 @@ GIT_NET_TIMEOUT = max(10, min(600, int(os.environ.get("AUTOPILOT_GIT_TIMEOUT_SEC
 # gives no readable reset time we retry after this back-off; the grace avoids racing the reset.
 LIMIT_BACKOFF_SECONDS = max(300, min(21600, int(os.environ.get("AUTOPILOT_LIMIT_BACKOFF_SECONDS", "1800"))))
 LIMIT_GRACE_SECONDS = 120
+MYCAST_ENABLED = os.environ.get("AUTOPILOT_MYCAST", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def run(cmd: list[str], *, check: bool = True, capture: bool = False, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
@@ -485,6 +488,17 @@ def main() -> int:
             continue
         if asked in ("answered", "failed"):
             continue
+
+        # T-603: the owner's morning MyCast episode, once a day, between tasks.
+        if MYCAST_ENABLED:
+            cast = mycast_daily.run_daily(ANSWERS.with_name("mycast.json"))
+            if cast == "limit":
+                notice = hold_for_limit("")
+                write_runtime_status("idle", summary=notice)
+                send(notice)
+                continue
+            if cast != "idle":
+                continue
 
         # Relay owner tickets have priority over ordinary roadmap work. This is
         # an actual claim + bounded Claude CLI invocation, not a UI status flip.

@@ -32,10 +32,10 @@ class WorkerTokenTest(unittest.TestCase):
             self.assertFalse(factory._claude_worker_authorized(request("secondary")))
 
 
-def asgi_post(path, bearer=None, body=b"{}"):
+def asgi_post(path, bearer=None, body=b"{}", content_type="application/json"):
     """POST through the full ASGI app, auth middleware included. Returns (status, body)."""
     import asyncio
-    headers = [(b"host", b"testserver"), (b"content-type", b"application/json")]
+    headers = [(b"host", b"testserver"), (b"content-type", content_type.encode())]
     if bearer is not None:
         headers.append((b"authorization", ("Bearer " + bearer).encode("ascii")))
     scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "http",
@@ -71,6 +71,18 @@ class OwnerDeskWorkerMiddlewareTest(unittest.TestCase):
             status, _ = asgi_post("/api/factory/owner-desk/worker/claim", None, b'{"worker_id":"t"}')
             self.assertEqual(status, 401)
             status, _ = asgi_post("/api/factory/owner-desk/worker/claim", "wrong", b'{"worker_id":"t"}')
+            self.assertEqual(status, 401)
+            # MyCast delivery passes the middleware with the worker token (409 here: no Telegram in CI),
+            # and is rejected without it.
+            boundary = "testboundary"
+            body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"episode_id\"\r\n\r\nmycast-2026-11-03\r\n"
+                    f"--{boundary}\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"a.mp3\"\r\n"
+                    f"Content-Type: audio/mpeg\r\n\r\nID3\r\n--{boundary}--\r\n").encode()
+            status, body_out = asgi_post("/api/factory/mycast/worker/deliver", "primary-worker-token", body,
+                                         content_type="multipart/form-data; boundary=" + boundary)
+            self.assertEqual(status, 409, body_out)
+            status, _ = asgi_post("/api/factory/mycast/worker/deliver", None, body,
+                                  content_type="multipart/form-data; boundary=" + boundary)
             self.assertEqual(status, 401)
             # The worker token never opens the owner's side of the desk.
             status, _ = asgi_post("/api/factory/owner-desk/questions", "primary-worker-token",

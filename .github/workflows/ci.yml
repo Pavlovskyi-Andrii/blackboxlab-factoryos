@@ -192,6 +192,9 @@ jobs:
           python -m py_compile owner_desk.py test_owner_desk.py autopilot/owner_questions.py autopilot/test_owner_questions.py
           python test_owner_desk.py
           python -m autopilot.test_owner_questions
+          python -m py_compile mycast.py test_mycast.py autopilot/mycast_daily.py autopilot/test_mycast_daily.py
+          python test_mycast.py
+          python -m autopilot.test_mycast_daily
       - name: Delegation execution timeline regression
         env:
           FACTORY_PASSWORD: ""
