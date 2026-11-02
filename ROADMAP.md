@@ -117,6 +117,14 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: MCP tools for a shared thread and handoffs backed by the existing Relay store: post_message / read_thread (brainstorm between agents, visible to the owner in Worker Center), list_handoffs / claim_handoff / submit_handoff_result (one claim per task, run_id, files_scope), with Claude reviewing results before merge.
   DONE: a live round-trip — Claude posts a handoff, ChatGPT claims it via MCP and submits a PR link, Claude reviews and merges — visible in Worker Center; tests for auth, single claim, replay and secret scrubbing.
 
+- [ ] T-605 Gemini Worker — third authenticated engineering operator via existing Relay
+  Owner: claude-session (integration coordination; do not give unverified Gemini tasks to the Claude EC2 worker)
+  Priority: P1 (owner-requested 2026-11-02; below P0 live Telegram/Relay acceptance)
+  Depends: T-590,T-604
+  Spec: Issue #119; reuse existing Gemini operator lane, task registry and Relay claim/event journal
+  Goal: add a **real** Gemini executor alongside Claude and ChatGPT, not only a provider/logo: prove a legitimately authenticated, zero-additional-spend Gemini runtime on an existing approved host; reuse the same atomic task claim, files_scope, run_id fencing, events and owner visibility. Only take Owner: gemini or explicitly delegated work; never duplicate Claude/ChatGPT active claims. No paid Gemini/Vertex/Google Cloud API or subscription upgrade; unsupported headless access => blocked, not a fake working badge.
+  DONE: tests for auth, no runtime, unique claim, Depends, quotas/rate limit, restart and redaction; one real harmless Gemini-owned task → claimed/running → commit/PR → review with verified Relay/Telegram/Web evidence and zero extra charges. Until then status = planned/unconfigured; never claim a deployed worker from this roadmap entry.
+
 - [ ] T-602 UI fixes from the 2026-11-01 screenshot review
   Owner: claude
   Priority: P1
