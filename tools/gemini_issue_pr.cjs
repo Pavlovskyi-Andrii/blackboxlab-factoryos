@@ -53,6 +53,7 @@ async function generate() {
   for (const match of body.matchAll(/`([\w./-]+\.(?:py|html|js|css|md))`/g)) named.add(match[1]);
   const context = [];
   const contextFiles = [];
+  const contextShas = {};
   let budget = 180000;
   for (const filename of named) {
     if (!allowed(filename)) continue;
@@ -63,6 +64,7 @@ async function generate() {
       if (source.length > budget) { context.push('File '+filename+' is too large for this request; do not edit it without context.'); continue; }
       budget -= source.length;
       contextFiles.push(filename);
+      contextShas[filename] = file.sha;
       context.push('FILE '+filename+'\n'+source+'\nEND FILE');
     } catch (e) { if (!e.message.includes('HTTP 404')) throw e; }
   }
@@ -87,7 +89,7 @@ async function generate() {
         const payload=JSON.parse(result.text || '');
         validate(payload);
         for (const edit of payload.files) if (!contextFiles.includes(edit.path) && !('content' in edit)) throw Error('Missing source context: '+edit.path);
-        fs.writeFileSync(outFile,JSON.stringify({issue:issueNumber,model,contextFiles,files:payload.files}),{mode:0o600});
+        fs.writeFileSync(outFile,JSON.stringify({issue:issueNumber,model,contextFiles,contextShas,files:payload.files}),{mode:0o600});
         console.log('Validated proposal for issue #'+issueNumber+' ('+payload.files.length+' files)');
         return;
       } catch (e) {
@@ -122,6 +124,7 @@ async function publish() {
     let newContent;
     if (sha) {
       if (!payload.contextFiles?.includes(file.path)) throw Error('Missing source context: '+file.path);
+      if (!payload.contextShas || payload.contextShas[file.path] !== sha) throw Error('Source changed since Gemini proposal: '+file.path);
       if (typeof file.search !== 'string' || !file.search.length || typeof file.replace !== 'string' || 'content' in file) throw Error('Existing file requires search/replace: '+file.path);
       const occurrences=existingContent.split(file.search).length-1;
       if (occurrences!==1) throw Error('Patch must match exactly once in '+file.path+'; found '+occurrences);
