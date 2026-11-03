@@ -17,7 +17,7 @@ async function github(endpoint, options={}) {
   return data;
 }
 function allowed(file) {
-  if (typeof file !== 'string' || file.length > 180 || file.includes('\\') || file.startsWith('/') || file.split('/').includes('..')) return false;
+  if (typeof file !== 'string' || file.length > 180 || file.includes('\\') || file.startsWith('/') || file.split('/').some(segment => !segment || segment === '.' || segment === '..')) return false;
   if (/^(autopilot\/|\.github\/|docs\/handoff\/|\.env|CLAUDE\.md$|AGENTS\.md$|\.python-version$)/i.test(file)) return false;
   return /^(static\/[a-zA-Z0-9_./-]+\.(html|css|js)|docs\/[a-zA-Z0-9_./-]+\.md|tests?\/[a-zA-Z0-9_./-]+\.(py|js)|[a-zA-Z0-9_-]+\.py)$/.test(file);
 }
