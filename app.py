@@ -27,6 +27,7 @@ from google.oauth2 import id_token as google_id_token
 from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
+from team_board import project_team
 from operator_lanes import build_operator_lanes
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
@@ -11199,6 +11200,34 @@ def get_telegram_lane_board():
 def get_telegram_operator_lanes():
     """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons."""
     return get_delegation_board().get("operator_lanes") or []
+
+
+_TEAM_GITHUB_CACHE={"expires":0,"data":{"available":False}}
+_TEAM_GITHUB_LOCK=threading.Lock()
+
+def _team_board_github_snapshot(refresh=False):
+    """Read owner Issues at most every five minutes; no credentials reach the browser."""
+    with _TEAM_GITHUB_LOCK:
+        now=time.time()
+        if not refresh and now<_TEAM_GITHUB_CACHE["expires"]:
+            return _TEAM_GITHUB_CACHE["data"]
+        try:
+            from relay import relay_github_owner_issues
+            snapshot=relay_github_owner_issues(GITHUB_REPO,GITHUB_TOKEN)
+        except Exception:
+            snapshot={"available":False,"issues":[]}
+        _TEAM_GITHUB_CACHE.update(expires=now+300,data=snapshot)
+        return snapshot
+
+def get_team_board(refresh=False):
+    lines={t["id"]:t.get("roadmap_line") for t in _parse_roadmap_tasks()}
+    return project_team(get_lane_board(),_team_board_github_snapshot(refresh),lines,repo=GITHUB_REPO)
+
+@app.get("/api/factory/team-board")
+def factory_team_board(request: Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"Owner access required")
+    return get_team_board()
 
 @app.get("/api/factory/worker-overview")
 def factory_worker_overview(request: Request):
