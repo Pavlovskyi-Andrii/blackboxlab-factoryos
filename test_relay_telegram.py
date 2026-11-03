@@ -143,5 +143,66 @@ class TestTelegramBattles(unittest.TestCase):
         t587.app_checks()
 
 
+class TestTelegramAssignmentLoop(unittest.TestCase):
+    def setUp(self):
+        from relay_execution import RelayQueue
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = RelayStore(Path(self.tmp.name) / "relay.json")
+        self.queue = RelayQueue(self.store)
+        self.sent = []
+        self.seq = 0
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def tg(self, method, payload=None):
+        self.sent.append((method, payload or {}))
+        return {"ok": True}
+
+    def send(self, command, chat_id=42, update_id=None):
+        self.seq += 1
+        uid = update_id if update_id is not None else self.seq
+        upd = {"update_id": uid, "message": {"chat": {"id": chat_id, "type": "private"},
+               "message_id": uid, "text": command}}
+        return relay_handle_telegram_update(upd, self.store, lambda: {"chat_id": "42"}, self.tg, queue=self.queue)
+
+    def click(self, data, chat_id=42):
+        upd = {"callback_query": {"id": "c", "data": data, "message": {"chat": {"id": chat_id}}}}
+        return relay_handle_telegram_update(upd, self.store, lambda: {"chat_id": "42"}, self.tg, queue=self.queue)
+
+    def test_no_claim_until_assignment_and_idempotent_update(self):
+        task = self.send("/new Fix Telegram", update_id=901)
+        tid = task["ticket_id"]
+        self.assertEqual(self.store.get(tid)["execution"]["owner"], "unassigned")
+        self.assertIsNone(self.queue.claim("worker-test"))
+        self.assertEqual(self.send("/new Fix Telegram", update_id=901)["ticket_id"], tid)
+        self.assertEqual(self.store.summary()["total"], 1)
+        self.assertEqual(self.click("relay:assign:" + tid + ":claude")["action"], "assigned")
+        self.assertEqual(self.click("relay:assign:" + tid + ":claude")["action"], "assigned")
+        self.assertEqual(self.click("relay:assign:" + tid + ":gemini")["action"], "assign_refused")
+        self.assertEqual(self.queue.claim("worker-test")["id"], tid)
+        self.assertEqual(self.click("relay:cancel:" + tid)["action"], "cancel_refused")
+
+    def test_other_executor_and_cancel_stay_truthful(self):
+        t = self.send("/new Assign Gemini")
+        tid = t["ticket_id"]
+        self.click("relay:assign:" + tid + ":gemini")
+        self.assertEqual(self.store.get(tid)["execution"]["state"], "queued")
+        self.assertIsNone(self.queue.claim("worker-test"))
+        self.send("/tasks")
+        self.assertIn("gemini: очередь 1", [p["text"] for m,p in self.sent if m=="sendMessage"][-1])
+        self.assertEqual(self.click("relay:retry:" + tid)["action"], "retry_refused")
+        self.assertEqual(self.click("relay:cancel:" + tid)["action"], "cancel")
+        self.assertEqual(self.store.get(tid)["execution"]["state"], "cancelled")
+        self.assertEqual(self.store.get(tid)["status"], "archived")
+
+    def test_foreign_chat_cannot_assign(self):
+        tid = self.send("/new Secure task")["ticket_id"]
+        count = len(self.sent)
+        self.click("relay:assign:" + tid + ":claude", chat_id=93)
+        self.assertEqual(len(self.sent), count)
+        self.assertEqual(self.store.get(tid)["execution"]["owner"], "unassigned")
+
+
 if __name__ == "__main__":
     unittest.main()
