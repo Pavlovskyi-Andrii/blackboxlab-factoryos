@@ -106,15 +106,19 @@ async function publish() {
   if(payload.issue!==issueNumber) throw Error('Issue mismatch');
   const issue=await github('/repos/'+owner+'/'+repo+'/issues/'+issueNumber);
   if (!issue.body?.startsWith('Owner: Gemini') || !issue.labels?.some(l=>l.name==='gemini')) throw Error('Ownership/label changed');
+  // Preflight every proposed edit against main before creating a branch or writing commits.
+  // A bad second patch must not leave a partially written branch behind.
   const base=await github('/repos/'+owner+'/'+repo+'/git/ref/heads/main');
-  const branch='gemini/issue-'+issueNumber;
-  // Ref creation fails closed if another run has already claimed the issue.
-  await github('/repos/'+owner+'/'+repo+'/git/refs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ref:'refs/heads/'+branch,sha:base.object.sha})});
+  const prepared=[];
   for (const file of payload.files) {
     let sha;
     let existingContent;
-    try { const existing=await github('/repos/'+owner+'/'+repo+'/contents/'+file.path+'?ref='+encodeURIComponent(branch)); sha=existing.sha; existingContent=Buffer.from(existing.content.replace(/\s/g,''),'base64').toString('utf8'); }
-    catch(e) { if(!e.message.includes('HTTP 404')) throw e; }
+    try {
+      const existing=await github('/repos/'+owner+'/'+repo+'/contents/'+file.path+'?ref='+base.object.sha);
+      sha=existing.sha;
+      if (existing.encoding!=='base64') throw Error('Unsupported source encoding: '+file.path);
+      existingContent=Buffer.from(existing.content.replace(/\\s/g,''),'base64').toString('utf8');
+    } catch(e) { if(!e.message.includes('HTTP 404')) throw e; }
     let newContent;
     if (sha) {
       if (!payload.contextFiles?.includes(file.path)) throw Error('Missing source context: '+file.path);
@@ -126,9 +130,16 @@ async function publish() {
       if (typeof file.content !== 'string' || 'search' in file) throw Error('New file requires content: '+file.path);
       newContent=file.content;
     }
+    if (newContent===existingContent) throw Error('No change in '+file.path);
+    prepared.push({path:file.path,sha,newContent});
+  }
+  const branch='gemini/issue-'+issueNumber;
+  // Ref creation fails closed if another run has already claimed the issue.
+  await github('/repos/'+owner+'/'+repo+'/git/refs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ref:'refs/heads/'+branch,sha:base.object.sha})});
+  for (const file of prepared) {
     await github('/repos/'+owner+'/'+repo+'/contents/'+file.path,{
       method:'PUT',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({message:'feat(gemini): issue #'+issueNumber+' '+file.path,path:file.path,branch,content:Buffer.from(newContent).toString('base64'),...(sha?{sha}:{})})
+      body:JSON.stringify({message:'feat(gemini): issue #'+issueNumber+' '+file.path,path:file.path,branch,content:Buffer.from(file.newContent).toString('base64'),...(file.sha?{sha:file.sha}:{})})
     });
   }
   const pr=await github('/repos/'+owner+'/'+repo+'/pulls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
