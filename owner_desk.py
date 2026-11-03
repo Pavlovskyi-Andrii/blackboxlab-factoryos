@@ -37,6 +37,7 @@ QUESTION_STATES = ("pending", "answering", "answered", "failed")
 # Internal round-trip probe: the worker asks itself a question so the site → worker → answer → Telegram
 # chain is proven regularly without the owner and without a Claude run. Never shown in the owner UI.
 SELFTEST_TASK = "SELFTEST"
+TELEGRAM_TASK = "TELEGRAM"  # owner-only `/ask` input; not a ROADMAP runbook
 STALE_QUESTION_SECONDS = 3600
 
 RENDER_ENV = ("Render → Dashboard → сервис blackboxlab-factoryos → вкладка Environment → "
@@ -385,8 +386,8 @@ class QuestionStore:
         stale = [q.get("task_id") for q, age in zip(open_items, ages) if age > STALE_QUESTION_SECONDS]
         return {"open": len(open_items), "oldest_seconds": oldest, "stale_tasks": stale}
 
-    def create(self, task_id: str, step_id: str, quote: str, question: str) -> dict[str, Any]:
-        if task_id not in RUNBOOK_BY_ID and task_id != SELFTEST_TASK:
+    def create(self, task_id: str, step_id: str, quote: str, question: str, source_key: str = "") -> dict[str, Any]:
+        if task_id not in RUNBOOK_BY_ID and task_id not in (SELFTEST_TASK, TELEGRAM_TASK):
             raise ValueError("unknown task")
         quote, question = _clean(quote, QUOTE_MAX), _clean(question, QUESTION_MAX)
         if not question:
@@ -396,12 +397,18 @@ class QuestionStore:
         with self._lock:
             items = self._load()
             self._expire_leases(items)
+            if source_key:
+                existing = next((q for q in items if q.get("source_key") == source_key), None)
+                if existing:
+                    return existing
             if task_id == SELFTEST_TASK and any(q.get("task_id") == SELFTEST_TASK and q.get("status") in ("pending", "answering") for q in items):
                 raise OverflowError("a self-test is already in flight")
             if sum(1 for q in items if q.get("status") in ("pending", "answering")) >= MAX_OPEN_QUESTIONS:
                 raise OverflowError("too many open questions")
             item = {"id": "Q-" + secrets.token_hex(4), "task_id": task_id, "step_id": step_id, "quote": quote,
                     "question": question, "status": "pending", "created_at": _now_iso(), "answer": ""}
+            if source_key:
+                item["source_key"] = _clean(source_key, 120)
             items.append(item)
             self._save(items)
         return item
@@ -522,8 +529,14 @@ def install_owner_desk_routes(app, store: QuestionStore, identity_fn: Callable[[
             raise HTTPException(409, str(exc))
         if notify_owner and item.get("status") == "answered":
             try:
-                notify_owner(selftest_message(store.queue_stats()) if item.get("task_id") == SELFTEST_TASK else
-                             f"💬 Ответ на ваш вопрос по {item['task_id']} готов: Worker Center → «Ваши задачи».")
+                if item.get("task_id") == TELEGRAM_TASK:
+                    answer = str(item.get("answer") or "") or "Claude вернул пустой ответ."
+                    parts = [answer[i:i + 3800] for i in range(0, len(answer), 3800)]
+                    for n, part in enumerate(parts, 1):
+                        notify_owner(f"💬 Claude · ответ на {item['id']} ({n}/{len(parts)})\n{part}")
+                else:
+                    notify_owner(selftest_message(store.queue_stats()) if item.get("task_id") == SELFTEST_TASK else
+                                 f"💬 Ответ на ваш вопрос по {item['task_id']} готов: Worker Center → «Ваши задачи».")
             except Exception:
                 pass
         return {"ok": True, "status": item.get("status")}
