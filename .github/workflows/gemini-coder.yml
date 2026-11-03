@@ -1,64 +1,51 @@
-name: Gemini CLI Remote Coder
+name: Gemini Issue to PR
 
 on:
   issues:
-    types: [opened]
-  issue_comment:
-    types: [created]
+    types: [labeled]
+
+concurrency:
+  group: gemini-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
 
 jobs:
   gemini-coder:
-    # Запускается, если в тикете или комменте есть упоминание @gemini-cli
-    if: |
-      (github.event_name == 'issues' && contains(github.event.issue.body, '@gemini-cli')) ||
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gemini-cli'))
+    if: github.event.label.name == 'gemini' && !github.event.issue.pull_request
     runs-on: ubuntu-latest
-    # The bot only reads the repo and replies in the issue: least privilege (Claude, 2026-11-03).
+    timeout-minutes: 12
     permissions:
-      contents: read
+      contents: write
       issues: write
-
+      pull-requests: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Verify trusted actor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          permission="$(gh api "repos/$GH_REPO/collaborators/$ACTOR/permission" --jq '.permission')"
+          case "$permission" in admin|maintain|write) ;; *) echo "Untrusted label actor"; exit 1;; esac
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
         with:
-          node-version: 20
+          persist-credentials: false
 
-      - name: Install Google GenAI SDK & Octokit
-        run: npm install @google/genai @octokit/rest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      - name: Run Gemini Agent
+      - name: Generate bounded Gemini proposal
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          USER_PROMPT: ${{ github.event.comment.body || github.event.issue.body }}
-        run: |
-          node -e '
-          const { GoogleGenAI } = require("@google/genai");
-          const { Octokit } = require("@octokit/rest");
+          GEMINI_FREE_MODELS: ${{ vars.GEMINI_FREE_MODELS || 'gemini-2.5-flash' }}
+        run: node tools/gemini_issue_pr.cjs generate
 
-          async function run() {
-            const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-            const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-            const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
-
-            const response = await ai.models.generateContent({
-              model: "gemini-3.8-flash",
-              contents: `Ты AI-разработчик проекта blackboxlab-factoryos. 
-              Ответь на запрос пользователя из GitHub Issue #${process.env.ISSUE_NUMBER}:
-              "${process.env.USER_PROMPT}"`
-            });
-
-            await octokit.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: process.env.ISSUE_NUMBER,
-              body: `🤖 **Gemini Bot:**\n\n${response.text}`
-            });
-          }
-          run().catch(err => { console.error(err); process.exit(1); });
-          '
+      - name: Publish draft PR (no model API key)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: node tools/gemini_issue_pr.cjs publish
