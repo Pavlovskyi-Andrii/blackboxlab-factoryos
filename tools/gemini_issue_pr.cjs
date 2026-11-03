@@ -80,7 +80,7 @@ async function generate() {
   for (const model of models) {
     for (let attempt=0;attempt<3;attempt++) {
       const controller = new AbortController();
-      const timeout = setTimeout(()=>controller.abort(), 150000);
+      const timeout = setTimeout(()=>controller.abort(), 420000);
       try {
         const result = await ai.models.generateContent({
           model,
