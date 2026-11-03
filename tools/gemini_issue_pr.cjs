@@ -48,6 +48,7 @@ async function generate() {
   }
   for (const match of body.matchAll(/`([\w./-]+\.(?:py|html|js|css|md))`/g)) named.add(match[1]);
   const context = [];
+  const contextFiles = [];
   let budget = 180000;
   for (const filename of named) {
     if (!allowed(filename)) continue;
@@ -57,6 +58,7 @@ async function generate() {
       const source = Buffer.from(file.content.replace(/\s/g,''),'base64').toString('utf8');
       if (source.length > budget) { context.push('File '+filename+' is too large for this request; do not edit it without context.'); continue; }
       budget -= source.length;
+      contextFiles.push(filename);
       context.push('FILE '+filename+'\n'+source+'\nEND FILE');
     } catch (e) { if (!e.message.includes('HTTP 404')) throw e; }
   }
@@ -87,7 +89,8 @@ async function generate() {
         const raw=(data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
         const payload=JSON.parse(raw);
         validate(payload);
-        fs.writeFileSync(outFile,JSON.stringify({issue:issueNumber,model,files:payload.files}),{mode:0o600});
+        for (const edit of payload.files) if (!contextFiles.includes(edit.path) && !('content' in edit)) throw Error('Missing source context: '+edit.path);
+        fs.writeFileSync(outFile,JSON.stringify({issue:issueNumber,model,contextFiles,files:payload.files}),{mode:0o600});
         console.log('Validated proposal for issue #'+issueNumber+' ('+payload.files.length+' files)');
         return;
       } catch (e) { lastError=e.name==='AbortError'?'Google timeout':e.message; if(attempt<2) await sleep(1200*2**attempt); }
@@ -112,6 +115,7 @@ async function publish() {
     catch(e) { if(!e.message.includes('HTTP 404')) throw e; }
     let newContent;
     if (sha) {
+      if (!payload.contextFiles?.includes(file.path)) throw Error('Missing source context: '+file.path);
       if (typeof file.search !== 'string' || !file.search.length || typeof file.replace !== 'string' || 'content' in file) throw Error('Existing file requires search/replace: '+file.path);
       const occurrences=existingContent.split(file.search).length-1;
       if (occurrences!==1) throw Error('Patch must match exactly once in '+file.path+'; found '+occurrences);
