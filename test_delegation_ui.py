@@ -333,8 +333,24 @@ def timeline_checks(out):
             "localized timeline labels missing")
 
 
+def test_issue139_sync_projection():
+    from delegation_sync import delegation_sync_view
+    pending=[
+        {"id":"T-520","title":"Metricool","state":"human","done":False,"roadmap_line":10,"dependencies_met":True},
+        {"id":"T-521","title":"Publishing","state":"human","done":False,"roadmap_line":11,"dependencies_met":False},
+        {"id":"T-551","title":"OAuth","state":"human","done":False,"roadmap_line":12,"dependencies_met":False},
+        {"id":"T-506","title":"Paired Telegram","state":"human","done":False,"roadmap_line":9,"dependencies_met":True}]
+    x=delegation_sync_view({"planner_queue":pending},{"available":False},None)
+    require(x["waiting_owner_count"]==4,"deferred & owner count")
+    require(len(x["deferred_owner"])==3,"expected T-520/T-521/T-551 deferred")
+    require(len(x["waiting_owner"])==1,"nondeferred waiting owner")
+    require(x["synced_at"] is None and not x["github_available"],"unknown sync must stay unknown")
+
 def main():
+    test_issue139_sync_projection()
     html = HTML.read_text(encoding="utf-8")
+    require('/api/factory/delegation-sync/refresh' in html, "owner refresh endpoint not wired")
+    require('id="dcSyncHeader"' in html, "delegation sync header missing")
     script, block, i18n, helpers, tr = extract(html)
     keys = static_checks(html, script, block)
     print(f"Delegation Control Center static checks passed ({len(keys)} localized keys)")
