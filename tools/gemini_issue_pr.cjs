@@ -25,7 +25,7 @@ function validate(payload) {
   if (!payload || !Array.isArray(payload.files) || payload.files.length < 1 || payload.files.length > 4) throw Error('Expected 1-4 files');
   const seen = new Set();
   for (const item of payload.files) {
-    if (!allowed(item.path) || seen.has(item.path) || (!('content' in item) && (typeof item.search !== 'string' || typeof item.replace !== 'string')) || ('content' in item && (typeof item.content !== 'string' || item.content.length > 24000)) || (item.search && item.search.length > 40000) || (item.replace && item.replace.length > 40000)) throw Error('Unsafe file proposal');
+    if (!allowed(item.path) || seen.has(item.path) || (('content' in item) === ('search' in item || 'replace' in item)) || ('content' in item && (typeof item.content !== 'string' || item.content.length > 24000)) || (!('content' in item) && (typeof item.search !== 'string' || !item.search.length || item.search.length > 40000 || typeof item.replace !== 'string' || item.replace.length > 40000))) throw Error('Unsafe file proposal');
     seen.add(item.path);
   }
 }
