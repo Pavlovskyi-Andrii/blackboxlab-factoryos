@@ -76,7 +76,7 @@ class DeliveryLog:
 
 def install_mycast_routes(app, log: DeliveryLog, *, authorize_worker: Callable[[Request], bool],
                           send_audio: Callable[[bytes, str, str, str], None],
-                          paired: Callable[[], bool]) -> None:
+                          paired: Callable[[], bool], history=None) -> None:
     @app.post("/api/factory/mycast/worker/deliver")
     async def mycast_deliver(request: Request, episode_id: str = Form(...), title: str = Form(""),
                              caption: str = Form(""), audio: UploadFile = File(...)):
@@ -93,6 +93,7 @@ def install_mycast_routes(app, log: DeliveryLog, *, authorize_worker: Callable[[
             return {"sent": False, "duplicate": True}
         try:
             send_audio(data, f"{episode_id}.mp3", title or episode_id, caption)
+            if history:history.record(episode_id,"mycast","uploaded",seconds=0)
         except Exception as exc:
             log.release(episode_id)  # let the worker retry
             raise HTTPException(502, "Telegram delivery failed") from exc
@@ -193,7 +194,8 @@ def pcm_to_mp3(pcm: bytes, rate: int) -> bytes:
 def install_mycast_voice_routes(app, log: DeliveryLog, *, authorize_worker: Callable[[Request], bool],
                                 send_audio: Callable[[bytes, str, str, str], None], paired: Callable[[], bool],
                                 api_key: Callable[[], str], model: str = "", voices: tuple[str, str] = ("Charon", "Kore"),
-                                tts: Callable = gemini_tts_pcm, encode: Callable = pcm_to_mp3) -> None:
+                                tts: Callable = gemini_tts_pcm, encode: Callable = pcm_to_mp3,
+                                settings: Callable = lambda: {}, history=None) -> None:
     @app.post("/api/factory/mycast/worker/voice-deliver")
     async def mycast_voice_deliver(request: Request):
         if not authorize_worker(request):
@@ -216,11 +218,14 @@ def install_mycast_voice_routes(app, log: DeliveryLog, *, authorize_worker: Call
         if not log.claim(episode["id"]):
             return {"sent": False, "duplicate": True, "voice": "gemini"}
         try:
-            pcm, rate = tts(key, episode, model=model, voices=voices)
+            configured = settings() or {}
+            selected_voices = (configured.get("voice_a") or voices[0], configured.get("voice_b") or voices[1])
+            pcm, rate = tts(key, episode, model=configured.get("model") or model, voices=selected_voices)
             audio = encode(pcm, rate)
             words = sum(len(t.split()) for _, t in lines)
             send_audio(audio, f"{episode['id']}.mp3", str(episode.get("title") or episode["id"])[:64],
                        f"🎧 {episode.get('title', '')} · ~{max(1, round(words / 140))} хв · голоси Gemini")
+            if history:history.record(episode["id"],"mycast"," / ".join(selected_voices),seconds=round(len(pcm)/2/rate))
         except GeminiTTSError as exc:
             log.release(episode["id"])
             raise HTTPException(502, f"gemini tts: {exc.category}")
