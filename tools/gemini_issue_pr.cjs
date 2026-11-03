@@ -44,7 +44,10 @@ async function generate() {
     if (methods.includes('generateContent')) available.add(m.name.replace(/^models\//,''));
   }
   console.log('Gemini discovery: '+available.size+' generateContent models, '+permitted.filter(m=>available.has(m)).length+' permitted');
-  const models = permitted.filter(m=>available.has(m));
+  // Fallback only to the stable Flash family the key can see (no pro, preview, tts, image or live models).
+  const flash = [...available].filter(m=>/^gemini-[0-9.]+-flash(-lite)?$/.test(m)).sort().reverse();
+  console.log('Flash models visible to this key: '+flash.join(', '));
+  const models = [...new Set([...permitted.filter(m=>available.has(m)), ...flash])].slice(0,4);
   if (!models.length) throw Error('No configured, accessible Gemini models ('+permitted.join(', ')+'). Available flash models: '+[...available].filter(m=>/flash/.test(m)).slice(0,12).join(', '));
   const named = new Set();
   const body = issue.body || '';
@@ -95,9 +98,10 @@ async function generate() {
         return;
       } catch (e) {
         const code = Number(e.status || e.code || (String(e.message).match(/\b(400|403|404|429|500|502|503|504)\b/)||[])[1]);
-        lastError = e.name==='AbortError' ? 'Google timeout' : 'Google model '+model+' HTTP '+(code||'error');
+        lastError = e.name==='AbortError' ? 'Google timeout on '+model : 'Google model '+model+' HTTP '+(code||'error');
+        console.log('attempt '+(attempt+1)+' on '+model+': '+lastError);
         if (![429,500,502,503,504].includes(code)) break;
-        if (attempt<2) await sleep(1200*2**attempt);
+        if (attempt<2) await sleep(20000*3**attempt + crypto.randomInt(0,3000));
       }
       finally {clearTimeout(timeout);}
     }
