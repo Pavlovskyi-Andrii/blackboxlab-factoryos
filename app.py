@@ -28,6 +28,7 @@ from relay import RelayStore, install_relay_routes, relay_handle_telegram_update
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from team_board import project_team
+from delegation_sync import delegation_sync_view
 from operator_lanes import build_operator_lanes
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
@@ -11202,7 +11203,7 @@ def get_telegram_operator_lanes():
     return get_delegation_board().get("operator_lanes") or []
 
 
-_TEAM_GITHUB_CACHE={"expires":0,"data":{"available":False}}
+_TEAM_GITHUB_CACHE={"expires":0,"data":{"available":False},"synced_at":None}
 _TEAM_GITHUB_LOCK=threading.Lock()
 
 def _team_board_github_snapshot(refresh=False):
@@ -11216,12 +11217,31 @@ def _team_board_github_snapshot(refresh=False):
             snapshot=relay_github_owner_issues(GITHUB_REPO,GITHUB_TOKEN)
         except Exception:
             snapshot={"available":False,"issues":[]}
+        if snapshot.get("available"):
+            _TEAM_GITHUB_CACHE["synced_at"]=datetime.now(timezone.utc).isoformat()
         _TEAM_GITHUB_CACHE.update(expires=now+300,data=snapshot)
         return snapshot
 
 def get_team_board(refresh=False):
     lines={t["id"]:t.get("roadmap_line") for t in _parse_roadmap_tasks()}
     return project_team(get_lane_board(),_team_board_github_snapshot(refresh),lines,repo=GITHUB_REPO)
+
+def get_delegation_sync(refresh=False):
+    github=_team_board_github_snapshot(refresh)
+    return delegation_sync_view(get_delegation_board(),github,_TEAM_GITHUB_CACHE.get("synced_at"))
+
+@app.get("/api/factory/delegation-sync")
+def delegation_sync_status(request:Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"Owner access required")
+    return get_delegation_sync()
+
+@app.post("/api/factory/delegation-sync/refresh")
+def delegation_sync_refresh(request:Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"Owner access required")
+    return get_delegation_sync(refresh=True)
+
 
 @app.get("/api/factory/team-board")
 def factory_team_board(request: Request):
