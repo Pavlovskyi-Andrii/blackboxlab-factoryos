@@ -91,9 +91,9 @@ async function generate() {
         console.log('Validated proposal for issue #'+issueNumber+' ('+payload.files.length+' files)');
         return;
       } catch (e) {
-        const code = Number(e.status || e.code || (String(e.message).match(/\\b(404|429|500|502|503|504)\\b/)||[])[1]);
+        const code = Number(e.status || e.code || (String(e.message).match(/\b(400|403|404|429|500|502|503|504)\b/)||[])[1]);
         lastError = e.name==='AbortError' ? 'Google timeout' : 'Google model '+model+' HTTP '+(code||'error');
-        if (code===404 || code===400 || code===403) break;
+        if (![429,500,502,503,504].includes(code)) break;
         if (attempt<2) await sleep(1200*2**attempt);
       }
       finally {clearTimeout(timeout);}
