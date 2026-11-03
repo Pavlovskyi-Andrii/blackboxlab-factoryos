@@ -366,7 +366,7 @@ class QuestionStore:
         with self._lock:
             items = self._load()
             self._expire_leases(items)
-        owner_items = [q for q in items if q.get("task_id") != SELFTEST_TASK]
+        owner_items = [q for q in items if q.get("task_id") not in (SELFTEST_TASK, TELEGRAM_TASK)]
         return [{k: v for k, v in q.items() if k != "claimed_ts"} for q in owner_items[-limit:]]
 
     def queue_stats(self) -> dict[str, Any]:
