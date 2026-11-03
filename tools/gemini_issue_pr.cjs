@@ -13,7 +13,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function github(endpoint, options={}) {
   const response = await fetch(api + endpoint, { ...options, headers:{...headers(process.env.GITHUB_TOKEN), ...(options.headers||{})}});
   const data = await response.json().catch(()=>({}));
-  if (!response.ok) throw new Error('GitHub HTTP ' + response.status + ': ' + JSON.stringify(data).slice(0,300));
+  if (!response.ok) throw new Error('GitHub HTTP ' + response.status);
   return data;
 }
 function allowed(file) {
