@@ -35,7 +35,7 @@ async function generate() {
   if (!issue.body?.startsWith('Owner: Gemini')) throw Error('Issue must begin Owner: Gemini');
   if (!issue.labels?.some(l=>l.name==='gemini')) throw Error('Issue needs gemini label');
   const permitted = (process.env.GEMINI_FREE_MODELS || 'gemini-2.5-flash').split(',').map(s=>s.trim()).filter(Boolean);
-  const list = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key='+encodeURIComponent(process.env.GEMINI_API_KEY));
+  const list = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {headers:{'x-goog-api-key':process.env.GEMINI_API_KEY}});
   if (!list.ok) throw Error('Google model discovery HTTP '+list.status);
   const modelData = await list.json();
   const available = new Set((modelData.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace(/^models\//,'')));
@@ -54,8 +54,8 @@ async function generate() {
       const controller = new AbortController();
       const timeout = setTimeout(()=>controller.abort(), 55000);
       try {
-        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(process.env.GEMINI_API_KEY),{
-          method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal,
+        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{
+          method:'POST', headers:{'Content-Type':'application/json','x-goog-api-key':process.env.GEMINI_API_KEY}, signal:controller.signal,
           body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',maxOutputTokens:8192,temperature:0.2}})
         });
         if ([429,500,502,503,504].includes(res.status)) {
