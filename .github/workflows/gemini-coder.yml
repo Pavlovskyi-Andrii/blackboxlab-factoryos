@@ -17,6 +17,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      actions: write
     steps:
       - name: Verify trusted actor
         env:
@@ -41,7 +42,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          GEMINI_FREE_MODELS: ${{ vars.GEMINI_FREE_MODELS || 'gemini-2.5-flash' }}
+          GEMINI_FREE_MODELS: ${{ vars.GEMINI_FREE_MODELS || 'gemini-3.8-flash,gemini-3.8-flash-lite' }}
         run: node tools/gemini_issue_pr.cjs generate
 
       - name: Publish draft PR (no model API key)
