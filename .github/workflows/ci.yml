@@ -5,6 +5,8 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  # Gemini PRs are opened with GITHUB_TOKEN, which does not fire pull_request; gemini-coder dispatches CI instead.
+  workflow_dispatch:
 
 jobs:
   ec2-python39-import:
