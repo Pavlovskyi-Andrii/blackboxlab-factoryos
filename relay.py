@@ -491,13 +491,53 @@ def _t585_lane_text(name: str, lane: Optional[dict]) -> str:
     return "\n".join(lines)[:3900]
 
 
-def _t585_overview_text(lanes: dict) -> str:
-    rows = ["🧠 FactoryOS Operators"]
-    for key, label in _OPERATOR_LABELS.items():
-        lane = lanes.get(key)
-        rows.append(label + ": " + (_t585_status_line(lane) if isinstance(lane, dict) else _AVAILABILITY_TEXT["unconfigured"]))
-    rows.append("ChatGPT: Planner, нет runner-телеметрии")
-    return "\n".join(rows)
+_WORKERS_TEXT = {
+    "ru": {"title": "🧠 Исполнители FactoryOS", "online": "🟢 онлайн", "stale": "🟡 сигнал просрочен", "offline": "⚪ офлайн",
+           "unknown": "⚪ неизвестно", "working": "работает над", "idle": "простаивает", "beat": "сигнал {age} назад",
+           "no_beat": "сигнала нет", "active": "в работе", "queue": "в очереди", "q_unknown": "очередь неизвестна",
+           "s": "сек", "m": "мин", "h": "ч", "d": "дн"},
+    "uk": {"title": "🧠 Виконавці FactoryOS", "online": "🟢 онлайн", "stale": "🟡 сигнал прострочено", "offline": "⚪ офлайн",
+           "unknown": "⚪ невідомо", "working": "працює над", "idle": "простоює", "beat": "сигнал {age} тому",
+           "no_beat": "сигналу немає", "active": "в роботі", "queue": "у черзі", "q_unknown": "черга невідома",
+           "s": "с", "m": "хв", "h": "год", "d": "дн"},
+    "en": {"title": "🧠 FactoryOS workers", "online": "🟢 online", "stale": "🟡 heartbeat overdue", "offline": "⚪ offline",
+           "unknown": "⚪ unknown", "working": "working on", "idle": "idle", "beat": "last signal {age} ago",
+           "no_beat": "no signal yet", "active": "active", "queue": "queued", "q_unknown": "queue unknown",
+           "s": "s", "m": "min", "h": "h", "d": "d"},
+}
+_WORKER_ROWS = (("claude", "🟠 Claude"), ("chatgpt", "🟢 ChatGPT"), ("gemini", "🔵 Gemini"))
+
+
+def _age_text(seconds, t: dict) -> str:
+    seconds = int(max(0, float(seconds)))
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if seconds >= size:
+            return f"{seconds // size} {t[unit]}"
+    return f"{seconds} {t['s']}"
+
+
+def _worker_row(lane: Optional[dict], t: dict) -> str:
+    """#135: status · current task or idle · last heartbeat · active/queued counts; missing data is "unknown"."""
+    if not isinstance(lane, dict) or str(lane.get("availability") or "unconfigured") == "unconfigured":
+        return t["unknown"] + " · " + t["no_beat"]
+    availability = str(lane.get("availability") or "")
+    parts = [t.get(availability, t["unknown"])]
+    ticket = lane.get("open_ticket") or {}
+    if ticket.get("id"):
+        parts.append(t["working"] + " " + str(ticket["id"])[:80] + (f" ({str(ticket.get('stage'))[:40]})" if ticket.get("stage") else ""))
+    elif availability == "online":
+        parts.append(t["idle"])
+    age = (lane.get("heartbeat") or {}).get("age_seconds")
+    parts.append(t["beat"].format(age=_age_text(age, t)) if age is not None else t["no_beat"])
+    parts.append(t["active"] + " " + str(len([x for x in lane.get("open_tickets") or [] if isinstance(x, dict)])))
+    queue = lane.get("queue_depth")
+    parts.append(t["queue"] + " " + str(queue) if queue is not None else t["q_unknown"])
+    return " · ".join(parts)
+
+
+def _t585_overview_text(lanes: dict, lang: str = "ru") -> str:
+    t = _WORKERS_TEXT.get(lang) or _WORKERS_TEXT["ru"]
+    return "\n".join([t["title"]] + [label + ": " + _worker_row(lanes.get(key), t) for key, label in _WORKER_ROWS])
 
 
 def _operators_overview_text(provider: Optional[Callable[[], dict]]) -> str:
@@ -516,13 +556,13 @@ def _operators_overview_text(provider: Optional[Callable[[], dict]]) -> str:
     return "\n".join(rows)
 
 
-def _operators_text(provider: Optional[Callable[[], dict]], lanes_provider: Optional[Callable[[], list]]) -> str:
+def _operators_text(provider: Optional[Callable[[], dict]], lanes_provider: Optional[Callable[[], list]], lang: str = "ru") -> str:
     if lanes_provider is None:
         return _operators_overview_text(provider)
     lanes = _t585_lanes(lanes_provider)
     if lanes is None:
         return "🧠 Operators\n\n⚠️ Статус линий недоступен; состояние неизвестно."
-    return _t585_overview_text(lanes)
+    return _t585_overview_text(lanes, lang)
 
 
 
@@ -930,7 +970,7 @@ def relay_handle_telegram_update(
             elif action == "github":
                 value = _github_text(github_provider() if github_provider else {"available": False})
             elif action == "workers":
-                value = _operators_text(operator_status_provider, operator_lanes_provider)
+                value = _operators_text(operator_status_provider, operator_lanes_provider, lang)
             else:
                 return {"handled": True}
             telegram_api("sendMessage", {"chat_id": chat_id, "text": value, "reply_markup": _relay_keyboard()})
@@ -1068,7 +1108,7 @@ def relay_handle_telegram_update(
     if command in ("/battles", "/battle") and battle_controls is not None:
         return battle_controls.command(command, text, chat_id, telegram_api)
     if command in ("/operators","/workers"):
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _operators_text(operator_status_provider, operator_lanes_provider), "reply_markup": _operator_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _operators_text(operator_status_provider, operator_lanes_provider, lang), "reply_markup": _operator_keyboard()})
         return {"handled": True, "action": "operators"}
 
     command_status = {
