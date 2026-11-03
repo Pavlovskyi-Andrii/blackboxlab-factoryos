@@ -13,10 +13,10 @@ jobs:
       (github.event_name == 'issues' && contains(github.event.issue.body, '@gemini-cli')) ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@gemini-cli'))
     runs-on: ubuntu-latest
+    # The bot only reads the repo and replies in the issue: least privilege (Claude, 2026-11-03).
     permissions:
-      contents: write
+      contents: read
       issues: write
-      pull-requests: write
 
     steps:
       - name: Checkout repository
