@@ -31,7 +31,7 @@ from operator_lanes import build_operator_lanes
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
-from owner_desk import QuestionStore, install_owner_desk_routes
+from owner_desk import QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
@@ -899,6 +899,32 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
+    # #133: Telegram owner -> existing Claude subscription worker question queue.
+    # This precedes the Relay command fallback (which would otherwise treat /ask as unknown).
+    ask_msg=update.get("message") if isinstance(update.get("message"),dict) else {}
+    ask_chat=ask_msg.get("chat") if isinstance(ask_msg.get("chat"),dict) else {}
+    ask_text=str(ask_msg.get("text") or "").strip()
+    ask_cmd=ask_text.split(maxsplit=1)[0].split("@",1)[0].lower() if ask_text.startswith("/") else ""
+    ask_chat_id=str(ask_chat.get("id") or "").strip()
+    if (ask_cmd=="/ask" and ask_chat.get("type")=="private"
+            and ask_chat_id and ask_chat_id==str(_telegram_load_state().get("chat_id") or "")):
+        question=ask_text.split(maxsplit=1)[1].strip() if len(ask_text.split(maxsplit=1))>1 else ""
+        if not question:
+            _telegram_send_to(ask_chat_id,"Использование: /ask Вопрос Claude")
+            return {"ok":True,"action":"ask_help"}
+        update_id=str(update.get("update_id") or "")
+        source_key=("telegram-ask:"+update_id) if update_id else (
+            "telegram-ask:"+ask_chat_id+":"+str(ask_msg.get("message_id") or ""))
+        try:
+            item=OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",question,source_key=source_key)
+        except OverflowError:
+            _telegram_send_to(ask_chat_id,"Очередь вопросов заполнена. Попробуй позже.")
+            return {"ok":True,"action":"ask_full"}
+        except ValueError:
+            _telegram_send_to(ask_chat_id,"Пустой или неподдерживаемый вопрос.")
+            return {"ok":True,"action":"ask_invalid"}
+        _telegram_send_to(ask_chat_id,"Принял вопрос "+item["id"]+". Claude ответит после того, как его воркер заберёт задачу.")
+        return {"ok":True,"action":"ask_queued","question_id":item["id"]}
     relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
