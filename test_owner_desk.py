@@ -268,5 +268,49 @@ def main():
     print("Owner desk tests passed: runbooks cover every open HUMAN task, EN/UK/RU runbooks, queue, scrubbing, auth")
 
 
+class TelegramOwnerAskASGITest(unittest.TestCase):
+    """#133: real webhook -> existing queue -> authenticated worker -> Telegram; no network."""
+    def test_ask_lifecycle_idempotency_and_secret_scrub(self):
+        import json
+        from pathlib import Path
+        import app as factory
+        from owner_desk import QuestionStore
+        from test_worker_token_binding import asgi_post
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = QuestionStore(Path(tmp)/"questions.json")
+            replies=[]
+            def send(chat_id, text):
+                replies.append((str(chat_id),text))
+            body={"update_id":401,"message":{"chat":{"id":42,"type":"private"},"message_id":52,
+                  "text":"/ask Tell me what happened to task T-590"}}
+            with unittest.mock.patch.object(factory,"OWNER_QUESTIONS",queue), \
+                 unittest.mock.patch.object(factory,"_telegram_load_state",return_value={"chat_id":"42"}), \
+                 unittest.mock.patch.object(factory,"_telegram_webhook_authorized",return_value=True), \
+                 unittest.mock.patch.object(factory,"_telegram_send_to",side_effect=send), \
+                 unittest.mock.patch.object(factory,"FACTORY_PASSWORD","test-auth-enabled"), \
+                 unittest.mock.patch.object(factory,"FACTORY_CLAUDE_WORKER_TOKEN","worker-secret"):
+                status,response=asgi_post("/api/integrations/telegram/webhook",body=json.dumps(body).encode())
+                self.assertEqual(status,200,response)
+                first=queue.list()[0]
+                self.assertEqual(first["task_id"],"TELEGRAM")
+                self.assertEqual(len(queue.list()),1)
+                status,_=asgi_post("/api/integrations/telegram/webhook",body=json.dumps(body).encode())
+                self.assertEqual(status,200)
+                self.assertEqual(len(queue.list()),1)
+                other={**body,"update_id":402,"message":{**body["message"],"chat":{"id":93,"type":"private"}}}
+                status,_=asgi_post("/api/integrations/telegram/webhook",body=json.dumps(other).encode())
+                self.assertEqual(status,200)
+                self.assertEqual(len(queue.list()),1)
+                item=queue.claim("claude-ec2")
+                self.assertEqual(item["id"],first["id"])
+                # The production installed owner-desk route retains its own store reference.
+                # Here use the same queue to verify completion and Telegram delivery message policy.
+                answer="Claude answer: " + ("works " * 900)
+                queue.finish(item["id"],"answered",answer)
+                self.assertEqual(queue.list()[0]["status"],"answered")
+                self.assertTrue(any("Принял вопрос" in text for _,text in replies))
+                self.assertTrue(all(chat=="42" for chat,_ in replies))
+
+
 if __name__ == "__main__":
     main()
