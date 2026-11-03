@@ -4,6 +4,8 @@ Zero spend, no network: routes are called directly through a capturing fake app.
 """
 import re
 import tempfile
+import unittest
+import unittest.mock
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -265,6 +267,8 @@ def main():
     test_question_queue()
     test_routes_and_auth()
     test_selftest_round_trip()
+    result = unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.loadTestsFromTestCase(TelegramOwnerAskASGITest))
+    assert result.wasSuccessful(), "Telegram ASGI regression failed"
     print("Owner desk tests passed: runbooks cover every open HUMAN task, EN/UK/RU runbooks, queue, scrubbing, auth")
 
 
@@ -310,6 +314,22 @@ class TelegramOwnerAskASGITest(unittest.TestCase):
                 self.assertEqual(queue.list()[0]["status"],"answered")
                 self.assertTrue(any("Принял вопрос" in text for _,text in replies))
                 self.assertTrue(all(chat=="42" for chat,_ in replies))
+
+                # Verify the actual existing owner-desk answer route emits bounded Telegram chunks.
+                fake = _FakeApp()
+                delivered = []
+                od.install_owner_desk_routes(fake, queue, lambda req: {"role": "owner"},
+                    authorize_worker=lambda req: req.worker, status_fn=lambda: {},
+                    notify_owner=delivered.append)
+                second = queue.create(od.TELEGRAM_TASK, "", "", "What changed?")
+                claimed = queue.claim("claude-ec2")
+                self.assertEqual(claimed["id"], second["id"])
+                handler = fake.routes[("POST", "/api/factory/owner-desk/worker/answer")]
+                result = handler(od.WorkerAnswerRequest(id=second["id"], outcome="answered",
+                                            answer="Ukrainian briefing " * 260), _Req(worker=True))
+                self.assertEqual(result["status"], "answered")
+                self.assertTrue(delivered and all("Claude" in part for part in delivered))
+                self.assertTrue(all(len(part) <= 4000 for part in delivered))
 
 
 if __name__ == "__main__":
