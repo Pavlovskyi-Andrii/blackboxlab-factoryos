@@ -47,7 +47,7 @@ jobs:
             const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 
             const response = await ai.models.generateContent({
-              model: "gemini-2.5-flash",
+              model: "gemini-3.8-flash",
               contents: `Ты AI-разработчик проекта blackboxlab-factoryos. 
               Ответь на запрос пользователя из GitHub Issue #${process.env.ISSUE_NUMBER}:
               "${process.env.USER_PROMPT}"`
