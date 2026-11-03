@@ -314,9 +314,9 @@ class RelayQueue:
                 now = utc_now()
                 attempts = int(execution.get("attempts") or 0)
                 item["execution"] = {
-                    "state": "queued", "owner": "claude", "queued_at": now,
+                    "state": "queued", "owner": execution.get("owner") or "claude", "queued_at": now,
                     "attempts": attempts, "last_seen_at": None,
-                    "note": "Ожидает работающего Claude worker",
+                    "note": "Ожидает исполнителя " + str(execution.get("owner") or "claude") + " (повторная очередь)",
                 }
                 item["status"] = "inbox"
                 item["updated_at"] = now
