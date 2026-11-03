@@ -297,5 +297,28 @@ class TestApi(unittest.TestCase):
         self.assertEqual(board["source"], "relay-events+heartbeat")
 
 
+class TestTeamBoardIssue138(unittest.TestCase):
+    def test_factual_state(self):
+        from team_board import project_team
+        board={"lanes":{"claude":{"state":"working","task_id":"T-1"},"chatgpt":{"state":"offline"}},
+               "tasks":[{"id":"T-1","title":"Real task","lane":"claude","kind":"roadmap","column":"in_progress"},
+                        {"id":"T-2","title":"Queued task","lane":"chatgpt","kind":"roadmap","column":"planned"}]}
+        issues={"available":True,"issues":[{"number":134,"title":"Gemini task","state":"open","body":"Owner: Gemini\n",
+                                               "url":"https://github.com/org/repo/issues/134"}]}
+        value=project_team(board,issues,{"T-1":123})
+        self.assertTrue(value["lanes"]["claude"]["online"])
+        self.assertFalse(value["lanes"]["chatgpt"]["online"])
+        self.assertFalse(value["lanes"]["gemini"]["online"])
+        self.assertEqual(value["lanes"]["gemini"]["counts"]["queued"],1)
+        self.assertEqual(value["lanes"]["claude"]["counts"]["in_progress"],1)
+        self.assertIn("#L123",value["lanes"]["claude"]["tasks"][0]["url"])
+        self.assertEqual(value["total"],3)
+
+    def test_owner_only_route_registered(self):
+        os.environ.setdefault("DATA_DIR",tempfile.mkdtemp(prefix="factoryos-team-"))
+        import app
+        self.assertIn("/api/factory/team-board",{getattr(r,"path","") for r in app.app.routes})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
