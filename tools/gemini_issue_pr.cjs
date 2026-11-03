@@ -98,7 +98,7 @@ async function generate() {
         return;
       } catch (e) {
         const code = Number(e.status || e.code || (String(e.message).match(/\b(400|403|404|429|500|502|503|504)\b/)||[])[1]);
-        lastError = e.name==='AbortError' ? 'Google timeout on '+model : 'Google model '+model+' HTTP '+(code||'error');
+        lastError = e.name==='AbortError' ? 'Google timeout on '+model : code ? 'Google model '+model+' HTTP '+code : 'Bad proposal from '+model+': '+String(e.message||e).replace(/AIza[\w-]+/g,'[redacted]').slice(0,160);
         console.log('attempt '+(attempt+1)+' on '+model+': '+lastError);
         if (![429,500,502,503,504].includes(code)) break;
         if (attempt<2) await sleep(20000*3**attempt + crypto.randomInt(0,3000));
