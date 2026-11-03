@@ -632,6 +632,7 @@
 .odStep.odAsking{outline:2px solid #5fd8ff;outline-offset:3px;border-radius:6px;scroll-margin-top:12px}
 .dcBody:has(.odStep.odAsking){padding-bottom:min(72dvh,580px)}
 .teamBoard{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}.teamCard{background:#101f30;border:1px solid #31506a;border-radius:12px;padding:12px;min-width:0}.teamCard summary{cursor:pointer;font-weight:750}.teamTask{border-top:1px solid #304861;padding:8px 0;font-size:12px;overflow-wrap:anywhere}.teamBar{height:5px;border-radius:4px;background:#244055;overflow:hidden}.teamBar i{display:block;height:100%;background:#55b7f0}@media(max-width:800px){.teamBoard{grid-template-columns:1fr}}
+.dcSyncHeader{margin:8px 15px 0;padding:11px;background:#101e2f;border:1px solid #2a4965;border-radius:10px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between}.dcSyncHeader.old{border-color:#9d7145;color:#ffdaa9}.dcSyncHeader button{min-height:36px}.dcSyncHeader details{flex-basis:100%}.dcSyncHeader summary{cursor:pointer}.dcSyncHeader .dcWait{font-size:12px;display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
 </style></head>
 <body><button class="mobileNavToggle" id="mobileNavToggle" aria-label="Open navigation" aria-controls="appSideNav" aria-expanded="false" onclick="toggleMobileNav()">☰</button><div class="navBackdrop" id="navBackdrop" onclick="closeMobileNav()"></div><div class="shell">
 <aside class="side" id="appSideNav">
@@ -802,7 +803,7 @@
 <div class="dcShade" id="dcShade" onclick="closeDelegationCenter()"></div>
 <section class="dcPage" id="dcPage">
   <div class="dcTop"><div><div class="helpHead"><h2 data-i18n="dc.title">Worker / Delegation Control Center</h2><span class="helpTipMount" data-help-tip="relay" data-help-term="dc.title"></span></div><p data-i18n="dc.sub">What ChatGPT/Planner delegated, what the Claude runner is doing now, and what is left.</p></div><button class="closeX" onclick="closeDelegationCenter()">×</button></div>
-  <div class="dcBody" id="dcBody"><div class="sub" style="padding:20px" data-i18n="dc.loading">Loading delegation board…</div></div>
+  <div id="dcSyncHeader" class="dcSyncHeader"></div><div class="dcBody" id="dcBody"><div class="sub" style="padding:20px" data-i18n="dc.loading">Loading delegation board…</div></div>
 </section>
 
 <div class="drawerShade" id="drawerShade" onclick="closeAgent()"></div>
@@ -3420,6 +3421,34 @@ function odOpenComposer(task,step,quote){let c=document.getElementById('odCompos
  c.querySelector('#odSend').onclick=async()=>{const q=ta.value.trim();if(!q){toast(tr('od.empty'));return}
   try{await api('/api/factory/owner-desk/questions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:task,step_id:step||'',quote:quote||'',question:q})});
    c.remove();odUnmark();toast(tr('od.sent'));const s=window.getSelection&&window.getSelection();if(s)s.removeAllRanges();await refreshDelegationCenter()}catch(e){toast(e.message)}}}
+
+function dcSyncCopy(){
+ return {en:{sync:'GitHub sync',unknown:'never verified',refresh:'Refresh now',pending:'Waiting owner',deferred:'Deferred',go:'Your tasks',unavailable:'GitHub unavailable'},
+         uk:{sync:'Синхронізація GitHub',unknown:'не перевірено',refresh:'Оновити зараз',pending:'Очікує власника',deferred:'Відкладено',go:'Ваші задачі',unavailable:'GitHub недоступний'},
+         ru:{sync:'Синхронизация GitHub',unknown:'не проверено',refresh:'Обновить сейчас',pending:'Ждут владельца',deferred:'Отложено',go:'Ваши задачи',unavailable:'GitHub недоступен'}}[LANG]||{sync:'GitHub sync',unknown:'unknown',refresh:'Refresh now',pending:'Waiting owner',deferred:'Deferred',go:'Your tasks',unavailable:'GitHub unavailable'};
+}
+function dcSyncRender(data){
+ const root=$('#dcSyncHeader');if(!root)return;
+ const t=dcSyncCopy(),ts=data.synced_at||'',age=ts?Date.now()-Date.parse(ts):Infinity;
+ root.classList.toggle('old',age>86400000||!Number.isFinite(age));
+ const group=(title,items)=>'<details><summary>'+esc(title)+' · '+(items||[]).length+'</summary><div class="dcWait">'+(items||[]).map(x=>
+  '<span>'+esc(x.id+' · '+x.title)+'</span>').join(' · ')+'</div></details>';
+ root.innerHTML='<span>'+esc(t.sync)+': '+esc(ts?ts.slice(0,19).replace('T',' ')+' UTC':t.unknown)+
+    (!data.github_available?' · '+esc(t.unavailable):'')+'</span>'+
+    '<button type="button" class="btn" onclick="dcSyncNow()">'+esc(t.refresh)+'</button>'+
+    '<button type="button" class="btn" onclick="document.querySelector(\'.odDesk\')?.scrollIntoView({block:\'start\',behavior:\'smooth\'})">'+esc(t.go)+'</button>'+
+    group(t.pending,data.waiting_owner)+group(t.deferred,data.deferred_owner);
+}
+async function dcSyncStatus(){
+ try{dcSyncRender(await api('/api/factory/delegation-sync'))}
+ catch(e){const el=$('#dcSyncHeader');if(el){el.classList.add('old');el.textContent='GitHub sync: unavailable'}}
+}
+async function dcSyncNow(){
+ try{const result=await api('/api/factory/delegation-sync/refresh',{method:'POST'});
+  dcSyncRender(result);await refreshDelegationCenter()}
+ catch(e){toast(e.message)}
+}
+
 function dcRender(){if(odBusy())return;const body=$('#dcBody');if(body&&dcLastBoard)body.innerHTML=(odLast?renderOwnerDesk(odLast):'')+(woLast?renderWorkerOverview(woLast):'')+(roBoard?renderRoleOperators(roBoard):'')+(lbWorkersBoard?renderLaneBoard(lbWorkersBoard):'')+renderDelegationCenter(dcLastBoard,{showDone:dcShowDone,open:dcOpenGroups,selected:dcSelected})}
 function dcSelectTask(id){dcSelected=id||'';dcRender()}
 function dcRememberToggle(el){if(el&&el.dataset.group)dcOpenGroups[el.dataset.group]=el.open}
@@ -3431,6 +3460,7 @@ async function dcControl(action,taskId){
 }
 function toggleDelegationDone(){dcShowDone=!dcShowDone;dcRender()}
 async function refreshDelegationCenter(){
+ dcSyncStatus();
  try{const [board,lanes,overview,desk,roles]=await Promise.all([api('/api/factory/delegation-board'),loadLaneBoard(),loadWorkerOverview(),api('/api/factory/owner-desk?lang='+encodeURIComponent(LANG)).catch(()=>null),loadRoleBoard()]);dcLastBoard=board;lbWorkersBoard=lanes;woLast=overview;odLast=desk;roBoard=roles;roSig=JSON.stringify(roles);dcRender()}
  catch(e){const body=$('#dcBody');if(body)body.innerHTML='<div class="finding critical"><strong>'+esc(tr('dc.loadFailed'))+'</strong><span>'+esc(e.message)+'</span></div>'}
 }
