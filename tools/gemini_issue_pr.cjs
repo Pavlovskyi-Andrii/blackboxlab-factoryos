@@ -117,7 +117,7 @@ async function publish() {
       const existing=await github('/repos/'+owner+'/'+repo+'/contents/'+file.path+'?ref='+base.object.sha);
       sha=existing.sha;
       if (existing.encoding!=='base64') throw Error('Unsupported source encoding: '+file.path);
-      existingContent=Buffer.from(existing.content.replace(/\\s/g,''),'base64').toString('utf8');
+      existingContent=Buffer.from(existing.content.replace(/\s/g,''),'base64').toString('utf8');
     } catch(e) { if(!e.message.includes('HTTP 404')) throw e; }
     let newContent;
     if (sha) {
