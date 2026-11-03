@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Gemini Issue -> PR. No shell execution of model output. Node 20+, no dependencies.
+// Gemini Issue -> PR. No shell execution of model output. Node 20+, @google/genai in generate job.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -34,11 +34,15 @@ async function generate() {
   const issue = await github('/repos/'+owner+'/'+repo+'/issues/'+issueNumber);
   if (!issue.body?.startsWith('Owner: Gemini')) throw Error('Issue must begin Owner: Gemini');
   if (!issue.labels?.some(l=>l.name==='gemini')) throw Error('Issue needs gemini label');
-  const permitted = (process.env.GEMINI_FREE_MODELS || 'gemini-3.8-flash,gemini-3.8-flash-lite').split(',').map(s=>s.trim()).filter(Boolean);
-  const list = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {headers:{'x-goog-api-key':process.env.GEMINI_API_KEY}});
-  if (!list.ok) throw Error('Google model discovery HTTP '+list.status);
-  const modelData = await list.json();
-  const available = new Set((modelData.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace(/^models\//,'')));
+  const { GoogleGenAI } = require('@google/genai');
+  const ai = new GoogleGenAI({apiKey:process.env.GEMINI_API_KEY});
+  const permitted = (process.env.GEMINI_FREE_MODELS || 'gemini-2.5-flash,gemini-2.5-flash-lite').split(',').map(s=>s.trim()).filter(Boolean);
+  const available = new Set();
+  for await (const m of await ai.models.list()) {
+    const methods = m.supportedGenerationMethods || m.supportedActions || [];
+    if (methods.includes('generateContent')) available.add(m.name.replace(/^models\//,''));
+  }
+  console.log('Gemini discovery: '+available.size+' generateContent models, '+permitted.filter(m=>available.has(m)).length+' permitted');
   const models = permitted.filter(m=>available.has(m));
   if (!models.length) throw Error('No configured, accessible Gemini models; check GEMINI_FREE_MODELS and billing eligibility');
   const named = new Set();
@@ -75,25 +79,23 @@ async function generate() {
       const controller = new AbortController();
       const timeout = setTimeout(()=>controller.abort(), 55000);
       try {
-        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{
-          method:'POST', headers:{'Content-Type':'application/json','x-goog-api-key':process.env.GEMINI_API_KEY}, signal:controller.signal,
-          body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',maxOutputTokens:8192,temperature:0.2}})
+        const result = await ai.models.generateContent({
+          model,
+          contents:prompt,
+          config:{responseMimeType:'application/json',maxOutputTokens:8192,temperature:0.2,abortSignal:controller.signal}
         });
-        if ([429,500,502,503,504].includes(res.status)) {
-          lastError='Google HTTP '+res.status+' on '+model;
-          if (attempt<2) { await sleep(1200*2**attempt + crypto.randomInt(0,500)); continue; }
-          break;
-        }
-        if (!res.ok) { lastError='Google HTTP '+res.status+' on '+model; break; }
-        const data=await res.json();
-        const raw=(data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
-        const payload=JSON.parse(raw);
+        const payload=JSON.parse(result.text || '');
         validate(payload);
         for (const edit of payload.files) if (!contextFiles.includes(edit.path) && !('content' in edit)) throw Error('Missing source context: '+edit.path);
         fs.writeFileSync(outFile,JSON.stringify({issue:issueNumber,model,contextFiles,files:payload.files}),{mode:0o600});
         console.log('Validated proposal for issue #'+issueNumber+' ('+payload.files.length+' files)');
         return;
-      } catch (e) { lastError=e.name==='AbortError'?'Google timeout':e.message; if(attempt<2) await sleep(1200*2**attempt); }
+      } catch (e) {
+        const code = Number(e.status || e.code || (String(e.message).match(/\\b(404|429|500|502|503|504)\\b/)||[])[1]);
+        lastError = e.name==='AbortError' ? 'Google timeout' : 'Google model '+model+' HTTP '+(code||'error');
+        if (code===404 || code===400 || code===403) break;
+        if (attempt<2) await sleep(1200*2**attempt);
+      }
       finally {clearTimeout(timeout);}
     }
   }
