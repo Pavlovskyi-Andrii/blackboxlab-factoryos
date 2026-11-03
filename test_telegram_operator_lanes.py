@@ -75,7 +75,27 @@ def callback(data, chat=CHAT):
                                                "message": {"chat": {"id": int(chat), "type": "private"}}}}
 
 
+def workers_overview_checks():
+    """#135: /workers row per executor — working / idle / stale / no data, RU/UK/EN, nothing invented."""
+    from relay import _t585_overview_text
+    lanes = {
+        "claude": {"availability": "online", "heartbeat": {"age_seconds": 75}, "open_ticket": {"id": "T-610", "stage": "running"},
+                   "open_tickets": [{"id": "T-610"}], "queue_depth": 3},
+        "chatgpt": {"availability": "online", "heartbeat": {"age_seconds": 5}, "open_tickets": [], "queue_depth": 0},
+        "gemini": {"availability": "stale", "heartbeat": {"age_seconds": 7200}, "open_tickets": []},
+    }
+    ru = _t585_overview_text(lanes, "ru").splitlines()
+    require(ru[1] == "🟠 Claude: 🟢 онлайн · работает над T-610 (running) · сигнал 1 мин назад · в работе 1 · в очереди 3", f"working: {ru}")
+    require(ru[2] == "🟢 ChatGPT: 🟢 онлайн · простаивает · сигнал 5 сек назад · в работе 0 · в очереди 0", f"idle: {ru}")
+    require(ru[3] == "🔵 Gemini: 🟡 сигнал просрочен · сигнал 2 ч назад · в работе 0 · очередь неизвестна", f"stale: {ru}")
+    empty = _t585_overview_text({}, "en").splitlines()
+    require(empty[0] == "🧠 FactoryOS workers" and all(row.endswith("⚪ unknown · no signal yet") for row in empty[1:]), f"no data: {empty}")
+    uk = _t585_overview_text(lanes, "uk")
+    require("працює над T-610" in uk and "простоює" in uk and "2 год тому" in uk, f"uk: {uk}")
+
+
 def pure_checks():
+    workers_overview_checks()
     tmp = tempfile.TemporaryDirectory()
     store = RelayStore(Path(tmp.name) / "relay.json")
     queue = RelayQueue(store)
@@ -126,10 +146,11 @@ def pure_checks():
     # Workers overview lists both lanes with status and open-ticket counts.
     r = run(callback("relay:overview:workers"))
     text = bot.sent()[-1]["text"]
-    require(r["action"] == "workers" and "🟠 Claude: 🟢 online · тикет R-0001 · running · открытых: 2" in text
-            and "🔵 Gemini: ⛔ не настроен" in text, f"workers overview: {text}")
+    require(r["action"] == "workers" and "🟠 Claude: 🟢 онлайн · работает над R-0001 (running) · сигнал" in text
+            and "в работе 2 · в очереди 2" in text and "🔵 Gemini: ⚪ неизвестно · сигнала нет" in text
+            and "🟢 ChatGPT:" in text, f"workers overview: {text}")
     run({"update_id": 3, "message": {"chat": {"id": int(CHAT), "type": "private"}, "text": "/operators", "message_id": 3}})
-    require("🔵 Gemini: ⛔ не настроен" in bot.sent()[-1]["text"], "/operators uses the same lanes")
+    require("🔵 Gemini: ⚪ неизвестно" in bot.sent()[-1]["text"], "/operators uses the same lanes")
 
     # Ticket button opens the normal ticket card with the existing Relay controls.
     r = run(callback("relay:ticket:R-0001"))
