@@ -191,11 +191,48 @@ def test_pcm_to_mp3():
     assert len(mp3) > 100 and (mp3[:3] == b"ID3" or mp3[0] == 0xFF)
 
 
+def test_voice_settings_and_brief():
+    from voice_agent import VoiceSettings, VoiceHistory, install_voice_routes
+    root=Path(tempfile.mkdtemp())
+    settings=VoiceSettings(root/"settings.json")
+    assert settings.read()["voice_a"]=="Charon"
+    assert settings.update({"voice_a":"Puck"})["voice_a"]=="Puck"
+    try:settings.update({"model":"gemini-payg-unknown"})
+    except ValueError:pass
+    else:raise AssertionError("unsupported model must fail closed")
+    history=VoiceHistory(root/"history.json")
+    app=_App()
+    app.get=app.post
+    log=mycast.DeliveryLog(root/"sent.json")
+    sent=[]
+    def tts(key,episode,model="",voices=()):
+        assert voices[0]=="Puck" and key=="KEY"
+        return b"\x00\x00"*24000,24000
+    install_voice_routes(app,settings,history,log,authorize_worker=lambda req:req.worker,
+                         identity_fn=lambda req:{"role":"owner"} if req.worker else {"role":"viewer"},
+                         api_key=lambda:"KEY",paired=lambda:True,send_audio=lambda *args:sent.append(args),
+                         tts=tts,encode=lambda p,r:b"MP3")
+    class Req(_Req):
+        def __init__(self,worker,body):
+            super().__init__(worker);self.body=body
+        async def json(self):return self.body
+    route=app.routes["/api/factory/voice/worker/brief-deliver"]
+    args={"date":"2026-11-03","text":"Короткий утренний брифинг"}
+    assert asyncio.run(route(Req(True,args)))["sent"]
+    assert asyncio.run(route(Req(True,args)))["duplicate"]
+    assert history.list()[0]["kind"]=="brief"
+    assert len(sent)==1
+    try:asyncio.run(route(Req(False,args)))
+    except HTTPException as exc:assert exc.status_code==401
+    else:raise AssertionError("worker token required")
+
+
 def main():
     test_send_audio_multipart()
     test_route()
     test_gemini_tts()
     test_voice_route()
+    test_voice_settings_and_brief()
     test_pcm_to_mp3()
     print("MyCast delivery tests passed")
 
