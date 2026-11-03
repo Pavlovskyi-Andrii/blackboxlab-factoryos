@@ -33,6 +33,7 @@ from worker_observability import build_worker_overview, sanitize_supervisor, san
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import QuestionStore, install_owner_desk_routes
 from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio
+from voice_agent import VoiceSettings, VoiceHistory, install_voice_routes
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
@@ -668,15 +669,24 @@ def _mycast_send_audio(audio, filename, title, caption):
                         filename=filename, title=title, caption=caption)
 
 MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
+VOICE_SETTINGS=VoiceSettings(DATA_DIR/"voice_settings.json",
+    default_a=os.environ.get("FACTORY_MYCAST_VOICE_A","Charon").strip(),
+    default_b=os.environ.get("FACTORY_MYCAST_VOICE_B","Kore").strip(),
+    default_model=os.environ.get("FACTORY_MYCAST_TTS_MODEL","").strip())
+VOICE_HISTORY=VoiceHistory(DATA_DIR/"voice_history.json")
 _mycast_paired = lambda: bool(FACTORY_TELEGRAM_BOT_TOKEN and _telegram_public_status().get("paired"))
 install_mycast_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
-                      send_audio=_mycast_send_audio, paired=_mycast_paired)
+                      send_audio=_mycast_send_audio, paired=_mycast_paired, history=VOICE_HISTORY)
 # Natural two-host voice with the owner's Gemini key; the worker falls back to Piper when this returns 409/502.
 install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
                             send_audio=_mycast_send_audio, paired=_mycast_paired, api_key=lambda: FACTORY_GEMINI_API_KEY,
                             model=os.environ.get("FACTORY_MYCAST_TTS_MODEL", "").strip(),
                             voices=(os.environ.get("FACTORY_MYCAST_VOICE_A", "Charon").strip() or "Charon",
-                                    os.environ.get("FACTORY_MYCAST_VOICE_B", "Kore").strip() or "Kore"))
+                                    os.environ.get("FACTORY_MYCAST_VOICE_B", "Kore").strip() or "Kore"),
+                            settings=VOICE_SETTINGS.read, history=VOICE_HISTORY)
+install_voice_routes(app,VOICE_SETTINGS,VOICE_HISTORY,MYCAST_DELIVERIES,
+                     authorize_worker=_claude_worker_authorized,identity_fn=request_identity,
+                     api_key=lambda:FACTORY_GEMINI_API_KEY,paired=_mycast_paired,send_audio=_mycast_send_audio)
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
@@ -696,7 +706,7 @@ async def auth_middleware(request: Request, call_next):
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
-    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/")) and _claude_worker_authorized(request)
+    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/")) and _claude_worker_authorized(request)
     if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
