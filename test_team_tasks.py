@@ -103,6 +103,37 @@ class TeamTasksTest(unittest.TestCase):
         c.get(lambda: n.append(1) or {"v": len(n)}, refresh=True)
         self.assertEqual(len(n), 2)
 
+    def test_compact_snapshot(self):
+        from team_tasks import compact_github, valid_snapshot
+        g = {"available": True, "issues": [dict(issue(1, "ChatGPT"), body="Owner: ChatGPT\nsecret long text")],
+             "pulls": [pr(2, "chatgpt/x", body="Long description. Closes #1 and more")], "ci": {"sha2": {"state": "passed", "failed": ""}}}
+        c = compact_github(g)
+        self.assertEqual(c["issues"][0]["body"], "Owner: ChatGPT")
+        self.assertEqual(c["pulls"][0]["body"], "Refs #1")
+        self.assertTrue(valid_snapshot(c))
+        self.assertFalse(valid_snapshot({"available": True, "issues": "x", "pulls": [], "ci": {}}))
+        b = build_team_tasks(c, roadmap=[], now=NOW)
+        self.assertEqual(b["agents"]["chatgpt"]["tasks"][0]["status"], "review")
+
+    def test_ec2_snapshot_fallback_through_app(self):
+        import json
+        from unittest.mock import patch
+        os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-team-tasks-"))
+        import app
+        from test_worker_token_binding import asgi_post
+        body = json.dumps({"available": True, "issues": [issue(5, "Gemini")], "pulls": [], "ci": {}}).encode()
+        with patch.object(app, "FACTORY_PASSWORD", "set-so-auth-is-enforced"), \
+             patch.object(app, "FACTORY_CLAUDE_WORKER_TOKEN", "worker-token"), \
+             patch.object(app, "read_github", lambda fetch: {"available": False, "error": "HTTP 403", "issues": [], "pulls": [], "ci": {}}):
+            self.assertEqual(asgi_post("/api/factory/team-tasks/worker/snapshot", None, body)[0], 401)
+            self.assertEqual(asgi_post("/api/factory/team-tasks/worker/snapshot", "worker-token", b'{"issues": 1}')[0], 400)
+            status, out = asgi_post("/api/factory/team-tasks/worker/snapshot", "worker-token", body)
+            self.assertEqual(status, 200, out)
+            board = app.get_team_tasks(refresh=True)
+            self.assertEqual(board["github_source"], "ec2")
+            self.assertTrue(board["github_available"])
+            self.assertEqual(board["agents"]["gemini"]["tasks"][0]["id"], "#5")
+
     def test_owner_only_route(self):
         os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-team-tasks-"))
         import app

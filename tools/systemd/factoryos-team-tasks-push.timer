@@ -1,0 +1,9 @@
+[Unit]
+Description=Push the team tasks GitHub snapshot every 3 minutes
+
+[Timer]
+OnCalendar=*:0/3
+Persistent=false
+
+[Install]
+WantedBy=timers.target
