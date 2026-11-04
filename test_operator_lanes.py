@@ -107,6 +107,20 @@ def pure_checks():
     idle = by_id(build_operator_lanes(runners={"gemini": {"last_seen": NOW - 5, "status": "idle", "task_id": "T-589"}}, now=NOW))["gemini"]
     require(idle["open_ticket"] is None, "an idle heartbeat does not claim an open ticket")
 
+    # Heartbeat time boundary checks: TTL, TTL+1, offline_after, offline_after+1
+    ttl, off = 45, 3600
+    at_ttl = by_id(build_operator_lanes(runners={"gemini": {"last_seen": NOW - ttl}}, runner_ttl=ttl, offline_after=off, now=NOW))["gemini"]
+    require(at_ttl["availability"] == "online", f"age == TTL ({ttl}) must be online, got {at_ttl['availability']}")
+
+    ttl_plus_1 = by_id(build_operator_lanes(runners={"gemini": {"last_seen": NOW - (ttl + 1)}}, runner_ttl=ttl, offline_after=off, now=NOW))["gemini"]
+    require(ttl_plus_1["availability"] == "stale", f"age == TTL + 1 ({ttl + 1}) must be stale, got {ttl_plus_1['availability']}")
+
+    at_off = by_id(build_operator_lanes(runners={"gemini": {"last_seen": NOW - off}}, runner_ttl=ttl, offline_after=off, now=NOW))["gemini"]
+    require(at_off["availability"] == "stale", f"age == offline_after ({off}) must be stale, got {at_off['availability']}")
+
+    off_plus_1 = by_id(build_operator_lanes(runners={"gemini": {"last_seen": NOW - (off + 1)}}, runner_ttl=ttl, offline_after=off, now=NOW))["gemini"]
+    require(off_plus_1["availability"] == "offline", f"age == offline_after + 1 ({off + 1}) must be offline, got {off_plus_1['availability']}")
+
 
 def api_checks():
     real_identity = app.request_identity
