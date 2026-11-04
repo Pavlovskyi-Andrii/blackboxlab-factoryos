@@ -35,18 +35,42 @@ def create_pairing(path: Path) -> dict:
     return {"token": token, "created_at": timestamp}
 
 
-def valid_pairing(path: Path, token: str) -> bool:
+def valid_pairing(path: Path, token: str, max_age_seconds: float = 300.0) -> bool:
     if not isinstance(token, str) or len(token) < 40:
         return False
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    digest = str(data.get("digest") or "") if isinstance(data, dict) else ""
+    if not isinstance(data, dict):
+        return False
+    digest = str(data.get("digest") or "")
     if len(digest) != 64:
         return False
+
+    created_at_str = data.get("created_at")
+    if not created_at_str:
+        return False
+    try:
+        created_at = datetime.fromisoformat(str(created_at_str))
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        age = (now - created_at).total_seconds()
+        if age < 0 or age > max_age_seconds:
+            return False
+    except (ValueError, TypeError):
+        return False
+
     candidate = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    return hmac.compare_digest(candidate, digest)
+    if not hmac.compare_digest(candidate, digest):
+        return False
+
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return True
 
 
 def pairing_status(path: Path) -> dict:
