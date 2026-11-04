@@ -181,6 +181,20 @@ def test_voice_route():
     assert call()[1]["duplicate"] is True and len(sent) == 1
 
 
+def test_delivery_log():
+    tmp_path = Path(tempfile.mkdtemp()) / "log.json"
+    log = mycast.DeliveryLog(tmp_path)
+    assert log.claim("mycast-2026-11-03") is True
+    assert log.claim("mycast-2026-11-03") is False
+
+    log.release("mycast-2026-11-03")
+    assert log.claim("mycast-2026-11-03") is True
+
+    log_restarted = mycast.DeliveryLog(tmp_path)
+    assert log_restarted.claim("mycast-2026-11-03") is False
+    assert "mycast-2026-11-03" in log_restarted.delivered()
+
+
 def test_pcm_to_mp3():
     try:
         import lameenc  # noqa: F401
@@ -192,6 +206,7 @@ def test_pcm_to_mp3():
 
 
 def main():
+    test_delivery_log()
     test_send_audio_multipart()
     test_route()
     test_gemini_tts()
