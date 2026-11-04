@@ -33,8 +33,9 @@ def project_team(board, issues=None, lines=None, repo="Pavlovskyi-Andrii/blackbo
             lane=m.group(1).lower();number=str(issue.get("number") or "")
             # Issue is already represented by its Relay ticket when matching source number.
             if "#"+number in present or not number:continue
+            status="done" if issue.get("state")=="closed" else "queued"
             grouped[lane].append({"id":"#"+number,"title":str(issue.get("title") or "")[:160],
-                                  "status":"queued","progress":0,"url":str(issue.get("url") or ""),
+                                  "status":status,"progress":STAGES[status],"url":str(issue.get("url") or ""),
                                   "origin":"GitHub (assigned, not claimed)"})
     lanes={}
     for lane in LANES:
