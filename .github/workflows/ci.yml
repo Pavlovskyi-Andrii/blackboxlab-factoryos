@@ -120,6 +120,12 @@ jobs:
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
         run: python test_worker_token_binding.py
+      - name: Team tasks page regression
+        env:
+          DATA_DIR: /tmp/factoryos-team-tasks-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: python test_team_tasks.py
       - name: Browser Action Runner policy regression
         run: python test_browser_runner.py
       - name: Browser session isolation regression
