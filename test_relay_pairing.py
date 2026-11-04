@@ -27,10 +27,20 @@ class TestRelayPairing(unittest.TestCase):
         self.assertNotIn(token, stored)
         self.assertEqual(len(json.loads(stored)["digest"]), 64)
         self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
-        self.assertTrue(valid_pairing(self.path, token))
-        self.assertFalse(valid_pairing(self.path, token[:-1] + ("x" if token[-1] != "x" else "y")))
         self.assertTrue(pairing_status(self.path)["configured"])
         self.assertNotIn("token", pairing_status(self.path))
+        bad_token = token[:-1] + ("x" if token[-1] != "x" else "y")
+        self.assertFalse(valid_pairing(self.path, bad_token))
+        self.assertTrue(valid_pairing(self.path, token))
+        self.assertFalse(valid_pairing(self.path, token))
+
+    def test_expired_pairing_fails(self):
+        created = create_pairing(self.path)
+        token = created["token"]
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        data["created_at"] = "2000-01-01T00:00:00+00:00"
+        self.path.write_text(json.dumps(data) + "\n", encoding="utf-8")
+        self.assertFalse(valid_pairing(self.path, token))
 
     def test_rotation_invalidates_previous(self):
         old = create_pairing(self.path)["token"]
