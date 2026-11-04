@@ -696,7 +696,35 @@
 <a href="https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/187" target="_blank" rel="noopener noreferrer">#187 · AI Decision Memory · status unknown</a>
 <a href="https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/188" target="_blank" rel="noopener noreferrer">#188 · MyBrief · status unknown</a>
 <a href="https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/189" target="_blank" rel="noopener noreferrer">#189 · Release Guardian · status unknown</a>
-</div></section>
+</div><script>
+/* MVP Factory: read-only GitHub public issue state. Never infer worker activity from issue state. */
+(function(){
+  const target=document.getElementById('mvpFactoryLive');
+  if(!target)return;
+  const repo='Pavlovskyi-Andrii/blackboxlab-factoryos';
+  const issues=[187,188,189];
+  const titles={187:'AI Decision Memory',188:'MyBrief for professionals',189:'AI Release Guardian'};
+  Promise.all(issues.map(async n=>{
+    try{
+      const response=await fetch('https://api.github.com/repos/'+repo+'/issues/'+n,{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});
+      if(!response.ok)throw Error('HTTP '+response.status);
+      const issue=await response.json();
+      return {n,state:issue.state==='closed'?'Issue closed':'Issue open',url:issue.html_url||'https://github.com/'+repo+'/issues/'+n};
+    }catch(_){return {n,state:'GitHub status unavailable',url:'https://github.com/'+repo+'/issues/'+n};}
+  })).then(rows=>{
+    target.replaceChildren();
+    rows.forEach(row=>{
+      const a=document.createElement('a');
+      a.href=row.url;a.target='_blank';a.rel='noopener noreferrer';
+      a.style.cssText='display:block;border:1px solid #2b4663;background:#11243a;padding:12px;border-radius:10px;color:#9bdcff;text-decoration:none';
+      const title=document.createElement('strong');title.textContent='#'+row.n+' · '+titles[row.n];
+      const state=document.createElement('div');state.style.cssText='color:#a7bad0;font-size:12px;margin-top:7px';
+      state.textContent=row.state+' · Worker execution not verified';
+      a.append(title,state);target.append(a);
+    });
+  });
+})();
+</script></section>
 </main></div>
 
 <div class="modal" id="modal"><div class="dialog"><h2 data-i18n="new.title">Create content job</h2><p data-i18n="new.sub">One idea becomes one production job. FactoryOS guides it through every stage.</p><input id="title" data-i18n-placeholder="new.topic" placeholder="Topic / working title"><textarea id="brief" data-i18n-placeholder="new.brief" placeholder="What should the video explain, prove or test?"></textarea><div class="formRow"><select id="presenter"><option>AI presenter</option><option>Digital twin</option><option>Faceless</option><option>Mixed</option></select><select id="format"><option>Long + Shorts</option><option>Short only</option><option>Long video</option></select></div><div class="formRow"><input id="language" value="English"><input id="outputs" type="number" value="8" min="1"></div><div class="dialogActions"><button class="btn" onclick="closeNew()" data-i18n="action.cancel">Cancel</button> <button class="btn primary" onclick="createJob()" data-i18n="new.create">Create Job</button></div></div></div>
