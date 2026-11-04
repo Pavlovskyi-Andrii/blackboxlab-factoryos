@@ -1,8 +1,7 @@
 name: Gemini Issue to PR
 
 on:
-  issues:
-    types: [labeled]
+  # Label events no longer start Actions: the EC2 loop (every 5 min) picks labeled issues. Manual runs only.
   # The 5-minute loop runs on EC2 (tools/gemini_ec2_loop.sh): Actions minutes are limited on a private repo.
   workflow_dispatch:
 
