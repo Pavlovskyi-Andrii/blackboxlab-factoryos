@@ -185,11 +185,15 @@ def check_mock_flows(mocks):
 
 
 def check_state_and_callback_errors(mocks):
-    _, _, q = authorize("youtube")
+    _, _, q1 = authorize("youtube")
+    _, _, q2 = authorize("youtube")
+    require(q1["state"] != q2["state"], "two authorize calls yield different state values")
+
     cases = [
-        ("tiktok", f"state={q['state']}&code=c", "state_provider_mismatch"),
-        ("youtube", f"state={q['state']}&code=c", "state_invalid"),  # burned by the mismatch above
+        ("tiktok", f"state={q1['state']}&code=c", "state_provider_mismatch"),
+        ("youtube", f"state={q1['state']}&code=c", "state_invalid"),  # burned by the mismatch above (repeated state)
         ("youtube", "code=c", "state_missing"),
+        ("youtube", "state=&code=c", "state_missing"),
         ("youtube", "state=forged-state&code=c", "state_invalid"),
     ]
     _, _, q2 = authorize("youtube")
@@ -219,6 +223,8 @@ def check_state_and_callback_errors(mocks):
     st = parse_qs(urlsplit(flow.start("youtube", "default", "owner|a")["authorize_url"]).query)["state"][0]
     expect_code(lambda: flow.complete("youtube", {"state": st, "code": "c"}, "owner|b"), "state_subject_mismatch")
     expect_code(lambda: flow.complete("youtube", {"state": st, "code": "c"}, "owner|a"), "state_invalid")
+    expect_code(lambda: flow.complete("youtube", {"state": "", "code": "c"}, "owner|a"), "state_missing")
+    expect_code(lambda: flow.complete("youtube", {"state": "foreign-state", "code": "c"}, "owner|a"), "state_invalid")
     for _ in range(oauth.MAX_PENDING_STATES + 25):
         flow.start("youtube", "default", "owner|a")
     require(flow.states.pending() <= oauth.MAX_PENDING_STATES, "pending state store is bounded")
