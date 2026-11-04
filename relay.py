@@ -505,6 +505,81 @@ _WORKERS_TEXT = {
            "no_beat": "no signal yet", "active": "active", "queue": "queued", "q_unknown": "queue unknown",
            "s": "s", "m": "min", "h": "h", "d": "d"},
 }
+
+_HELP_TEXTS = {
+    "ru": (
+        "🤖 Команды FactoryOS Relay:\n\n"
+        "/help — Справка по всем командам бота\n"
+        "/start — Запуск бота и просмотр справки\n"
+        "/pair — Сопряжение Telegram-чата\n"
+        "/status — Статус бота, очереди и воркеров\n"
+        "/tasks — Список активных задач\n"
+        "/relay — Обзор Relay и активных задач\n"
+        "/roadmap — Дорожная карта и задачи\n"
+        "/task — Карточка задачи по ID (напр. /task R-0001)\n"
+        "/history — История событий и действий\n"
+        "/github — Статус репозитория GitHub и CI\n"
+        "/issue — Передать GitHub Issue в очередь (напр. /issue 41)\n"
+        "/battles — Список и статус Battle Runs\n"
+        "/battle — Просмотр конкретного Battle Run\n"
+        "/workers — Статус воркеров и операторов\n"
+        "/operators — Состояние линий операторов\n"
+        "/new — Создать новую задачу (напр. /new Текст)\n"
+        "/work — Перевести задачу в работу (напр. /work R-0001)\n"
+        "/done — Завершить задачу (напр. /done R-0001)\n"
+        "/need — Пометить задачу как требующую внимания (напр. /need R-0001)\n"
+        "/inbox — Вернуть задачу в inbox (напр. /inbox R-0001)"
+    ),
+    "uk": (
+        "🤖 Команди FactoryOS Relay:\n\n"
+        "/help — Довідка з усіх команд бота\n"
+        "/start — Запуск бота та перегляд довідки\n"
+        "/pair — Прив'язка Telegram-чату за кодом\n"
+        "/status — Статус бота, черги та воркерів\n"
+        "/tasks — Список активних завдань\n"
+        "/relay — Огляд Relay та активних завдань\n"
+        "/roadmap — Дорожня карта та завдання\n"
+        "/task — Картка завдання за ID (напр. /task R-0001)\n"
+        "/history — Історія подій та дій\n"
+        "/github — Статус репозиторію GitHub та CI\n"
+        "/issue — Передати GitHub Issue у чергу (напр. /issue 41)\n"
+        "/battles — Список та статус Battle Runs\n"
+        "/battle — Перегляд конкретного Battle Run\n"
+        "/workers — Статус воркерів та операторів\n"
+        "/operators — Стан ліній операторів\n"
+        "/new — Створити нове завдання (напр. /new Текст)\n"
+        "/work — Взяти завдання в роботу (напр. /work R-0001)\n"
+        "/done — Завершити завдання (напр. /done R-0001)\n"
+        "/need — Позначити завдання як таке, що потребує уваги (напр. /need R-0001)\n"
+        "/inbox — Повернути завдання в inbox (напр. /inbox R-0001)"
+    ),
+    "en": (
+        "🤖 FactoryOS Relay Commands:\n\n"
+        "/help — Show help and command list\n"
+        "/start — Start bot and show command list\n"
+        "/pair — Pair Telegram chat using pairing code\n"
+        "/status — Bot, queue, and worker status\n"
+        "/tasks — List active tasks\n"
+        "/relay — Overview of Relay and active tasks\n"
+        "/roadmap — View roadmap and task list\n"
+        "/task — View task details by ID (e.g. /task R-0001)\n"
+        "/history — History of Relay and GitHub events\n"
+        "/github — GitHub repository and CI status\n"
+        "/issue — Queue open GitHub Issue (e.g. /issue 41)\n"
+        "/battles — List and view Battle Runs\n"
+        "/battle — View specific Battle Run\n"
+        "/workers — Status of workers and operators\n"
+        "/operators — Operator lanes status\n"
+        "/new — Create a new Relay task (e.g. /new Task text)\n"
+        "/work — Set task status to in progress (e.g. /work R-0001)\n"
+        "/done — Mark task as done (e.g. /done R-0001)\n"
+        "/need — Mark task as needing owner attention (e.g. /need R-0001)\n"
+        "/inbox — Move task back to inbox (e.g. /inbox R-0001)"
+    ),
+}
+
+def _help_text(lang: str = "ru") -> str:
+    return _HELP_TEXTS.get(lang) or _HELP_TEXTS["ru"]
 _WORKER_ROWS = (("claude", "🟠 Claude"), ("chatgpt", "🟢 ChatGPT"), ("gemini", "🔵 Gemini"))
 
 
@@ -1038,8 +1113,11 @@ def relay_handle_telegram_update(
     text = str(message.get("text") or message.get("caption") or "").strip()
     command = text.split(maxsplit=1)[0].lower() if text.startswith("/") else ""
     lang = telegram_lang((message.get("from") or {}).get("language_code"))
-    if command in ("/pair", "/start"):
+    if command == "/pair" or (command == "/start" and len(text.split()) > 1):
         return None
+    if command == "/help" or (command == "/start" and len(text.split()) == 1):
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _help_text(lang), "reply_markup": _relay_keyboard()})
+        return {"handled": True, "action": "help"}
     if command == "/status":
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_status_text(store, operator_status_provider, queue, lane_board_provider, lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "status"}
@@ -1139,7 +1217,7 @@ def relay_handle_telegram_update(
 
     explicit_new = command == "/new"
     if command and not explicit_new:
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": "Команды: /status /tasks /task R-0001 /history /github /issue 41 /battles /new ЗАДАЧА"})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _help_text(lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "help"}
     if explicit_new:
         parts = text.split(maxsplit=1)
