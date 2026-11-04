@@ -152,6 +152,12 @@ class TestEndToEndSlice(SliceBase):
         """Worker code talks to the real RelayQueue through an in-process bridge."""
         intake = self.update("/new Add lifecycle trace", 1000)
         tid = intake["ticket_id"]
+        # /new is deliberately unassigned until the owner chooses a worker.
+        assigned = relay_handle_telegram_update(
+            {"callback_query": {"id": "assign-lifecycle", "data": "relay:assign:" + tid + ":claude",
+                                "message": {"chat": {"id": 42, "type": "private"}}}},
+            self.store, lambda: {"chat_id": "42"}, self.tg, queue=self.queue)
+        self.assertEqual(assigned["action"], "assigned")
         posted = []
 
         def bridge(path, data, **kwargs):
