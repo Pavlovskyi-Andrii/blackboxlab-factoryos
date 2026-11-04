@@ -322,6 +322,12 @@ def check_sessions():
     require(factory._google_identity_role("alice@acme.test") == "member", "configured customers sign in as members")
     require(tenancy.parse_members("a@x.io=Acme, bad, c@x.io=../etc, d@x.io=ok_1") == {"a@x.io": "acme", "d@x.io": "ok_1"},
             "member map parsing normalizes keys and drops invalid entries")
+    for invalid_ws in ("../", "/", "", "a" * 205):
+        try:
+            tenancy.normalize_workspace(invalid_ws)
+            require(False, f"workspace key '{invalid_ws}' must be rejected")
+        except ValueError:
+            pass
 
 
 def main():
