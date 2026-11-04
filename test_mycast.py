@@ -181,6 +181,36 @@ def test_voice_route():
     assert call()[1]["duplicate"] is True and len(sent) == 1
 
 
+def test_episode_chunks():
+    assert mycast.episode_chunks([]) == []
+
+    def check_integrity(lines):
+        chunks = mycast.episode_chunks(lines)
+        flattened = [item for chunk in chunks for item in chunk]
+        assert flattened == lines
+
+    long_text = "a" * (mycast.CHUNK_CHARS + 500)
+    lines_long = [("A", long_text)]
+    assert mycast.episode_chunks(lines_long) == [[("A", long_text)]]
+    check_integrity(lines_long)
+
+    lines_mixed = [("A", "hello"), ("B", long_text), ("A", "world")]
+    check_integrity(lines_mixed)
+
+    line1 = ("A", "x" * 1000)
+    line2 = ("B", "y" * 400)
+    line3 = ("A", "z" * 1)
+    lines_boundary = [line1, line2, line3]
+    chunks = mycast.episode_chunks(lines_boundary)
+    assert chunks == [[line1, line2], [line3]]
+    check_integrity(lines_boundary)
+
+    exact_line = ("A", "k" * mycast.CHUNK_CHARS)
+    lines_exact = [exact_line, ("B", "next")]
+    assert mycast.episode_chunks(lines_exact) == [[exact_line], [("B", "next")]]
+    check_integrity(lines_exact)
+
+
 def test_pcm_to_mp3():
     try:
         import lameenc  # noqa: F401
@@ -197,6 +227,7 @@ def main():
     test_gemini_tts()
     test_voice_route()
     test_pcm_to_mp3()
+    test_episode_chunks()
     print("MyCast delivery tests passed")
 
 
