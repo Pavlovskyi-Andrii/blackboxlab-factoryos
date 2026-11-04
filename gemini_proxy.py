@@ -68,3 +68,43 @@ def install_gemini_worker_routes(app, *, authorize_worker: Callable[[Request], b
         data = await anyio.to_thread.run_sync(lambda: _call(key, "POST", f"models/{model}:generateContent", payload, opener, 400))
         text = "".join(str(p.get("text") or "") for p in (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []))
         return {"model": model, "text": text}
+
+
+# --- #122: owner "Check" button in Connections → free read-only models list, cached 10 minutes ---
+GEMINI_KEY_CHECK = {"status": "", "checked_at": None, "models": 0}
+_CHECK_TTL = 600
+
+
+def verify_gemini_key(api_key: str, opener: Callable | None = None) -> dict:
+    """verified | invalid_key | not_configured | unreachable. No key, key parts or Google text in the result."""
+    import time
+    from datetime import datetime, timezone
+    if not api_key:
+        return {"status": "not_configured", "checked_at": None, "models": 0}
+    req = urlrequest.Request(f"{GEMINI_API}/models?pageSize=200", headers={"x-goog-api-key": api_key})
+    try:
+        with (opener or urlrequest.urlopen)(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        status, models = "verified", len(data.get("models") or [])
+    except Exception as exc:
+        status, models = ("invalid_key" if getattr(exc, "code", 0) in (400, 401, 403) else "unreachable"), 0
+    return {"status": status, "checked_at": datetime.now(timezone.utc).isoformat(), "models": models, "_at": time.time()}
+
+
+def install_gemini_verify_route(app, *, request_identity: Callable, api_key: Callable[[], str],
+                                opener: Callable | None = None) -> None:
+    import time
+
+    @app.post("/api/factory/connections/gemini/verify")
+    def gemini_connection_verify(request: Request):
+        if (request_identity(request) or {}).get("role") != "owner":
+            raise HTTPException(status_code=403, detail="Owner access required")
+        key = api_key()
+        cached = GEMINI_KEY_CHECK
+        if key and cached.get("status") and time.time() - float(cached.get("_at") or 0) < _CHECK_TTL:
+            result = cached
+        else:
+            result = verify_gemini_key(key, opener)
+            GEMINI_KEY_CHECK.clear()
+            GEMINI_KEY_CHECK.update(result)
+        return {k: v for k, v in result.items() if not k.startswith("_")}
