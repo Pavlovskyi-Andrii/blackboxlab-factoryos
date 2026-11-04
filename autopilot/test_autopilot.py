@@ -258,6 +258,30 @@ def follow_main_regression():
         assert ap.sync_branch("autopilot/w") == "conflict"
         status = subprocess.run(["git", "status", "--porcelain"], cwd=worker, capture_output=True, text=True).stdout
         assert status.strip() == "", status
+        # 2026-11-04 outage: local branch ahead of its remote through a merge commit that resolved a conflict.
+        # Rebasing replayed the conflicting commit and stopped mid-rebase; sync must merge, never rebase.
+        git(worker, "reset", "--hard", "origin/autopilot/w")
+        git(seed, "checkout", "-b", "side", "HEAD~1")
+        (seed / "notes.txt").write_text("side\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "side notes")
+        git(seed, "checkout", "main")
+        (seed / "notes.txt").write_text("main\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "main notes")
+        subprocess.run(["git", "merge", "side"], cwd=seed, capture_output=True)
+        (seed / "notes.txt").write_text("both\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "resolve notes"); git(seed, "push", "origin", "main")
+        git(worker, "fetch", "origin", "main"); git(worker, "merge", "--no-edit", "origin/main")  # local only, not pushed
+        (seed / "other.txt").write_text("x\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "other"); git(seed, "push", "origin", "main:autopilot/w", "--force")
+        assert ap.sync_branch("autopilot/w") in ("", "code_updated")
+        assert not (worker / ".git" / "rebase-merge").exists()
+        assert (worker / "notes.txt").read_text(encoding="utf-8") == "both\n"
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=worker, capture_output=True, text=True).stdout
+        assert status.strip() == "", status
+        # A rebase left behind by older runner code is aborted before syncing.
+        (worker / ".git" / "rebase-merge").mkdir()
+        (worker / ".git" / "rebase-merge" / "head-name").write_text("refs/heads/autopilot/w\n", encoding="utf-8")
+        ap.sync_branch("autopilot/w")
     finally:
         ap.REPO, ap.BASE_BRANCH = saved
     print("Autopilot follow-main sync tests passed")
