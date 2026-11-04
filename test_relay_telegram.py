@@ -44,6 +44,32 @@ class TestRelayTelegram(unittest.TestCase):
         self.assertIn("ChatGPT: нет автоматической телеметрии", self.last_message())
         self.assertIn("heartbeat", self.last_message())
 
+    def test_tasks_done_24h_requires_recent_completion_event(self):
+        from datetime import datetime, timedelta, timezone
+        from relay import _team_ticket_counts
+        recent = datetime.now(timezone.utc).isoformat()
+        old = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        with self.store.lock:
+            data = self.store._load_unlocked()
+            for index, timestamp in enumerate((recent, old), start=2):
+                data["tickets"].append({
+                    "id": f"R-{index:04d}", "title": "Finished",
+                    "status": "done", "created_at": timestamp,
+                    "updated_at": timestamp,
+                    "execution": {"owner": "claude", "state": "done"},
+                    "history": [{"at": timestamp, "action": "status_changed",
+                                 "from_status": "in_progress", "to_status": "done"}],
+                })
+            data["tickets"].append({
+                "id": "R-0004", "title": "Unverified done",
+                "status": "done", "updated_at": recent,
+                "execution": {"owner": "claude", "state": "done"}, "history": [],
+            })
+            self.store._save_unlocked(data)
+        text = _team_ticket_counts(self.store)
+        self.assertIn("готово за 24 ч 1", text)
+        self.assertNotIn("готово за 24 ч 3", text)
+
     def test_tasks_include_github_and_executor(self):
         self.message("/tasks")
         message = self.last_message()
