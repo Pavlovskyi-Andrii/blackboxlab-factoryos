@@ -10,7 +10,7 @@ import json
 import os
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urlparse
@@ -821,6 +821,21 @@ def _legacy_lane_lines(provider: Optional[Callable[[], dict]]) -> list:
 
 def _team_ticket_counts(store: RelayStore) -> str:
     tasks = store.list(limit=500)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    def finished_last_day(task):
+        # Only a recorded completion transition counts; a stale done flag is insufficient.
+        if (task.get("execution") or {}).get("state") != "done":
+            return False
+        for event in reversed(task.get("history") or []):
+            if event.get("to_status") != "done" and event.get("action") not in ("finished", "completed"):
+                continue
+            try:
+                stamp = datetime.fromisoformat(str(event.get("at") or "").replace("Z", "+00:00"))
+                if stamp.tzinfo is not None and stamp >= cutoff:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
     lines = ["👥 Relay по исполнителям (назначение ≠ выполнение):"]
     for lane in ("claude", "chatgpt", "gemini"):
         items = [t for t in tasks if (t.get("execution") or {}).get("owner") == lane]
@@ -828,8 +843,8 @@ def _team_ticket_counts(store: RelayStore) -> str:
         counts = (sum(state(t) == "queued" for t in items),
                   sum(state(t) in ("claimed", "running", "checkpoint", "committed", "pushed") for t in items),
                   sum(state(t) in ("blocked", "failed", "stale") for t in items),
-                  sum(state(t) == "done" for t in items))
-        lines.append(f"{lane}: очередь {counts[0]} · работа {counts[1]} · блок {counts[2]} · готово {counts[3]}")
+                  sum(finished_last_day(t) for t in items))
+        lines.append(f"{lane}: очередь {counts[0]} · работа {counts[1]} · блок {counts[2]} · готово за 24 ч {counts[3]}")
     lines.append("Последние 5:")
     for t in tasks[:5]:
         ex = t.get("execution") or {}
