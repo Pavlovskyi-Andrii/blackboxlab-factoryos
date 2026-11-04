@@ -215,8 +215,19 @@ def sync_branch(branch: str) -> str:
     Runner code can arrive through either step (a fix pushed to the worker branch, or main), so the
     comparison starts before the pull; otherwise new runner code sits on disk without being loaded.
     """
+    # 2026-11-04: "pull --rebase" replayed main's merge commits one by one, stopped on a conflict that a
+    # merge commit had already resolved, and left the checkout mid-rebase; the worker was down for ~7 h.
+    # Never rebase: abort a leftover rebase, then fast-forward or merge the remote worker branch.
+    git_dir = pathlib.Path(REPO) / ".git"
+    if (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists():
+        run(["git", "rebase", "--abort"], check=False)
     before = git_head()
-    run(["git", "pull", "--rebase", "origin", branch], check=False, timeout=GIT_NET_TIMEOUT)
+    if run(["git", "fetch", "origin", branch], check=False, timeout=GIT_NET_TIMEOUT).returncode == 0:
+        remote = f"origin/{branch}"
+        if run(["git", "merge", "--ff-only", remote], check=False, capture=True).returncode != 0:
+            if run(["git", "merge", "--no-edit", remote], check=False, capture=True).returncode != 0:
+                run(["git", "merge", "--abort"], check=False)
+                return "conflict"
     if run(["git", "fetch", "origin", BASE_BRANCH], check=False, timeout=GIT_NET_TIMEOUT).returncode != 0:
         return "offline"
     target = f"origin/{BASE_BRANCH}"
