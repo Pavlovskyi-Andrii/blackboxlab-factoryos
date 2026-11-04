@@ -78,6 +78,44 @@ class TestRelayTelegram(unittest.TestCase):
         self.assertIn("#41", self.last_message())
         self.assertEqual(count, self.store.summary()["total"])
 
+    def test_help_command_ru_uk_en(self):
+        for lang, phrase in (("ru", "Справка"), ("uk", "Довідка"), ("en", "Show help")):
+            result = relay_handle_telegram_update(
+                {"update_id": 1, "message": {"chat": {"id": 42, "type": "private"}, "text": "/help", "from": {"language_code": lang}}},
+                self.store, self.pair, self.tg, self.lanes, self.github
+            )
+            self.assertEqual(result["action"], "help")
+            self.assertIn(phrase, self.last_message())
+
+    def test_start_without_code_shows_help(self):
+        result = relay_handle_telegram_update(
+            {"update_id": 1, "message": {"chat": {"id": 42, "type": "private"}, "text": "/start", "from": {"language_code": "ru"}}},
+            self.store, self.pair, self.tg, self.lanes, self.github
+        )
+        self.assertEqual(result["action"], "help")
+        self.assertIn("/help", self.last_message())
+
+    def test_start_with_code_returns_none(self):
+        result = relay_handle_telegram_update(
+            {"update_id": 1, "message": {"chat": {"id": 42, "type": "private"}, "text": "/start 123456"}},
+            self.store, self.pair, self.tg, self.lanes, self.github
+        )
+        self.assertIsNone(result)
+
+    def test_all_commands_in_help_and_vice_versa(self):
+        import re
+        from relay import _help_text
+        handled_commands = {
+            "/help", "/start", "/pair", "/status", "/tasks", "/relay", "/roadmap", "/task",
+            "/history", "/github", "/issue", "/battles", "/battle", "/workers", "/operators",
+            "/new", "/work", "/done", "/need", "/inbox"
+        }
+        for lang in ("ru", "uk", "en"):
+            text = _help_text(lang)
+            help_commands = set(re.findall(r"^/([a-z0-9_]+)", text, re.MULTILINE))
+            help_commands = {"/" + cmd for cmd in help_commands}
+            self.assertEqual(help_commands, handled_commands, f"Mismatch in lang {lang}")
+
     def test_unknown_or_unpaired_chat_cannot_read(self):
         self.message("/github", chat="93")
         self.assertEqual(self.calls, [])
