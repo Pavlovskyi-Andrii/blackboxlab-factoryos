@@ -136,5 +136,50 @@ class GeminiProxyTest(unittest.TestCase):
                 self.assertEqual(asgi_post("/api/factory/gemini/worker/generate", "primary-worker-token", ok)[0], 409)
 
 
+class GeminiKeyCheckTest(unittest.TestCase):
+    """#122: owner "Check" button — free models list, verified / invalid_key / unreachable / not_configured, no key in output."""
+
+    def test_verify_route(self):
+        import io
+        import json as _json
+        import gemini_proxy
+
+        mode = {"v": "ok"}
+
+        class _Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def opener(req, timeout):
+            assert "/models" in req.full_url and req.get_method() == "GET" and "SECRET-KEY" not in req.full_url
+            if mode["v"] == "ok":
+                return _Resp(_json.dumps({"models": [{"name": "models/a"}, {"name": "models/b"}]}).encode())
+            err = Exception("x")
+            err.code = 403 if mode["v"] == "bad" else None
+            raise err
+
+        def call():
+            gemini_proxy.GEMINI_KEY_CHECK.clear()
+            status, body = asgi_post("/api/factory/connections/gemini/verify")
+            self.assertNotIn(b"SECRET-KEY", body)
+            return status, _json.loads(body)
+
+        with patch.object(factory, "FACTORY_PASSWORD", ""), patch.object(factory, "FACTORY_GEMINI_API_KEY", "SECRET-KEY"), \
+             patch.object(gemini_proxy.urlrequest, "urlopen", opener):
+            status, body = call()
+            self.assertEqual((status, body["status"], body["models"]), (200, "verified", 2))
+            mode["v"] = "bad"
+            self.assertEqual(call()[1]["status"], "invalid_key")
+            mode["v"] = "down"
+            self.assertEqual(call()[1]["status"], "unreachable")
+            with patch.object(factory, "FACTORY_GEMINI_API_KEY", ""):
+                self.assertEqual(call()[1]["status"], "not_configured")
+        with patch.object(factory, "FACTORY_PASSWORD", "set-so-auth-is-enforced"):
+            self.assertEqual(asgi_post("/api/factory/connections/gemini/verify")[0], 401)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -33,7 +33,7 @@ from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as 
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import QuestionStore, install_owner_desk_routes
-from gemini_proxy import install_gemini_worker_routes
+from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
 from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
@@ -682,6 +682,7 @@ install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_wor
 
 # Gemini coder loop on EC2 calls Google through this proxy, so the key never leaves Render.
 install_gemini_worker_routes(app, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY)
+install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
@@ -1323,7 +1324,10 @@ def get_connection_registry():
     }
     cw=get_claude_code_status()
     registry["AI Providers"]={
-        "providers":ai_provider_catalog(FACTORY_LLM_MODEL,FACTORY_LLM_BASE_URL,bool(FACTORY_LLM_API_KEY)),
+        "providers":[{**p,"gemini_key_configured":bool(FACTORY_GEMINI_API_KEY),
+                      "gemini_check":{k:v for k,v in GEMINI_KEY_CHECK.items() if not k.startswith("_")} if FACTORY_GEMINI_API_KEY else {"status":"not_configured"}}
+                     if p.get("id")=="google" else p
+                     for p in ai_provider_catalog(FACTORY_LLM_MODEL,FACTORY_LLM_BASE_URL,bool(FACTORY_LLM_API_KEY))],
         "secrets_exposed":False,
     }
     registry["Workers"]={"items":worker_projection(cw),"secrets_exposed":False}
