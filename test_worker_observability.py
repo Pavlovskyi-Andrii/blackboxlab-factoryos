@@ -17,7 +17,7 @@ from pathlib import Path
 
 from test_lane_board import CHAT, LaneBoardCase, ROADMAP
 from relay import relay_handle_telegram_update
-from worker_observability import (TEXT, build_worker_overview, sanitize_supervisor, worker_overview_text, _heatmap)
+from worker_observability import (TEXT, build_worker_overview, sanitize_supervisor, sanitize_telemetry, worker_overview_text, _heatmap)
 
 HTML = Path(__file__).resolve().parent / "static" / "index.html"
 REPO = "owner/repo"
@@ -162,6 +162,42 @@ class TestSignals(OverviewCase):
         self.assertNotIn("restart_attempts_last_hour", clean)
         self.assertNotIn("<", clean["service_state"])
         self.assertEqual(sanitize_supervisor("nope"), {})
+
+    def test_empty_or_corrupted_telemetry_returns_unknown(self):
+        corrupted_samples = [
+            None,
+            {},
+            [],
+            "broken_string",
+            12345,
+            {"online": True},
+            {"cpu_percent": "invalid", "memory_mb": -50},
+            {"cpu_percent": float("nan"), "queue_depth": "bad"},
+            {"stage": 123, "branch": "invalid branch with spaces"},
+            {"task_started_at": "not a timestamp"},
+        ]
+        for raw in corrupted_samples:
+            res = sanitize_telemetry(raw)
+            self.assertIsInstance(res, dict)
+            self.assertEqual(res.get("state"), "unknown")
+            self.assertNotEqual(res.get("state"), "online")
+            self.assertFalse(res.get("available", False))
+
+    def test_valid_telemetry_returns_ok(self):
+        valid = {
+            "cpu_percent": 15.5,
+            "cpu_source": "proc_stat",
+            "memory_mb": 256,
+            "memory_total_mb": 1024,
+            "memory_source": "proc_meminfo",
+            "stage": "running",
+            "head_sha": "0123456789abcdef0123456789abcdef01234567",
+        }
+        res = sanitize_telemetry(valid)
+        self.assertEqual(res.get("state"), "ok")
+        self.assertTrue(res.get("available"))
+        self.assertEqual(res.get("cpu_percent"), 15.5)
+        self.assertEqual(res.get("stage"), "running")
 
 
 class TestEvidence(OverviewCase):
