@@ -99,11 +99,20 @@ def test_runbooks_localized_en_uk_ru():
 
 def test_secret_scrubbing():
     bot = "123456789:" + "A" * 35
-    text = od.scrub_secrets(f"мой токен {bot} и ghp_{'b' * 20} и AKIA{'C' * 16} password=hunter2hunter2")
-    assert bot not in text and "ghp_" not in text and "AKIA" not in text and "hunter2" not in text, text
-    assert text.count("[скрыто]") == 4, text
-    # Variable names in the runbooks are not secrets and must survive.
-    assert od.scrub_secrets("FACTORY_TELEGRAM_BOT_TOKEN = значение") == "FACTORY_TELEGRAM_BOT_TOKEN = значение"
+    ghp = "ghp_" + "b" * 36
+    gh_pat = "github_pat_11ABCDEFG0123456789_" + "c" * 50
+    google_key = "AIzaSyA" + "d" * 32
+    bearer_hdr = "Bearer " + "e" * 30
+    text = od.scrub_secrets(
+        f"мой токен {bot} и {ghp} и {gh_pat} и {google_key} и {bearer_hdr} и AKIA{'C' * 16} password=hunter2hunter2"
+    )
+    for secret in (bot, ghp, gh_pat, google_key, "eeeeeeee", "AKIA", "hunter2"):
+        assert secret not in text, f"{secret} leaked in {text}"
+    assert text.count("[скрыто]") == 7, text
+
+    # Normal text and runbook variable names survive without corruption
+    normal_text = "Обычный текст: используйте FACTORY_TELEGRAM_BOT_TOKEN, FACTORY_GEMINI_API_KEY, ghp_ и Bearer в заголовках."
+    assert od.scrub_secrets(normal_text) == normal_text
 
 
 def test_question_queue():
