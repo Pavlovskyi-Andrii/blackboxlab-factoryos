@@ -39,7 +39,7 @@ async function proxy(pathname, options={}) {
   const res = await fetch(process.env.FACTORYOS_URL.replace(/\/$/,'')+'/api/factory/gemini/worker/'+pathname, {...options,
     headers:{Authorization:'Bearer '+process.env.FACTORY_CLAUDE_WORKER_TOKEN,'Content-Type':'application/json'}});
   const data = await res.json().catch(()=>({}));
-  if (!res.ok) throw httpError(Number(data.upstream_status || res.status));
+  if (!res.ok) throw httpError(Number(data.upstream_status || data.detail?.upstream_status || res.status));
   return data;
 }
 async function listModels() {
