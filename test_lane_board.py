@@ -327,6 +327,21 @@ class TestTeamBoardIssue138(unittest.TestCase):
         self.assertEqual(lane["counts"]["queued"],1)
         self.assertEqual(next(t for t in lane["tasks"] if t["id"]=="#114")["progress"],100)
 
+    def test_stale_heartbeat_never_counts_as_online(self):
+        from team_board import project_team
+        for state in ("stale", "offline", "blocked", "unknown"):
+            board={"lanes":{"claude":{"state":state,"heartbeat_age_seconds":601,
+                                      "last_event":{"at":"2026-11-03T00:00:00Z"}}},
+                   "tasks":[{"id":"T-901","title":"Assigned","lane":"claude",
+                             "kind":"roadmap","column":"planned"}]}
+            result=project_team(board)
+            claude=result["lanes"]["claude"]
+            self.assertFalse(claude["online"], state)
+            self.assertEqual(claude["state"], state)
+            self.assertEqual(claude["heartbeat_age_seconds"],601)
+            self.assertEqual(claude["counts"]["queued"],1)
+            self.assertIsNone(claude["current_task"])
+
     def test_owner_only_route_registered(self):
         os.environ.setdefault("DATA_DIR",tempfile.mkdtemp(prefix="factoryos-team-"))
         import app
