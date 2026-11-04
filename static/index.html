@@ -699,6 +699,43 @@
 </div><script>
 /* MVP Factory: read-only GitHub public issue state. Never infer worker activity from issue state. */
 (function(){
+ const panel=document.getElementById('mvpFactoryPanel');
+ if(!panel)return;
+ const relay=document.createElement('div');
+ relay.id='mvpRelayStatus';
+ relay.style.cssText='margin:12px 0;padding:12px;border:1px solid #315477;border-radius:10px;color:#a7bad0';
+ relay.textContent='Relay: checking authenticated queue…';
+ document.getElementById('mvpFactoryLive').before(relay);
+ async function refreshMvpRelay(){
+   try{
+     const response=await fetch('/api/relay?limit=200',{credentials:'same-origin',cache:'no-store'});
+     if(!response.ok)throw Error('HTTP '+response.status);
+     const data=await response.json();
+     const items=Array.isArray(data.items)?data.items:[];
+     const relevant=items.filter(t=>{
+       const text=[t.title,t.body,t.source_url,t.source&&t.source.url].filter(Boolean).join(' ').toLowerCase();
+       return /mvp factory|decision memory|release guardian|mybrief|issue[- /#]*(186|187|188|189)|\/issues\/(186|187|188|189)/.test(text);
+     });
+     relay.replaceChildren();
+     const heading=document.createElement('strong');heading.textContent='Relay · '+relevant.length+' matching tickets';
+     relay.append(heading);
+     if(!relevant.length){
+       const p=document.createElement('div');p.textContent='No matching Relay tickets found. Worker activity is not verified.';relay.append(p);return;
+     }
+     relevant.slice(0,8).forEach(t=>{
+       const line=document.createElement('div');line.style.marginTop='8px';
+       const execution=t.execution||{};
+       const state=execution.state||'not reported';
+       line.textContent=String(t.title||t.id||'Untitled').slice(0,100)+' · ticket: '+String(t.status||'unknown')+' · execution: '+String(state);
+       relay.append(line);
+     });
+   }catch(_){relay.textContent='Relay unavailable or access denied · execution status unknown';}
+ }
+ refreshMvpRelay();
+ const interval=setInterval(()=>{if(document.visibilityState==='visible')refreshMvpRelay();},60000);
+ window.addEventListener('pagehide',()=>clearInterval(interval),{once:true});
+})();
+(function(){
   const target=document.getElementById('mvpFactoryLive');
   if(!target)return;
   const repo='Pavlovskyi-Andrii/blackboxlab-factoryos';
