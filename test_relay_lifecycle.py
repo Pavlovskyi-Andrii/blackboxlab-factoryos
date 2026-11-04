@@ -203,7 +203,7 @@ class TestEndToEndSlice(SliceBase):
         events = [d for p, d in posted if p == "/api/relay/worker/event" and d["stage"] != "heartbeat"]
         self.assertTrue(all(d["run_id"] == run_id and d["event_id"].startswith(run_id) for d in events))
         history = self.store.get(tid)["history"]
-        self.assertEqual([h["action"] for h in history], ["queued", "claimed", "running", "committed", "pushed", "done"])
+        self.assertEqual([h["action"] for h in history], ["queued", "assigned", "claimed", "running", "committed", "pushed", "done"])
 
         # Restart: a fresh store/queue over the same file shows the same durable trace.
         restarted = RelayQueue(RelayStore(self.path))
