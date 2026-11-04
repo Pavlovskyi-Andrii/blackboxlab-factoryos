@@ -92,7 +92,7 @@ def _bounded(value, limit):
 def sanitize_telemetry(raw, now: Optional[float] = None) -> dict:
     """T-536-B: whitelist + type check of runner telemetry. Invalid values degrade to None, never to a guess."""
     if not isinstance(raw, dict) or not raw:
-        return {}
+        return {"available": False, "state": "unknown"}
     now = time.time() if now is None else now
     out = {"available": True}
     stage = re.sub(r"[^a-z_]", "", str(raw.get("stage") or "").lower())[:32]
@@ -117,6 +117,10 @@ def sanitize_telemetry(raw, now: Optional[float] = None) -> dict:
         out["cpu_percent"], out["cpu_source"] = None, "unsupported"
     if out["memory_source"] == "unsupported" or out["memory_mb"] is None:
         out["memory_mb"], out["memory_total_mb"], out["memory_source"] = None, None, "unsupported"
+    has_valid_data = any(out.get(k) is not None for k in ("cpu_percent", "memory_mb", "stage", "head_sha", "branch", "queue_depth", "worker_uptime_seconds"))
+    out["state"] = "ok" if has_valid_data else "unknown"
+    if not has_valid_data:
+        out["available"] = False
     return out
 
 
