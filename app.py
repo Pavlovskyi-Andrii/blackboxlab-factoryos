@@ -28,6 +28,7 @@ from relay import RelayStore, install_relay_routes, relay_handle_telegram_update
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from operator_lanes import build_operator_lanes
+from team_tasks import TeamTasksCache, build_team_tasks, github_fetcher, read_github
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
@@ -11203,6 +11204,23 @@ def get_telegram_lane_board():
 def get_telegram_operator_lanes():
     """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons."""
     return get_delegation_board().get("operator_lanes") or []
+
+_TEAM_TASKS_CACHE=TeamTasksCache()
+
+def get_team_tasks(refresh=False):
+    """Owner tasks page: Issues/PRs/CI per executor + ROADMAP [HUMAN] tasks + lane heartbeats."""
+    def read():
+        github=read_github(github_fetcher(GITHUB_REPO,GITHUB_TOKEN))
+        try:lanes=(get_lane_board() or {}).get("lanes") or {}
+        except Exception:lanes={}
+        return build_team_tasks(github,roadmap=_parse_roadmap_tasks(),lanes=lanes,repo=GITHUB_REPO)
+    return _TEAM_TASKS_CACHE.get(read,refresh=refresh)
+
+@app.get("/api/factory/team-tasks")
+def factory_team_tasks(request: Request, refresh: int = 0):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"Owner access required")
+    return get_team_tasks(bool(refresh))
 
 @app.get("/api/factory/worker-overview")
 def factory_worker_overview(request: Request):
