@@ -28,7 +28,7 @@ from relay import RelayStore, install_relay_routes, relay_handle_telegram_update
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from operator_lanes import build_operator_lanes
-from team_tasks import TeamTasksCache, build_team_tasks, github_fetcher, read_github
+from team_tasks import TeamTasksCache, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
@@ -701,7 +701,7 @@ async def auth_middleware(request: Request, call_next):
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
-    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/gemini/worker/")) and _claude_worker_authorized(request)
+    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/")) and _claude_worker_authorized(request)
     if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
@@ -11211,10 +11211,38 @@ def get_team_tasks(refresh=False):
     """Owner tasks page: Issues/PRs/CI per executor + ROADMAP [HUMAN] tasks + lane heartbeats."""
     def read():
         github=read_github(github_fetcher(GITHUB_REPO,GITHUB_TOKEN))
+        if not github.get("available"):
+            # Render's token cannot read the repo (seen 2026-11-04: HTTP 403); use the EC2 worker's snapshot (owner's gh login).
+            snap=_load_team_snapshot()
+            if snap and time.time()-float(snap.get("received",0))<3600:
+                github={**snap["github"],"source":"ec2","fetched_at":snap["fetched_at"],"render_error":github.get("error")}
         try:lanes=(get_lane_board() or {}).get("lanes") or {}
         except Exception:lanes={}
         return build_team_tasks(github,roadmap=_parse_roadmap_tasks(),lanes=lanes,repo=GITHUB_REPO)
     return _TEAM_TASKS_CACHE.get(read,refresh=refresh)
+
+_TEAM_SNAPSHOT_PATH=DATA_DIR/"team_tasks_github.json"
+
+def _load_team_snapshot():
+    try:return json.loads(_TEAM_SNAPSHOT_PATH.read_text())
+    except Exception:return None
+
+@app.post("/api/factory/team-tasks/worker/snapshot")
+async def factory_team_tasks_snapshot(request: Request):
+    if not _claude_worker_authorized(request):
+        raise HTTPException(401,"worker token required")
+    raw=await request.body()
+    if len(raw)>3_000_000:raise HTTPException(413,"snapshot too large")
+    try:data=compact_github(json.loads(raw))
+    except Exception:raise HTTPException(400,"invalid json") from None
+    data["available"]=True
+    if not valid_snapshot(data):raise HTTPException(400,"invalid snapshot")
+    now=time.time()
+    tmp=_TEAM_SNAPSHOT_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"received":now,"fetched_at":datetime.fromtimestamp(now,timezone.utc).isoformat(),"github":data}))
+    tmp.replace(_TEAM_SNAPSHOT_PATH)
+    _TEAM_TASKS_CACHE.invalidate()
+    return {"ok":True,"issues":len(data["issues"]),"pulls":len(data["pulls"])}
 
 @app.get("/api/factory/team-tasks")
 def factory_team_tasks(request: Request, refresh: int = 0):

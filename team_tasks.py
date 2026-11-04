@@ -217,10 +217,38 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
             "tasks": active + done[:done_limit],
         }
     totals = {s: sum(a["counts"][s] for a in agents.values()) for s in STATUSES}
-    return {"synced_at": datetime.fromtimestamp(now, timezone.utc).isoformat(), "github_available": bool(github.get("available")),
+    return {"synced_at": str(github.get("fetched_at") or "") or datetime.fromtimestamp(now, timezone.utc).isoformat(),
+            "github_source": str(github.get("source") or "render"), "github_available": bool(github.get("available")),
             "github_error": github.get("error") or "", "repo": repo, "agents": agents, "totals": totals,
             "done_7d": sum(a["done_7d"] for a in agents.values()),
             "progress_note": "progress = stage (queued 0, draft PR 40, CI failed 60, review 85, merged/closed 100), not measured code completion"}
+
+
+def compact_github(github: dict) -> dict:
+    """Only the fields the page needs: Owner line, issue refs, states, times, PR heads, CI. Bodies are not kept."""
+    def owner_line(body):
+        return str(body or "").split("\n", 1)[0][:200]
+
+    def refs(body):
+        return " ".join("Refs #" + n for n in _ISSUE_REF.findall(str(body or "")))[:500]
+    issues = [{"number": i.get("number"), "title": str(i.get("title") or "")[:200], "body": owner_line(i.get("body")),
+               "state": i.get("state"), "html_url": i.get("html_url"), "pull_request": bool(i.get("pull_request")),
+               "labels": [{"name": str(l.get("name") or "")[:50]} for l in i.get("labels") or [] if isinstance(l, dict)],
+               "updated_at": i.get("updated_at"), "created_at": i.get("created_at"), "closed_at": i.get("closed_at")}
+              for i in github.get("issues") or [] if isinstance(i, dict)]
+    pulls = [{"number": p.get("number"), "title": str(p.get("title") or "")[:200], "body": refs(p.get("body")),
+              "draft": bool(p.get("draft")), "state": p.get("state"), "merged_at": p.get("merged_at"),
+              "head": {"ref": str((p.get("head") or {}).get("ref") or "")[:120], "sha": str((p.get("head") or {}).get("sha") or "")[:64]},
+              "html_url": p.get("html_url"), "updated_at": p.get("updated_at"), "created_at": p.get("created_at")}
+             for p in github.get("pulls") or [] if isinstance(p, dict)]
+    return {"available": bool(github.get("available")), "error": str(github.get("error") or "")[:80],
+            "issues": issues, "pulls": pulls, "ci": {str(k)[:64]: v for k, v in (github.get("ci") or {}).items()}}
+
+
+def valid_snapshot(data) -> bool:
+    return (isinstance(data, dict) and data.get("available") is True and isinstance(data.get("issues"), list)
+            and isinstance(data.get("pulls"), list) and isinstance(data.get("ci"), dict)
+            and len(data["issues"]) <= 300 and len(data["pulls"]) <= 200)
 
 
 class TeamTasksCache:
@@ -237,3 +265,7 @@ class TeamTasksCache:
             if self._data is None or age > self.ttl or (refresh and age > self.min_refresh):
                 self._data, self._at = read(), time.time()
             return self._data
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._at = 0.0

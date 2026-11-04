@@ -1,0 +1,10 @@
+[Unit]
+Description=FactoryOS team tasks: push GitHub snapshot from EC2
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+EnvironmentFile=/etc/factoryos/claude-worker.env
+ExecStart=/usr/local/bin/factoryos-team-tasks-push
+TimeoutStartSec=300
