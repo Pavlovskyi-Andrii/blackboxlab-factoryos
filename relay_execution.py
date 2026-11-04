@@ -100,9 +100,20 @@ def _is_roadmap(ticket: dict) -> bool:
 
 
 def _claude_claimable(ticket: dict) -> bool:
-    """Generic Relay claims are Claude's; ROADMAP and other-lane Issue tickets are not."""
-    owner = str((ticket.get("source") or {}).get("owner") or "").lower()
-    return not _is_roadmap(ticket) and (owner in SHARED_LANES or owner == "claude")
+    """Only Claude-owned generic tickets may be claimed by the Claude worker.
+
+    Telegram assignment lives in execution.owner, while imported GitHub Issues
+    declare source.owner. An explicit execution lane (including unassigned)
+    must take precedence; legacy tickets without either field remain claimable.
+    """
+    if _is_roadmap(ticket):
+        return False
+    execution_owner = str((ticket.get("execution") or {}).get("owner") or "").strip().lower()
+    source_owner = str((ticket.get("source") or {}).get("owner") or "").strip().lower()
+    owner = execution_owner or source_owner
+    if source_owner not in SHARED_LANES and source_owner != "claude":
+        return False
+    return owner in SHARED_LANES or owner == "claude"
 
 
 # T-599-E: an owner Issue is imported only when its first non-blank body line names a lane.
