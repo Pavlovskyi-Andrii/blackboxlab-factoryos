@@ -3,10 +3,7 @@ name: Gemini Issue to PR
 on:
   issues:
     types: [labeled]
-  # Night shift (owner decision 2026-11-03): free tier is overloaded by day; 23:15 and 02:15 UTC = 01:15 / 04:15 Kyiv.
-  schedule:
-    - cron: '15 23 * * *'
-    - cron: '15 2 * * *'
+  # The 5-minute loop runs on EC2 (tools/gemini_ec2_loop.sh): Actions minutes are limited on a private repo.
   workflow_dispatch:
 
 concurrency:
@@ -59,10 +56,6 @@ jobs:
         if: steps.pick.outputs.issue != ''
         with:
           node-version: '20'
-
-      - name: Install official Gemini SDK
-        if: steps.pick.outputs.issue != ''
-        run: npm install --no-save --no-audit --no-fund @google/genai
 
       - name: Generate bounded Gemini proposal
         if: steps.pick.outputs.issue != ''

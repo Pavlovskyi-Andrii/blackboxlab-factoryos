@@ -90,5 +90,51 @@ class OwnerDeskWorkerMiddlewareTest(unittest.TestCase):
             self.assertEqual(status, 401)
 
 
+class GeminiProxyTest(unittest.TestCase):
+    """2026-11-04: EC2 Gemini loop calls Google through Render; worker token only, Flash text models only."""
+
+    def test_proxy_through_real_app(self):
+        import io
+        import json as _json
+        import gemini_proxy
+
+        calls = []
+
+        class _Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def opener(req, timeout):
+            calls.append((req.full_url, req.headers.get("X-goog-api-key")))
+            if req.full_url.endswith(":generateContent") and "gemini-3.7-flash" in req.full_url:
+                err = Exception("busy")
+                err.code = 503
+                raise err
+            return _Resp(_json.dumps({"candidates": [{"content": {"parts": [{"text": '{"files":[]}'}]}}]}).encode())
+
+        with patch.object(factory, "FACTORY_PASSWORD", "set-so-auth-is-enforced"), \
+             patch.object(factory, "FACTORY_CLAUDE_WORKER_TOKEN", "primary-worker-token"), \
+             patch.object(factory, "FACTORY_GEMINI_API_KEY", "KEY-1"), \
+             patch.object(gemini_proxy.urlrequest, "urlopen", opener):
+            ok = _json.dumps({"model": "gemini-3.8-flash", "prompt": "hi"}).encode()
+            self.assertEqual(asgi_post("/api/factory/gemini/worker/generate", None, ok)[0], 401)
+            self.assertEqual(asgi_post("/api/factory/gemini/worker/generate", "wrong", ok)[0], 401)
+            status, body = asgi_post("/api/factory/gemini/worker/generate", "primary-worker-token", ok)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(_json.loads(body)["text"], '{"files":[]}')
+            self.assertTrue(calls and calls[-1][1] == "KEY-1" and "KEY-1" not in calls[-1][0])
+            pro = _json.dumps({"model": "gemini-3.8-pro", "prompt": "hi"}).encode()
+            self.assertEqual(asgi_post("/api/factory/gemini/worker/generate", "primary-worker-token", pro)[0], 400)
+            busy = _json.dumps({"model": "gemini-3.7-flash", "prompt": "hi"}).encode()
+            status, body = asgi_post("/api/factory/gemini/worker/generate", "primary-worker-token", busy)
+            self.assertEqual(status, 502)
+            self.assertEqual(_json.loads(body)["detail"]["upstream_status"], 503)
+            with patch.object(factory, "FACTORY_GEMINI_API_KEY", ""):
+                self.assertEqual(asgi_post("/api/factory/gemini/worker/generate", "primary-worker-token", ok)[0], 409)
+
+
 if __name__ == "__main__":
     unittest.main()

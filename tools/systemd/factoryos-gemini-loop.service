@@ -1,0 +1,10 @@
+[Unit]
+Description=FactoryOS Gemini coder loop (Issue -> PR via FactoryOS proxy)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+EnvironmentFile=/etc/factoryos/claude-worker.env
+ExecStart=/usr/local/bin/factoryos-gemini-loop
+TimeoutStartSec=900
