@@ -15,7 +15,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from lane_board import TEXT, build_lane_board, lane_board_text
+from lane_board import TEXT, build_lane_board, lane_board_text, telegram_lang
 from relay import RelayStore, relay_handle_telegram_update
 from relay_execution import RelayQueue
 
@@ -201,6 +201,13 @@ class TestTelegramMatchesWeb(LaneBoardCase):
         text = lane_board_text(board, "de")
         self.assertIn(TEXT["ru"]["title"], text)
         self.assertIn("В работе 1", text)
+
+    def test_telegram_lang(self):
+        self.assertEqual(telegram_lang('uk-UA'), 'uk')
+        self.assertEqual(telegram_lang('EN'), 'en')
+        self.assertEqual(telegram_lang(None), 'ru')
+        self.assertEqual(telegram_lang('de'), 'ru')
+        self.assertEqual(telegram_lang(''), 'ru')
 
 
 def ui_program():
