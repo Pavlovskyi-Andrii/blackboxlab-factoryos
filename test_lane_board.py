@@ -314,6 +314,19 @@ class TestTeamBoardIssue138(unittest.TestCase):
         self.assertIn("#L123",value["lanes"]["claude"]["tasks"][0]["url"])
         self.assertEqual(value["total"],3)
 
+    def test_closed_issue_is_done_not_queued(self):
+        from team_board import project_team
+        issues={"available":True,"issues":[
+            {"number":114,"title":"Completed audit","state":"closed","body":"Owner: ChatGPT\n",
+             "url":"https://github.com/org/repo/issues/114"},
+            {"number":138,"title":"Open board","state":"open","body":"Owner: ChatGPT\n",
+             "url":"https://github.com/org/repo/issues/138"}]}
+        value=project_team({},issues)
+        lane=value["lanes"]["chatgpt"]
+        self.assertEqual(lane["counts"]["done"],1)
+        self.assertEqual(lane["counts"]["queued"],1)
+        self.assertEqual(next(t for t in lane["tasks"] if t["id"]=="#114")["progress"],100)
+
     def test_owner_only_route_registered(self):
         os.environ.setdefault("DATA_DIR",tempfile.mkdtemp(prefix="factoryos-team-"))
         import app
