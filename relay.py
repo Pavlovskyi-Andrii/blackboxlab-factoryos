@@ -764,8 +764,37 @@ def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> di
         return {"available": True, "repo": repo, "owner": owner, "checked_at": _now(), "issues": issues}
     except Exception as exc:  # network, HTTP, JSON: all mean UNKNOWN, never success
         code = getattr(exc, "code", None)
-        return {"available": False, "repo": repo, "owner": owner,
+        return {"available": False, "repo": repo, "owner": owner, "reason": github_error_reason(exc),
                 "error": ("HTTP " + str(code)) if code else "GitHub unavailable", "issues": []}
+
+
+def github_error_reason(exc) -> str:
+    """#41: a fixed category for a failed GitHub call: never the token, headers or response text."""
+    code = getattr(exc, "code", None)
+    headers = getattr(exc, "headers", None) or {}
+    try:
+        remaining = headers.get("X-RateLimit-Remaining")
+        sso = headers.get("X-GitHub-SSO")
+    except Exception:
+        remaining = sso = None
+    message = ""
+    try:
+        message = str((exc.read() or b"")[:400].decode("utf-8", "replace")).lower()
+    except Exception:
+        pass
+    if code is None:
+        return "network"
+    if remaining == "0" or "rate limit" in message:
+        return "rate_limited"
+    if sso:
+        return "sso_required"
+    if code == 401 or "bad credentials" in message:
+        return "invalid_token"
+    if code == 403 and ("not accessible" in message or "permission" in message):
+        return "token_lacks_permission"
+    if code == 404:
+        return "not_found_or_no_access"
+    return f"http_{code}"
 
 
 def relay_auto_intake_issues(queue, repo: str, token: str = "", fetch=None) -> dict:

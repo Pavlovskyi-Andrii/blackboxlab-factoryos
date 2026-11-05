@@ -24,11 +24,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues
+from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues, relay_github_owner_issues
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from operator_lanes import build_operator_lanes
-from team_tasks import TeamTasksCache, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
+from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
@@ -8875,16 +8875,55 @@ def sync_cycle_for_publish(publish_id):
     cycle=_cycle_for_publish(publish_id)
     return sync_factory_cycle(cycle["id"]) if cycle else None
 
+INTAKE_SNAPSHOT_MAX_AGE=900  # the EC2 pusher runs every 3 minutes
+
+def _intake_issues_from_ec2_snapshot():
+    """#41: Render's token gets HTTP 403 on this repo, so the owner Issues come from the EC2 worker's snapshot
+    (read with the owner's gh login). Only a fresh snapshot is used; an old one means unknown, not empty."""
+    snap=_load_team_snapshot()
+    if not snap or time.time()-float(snap.get("received",0))>INTAKE_SNAPSHOT_MAX_AGE:return None
+    github=snap.get("github") or {}
+    issues=[{"number":i.get("number"),"title":str(i.get("title") or ""),"body":str(i.get("body") or ""),
+             "url":str(i.get("html_url") or ""),"state":str(i.get("state") or ""),"author":str(i.get("author") or ""),
+             "pull_request":bool(i.get("pull_request"))} for i in github.get("issues") or [] if isinstance(i,dict)]
+    return {"issues":issues,"github":github}
+
 def github_issue_intake_once(fetch=None):
-    """T-599-E: one owner-Issue intake pass; logs counts/IDs only, never bodies or tokens."""
-    result=relay_auto_intake_issues(RELAY_QUEUE,GITHUB_REPO,GITHUB_TOKEN,fetch=fetch)
-    print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":result["ok"],"error":result.get("error",""),
+    """T-599-E / #41: one owner-Issue intake pass; logs counts/IDs and safe reason codes only, never bodies or tokens.
+
+    Source: Render's own GitHub read, else the fresh EC2 snapshot. Claude issues that Queue Keeper (#231) sees as
+    blocked (open Depends, owner gate, another agent's PR) are deferred, so the worker never starts them early."""
+    direct=relay_github_owner_issues(GITHUB_REPO,GITHUB_TOKEN,fetch=fetch)
+    source,render_error,gate_github="render","",None
+    if direct.get("available"):
+        issues,owner=direct["issues"],direct["owner"]
+        gate_github={"available":True,"pulls":[],"issues":[{"number":i.get("number"),"title":i.get("title"),"body":i.get("body"),
+                     "state":i.get("state"),"html_url":i.get("url"),"labels":[]} for i in issues if isinstance(i,dict)]}
+    else:
+        render_error=f"{direct.get('error','')} ({direct.get('reason','unknown')})"
+        ec2=_intake_issues_from_ec2_snapshot()
+        if ec2 is None:
+            print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":False,"error":direct.get("error",""),"reason":direct.get("reason",""),
+                              "ec2_snapshot":"missing_or_stale","imported":[],"linked":[],"existing":0,"ignored":0}),flush=True)
+            return {"ok":False,"error":direct.get("error") or "GitHub unavailable","imported":[],"existing":[],"linked":[],"ignored":0}
+        issues,owner,source,gate_github=ec2["issues"],GITHUB_REPO.split("/",1)[0],"ec2",ec2["github"]
+    readiness=queue_readiness({**gate_github,"available":True},roadmap=_parse_roadmap_tasks(),agent="claude")
+    blocked={t["number"]:t["reasons"] for t in readiness.get("blocked") or []}
+    deferred=[{"issue":n,"reasons":r} for n,r in sorted(blocked.items())]
+    ready=[i for i in issues if not (isinstance(i,dict) and _safe_int(i.get("number")) in blocked)]
+    result={"ok":True,**RELAY_QUEUE.auto_intake_owner_issues(ready,GITHUB_REPO,owner)}
+    print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":True,"source":source,"render_error":render_error,
                       "imported":[x["issue"] for x in result["imported"]],"linked":[x["issue"] for x in result["linked"]],
-                      "existing":len(result["existing"]),"ignored":result["ignored"]}),flush=True)
+                      "existing":len(result["existing"]),"ignored":result["ignored"],"deferred":[d["issue"] for d in deferred]}),flush=True)
     for row in result["imported"]:
         try:_telegram_send(f"📥 Relay {row['ticket']}: GitHub #{row['issue']} (Owner: {row['lane']})\nВ очереди, выполнение ещё не началось.")
         except Exception:pass
+    result.update(source=source,deferred=deferred,render_error=render_error)
     return result
+
+def _safe_int(value):
+    try:return int(value)
+    except (TypeError,ValueError):return 0
 
 
 async def github_issue_intake_loop():

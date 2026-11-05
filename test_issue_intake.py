@@ -141,5 +141,69 @@ class TestIssueIntake(unittest.TestCase):
         self.assertGreaterEqual(app.FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC, 300)
 
 
+    def test_403_falls_back_to_fresh_ec2_snapshot_and_defers_blocked(self):
+        """#41: Render's token gets 403; the EC2 snapshot (owner gh login) feeds intake; blocked work is deferred."""
+        import os
+        import time as _time
+        os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-intake-"))
+        import app
+        from team_tasks import compact_github
+
+        def forbidden(path):
+            raise urllib.error.HTTPError("https://api.github.com", 403, "Forbidden", {},
+                                         io.BytesIO(b'{"message":"Resource not accessible by integration"}'))
+        raw = {"available": True, "pulls": [], "ci": {}, "issues": [
+            gh_issue(601, "Owner: Claude\nPriority: P2\nDepends: none"),
+            gh_issue(602, "Owner: Claude\nDepends: #603 (open epic)"),
+            dict(gh_issue(603, "Owner: ChatGPT\nEpic"), title="EPIC"),
+            gh_issue(604, "Owner: Claude\nwork", title="Claude · CONDITIONAL hub — only after video approval"),
+            gh_issue(605, "Owner: Claude\nforeign", login="stranger")]}
+        snap_path = Path(tempfile.mkdtemp()) / "snap.json"
+        snap_path.write_text(json.dumps({"received": _time.time(), "fetched_at": "now", "github": compact_github(raw)}))
+        sent = []
+        with unittest.mock.patch.object(app, "RELAY_QUEUE", self.queue), \
+             unittest.mock.patch.object(app, "_TEAM_SNAPSHOT_PATH", snap_path), \
+             unittest.mock.patch.object(app, "_telegram_send", side_effect=lambda text: sent.append(text)):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                result = app.github_issue_intake_once(fetch=forbidden)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["source"], "ec2")
+        self.assertIn("HTTP 403 (token_lacks_permission)", result["render_error"])
+        self.assertEqual(sorted(x["issue"] for x in result["imported"]), [601, 603])  # ready Claude + ChatGPT epic
+        self.assertEqual([d["issue"] for d in result["deferred"]], [602, 604])        # never handed to the worker
+        self.assertEqual({d["issue"]: d["reasons"] for d in result["deferred"]},
+                         {602: ["depends_open_#603"], 604: ["owner_gate"]})
+        self.assertNotIn(605, [x["issue"] for x in result["imported"]])  # not the owner's issue
+        log = out.getvalue()
+        self.assertIn('"source": "ec2"', log)
+        self.assertNotIn("Resource not accessible", log)  # category only, never GitHub's text
+
+        # A stale snapshot means unknown: nothing is imported and the failure is reported, not hidden.
+        stale = json.loads(snap_path.read_text())
+        stale["received"] = _time.time() - 3600
+        snap_path.write_text(json.dumps(stale))
+        fresh_queue = RelayQueue(RelayStore(Path(tempfile.mkdtemp()) / "r.json"))
+        with unittest.mock.patch.object(app, "RELAY_QUEUE", fresh_queue), \
+             unittest.mock.patch.object(app, "_TEAM_SNAPSHOT_PATH", snap_path):
+            with redirect_stdout(io.StringIO()) as out2:
+                result = app.github_issue_intake_once(fetch=forbidden)
+        self.assertFalse(result["ok"])
+        self.assertIn("missing_or_stale", out2.getvalue())
+        self.assertEqual(fresh_queue.store.list(), [])
+
+    def test_github_error_reason_categories(self):
+        from relay import github_error_reason
+
+        def err(code, body=b"", headers=None):
+            return urllib.error.HTTPError("https://api.github.com", code, "x", headers or {}, io.BytesIO(body))
+        self.assertEqual(github_error_reason(err(403, b'{"message":"Resource not accessible by integration"}')),
+                         "token_lacks_permission")
+        self.assertEqual(github_error_reason(err(401, b'{"message":"Bad credentials"}')), "invalid_token")
+        self.assertEqual(github_error_reason(err(403, b"", {"X-RateLimit-Remaining": "0"})), "rate_limited")
+        self.assertEqual(github_error_reason(err(403, b"", {"X-GitHub-SSO": "required; url=..."})), "sso_required")
+        self.assertEqual(github_error_reason(err(404)), "not_found_or_no_access")
+        self.assertEqual(github_error_reason(OSError("down")), "network")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

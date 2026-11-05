@@ -332,6 +332,7 @@ def compact_github(github: dict) -> dict:
     def refs(body):
         return " ".join("Refs #" + n for n in _ISSUE_REF.findall(str(body or "")))[:500]
     issues = [{"number": i.get("number"), "title": str(i.get("title") or "")[:200], "body": owner_line(i.get("body")),
+               "author": str((i.get("user") or {}).get("login") or i.get("author") or "")[:60],
                "state": i.get("state"), "html_url": i.get("html_url"), "pull_request": bool(i.get("pull_request")),
                "labels": [{"name": str(l.get("name") or "")[:50]} for l in i.get("labels") or [] if isinstance(l, dict)],
                "updated_at": i.get("updated_at"), "created_at": i.get("created_at"), "closed_at": i.get("closed_at")}
