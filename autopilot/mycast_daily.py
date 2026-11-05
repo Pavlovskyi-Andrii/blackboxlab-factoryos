@@ -43,24 +43,25 @@ RENDER_WAIT_SECONDS = 1200
 HOSTS = {"A": {"name": "Клод", "speaker": "mykyta"}, "B": {"name": "Джі-Пі-Ті", "speaker": "tetiana"}}
 
 PROMPT = """Ти пишеш сценарій щоденного персонального подкасту MyCast для власника FactoryOS на {date}.
-Знайди веб-пошуком свіжі новини (опубліковані за останні 48 годин) і напиши діалог двох ведучих українською.
+Знайди веб-пошуком свіжі новини (опубліковані за останні 48 годин) і напиши живу розмову двох ведучих українською.
 
-Теми, у такому порядку:
-1. AI: нові моделі, функції та оновлення ChatGPT, Claude, Gemini та інструментів для розробки — і що з цього можна впровадити вже зараз.
-2. Стартапи: що запустилося, хто залучив гроші (сума, інвестори), хто скільки заробляє — лише з джерелом.
-3. FactoryOS і Blackbox Lab: коротко, що реально змінилося — ТІЛЬКИ з блоку «Факти FactoryOS» нижче, нічого не додавай від себе.
-4. Глибше: один практичний сценарій використання AI для власника, який будує AI-фабрику контенту і AI-сервіси, з готовим промптом, який можна одразу скопіювати (продиктуй його повільно, дослівно).
-
-Теми 1 і 2: перевірені релізи OpenAI, Anthropic (Claude), Google (Gemini) і 2–3 реальні події стартапів або AI-бізнесу.
+Структура (відгук власника: менше списку, більше розмови і висновків):
+1. Світ AI і технологій — 3–4 найважливіші новини, не більше. Перевірені релізи OpenAI, Anthropic, Google та великі події індустрії.
+   Для кожної: що сталося → чому це важливо → як це можна вбудувати або використати у FactoryOS (конкретна ідея, позначена як ідея, а не план).
+2. Гроші і стартапи — 1–2 події з сумами та джерелом, і чого з них може навчитися Blackbox Lab.
+3. Наша кухня FactoryOS — 4–6 реплік простими словами: що вчора зробили білдери (Claude, ChatGPT, Gemini) і що в планах на сьогодні.
+   ТІЛЬКИ з блоку «Факти FactoryOS» нижче. Без номерів задач, PR та issue, без внутрішніх кодів — лише суть, як для людини.
+4. Глибше — один практичний сценарій використання AI для власника, з готовим промптом, який можна одразу скопіювати (продиктуй повільно, дослівно).
 
 Факти FactoryOS (з репозиторію, на {date}):
 {factory_status}
 
 Правила:
 - Лише факти з джерел, які ти реально відкрив; кожне джерело — у sources з датою. Чутки позначай словами «за даними…» або «поки не підтверджено».
-- Ведучі: A — «Клод», B — «Джі-Пі-Ті». Вони розмовляють, ставлять одне одному питання, іноді не погоджуються. Без вигаданих особистих історій.
-- Обсяг: 750–1100 слів (5–8 хвилин). Якщо свіжих перевірених новин мало — краще коротше, ніж вигадувати. Числа пиши словами, як їх вимовляють. Без markdown, емодзі та посилань у репліках.
-- Перша репліка: привітання і дата. Остання: коротке прощання.
+- Ведучі: A — «Клод», B — «Джі-Пі-Ті». Вони розмовляють, реагують, ставлять одне одному питання, іноді не погоджуються. Кожна новина закінчується висновком «що це означає для нас». Без вигаданих особистих історій.
+- Назви компаній, продуктів, моделей і технічні терміни пиши ЛАТИНИЦЕЮ, як в оригіналі (OpenAI, Claude Code, Gemini 3.8 Flash, API, SDK) — озвучка Gemini вимовляє їх правильно. Не транслітеруй їх кирилицею. Номери версій моделей — цифрами; інші числа (суми, відсотки, дати) — словами.
+- Обсяг: 750–1100 слів (5–8 хвилин). Якщо свіжих перевірених новин мало — краще коротше, ніж вигадувати. Без markdown, емодзі та посилань у репліках.
+- Перша репліка: привітання, дата і одним реченням — три головні теми випуску. Остання: коротке прощання.
 
 Відповідь — ЛИШЕ JSON без пояснень:
 {{"title": "MyCast · {date_human}", "sources": [{{"title": "...", "url": "https://...", "date": "YYYY-MM-DD"}}], "lines": [["A", "..."], ["B", "..."]]}}
@@ -144,25 +145,59 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
+LANES = (("claude/", "Claude"), ("ccr-", "Claude"), ("gemini/", "Gemini"), ("chatgpt/", "ChatGPT"), ("autopilot/", "Claude"))
+_IDS = re.compile(r"\(?#\d+\)?|\bT-\d+[\w-]*|\bP[0-3]\b|^(Gemini|ChatGPT|Claude)\s*[:·]\s*|\s*·\s*(?=·|$)")
+
+
+def _lane(branch: str) -> str:
+    return next((name for prefix, name in LANES if branch.startswith(prefix)), "команда")
+
+
+def _plain(title: str) -> str:
+    """A PR/task title the hosts can say aloud: no issue/PR/task numbers or priority codes."""
+    text = title
+    for _ in range(3):
+        text = _IDS.sub("", text).strip(" ·:—-")
+    return re.sub(r"\s{2,}", " ", text)[:110]
+
+
 def factory_status(repo: pathlib.Path | None, *, runner=subprocess.run) -> str:
-    """Facts the hosts may say about FactoryOS: roadmap counts and the latest merged PR titles. Fail-soft."""
+    """Owner-facing FactoryOS facts: what each builder merged yesterday, what is open now, what is next. Fail-soft."""
     if repo is None:
         return "- немає даних із репозиторію сьогодні; про FactoryOS скажи лише це"
-    facts = []
+    facts: list[str] = []
+
+    def run(cmd: list[str]) -> str:
+        try:
+            return runner(cmd, text=True, capture_output=True, timeout=30, check=False).stdout or ""
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+
+    done = []
+    for row in run(["git", "-C", str(repo), "log", "--merges", "--since=30 hours ago", "--format=%s\x1f%b\x1e", "-n", "12",
+                    "origin/main"]).split("\x1e"):
+        if "\x1f" not in row:
+            continue
+        subject, body = row.split("\x1f", 1)
+        m = re.search(r"from [^/\s]+/(\S+)", subject)
+        title = _plain((body.strip().splitlines() or [""])[0])
+        if title:
+            done.append(f"- вчора зробив(ла) {_lane(m.group(1) if m else '')}: {title}")
+    facts += done[:8] or ["- за останню добу нових злиттів у main не було"]
+    try:
+        prs = json.loads(run(["gh", "pr", "list", "-R", REPO_SLUG, "--state", "open", "--limit", "20",
+                              "--json", "title,headRefName,isDraft"]) or "[]")
+    except ValueError:
+        prs = []
+    active = [p for p in prs if isinstance(p, dict) and not p.get("isDraft")][:4]
+    facts += [f"- зараз на перевірці у {_lane(str(p.get('headRefName', '')))}: {_plain(str(p.get('title', '')))}" for p in active]
     try:
         roadmap = (repo / "ROADMAP.md").read_text(encoding="utf-8")
-        done, todo = len(re.findall(r"^- \[x\]", roadmap, re.M)), len(re.findall(r"^- \[ \]", roadmap, re.M))
-        facts.append(f"- дорожня карта: {done} задач виконано, {todo} відкрито")
+        nxt = [m.group(1) for m in re.finditer(r"^- \[ \] (?!\[HUMAN\])\S+ (.+)$", roadmap, re.M)][:3]
+        facts += [f"- у плані на сьогодні: {_plain(t)}" for t in nxt]
     except OSError:
         pass
-    try:
-        out = runner(["git", "-C", str(repo), "log", "--merges", "--since=48 hours ago", "--format=%b", "-n", "8", "origin/main"],
-                     text=True, capture_output=True, timeout=30, check=False).stdout or ""
-        titles = [t.strip() for t in out.splitlines() if t.strip()][:8]
-        facts += [f"- злито за 48 годин: {t[:120]}" for t in titles] or ["- за 48 годин нових злиттів у main не було"]
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    return "\n".join(facts) or "- немає даних із репозиторію сьогодні; про FactoryOS скажи лише це"
+    return "\n".join(facts)
 
 
 def generate_episode(day: datetime, *, run_cli=None, status_text: str = "") -> tuple[str, dict | None]:

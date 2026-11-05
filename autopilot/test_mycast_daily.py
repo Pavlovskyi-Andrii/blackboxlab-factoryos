@@ -67,6 +67,7 @@ def test_generate():
     prompt = cmd[cmd.index("-p") + 1]
     assert "2026-11-03" in prompt and "3 листопада 2026" in prompt
     assert "- дорожня карта: 3 задачі виконано" in prompt and "750–1100" in prompt and "промпт" in prompt
+    assert "ЛАТИНИЦЕЮ" in prompt and "Без номерів задач" in prompt and "3–4" in prompt and "у FactoryOS" in prompt
     limit = '{"type":"result","is_error":true,"api_error_status":429,"api_error":"usage_limit_reached","result":"limit"}'
     assert md.generate_episode(day, run_cli=fake_cli(limit, 1)[0]) == ("limit", None)
     assert md.generate_episode(day, run_cli=fake_cli('{"type":"result","is_error":false,"result":"no json here"}')[0]) == ("failed", None)
@@ -109,13 +110,25 @@ def test_publish_and_wait():
 
 def test_factory_status():
     repo = Path(tempfile.mkdtemp())
-    (repo / "ROADMAP.md").write_text("- [x] T-1 a\n- [x] T-2 b\n- [ ] T-3 c\n", encoding="utf-8")
-    run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout="Worker sync: never rebase\n\nGemini key check\n", stderr="")
+    (repo / "ROADMAP.md").write_text("- [x] T-1 a\n- [ ] [HUMAN] T-2 pair the bot\n- [ ] T-3 Telegram live acceptance\n", encoding="utf-8")
+    log = ("Merge pull request #211 from owner/claude/worker-sync\x1fWorker sync: never rebase (#211)\x1e"
+           "Merge pull request #197 from owner/gemini/issue-175\x1fGemini: Gemini · P3 · Battle Runs: invalid input\x1e")
+    prs = json.dumps([{"title": "#216 AI Hangout concept A", "headRefName": "ccr-abc", "isDraft": False},
+                      {"title": "Draft thing", "headRefName": "chatgpt/x", "isDraft": True}])
+
+    def run(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 0, stdout=log if cmd[0] == "git" else prs, stderr="")
     text = md.factory_status(repo, runner=run)
-    assert "2 задач виконано, 1 відкрито" in text and "Worker sync: never rebase" in text and "Gemini key check" in text
+    assert "вчора зробив(ла) Claude: Worker sync: never rebase" in text
+    assert "вчора зробив(ла) Gemini: Battle Runs: invalid input" in text
+    assert "зараз на перевірці у Claude: AI Hangout concept A" in text and "Draft thing" not in text
+    assert "у плані на сьогодні: Telegram live acceptance" in text and "pair the bot" not in text  # HUMAN skipped
+    for code in ("#211", "#216", "T-3", "P3", "#197"):
+        assert code not in text, code  # hosts never read out task/PR numbers
     assert "немає даних" in md.factory_status(None)
     broken = lambda cmd, **kw: (_ for _ in ()).throw(OSError("no git"))
-    assert "дорожня карта" in md.factory_status(repo, runner=broken)  # fail-soft
+    fallback = md.factory_status(repo, runner=broken)  # fail-soft: roadmap plan still there
+    assert "нових злиттів" in fallback and "у плані на сьогодні" in fallback
 
 
 def test_transcript_messages():
