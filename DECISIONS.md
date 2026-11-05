@@ -708,3 +708,9 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - `latinize_names` maps a fixed list of known Cyrillic transliterations (OpenAI, ChatGPT, Claude Code, Anthropic, Gemini, Google, Microsoft, FactoryOS, API, SDK, GitHub, Telegram) back to Latin, after the source gate and before the script is published or voiced. It backs up the #226 prompt rule, so the model's habit of transliterating cannot reach the voice.
 - Conservative on purpose: only whole phrases not touching other Cyrillic letters change, so the hosts' names ("Клод", "Джі-Пі-Ті"), inflected forms ("Телеграмі") and ordinary text stay. Inflected brand forms are not rewritten, because a wrong ending is worse than a Cyrillic name.
 - On the real 2026-11-05 episode it makes 15 replacements and leaves no "Оупен Ей-Ай".
+
+## #238 Publish/approval boundary (2026-11-05)
+- Found a real gap: `/api/publishing/{id}/publish` and the `run-due` scheduler checked status, schedule time and media, but not the owner approval. A publish item with no approval, an unknown one, a non-approval decision, another job's approval or an approval the owner had since superseded reached the publisher adapter.
+- Fix: `_publish_approval_gate` runs right before the adapter and fails closed. The item's `approval_decision_id` must exist, belong to the same job and be an `approved` decision, and it must be the job's newest owner decision. After a rejection or regeneration the owner approves again; that new approval creates a new publish item.
+- A refused item stays `scheduled`, with an event and `approvalRequired: true`. Replaying an already-published item stays idempotent and never calls the adapter.
+- The tenancy test inserted publish items without any approval. Its fixtures now carry a real approval of their own job; its workspace assertions are unchanged.
