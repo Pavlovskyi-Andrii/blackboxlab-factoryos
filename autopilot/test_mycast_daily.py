@@ -84,6 +84,52 @@ def test_sources_gate():
     assert "факти не перевірені незалежно" in head
 
 
+def test_latin_names():
+    """#235 (baseline #226): brand/model names reach TTS in Latin; hosts' names and other Cyrillic text are untouched."""
+    import re as _re
+    import subprocess as _sp
+
+    import mycast
+    lines = [["A", "Привіт, я Клод. Вчора Оупен Ей-Ай випустила оновлення, а Антропік показав Клод Код."],
+             ["B", "А я Джі-Пі-Ті. Джеміні в Ей-Пі-Ай від Гугл, ЧатДжіПіТі і FactoryOS у Телеграм."],
+             ["A", "Звичайний текст без назв: телеграма не було, кодова база стабільна."],
+             ["B", "Already Latin: OpenAI, Claude Code, Gemini 3.8 Flash, API, SDK."]]
+    out, n = md.latinize_names([list(l) for l in lines])
+    assert n == 8, n  # Оупен Ей-Ай, Антропік, Клод Код, Джеміні, Ей-Пі-Ай, Гугл, ЧатДжіПіТі, Телеграм
+    assert out[0][1] == "Привіт, я Клод. Вчора OpenAI випустила оновлення, а Anthropic показав Claude Code."
+    assert out[1][1] == "А я Джі-Пі-Ті. Gemini в API від Google, ChatGPT і FactoryOS у Telegram."
+    assert out[2] == lines[2] and out[3] == lines[3]               # non-name Cyrillic and Latin stay as they are
+    assert [h for h, _ in out] == ["A", "B", "A", "B"]              # two-host order kept
+    assert md.latinize_names(out) == (out, 0)                       # idempotent: no double transliteration
+    # Nothing is dropped: removing the names leaves the same words on both sides.
+    strip = lambda t: _re.findall(r"[А-Яа-яІіЇїЄєҐґ'’]+", t)  # the Cyrillic words, in order
+    names = r"Оу?пен\s*Ей[-\s]?Ай|Антропік|Клод Код|Джеміні|Ей-Пі-Ай|Гугл|ЧатДжіПіТі|Телеграм"
+    for (_, before), (_, after) in zip(lines, out):
+        assert strip(_re.sub(names, "", before)) == strip(after)
+    # The TTS script the server builds keeps the Latin names byte for byte.
+    script = "\n".join(f"{mycast.SPEAKER_LABELS[h]}: {t}" for chunk in mycast.episode_chunks(out) for h, t in chunk)
+    for name in ("OpenAI", "Anthropic", "Claude Code", "Gemini", "API", "Google", "ChatGPT", "FactoryOS", "Telegram"):
+        assert name in script, name
+    # Regression on the real 2026-11-05 episode, the one the owner rated 7/10 for Cyrillic names.
+    raw = _sp.run(["git", "show", "origin/mycast/daily:docs/prototypes/mycast/episodes/2026-11-05.json"],
+                  capture_output=True, text=True).stdout
+    if raw:
+        real = json.loads(raw)["lines"]
+        fixed, count = md.latinize_names(real)
+        joined = " ".join(t for _, t in fixed)
+        assert count >= 5 and "OpenAI" in joined and "Оупен Ей-Ай" not in joined, count
+        assert sum(len(t.split()) for _, t in fixed) <= sum(len(t.split()) for _, t in real)  # names only shrink
+    else:
+        print("SKIPPED real-episode check: origin/mycast/daily not fetched here")
+    # generate_episode applies it before the script is published or voiced.
+    day = datetime(2026, 11, 3, 7, 5, tzinfo=md.KYIV)
+    ep = good_episode()
+    ep["lines"][0] = ["A", "Оупен Ей-Ай і Антропік оголосили нові моделі, а Джеміні отримав оновлення. " * 2]
+    wrapper = json.dumps({"type": "result", "is_error": False, "result": json.dumps(ep, ensure_ascii=False)})
+    status, episode = md.generate_episode(day, run_cli=fake_cli(wrapper)[0])
+    assert status == "ok" and episode["lines"][0][1].startswith("OpenAI і Anthropic оголосили нові моделі, а Gemini")
+
+
 def test_generate():
     day = datetime(2026, 11, 3, 7, 5, tzinfo=md.KYIV)
     wrapper = json.dumps({"type": "result", "is_error": False,
@@ -232,6 +278,7 @@ def main():
     test_generate()
     test_publish_and_wait()
     test_sources_gate()
+    test_latin_names()
     test_factory_status()
     test_transcript_messages()
     test_run_daily_orchestration()

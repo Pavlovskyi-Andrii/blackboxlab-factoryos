@@ -703,3 +703,8 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - A `Depends:` number missing from the GitHub read is listed as `unverified_depends`, not guessed. An unavailable GitHub read reports `available: false` with no counts, never zeros.
 - When ready < 10, the report escalates to the owner instead of inventing issues. Generating sub-issues automatically is left out on purpose: issue #231 forbids fictitious tasks and repeated creation, and nothing yet tells approved epics apart from concepts.
 - The compact GitHub snapshot (EC2 → Render) now keeps the `Depends:` line next to the Owner line; the rest of the body is still dropped.
+
+## #235 Latin names before TTS (2026-11-05, baseline #226)
+- `latinize_names` maps a fixed list of known Cyrillic transliterations (OpenAI, ChatGPT, Claude Code, Anthropic, Gemini, Google, Microsoft, FactoryOS, API, SDK, GitHub, Telegram) back to Latin, after the source gate and before the script is published or voiced. It backs up the #226 prompt rule, so the model's habit of transliterating cannot reach the voice.
+- Conservative on purpose: only whole phrases not touching other Cyrillic letters change, so the hosts' names ("Клод", "Джі-Пі-Ті"), inflected forms ("Телеграмі") and ordinary text stay. Inflected brand forms are not rewritten, because a wrong ending is worse than a Cyrillic name.
+- On the real 2026-11-05 episode it makes 15 replacements and leaves no "Оупен Ей-Ай".
