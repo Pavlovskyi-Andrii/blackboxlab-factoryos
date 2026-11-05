@@ -714,3 +714,9 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Fix: `_publish_approval_gate` runs right before the adapter and fails closed. The item's `approval_decision_id` must exist, belong to the same job and be an `approved` decision, and it must be the job's newest owner decision. After a rejection or regeneration the owner approves again; that new approval creates a new publish item.
 - A refused item stays `scheduled`, with an event and `approvalRequired: true`. Replaying an already-published item stays idempotent and never calls the adapter.
 - The tenancy test inserted publish items without any approval. Its fixtures now carry a real approval of their own job; its workspace assertions are unchanged.
+
+## #237 Security Check findings schema (2026-11-05, epic #98)
+- `security_findings.py` holds one finding schema: rule_id (`AUTH-001` style), title, severity, evidence_source, location, reproducibility, uncertainty, remediation, user_consent_status and target. A "confirmed" finding that was "not_reproduced" is refused. `not_required` consent is valid only for `target: own_repository`.
+- Redaction is mandatory and idempotent. It runs on every string field, nested details included, before a finding is returned. It reuses the token patterns from `owner_desk.py` and adds JWTs, bearer values, key=value secrets, long hex, emails, URL credentials and query strings, and private/internal hosts. Public hosts and ordinary text stay readable.
+- Export fails closed: every finding must be valid and its consent `granted` (or `not_required` for our own repo), and the finished JSON is checked once more for anything sensitive. There is no scanning code here; it works on findings handed to it, and the tests use synthetic fixtures only.
+- The test runs in CI as its own step, because the CI only runs listed test files.

@@ -126,6 +126,10 @@ jobs:
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
         run: python test_team_tasks.py
+      - name: Security Check findings schema and redaction (#237)
+        run: |
+          python -m py_compile security_findings.py test_security_findings.py
+          python test_security_findings.py
       - name: Browser Action Runner policy regression
         run: python test_browser_runner.py
       - name: Browser session isolation regression
