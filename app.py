@@ -8877,16 +8877,25 @@ def sync_cycle_for_publish(publish_id):
 
 INTAKE_SNAPSHOT_MAX_AGE=900  # the EC2 pusher runs every 3 minutes
 
+INTAKE_SNAPSHOT_CLOCK_SKEW=60  # a snapshot "from the future" beyond this is not trusted as fresh
+
 def _intake_issues_from_ec2_snapshot():
-    """#41: Render's token gets HTTP 403 on this repo, so the owner Issues come from the EC2 worker's snapshot
-    (read with the owner's gh login). Only a fresh snapshot is used; an old one means unknown, not empty."""
+    """#41/#258: owner Issues from the EC2 worker's snapshot (owner gh login) when Render's own read fails.
+    Returns (data, reason): data is None unless the snapshot is present, well-formed and fresh; reason is one of
+    "fresh", "missing", "stale", "malformed". Unknown is never imported as fresh."""
     snap=_load_team_snapshot()
-    if not snap or time.time()-float(snap.get("received",0))>INTAKE_SNAPSHOT_MAX_AGE:return None
-    github=snap.get("github") or {}
+    if snap is None:return None,"missing"
+    if not isinstance(snap,dict):return None,"malformed"
+    try:received=float(snap.get("received"))
+    except (TypeError,ValueError):return None,"malformed"
+    age=time.time()-received
+    if age>INTAKE_SNAPSHOT_MAX_AGE or age<-INTAKE_SNAPSHOT_CLOCK_SKEW:return None,"stale"
+    github=snap.get("github")
+    if not isinstance(github,dict) or not isinstance(github.get("issues"),list):return None,"malformed"
     issues=[{"number":i.get("number"),"title":str(i.get("title") or ""),"body":str(i.get("body") or ""),
              "url":str(i.get("html_url") or ""),"state":str(i.get("state") or ""),"author":str(i.get("author") or ""),
-             "pull_request":bool(i.get("pull_request"))} for i in github.get("issues") or [] if isinstance(i,dict)]
-    return {"issues":issues,"github":github}
+             "pull_request":bool(i.get("pull_request"))} for i in github["issues"] if isinstance(i,dict)]
+    return {"issues":issues,"github":{**github,"pulls":github.get("pulls") if isinstance(github.get("pulls"),list) else []}},"fresh"
 
 def github_issue_intake_once(fetch=None):
     """T-599-E / #41: one owner-Issue intake pass; logs counts/IDs and safe reason codes only, never bodies or tokens.
@@ -8901,11 +8910,12 @@ def github_issue_intake_once(fetch=None):
                      "state":i.get("state"),"html_url":i.get("url"),"labels":[]} for i in issues if isinstance(i,dict)]}
     else:
         render_error=f"{direct.get('error','')} ({direct.get('reason','unknown')})"
-        ec2=_intake_issues_from_ec2_snapshot()
+        ec2,snapshot_state=_intake_issues_from_ec2_snapshot()
         if ec2 is None:
             print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":False,"error":direct.get("error",""),"reason":direct.get("reason",""),
-                              "ec2_snapshot":"missing_or_stale","imported":[],"linked":[],"existing":0,"ignored":0}),flush=True)
-            return {"ok":False,"error":direct.get("error") or "GitHub unavailable","imported":[],"existing":[],"linked":[],"ignored":0}
+                              "ec2_snapshot":snapshot_state,"imported":[],"linked":[],"existing":0,"ignored":0}),flush=True)
+            return {"ok":False,"error":direct.get("error") or "GitHub unavailable","ec2_snapshot":snapshot_state,
+                    "imported":[],"existing":[],"linked":[],"ignored":0}
         issues,owner,source,gate_github=ec2["issues"],GITHUB_REPO.split("/",1)[0],"ec2",ec2["github"]
     readiness=queue_readiness({**gate_github,"available":True},roadmap=_parse_roadmap_tasks(),agent="claude")
     blocked={t["number"]:t["reasons"] for t in readiness.get("blocked") or []}

@@ -730,3 +730,9 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Render's `GITHUB_TOKEN` gets HTTP 403 on this repository (logged every 5 minutes since 2026-11-04), so owner Issues never reached Relay. The EC2 worker already pushes a compact GitHub snapshot every 3 minutes with the owner's `gh` login (for Team tasks). Intake now uses that snapshot when the direct read fails and the snapshot is younger than 15 minutes. No token, scope or secret changes. The snapshot now also keeps each issue's author login, because intake only accepts the owner's own issues.
 - Gate: Claude issues that Queue Keeper (#231) classifies as blocked are deferred, not imported. Blocked means an open Depends issue or PR, an unfinished ROADMAP dependency, an owner gate in the title, or another agent's open PR. Without the gate, restoring intake would hand the EC2 worker tasks that wait for the owner (#240–#242) or are acceptance checks (#219).
 - Failed GitHub reads log a fixed reason category (token_lacks_permission, invalid_token, rate_limited, sso_required, not_found_or_no_access, network), never headers or response text. With no fresh snapshot, intake reports `missing_or_stale` and imports nothing.
+
+## #258 Intake fallback contract (2026-11-05)
+- `_intake_issues_from_ec2_snapshot` returns `(data, reason)`, where reason is `fresh`, `missing`, `stale` or `malformed`. Only `fresh` data is ever imported, and the intake log and result carry the reason (`ec2_snapshot`).
+- Malformed means: not JSON, not an object, a non-numeric `received`, no `github` object, or `issues` that is not a list. These used to raise inside the intake loop.
+- A snapshot more than 60 s "in the future" (clock skew) counts as stale. Before, it was treated as fresh forever.
+- The six contract tests in `test_intake_fallback_contract.py` run in CI through `test_relay_execution.py`. They fail on the pre-#258 code.
