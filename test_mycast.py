@@ -105,7 +105,7 @@ def _episode(n_lines=6, text="Слово " * 60):
 
 def test_gemini_tts():
     import base64 as b64
-    ep = _episode()
+    ep = _episode(n_lines=20)
     chunks = mycast.episode_chunks(ep["lines"])
     assert len(chunks) > 1 and sum(len(c) for c in chunks) == len(ep["lines"])  # split, nothing lost
     calls = []
@@ -135,11 +135,26 @@ def test_gemini_tts():
         err = Exception("429")
         err.code = 429
         raise err
+    waited = []
     try:
-        mycast.gemini_tts_pcm("K", ep, opener=limited)
+        mycast.gemini_tts_pcm("K", ep, opener=limited, sleep=waited.append)
         raise AssertionError("429 must raise")
     except mycast.GeminiTTSError as exc:
         assert exc.category == "rate_limited"
+    # Bounded: a persistent 429 is retried RATE_LIMIT_RETRIES times for the first chunk, then the episode fails.
+    assert waited == [mycast.RATE_LIMIT_WAIT_SECONDS * (n + 1) for n in range(mycast.RATE_LIMIT_RETRIES)]
+
+    # A single free-tier 429 in the middle of an episode waits once and the episode still completes.
+    hits = {"n": 0}
+
+    def once_limited(req, timeout):
+        hits["n"] += 1
+        if hits["n"] == 2:
+            return limited(req, timeout)
+        return opener(req, timeout)
+    waited.clear()
+    pcm, _ = mycast.gemini_tts_pcm("K", ep, model="gemini-9-flash-tts", opener=once_limited, sleep=waited.append)
+    assert len(waited) == 1 and len(pcm) >= 4800 * len(chunks)
 
 
 def test_voice_route():
@@ -176,7 +191,7 @@ def test_voice_route():
     assert call() == (502, "gemini tts: rate_limited") and log.delivered() == []
     state["fail"] = None
     code, body = call()
-    assert code == 200 and body["sent"] and body["voice"] == "gemini" and body["seconds"] == 1
+    assert code == 200 and body["sent"] and body["voice"] == "gemini" and body["seconds"] == 1 and body["bytes"] == 3
     assert sent[0][0] == b"MP3" and "Gemini" in sent[0][3]
     assert call()[1]["duplicate"] is True and len(sent) == 1
 
@@ -211,7 +226,7 @@ def test_episode_chunks():
     lines_mixed = [("A", "hello"), ("B", long_text), ("A", "world")]
     check_integrity(lines_mixed)
 
-    line1 = ("A", "x" * 1000)
+    line1 = ("A", "x" * (mycast.CHUNK_CHARS - 400))
     line2 = ("B", "y" * 400)
     line3 = ("A", "z" * 1)
     lines_boundary = [line1, line2, line3]

@@ -502,7 +502,7 @@ def main() -> int:
 
         # T-603: the owner's morning MyCast episode, once a day, between tasks.
         if MYCAST_ENABLED:
-            cast = mycast_daily.run_daily(ANSWERS.with_name("mycast.json"))
+            cast = mycast_daily.run_daily(ANSWERS.with_name("mycast.json"), repo=REPO)
             if cast == "limit":
                 notice = hold_for_limit("")
                 write_runtime_status("idle", summary=notice)

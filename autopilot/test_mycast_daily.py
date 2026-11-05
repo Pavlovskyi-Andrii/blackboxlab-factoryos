@@ -30,9 +30,10 @@ def fake_cli(stdout, code=0):
 
 
 def test_schedule():
-    morning = kyiv_ts(2026, 11, 3, 6, 59)
-    assert md.due({}, morning) is False  # before 07:00 Kyiv
-    at7 = kyiv_ts(2026, 11, 3, 7, 0)
+    morning = kyiv_ts(2026, 11, 3, 5, 9)
+    assert md.due({}, morning) is False  # before 05:10 Kyiv
+    assert md.due({}, kyiv_ts(2026, 11, 3, 4, 30)) is False
+    at7 = kyiv_ts(2026, 11, 3, 5, 10)  # first attempt early enough for the 06:00 target (#219)
     assert md.due({}, at7) is True
     assert md.due({"delivered_date": "2026-11-03"}, at7) is False
     assert md.due({"attempts": {"2026-11-03": md.MAX_ATTEMPTS}}, at7) is False
@@ -58,12 +59,14 @@ def test_generate():
     wrapper = json.dumps({"type": "result", "is_error": False,
                           "result": "Ось сценарій:\n" + json.dumps(good_episode(), ensure_ascii=False)})
     run, calls = fake_cli(wrapper)
-    status, episode = md.generate_episode(day, run_cli=run)
+    status, episode = md.generate_episode(day, run_cli=run, status_text="- дорожня карта: 3 задачі виконано")
     assert status == "ok" and episode["id"] == "mycast-2026-11-03" and episode["hosts"] == md.HOSTS
     cmd = calls[0][0]
     allowed = cmd[cmd.index("--allowedTools") + 1:cmd.index("--disallowedTools")]
     assert allowed == ["WebSearch", "WebFetch"] and "Bash" in cmd and "Write" in cmd
-    assert "2026-11-03" in cmd[cmd.index("-p") + 1] and "3 листопада 2026" in cmd[cmd.index("-p") + 1]
+    prompt = cmd[cmd.index("-p") + 1]
+    assert "2026-11-03" in prompt and "3 листопада 2026" in prompt
+    assert "- дорожня карта: 3 задачі виконано" in prompt and "750–1100" in prompt and "промпт" in prompt
     limit = '{"type":"result","is_error":true,"api_error_status":429,"api_error":"usage_limit_reached","result":"limit"}'
     assert md.generate_episode(day, run_cli=fake_cli(limit, 1)[0]) == ("limit", None)
     assert md.generate_episode(day, run_cli=fake_cli('{"type":"result","is_error":false,"result":"no json here"}')[0]) == ("failed", None)
@@ -104,6 +107,27 @@ def test_publish_and_wait():
     assert md.wait_render("sha", gh_fn=failed, sleep=lambda s: None, wait_seconds=60) == ""
 
 
+def test_factory_status():
+    repo = Path(tempfile.mkdtemp())
+    (repo / "ROADMAP.md").write_text("- [x] T-1 a\n- [x] T-2 b\n- [ ] T-3 c\n", encoding="utf-8")
+    run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout="Worker sync: never rebase\n\nGemini key check\n", stderr="")
+    text = md.factory_status(repo, runner=run)
+    assert "2 задач виконано, 1 відкрито" in text and "Worker sync: never rebase" in text and "Gemini key check" in text
+    assert "немає даних" in md.factory_status(None)
+    broken = lambda cmd, **kw: (_ for _ in ()).throw(OSError("no git"))
+    assert "дорожня карта" in md.factory_status(repo, runner=broken)  # fail-soft
+
+
+def test_transcript_messages():
+    ep = dict(good_episode(), id="mycast-2026-11-03")
+    ep["lines"] = ep["lines"] * 8  # long episode: several Telegram messages
+    parts = md.transcript_messages(ep)
+    assert len(parts) > 1 and all(len(p) <= md.TELEGRAM_TEXT_LIMIT for p in parts)
+    assert "https://tech.eu/x" in parts[0] and "2026-11-02" in parts[0] and parts[0].startswith("📝")
+    joined = "\n\n".join(parts)
+    assert joined.count("Клод:") == joined.count("Джі-Пі-Ті:") == len(ep["lines"]) // 2
+
+
 def test_run_daily_orchestration():
     state_path = Path(tempfile.mkdtemp()) / "mycast.json"
     at = kyiv_ts(2026, 11, 3, 7, 30)
@@ -111,14 +135,17 @@ def test_run_daily_orchestration():
     saved_conf = md.relay_tasks.configured
     try:
         md.relay_tasks.configured = lambda: True
-        md.generate_episode = lambda day, run_cli=None: ("ok", dict(good_episode(), id="mycast-2026-11-03"))
+        md.generate_episode = lambda day, run_cli=None, status_text="": ("ok", dict(good_episode(), id="mycast-2026-11-03"))
         md.publish = lambda ep: "sha1"
         md.deliver_gemini = lambda ep: "unavailable"  # no Gemini key yet → Piper path
         md.wait_render = lambda sha: "42"
         md.download_mp3 = lambda run_id, eid: b"ID3audio"
         delivered = []
         md.deliver = lambda ep, audio: delivered.append((ep["id"], audio)) or True
-        assert md.run_daily(state_path, now=at) == "delivered"
+        msgs = []
+        assert md.run_daily(state_path, now=at, send=msgs.append) == "delivered"
+        assert msgs and msgs[0].startswith("📝")  # transcript + sources follow the audio
+        assert md.run_daily(state_path, now=at + 3600, send=msgs.append) == "idle" and len(msgs) == len(md.transcript_messages(good_episode()))
         assert delivered == [("mycast-2026-11-03", b"ID3audio")]
         assert md.run_daily(state_path, now=at + 3600) == "idle"  # once per day
         # Gemini voices delivered by the server: no render wait, no Piper upload.
@@ -131,10 +158,23 @@ def test_run_daily_orchestration():
         md.deliver_gemini = lambda ep: "unavailable"
         # A subscription limit does not use up one of the day's attempts.
         state_path.unlink()
-        md.generate_episode = lambda day, run_cli=None: ("limit", None)
+        md.generate_episode = lambda day, run_cli=None, status_text="": ("limit", None)
         assert md.run_daily(state_path, now=at) == "limit"
         assert json.loads(state_path.read_text())["attempts"]["2026-11-03"] == 0
         # Without a FactoryOS connection nothing runs.
+        # Audio fails on every attempt: text fallback once, one honest failure notice after the last attempt.
+        state_path.unlink()
+        md.generate_episode = lambda day, run_cli=None, status_text="": ("ok", dict(good_episode(), id="mycast-2026-11-03"))
+        md.download_mp3 = lambda run_id, eid: b""
+        msgs = []
+        for n in range(md.MAX_ATTEMPTS):
+            assert md.run_daily(state_path, now=at + n * md.RETRY_SPACING_SECONDS, send=lambda t: msgs.append(t) or True) == "failed"
+        notices = [m for m in msgs if m.startswith("⚠️")]
+        assert len(notices) == 1 and "не доставлено" in notices[0] and "Текст випуску надіслано" in notices[0]
+        assert sum(m.startswith("📝") for m in msgs) == 1  # transcript sent once, not per attempt
+        assert md.run_daily(state_path, now=at + 9 * md.RETRY_SPACING_SECONDS, send=msgs.append) == "idle"
+        # A broken Telegram notice never breaks the worker loop.
+        assert md.notify_owner("x", send=lambda t: (_ for _ in ()).throw(RuntimeError("down"))) is False
         md.relay_tasks.configured = lambda: False
         assert md.run_daily(Path(tempfile.mkdtemp()) / "s.json", now=at) == "idle"
     finally:
@@ -148,6 +188,8 @@ def main():
     test_validate()
     test_generate()
     test_publish_and_wait()
+    test_factory_status()
+    test_transcript_messages()
     test_run_daily_orchestration()
     print("MyCast daily worker tests passed")
 
