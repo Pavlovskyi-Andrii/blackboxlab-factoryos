@@ -678,3 +678,21 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Prompt: 3–4 world news items, each ending in "what it means for us / how it could fit FactoryOS" (labelled as an idea, not a plan); 1–2 money/startup items; a 4–6 line "our kitchen" segment; the deep use case with a copyable prompt stays.
 - Names of companies, products and models stay in Latin script, as Gemini TTS pronounces them correctly. Trade-off: the Piper fallback will read Latin names poorly; it is only the fallback.
 - FactoryOS facts are built per builder lane from the branch prefix of merges in the last 30 h (claude/ and ccr- → Claude, gemini/ → Gemini, chatgpt/ → ChatGPT), open non-draft PRs (best effort via gh), and the next three non-HUMAN ROADMAP tasks. Issue/PR/task numbers and priority codes are stripped in code before they reach the prompt.
+
+## #233 MyCast audio preflight QC (2026-11-05)
+- Pure Python checks in `mycast.py`, because Render has no ffmpeg/ffprobe; a missing tool can never turn into a silent "OK".
+- Gemini path (raw PCM known): duration must be 0.45–2.2× the script estimate (140 words/min), no near-silence run (RMS < 160 on 16-bit, ~-46 dBFS, 100 ms windows) longer than 6 s, and no TTS chunk shorter than 0.35× its text (14 chars/s) — that catches a truncated chunk the total length would hide. The encoded MP3 is then parsed frame by frame.
+- Piper/upload path: the MP3 must parse as MPEG Layer III with ≥20 frames and ≥90 % of the bytes in valid frames; otherwise HTTP 422 and nothing is logged as delivered.
+- Any QC failure releases the delivery claim, so the worker's existing path runs: Gemini failure → Piper fallback; Piper failure → transcript as text plus, after the last attempt, the explicit failure notice.
+- The frame parser matches ffprobe on the committed Piper pilot (109.74 s vs 109.71 s) and accepts the server's own lameenc output; the tests use synthetic MP3 frames and seeded PCM, no TTS calls.
+
+## #234 MyCast source/date integrity gate (2026-11-05)
+- `check_sources` runs right after the script is generated, before it is committed or voiced. Blocking: missing title or URL, non-https or malformed host, credentials in the URL, duplicate URL (host without `www.`, path without trailing `/`), date not `YYYY-MM-DD`, date in the future, or no dated source from the last 7 days. A rejected script uses one of the day's 3 attempts, like any other invalid script.
+- Non-blocking but labelled: `stale` (older than 7 days, with age), `undated`, and `editorial` (`"kind": "editorial"`, the hosts' own conclusion, URL optional; never counted as evidence).
+- A URL is a pointer, not proof. The Telegram transcript shows each source's date and status and says the facts are not independently verified; "fresh" only means the link is dated within the week.
+- Checked against the four real episodes of 2–5 November: all pass, so the gate does not reject the scripts we already accept.
+
+## #236 Worker sync safety regression (2026-11-05)
+- `sync_branch` now also aborts a leftover `MERGE_HEAD` (a restart in the middle of a merge) before syncing, the same way it already aborted a leftover rebase. Without this, every later merge failed and the worker reported "conflict" forever. Only the half-done merge is discarded; committed work is untouched.
+- `sync_safety_regression` (temporary git repos, no network) covers: an unpushed checkpoint commit kept through a sync; a diverged conflicting merge aborted with HEAD unchanged; an uncommitted edit kept when main touches the same file; a stale MERGE_HEAD with and without a real conflict; and a real interrupted rebase reproducing the 2026-11-04 outage. A spy on every git command asserts `rebase` only ever appears as `rebase --abort`, and that sync never pushes, forces, resets, cleans, checks out or deletes branches.
+- Conflict handling is unchanged: the loop sends one owner notice and keeps working on the current code, so a conflict is never shown as an endless "running".

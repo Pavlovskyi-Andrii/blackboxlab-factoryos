@@ -221,6 +221,10 @@ def sync_branch(branch: str) -> str:
     git_dir = pathlib.Path(REPO) / ".git"
     if (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists():
         run(["git", "rebase", "--abort"], check=False)
+    # #236: a restart in the middle of a merge leaves MERGE_HEAD behind; every later merge would then fail and the
+    # worker would report "conflict" forever. Abort it (committed work is untouched) and sync again from scratch.
+    if (git_dir / "MERGE_HEAD").exists():
+        run(["git", "merge", "--abort"], check=False)
     before = git_head()
     if run(["git", "fetch", "origin", branch], check=False, timeout=GIT_NET_TIMEOUT).returncode == 0:
         remote = f"origin/{branch}"
