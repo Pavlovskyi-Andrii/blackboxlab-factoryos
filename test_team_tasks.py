@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from team_tasks import TeamTasksCache, build_team_tasks, read_github
+from team_tasks import TeamTasksCache, build_team_tasks, compact_github, queue_readiness, read_github
 
 NOW = 1_800_000_000.0  # fixed clock
 
@@ -138,6 +138,63 @@ class TeamTasksTest(unittest.TestCase):
         os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-team-tasks-"))
         import app
         self.assertIn("/api/factory/team-tasks", {getattr(r, "path", "") for r in app.app.routes})
+
+
+class QueueKeeperTest(unittest.TestCase):
+    """#231: READY / BLOCKED / IN_REVIEW for Claude Issues, no invented tasks, same answer on every run."""
+
+    def github(self):
+        def iss(n, title="Task", body="", state="open", labels=()):
+            return dict(issue(n, "Claude", state=state, labels=labels), title=f"{title} {n}",
+                        body=f"Owner: Claude\nPriority: P1\n{body}")
+        return {"available": True,
+                "issues": [iss(1), iss(2, body="Depends: #9 (open), #8 (closed)"), iss(3, body="Depends: #8, T-593"),
+                           iss(4, labels=["blocked"]), iss(5, title="Claude · CONDITIONAL hub — only after video approval"),
+                           iss(6, body="Depends: none"), iss(7), issue(9, "ChatGPT"), issue(8, "ChatGPT", state="closed"),
+                           iss(10, body="Priority: P0 · Depends: #555 (older than this read), #22 (a closed PR)"), iss(11, state="closed"),
+                           iss(13, body="Depends: #20 (an open PR)"),
+                           issue(12, "Gemini")],
+                "pulls": [pr(20, "claude/x", body="Closes #7"), pr(21, "gemini/issue-6"),
+                          pr(22, "claude/y", body="Refs #1", state="closed")],  # closed unmerged PR does not count
+                "ci": {}}
+
+    def test_classification(self):
+        roadmap = [{"id": "T-593", "done": False}, {"id": "T-1", "done": True}]
+        q = queue_readiness(self.github(), roadmap=roadmap)
+        ready = [t["number"] for t in q["ready"]]
+        blocked = {t["number"]: t["reasons"] for t in q["blocked"]}
+        self.assertEqual(ready, [1, 10])
+        self.assertEqual(blocked, {2: ["depends_open_#9"], 3: ["depends_roadmap_T-593"], 4: ["blocked_label"],
+                                   5: ["owner_gate"], 6: ["claimed_by_gemini"], 13: ["depends_open_#20"]})
+        self.assertEqual([t["number"] for t in q["in_review"]], [7])
+        self.assertEqual(q["counts"], {"open": 9, "ready": 2, "blocked": 6, "in_review": 1})
+        self.assertEqual(q["ready"][1]["unverified_depends"], ["#555"])  # not guessed as done or open
+        self.assertEqual(q["shortfall"], 8)  # PR dependencies resolve from PR state: #22 closed → not unverified
+        self.assertIn("No task is invented", q["escalation"])
+        # A finished roadmap dependency no longer blocks.
+        done = queue_readiness(self.github(), roadmap=[{"id": "T-593", "done": True}])
+        self.assertIn(3, [t["number"] for t in done["ready"]])
+
+    def test_deterministic_and_target(self):
+        g = self.github()
+        runs = [queue_readiness(g, roadmap=[]) for _ in range(3)]
+        self.assertTrue(all(r == runs[0] for r in runs))  # multiple runs: same report, nothing created
+        self.assertEqual(queue_readiness(g, roadmap=[], target=2)["shortfall"], 0)
+        self.assertEqual(queue_readiness(g, roadmap=[], target=2)["escalation"], "")
+
+    def test_unavailable_is_not_empty_success(self):
+        q = queue_readiness({"available": False, "error": "HTTP 403"}, roadmap=[])
+        self.assertFalse(q["available"])
+        self.assertIsNone(q["counts"])
+        self.assertIsNone(q["shortfall"])
+
+    def test_snapshot_keeps_depends_and_board_exposes_queue(self):
+        snap = compact_github(self.github())
+        two = next(i for i in snap["issues"] if i["number"] == 2)
+        self.assertEqual(two["body"], "Owner: Claude\nDepends: #9 (open), #8 (closed)")
+        self.assertNotIn("Priority", two["body"])  # the rest of the body is still dropped
+        board = build_team_tasks(snap, roadmap=[{"id": "T-593", "done": False}], repo="o/r", now=NOW)
+        self.assertEqual(board["queue_keeper"]["counts"]["ready"], 2)
 
 
 if __name__ == "__main__":

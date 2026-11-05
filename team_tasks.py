@@ -21,6 +21,11 @@ PROGRESS = {"queued": 0, "blocked": 0, "waiting_owner": 0, "in_progress": 40, "c
 _OWNER_LINE = re.compile(r"^\s*Owner:\s*(Claude|ChatGPT|Gemini)\b", re.I)
 _ISSUE_REF = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?)\s+#(\d+)", re.I)
 _BRANCH_ISSUE = re.compile(r"issue-(\d+)")
+_DEPENDS_LINE = re.compile(r"Depends:\s*([^\n]*)", re.I)
+_DEP_ISSUE = re.compile(r"#(\d+)")
+_DEP_TASK = re.compile(r"\bT-\d+(?:-[A-Z0-9]+)?\b")
+_OWNER_GATE = re.compile(r"\bCONDITIONAL\b|only after|не начинать до|только после", re.I)
+QUEUE_TARGET = 10
 
 
 def _ts(value) -> float:
@@ -128,12 +133,12 @@ def _reason(task: dict, agent: str) -> str:
     return "done"
 
 
-def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = None, repo: str = "",
-                     now: Optional[float] = None, done_limit: int = 25) -> dict:
-    now = time.time() if now is None else float(now)
-    lanes = lanes or {}
-    ci = github.get("ci") or {}
-    prs = [p for p in github.get("pulls") or [] if isinstance(p, dict)]
+def _depends(body) -> str:
+    m = _DEPENDS_LINE.search(str(body or ""))
+    return m.group(1).strip()[:300] if m else ""
+
+
+def _prs_by_issue(prs: list) -> dict:
     by_issue: dict = {}
     for pr in prs:
         refs = {int(n) for n in _ISSUE_REF.findall(str(pr.get("body") or ""))}
@@ -142,6 +147,81 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
             current = by_issue.get(n)
             if current is None or _ts(pr.get("updated_at")) > _ts(current.get("updated_at")):
                 by_issue[n] = pr
+    return by_issue
+
+
+def queue_readiness(github: dict, *, roadmap: list, agent: str = "claude", target: int = QUEUE_TARGET) -> dict:
+    """#231 Queue Keeper: which open Issues of one agent can really be taken now. Read-only; it never creates,
+    claims or starts anything (claims stay with Relay). Deterministic for the same input, so repeated runs agree.
+
+    in_review: a linked PR exists (open or merged) · blocked: ``blocked`` label, owner gate in the title, an open
+    ``Depends:`` issue, an unfinished ``Depends:`` ROADMAP task, or an open PR of another agent on it · ready: the rest.
+    A ``Depends:`` issue not present in the GitHub read is listed as unverified rather than guessed."""
+    if not github.get("available"):
+        return {"agent": agent, "available": False, "error": str(github.get("error") or "GitHub unavailable"),
+                "target": target, "counts": None, "ready": [], "blocked": [], "in_review": [], "shortfall": None, "escalation": ""}
+    items = [i for i in github.get("issues") or [] if isinstance(i, dict)]
+    issues = [i for i in items if not i.get("pull_request")]
+    # A dependency may be an issue or a PR (GitHub lists PRs among issues too); a merged/closed PR is resolved.
+    state = {int(i.get("number") or 0): str(i.get("state") or "") for i in items}
+    state.update({int(p.get("number") or 0): str(p.get("state") or "") for p in github.get("pulls") or [] if isinstance(p, dict)})
+    roadmap_done = {str(t.get("id")): bool(t.get("done")) for t in roadmap or [] if t.get("id")}
+    by_issue = _prs_by_issue([p for p in github.get("pulls") or [] if isinstance(p, dict)])
+    ready, blocked, in_review = [], [], []
+    for issue in sorted(issues, key=lambda i: int(i.get("number") or 0)):
+        if issue.get("state") != "open" or _agent_of_issue(issue.get("body")) != agent:
+            continue
+        number, title = int(issue.get("number") or 0), str(issue.get("title") or "")[:200]
+        labels = {str(l.get("name") or "") for l in issue.get("labels") or [] if isinstance(l, dict)}
+        item = {"number": number, "title": title, "url": str(issue.get("html_url") or "")}
+        pr = by_issue.get(number)
+        pr_agent = _agent_of_pr(pr) if pr else ""
+        if pr and (pr.get("merged_at") or pr.get("state") == "open") and pr_agent in ("", agent):
+            in_review.append(dict(item, pr=pr.get("number")))
+            continue
+        depends = _depends(issue.get("body"))
+        reasons, unverified = [], []
+        if "blocked" in labels:
+            reasons.append("blocked_label")
+        if _OWNER_GATE.search(title):
+            reasons.append("owner_gate")
+        if pr and pr.get("state") == "open" and pr_agent not in ("", agent):
+            reasons.append(f"claimed_by_{pr_agent}")
+        for n in sorted({int(x) for x in _DEP_ISSUE.findall(depends)}):
+            if n == number:
+                continue
+            if n not in state:
+                unverified.append(f"#{n}")
+            elif state[n] == "open":
+                reasons.append(f"depends_open_#{n}")
+        for task in sorted(set(_DEP_TASK.findall(depends))):
+            if task in roadmap_done and not roadmap_done[task]:
+                reasons.append(f"depends_roadmap_{task}")
+        if unverified:
+            item["unverified_depends"] = unverified
+        if reasons:
+            blocked.append(dict(item, reasons=reasons))
+        else:
+            ready.append(item)
+    shortfall = max(0, target - len(ready))
+    escalation = ""
+    if shortfall:
+        escalation = (f"{len(ready)} of {target} Claude tasks are ready; {len(blocked)} blocked. "
+                      "No task is invented to fill the queue: the owner (or ChatGPT, under the owner's rules) adds approved "
+                      "work, or unblocks the listed dependencies.")
+    return {"agent": agent, "available": True, "target": target,
+            "counts": {"open": len(ready) + len(blocked) + len(in_review), "ready": len(ready),
+                       "blocked": len(blocked), "in_review": len(in_review)},
+            "ready": ready, "blocked": blocked, "in_review": in_review, "shortfall": shortfall, "escalation": escalation}
+
+
+def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = None, repo: str = "",
+                     now: Optional[float] = None, done_limit: int = 25) -> dict:
+    now = time.time() if now is None else float(now)
+    lanes = lanes or {}
+    ci = github.get("ci") or {}
+    prs = [p for p in github.get("pulls") or [] if isinstance(p, dict)]
+    by_issue = _prs_by_issue(prs)
     known = {int(i.get("number") or 0) for i in github.get("issues") or []
              if isinstance(i, dict) and not i.get("pull_request") and _agent_of_issue(i.get("body"))}
     linked_prs = {id(p) for n, p in by_issue.items() if n in known}
@@ -221,13 +301,16 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
             "github_source": str(github.get("source") or "render"), "github_available": bool(github.get("available")),
             "github_error": github.get("error") or "", "repo": repo, "agents": agents, "totals": totals,
             "done_7d": sum(a["done_7d"] for a in agents.values()),
+            "queue_keeper": queue_readiness(github, roadmap=roadmap, agent="claude"),
             "progress_note": "progress = stage (queued 0, draft PR 40, CI failed 60, review 85, merged/closed 100), not measured code completion"}
 
 
 def compact_github(github: dict) -> dict:
     """Only the fields the page needs: Owner line, issue refs, states, times, PR heads, CI. Bodies are not kept."""
-    def owner_line(body):
-        return str(body or "").split("\n", 1)[0][:200]
+    def owner_line(body):  # plus the Depends line, which the Queue Keeper needs; the rest of the body is dropped
+        first = str(body or "").split("\n", 1)[0][:200]
+        dep = _depends(body)
+        return first + ("\nDepends: " + dep if dep else "")
 
     def refs(body):
         return " ".join("Refs #" + n for n in _ISSUE_REF.findall(str(body or "")))[:500]
