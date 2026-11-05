@@ -685,3 +685,9 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Piper/upload path: the MP3 must parse as MPEG Layer III with ≥20 frames and ≥90 % of the bytes in valid frames; otherwise HTTP 422 and nothing is logged as delivered.
 - Any QC failure releases the delivery claim, so the worker's existing path runs: Gemini failure → Piper fallback; Piper failure → transcript as text plus, after the last attempt, the explicit failure notice.
 - The frame parser matches ffprobe on the committed Piper pilot (109.74 s vs 109.71 s) and accepts the server's own lameenc output; the tests use synthetic MP3 frames and seeded PCM, no TTS calls.
+
+## #234 MyCast source/date integrity gate (2026-11-05)
+- `check_sources` runs right after the script is generated, before it is committed or voiced. Blocking: missing title or URL, non-https or malformed host, credentials in the URL, duplicate URL (host without `www.`, path without trailing `/`), date not `YYYY-MM-DD`, date in the future, or no dated source from the last 7 days. A rejected script uses one of the day's 3 attempts, like any other invalid script.
+- Non-blocking but labelled: `stale` (older than 7 days, with age), `undated`, and `editorial` (`"kind": "editorial"`, the hosts' own conclusion, URL optional; never counted as evidence).
+- A URL is a pointer, not proof. The Telegram transcript shows each source's date and status and says the facts are not independently verified; "fresh" only means the link is dated within the week.
+- Checked against the four real episodes of 2–5 November: all pass, so the gate does not reject the scripts we already accept.

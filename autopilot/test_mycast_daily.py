@@ -47,11 +47,41 @@ def test_validate():
     bad["lines"][0] = ["C", "x"]
     assert md.validate(bad)
     bad = good_episode()
-    bad["sources"] = [{"title": "x", "url": "http://insecure"}]
+    bad["sources"] = []
     assert md.validate(bad)
     bad = good_episode()
     bad["lines"] = bad["lines"][:3]
     assert md.validate(bad)
+
+
+def test_sources_gate():
+    day = datetime(2026, 11, 5, 5, 10, tzinfo=md.KYIV)
+
+    def gate(*sources):
+        ep = {"sources": [dict(s) for s in sources]}
+        return md.check_sources(ep, day), ep["sources"]
+    ok = {"title": "TechCrunch: Fal raises", "url": "https://techcrunch.com/2026/11/03/fal", "date": "2026-11-03"}
+    problems, srcs = gate(ok)
+    assert problems == [] and srcs[0]["status"] == "fresh"                                   # valid case
+    assert gate({"title": "No link"})[0] == ["source 1: url missing"]                          # missing URL
+    for url in ("http://techcrunch.com/x", "https://localhost/x", "https://exa mple.com/x", "https://user@evil.com/x", "ftp://a.com/x"):
+        assert gate(dict(ok, url=url))[0] == ["source 1: malformed url"], url                 # malformed URL
+    assert gate(dict(ok, date="2026-11-06"))[0] == ["source 1: dated in the future (2026-11-06)"]  # future-dated
+    assert gate(dict(ok, date="05.11.2026"))[0] == ["source 1: date must be YYYY-MM-DD"]
+    dup = dict(ok, url="https://www.techcrunch.com/2026/11/03/fal/")
+    assert gate(ok, dup)[0] == ["source 2: duplicate url"]                                    # duplicated source
+    editorial = {"title": "Висновок ведучих про ціни", "kind": "editorial"}
+    problems, srcs = gate(ok, editorial)
+    assert problems == [] and srcs[1]["status"] == "editorial"                                # editorial: labelled, allowed
+    assert gate(editorial)[0] == ["sources: no dated source from the last week"]             # ...but never counts as evidence
+    problems, srcs = gate(ok, dict(ok, url="https://example.com/old", date="2026-10-01"), dict(ok, url="https://example.com/nd", date=""))
+    assert problems == [] and [s["status"] for s in srcs] == ["fresh", "stale", "undated"] and srcs[1]["age_days"] == 35
+    assert gate(dict(ok, date="2026-09-01"))[0] == ["sources: no dated source from the last week"]
+    # Transcript labels say what was checked (link + date), never that the fact is confirmed.
+    ep = dict(good_episode(), sources=srcs + [dict(editorial, status="editorial")])
+    head = md.transcript_messages(ep)[0]
+    assert "дата в межах тижня" in head and "старе, 35 дн." in head and "без дати" in head and "думка ведучих" in head
+    assert "факти не перевірені незалежно" in head
 
 
 def test_generate():
@@ -201,6 +231,7 @@ def main():
     test_validate()
     test_generate()
     test_publish_and_wait()
+    test_sources_gate()
     test_factory_status()
     test_transcript_messages()
     test_run_daily_orchestration()
