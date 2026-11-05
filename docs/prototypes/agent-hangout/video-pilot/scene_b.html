@@ -1,0 +1,88 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AI Hangout · Podcast scene B</title>
+<style>html,body{margin:0;background:#05060a;overflow:hidden}canvas{display:block}</style></head>
+<body><canvas id="c"></canvas>
+<script>
+// Scene B (#220): audio-reactive AI Hangout podcast scene. Deterministic: window.render(t).
+// window.DATA (from prepare_audio.py) = measured loudness per frame + who-speaks-when captions of a real MP3.
+// Hosts are abstract, clearly synthetic forms (no human likeness). Evidence cards are DEMO.
+const Q = new URLSearchParams(location.search), W = +Q.get('w') || 1280, H = +Q.get('h') || 720;
+const cv = document.getElementById('c'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+const D = window.DATA || { duration: 12, fps: 30, captions: [], level: [], source: {} };
+const S = Math.min(W, H) / 720, PORTRAIT = H > W, DUR = D.duration;
+const A = '#ff8a3d', A2 = '#ffcf7a', B = '#53e0ff', B2 = '#9b8cff', INK = '#f3f1ea', MUTE = '#9aa0ad';
+const ease = x => x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x), seg = (t, a, b) => ease((t - a) / (b - a));
+const lvl = t => D.level[Math.min(D.level.length - 1, Math.max(0, Math.floor(t * D.fps)))] || 0;
+const capAt = t => D.captions.find(c => t >= c.start && t < c.end + 0.25);
+// smooth "who is talking" weight per host, from measured caption timing
+function talk(t, host) { let w = 0; for (const c of D.captions) if (c.host === host) w = Math.max(w, seg(t, c.start - .15, c.start + .1) * (1 - seg(t, c.end, c.end + .3))); return w; }
+function mono(txt, x, y, size, col, a = 1, align = 'left', weight = 600) { g.font = `${weight} ${size}px ui-monospace,Menlo,Consolas,monospace`; g.fillStyle = col; g.globalAlpha = a; g.textAlign = align; g.fillText(txt, x, y); g.globalAlpha = 1; }
+function sans(txt, x, y, size, col, a = 1, align = 'left', weight = 500) { g.font = `${weight} ${size}px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif`; g.fillStyle = col; g.globalAlpha = a; g.textAlign = align; g.fillText(txt, x, y); g.globalAlpha = 1; }
+function glow(x, y, r, c, a) { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, c); gr.addColorStop(1, 'transparent'); g.globalAlpha = a; g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.globalAlpha = 1; }
+function wrap(text, maxW, size) { g.font = `500 ${size}px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif`; const words = text.split(' '), lines = []; let cur = '';
+  for (const w of words) { const n = cur ? cur + ' ' + w : w; if (g.measureText(n).width > maxW && cur) { lines.push(cur); cur = w; } else cur = n; } if (cur) lines.push(cur); return lines; }
+// abstract host: faceted crystal head, "eye" visor line, mouth bars driven by measured loudness
+function host(t, x, y, r, col, col2, w, label, sub) {
+  const L = lvl(t) * w, breathe = 1 + .02 * Math.sin(t * 2 + x);
+  glow(x, y, r * (2.1 + L * .8), col, .22 + .35 * w);
+  const sides = 7, rot = t * .25 * (col === A ? 1 : -1);
+  for (let k = 0; k < 3; k++) { g.beginPath(); for (let i = 0; i <= sides; i++) { const a = rot + i / sides * Math.PI * 2 + k * .3, rr = r * breathe * (1 - k * .16);
+      const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr * 1.08; i ? g.lineTo(px, py) : g.moveTo(px, py); }
+    g.strokeStyle = k ? col2 : col; g.globalAlpha = .9 - k * .25; g.lineWidth = (k ? 1 : 2.2) * S; g.stroke(); }
+  g.globalAlpha = 1;
+  const core = g.createRadialGradient(x - r * .25, y - r * .3, 0, x, y, r * .9); core.addColorStop(0, 'rgba(255,255,255,.55)'); core.addColorStop(.35, col2 + '66'); core.addColorStop(1, 'rgba(5,6,10,.0)');
+  g.fillStyle = core; g.beginPath(); g.arc(x, y, r * .9, 0, 7); g.fill();
+  g.fillStyle = '#05060a'; g.fillRect(x - r * .55, y - r * .2, r * 1.1, r * .12); g.fillStyle = col2; g.fillRect(x - r * .55, y - r * .2, r * 1.1 * (.3 + .7 * w), r * .12); // visor
+  const bars = 9; for (let i = 0; i < bars; i++) { const h = r * .06 + r * .45 * L * (0.45 + .55 * Math.abs(Math.sin(i * 1.7 + t * 18)));
+    g.fillStyle = col; g.globalAlpha = .35 + .65 * w; g.fillRect(x - r * .5 + i * r * .125, y + r * .32 - h / 2, r * .07, h); }
+  g.globalAlpha = 1;
+  mono(label, x, y + r * 1.55, 16 * S, col, 1, 'center', 700);
+  mono(sub, x, y + r * 1.55 + 22 * S, 12 * S, MUTE, 1, 'center', 500);
+  if (w > .5) mono('● ГОВОРИТЬ', x, y - r * 1.35, 12 * S, col, w, 'center');
+}
+function waveform(t, x0, x1, y, h) { // rolling measured loudness: past → present, coloured by speaker
+  const n = 140; for (let i = 0; i < n; i++) { const tt = t - (n - i) / D.fps; if (tt < 0) continue; const v = lvl(tt), c = capAt(tt);
+    g.fillStyle = c ? (c.host === 'A' ? A : B) : '#3a4050'; g.globalAlpha = .25 + .75 * (i / n);
+    const bh = Math.max(2 * S, v * h); g.fillRect(x0 + (x1 - x0) * i / n, y - bh / 2, (x1 - x0) / n * .6, bh); } g.globalAlpha = 1; }
+const CARDS = [{ at: 2.2, t: 'MyCast · пілот', s: 'щоденний бриф' }, { at: 7.6, t: 'E-1 · джерело з датою', s: 'посилання в тексті' }, { at: 11.5, t: 'Скептик: перевірити', s: 'логічна роль' }];
+function render(t) {
+  g.fillStyle = '#05060a'; g.fillRect(0, 0, W, H);
+  glow(W * .25, H * .5, W * .45, 'rgba(255,138,61,.14)', 1); glow(W * .75, H * .5, W * .45, 'rgba(83,224,255,.12)', 1);
+  // slow parallax "studio" grid: camera keeps drifting
+  const drift = t * 14 * S; g.strokeStyle = 'rgba(160,190,255,.07)'; g.lineWidth = 1;
+  for (let x = -((drift) % (48 * S)); x < W; x += 48 * S) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+  for (let y = (drift * .4) % (48 * S); y < H; y += 48 * S) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  const wa = talk(t, 'A'), wb = talk(t, 'B'), intro = seg(t, 0, .8);
+  const r = (PORTRAIT ? 92 : 104) * S;
+  const ax = PORTRAIT ? W * .5 : W * .27, ay = PORTRAIT ? H * .27 : H * .38, bx = PORTRAIT ? W * .5 : W * .73, by = PORTRAIT ? H * .58 : H * .38;
+  const capA = D.captions.find(c => c.host === 'A'), capB = D.captions.find(c => c.host === 'B');
+  g.globalAlpha = intro;
+  host(t, ax, ay + (1 - intro) * 40, r * (1 + .06 * wa), A, A2, Math.max(.15, wa), `ВЕДУЧИЙ A · «${capA ? capA.name : 'A'}»`, 'синтетичний голос · не людина');
+  host(t, bx, by + (1 - intro) * 40, r * (1 + .06 * wb), B, B2, Math.max(.15, wb), `ВЕДУЧИЙ B · «${capB ? capB.name : 'B'}»`, 'синтетичний голос · не людина');
+  // link between hosts pulses with the current speaker
+  g.strokeStyle = wa > wb ? A : B; g.globalAlpha = .25 + .5 * Math.max(wa, wb); g.lineWidth = 1.5 * S; g.setLineDash([6 * S, 8 * S]); g.lineDashOffset = -t * 60 * (wa > wb ? 1 : -1);
+  g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+  // waveform strip
+  const wy = PORTRAIT ? H * .755 : H * .72; waveform(t, W * .08, W * .92, wy, 56 * S);
+  // evidence cards (DEMO) slide in on a side rail
+  CARDS.forEach((c, i) => { const k = seg(t, c.at, c.at + .5); if (k <= 0) return; const cw = 230 * S, ch = 52 * S;
+    const x = PORTRAIT ? W * .06 + i * (cw * .0) : W / 2 - cw / 2, y = PORTRAIT ? H * .08 : H * .09 + i * (ch + 10 * S) + (1 - k) * 24 * S;
+    if (PORTRAIT && i !== CARDS.filter(cc => t >= cc.at).length - 1) return; // phone: show only the latest card
+    g.globalAlpha = k; g.fillStyle = 'rgba(12,15,24,.85)'; g.strokeStyle = 'rgba(190,210,255,.25)'; g.beginPath(); g.roundRect(x, y, PORTRAIT ? W * .88 : cw, ch, 10 * S); g.fill(); g.stroke();
+    mono(c.t, x + 14 * S, y + 21 * S, 13 * S, INK, k); mono(c.s + ' · DEMO', x + 14 * S, y + 39 * S, 11 * S, MUTE, k); g.globalAlpha = 1; });
+  // captions (measured timing)
+  const cap = capAt(t);
+  if (cap) { const size = (PORTRAIT ? 30 : 28) * S, lines = wrap(cap.text, W * (PORTRAIT ? .86 : .7), size).slice(-2), y0 = (PORTRAIT ? H * .86 : H * .875) - (lines.length - 1) * size * 1.25;
+    const col = cap.host === 'A' ? A : B; const k = seg(t, cap.start - .1, cap.start + .15);
+    mono(cap.name.toUpperCase(), W / 2, y0 - size * 1.1, 13 * S, col, k, 'center', 700);
+    lines.forEach((l, i) => { g.font = `500 ${size}px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif`; const tw = g.measureText(l).width;
+      g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(W / 2 - tw / 2 - 10 * S, y0 + i * size * 1.25 - size * .95, tw + 20 * S, size * 1.25); sans(l, W / 2, y0 + i * size * 1.25, size, INK, k, 'center'); }); }
+  // lower third + honesty labels
+  g.fillStyle = '#000'; g.fillRect(0, H - 34 * S, W, 34 * S);
+  mono(`AI HANGOUT · MyCast-сцена · аудіо: ${D.source.title || 'пілот'} (${D.source.voice_model || 'синтетичні голоси'}) · субтитри за виміряними паузами`, 18 * S, H - 13 * S, 11 * S, MUTE, 1);
+  g.fillStyle = '#ffd166'; g.fillRect(W - 128 * S, 14 * S, 112 * S, 24 * S); mono('DEMO · ПІЛОТ', W - 72 * S, 31 * S, 12 * S, '#111', 1, 'center');
+  mono('AI HANGOUT', 22 * S, 32 * S, 15 * S, INK, 1, 'left', 700);
+  const fade = Math.min(seg(t, 0, .4), 1 - seg(t, DUR - .5, DUR)); if (fade < 1) { g.fillStyle = 'rgba(0,0,0,' + (1 - fade) + ')'; g.fillRect(0, 0, W, H); }
+}
+window.DURATION = DUR; window.render = render; render(Math.min(4, DUR / 2));
+</script></body></html>
