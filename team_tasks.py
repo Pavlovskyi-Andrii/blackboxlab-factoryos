@@ -216,8 +216,13 @@ def queue_readiness(github: dict, *, roadmap: list, agent: str = "claude", targe
 
 
 def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = None, repo: str = "",
-                     now: Optional[float] = None, done_limit: int = 25) -> dict:
+                     now: Optional[float] = None, done_limit: int = 25, owner_cards: Optional[list] = None) -> dict:
+    """owner_cards: open owner-desk decision cards [{id, title, covers: [issue numbers]}]. They are listed as the
+    owner's tasks, and a blocked Claude issue they cover links to the card that explains how to unblock it."""
     now = time.time() if now is None else float(now)
+    queue = queue_readiness(github, roadmap=roadmap, agent="claude")
+    blocked_by = {t["number"]: t["reasons"] for t in queue.get("blocked") or []}
+    card_for = {int(n): str(c.get("id")) for c in owner_cards or [] for n in c.get("covers") or []}
     lanes = lanes or {}
     ci = github.get("ci") or {}
     prs = [p for p in github.get("pulls") or [] if isinstance(p, dict)]
@@ -240,8 +245,8 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
             status = "done"
         elif pr and pr["state"] in ("open", "merged"):
             status = _status_from_pr(pr)  # merged PR = work done, even if the issue was left open
-        elif "blocked" in labels:
-            status = "blocked"
+        elif "blocked" in labels or (agent == "claude" and number in blocked_by):
+            status = "blocked"  # #231 Queue Keeper: an open Depends issue/task or an owner gate is a real block
         else:
             status = "queued"
         task = {"id": "#" + str(number), "number": number, "title": str(issue.get("title") or "")[:200],
@@ -250,6 +255,13 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
                 "updated_at": str(issue.get("updated_at") or ""), "closed_at": str(issue.get("closed_at") or ""),
                 "source": "issue"}
         task["reason"] = _reason(task, agent)
+        if status == "blocked" and number in blocked_by and "blocked" not in labels:
+            reasons = blocked_by[number]
+            deps = [r.split("_", 2)[-1] for r in reasons if r.startswith("depends_")]
+            task["reason"] = "depends" if deps else ("owner_gate" if "owner_gate" in reasons else "blocked_by_other")
+            task["blocked_by"] = deps
+        if number in card_for:
+            task["decision_card"] = card_for[number]
         tasks[agent].append(task)
 
     for pr in prs:  # agent PRs without a linked issue are tasks of their own
@@ -273,6 +285,11 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
                     "created_at": "", "updated_at": "", "closed_at": "", "source": "roadmap"}
             task["reason"] = "owner_action"
             tasks["owner"].append(task)
+    for card in owner_cards or []:  # decisions the site explains step by step (owner desk)
+        task = {"id": str(card.get("id") or ""), "number": None, "title": str(card.get("title") or "")[:200], "url": "",
+                "status": "waiting_owner", "progress": 0, "labels": [], "pr": None, "created_at": "", "updated_at": "",
+                "closed_at": "", "source": "owner_desk", "decision_card": str(card.get("id") or ""), "reason": "owner_decision"}
+        tasks["owner"].append(task)
 
     agents = {}
     week = now - 7 * 86400
@@ -301,7 +318,7 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
             "github_source": str(github.get("source") or "render"), "github_available": bool(github.get("available")),
             "github_error": github.get("error") or "", "repo": repo, "agents": agents, "totals": totals,
             "done_7d": sum(a["done_7d"] for a in agents.values()),
-            "queue_keeper": queue_readiness(github, roadmap=roadmap, agent="claude"),
+            "queue_keeper": queue,
             "progress_note": "progress = stage (queued 0, draft PR 40, CI failed 60, review 85, merged/closed 100), not measured code completion"}
 
 
