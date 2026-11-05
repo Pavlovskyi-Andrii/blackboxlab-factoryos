@@ -189,7 +189,7 @@ class TestIssueIntake(unittest.TestCase):
             with redirect_stdout(io.StringIO()) as out2:
                 result = app.github_issue_intake_once(fetch=forbidden)
         self.assertFalse(result["ok"])
-        self.assertIn("missing_or_stale", out2.getvalue())
+        self.assertIn('"ec2_snapshot": "stale"', out2.getvalue())
         self.assertEqual(fresh_queue.store.list(), [])
 
     def test_github_error_reason_categories(self):
