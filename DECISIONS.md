@@ -736,3 +736,9 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Malformed means: not JSON, not an object, a non-numeric `received`, no `github` object, or `issues` that is not a list. These used to raise inside the intake loop.
 - A snapshot more than 60 s "in the future" (clock skew) counts as stale. Before, it was treated as fresh forever.
 - The six contract tests in `test_intake_fallback_contract.py` run in CI through `test_relay_execution.py`. They fail on the pre-#258 code.
+
+## #261 MyCast configurator prototype (2026-11-05)
+- Lives in `docs/prototypes/mycast-configurator/` as a static page plus a DOM-free logic module, so node can test the rules without a browser. `docs/prototypes/mycast/` belongs to #107 and is not touched. Sidebar integration in `static/index.html` waits for PR #194, which edits the same file.
+- Topic ids are stable `category.group.topic` strings. Labels are data, so the profile JSON never depends on the UI language.
+- Browser speech counts only as a labelled demo (`demo_not_ai_episode`). It cannot be downloaded or approved as an episode. Any edit drops the profile back to draft, and approval never sets `active`. No generation, scheduling or delivery exists here.
+- CI runs the node tests and `node --check` on the inline script as one step.

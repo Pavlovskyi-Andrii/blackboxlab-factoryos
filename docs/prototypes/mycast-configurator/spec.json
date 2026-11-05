@@ -1,0 +1,70 @@
+{
+  "issue": 261,
+  "version": 1,
+  "status": "prototype — no generation, scheduling or delivery",
+  "taxonomy": {
+    "categories": [
+      "sports",
+      "tech",
+      "news",
+      "business",
+      "health",
+      "culture",
+      "travel",
+      "science"
+    ],
+    "topic_count": 81,
+    "id_format": "category.group.topic",
+    "languages": [
+      "en",
+      "uk",
+      "ru"
+    ]
+  },
+  "rules": {
+    "min_topics": 2,
+    "free_text_max": 120,
+    "custom_sources": "https only",
+    "scopes": [
+      "ukraine",
+      "world",
+      "custom"
+    ],
+    "frequencies": [
+      "daily",
+      "weekly",
+      "manual"
+    ],
+    "durations_min": [
+      5,
+      10,
+      15
+    ],
+    "voice_languages": [
+      "uk",
+      "ru",
+      "en"
+    ]
+  },
+  "states": [
+    "draft",
+    "preview_ready",
+    "reviewed",
+    "approved"
+  ],
+  "state_rules": [
+    "any edit returns the profile to draft and drops preview/approval",
+    "approve needs preview + review + explicit confirmation",
+    "approved never sets active=true in this prototype"
+  ],
+  "preview": {
+    "local_file": "real audio file only (download allowed)",
+    "browser_tts_demo": "labelled demo_not_ai_episode; no download",
+    "none": "audio_unavailable — no preview, state stays draft"
+  },
+  "channels": {
+    "download": "usable only with a real local file",
+    "telegram": "not_connected",
+    "email": "not_connected"
+  }
+}

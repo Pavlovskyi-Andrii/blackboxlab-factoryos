@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MyCast Configurator</title>
+<!-- #261 MVP Factory pilot. Static prototype: no backend, no network calls, no schedule, no delivery, no AI episode. -->
+<style>
+:root{
+  /* Dark listening-room: deep ink, warm amber for "your choice", cool teal for system state. */
+  --bg:#0b0d12;--panel:#12161f;--panel2:#171c27;--line:#262d3b;--ink:#ece9e2;--mute:#9aa1b0;--dim:#6a7183;
+  --amber:#f2a541;--amber-ink:#1a1206;--teal:#4fd1c5;--warn:#ffcc66;--bad:#ff8a7a;--ok:#7ee0a5;
+  --display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--body)}
+.wrap{max-width:1080px;margin:0 auto;padding:24px max(16px,env(safe-area-inset-left,0px)) 64px max(16px,env(safe-area-inset-right,0px));display:grid;gap:22px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.brand{font:700 13px/1 var(--mono);letter-spacing:.2em;color:var(--mute);text-transform:uppercase}
+.langs{display:flex;gap:6px}
+.langs button{font:600 12px var(--mono);background:var(--panel);color:var(--mute);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer}
+.langs button[aria-pressed="true"]{color:var(--amber-ink);background:var(--amber);border-color:var(--amber)}
+h1{font:800 clamp(32px,6vw,54px)/1.05 var(--display);margin:6px 0 10px;text-wrap:balance}
+.lede{color:#c9ccd4;max-width:62ch;margin:0}
+.pill{display:inline-flex;align-items:center;gap:6px;font:600 12px/1 var(--mono);letter-spacing:.06em;padding:7px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel)}
+.pill.state-draft{color:var(--mute)}.pill.state-preview_ready{color:var(--teal);border-color:#2b5f5a}
+.pill.state-reviewed{color:var(--warn);border-color:#6b5520}.pill.state-approved{color:var(--ok);border-color:#2d6045}
+.facts{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.fact{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.fact h3{margin:0 0 6px;font:700 15px var(--body)}.fact p{margin:0;color:var(--mute);font-size:14px}
+.cta{justify-self:start;font:700 15px var(--body);background:var(--amber);color:var(--amber-ink);border:0;border-radius:10px;padding:12px 18px;cursor:pointer}
+section.step{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;display:grid;gap:14px;min-width:0}
+section.step>h2{margin:0;font:700 20px var(--display);display:flex;gap:10px;align-items:baseline}
+section.step>h2 small{font:600 12px var(--mono);color:var(--mute);letter-spacing:.08em}
+.hint{color:var(--mute);font-size:14px;margin:0}
+input[type=search],input[type=text],input[type=url],input[type=time],select{font:15px var(--body);background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0;max-width:100%}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.field{display:grid;gap:4px;min-width:0}.field label{font-size:13px;color:var(--mute)}
+details.cat{border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+details.cat>summary{cursor:pointer;padding:12px 14px;font-weight:700;display:flex;justify-content:space-between;gap:8px;list-style:none}
+details.cat>summary::-webkit-details-marker{display:none}
+details.cat>summary .count{font:600 12px var(--mono);color:var(--amber)}
+.groups{padding:0 14px 12px;display:grid;gap:12px}
+.group h4{margin:6px 0;font:600 13px var(--mono);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+.topics{display:flex;flex-wrap:wrap;gap:8px}
+.topic{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);cursor:pointer;font-size:14px}
+.topic input{accent-color:var(--amber)}
+.topic:has(input:checked){border-color:var(--amber);background:#2a2011}
+.scopes{display:grid;gap:8px}
+.scopeRow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:14px}
+.scopeRow b{min-width:0;flex:1 1 180px}
+.chan{display:grid;gap:8px}
+.chan label{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.tag{font:600 11px var(--mono);padding:3px 7px;border-radius:5px;border:1px solid var(--line);color:var(--mute);margin-left:auto}
+.tag.no{color:var(--bad);border-color:#5c2c26}.tag.yes{color:var(--ok);border-color:#2d6045}
+.btns{display:flex;flex-wrap:wrap;gap:10px}
+.btn{font:600 14px var(--body);border-radius:9px;padding:10px 14px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);cursor:pointer}
+.btn.primary{background:var(--amber);color:var(--amber-ink);border-color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.status{font-size:14px;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:var(--panel2)}
+.status.bad{color:var(--bad);border-color:#5c2c26}.status.ok{color:var(--ok);border-color:#2d6045}.status.info{color:var(--teal);border-color:#2b5f5a}
+.errors{margin:0;padding-left:20px;color:var(--bad);font-size:14px}
+pre{margin:0;background:#07090d;border:1px solid var(--line);border-radius:10px;padding:12px;font:12.5px/1.5 var(--mono);color:#cfd6e4;overflow-x:auto;max-height:340px}
+.limits{color:var(--mute);font-size:14px;margin:0;padding-left:20px}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="brand">Blackbox Lab · MVP Factory · MyCast</span>
+    <div class="langs" role="group" aria-label="Language">
+      <button type="button" data-lang="uk">УКР</button><button type="button" data-lang="ru">RU</button><button type="button" data-lang="en">EN</button>
+    </div>
+  </header>
+
+  <section aria-labelledby="hero">
+    <span id="statePill" class="pill state-draft" role="status"></span>
+    <h1 id="hero" data-t="title"></h1>
+    <p class="lede" data-t="lede"></p>
+  </section>
+
+  <div class="facts">
+    <div class="fact"><h3 data-t="why_h"></h3><p data-t="why_p"></p></div>
+    <div class="fact"><h3 data-t="how_h"></h3><p data-t="how_p"></p></div>
+    <div class="fact"><h3 data-t="src_h"></h3><p data-t="src_p"></p></div>
+    <div class="fact"><h3 data-t="priv_h"></h3><p data-t="priv_p"></p></div>
+  </div>
+  <button class="cta" type="button" id="tryDemo" data-t="cta"></button>
+
+  <section class="step" id="stepTopics" aria-labelledby="h1s">
+    <h2 id="h1s"><small>01</small><span data-t="topics_h"></span></h2>
+    <p class="hint" data-t="topics_hint"></p>
+    <div class="row">
+      <div class="field" style="flex:1 1 240px"><label for="search" data-t="search"></label><input id="search" type="search" autocomplete="off"></div>
+      <div class="btns"><button class="btn" type="button" id="expandAll" data-t="expand"></button><button class="btn" type="button" id="collapseAll" data-t="collapse"></button></div>
+    </div>
+    <div id="taxonomy" class="scopes"></div>
+    <div id="scopeBox" class="scopes" aria-live="polite"></div>
+    <div class="row">
+      <div class="field" style="flex:1 1 280px"><label for="freeText" data-t="free"></label><input id="freeText" type="text" maxlength="120"></div>
+      <div class="field" style="flex:1 1 280px"><label for="rss" data-t="rss"></label><input id="rss" type="url" placeholder="https://"></div>
+    </div>
+  </section>
+
+  <section class="step" aria-labelledby="h2s">
+    <h2 id="h2s"><small>02</small><span data-t="sched_h"></span></h2>
+    <p class="hint" data-t="sched_hint"></p>
+    <div class="row">
+      <div class="field"><label for="tz" data-t="tz"></label><select id="tz"></select></div>
+      <div class="field"><label for="time" data-t="time"></label><input id="time" type="time"></div>
+      <div class="field"><label for="freq" data-t="freq"></label><select id="freq"></select></div>
+      <div class="field" id="weekdayField"><label for="weekday" data-t="weekday"></label><select id="weekday"></select></div>
+      <div class="field"><label for="dur" data-t="dur"></label><select id="dur"></select></div>
+    </div>
+  </section>
+
+  <section class="step" aria-labelledby="h3s">
+    <h2 id="h3s"><small>03</small><span data-t="voice_h"></span></h2>
+    <div class="row">
+      <div class="field"><label for="mode" data-t="mode"></label><select id="mode"></select></div>
+      <div class="field"><label for="vlang" data-t="vlang"></label><select id="vlang"></select></div>
+    </div>
+    <div class="field"><span class="hint" data-t="deliv_h"></span><div class="chan" id="channels"></div></div>
+  </section>
+
+  <section class="step" aria-labelledby="h4s">
+    <h2 id="h4s"><small>04</small><span data-t="prev_h"></span></h2>
+    <ul class="errors" id="errors"></ul>
+    <div class="btns">
+      <button class="btn primary" type="button" id="previewBtn" data-t="preview"></button>
+      <button class="btn" type="button" id="stopBtn" data-t="stop" disabled></button>
+      <button class="btn" type="button" id="downloadBtn" data-t="download" disabled></button>
+    </div>
+    <div class="status" id="previewStatus" role="status" aria-live="polite"></div>
+  </section>
+
+  <section class="step" aria-labelledby="h5s">
+    <h2 id="h5s"><small>05</small><span data-t="appr_h"></span></h2>
+    <div class="btns"><button class="btn" type="button" id="reviewBtn" data-t="review" disabled></button></div>
+    <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="confirm" disabled> <span data-t="confirm"></span></label>
+    <div class="btns"><button class="btn primary" type="button" id="approveBtn" data-t="approve" disabled></button></div>
+    <div class="status" id="approveStatus" role="status" aria-live="polite"></div>
+  </section>
+
+  <section class="step" aria-labelledby="h6s">
+    <h2 id="h6s"><small>06</small><span data-t="json_h"></span></h2>
+    <p class="hint" data-t="json_hint"></p>
+    <pre id="json" tabindex="0"></pre>
+    <ul class="limits"><li data-t="lim1"></li><li data-t="lim2"></li><li data-t="lim3"></li></ul>
+  </section>
+</div>
+<script src="configurator.js"></script>
+<script>
+'use strict';
+const T = {
+ uk:{title:'Ваш щоденний подкаст — лише про те, що вам цікаво',lede:'Оберіть теми, регіон, час і голос. Це прототип: він збирає ваш профіль і показує, як працюватиме MyCast. Справжні випуски ще не генеруються і нікуди не надсилаються.',
+  why_h:'Навіщо персональний',why_p:'Замість стрічки на годину — 5–15 хвилин про ваші теми: бокс, ШІ, ваше місто.',how_h:'Як працює вибір тем',how_p:'Категорія → група → підтеми. Можна обрати будь-які дві й більше, з різних категорій, і вказати регіон.',
+  src_h:'Джерела та перевірка',src_p:'У справжньому випуску кожен факт іде з посиланням і датою. Ми не вигадуємо новин і позначаємо неперевірене.',priv_h:'Приватність і обмеження',priv_p:'Профіль зберігається лише у вашому браузері. Telegram і email поки не підключені — вони так і позначені.',
+  cta:'Спробувати демо',topics_h:'Теми',topics_hint:'Оберіть щонайменше дві підтеми. Для спорту, новин і бізнесу можна вказати регіон.',search:'Пошук теми',expand:'Розгорнути все',collapse:'Згорнути все',
+  free:'Своя тема (до 120 символів)',rss:'Своє джерело RSS (макет, ще не підключено)',sched_h:'Розклад',sched_hint:'Розклад лише зберігається в профілі: нічого не запускається автоматично.',tz:'Часовий пояс',time:'Час',freq:'Частота',weekday:'День тижня',dur:'Тривалість',
+  voice_h:'Голос і доставка',mode:'Формат',vlang:'Мова',deliv_h:'Куди надсилати',prev_h:'Прослухати',preview:'Прослухати демо',stop:'Зупинити',download:'Завантажити аудіо',
+  appr_h:'Затвердження',review:'Я прослухав — позначити як переглянуто',confirm:'Я затверджую цей профіль (це не вмикає розсилку)',approve:'Затвердити',json_h:'Профіль JSON',json_hint:'Саме це отримав би бекенд. active завжди false, доки немає справжнього планувальника.',
+  lim1:'Немає платних API, планувальника, розсилки чи публікації.',lim2:'Демо-озвучка — це голос вашого браузера, а не згенерований випуск.',lim3:'Завантаження можливе лише тоді, коли існує справжній аудіофайл.',
+  state:{draft:'Чернетка',preview_ready:'Є прев’ю',reviewed:'Переглянуто',approved:'Затверджено'},scope:{ukraine:'Україна',world:'Світ',custom:'Інше місто / країна'},place:'Назва міста чи країни',
+  freqs:{daily:'Щодня',weekly:'Щотижня',manual:'Вручну'},days:{mon:'Пн',tue:'Вт',wed:'Ср',thu:'Чт',fri:'Пт',sat:'Сб',sun:'Нд'},modes:{narrator:'Один ведучий',two_hosts:'Два ведучі'},langs:{uk:'Українська',ru:'Русский',en:'English'},
+  ch:{download:'Завантаження файлу',telegram:'Telegram',email:'Email'},chs:{not_connected:'не підключено',no_local_file:'немає файлу',ready:'готово'},min:'хв',
+  err:{min_topics:'Оберіть щонайменше дві підтеми.',custom_place_required:'Вкажіть місто чи країну для своєї теми.',bad_time:'Час у форматі ГГ:ХХ.',bad_timezone:'Невідомий часовий пояс.',weekday_required:'Оберіть день тижня.',bad_duration:'Оберіть тривалість.',too_long:'Своя тема задовга.',bad_url:'Джерело має починатися з https://',bad_language:'Оберіть мову.',bad_voice:'Оберіть формат.',bad_channel:'Оберіть канал.',bad_frequency:'Оберіть частоту.',unknown_topic:'Невідома тема.'},
+  pv:{idle:'Прев’ю ще немає.',invalid:'Спершу виправте помилки вище.',unavailable:'Аудіо недоступне: у цьому браузері немає озвучки, а справжнього файлу ще немає.',playing:'Звучить демо-озвучка вашого браузера (не справжній випуск).',ready:'Демо-прев’ю готове. Можна позначити як переглянуто.',stopped:'Зупинено.'},
+  ap:{need:'Затвердження доступне після прев’ю і перегляду.',done:'Профіль затверджено. Розсилка не ввімкнена: бекенду ще немає.',invalidated:'Ви змінили налаштування — прев’ю і затвердження скинуто.'}},
+ ru:{title:'Ваш ежедневный подкаст — только о том, что вам интересно',lede:'Выберите темы, регион, время и голос. Это прототип: он собирает ваш профиль и показывает, как будет работать MyCast. Настоящие выпуски пока не создаются и никуда не отправляются.',
+  why_h:'Зачем персональный',why_p:'Вместо ленты на час — 5–15 минут о ваших темах: бокс, ИИ, ваш город.',how_h:'Как работает выбор тем',how_p:'Категория → группа → подтемы. Можно выбрать любые две и больше, из разных категорий, и указать регион.',
+  src_h:'Источники и проверка',src_p:'В настоящем выпуске каждый факт идёт со ссылкой и датой. Мы не выдумываем новости и помечаем непроверенное.',priv_h:'Приватность и ограничения',priv_p:'Профиль хранится только в вашем браузере. Telegram и email пока не подключены — они так и помечены.',
+  cta:'Попробовать демо',topics_h:'Темы',topics_hint:'Выберите минимум две подтемы. Для спорта, новостей и бизнеса можно указать регион.',search:'Поиск темы',expand:'Развернуть всё',collapse:'Свернуть всё',
+  free:'Своя тема (до 120 символов)',rss:'Свой источник RSS (макет, ещё не подключён)',sched_h:'Расписание',sched_hint:'Расписание только сохраняется в профиле: ничего не запускается автоматически.',tz:'Часовой пояс',time:'Время',freq:'Частота',weekday:'День недели',dur:'Длительность',
+  voice_h:'Голос и доставка',mode:'Формат',vlang:'Язык',deliv_h:'Куда отправлять',prev_h:'Прослушать',preview:'Прослушать демо',stop:'Остановить',download:'Скачать аудио',
+  appr_h:'Утверждение',review:'Я прослушал — отметить как просмотрено',confirm:'Я утверждаю этот профиль (это не включает рассылку)',approve:'Утвердить',json_h:'Профиль JSON',json_hint:'Именно это получил бы бэкенд. active всегда false, пока нет настоящего планировщика.',
+  lim1:'Нет платных API, планировщика, рассылки или публикации.',lim2:'Демо-озвучка — это голос вашего браузера, а не созданный выпуск.',lim3:'Скачивание возможно только тогда, когда существует настоящий аудиофайл.',
+  state:{draft:'Черновик',preview_ready:'Есть превью',reviewed:'Просмотрено',approved:'Утверждено'},scope:{ukraine:'Украина',world:'Мир',custom:'Другой город / страна'},place:'Название города или страны',
+  freqs:{daily:'Ежедневно',weekly:'Еженедельно',manual:'Вручную'},days:{mon:'Пн',tue:'Вт',wed:'Ср',thu:'Чт',fri:'Пт',sat:'Сб',sun:'Вс'},modes:{narrator:'Один ведущий',two_hosts:'Два ведущих'},langs:{uk:'Українська',ru:'Русский',en:'English'},
+  ch:{download:'Скачивание файла',telegram:'Telegram',email:'Email'},chs:{not_connected:'не подключено',no_local_file:'нет файла',ready:'готово'},min:'мин',
+  err:{min_topics:'Выберите минимум две подтемы.',custom_place_required:'Укажите город или страну для своей темы.',bad_time:'Время в формате ЧЧ:ММ.',bad_timezone:'Неизвестный часовой пояс.',weekday_required:'Выберите день недели.',bad_duration:'Выберите длительность.',too_long:'Своя тема слишком длинная.',bad_url:'Источник должен начинаться с https://',bad_language:'Выберите язык.',bad_voice:'Выберите формат.',bad_channel:'Выберите канал.',bad_frequency:'Выберите частоту.',unknown_topic:'Неизвестная тема.'},
+  pv:{idle:'Превью ещё нет.',invalid:'Сначала исправьте ошибки выше.',unavailable:'Аудио недоступно: в этом браузере нет озвучки, а настоящего файла ещё нет.',playing:'Звучит демо-озвучка вашего браузера (не настоящий выпуск).',ready:'Демо-превью готово. Можно отметить как просмотрено.',stopped:'Остановлено.'},
+  ap:{need:'Утверждение доступно после превью и просмотра.',done:'Профиль утверждён. Рассылка не включена: бэкенда ещё нет.',invalidated:'Вы изменили настройки — превью и утверждение сброшены.'}},
+ en:{title:'Your daily podcast, only about what you care about',lede:'Pick topics, region, time and voice. This is a prototype: it builds your profile and shows how MyCast will work. Real episodes are not generated or sent yet.',
+  why_h:'Why personal',why_p:'Instead of an hour-long feed: 5–15 minutes on your topics, from boxing to AI to your city.',how_h:'How topic picking works',how_p:'Category → group → subtopics. Pick any two or more, across categories, and set a region.',
+  src_h:'Sources and checking',src_p:'In a real episode every fact carries a link and a date. We do not invent news and we mark what is unverified.',priv_h:'Privacy and limits',priv_p:'Your profile stays in your browser. Telegram and email are not connected yet and are labelled that way.',
+  cta:'Try the demo',topics_h:'Topics',topics_hint:'Pick at least two subtopics. Sports, news and business can take a region.',search:'Search topics',expand:'Expand all',collapse:'Collapse all',
+  free:'Your own topic (up to 120 characters)',rss:'Your own RSS source (mock, not connected yet)',sched_h:'Schedule',sched_hint:'The schedule is only saved in your profile: nothing runs automatically.',tz:'Time zone',time:'Time',freq:'Frequency',weekday:'Weekday',dur:'Length',
+  voice_h:'Voice and delivery',mode:'Format',vlang:'Language',deliv_h:'Deliver to',prev_h:'Listen',preview:'Play demo',stop:'Stop',download:'Download audio',
+  appr_h:'Approval',review:'I listened: mark as reviewed',confirm:'I approve this profile (this does not turn on delivery)',approve:'Approve',json_h:'Profile JSON',json_hint:'Exactly what a backend would receive. active stays false until a real scheduler exists.',
+  lim1:'No paid APIs, scheduler, delivery or publishing.',lim2:'The demo voice is your browser speaking, not a generated episode.',lim3:'Download is only possible when a real audio file exists.',
+  state:{draft:'Draft',preview_ready:'Preview ready',reviewed:'Reviewed',approved:'Approved'},scope:{ukraine:'Ukraine',world:'World',custom:'Other city / country'},place:'City or country name',
+  freqs:{daily:'Daily',weekly:'Weekly',manual:'Manual'},days:{mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'},modes:{narrator:'One narrator',two_hosts:'Two hosts'},langs:{uk:'Українська',ru:'Русский',en:'English'},
+  ch:{download:'File download',telegram:'Telegram',email:'Email'},chs:{not_connected:'not connected',no_local_file:'no file',ready:'ready'},min:'min',
+  err:{min_topics:'Pick at least two subtopics.',custom_place_required:'Name the city or country for your topic.',bad_time:'Use HH:MM time.',bad_timezone:'Unknown time zone.',weekday_required:'Pick a weekday.',bad_duration:'Pick a length.',too_long:'Your topic is too long.',bad_url:'The source must start with https://',bad_language:'Pick a language.',bad_voice:'Pick a format.',bad_channel:'Pick a channel.',bad_frequency:'Pick a frequency.',unknown_topic:'Unknown topic.'},
+  pv:{idle:'No preview yet.',invalid:'Fix the errors above first.',unavailable:'Audio unavailable: this browser has no speech engine and no real file exists yet.',playing:'Your browser is reading a demo (not a real episode).',ready:'Demo preview ready. You can mark it as reviewed.',stopped:'Stopped.'},
+  ap:{need:'Approval opens after a preview and a review.',done:'Profile approved. Delivery is not turned on: there is no backend yet.',invalidated:'You changed the settings, so the preview and approval were reset.'}}};
+
+const $ = s => document.querySelector(s);
+const KEY = 'mycast-configurator-draft-v1';
+let lang = 'uk', profile = MyCast.newProfile(), openCats = new Set(['sports', 'tech']), lastNote = '';
+const speech = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
+try { const saved = JSON.parse(localStorage.getItem(KEY) || 'null'); if (saved && saved.version === 1) profile = { ...MyCast.newProfile(), ...saved, state: 'draft', preview: null, approvedAt: null }; } catch (e) {}
+try { const l = localStorage.getItem(KEY + ':lang'); if (['uk','ru','en'].includes(l)) lang = l; } catch (e) {}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(profile)); localStorage.setItem(KEY + ':lang', lang); } catch (e) {} }
+function t() { return T[lang]; }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
+
+function change(next) {
+  const wasAhead = profile.state !== 'draft';
+  profile = next; lastNote = wasAhead && next.state === 'draft' ? t().ap.invalidated : '';
+  if (speech) speechSynthesis.cancel();
+  save(); render();
+}
+
+function renderTaxonomy() {
+  const q = $('#search').value, hits = new Set(MyCast.search(q, lang)), x = t();
+  $('#taxonomy').innerHTML = MyCast.TAXONOMY.map(cat => {
+    const groups = cat.groups.map(g => {
+      const topics = g.topics.map(([tid]) => `${cat.id}.${g.id}.${tid}`).filter(id => hits.has(id));
+      if (!topics.length) return '';
+      return `<div class="group"><h4>${esc(g.label[lang])}</h4><div class="topics">` + topics.map(id =>
+        `<label class="topic"><input type="checkbox" data-topic="${id}" ${profile.topics[id] ? 'checked' : ''}> ${esc(MyCast.topicLabel(id, lang))}</label>`).join('') + '</div></div>';
+    }).join('');
+    if (!groups) return '';
+    const n = Object.keys(profile.topics).filter(id => id.startsWith(cat.id + '.')).length;
+    const open = q.trim() ? true : openCats.has(cat.id);
+    return `<details class="cat" data-cat="${cat.id}" ${open ? 'open' : ''}><summary><span>${esc(cat.label[lang])}</span><span class="count">${n ? n + ' ✓' : ''}</span></summary><div class="groups">${groups}</div></details>`;
+  }).join('');
+  const geo = Object.keys(profile.topics).filter(id => MyCast.INDEX[id] && MyCast.INDEX[id].geo);
+  $('#scopeBox').innerHTML = geo.map(id => { const s = profile.topics[id].scope || { kind: 'world' };
+    return `<div class="scopeRow"><b>${esc(MyCast.topicLabel(id, lang))}</b><select data-scope="${id}" aria-label="${esc(MyCast.topicLabel(id, lang))}">` +
+      MyCast.SCOPES.map(k => `<option value="${k}" ${s.kind === k ? 'selected' : ''}>${esc(x.scope[k])}</option>`).join('') + '</select>' +
+      (s.kind === 'custom' ? `<input type="text" data-place="${id}" maxlength="60" value="${esc(s.place || '')}" placeholder="${esc(x.place)}" aria-label="${esc(x.place)}">` : '') + '</div>'; }).join('');
+}
+
+function fillSelect(el, values, labelFn, current) { el.innerHTML = values.map(v => `<option value="${v}" ${String(v) === String(current) ? 'selected' : ''}>${esc(labelFn(v))}</option>`).join(''); }
+
+function render() {
+  const x = t(); document.documentElement.lang = lang;
+  document.querySelectorAll('[data-t]').forEach(el => { el.textContent = x[el.dataset.t] || ''; });
+  document.querySelectorAll('.langs button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
+  $('#statePill').className = 'pill state-' + profile.state; $('#statePill').textContent = '● ' + x.state[profile.state];
+  renderTaxonomy();
+  $('#freeText').value = profile.freeText || ''; $('#rss').value = (profile.customSources || [])[0] || '';
+  const zones = ['Europe/Kyiv', 'Europe/Warsaw', 'Europe/Berlin', 'Europe/London', 'America/New_York', 'Asia/Dubai'];
+  if (!zones.includes(profile.schedule.timezone)) zones.push(profile.schedule.timezone);
+  fillSelect($('#tz'), zones, v => v.replace('_', ' '), profile.schedule.timezone);
+  $('#time').value = profile.schedule.time;
+  fillSelect($('#freq'), MyCast.FREQUENCIES, v => x.freqs[v], profile.schedule.frequency);
+  fillSelect($('#weekday'), MyCast.WEEKDAYS, v => x.days[v], profile.schedule.weekday);
+  $('#weekdayField').hidden = profile.schedule.frequency !== 'weekly';
+  fillSelect($('#dur'), MyCast.DURATIONS, v => v + ' ' + x.min, profile.schedule.durationMin);
+  fillSelect($('#mode'), MyCast.VOICES, v => x.modes[v], profile.voice.mode);
+  fillSelect($('#vlang'), MyCast.LANGUAGES, v => x.langs[v], profile.voice.language);
+  $('#channels').innerHTML = Object.keys(MyCast.CHANNELS).map(ch => { const st = MyCast.channelStatus(ch, profile.preview);
+    return `<label><input type="radio" name="channel" value="${ch}" ${profile.delivery === ch ? 'checked' : ''}> ${esc(x.ch[ch])}<span class="tag ${st.usable ? 'yes' : 'no'}">${esc(x.chs[st.reason || 'ready'])}</span></label>`; }).join('');
+  const errors = MyCast.validate(profile);
+  $('#errors').innerHTML = errors.map(e => `<li>${esc(x.err[e.code] || e.code)}</li>`).join('');
+  $('#previewBtn').disabled = errors.length > 0;
+  const dl = MyCast.channelStatus('download', profile.preview);
+  $('#downloadBtn').disabled = !dl.usable; $('#downloadBtn').title = dl.usable ? '' : x.chs[dl.reason];
+  const st = $('#previewStatus');
+  if (profile.state === 'draft') { st.className = 'status' + (errors.length ? ' bad' : ''); st.textContent = errors.length ? x.pv.invalid : (st.dataset.unavailable ? x.pv.unavailable : x.pv.idle); }
+  else { st.className = 'status info'; st.textContent = x.pv.ready; }
+  $('#reviewBtn').disabled = profile.state !== 'preview_ready';
+  $('#confirm').disabled = profile.state !== 'reviewed'; if (profile.state !== 'reviewed') $('#confirm').checked = false;
+  $('#approveBtn').disabled = profile.state !== 'reviewed' || !$('#confirm').checked;
+  const ap = $('#approveStatus');
+  ap.className = 'status' + (profile.state === 'approved' ? ' ok' : lastNote ? ' bad' : '');
+  ap.textContent = profile.state === 'approved' ? x.ap.done : (lastNote || x.ap.need);
+  $('#json').textContent = JSON.stringify(MyCast.toJSON(profile), null, 2);
+}
+
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (el.dataset.topic) { const id = el.dataset.topic; change(MyCast.setTopic(profile, id, el.checked, { kind: 'world' })); return; }
+  if (el.dataset.scope) { change(MyCast.setScope(profile, el.dataset.scope, el.value, '')); return; }
+  if (el.dataset.place) { change(MyCast.setScope(profile, el.dataset.place, 'custom', el.value)); return; }
+  if (el.name === 'channel') { change(MyCast.update(profile, { delivery: el.value })); return; }
+  const sched = { tz: 'timezone', time: 'time', freq: 'frequency', weekday: 'weekday', dur: 'durationMin' }[el.id];
+  if (sched) { change(MyCast.update(profile, { schedule: { [sched]: sched === 'durationMin' ? Number(el.value) : el.value } })); return; }
+  if (el.id === 'mode') change(MyCast.update(profile, { voice: { mode: el.value } }));
+  if (el.id === 'vlang') change(MyCast.update(profile, { voice: { language: el.value } }));
+  if (el.id === 'freeText') change(MyCast.update(profile, { freeText: el.value }));
+  if (el.id === 'rss') change(MyCast.update(profile, { customSources: el.value.trim() ? [el.value.trim()] : [] }));
+  if (el.id === 'confirm') render();
+});
+document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.cat && !$('#search').value.trim()) { d.open ? openCats.add(d.dataset.cat) : openCats.delete(d.dataset.cat); } }, true);
+$('#search').addEventListener('input', renderTaxonomy);
+$('#expandAll').addEventListener('click', () => { MyCast.TAXONOMY.forEach(c => openCats.add(c.id)); renderTaxonomy(); });
+$('#collapseAll').addEventListener('click', () => { openCats.clear(); renderTaxonomy(); });
+document.querySelectorAll('.langs button').forEach(b => b.addEventListener('click', () => { lang = b.dataset.lang; save(); render(); }));
+$('#tryDemo').addEventListener('click', () => $('#stepTopics').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+$('#previewBtn').addEventListener('click', () => {
+  const out = MyCast.makePreview(profile, { speechSynthesis: speech });
+  if (!out.ok) { $('#previewStatus').dataset.unavailable = out.reason === 'audio_unavailable' ? '1' : ''; profile = out.profile; render(); return; }
+  profile = out.profile; lastNote = ''; save(); render();
+  const u = new SpeechSynthesisUtterance(profile.preview.script); u.lang = { uk: 'uk-UA', ru: 'ru-RU', en: 'en-US' }[profile.voice.language];
+  u.onend = () => { $('#stopBtn').disabled = true; };
+  u.onerror = () => { $('#stopBtn').disabled = true; $('#previewStatus').textContent = t().pv.stopped; };
+  try { speechSynthesis.cancel(); speechSynthesis.speak(u); }
+  catch (err) { $('#previewStatus').textContent = t().pv.stopped; return; }  // the script stays readable; no audio was played
+  $('#stopBtn').disabled = false; $('#previewStatus').textContent = t().pv.playing;
+});
+$('#stopBtn').addEventListener('click', () => { if (speech) speechSynthesis.cancel(); $('#stopBtn').disabled = true; $('#previewStatus').textContent = t().pv.stopped; });
+$('#reviewBtn').addEventListener('click', () => { profile = MyCast.markReviewed(profile); save(); render(); });
+$('#approveBtn').addEventListener('click', () => { if (!$('#confirm').checked) return; profile = MyCast.approve(profile, true); save(); render(); });
+render();
+</script>
+</body>
+</html>
