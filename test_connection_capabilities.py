@@ -16,6 +16,13 @@ def main():
         check(llm_provider_for_endpoint(uri) is None,"Unknown or unsafe host must not be attributed to OpenAI")
     providers=ai_provider_catalog("gpt-test","https://api.openai.com/v1",True)
     check([p["id"] for p in providers]==["openai","anthropic","google","microsoft","deepseek","xai"],"Provider order/catalog")
+    req_keys={"id","name","availability","status","model","access_verified","auth_type","subscription_is_worker"}
+    check(all(req_keys.issubset(p.keys()) for p in providers),"All required fields present in provider catalog")
+    check(llm_provider_for_endpoint(None) is None and llm_provider_for_endpoint("invalid_url") is None,"Unknown endpoint returns safe None")
+    unk_video=video_projection("unknown_provider","custom-model",True)
+    check(unk_video["provider"]=="unknown_provider" and unk_video["access_state"]=="configured_unverified","Unknown video provider safe response")
+    null_video=video_projection(None,None,False)
+    check(null_video["provider"]=="" and null_video["access_state"]=="not_configured","Null video provider safe response")
     check(providers[0]["status"]=="configured_unverified","API key configuration is not a verified model connection")
     check(providers[0]["model"]=="gpt-test","Actual backend model must be displayed")
     check(all(not p["access_verified"] for p in providers),"No live provider claims without a verification")
