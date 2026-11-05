@@ -691,3 +691,8 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Non-blocking but labelled: `stale` (older than 7 days, with age), `undated`, and `editorial` (`"kind": "editorial"`, the hosts' own conclusion, URL optional; never counted as evidence).
 - A URL is a pointer, not proof. The Telegram transcript shows each source's date and status and says the facts are not independently verified; "fresh" only means the link is dated within the week.
 - Checked against the four real episodes of 2–5 November: all pass, so the gate does not reject the scripts we already accept.
+
+## #236 Worker sync safety regression (2026-11-05)
+- `sync_branch` now also aborts a leftover `MERGE_HEAD` (a restart in the middle of a merge) before syncing, the same way it already aborted a leftover rebase. Without this, every later merge failed and the worker reported "conflict" forever. Only the half-done merge is discarded; committed work is untouched.
+- `sync_safety_regression` (temporary git repos, no network) covers: an unpushed checkpoint commit kept through a sync; a diverged conflicting merge aborted with HEAD unchanged; an uncommitted edit kept when main touches the same file; a stale MERGE_HEAD with and without a real conflict; and a real interrupted rebase reproducing the 2026-11-04 outage. A spy on every git command asserts `rebase` only ever appears as `rebase --abort`, and that sync never pushes, forces, resets, cleans, checks out or deletes branches.
+- Conflict handling is unchanged: the loop sends one owner notice and keeps working on the current code, so a conflict is never shown as an endless "running".
