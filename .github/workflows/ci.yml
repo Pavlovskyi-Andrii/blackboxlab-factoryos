@@ -170,6 +170,17 @@ jobs:
           Path("/tmp/factoryos-ui.js").write_text(script, encoding="utf-8")
           PY
           node --check /tmp/factoryos-ui.js
+      - name: MyCast configurator prototype (#261)
+        run: |
+          node --check docs/prototypes/mycast-configurator/configurator.js
+          node docs/prototypes/mycast-configurator/test_configurator.js
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("docs/prototypes/mycast-configurator/index.html").read_text(encoding="utf-8")
+          script = html.rsplit("<script>",1)[1].split("</script>",1)[0]
+          Path("/tmp/mycast-configurator-ui.js").write_text(script, encoding="utf-8")
+          PY
+          node --check /tmp/mycast-configurator-ui.js
       - name: Worker / Delegation Control Center UI fixtures
         env:
           FACTORYOS_REQUIRE_NODE: "1"
