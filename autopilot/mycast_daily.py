@@ -322,7 +322,11 @@ def deliver(episode: dict, audio: bytes) -> bool:
                                    "caption": f"🎧 {episode.get('title', '')} · ~{max(1, round(words / 140))} хв\n{links}"},
                              files={"audio": (episode["id"] + ".mp3", audio, "audio/mpeg")}, timeout=180)
     if response.status_code != 200:
-        log(f"delivery failed: HTTP {response.status_code}")
+        try:
+            detail = str(response.json().get("detail", ""))[:80]
+        except ValueError:
+            detail = ""
+        log(f"delivery failed: HTTP {response.status_code} {detail}".rstrip())  # 422 = audio QC refused the file
         return False
     log("delivered to Telegram" if response.json().get("sent") else "already delivered earlier")
     return True
@@ -422,7 +426,7 @@ def run_daily(state_path: pathlib.Path, *, now: float | None = None, run_cli=Non
         log("render or download failed")
         return failed("голоси Gemini недоступні, резервний Piper не відрендерився", episode)
     if not deliver(episode, audio):
-        return failed("Telegram не прийняв аудіо", episode)
+        return failed("сервер не прийняв аудіо: перевірка якості або Telegram", episode)
     state["delivered_date"] = day
     _send_transcript(episode, state, day, send=send)
     save_state(state_path, state)

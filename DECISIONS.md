@@ -678,3 +678,10 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Prompt: 3–4 world news items, each ending in "what it means for us / how it could fit FactoryOS" (labelled as an idea, not a plan); 1–2 money/startup items; a 4–6 line "our kitchen" segment; the deep use case with a copyable prompt stays.
 - Names of companies, products and models stay in Latin script, as Gemini TTS pronounces them correctly. Trade-off: the Piper fallback will read Latin names poorly; it is only the fallback.
 - FactoryOS facts are built per builder lane from the branch prefix of merges in the last 30 h (claude/ and ccr- → Claude, gemini/ → Gemini, chatgpt/ → ChatGPT), open non-draft PRs (best effort via gh), and the next three non-HUMAN ROADMAP tasks. Issue/PR/task numbers and priority codes are stripped in code before they reach the prompt.
+
+## #233 MyCast audio preflight QC (2026-11-05)
+- Pure Python checks in `mycast.py`, because Render has no ffmpeg/ffprobe; a missing tool can never turn into a silent "OK".
+- Gemini path (raw PCM known): duration must be 0.45–2.2× the script estimate (140 words/min), no near-silence run (RMS < 160 on 16-bit, ~-46 dBFS, 100 ms windows) longer than 6 s, and no TTS chunk shorter than 0.35× its text (14 chars/s) — that catches a truncated chunk the total length would hide. The encoded MP3 is then parsed frame by frame.
+- Piper/upload path: the MP3 must parse as MPEG Layer III with ≥20 frames and ≥90 % of the bytes in valid frames; otherwise HTTP 422 and nothing is logged as delivered.
+- Any QC failure releases the delivery claim, so the worker's existing path runs: Gemini failure → Piper fallback; Piper failure → transcript as text plus, after the last attempt, the explicit failure notice.
+- The frame parser matches ffprobe on the committed Piper pilot (109.74 s vs 109.71 s) and accepts the server's own lameenc output; the tests use synthetic MP3 frames and seeded PCM, no TTS calls.
