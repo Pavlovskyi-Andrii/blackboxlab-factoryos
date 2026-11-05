@@ -93,6 +93,13 @@ class OwnerDeskWorkerMiddlewareTest(unittest.TestCase):
 class GeminiProxyTest(unittest.TestCase):
     """2026-11-04: EC2 Gemini loop calls Google through Render; worker token only, Flash text models only."""
 
+    def test_flash_model_filter(self):
+        import gemini_proxy
+        for model in ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-flash-latest"]:
+            self.assertTrue(bool(gemini_proxy.FLASH_MODEL.fullmatch(model)))
+        for model in ["gemini-3.8-pro", "gemini-2.5-flash-preview-tts", "gemini-3.8-flash-image", "", "models/gemini-3.8-flash"]:
+            self.assertFalse(bool(gemini_proxy.FLASH_MODEL.fullmatch(model)))
+
     def test_proxy_through_real_app(self):
         import io
         import json as _json
