@@ -104,9 +104,20 @@ def _claim(owner: str, run: dict) -> str:
     return "assigned_not_claimed"
 
 
+def _github_fact(value) -> Optional[dict]:
+    if not isinstance(value, dict):
+        return None
+    try:
+        done = max(0, int(value.get("done_7d") or 0))
+    except (TypeError, ValueError):
+        done = 0
+    at = str(value.get("last_activity_at") or "")[:40]
+    return {"done_7d": done, "last_activity_at": at} if (done or at) else None
+
+
 def build_lane_board(roadmap_tasks: Iterable[dict], tickets: Iterable[dict], heartbeats: Optional[dict] = None, *,
                      now: Optional[float] = None, stale_seconds: int = 180, heartbeat_ttl: int = 180,
-                     offline_after: int = 3600) -> dict:
+                     offline_after: int = 3600, blocked_ttl: int = 86400, github_activity: Optional[dict] = None) -> dict:
     """Return ``{"lanes": {...}, "columns": {...}, "tasks": [...], "counts": {...}}``.
 
     ``heartbeats`` maps lane -> last heartbeat epoch seconds, or ``{"last_seen", "online"}`` when the
@@ -114,6 +125,11 @@ def build_lane_board(roadmap_tasks: Iterable[dict], tickets: Iterable[dict], hea
     ``heartbeat_ttl`` is online, one younger than ``offline_after`` is stale, older or
     missing is offline. Run freshness uses the run's own events (``stale_seconds``), so a lane with
     no heartbeat reporter (ChatGPT) is "working" only while its own claimed run keeps reporting.
+
+    A blocked/failed run only marks an online lane "blocked" while that event is younger than ``blocked_ttl``;
+    an older one is history (the task stays in the blocked column, the lane is idle). ``github_activity``
+    (lane -> {done_7d, last_activity_at}) is shown beside the Relay facts for lanes that work through GitHub
+    (e.g. the Gemini issue loop); it never changes a lane's state.
     """
     now = time.time() if now is None else float(now)
     heartbeats = heartbeats or {}
@@ -172,7 +188,9 @@ def build_lane_board(roadmap_tasks: Iterable[dict], tickets: Iterable[dict], hea
             state, run = "stale", max(lost, key=lambda v: v["last_seen_at"])
         elif online and age is not None:
             run = finished[-1] if finished else {}
-            state = "blocked" if run.get("worker_stage") in ("blocked", "failed") else "idle"
+            event_at = _ts((run.get("last_event") or {}).get("at"))
+            recent = event_at is not None and now - event_at <= blocked_ttl
+            state = "blocked" if run.get("worker_stage") in ("blocked", "failed") and recent else "idle"
         else:
             run = finished[-1] if finished else {}
             state = "stale" if age is not None and age <= offline_after else "offline"
@@ -196,6 +214,7 @@ def build_lane_board(roadmap_tasks: Iterable[dict], tickets: Iterable[dict], hea
             "done": col_counts["done"],
             "remaining": len(mine) - col_counts["done"],
             "assigned_not_claimed": [t["id"] for t in mine if t["claim"] == "assigned_not_claimed" and not t["done"]],
+            "github": _github_fact((github_activity or {}).get(lane)),
         }
     columns = {c: [t["id"] for t in tasks if t["column"] == c] for c in COLUMNS}
     return {

@@ -120,6 +120,28 @@ class TestLaneStates(LaneBoardCase):
         self.assertEqual((lane["state"], lane["task_id"], lane["stage"]), ("blocked", "T-901", "blocked"))
         self.assertEqual(self.task(board, "T-901")["column"], "blocked")
 
+    def test_old_block_is_history_not_current_state(self):
+        # 2026-11-05 mobile screenshot: a run blocked three days earlier still showed the lane as "Blocked".
+        self.fixture_blocked()
+        later = time.time() + 2 * 86400
+        board = build_lane_board(ROADMAP, self.store.list(limit=500), {"claude": later - 5},
+                                 now=later, stale_seconds=self.queue.stale_seconds)
+        lane = board["lanes"]["claude"]
+        self.assertEqual((lane["state"], lane["task_id"], lane["reason"]), ("idle", "", ""))
+        self.assertEqual(lane["last_task_id"], "T-901")                       # still visible as the last task
+        self.assertEqual(self.task(board, "T-901")["column"], "blocked")       # the task itself stays blocked
+
+    def test_github_activity_is_shown_not_trusted_as_state(self):
+        activity = {"gemini": {"done_7d": 6, "last_activity_at": "2026-11-05T08:42:38+00:00"}, "chatgpt": {"done_7d": 0},
+                    "claude": "garbage"}
+        board = build_lane_board(ROADMAP, self.store.list(limit=500), {}, stale_seconds=self.queue.stale_seconds,
+                                 github_activity=activity)
+        gem = board["lanes"]["gemini"]
+        self.assertEqual(gem["github"], {"done_7d": 6, "last_activity_at": "2026-11-05T08:42:38+00:00"})
+        self.assertEqual(gem["state"], "offline")             # no heartbeat: GitHub activity never fakes "online"
+        self.assertIsNone(board["lanes"]["chatgpt"]["github"])  # nothing to show
+        self.assertIsNone(board["lanes"]["claude"]["github"])   # malformed input ignored
+
     def test_stale_run_lost_contact(self):
         board = self.fixture_stale()
         lane = board["lanes"]["claude"]

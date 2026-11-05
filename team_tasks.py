@@ -366,6 +366,11 @@ class TeamTasksCache:
                 self._data, self._at = read(), time.time()
             return self._data
 
+    def peek(self) -> Optional[dict]:
+        """The cached board without reading GitHub (None until the first read). Lock-free on purpose: the
+        board builder itself runs inside get() and asks the lane board, which peeks here."""
+        return self._data
+
     def invalidate(self) -> None:
         with self._lock:
             self._at = 0.0
