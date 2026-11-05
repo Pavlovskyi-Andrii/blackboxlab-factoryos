@@ -188,6 +188,18 @@ class QueueKeeperTest(unittest.TestCase):
         self.assertIsNone(q["counts"])
         self.assertIsNone(q["shortfall"])
 
+    def test_board_shows_blocked_and_decision_cards(self):
+        cards = [{"id": "D-240", "title": "Decide on #2 and #3", "covers": [2, 3]}]
+        board = build_team_tasks(self.github(), roadmap=[{"id": "T-593", "done": False}], repo="o/r", now=NOW, owner_cards=cards)
+        claude = {t["number"]: t for t in board["agents"]["claude"]["tasks"]}
+        self.assertEqual((claude[2]["status"], claude[2]["reason"], claude[2]["blocked_by"]), ("blocked", "depends", ["#9"]))
+        self.assertEqual(claude[2]["decision_card"], "D-240")
+        self.assertEqual((claude[5]["status"], claude[5]["reason"]), ("blocked", "owner_gate"))
+        self.assertEqual((claude[1]["status"], claude[1]["reason"]), ("queued", "not_started"))  # ready stays queued
+        owner = [t for t in board["agents"]["owner"]["tasks"] if t["source"] == "owner_desk"]
+        self.assertEqual([(t["id"], t["status"], t["decision_card"]) for t in owner], [("D-240", "waiting_owner", "D-240")])
+        self.assertEqual(board["queue_keeper"]["counts"]["ready"], 2)
+
     def test_snapshot_keeps_depends_and_board_exposes_queue(self):
         snap = compact_github(self.github())
         two = next(i for i in snap["issues"] if i["number"] == 2)

@@ -32,7 +32,7 @@ from team_tasks import TeamTasksCache, build_team_tasks, compact_github, github_
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
-from owner_desk import QuestionStore, install_owner_desk_routes
+from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, install_owner_desk_routes
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
 from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
@@ -11235,6 +11235,13 @@ def get_telegram_operator_lanes():
     """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons."""
     return get_delegation_board().get("operator_lanes") or []
 
+def _owner_decision_cards(roadmap):
+    """Owner-desk cards that are open decisions and not already ROADMAP [HUMAN] tasks (those are listed anyway)."""
+    known={str(t.get("id")) for t in roadmap or []}
+    status=_owner_desk_status()
+    return [{"id":r["id"],"title":r["title"],"covers":r.get("covers") or []} for r in OWNER_RUNBOOKS
+            if r["id"] not in known and (status.get(r["id"]) or {}).get("state")=="todo"]
+
 _TEAM_TASKS_CACHE=TeamTasksCache()
 
 def get_team_tasks(refresh=False):
@@ -11248,7 +11255,8 @@ def get_team_tasks(refresh=False):
                 github={**snap["github"],"source":"ec2","fetched_at":snap["fetched_at"],"render_error":github.get("error")}
         try:lanes=(get_lane_board() or {}).get("lanes") or {}
         except Exception:lanes={}
-        return build_team_tasks(github,roadmap=_parse_roadmap_tasks(),lanes=lanes,repo=GITHUB_REPO)
+        roadmap=_parse_roadmap_tasks()
+        return build_team_tasks(github,roadmap=roadmap,lanes=lanes,repo=GITHUB_REPO,owner_cards=_owner_decision_cards(roadmap))
     return _TEAM_TASKS_CACHE.get(read,refresh=refresh)
 
 _TEAM_SNAPSHOT_PATH=DATA_DIR/"team_tasks_github.json"
