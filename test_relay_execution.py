@@ -103,6 +103,22 @@ class TestRelayQueue(unittest.TestCase):
         self.assertNotIn("dont-save", str(val))
         self.assertTrue(val["pushed_reported"])
 
+    def test_nonexistent_and_empty_ticket_id_operations(self):
+        t, _ = self.store.create("Existing task")
+        with self.assertRaises(KeyError):
+            self.queue.enqueue("R-9999")
+        with self.assertRaises(KeyError):
+            self.queue.event("R-9999", "good-worker", "running")
+        with self.assertRaises(KeyError):
+            self.queue.enqueue("")
+        with self.assertRaises(KeyError):
+            self.queue.event("", "good-worker", "running")
+
+        with self.store.lock:
+            tickets = self.store._load_unlocked()["tickets"]
+            self.assertEqual(len(tickets), 1)
+            self.assertEqual(tickets[0]["id"], t["id"])
+
 
 class TestRelayCli(unittest.TestCase):
     def test_no_execution_on_main(self):
