@@ -130,6 +130,29 @@ def validate(episode: dict) -> list[str]:
     return problems
 
 
+# --- #235 Latin names (owner feedback 2026-11-05, baseline #226): Gemini TTS pronounces brand and model names
+# correctly in Latin script, so known Cyrillic transliterations are mapped back before the script is voiced.
+# Only whole phrases listed here change; the hosts' own names ("Клод", "Джі-Пі-Ті") and other Cyrillic text stay.
+LATIN_NAMES = (
+    (r"Оу?пен\s*Ей[-\s]?Ай", "OpenAI"), (r"Чат\s*Джі[-\s]?Пі[-\s]?Ті", "ChatGPT"), (r"Клод\s+Код", "Claude Code"),
+    (r"Антропік", "Anthropic"), (r"Джем[іе]н[іи]", "Gemini"), (r"Ґуґл|Гугл", "Google"), (r"Майкрософт", "Microsoft"),
+    (r"Фекторі\s*О[-\s]?Ес|ФакторіОС", "FactoryOS"), (r"Ей[-\s]Пі[-\s]Ай", "API"), (r"Ес[-\s]Ді[-\s]Кей", "SDK"),
+    (r"Ґіт\s*Хаб|Гітхаб", "GitHub"), (r"Телеграм(?=\b|[^а-яіїєґ])", "Telegram"),
+)
+_LATIN_RE = [(re.compile(r"(?<![А-Яа-яІіЇїЄєҐґ])" + pattern + r"(?![А-Яа-яІіЇїЄєҐґ])"), latin) for pattern, latin in LATIN_NAMES]
+
+
+def latinize_names(lines: list) -> tuple[list, int]:
+    """Map known Cyrillic transliterations of brand/model names back to Latin. Returns (lines, replacements)."""
+    out, count = [], 0
+    for host, text in lines:
+        for regex, latin in _LATIN_RE:
+            text, n = regex.subn(latin, text)
+            count += n
+        out.append([host, text])
+    return out, count
+
+
 # --- #234 source/date integrity gate: runs before the script is published or voiced ---
 SOURCE_FRESH_DAYS = 7
 _HOST_RE = re.compile(r"^(?=.{4,253}$)([a-z0-9-]+\.)+[a-z]{2,}$")
@@ -293,6 +316,10 @@ def generate_episode(day: datetime, *, run_cli=None, status_text: str = "") -> t
     problems = validate(episode)
     if not problems:
         problems = check_sources(episode, day)
+    if not problems:
+        episode["lines"], fixed = latinize_names(episode["lines"])
+        if fixed:
+            log(f"names mapped back to Latin: {fixed}")
     if problems:
         log("script rejected: " + "; ".join(problems))
         return "failed", None

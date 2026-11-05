@@ -703,3 +703,20 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - A `Depends:` number missing from the GitHub read is listed as `unverified_depends`, not guessed. An unavailable GitHub read reports `available: false` with no counts, never zeros.
 - When ready < 10, the report escalates to the owner instead of inventing issues. Generating sub-issues automatically is left out on purpose: issue #231 forbids fictitious tasks and repeated creation, and nothing yet tells approved epics apart from concepts.
 - The compact GitHub snapshot (EC2 → Render) now keeps the `Depends:` line next to the Owner line; the rest of the body is still dropped.
+
+## #235 Latin names before TTS (2026-11-05, baseline #226)
+- `latinize_names` maps a fixed list of known Cyrillic transliterations (OpenAI, ChatGPT, Claude Code, Anthropic, Gemini, Google, Microsoft, FactoryOS, API, SDK, GitHub, Telegram) back to Latin, after the source gate and before the script is published or voiced. It backs up the #226 prompt rule, so the model's habit of transliterating cannot reach the voice.
+- Conservative on purpose: only whole phrases not touching other Cyrillic letters change, so the hosts' names ("Клод", "Джі-Пі-Ті"), inflected forms ("Телеграмі") and ordinary text stay. Inflected brand forms are not rewritten, because a wrong ending is worse than a Cyrillic name.
+- On the real 2026-11-05 episode it makes 15 replacements and leaves no "Оупен Ей-Ай".
+
+## #238 Publish/approval boundary (2026-11-05)
+- Found a real gap: `/api/publishing/{id}/publish` and the `run-due` scheduler checked status, schedule time and media, but not the owner approval. A publish item with no approval, an unknown one, a non-approval decision, another job's approval or an approval the owner had since superseded reached the publisher adapter.
+- Fix: `_publish_approval_gate` runs right before the adapter and fails closed. The item's `approval_decision_id` must exist, belong to the same job and be an `approved` decision, and it must be the job's newest owner decision. After a rejection or regeneration the owner approves again; that new approval creates a new publish item.
+- A refused item stays `scheduled`, with an event and `approvalRequired: true`. Replaying an already-published item stays idempotent and never calls the adapter.
+- The tenancy test inserted publish items without any approval. Its fixtures now carry a real approval of their own job; its workspace assertions are unchanged.
+
+## #237 Security Check findings schema (2026-11-05, epic #98)
+- `security_findings.py` holds one finding schema: rule_id (`AUTH-001` style), title, severity, evidence_source, location, reproducibility, uncertainty, remediation, user_consent_status and target. A "confirmed" finding that was "not_reproduced" is refused. `not_required` consent is valid only for `target: own_repository`.
+- Redaction is mandatory and idempotent. It runs on every string field, nested details included, before a finding is returned. It reuses the token patterns from `owner_desk.py` and adds JWTs, bearer values, key=value secrets, long hex, emails, URL credentials and query strings, and private/internal hosts. Public hosts and ordinary text stay readable.
+- Export fails closed: every finding must be valid and its consent `granted` (or `not_required` for our own repo), and the finished JSON is checked once more for anything sensitive. There is no scanning code here; it works on findings handed to it, and the tests use synthetic fixtures only.
+- The test runs in CI as its own step, because the CI only runs listed test files.

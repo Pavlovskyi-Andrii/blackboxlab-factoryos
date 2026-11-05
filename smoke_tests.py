@@ -923,6 +923,45 @@ require(unscheduled["ok"] is False and "scheduling" in unscheduled["message"].lo
         "approved item must not publish before an explicit scheduling action")
 scheduled=asyncio.run(app.schedule_publishing(pub["id"],app.PublishScheduleRequest(target="manual",platform="youtube_shorts",scheduled_at=app.ts())))
 require(scheduled["item"]["status"]=="scheduled","publishing schedule regression")
+# #238 — publish/approval boundary: the publisher adapter never runs without the current owner approval of the same job.
+adapter_calls=[]
+orig_adapter=app._publish_via_adapter
+app._publish_via_adapter=lambda item:adapter_calls.append(item["id"]) or orig_adapter(item)
+def _set_decision(publish_id,decision_id):
+    con=app.db();row=con.execute("SELECT meta_json FROM publishing_queue WHERE id=?",(publish_id,)).fetchone()
+    meta=json.loads(row["meta_json"] or "{}");meta["approval_decision_id"]=decision_id
+    con.execute("UPDATE publishing_queue SET meta_json=?,status='scheduled' WHERE id=?",(json.dumps(meta),publish_id));con.commit();con.close()
+real_decision=pub["approval_decision_id"]
+try:
+    for label,decision,want in (("absent approval",None,"No owner approval"),
+                                ("unknown approval","missing-decision-id","not found")):
+        _set_decision(pub["id"],decision)
+        refused=asyncio.run(app.publish_scheduled_item(pub["id"]))
+        require(refused["ok"] is False and refused.get("approvalRequired") and want in refused["message"],f"{label} must be refused: {refused}")
+    # Cross-job: an approval recorded for another job cannot authorise this item.
+    other_decision=app._record_approval("some-other-job","approved","approval of a different job")
+    _set_decision(pub["id"],other_decision)
+    refused=asyncio.run(app.publish_scheduled_item(pub["id"]))
+    require(refused["ok"] is False and "different job" in refused["message"],f"cross-job approval must be refused: {refused}")
+    # A rejection decision linked as if it were an approval.
+    rejection=app._record_approval(job_id,"rejected","not an approval")
+    _set_decision(pub["id"],rejection)
+    refused=asyncio.run(app.publish_scheduled_item(pub["id"]))
+    require(refused["ok"] is False and "not an approval" in refused["message"],f"non-approval decision must be refused: {refused}")
+    # Stale: the owner's real approval, followed by a newer owner decision on the same job.
+    _set_decision(pub["id"],real_decision)
+    refused=asyncio.run(app.publish_scheduled_item(pub["id"]))
+    require(refused["ok"] is False and "stale" in refused["message"],f"approval superseded by a newer decision must be refused: {refused}")
+    require(adapter_calls==[],"no publisher adapter call on any refused path")
+    status=app.db().execute("SELECT status FROM publishing_queue WHERE id=?",(pub["id"],)).fetchone()["status"]
+    require(status=="scheduled","a refused publish must not move the item to publishing/published")
+    # Allowed: the current owner approval of this job (re-approval makes it the newest decision again).
+    fresh=app._record_approval(job_id,"approved","owner approved again for the regression")
+    _set_decision(pub["id"],fresh)
+    pub=app._publish_item(app.db().execute("SELECT * FROM publishing_queue WHERE id=?",(pub["id"],)).fetchone())
+    require(app._publish_approval_gate(pub)=="","the current owner approval of the same job must pass the gate")
+finally:
+    app._publish_via_adapter=orig_adapter
 started=asyncio.run(app.publish_scheduled_item(pub["id"]))
 require(started["requiresManualConfirmation"] is True,"manual path must require factual platform confirmation")
 confirmed=asyncio.run(app.confirm_manual_publish(pub["id"],app.PublishConfirmRequest(external_post_id="ci-post-1",external_url="https://example.com/post/ci-post-1")))
@@ -934,6 +973,15 @@ require("content_snapshot_hash" in (receipt["meta_json"] or "") and "approval_de
         "publish receipt must preserve approved content/decision provenance")
 again=asyncio.run(app.publish_scheduled_item(pub["id"]))
 require(again.get("idempotent") is True,"published item must be duplicate-safe")
+# #238 replay: publishing an already published item again never reaches the adapter.
+replay_calls=[]
+orig_adapter=app._publish_via_adapter
+app._publish_via_adapter=lambda item:replay_calls.append(item["id"]) or orig_adapter(item)
+try:
+    replay=asyncio.run(app.publish_scheduled_item(pub["id"]))
+    require(replay.get("idempotent") is True and replay_calls==[],"replayed publish must not call the publisher again")
+finally:
+    app._publish_via_adapter=orig_adapter
 
 # v3.80 Feedback Loop — store only metrics actually supplied and preserve attribution.
 snap=app.record_performance_snapshot(app.PerformanceSnapshotCreate(publish_id=pub["id"],views=1200,retention_pct=61.5,likes=48,source="ci_fixture"))

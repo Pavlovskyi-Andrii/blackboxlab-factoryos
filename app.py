@@ -9298,6 +9298,24 @@ async def schedule_publishing(publish_id:str,payload:PublishScheduleRequest):
     await broadcast({"type":"publishing","publishId":publish_id,"status":"scheduled"})
     return {"ok":True,"item":_publish_item(updated)}
 
+def _publish_approval_gate(item):
+    """#238: the last check before any publisher adapter runs. Returns "" when the item carries the current owner
+    approval of its own job; otherwise a reason, and nothing is published. Fails closed on missing data."""
+    decision_id=str(item.get("approval_decision_id") or "")
+    if not decision_id:return "No owner approval is recorded for this publish item"
+    con=db()
+    try:
+        row=con.execute("SELECT job_id,decision FROM approval_decisions WHERE id=?",(decision_id,)).fetchone()
+        if not row:return "The owner approval for this publish item was not found"
+        if row["job_id"]!=item.get("job_id"):return "The approval belongs to a different job"
+        if row["decision"]!="approved":return "The linked owner decision is not an approval"
+        latest=con.execute("SELECT id FROM approval_decisions WHERE job_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                           (item.get("job_id"),)).fetchone()
+        if not latest or latest["id"]!=decision_id:
+            return "The approval is stale: the owner made a newer decision for this job; approve again to publish"
+        return ""
+    finally:con.close()
+
 @app.post("/api/publishing/{publish_id}/publish")
 async def publish_scheduled_item(publish_id:str,confirm_uncertain:bool=False):
     con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone()
@@ -9318,6 +9336,12 @@ async def publish_scheduled_item(publish_id:str,confirm_uncertain:bool=False):
         con.close();return {"ok":False,"message":"Publish item has an invalid scheduled timestamp"}
     if item.get("media") and not (item.get("media") or {}).get("url"):
         con.close();return {"ok":False,"message":"Approved media URL is missing"}
+    con.close()
+    refusal=_publish_approval_gate(item)
+    if refusal:
+        event(item["job_id"],f"Publishing refused: {refusal}")
+        return {"ok":False,"approvalRequired":True,"message":refusal}
+    con=db()
     con.execute("UPDATE publishing_queue SET status='publishing',attempt_count=attempt_count+1,updated_at=?,last_error=NULL WHERE id=?",
                 (ts(),publish_id));con.commit();con.close()
     try:
