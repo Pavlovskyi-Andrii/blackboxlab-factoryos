@@ -4,12 +4,14 @@ The bot token never leaves the server. Only the worker token may deliver; each e
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
 import re
 import secrets
 import threading
+import time
 from pathlib import Path
 from typing import Callable, Optional
 from urllib import request as urlrequest
@@ -102,7 +104,9 @@ def install_mycast_routes(app, log: DeliveryLog, *, authorize_worker: Callable[[
 # --- Gemini voices (owner decision 2026-11-02: natural two-host voice via the owner's Gemini API key) ---
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts"
-CHUNK_CHARS = 1400  # several TTS calls per episode keep each request well inside model limits
+CHUNK_CHARS = 2800  # ~2 min of speech per call: a 5-8 min episode needs 3-4 calls, inside the free-tier per-minute quota
+RATE_LIMIT_RETRIES = 2  # per chunk, only on HTTP 429 (free-tier RPM); never a paid fallback
+RATE_LIMIT_WAIT_SECONDS = 30
 SPEAKER_LABELS = {"A": "Host1", "B": "Host2"}
 
 
@@ -150,7 +154,7 @@ def episode_chunks(lines: list) -> list[list]:
 
 
 def gemini_tts_pcm(api_key: str, episode: dict, *, model: str = "", voices: tuple[str, str] = ("Charon", "Kore"),
-                   opener: Callable = urlrequest.urlopen) -> tuple[bytes, int]:
+                   opener: Callable = urlrequest.urlopen, sleep: Callable[[float], None] = time.sleep) -> tuple[bytes, int]:
     """Two-host dialogue → raw PCM (16-bit mono) and its sample rate."""
     model = model or DEFAULT_TTS_MODEL
     language = {"uk": "українською", "ru": "русском", "en": "English"}.get(str(episode.get("language") or "uk"), "українською")
@@ -162,13 +166,19 @@ def gemini_tts_pcm(api_key: str, episode: dict, *, model: str = "", voices: tupl
         payload = {"contents": [{"parts": [{"text": f"Озвуч цей фрагмент подкасту ({language}) природно, жваво, як двоє ведучих, що розмовляють:\n{script}"}]}],
                    "generationConfig": {"responseModalities": ["AUDIO"],
                                         "speechConfig": {"multiSpeakerVoiceConfig": {"speakerVoiceConfigs": speaker_cfg}}}}
-        try:
-            result = _gemini_call(api_key, "POST", f"models/{model}:generateContent", payload, opener)
-        except GeminiTTSError as exc:
-            if exc.category != "model_not_found":
-                raise
-            model = _pick_tts_model(api_key, opener)  # the default name changed: use what the key can see
-            result = _gemini_call(api_key, "POST", f"models/{model}:generateContent", payload, opener)
+        result, waits = None, 0
+        while result is None:
+            try:
+                result = _gemini_call(api_key, "POST", f"models/{model}:generateContent", payload, opener)
+            except GeminiTTSError as exc:
+                if exc.category == "rate_limited" and waits < RATE_LIMIT_RETRIES:
+                    waits += 1
+                    sleep(RATE_LIMIT_WAIT_SECONDS * waits)  # free-tier requests-per-minute window
+                    continue
+                if exc.category != "model_not_found":
+                    raise
+                model = _pick_tts_model(api_key, opener)  # the default name changed: use what the key can see
+                result = _gemini_call(api_key, "POST", f"models/{model}:generateContent", payload, opener)
         parts = ((result.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
         inline = next((p.get("inlineData") for p in parts if p.get("inlineData")), None)
         if not inline or not inline.get("data"):
@@ -216,15 +226,20 @@ def install_mycast_voice_routes(app, log: DeliveryLog, *, authorize_worker: Call
         if not log.claim(episode["id"]):
             return {"sent": False, "duplicate": True, "voice": "gemini"}
         try:
-            pcm, rate = tts(key, episode, model=model, voices=voices)
-            audio = encode(pcm, rate)
-            words = sum(len(t.split()) for _, t in lines)
-            send_audio(audio, f"{episode['id']}.mp3", str(episode.get("title") or episode["id"])[:64],
-                       f"🎧 {episode.get('title', '')} · ~{max(1, round(words / 140))} хв · голоси Gemini")
+            def produce():
+                pcm, rate = tts(key, episode, model=model, voices=voices)
+                audio = encode(pcm, rate)
+                words = sum(len(t.split()) for _, t in lines)
+                send_audio(audio, f"{episode['id']}.mp3", str(episode.get("title") or episode["id"])[:64],
+                           f"🎧 {episode.get('title', '')} · ~{max(1, round(words / 140))} хв · голоси Gemini")
+                return pcm, rate, audio
+
+            # Several TTS calls (and free-tier waits) take minutes: keep them off the server's event loop.
+            pcm, rate, audio = await asyncio.to_thread(produce)
         except GeminiTTSError as exc:
             log.release(episode["id"])
             raise HTTPException(502, f"gemini tts: {exc.category}")
         except Exception:
             log.release(episode["id"])
             raise HTTPException(502, "voice delivery failed")
-        return {"sent": True, "duplicate": False, "voice": "gemini", "seconds": round(len(pcm) / 2 / rate)}
+        return {"sent": True, "duplicate": False, "voice": "gemini", "seconds": round(len(pcm) / 2 / rate), "bytes": len(audio)}

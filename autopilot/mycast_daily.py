@@ -24,9 +24,10 @@ except Exception:  # tzdata missing: fixed winter offset, documented in DECISION
     KYIV = timezone(timedelta(hours=2))
 
 try:
-    from . import relay_tasks
+    from . import notify, relay_tasks
     from .delegation import LIMIT_API_ERRORS, cli_error_fields, delegated_env
 except ImportError:
+    import notify
     import relay_tasks
     from delegation import LIMIT_API_ERRORS, cli_error_fields, delegated_env
 
@@ -34,7 +35,9 @@ REPO_SLUG = "Pavlovskyi-Andrii/blackboxlab-factoryos"
 BRANCH = "mycast/daily"
 EPISODE_DIR = "docs/prototypes/mycast/episodes"
 WORKFLOW = "mycast-render.yml"
-START_HOUR = 7          # Kyiv time; nothing before 07:00
+# Owner target (#219): the episode is in Telegram by 06:00 Kyiv. Writing the script (web search) and the
+# Gemini voices take ~15-25 min, so the first attempt starts at 05:10; nothing runs before that.
+START_HOUR, START_MINUTE = 5, 10
 MAX_ATTEMPTS = 3        # per day
 RENDER_WAIT_SECONDS = 1200
 HOSTS = {"A": {"name": "Клод", "speaker": "mykyta"}, "B": {"name": "Джі-Пі-Ті", "speaker": "tetiana"}}
@@ -45,12 +48,18 @@ PROMPT = """Ти пишеш сценарій щоденного персонал
 Теми, у такому порядку:
 1. AI: нові моделі, функції та оновлення ChatGPT, Claude, Gemini та інструментів для розробки — і що з цього можна впровадити вже зараз.
 2. Стартапи: що запустилося, хто залучив гроші (сума, інвестори), хто скільки заробляє — лише з джерелом.
-3. Ідея дня: одна практична дія для власника, який будує AI-фабрику контенту і AI-сервіси.
+3. FactoryOS і Blackbox Lab: коротко, що реально змінилося — ТІЛЬКИ з блоку «Факти FactoryOS» нижче, нічого не додавай від себе.
+4. Глибше: один практичний сценарій використання AI для власника, який будує AI-фабрику контенту і AI-сервіси, з готовим промптом, який можна одразу скопіювати (продиктуй його повільно, дослівно).
+
+Теми 1 і 2: перевірені релізи OpenAI, Anthropic (Claude), Google (Gemini) і 2–3 реальні події стартапів або AI-бізнесу.
+
+Факти FactoryOS (з репозиторію, на {date}):
+{factory_status}
 
 Правила:
 - Лише факти з джерел, які ти реально відкрив; кожне джерело — у sources з датою. Чутки позначай словами «за даними…» або «поки не підтверджено».
 - Ведучі: A — «Клод», B — «Джі-Пі-Ті». Вони розмовляють, ставлять одне одному питання, іноді не погоджуються. Без вигаданих особистих історій.
-- Обсяг: 550–800 слів (близько 5 хвилин). Числа пиши словами, як їх вимовляють. Без markdown, емодзі та посилань у репліках.
+- Обсяг: 750–1100 слів (5–8 хвилин). Якщо свіжих перевірених новин мало — краще коротше, ніж вигадувати. Числа пиши словами, як їх вимовляють. Без markdown, емодзі та посилань у репліках.
 - Перша репліка: привітання і дата. Остання: коротке прощання.
 
 Відповідь — ЛИШЕ JSON без пояснень:
@@ -81,13 +90,13 @@ def save_state(path: pathlib.Path, state: dict) -> None:
     tmp.replace(path)
 
 
-RETRY_SPACING_SECONDS = 1800
+RETRY_SPACING_SECONDS = 1200
 
 
 def due(state: dict, now: float | None = None) -> bool:
     current = time.time() if now is None else now
     local = today_kyiv(current)
-    if local.hour < START_HOUR:
+    if (local.hour, local.minute) < (START_HOUR, START_MINUTE):
         return False
     day = local.date().isoformat()
     if state.get("delivered_date") == day:
@@ -135,12 +144,34 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
-def generate_episode(day: datetime, *, run_cli=None) -> tuple[str, dict | None]:
+def factory_status(repo: pathlib.Path | None, *, runner=subprocess.run) -> str:
+    """Facts the hosts may say about FactoryOS: roadmap counts and the latest merged PR titles. Fail-soft."""
+    if repo is None:
+        return "- немає даних із репозиторію сьогодні; про FactoryOS скажи лише це"
+    facts = []
+    try:
+        roadmap = (repo / "ROADMAP.md").read_text(encoding="utf-8")
+        done, todo = len(re.findall(r"^- \[x\]", roadmap, re.M)), len(re.findall(r"^- \[ \]", roadmap, re.M))
+        facts.append(f"- дорожня карта: {done} задач виконано, {todo} відкрито")
+    except OSError:
+        pass
+    try:
+        out = runner(["git", "-C", str(repo), "log", "--merges", "--since=48 hours ago", "--format=%b", "-n", "8", "origin/main"],
+                     text=True, capture_output=True, timeout=30, check=False).stdout or ""
+        titles = [t.strip() for t in out.splitlines() if t.strip()][:8]
+        facts += [f"- злито за 48 годин: {t[:120]}" for t in titles] or ["- за 48 годин нових злиттів у main не було"]
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return "\n".join(facts) or "- немає даних із репозиторію сьогодні; про FactoryOS скажи лише це"
+
+
+def generate_episode(day: datetime, *, run_cli=None, status_text: str = "") -> tuple[str, dict | None]:
     """Returns (status, episode). status: ok | limit | failed."""
     date_iso = day.date().isoformat()
     months = ["січня", "лютого", "березня", "квітня", "травня", "червня", "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"]
     date_human = f"{day.day} {months[day.month - 1]} {day.year}"
-    cmd = ["claude", "-p", PROMPT.format(date=date_iso, date_human=date_human), "--output-format", "json",
+    cmd = ["claude", "-p", PROMPT.format(date=date_iso, date_human=date_human,
+                                          factory_status=status_text or factory_status(None)), "--output-format", "json",
            "--max-turns", "25", "--allowedTools", "WebSearch", "WebFetch",
            "--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit", "Task"]
     try:
@@ -226,13 +257,14 @@ def deliver_gemini(episode: dict) -> str:
         return "unavailable"
     try:
         response = requests.post(url + "/api/factory/mycast/worker/voice-deliver", headers={"Authorization": "Bearer " + token},
-                                 json={"episode": episode}, timeout=600)
+                                 json={"episode": episode}, timeout=1200)
     except requests.RequestException as exc:
         log(f"gemini voice request failed: {type(exc).__name__}; falling back to Piper")
         return "unavailable"
     if response.status_code == 200:
         body = response.json()
-        log("delivered to Telegram with Gemini voices" if body.get("sent") else "already delivered earlier")
+        log(f"delivered to Telegram with Gemini voices ({body.get('seconds', '?')} s, {body.get('bytes', '?')} bytes)"
+            if body.get("sent") else "already delivered earlier")
         return "sent" if body.get("sent") else "duplicate"
     try:
         reason = str(response.json().get("detail", ""))[:60]
@@ -261,8 +293,50 @@ def deliver(episode: dict, audio: bytes) -> bool:
     return True
 
 
-def run_daily(state_path: pathlib.Path, *, now: float | None = None, run_cli=None) -> str:
-    """One attempt if due. Returns: idle | delivered | limit | failed."""
+TELEGRAM_TEXT_LIMIT = 3900
+
+
+def transcript_messages(episode: dict) -> list[str]:
+    """Sources (with links) and the full written transcript, split into Telegram-sized messages."""
+    hosts = {k: v["name"] for k, v in HOSTS.items()}
+    head = f"📝 {episode.get('title', episode.get('id', 'MyCast'))} — текст і джерела"
+    sources = "\n".join(f"• {s.get('title', '')[:100]} ({s.get('date', 'без дати')})\n  {s.get('url', '')}"
+                        for s in episode.get("sources", [])[:12])
+    parts, current = [], head + "\n\nДжерела:\n" + sources + "\n\nТекст:"
+    for host, text in episode.get("lines", []):
+        line = f"{hosts.get(host, host)}: {text}"
+        if len(current) + len(line) + 2 > TELEGRAM_TEXT_LIMIT:
+            parts.append(current)
+            current = ""
+        current = (current + "\n\n" + line).strip()
+    if current:
+        parts.append(current)
+    return parts
+
+
+def notify_owner(text: str, *, send=None) -> bool:
+    """Owner-only Telegram message through the paired worker bot. Never raises."""
+    try:
+        return bool((send or notify.send)(text))
+    except Exception as exc:  # a notice must never break the worker loop
+        log(f"owner notice failed: {type(exc).__name__}")
+        return False
+
+
+def _send_transcript(episode: dict, state: dict, day: str, *, send=None) -> None:
+    if state.get("transcript_date") == day:
+        return
+    if all(notify_owner(part, send=send) for part in transcript_messages(episode)):
+        state["transcript_date"] = day
+
+
+def run_daily(state_path: pathlib.Path, *, now: float | None = None, run_cli=None, repo: pathlib.Path | None = None,
+              send=None) -> str:
+    """One attempt if due. Returns: idle | delivered | limit | failed.
+
+    Audio goes out once per day (server-side idempotency per episode id as well). The written transcript with
+    sources follows the audio. If audio fails, the owner gets the transcript as a text fallback and, after the
+    last attempt, an explicit failure notice — never a claim that audio was delivered."""
     if not relay_tasks.configured():  # no FactoryOS connection: nowhere to deliver
         return "idle"
     state = load_state(state_path)
@@ -275,30 +349,46 @@ def run_daily(state_path: pathlib.Path, *, now: float | None = None, run_cli=Non
     state["attempts"] = {k: v for k, v in attempts.items() if k >= (local.date() - timedelta(days=7)).isoformat()}
     state["last_attempt_ts"] = time.time() if now is None else now
     save_state(state_path, state)
+    last_attempt = state["attempts"][day] >= MAX_ATTEMPTS
     log(f"attempt {attempts[day]}/{MAX_ATTEMPTS} for {day}")
-    status, episode = generate_episode(local, run_cli=run_cli)
+
+    def failed(reason: str, episode: dict | None = None) -> str:
+        if episode is not None:
+            _send_transcript(episode, state, day, send=send)  # text fallback: the owner can read it now
+        if last_attempt and state.get("failure_notice_date") != day:
+            fallback = " Текст випуску надіслано вище." if state.get("transcript_date") == day else ""
+            if notify_owner(f"⚠️ MyCast {day}: аудіо сьогодні не доставлено ({reason}), "
+                            f"спроб {MAX_ATTEMPTS}/{MAX_ATTEMPTS}.{fallback} Автоматично більше не повторюю.", send=send):
+                state["failure_notice_date"] = day
+        save_state(state_path, state)
+        return "failed"
+
+    status, episode = generate_episode(local, run_cli=run_cli, status_text=factory_status(repo))
     if status != "ok":
         if status == "limit":
             state["attempts"][day] -= 1  # a subscription limit is not the episode's fault
             save_state(state_path, state)
-        return status
+            return status
+        return failed("сценарій не згенеровано")
     sha = publish(episode)  # the script is kept on mycast/daily either way (history, Piper fallback)
     voice = deliver_gemini(episode)
     if voice in ("sent", "duplicate"):
         state["delivered_date"] = day
+        _send_transcript(episode, state, day, send=send)
         save_state(state_path, state)
         return "delivered"
     if not sha:
         log("publishing the script to GitHub failed")
-        return "failed"
+        return failed("голоси Gemini недоступні, а резервний Piper не запустився", episode)
     log(f"script committed {sha[:10]}; waiting for render")
     run_id = wait_render(sha)
     audio = download_mp3(run_id, episode["id"]) if run_id else b""
     if not audio:
         log("render or download failed")
-        return "failed"
+        return failed("голоси Gemini недоступні, резервний Piper не відрендерився", episode)
     if not deliver(episode, audio):
-        return "failed"
+        return failed("Telegram не прийняв аудіо", episode)
     state["delivered_date"] = day
+    _send_transcript(episode, state, day, send=send)
     save_state(state_path, state)
     return "delivered"
