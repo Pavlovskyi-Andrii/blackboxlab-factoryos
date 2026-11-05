@@ -133,6 +133,8 @@ class TeamTasksTest(unittest.TestCase):
             self.assertEqual(board["github_source"], "ec2")
             self.assertTrue(board["github_available"])
             self.assertEqual(board["agents"]["gemini"]["tasks"][0]["id"], "#5")
+            # The lane board peeks at this cache while the board is being built: it must not deadlock.
+            self.assertIn("gemini", app.get_lane_board()["lanes"])
 
     def test_owner_only_route(self):
         os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-team-tasks-"))

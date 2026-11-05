@@ -11195,7 +11195,13 @@ def get_lane_board():
     """T-599-F: per-lane state and Build Progress columns from Relay events + heartbeats only."""
     lanes=get_operator_lanes()
     beats={k:{"last_seen":v.get("last_seen") or None,"online":v.get("online") is True} for k,v in lanes.items()}
-    return build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds)
+    # GitHub activity from the cached Team tasks board (never a GitHub read here): the Gemini loop works through
+    # GitHub issues/PRs, not Relay, so its lane would otherwise look empty.
+    team=_TEAM_TASKS_CACHE.peek() if "_TEAM_TASKS_CACHE" in globals() else None
+    activity={k:{"done_7d":a.get("done_7d"),"last_activity_at":a.get("last_activity_at")}
+              for k,a in ((team or {}).get("agents") or {}).items() if k in ("claude","chatgpt","gemini")}
+    return build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds,
+                            github_activity=activity)
 
 @app.get("/api/factory/lane-board")
 def factory_lane_board(request: Request):
