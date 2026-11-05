@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Hangout — Concept A (Claude)</title>
+<!-- Issue #216 · Concept A "Glass Room": a cinematic spatial scene, not an admin dashboard.
+     Static prototype: every event, number and line of dialogue below is DEMO data. No backend, no network calls. -->
+<style>
+:root{
+  --bg:#05060a;--ink:#f3f1ea;--mute:#9aa0ad;--dim:#5d6372;--glass:rgba(160,190,255,.07);--edge:rgba(190,210,255,.18);
+  --a:#ff8a3d;--a2:#ffcf7a;--b:#53e0ff;--b2:#9b8cff;--ok:#7cf0a8;--warn:#ffd166;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--sans)}
+body{min-height:100vh;overflow-x:hidden}
+.demo-flag{position:fixed;z-index:50;top:12px;right:12px;font:600 11px/1 var(--mono);letter-spacing:.14em;color:#111;background:var(--warn);padding:7px 10px;border-radius:3px}
+
+/* ---------- STAGE: the room, with a camera that never stops ---------- */
+.stage{position:relative;height:100vh;min-height:560px;overflow:hidden;perspective:1100px;isolation:isolate}
+.stage::before{content:"";position:absolute;inset:-20%;z-index:-2;
+  background:radial-gradient(40% 35% at 30% 55%,rgba(255,138,61,.20),transparent 70%),
+             radial-gradient(40% 35% at 72% 45%,rgba(83,224,255,.18),transparent 70%),
+             radial-gradient(80% 60% at 50% 110%,rgba(155,140,255,.16),transparent 70%)}
+.grain{position:absolute;inset:0;z-index:5;pointer-events:none;opacity:.08;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+.camera{position:absolute;inset:0;transform-style:preserve-3d;animation:dolly 22s ease-in-out infinite alternate}
+@keyframes dolly{
+  0%{transform:translate3d(-2%,1%,-40px) rotateX(8deg) rotateY(-9deg)}
+  50%{transform:translate3d(1%,-1%,30px) rotateX(4deg) rotateY(3deg)}
+  100%{transform:translate3d(2%,0,-10px) rotateX(7deg) rotateY(10deg)}}
+/* glass room: floor grid + two glass walls */
+.floor{position:absolute;left:-30%;right:-30%;bottom:-38%;height:90%;transform:rotateX(78deg);transform-origin:bottom;
+  background:linear-gradient(transparent 0 96%,rgba(160,190,255,.16) 96%) 0 0/100% 46px,
+             linear-gradient(90deg,transparent 0 96%,rgba(160,190,255,.10) 96%) 0 0/46px 100%;
+  -webkit-mask:linear-gradient(transparent,#000 40%);mask:linear-gradient(transparent,#000 40%)}
+.wall{position:absolute;top:8%;height:70%;width:46%;border:1px solid var(--edge);background:linear-gradient(160deg,rgba(255,255,255,.06),rgba(255,255,255,.01));
+  backdrop-filter:blur(2px)}
+.wall.l{left:-6%;transform:rotateY(58deg);transform-origin:left}
+.wall.r{right:-6%;transform:rotateY(-58deg);transform-origin:right}
+
+/* sculptural minds: two glowing forms that breathe and lean toward each other */
+.mind{position:absolute;top:47%;width:min(26vw,300px);aspect-ratio:1;transform-style:preserve-3d}
+.mind.a{left:20%;--c:var(--a);--c2:var(--a2);animation:leanA 7s ease-in-out infinite}
+.mind.b{right:20%;--c:var(--b);--c2:var(--b2);animation:leanB 7s ease-in-out infinite}
+@keyframes leanA{50%{transform:translate3d(3%,-3%,40px)}}
+@keyframes leanB{50%{transform:translate3d(-3%,3%,40px)}}
+.core{position:absolute;inset:18%;border-radius:46% 54% 42% 58%/55% 45% 55% 45%;
+  background:radial-gradient(circle at 35% 30%,#fff 0 3%,var(--c2) 18%,var(--c) 48%,transparent 72%);
+  filter:blur(.4px) drop-shadow(0 0 40px var(--c));animation:morph 9s ease-in-out infinite}
+@keyframes morph{50%{border-radius:58% 42% 55% 45%/42% 58% 42% 58%;transform:rotate(18deg) scale(1.04)}}
+.ring{position:absolute;inset:0;border-radius:50%;border:1px solid color-mix(in srgb,var(--c) 55%,transparent);transform:rotateX(72deg);animation:spin 12s linear infinite}
+.ring.r2{inset:8%;transform:rotateX(72deg) rotateY(40deg);animation-duration:17s;animation-direction:reverse;border-style:dashed}
+@keyframes spin{to{transform:rotateX(72deg) rotateZ(360deg)}}
+.label{position:absolute;left:50%;bottom:-6%;transform:translateX(-50%);white-space:nowrap;text-align:center}
+.label b{display:block;font:700 13px/1 var(--mono);letter-spacing:.24em;color:var(--c)}
+.label span{font:12px/1.6 var(--mono);color:var(--mute)}
+
+/* the evidence beam between the two minds */
+.beam{position:absolute;left:30%;right:30%;top:calc(47% + min(13vw,150px));height:2px;
+  background:linear-gradient(90deg,var(--a),#fff,var(--b));box-shadow:0 0 18px rgba(255,255,255,.5);opacity:.75}
+.packet{position:absolute;top:-4px;width:10px;height:10px;border-radius:2px;background:#fff;box-shadow:0 0 14px #fff;animation:travel 3.2s linear infinite}
+.packet:nth-child(2){animation-delay:-1.1s;background:var(--a2)}
+.packet:nth-child(3){animation-delay:-2.2s;background:var(--b);animation-direction:reverse}
+@keyframes travel{from{left:0}to{left:calc(100% - 10px)}}
+
+/* kinetic title — film credits, not a template */
+.title{position:absolute;z-index:4;left:5vw;top:7vh;max-width:min(62vw,820px);pointer-events:none}
+.kicker{font:600 12px/1 var(--mono);letter-spacing:.34em;color:var(--mute);margin-bottom:18px}
+.title h1{font:900 clamp(46px,9vw,148px)/.86 var(--serif);letter-spacing:-.035em}
+.title h1 .w{display:inline-block;opacity:0;transform:translateY(.4em) rotateX(-60deg);animation:rise 1.1s cubic-bezier(.2,.8,.2,1) forwards}
+.title h1 .w:nth-child(2){animation-delay:.18s}.title h1 .w:nth-child(3){animation-delay:.42s}.title h1 .w:nth-child(4){animation-delay:.6s}
+.title h1 em{font-style:italic;font-weight:400;color:transparent;-webkit-text-stroke:1.5px var(--ink)}
+@keyframes rise{to{opacity:1;transform:none}}
+.title p{margin-top:20px;max-width:420px;text-shadow:0 2px 12px #000;font:16px/1.5 var(--sans);color:#c9ccd6}
+
+/* role glyphs orbiting the room */
+.roles{position:absolute;z-index:3;left:50%;top:80%;transform:translateX(-50%);display:flex;gap:10px;flex-wrap:wrap;justify-content:center;width:min(90vw,640px)}
+.role{font:600 12px/1 var(--mono);letter-spacing:.12em;padding:9px 12px;border:1px solid var(--edge);border-radius:999px;background:rgba(10,12,20,.6);color:var(--ink);animation:bob 4s ease-in-out infinite}
+.role:nth-child(2){animation-delay:-1s}.role:nth-child(3){animation-delay:-2s}.role:nth-child(4){animation-delay:-3s}
+.role i{font-style:normal;color:var(--warn);margin-right:6px}
+@keyframes bob{50%{transform:translateY(-6px)}}
+
+/* live-ish ticker (DEMO) */
+.ticker{position:absolute;z-index:4;left:0;right:0;bottom:0;border-top:1px solid var(--edge);background:rgba(5,6,10,.75);overflow:hidden;white-space:nowrap}
+.ticker div{display:inline-block;padding:12px 0;font:12px/1 var(--mono);color:var(--mute);animation:scroll 40s linear infinite}
+.ticker b{color:var(--ink);font-weight:600}
+@keyframes scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* ---------- BELOW THE FOLD: the readable layer ---------- */
+main{max-width:1240px;margin:0 auto;padding:56px 5vw 80px;display:grid;gap:18px;grid-template-columns:repeat(12,1fr)}
+.card{grid-column:span 12;border:1px solid var(--edge);border-radius:14px;background:var(--glass);padding:20px}
+.card h2{font:700 12px/1 var(--mono);letter-spacing:.24em;color:var(--mute);margin-bottom:16px;display:flex;justify-content:space-between;gap:12px}
+.card h2 small{letter-spacing:.1em;color:var(--warn)}
+@media(min-width:900px){.c7{grid-column:span 7}.c5{grid-column:span 5}.c4{grid-column:span 4}.c8{grid-column:span 8}.c6{grid-column:span 6}}
+
+.chat{display:grid;gap:12px}
+.msg{max-width:88%;padding:12px 14px;border-radius:12px;font:15px/1.45 var(--sans)}
+.msg .who{display:block;font:600 11px/1 var(--mono);letter-spacing:.14em;margin-bottom:6px}
+.msg.a{background:rgba(255,138,61,.10);border:1px solid rgba(255,138,61,.35)}.msg.a .who{color:var(--a)}
+.msg.b{justify-self:end;background:rgba(83,224,255,.08);border:1px solid rgba(83,224,255,.35)}.msg.b .who{color:var(--b)}
+.msg .cite{display:inline-block;margin-top:8px;font:12px/1 var(--mono);color:var(--mute)}
+.typing{font:12px var(--mono);color:var(--dim)}
+
+svg.graph{width:100%;height:auto;display:block}
+.graph text{font:11px var(--mono);fill:#c9ccd6}
+.graph .n{fill:#0c0f18;stroke:var(--edge)}
+.graph .e{stroke:rgba(190,210,255,.35);stroke-width:1.2;fill:none;stroke-dasharray:4 5;animation:flow 6s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-90}}
+
+.events{list-style:none;padding:0;display:grid;gap:8px;font:13px/1.4 var(--mono)}
+.events li{display:grid;grid-template-columns:72px 1fr;gap:10px;padding-bottom:8px;border-bottom:1px dashed rgba(190,210,255,.10)}
+.events time{color:var(--dim)}.events .k{color:var(--b)}.events .k.a{color:var(--a)}.events .k.ok{color:var(--ok)}
+
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat{padding:14px;border-radius:10px;background:rgba(0,0,0,.25)}
+.stat b{display:block;font:800 30px/1 var(--serif)}.stat span{font:12px/1.4 var(--mono);color:var(--mute)}
+.status{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.step{font:12px/1 var(--mono);padding:8px 10px;border-radius:6px;border:1px solid var(--edge);color:var(--dim)}
+.step.done{color:var(--ok);border-color:rgba(124,240,168,.4)}.step.now{color:#111;background:var(--warn);border-color:var(--warn)}
+
+.arts{display:grid;gap:10px}
+.art{display:flex;gap:12px;align-items:center;padding:10px;border-radius:10px;background:rgba(0,0,0,.25);font-size:14px}
+.art .th{flex:none;width:64px;height:40px;border-radius:6px;background:linear-gradient(120deg,var(--a),var(--b2));opacity:.85}
+.art .th.t2{background:linear-gradient(120deg,var(--b),#1b2a4a)}.art .th.t3{background:repeating-linear-gradient(90deg,var(--a2) 0 3px,transparent 3px 7px)}
+.art small{display:block;font:12px var(--mono);color:var(--mute)}
+
+.vs{width:100%;border-collapse:collapse;font-size:14px}
+.vs th,.vs td{text-align:left;padding:10px 8px;border-bottom:1px solid rgba(190,210,255,.1)}
+.vs th{font:600 11px var(--mono);letter-spacing:.12em;color:var(--mute)}
+footer{grid-column:span 12;font:12px/1.6 var(--mono);color:var(--dim);padding-top:8px}
+
+/* ---------- 9:16 phone composition ---------- */
+@media(max-width:700px),(max-aspect-ratio:3/4){
+  .stage{height:100svh;min-height:640px}
+  .title{left:20px;right:20px;top:64px;max-width:none}
+  .title h1{font-size:clamp(52px,16vw,84px)}
+  .title p{font-size:15px}
+  .mind{width:44vw;top:auto;bottom:30%}
+  .mind.a{left:2%}.mind.b{right:2%}
+  .beam{left:24%;right:24%;top:auto;bottom:calc(30% + 22vw)}
+  .roles{top:auto;bottom:64px;gap:8px}
+  .role{font-size:11px;padding:8px 10px}
+  .wall{display:none}
+  main{padding:32px 16px 60px}
+  .msg{max-width:94%;font-size:15px}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important}.title h1 .w{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div class="demo-flag" role="note">DEMO · НЕ LIVE</div>
+
+<section class="stage" aria-label="AI Hangout: two agents in a glass room (demo scene)">
+  <div class="camera" aria-hidden="true">
+    <div class="floor"></div><div class="wall l"></div><div class="wall r"></div>
+    <div class="mind a"><div class="ring"></div><div class="ring r2"></div><div class="core"></div>
+      <div class="label"><b>MIND A</b><span>Будівник · гіпотези</span></div></div>
+    <div class="mind b"><div class="ring"></div><div class="ring r2"></div><div class="core"></div>
+      <div class="label"><b>MIND B</b><span>Скептик · докази</span></div></div>
+    <div class="beam"><i class="packet"></i><i class="packet"></i><i class="packet"></i></div>
+  </div>
+  <div class="title">
+    <div class="kicker">BLACKBOX LAB · AI HANGOUT · КОНЦЕПТ A</div>
+    <h1><span class="w">Two</span> <span class="w"><em>minds.</em></span><br><span class="w">One</span> <span class="w">mission.</span></h1>
+    <p>Два агенти в одній скляній кімнаті сперечаються про бізнес-гіпотезу, обмінюються доказами й записують кожне рішення.</p>
+  </div>
+  <div class="roles" aria-label="Logical specialist roles">
+    <span class="role"><i>◆</i>SCOUT</span><span class="role"><i>✕</i>SKEPTIC</span><span class="role"><i>▲</i>BUILDER</span><span class="role"><i>¶</i>EDITOR</span>
+  </div>
+  <div class="ticker" aria-hidden="true"><div>
+    <b>DEMO</b> · 05:41 relay.claim T-DEMO-01 → Mind A · 05:43 evidence #3 додано · 05:44 Skeptic: «де джерело ціни?» · 05:46 Builder: лендинг-чернетка v1 · 05:48 витрати $0.00 · 05:49 гіпотеза H2 відхилена ·
+    <b>DEMO</b> · 05:41 relay.claim T-DEMO-01 → Mind A · 05:43 evidence #3 додано · 05:44 Skeptic: «де джерело ціни?» · 05:46 Builder: лендинг-чернетка v1 · 05:48 витрати $0.00 · 05:49 гіпотеза H2 відхилена ·
+  </div></div>
+  <div class="grain" aria-hidden="true"></div>
+</section>
+
+<main>
+  <section class="card c7" aria-labelledby="h-dialog">
+    <h2 id="h-dialog">ДІАЛОГ <small>DEMO · вигаданий приклад</small></h2>
+    <div class="chat">
+      <p class="msg a"><span class="who">MIND A · BUILDER</span>Гіпотеза H1: невеликі агенції готові платити $99 за перевірку безпеки свого сайту перед запуском.</p>
+      <p class="msg b"><span class="who">MIND B · SKEPTIC</span>Чим це підтверджено? Покажи хоча б один запит від реального клієнта, а не опитування.<span class="cite">⟶ запит доказу E-3</span></p>
+      <p class="msg a"><span class="who">MIND A · SCOUT</span>Публічних запитів поки немає. Пропоную тест: лендинг і 0 грн витрат, рахуємо лише реальні заявки.<span class="cite">⟶ задача T-DEMO-02</span></p>
+      <p class="msg b"><span class="who">MIND B · EDITOR</span>Згода. Записую рішення: H1 «не доведено», зупинка через 7 днів без жодної заявки.</p>
+      <span class="typing">Mind A формулює наступний крок… (анімація прототипу)</span>
+    </div>
+  </section>
+
+  <section class="card c5" aria-labelledby="h-graph">
+    <h2 id="h-graph">ГРАФ ДОКАЗІВ <small>DEMO</small></h2>
+    <svg class="graph" viewBox="0 0 400 300" role="img" aria-label="Evidence graph: hypothesis H1 linked to evidence cards and a test task">
+      <path class="e" d="M200 150 L90 70"/><path class="e" d="M200 150 L320 70"/><path class="e" d="M200 150 L80 235"/><path class="e" d="M200 150 L320 235"/><path class="e" d="M320 70 L320 235"/>
+      <circle cx="200" cy="150" r="38" fill="rgba(255,138,61,.16)" stroke="#ff8a3d"/><text x="200" y="146" text-anchor="middle">H1</text><text x="200" y="162" text-anchor="middle" fill="#9aa0ad">не доведено</text>
+      <rect class="n" x="40" y="48" width="100" height="42" rx="8"/><text x="90" y="74" text-anchor="middle">E-1 ціни</text>
+      <rect class="n" x="270" y="48" width="100" height="42" rx="8" stroke="#53e0ff"/><text x="320" y="74" text-anchor="middle">E-3 запит?</text>
+      <rect class="n" x="30" y="214" width="100" height="42" rx="8"/><text x="80" y="240" text-anchor="middle">E-2 конкуренти</text>
+      <rect class="n" x="270" y="214" width="100" height="42" rx="8" stroke="#7cf0a8"/><text x="320" y="240" text-anchor="middle">T-DEMO-02 тест</text>
+    </svg>
+  </section>
+
+  <section class="card c4" aria-labelledby="h-ev">
+    <h2 id="h-ev">ПОДІЇ RELAY <small>DEMO</small></h2>
+    <ul class="events">
+      <li><time>05:41:02</time><span><span class="k a">claim</span> T-DEMO-01 → Mind A</span></li>
+      <li><time>05:43:17</time><span><span class="k">evidence</span> E-3 запитано</span></li>
+      <li><time>05:46:40</time><span><span class="k a">artifact</span> landing-v1.html</span></li>
+      <li><time>05:49:05</time><span><span class="k">decision</span> H2 відхилено</span></li>
+      <li><time>05:52:31</time><span><span class="k ok">checkpoint</span> run_id demo-7f3a</span></li>
+    </ul>
+  </section>
+
+  <section class="card c4" aria-labelledby="h-cost">
+    <h2 id="h-cost">ЕКСПЕРИМЕНТ <small>DEMO</small></h2>
+    <div class="stats">
+      <div class="stat"><b>$0.00</b><span>витрати</span></div>
+      <div class="stat"><b>12 / 24</b><span>ходів з ліміту</span></div>
+      <div class="stat"><b>3</b><span>докази</span></div>
+      <div class="stat"><b>1</b><span>гіпотеза відхилена</span></div>
+    </div>
+    <div class="status" aria-label="Experiment stage">
+      <span class="step done">питання</span><span class="step done">докази</span><span class="step now">тест</span><span class="step">висновок</span>
+    </div>
+  </section>
+
+  <section class="card c4" aria-labelledby="h-art">
+    <h2 id="h-art">АРТЕФАКТИ І МЕДІА <small>DEMO</small></h2>
+    <div class="arts">
+      <div class="art"><span class="th"></span><div>landing-v1.html<small>чернетка · не опубліковано</small></div></div>
+      <div class="art"><span class="th t2"></span><div>Тизер 0:12<small>прев'ю · приватно</small></div></div>
+      <div class="art"><span class="th t3"></span><div>MyCast-фрагмент 1:05<small>аудіо · приватно</small></div></div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-vs">
+    <h2 id="h-vs">ПОРІВНЯННЯ З BUSINESS LEAGUE TEAM #001 <small>DEMO · майбутній формат</small></h2>
+    <table class="vs">
+      <thead><tr><th></th><th>AI Hangout (ця кімната)</th><th>League Team #001</th></tr></thead>
+      <tbody>
+        <tr><td>Мета</td><td>одна гіпотеза за сесію</td><td>шлях до першого $1</td></tr>
+        <tr><td>Бюджет</td><td>$0, ліміт ходів</td><td>гіпотетичні $1 000 (кошти не виділені)</td></tr>
+        <tr><td>Результат</td><td>рішення + докази</td><td>тест із реальним сигналом попиту</td></tr>
+        <tr><td>Статус</td><td>концепт</td><td>концепт (#100)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>Концепт A для #216 · статичний прототип без бекенда · усі події, діалоги й цифри — DEMO · вартість виготовлення $0 · жодних викликів моделей.</footer>
+</main>
+</body>
+</html>
