@@ -102,6 +102,7 @@ input:focus,select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(79,2
 .btn:hover:not([disabled]){background:rgba(44,56,104,.85)}
 .btn:active:not([disabled]){transform:scale(.98)}
 .btn.primary{background:linear-gradient(135deg,#ff9a7b,var(--coral));color:var(--coral-ink);border-color:transparent}
+.btn.primary:hover:not([disabled]){background:linear-gradient(135deg,#ffab90,#ff8a7d)}  /* keep the gradient: plain .btn:hover replaced it */
 .btn[disabled]{opacity:.42;cursor:not-allowed}
 
 details.cat{border:1px solid var(--edge);border-radius:14px;background:rgba(10,14,32,.55);transition:border-color .2s}
@@ -172,6 +173,10 @@ details.jsonBox>summary{cursor:pointer;color:var(--mute);font-size:14px;margin-b
 .prog .bar{height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
 .prog .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--violet),var(--coral));transition:width .6s ease}
 .prog span{font:600 13px var(--mono);color:var(--mute)}
+.authRow{display:flex;flex-wrap:wrap;gap:12px;align-items:center;min-height:44px}
+.hint.small{font-size:12.5px}
+.accHello{display:flex;align-items:center;gap:10px;margin:0;font-weight:700}
+.accHello .av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font:700 13px var(--mono);color:#0b1024;background:linear-gradient(135deg,var(--cyan),var(--violet))}
 .qrBox{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
 .qrBox[hidden]{display:none}
 .qr{width:min(320px,100%);aspect-ratio:1;background:#fff;border-radius:18px;padding:12px}
@@ -308,6 +313,25 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         <g id="chipCloud" font-family="ui-monospace,Menlo,monospace" font-size="10.5"></g>
       </svg>
     </div>
+  </section>
+
+  <section class="step" id="stepAccount" aria-labelledby="accTitle" hidden>
+    <h2 id="accTitle"><small>00</small><span data-t="acc_h"></span></h2>
+    <div id="accOut">
+      <p class="hint" data-t="acc_hint"></p>
+      <div class="authRow"><div id="googleBtn"></div><div id="tgBtn"></div></div>
+      <p class="hint small" data-t="acc_privacy"></p>
+    </div>
+    <div id="accIn" hidden>
+      <p class="accHello"><span class="av" id="accAv"></span><span id="accName"></span><span class="tag" id="accVia"></span></p>
+      <div class="btns">
+        <button class="btn primary" type="button" id="accSave" data-t="acc_save"></button>
+        <button class="btn" type="button" id="accPage" data-t="acc_page"></button>
+        <button class="btn" type="button" id="accOutBtn" data-t="acc_logout"></button>
+        <button class="btn" type="button" id="accDelete" data-t="acc_delete"></button>
+      </div>
+    </div>
+    <div class="msg" id="accMsg" role="status" aria-live="polite"></div>
   </section>
 
   <section aria-labelledby="buildersTitle" style="display:grid;gap:16px" id="builders">
@@ -480,14 +504,14 @@ const T = {
   ch:{telegram:'Telegram',download:'Завантаження файлу',viber:'Viber',whatsapp:'WhatsApp',email:'Email'},
   chw:{telegram:'Основний. Доставка запрацює після підключення бота, згоди і тесту.',download:'Лише коли існує справжній аудіофайл.',viber:'Заплановано, ще не підключено.',whatsapp:'Заплановано, ще не підключено.',email:'Заплановано, ще не підключено.'},
   chs:{not_connected:'не підключено',no_local_file:'немає файлу',planned:'заплановано',ready:'готово'},primary:'основний',
-  prev_h:'Прослухати',gm:{queued:'Готуємо сценарій',voicing:'Gemini озвучує двома голосами',ready:'Готово — грає демо Gemini',approx:'≈'},gm_fail:{daily_limit:'Ліміт демо Gemini на сьогодні вичерпано — граю голосом браузера.',client_limit:'Ви вже прослухали кілька демо сьогодні — граю голосом браузера.',not_configured:'Голос Gemini не налаштовано — граю голосом браузера.',offline:'Сервер демо недоступний — граю голосом браузера.',failed:'Gemini не зміг озвучити — граю голосом браузера.'},gm_playing:'Звучить демо, озвучене Gemini (це демо, а не справжній випуск).',preview:'Прослухати демо',stop:'Зупинити',download:'Завантажити аудіо',
+  prev_h:'Прослухати',acc_h:'Увійти та зберегти свій подкаст',acc_hint:'Увійдіть через Google або Telegram: ваш подкаст збережеться, а у вас з’явиться особиста сторінка, якою можна поділитися.',acc_privacy:'Зберігаємо лише ім’я, спосіб входу, ваші налаштування і (для Telegram) чат для майбутньої розсилки. Без email і фото. Видалити все — одна кнопка.',acc_save:'Зберегти мій подкаст',acc_page:'Скопіювати мою сторінку',acc_logout:'Вийти',acc_delete:'Видалити мої дані',acc_via:{telegram:'через Telegram',google:'через Google'},acc_saved:'Збережено. Ваша сторінка: ',acc_copied:'Посилання на вашу сторінку скопійовано.',acc_need_save:'Спершу збережіть подкаст.',acc_deleted:'Ваші дані видалено.',acc_confirm_delete:'Видалити акаунт MyCast і збережений подкаст? Це не можна скасувати.',acc_fail:'Не вдалося увійти. Спробуйте ще раз.',acc_missing:'Цей подкаст не знайдено або його ще не збережено.',tg_linked:'Telegram прив’язано ✓ — розсилка скоро',tg_login:'Увійти через Telegram',gm:{queued:'Готуємо сценарій',voicing:'Gemini озвучує двома голосами',ready:'Готово — грає демо Gemini',approx:'≈'},gm_fail:{daily_limit:'Ліміт демо Gemini на сьогодні вичерпано — граю голосом браузера.',client_limit:'Ви вже прослухали кілька демо сьогодні — граю голосом браузера.',not_configured:'Голос Gemini не налаштовано — граю голосом браузера.',offline:'Сервер демо недоступний — граю голосом браузера.',failed:'Gemini не зміг озвучити — граю голосом браузера.'},gm_playing:'Звучить демо, озвучене Gemini (це демо, а не справжній випуск).',preview:'Прослухати демо',stop:'Зупинити',download:'Завантажити аудіо',
   appr_h:'Затвердження',review:'Я прослухав — позначити як переглянуто',confirm:'Я затверджую цей профіль (це не вмикає розсилку)',approve:'Затвердити',
   json_h:'Профіль JSON',json_hint:'Саме це отримав би бекенд. active завжди false, доки немає справжнього планувальника.',
   dna_h:'ДНК вашого подкасту',dna_topics:'тем обрано',dna_geo:'Географія',dna_watch:'Стежу',dna_when:'Коли',dna_voice:'Голос',dna_ch:'Канал',dna_none:'—',
   pg:{topics:'Теми',geo:'Регіон',voice:'Голос і розклад',preview:'Прев’ю',approved:'Затверджено'},
   mbar_n:'тем',mbar_go:'До прослуховування',mbar_pick:'Обрати теми',
   faq_h:'Чесно про прототип',q1:'Звідки братимуться новини?',a1:'У справжньому випуску кожен факт іде з посиланням на джерело і датою. Неперевірене позначається. У цьому прототипі новин немає — лише ваш профіль.',
-  q2:'Що відбувається з моїми даними?',a2:'Профіль зберігається лише у вашому браузері. Сторінка нічого не відправляє в мережу.',
+  q2:'Що відбувається з моїми даними?',a2:'Без входу профіль зберігається лише у вашому браузері. Якщо ви увійдете, ми збережемо ім’я, спосіб входу, налаштування подкасту і (для Telegram) чат для розсилки — без email і фото. «Видалити мої дані» стирає все одразу.',
   q3:'Чи це справжній ШІ-випуск?',a3:'Ні. «Прослухати демо» створює коротке демо на 15 секунд голосами Gemini (до 30 на день для всіх), а якщо ліміт вичерпано — читає голосом браузера. Справжні випуски з’являться після окремого затвердження.',
   q4:'Коли запрацює доставка в Telegram?',a4:'Після підключення бота, вашої згоди і наскрізного тесту. До того Telegram позначено як основний, але не підключений.',
   foot:'Blackbox Lab · MVP Factory · прототип без платних API, розсилки і публікації',
@@ -518,14 +542,14 @@ const T = {
   ch:{telegram:'Telegram',download:'Скачивание файла',viber:'Viber',whatsapp:'WhatsApp',email:'Email'},
   chw:{telegram:'Основной. Доставка заработает после подключения бота, согласия и теста.',download:'Только когда существует настоящий аудиофайл.',viber:'Запланировано, ещё не подключено.',whatsapp:'Запланировано, ещё не подключено.',email:'Запланировано, ещё не подключено.'},
   chs:{not_connected:'не подключено',no_local_file:'нет файла',planned:'запланировано',ready:'готово'},primary:'основной',
-  prev_h:'Прослушать',gm:{queued:'Готовим сценарий',voicing:'Gemini озвучивает двумя голосами',ready:'Готово — играет демо Gemini',approx:'≈'},gm_fail:{daily_limit:'Лимит демо Gemini на сегодня исчерпан — играю голосом браузера.',client_limit:'Вы уже прослушали несколько демо сегодня — играю голосом браузера.',not_configured:'Голос Gemini не настроен — играю голосом браузера.',offline:'Сервер демо недоступен — играю голосом браузера.',failed:'Gemini не смог озвучить — играю голосом браузера.'},gm_playing:'Звучит демо, озвученное Gemini (это демо, а не настоящий выпуск).',preview:'Прослушать демо',stop:'Остановить',download:'Скачать аудио',
+  prev_h:'Прослушать',acc_h:'Войти и сохранить свой подкаст',acc_hint:'Войдите через Google или Telegram: ваш подкаст сохранится, а у вас появится личная страница, которой можно поделиться.',acc_privacy:'Храним только имя, способ входа, ваши настройки и (для Telegram) чат для будущей рассылки. Без email и фото. Удалить всё — одна кнопка.',acc_save:'Сохранить мой подкаст',acc_page:'Скопировать мою страницу',acc_logout:'Выйти',acc_delete:'Удалить мои данные',acc_via:{telegram:'через Telegram',google:'через Google'},acc_saved:'Сохранено. Ваша страница: ',acc_copied:'Ссылка на вашу страницу скопирована.',acc_need_save:'Сначала сохраните подкаст.',acc_deleted:'Ваши данные удалены.',acc_confirm_delete:'Удалить аккаунт MyCast и сохранённый подкаст? Это нельзя отменить.',acc_fail:'Не удалось войти. Попробуйте ещё раз.',acc_missing:'Этот подкаст не найден или ещё не сохранён.',tg_linked:'Telegram привязан ✓ — рассылка скоро',tg_login:'Войти через Telegram',gm:{queued:'Готовим сценарий',voicing:'Gemini озвучивает двумя голосами',ready:'Готово — играет демо Gemini',approx:'≈'},gm_fail:{daily_limit:'Лимит демо Gemini на сегодня исчерпан — играю голосом браузера.',client_limit:'Вы уже прослушали несколько демо сегодня — играю голосом браузера.',not_configured:'Голос Gemini не настроен — играю голосом браузера.',offline:'Сервер демо недоступен — играю голосом браузера.',failed:'Gemini не смог озвучить — играю голосом браузера.'},gm_playing:'Звучит демо, озвученное Gemini (это демо, а не настоящий выпуск).',preview:'Прослушать демо',stop:'Остановить',download:'Скачать аудио',
   appr_h:'Утверждение',review:'Я прослушал — отметить как просмотрено',confirm:'Я утверждаю этот профиль (это не включает рассылку)',approve:'Утвердить',
   json_h:'Профиль JSON',json_hint:'Именно это получил бы бэкенд. active всегда false, пока нет настоящего планировщика.',
   dna_h:'ДНК вашего подкаста',dna_topics:'тем выбрано',dna_geo:'География',dna_watch:'Слежу',dna_when:'Когда',dna_voice:'Голос',dna_ch:'Канал',dna_none:'—',
   pg:{topics:'Темы',geo:'Регион',voice:'Голос и расписание',preview:'Превью',approved:'Утверждено'},
   mbar_n:'тем',mbar_go:'К прослушиванию',mbar_pick:'Выбрать темы',
   faq_h:'Честно о прототипе',q1:'Откуда будут браться новости?',a1:'В настоящем выпуске каждый факт идёт со ссылкой на источник и датой. Непроверенное помечается. В этом прототипе новостей нет — только ваш профиль.',
-  q2:'Что происходит с моими данными?',a2:'Профиль хранится только в вашем браузере. Страница ничего не отправляет в сеть.',
+  q2:'Что происходит с моими данными?',a2:'Без входа профиль хранится только в вашем браузере. Если вы войдёте, мы сохраним имя, способ входа, настройки подкаста и (для Telegram) чат для рассылки — без email и фото. «Удалить мои данные» стирает всё сразу.',
   q3:'Это настоящий ИИ-выпуск?',a3:'Нет. «Прослушать демо» создаёт короткое демо на 15 секунд голосами Gemini (до 30 в день для всех), а если лимит исчерпан — читает голосом браузера. Настоящие выпуски появятся после отдельного утверждения.',
   q4:'Когда заработает доставка в Telegram?',a4:'После подключения бота, вашего согласия и сквозного теста. До этого Telegram отмечен как основной, но не подключённый.',
   foot:'Blackbox Lab · MVP Factory · прототип без платных API, рассылки и публикации',
@@ -556,14 +580,14 @@ const T = {
   ch:{telegram:'Telegram',download:'File download',viber:'Viber',whatsapp:'WhatsApp',email:'Email'},
   chw:{telegram:'Main channel. Delivery starts after the bot is connected, you consent and a test passes.',download:'Only when a real audio file exists.',viber:'Planned, not connected yet.',whatsapp:'Planned, not connected yet.',email:'Planned, not connected yet.'},
   chs:{not_connected:'not connected',no_local_file:'no file',planned:'planned',ready:'ready'},primary:'main',
-  prev_h:'Listen',gm:{queued:'Preparing the script',voicing:'Gemini is voicing two hosts',ready:'Ready: playing the Gemini demo',approx:'≈'},gm_fail:{daily_limit:'Today\'s Gemini demo limit is used up; playing the browser voice.',client_limit:'You have heard a few demos today; playing the browser voice.',not_configured:'The Gemini voice is not set up; playing the browser voice.',offline:'The demo server is unreachable; playing the browser voice.',failed:'Gemini could not voice it; playing the browser voice.'},gm_playing:'Playing a demo voiced by Gemini (a demo, not a real episode).',preview:'Play demo',stop:'Stop',download:'Download audio',
+  prev_h:'Listen',acc_h:'Sign in and keep your podcast',acc_hint:'Sign in with Google or Telegram: your podcast is saved and you get a personal page you can share.',acc_privacy:'We keep only your name, how you signed in, your settings and (for Telegram) the chat for future delivery. No email, no photo. One button deletes it all.',acc_save:'Save my podcast',acc_page:'Copy my page link',acc_logout:'Sign out',acc_delete:'Delete my data',acc_via:{telegram:'via Telegram',google:'via Google'},acc_saved:'Saved. Your page: ',acc_copied:'Your page link is copied.',acc_need_save:'Save your podcast first.',acc_deleted:'Your data is deleted.',acc_confirm_delete:'Delete your MyCast account and saved podcast? This cannot be undone.',acc_fail:'Sign-in failed. Please try again.',acc_missing:'This podcast was not found or is not saved yet.',tg_linked:'Telegram linked ✓, delivery coming soon',tg_login:'Sign in with Telegram',gm:{queued:'Preparing the script',voicing:'Gemini is voicing two hosts',ready:'Ready: playing the Gemini demo',approx:'≈'},gm_fail:{daily_limit:'Today\'s Gemini demo limit is used up; playing the browser voice.',client_limit:'You have heard a few demos today; playing the browser voice.',not_configured:'The Gemini voice is not set up; playing the browser voice.',offline:'The demo server is unreachable; playing the browser voice.',failed:'Gemini could not voice it; playing the browser voice.'},gm_playing:'Playing a demo voiced by Gemini (a demo, not a real episode).',preview:'Play demo',stop:'Stop',download:'Download audio',
   appr_h:'Approval',review:'I listened: mark as reviewed',confirm:'I approve this profile (this does not turn on delivery)',approve:'Approve',
   json_h:'Profile JSON',json_hint:'Exactly what a backend would receive. active stays false until a real scheduler exists.',
   dna_h:'Your podcast DNA',dna_topics:'topics picked',dna_geo:'Geography',dna_watch:'Following',dna_when:'When',dna_voice:'Voice',dna_ch:'Channel',dna_none:'—',
   pg:{topics:'Topics',geo:'Region',voice:'Voice and schedule',preview:'Preview',approved:'Approved'},
   mbar_n:'topics',mbar_go:'Go to listening',mbar_pick:'Pick topics',
   faq_h:'Honest about the prototype',q1:'Where will the news come from?',a1:'In a real episode every fact carries a source link and a date, and anything unverified is marked. This prototype has no news, only your profile.',
-  q2:'What happens to my data?',a2:'Your profile stays in your browser. The page sends nothing over the network.',
+  q2:'What happens to my data?',a2:'Without signing in, your profile stays in your browser. If you sign in we keep your name, how you signed in, your podcast settings and (for Telegram) the chat for delivery: no email, no photo. "Delete my data" erases it all at once.',
   q3:'Is this a real AI episode?',a3:'No. "Play demo" makes a 15-second demo voiced by Gemini (up to 30 a day across all visitors); once that is used up, your browser reads it. Real episodes come after a separate approval.',
   q4:'When will Telegram delivery work?',a4:'After the bot is connected, you consent, and an end-to-end test passes. Until then Telegram is marked as the main channel but not connected.',
   foot:'Blackbox Lab · MVP Factory · a prototype with no paid APIs, sending or publishing',
@@ -581,6 +605,7 @@ const calm = mq('(prefers-reduced-motion: reduce)');
 const lowfx = (navigator.connection && navigator.connection.saveData) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
 if (calm) document.documentElement.classList.add('calm');
 if (lowfx) document.documentElement.classList.add('lowfx', 'calm');
+let account = { telegram_bot: null, google_client_id: null }, listener = null;
 let lang = 'uk', profile = MyCast.newProfile(), openCats = new Set(['sports', 'tech']), lastNote = '', lastCount = 0, platform = 'x', sharedProfile = null;
 const speech = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
 try {
@@ -744,8 +769,9 @@ function render() {
     const tag = st.reason === 'planned' ? 'plan' : st.usable ? 'yes' : 'no';
     return `<label class="${st.selectable ? '' : 'off'}"><span class="nm"><input type="radio" name="channel" value="${ch}" ${profile.delivery === ch ? 'checked' : ''} ${st.selectable ? '' : 'disabled'}> ${esc(x.ch[ch])}</span><span class="tags">` +
       (ch === 'telegram' ? `<span class="tag pri">${esc(x.primary)}</span>` : '') + `<span class="tag ${tag}">${esc(x.chs[st.reason || 'ready'])}</span></span><span class="why">${esc(x.chw[ch])}</span></label>`; }).join('') +
-    `<button type="button" class="btn" disabled title="${esc(x.tg_soon)}">${ICONS.telegram.replace('<svg ', '<svg width="16" height="16" style="vertical-align:-3px;margin-right:6px" ')}${esc(x.tg_soon)}</button>`;
+    `<button type="button" class="btn" id="tgDeliver" ${listener && listener.telegram_linked ? 'disabled' : ''}>${ICONS.telegram.replace('<svg ', '<svg width="16" height="16" style="vertical-align:-3px;margin-right:6px" ')}${esc(listener && listener.telegram_linked ? x.tg_linked : (account.telegram_bot ? x.tg_login : x.tg_soon))}</button>`;
   $('#importBanner').hidden = !sharedProfile;
+  renderAccount();
   $('#shareNative').hidden = !navigator.share;
   const errors = MyCast.validate(profile);
   $('#errors').innerHTML = errors.map(e => `<li>${esc(x.err[e.code] || e.code)}</li>`).join('');
@@ -957,6 +983,67 @@ $('#stopBtn').addEventListener('click', () => { if (speech) { try { speechSynthe
 $('#reviewBtn').addEventListener('click', () => { profile = MyCast.markReviewed(profile); save(); render(); });
 $('#approveBtn').addEventListener('click', () => { if (!$('#confirm').checked) return; profile = MyCast.approve(profile, true); save(); render(); });
 
+/* Listener accounts (open beta): Google Identity Services and the Telegram Login Widget, only on the site itself. */
+function accMsg(text, ok) { const m = $('#accMsg'); m.className = 'msg' + (ok ? ' ok' : ''); m.textContent = text || ''; }
+function myPage() { return listener ? location.origin + listener.page : ''; }
+function renderAccount() {
+  const x = t(), on = !!listener, box = $('#stepAccount');
+  box.hidden = !(account.telegram_bot || account.google_client_id || on);
+  $('#accOut').hidden = on; $('#accIn').hidden = !on;
+  if (on) {
+    $('#accName').textContent = listener.name; $('#accAv').textContent = (listener.name || '?').slice(0, 1).toUpperCase();
+    $('#accVia').textContent = x.acc_via[listener.provider] || '';
+  }
+}
+async function signedIn(r) {
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.listener) { accMsg(t().acc_fail, false); return; }
+  listener = d.listener; accMsg(''); render();
+  if (!listener.has_podcast && MyCast.validate(profile).length === 0) await savePodcast(true);
+  go('#stepTopics');
+}
+window.onTelegramAuth = user => fetch('/api/mycast/account/telegram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(user) }).then(signedIn).catch(() => accMsg(t().acc_fail, false));
+function loadScript(src, attrs, parent) {
+  const el = document.createElement('script'); el.src = src; el.async = true;
+  Object.entries(attrs || {}).forEach(([k, v]) => el.setAttribute(k, v)); (parent || document.head).appendChild(el); return el;
+}
+async function savePodcast(quiet) {
+  const r = await fetch('/api/mycast/account/podcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: MyCast.encodeShare(profile) }) });
+  const d = await r.json().catch(() => ({}));
+  if (r.ok) { listener = d.listener; if (!quiet) accMsg(t().acc_saved + myPage(), true); }
+  else if (!quiet) accMsg(t().acc_fail, false);
+}
+async function initAccounts() {
+  if (!/^https?:$/.test(location.protocol)) return;               // local file or preview: no accounts
+  if (/[#&]missing/.test(location.hash)) accMsg(t().acc_missing, false);
+  try { account = await (await fetch('/api/mycast/account/config')).json(); } catch (e) { return; }
+  try { const r = await fetch('/api/mycast/account/me'); if (r.ok) listener = (await r.json()).listener; } catch (e) {}
+  render();
+  if (listener) return;
+  if (account.google_client_id) {
+    loadScript('https://accounts.google.com/gsi/client').onload = () => {
+      google.accounts.id.initialize({ client_id: account.google_client_id, callback: resp =>
+        fetch('/api/mycast/account/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: resp.credential }) }).then(signedIn) });
+      google.accounts.id.renderButton($('#googleBtn'), { theme: 'filled_black', shape: 'pill', size: 'large', text: 'signin_with', locale: lang });
+    };
+  }
+  if (account.telegram_bot) loadScript('https://telegram.org/js/telegram-widget.js?22', { 'data-telegram-login': account.telegram_bot, 'data-size': 'large',
+    'data-radius': '12', 'data-request-access': 'write', 'data-onauth': 'onTelegramAuth(user)', 'data-lang': lang }, $('#tgBtn'));
+}
+$('#accSave').addEventListener('click', () => savePodcast(false));
+$('#accPage').addEventListener('click', async () => {
+  if (!listener || !listener.has_podcast) { accMsg(t().acc_need_save, false); return; }
+  const ok = await copyText(myPage()); accMsg(ok ? t().acc_copied + ' ' + myPage() : myPage(), ok);
+});
+$('#accOutBtn').addEventListener('click', async () => { await fetch('/api/mycast/account/logout', { method: 'POST' }).catch(() => {}); listener = null; location.reload(); });
+$('#accDelete').addEventListener('click', async () => {
+  if (!confirm(t().acc_confirm_delete)) return;
+  const r = await fetch('/api/mycast/account', { method: 'DELETE' }).catch(() => null);
+  if (r && r.ok) { listener = null; render(); accMsg(t().acc_deleted, true); } else accMsg(t().acc_fail, false);
+});
+document.addEventListener('click', e => { if (e.target.closest('#tgDeliver')) go('#stepAccount'); });
+$('#approveBtn').addEventListener('click', () => { if (listener) savePodcast(true); });   // an approved profile is kept on the account
+
 /* Gentle pointer parallax on the aurora (fine pointers only, never in calm mode). */
 if (!calm && mq('(pointer: fine)')) {
   let raf = 0, px = 0, py = 0;
@@ -964,6 +1051,7 @@ if (!calm && mq('(pointer: fine)')) {
     if (!raf) raf = requestAnimationFrame(() => { raf = 0; document.documentElement.style.setProperty('--px', px.toFixed(3)); document.documentElement.style.setProperty('--py', py.toFixed(3)); }); }, { passive: true });
 }
 render();
+initAccounts();
 </script>
 </body>
 </html>

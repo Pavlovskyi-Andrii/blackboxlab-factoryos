@@ -37,6 +37,7 @@ from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
 from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio, gemini_tts_pcm
 from mycast_demo import DemoService, install_mycast_demo_routes
+from mycast_accounts import ListenerStore, install_mycast_account_routes
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
@@ -700,6 +701,18 @@ install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_wor
 install_gemini_worker_routes(app, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # MyCast public demo (owner 2026-11-06): Gemini voices, at most 30 new per UTC day, cached, one at a time.
 install_mycast_demo_routes(app, DemoService(DATA_DIR / "mycast_demo", api_key=lambda: FACTORY_GEMINI_API_KEY, tts=gemini_tts_pcm))
+_MYCAST_BOT_NAME = {"name": "", "at": 0.0}
+def _mycast_bot_username() -> str:
+    # The Login Widget needs the bot's public @username; ask Telegram once an hour, never expose the token.
+    if time.time() - _MYCAST_BOT_NAME["at"] > 3600:
+        _MYCAST_BOT_NAME.update(name=str((_telegram_api("getMe").get("result") or {}).get("username") or ""), at=time.time())
+    return _MYCAST_BOT_NAME["name"]
+# MyCast listener accounts (owner 2026-11-06: open beta, Telegram + Google). Separate cookie; never a staff session.
+install_mycast_account_routes(app, ListenerStore(DATA_DIR / "mycast_listeners.json"), secret=FACTORY_SECRET,
+                              bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN, bot_username=_mycast_bot_username,
+                              google_client_id=lambda: FACTORY_GOOGLE_CLIENT_ID,
+                              google_verify=lambda cred: google_id_token.verify_oauth2_token(cred, google_requests.Request(), FACTORY_GOOGLE_CLIENT_ID),
+                              secure_cookie=FACTORY_PUBLIC_BASE_URL.startswith("https://"))
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
@@ -714,7 +727,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast"}
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo")  # demo: capped in mycast_demo
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo", "/api/mycast/account", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
     claude_worker_api=request.url.path.startswith("/api/claude-worker/") and _claude_worker_authorized(request)
