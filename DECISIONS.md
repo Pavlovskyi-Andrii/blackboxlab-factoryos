@@ -766,3 +766,7 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 
 ## CI: screenshot upload and the artifact quota (2026-11-06, owner approved)
 - The repository's GitHub Actions artifact storage filled up, so every PR's `ui-screenshots` job went red at the upload step even though the screenshots passed. With the owner's approval, only the upload step is `continue-on-error`, and retention went from 14 days to 3. The screenshot step itself still fails the job on page errors, overflow or failed actions. No artifacts were deleted.
+
+## Relay Claude lane blocked by the MyCast state file (2026-11-06, #41/#256)
+- The owner's Telegram `/tasks` showed every Claude ticket blocked since 2026-11-05 21:20 UTC with "Runner checkout has uncommitted changes". `autopilot.py` writes the MyCast daily state to `.autopilot/mycast.json` inside the runner checkout, and that path was not git-ignored. So `relay_tasks.execute()` (correctly) refused to touch a dirty tree.
+- Fix: ignore `.autopilot/mycast.json` and `.tmp`. No guard was weakened. The worker's normal merge of main brings in the new `.gitignore`, and the untracked file stops counting. A regression in `autopilot/test_autopilot.py` checks every runtime file the runner writes inside its checkout with `git check-ignore`.
