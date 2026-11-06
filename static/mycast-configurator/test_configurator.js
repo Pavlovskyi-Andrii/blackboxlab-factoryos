@@ -53,7 +53,11 @@ test('time, timezone, frequency and duration are validated', () => {
   assert.deepStrictEqual(codes({ timezone: 'Mars/Olympus' }), ['bad_timezone']);
   assert.deepStrictEqual(codes({ timezone: 'America/New_York', time: '06:05' }), []);
   assert.deepStrictEqual(codes({ frequency: 'hourly' }), ['bad_frequency']);
-  assert.deepStrictEqual(codes({ frequency: 'weekly', weekday: 'funday' }), ['weekday_required']);
+  assert.deepStrictEqual(codes({ frequency: 'weekly' }), ['bad_frequency']);             // replaced by chosen days
+  assert.deepStrictEqual(codes({ frequency: 'days', days: [] }), ['days_required']);
+  assert.deepStrictEqual(codes({ frequency: 'days', days: ['funday'] }), ['days_required']);
+  assert.deepStrictEqual(codes({ frequency: 'days', days: ['mon', 'fri'] }), []);
+  assert.deepStrictEqual(M.toJSON(M.update(p, { schedule: { frequency: 'daily', days: ['mon'] } })).schedule.days, []);  // daily ignores days
   assert.deepStrictEqual(codes({ durationMin: 7 }), ['bad_duration']);
 });
 
@@ -77,7 +81,10 @@ test('browser speech gives a labelled demo, never an "AI episode"', () => {
   assert.strictEqual(out.profile.state, 'preview_ready');
   assert.strictEqual(out.profile.preview.kind, 'browser_tts_demo');
   assert.strictEqual(out.profile.preview.label, 'demo_not_ai_episode');
-  assert.ok(out.profile.preview.script.startsWith('Це демо-озвучка'));
+  assert.ok(out.profile.preview.script.startsWith('Це демо MyCast, а не справжній випуск.'));
+  assert.deepStrictEqual(out.profile.preview.lines.map(l => l.host), ['A', 'B']);          // two hosts take turns
+  const solo = M.makePreview(M.update(ready(), { voice: { mode: 'narrator' } }), { speechSynthesis: true }).profile.preview;
+  assert.deepStrictEqual(solo.lines.map(l => l.host), ['A']);
   const invalid = M.makePreview(M.newProfile(), { speechSynthesis: true });
   assert.strictEqual(invalid.ok, false);
   assert.strictEqual(invalid.reason, 'invalid');
@@ -100,20 +107,60 @@ test('Viber, WhatsApp and email are planned: visible, never selectable', () => {
   assert.deepStrictEqual(M.validate(M.update(ready(), { delivery: 'pigeon' })).map(e => e.code), ['bad_channel']);
 });
 
-test('watch list: typed, cleaned, de-duplicated, bounded, and it invalidates approval', () => {
-  let p = M.addWatch(ready(), 'athlete', '  Oleksandr Usyk <b> ');
-  assert.deepStrictEqual(p.watchList, [{ kind: 'athlete', value: 'Oleksandr Usyk b' }]);
-  assert.strictEqual(M.addWatch(p, 'athlete', 'oleksandr usyk b'), p);          // duplicate ignored
-  assert.strictEqual(M.addWatch(p, 'team', '   '), p);                         // empty ignored
-  assert.throws(() => M.addWatch(p, 'planet', 'Mars'));
-  for (let i = 0; i < 30; i++) p = M.addWatch(p, 'keyword', 'k' + i);
-  assert.strictEqual(p.watchList.length, M.MAX_WATCH);
-  assert.deepStrictEqual(M.toJSON(p).watch_list[0], { kind: 'athlete', value: 'Oleksandr Usyk b' });
-  const approved = M.approve(M.markReviewed(M.makePreview(ready(), { speechSynthesis: true }).profile), true, 't');
-  const edited = M.addWatch(approved, 'team', 'Shakhtar');
+test('your own entry in each row counts as a pick, is cleaned, bounded and resets approval', () => {
+  let p = M.addCustom(M.newProfile(), 'sports.football', '  Arsenal <b> ');
+  assert.deepStrictEqual(p.custom, { 'sports.football': ['Arsenal b'] });
+  assert.deepStrictEqual(M.validate(p).map(e => e.code), ['min_topics']);                 // one pick is not enough
+  p = M.addCustom(p, 'sports.mma', 'Daniel Hutchins');
+  assert.deepStrictEqual(M.validate(p), []);                                               // two custom entries are
+  assert.strictEqual(M.addCustom(p, 'sports.football', 'arsenal b'), p);                   // duplicate ignored
+  assert.throws(() => M.addCustom(p, 'sports.chess', 'x'));
+  for (let i = 0; i < 9; i++) p = M.addCustom(p, 'news.local', 'k' + i);
+  assert.strictEqual(p.custom['news.local'].length, M.MAX_CUSTOM_PER_GROUP);
+  const approved = M.approve(M.markReviewed(M.makePreview(p, { speechSynthesis: true }).profile), true, 't');
+  const edited = M.removeCustom(approved, 'sports.mma', 0);
   assert.strictEqual(edited.state, 'draft');
-  assert.strictEqual(M.removeWatch(edited, 0).watchList.length, 0);
-  assert.strictEqual(M.removeWatch(edited, 5), edited);
+  assert.strictEqual(edited.custom['sports.mma'], undefined);
+});
+
+test('social follows: handle or link on the platform\'s own domain, https only, de-duplicated', () => {
+  let p = M.addFollow(ready(), 'x', '@elonmusk');
+  p = M.addFollow(p, 'youtube', 'https://www.youtube.com/@Veritasium/');
+  assert.deepStrictEqual(p.follows, [{ platform: 'x', value: '@elonmusk' }, { platform: 'youtube', value: 'https://youtube.com/@Veritasium' }]);
+  assert.strictEqual(M.addFollow(p, 'x', '@ElonMusk'), p);                                  // duplicate ignored
+  for (const [pl, v] of [['youtube', 'https://evil.example/@x'], ['x', 'http://x.com/a'], ['telegram', 'javascript:alert(1)'], ['myspace', 'a'], ['x', '  ']]) {
+    assert.throws(() => M.addFollow(p, pl, v), pl + ' ' + v);
+  }
+  assert.deepStrictEqual(M.normalizeFollow('telegram', 'https://t.me/s/kyivindependent'), { platform: 'telegram', value: 'https://t.me/s/kyivindependent' });
+  assert.ok(M.SUGGESTED_FOLLOWS.every(f => M.normalizeFollow(f.platform, f.value)));
+  assert.deepStrictEqual(M.toJSON(p).follows[0], { platform: 'x', value: '@elonmusk' });
+});
+
+test('share link round-trips the settings, never the state, and rejects garbage', () => {
+  let p = M.setTopic(M.newProfile(), BOX, true, { kind: 'ukraine' });
+  p = M.setTopic(p, 'news.local.events', true); p = M.setScope(p, 'news.local.events', 'custom', 'Lviv');
+  p = M.addCustom(p, 'sports.football', 'Arsenal'); p = M.addFollow(p, 'x', '@ZelenskyyUa');
+  p = M.update(p, { schedule: { frequency: 'days', days: ['mon', 'fri'], time: '06:45' }, voice: { language: 'en' }, freeText: 'chess' });
+  const approved = M.approve(M.markReviewed(M.makePreview(p, { speechSynthesis: true }).profile), true, 't');
+  const code = M.encodeShare(approved);
+  assert.ok(/^[A-Za-z0-9_-]+$/.test(code) && code.length < 600, code.length);
+  const back = M.decodeShare(code);
+  assert.strictEqual(back.state, 'draft');
+  assert.strictEqual(back.preview, null);
+  const a = M.toJSON(approved), b = M.toJSON(back);
+  for (const k of ['topics', 'custom', 'follows', 'schedule', 'voice', 'free_text']) assert.deepStrictEqual(b[k], a[k], k);
+  assert.throws(() => M.decodeShare('not-a-code'));
+  assert.throws(() => M.decodeShare(''));
+});
+
+test('old saved drafts migrate: watch list -> follows, weekly -> chosen days, planned channel -> Telegram', () => {
+  const old = { version: 1, topics: { [BOX]: { scope: { kind: 'world' } }, 'gone.topic.x': {} }, watchList: [{ kind: 'athlete', value: 'Usyk' }],
+    schedule: { timezone: 'Europe/Kyiv', time: '07:30', frequency: 'weekly', weekday: 'wed', durationMin: 10 }, delivery: 'viber', state: 'approved' };
+  const p = M.migrate(old);
+  assert.deepStrictEqual(Object.keys(p.topics), [BOX]);
+  assert.deepStrictEqual(p.follows, [{ platform: 'web', value: 'Usyk' }]);
+  assert.deepStrictEqual([p.schedule.frequency, p.schedule.days, p.schedule.weekday], ['days', ['wed'], undefined]);
+  assert.deepStrictEqual([p.delivery, p.state], ['telegram', 'draft']);
 });
 
 test('new categories: automotive and food/hobbies, with scope only where it applies', () => {
@@ -153,7 +200,7 @@ test('search finds topics in any language; profile JSON uses stable ids', () => 
   assert.deepStrictEqual(json.topics.map(t => t.id), [BOX, AI].sort());
   assert.strictEqual(json.delivery.channel, 'telegram');
   assert.strictEqual(json.delivery.status, 'not_connected');
-  assert.deepStrictEqual(json.watch_list, []);
+  assert.deepStrictEqual([json.follows, json.custom], [[], []]);
   assert.strictEqual(json.state, 'draft');
 });
 

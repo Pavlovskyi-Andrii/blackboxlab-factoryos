@@ -145,6 +145,30 @@ details.cat[open]>summary .chev{transform:rotate(90deg)}
 .tag{font:600 10.5px var(--mono);padding:3px 7px;border-radius:999px;border:1px solid var(--edge2);color:var(--mute);white-space:nowrap}
 .tag.no{color:var(--bad);border-color:rgba(255,143,134,.35)}.tag.yes{color:var(--ok);border-color:rgba(121,232,176,.4)}.tag.plan{color:var(--warn);border-color:rgba(255,210,122,.35)}.tag.pri{color:var(--coral);border-color:rgba(255,122,107,.45)}
 
+/* Own entry in each row, social platforms, quick-pick people, weekday dots, share. */
+.ownRow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.ownRow input{flex:1 1 180px;padding:7px 11px;border-radius:999px;font-size:14px;border-style:dashed}
+.ownRow .chip{border-color:var(--c)}
+.platforms{display:flex;flex-wrap:wrap;gap:8px}
+.plat{display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border-radius:12px;border:1px solid var(--edge2);background:rgba(20,27,54,.7);color:var(--ink);font:600 13.5px var(--body);cursor:pointer}
+.plat svg{width:18px;height:18px;flex:none}
+.plat[aria-checked="true"]{border-color:var(--cyan);background:rgba(79,227,255,.12)}
+.people{display:flex;flex-wrap:wrap;gap:10px}
+.person{display:inline-flex;align-items:center;gap:8px;padding:5px 12px 5px 5px;border-radius:999px;border:1px solid var(--edge2);background:rgba(20,27,54,.7);color:var(--ink);font:600 13.5px var(--body);cursor:pointer}
+.person .av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:700 12px var(--mono);color:#0b1024;background:linear-gradient(135deg,var(--cyan),var(--violet))}
+.person .pl{font-size:16px;line-height:1;color:var(--cyan)}
+.person[aria-pressed="true"]{border-color:var(--ok);background:rgba(121,232,176,.12)}
+.person[aria-pressed="true"] .pl{color:var(--ok)}
+.chip .ic svg{width:14px;height:14px;display:block}
+.days{display:flex;flex-wrap:wrap;gap:8px}
+.day{width:46px;height:46px;border-radius:50%;border:1.5px solid var(--edge2);background:rgba(20,27,54,.7);color:var(--mute);font:700 13px var(--mono);cursor:pointer;transition:all .2s}
+.day[aria-pressed="true"]{background:linear-gradient(135deg,#ff9a7b,var(--coral));color:var(--coral-ink);border-color:transparent}
+.msg{font-size:13.5px;color:var(--bad);min-height:0}
+.msg.ok{color:var(--ok)}
+textarea{font:13px var(--mono);background:rgba(9,13,30,.75);color:var(--ink);border:1px solid var(--edge2);border-radius:12px;padding:10px;width:100%;resize:vertical}
+details.jsonBox>summary{cursor:pointer;color:var(--mute);font-size:14px;margin-bottom:8px}
+.banner{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:16px;border:1px solid rgba(79,227,255,.45);background:rgba(10,30,50,.75)}
+.banner[hidden]{display:none}
 /* Player + waveform: bars move only while the browser is really speaking. */
 .player{display:grid;gap:14px;padding:16px;border-radius:16px;border:1px solid var(--edge2);background:linear-gradient(135deg,rgba(91,67,255,.18),rgba(0,200,255,.08)),rgba(10,14,32,.6)}
 .wave{display:flex;align-items:center;gap:3px;height:54px}
@@ -212,6 +236,7 @@ footer{color:var(--dim);font-size:13px;text-align:center}
 <div class="grain" aria-hidden="true"></div>
 
 <div class="wrap">
+  <div class="banner" id="importBanner" hidden role="status"><span data-t="imp_banner"></span><div class="btns"><button class="btn primary" type="button" id="impUse" data-t="imp_use"></button><button class="btn" type="button" id="impKeep" data-t="imp_keep"></button></div></div>
   <header class="top">
     <span class="brand"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="bl" x1="0" x2="1"><stop offset="0" stop-color="#4fe3ff"/><stop offset="1" stop-color="#8b7bff"/></linearGradient></defs><circle cx="12" cy="12" r="10" fill="none" stroke="url(#bl)" stroke-width="2"/><path d="M7 14v-4M10 16V8M14 15V9M17 13v-2" stroke="url(#bl)" stroke-width="2" stroke-linecap="round"/></svg>MyCast · MVP Factory</span>
     <div class="topR">
@@ -301,13 +326,17 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         <p class="hint" data-t="geo_hint"></p>
         <div id="scopeBox" class="scopes" aria-live="polite"></div>
         <div class="field">
-          <span class="lab" data-t="watch_h"></span>
+          <span class="lab" data-t="soc_h"></span>
+          <p class="hint" data-t="soc_hint"></p>
+          <div class="platforms" id="platforms" role="radiogroup" aria-labelledby="h2s"></div>
           <div class="row">
-            <div class="field"><label for="watchKind" data-t="watch_kind"></label><select id="watchKind"></select></div>
-            <div class="field" style="flex:1 1 200px"><label for="watchValue" data-t="watch_value"></label><input id="watchValue" type="text" maxlength="60" autocomplete="off"></div>
-            <button class="btn" type="button" id="watchAdd" data-t="watch_add"></button>
+            <div class="field" style="flex:1 1 220px"><label for="followValue" id="followLabel"></label><input id="followValue" type="text" maxlength="120" autocomplete="off"></div>
+            <button class="btn" type="button" id="followAdd" data-t="soc_add"></button>
           </div>
-          <div class="chips" id="watchList" aria-live="polite"></div>
+          <div class="msg" id="followMsg" role="status" aria-live="polite"></div>
+          <span class="lab" data-t="soc_quick"></span>
+          <div class="people" id="people"></div>
+          <div class="chips" id="follows" aria-live="polite"></div>
         </div>
         <div class="row">
           <div class="field" style="flex:1 1 260px"><label for="freeText" data-t="free"></label><input id="freeText" type="text" maxlength="120"></div>
@@ -327,8 +356,8 @@ footer{color:var(--dim);font-size:13px;text-align:center}
           <div class="field"><label for="tz" data-t="tz"></label><select id="tz"></select></div>
           <div class="field"><label for="time" data-t="time"></label><input id="time" type="time"></div>
           <div class="field"><label for="freq" data-t="freq"></label><select id="freq"></select></div>
-          <div class="field" id="weekdayField"><label for="weekday" data-t="weekday"></label><select id="weekday"></select></div>
         </div>
+        <div class="field" id="daysField"><span class="lab" data-t="days_h"></span><div class="days" id="days" role="group"></div></div>
       </section>
 
       <section class="step" id="stepDelivery" aria-labelledby="h4s">
@@ -359,10 +388,22 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         <div class="status" id="approveStatus" role="status" aria-live="polite"></div>
       </section>
 
-      <section class="step" aria-labelledby="h7s">
-        <h2 id="h7s"><small>07</small><span data-t="json_h"></span></h2>
-        <p class="hint" data-t="json_hint"></p>
-        <pre id="json" tabindex="0"></pre>
+      <section class="step" id="stepShare" aria-labelledby="h7s">
+        <h2 id="h7s"><small>07</small><span data-t="share_h"></span></h2>
+        <p class="hint" data-t="share_hint"></p>
+        <div class="btns">
+          <button class="btn primary" type="button" id="shareLink" data-t="share_link"></button>
+          <button class="btn" type="button" id="shareNative" data-t="share_native" hidden></button>
+          <button class="btn" type="button" id="copyJson" data-t="share_json"></button>
+          <button class="btn" type="button" id="importJsonBtn" data-t="share_import"></button>
+        </div>
+        <div class="msg" id="shareMsg" role="status" aria-live="polite"></div>
+        <div class="field" id="importBox" hidden>
+          <label for="importJson" data-t="share_import_l"></label>
+          <textarea id="importJson" rows="4"></textarea>
+          <div class="btns"><button class="btn" type="button" id="importApply" data-t="share_import_go"></button></div>
+        </div>
+        <details class="jsonBox"><summary data-t="json_h"></summary><p class="hint" data-t="json_hint"></p><pre id="json" tabindex="0"></pre></details>
       </section>
     </div>
 
@@ -405,12 +446,15 @@ const T = {
   n1:'Scout',n1s:'знаходить новини',n2:'Researcher',n2s:'перевіряє джерела',n3:'Editor',n3s:'пише сценарій',n4:'Voice',n4s:'ваш випуск',
   b_h:'Три білдери, одна сторінка',b_p:'MVP Factory будує продукт по черзі: кожна роль передає наступній готовий результат. Тут усі три ролі виконав Claude; живих агентів ще немає.',
   b1_role:'Product Strategist',b1_h:'Спека і таксономія',b1_p:'Аудиторія, сценарій, 10 категорій і понад 90 тем, правила перевірки та чесні стани.',
-  b2_role:'Web Builder',b2_h:'Ця сторінка',b2_p:'Адаптивний конфігуратор: вкладені теми, регіон, список відстеження, голос, розклад і прев’ю.',b2_link:'До конфігуратора ↓',
+  b2_role:'Web Builder',b2_h:'Ця сторінка',b2_p:'Адаптивний конфігуратор: вкладені теми зі своїми пунктами, регіон, соцмережі, голос, розклад, прев’ю і посилання для друзів.',b2_link:'До конфігуратора ↓',
   b3_role:'QA & Launch',b3_h:'Тести і чекліст',b3_p:'Тести логіки, мобільна перевірка, затвердження лише з галочкою, без мережі й платних API.',b_done:'✓ зроблено',
   topics_h:'Теми',topics_hint:'Оберіть щонайменше дві підтеми, з будь-яких категорій.',search:'Пошук теми',expand:'Розгорнути все',collapse:'Згорнути все',
-  geo_h:'Регіон і список відстеження',geo_hint:'Для тем, де важливе місце, оберіть Україну, світ або своє місто чи країну.',geo_empty:'Оберіть теми зі спорту, новин чи бізнесу — тут з’явиться вибір регіону.',
-  watch_h:'Стежити за',watch_kind:'Тип',watch_value:'Ім’я або слово',watch_add:'Додати',watch_empty:'Список порожній. Додайте спортсмена, команду, канал чи ключове слово.',watch_remove:'Прибрати',
-  wk:{athlete:'Спортсмен',team:'Команда',channel:'Канал',keyword:'Ключове слово'},
+  geo_h:'Регіон, соцмережі та канали',geo_hint:'Для тем, де важливе місце, оберіть Україну, світ або своє місто чи країну.',geo_empty:'Оберіть теми зі спорту, новин чи бізнесу — тут з’явиться вибір регіону.',
+  soc_h:'Соцмережі та канали',soc_hint:'Оберіть мережу, впишіть назву каналу, @нік або вставте посилання.',soc_add:'Додати',soc_quick:'Швидко: стежити в X (Twitter)',soc_empty:'Поки ні за ким не стежите.',soc_remove:'Прибрати',soc_bad:'Не схоже на канал цієї мережі. Впишіть @нік, назву або посилання https://',
+  plat:{youtube:'YouTube',x:'X (Twitter)',telegram:'Telegram',instagram:'Instagram',tiktok:'TikTok',facebook:'Facebook',web:'Сайт / інше'},platPh:{youtube:'@channel або youtube.com/@…',x:'@нік або x.com/…',telegram:'@канал або t.me/…',instagram:'@нік або instagram.com/…',tiktok:'@нік або tiktok.com/@…',facebook:'Назва сторінки або facebook.com/…',web:'Назва, ключове слово або https://…'},platL:'Канал у мережі',
+  own_ph:'+ своє: клуб, боєць, ліга…',own_add:'Додати своє',own_remove:'Прибрати',days_h:'Дні тижня',
+  share_h:'Поділитися подкастом',share_hint:'Надішліть друзям посилання: воно відкриє ці налаштування в їхньому браузері. Затвердження і прев’ю не передаються.',share_link:'Скопіювати посилання',share_native:'Поділитися…',share_json:'Скопіювати JSON',share_import:'Вставити JSON',share_import_l:'Вставте JSON профілю MyCast',share_import_go:'Застосувати',share_copied:'Скопійовано.',share_copy_fail:'Не вдалося скопіювати — виділіть і скопіюйте вручну.',share_bad:'Це не схоже на профіль MyCast.',share_done:'Налаштування застосовано.',
+  imp_banner:'Ви відкрили чужий подкаст за посиланням. Використати ці налаштування замість ваших?',imp_use:'Використати',imp_keep:'Залишити мої',tg_soon:'Вхід у Telegram — скоро',
   free:'Своя тема (до 120 символів)',rss:'Своє джерело RSS (макет, ще не підключено)',
   voice_h:'Голос і розклад',sched_hint:'Розклад лише зберігається в профілі: нічого не запускається автоматично.',tz:'Часовий пояс',time:'Час',freq:'Частота',weekday:'День тижня',dur:'Тривалість',mode:'Формат',vlang:'Мова',
   deliv_h:'Доставка',deliv_hint:'Telegram — основний канал, але з цієї сторінки нічого не надсилається. Інші канали з’являться після перевіреного підключення.',
@@ -429,8 +473,8 @@ const T = {
   q4:'Коли запрацює доставка в Telegram?',a4:'Після підключення бота, вашої згоди і наскрізного тесту. До того Telegram позначено як основний, але не підключений.',
   foot:'Blackbox Lab · MVP Factory · прототип без платних API, розсилки і публікації',
   state:{draft:'Чернетка',preview_ready:'Є прев’ю',reviewed:'Переглянуто',approved:'Затверджено'},scope:{ukraine:'Україна',world:'Світ',custom:'Інше місто / країна'},place:'Назва міста чи країни',
-  freqs:{daily:'Щодня',weekly:'Щотижня',manual:'Вручну'},days:{mon:'Пн',tue:'Вт',wed:'Ср',thu:'Чт',fri:'Пт',sat:'Сб',sun:'Нд'},modes:{narrator:'Один ведучий',two_hosts:'Два ведучі'},langs:{uk:'Українська',ru:'Русский',en:'English'},min:'хв',
-  err:{min_topics:'Оберіть щонайменше дві підтеми.',custom_place_required:'Вкажіть місто чи країну для своєї теми.',bad_time:'Час у форматі ГГ:ХХ.',bad_timezone:'Невідомий часовий пояс.',weekday_required:'Оберіть день тижня.',bad_duration:'Оберіть тривалість.',too_long:'Своя тема задовга.',bad_url:'Джерело має починатися з https://',bad_language:'Оберіть мову.',bad_voice:'Оберіть формат.',bad_channel:'Оберіть канал.',channel_unavailable:'Цей канал ще не підключено.',bad_frequency:'Оберіть частоту.',unknown_topic:'Невідома тема.',bad_watch:'Перевірте список відстеження.',too_many_watch:'Забагато пунктів у списку відстеження.'},
+  freqs:{daily:'Щодня',days:'У вибрані дні'},days:{mon:'Пн',tue:'Вт',wed:'Ср',thu:'Чт',fri:'Пт',sat:'Сб',sun:'Нд'},modes:{narrator:'Один ведучий',two_hosts:'Два ведучі'},langs:{uk:'Українська',ru:'Русский',en:'English'},min:'хв',
+  err:{min_topics:'Оберіть щонайменше дві підтеми.',custom_place_required:'Вкажіть місто чи країну для своєї теми.',bad_time:'Час у форматі ГГ:ХХ.',bad_timezone:'Невідомий часовий пояс.',days_required:'Позначте хоча б один день.',bad_custom:'Перевірте свої пункти в темах.',bad_follow:'Перевірте канали в соцмережах.',too_many_follows:'Забагато каналів.',bad_duration:'Оберіть тривалість.',too_long:'Своя тема задовга.',bad_url:'Джерело має починатися з https://',bad_language:'Оберіть мову.',bad_voice:'Оберіть формат.',bad_channel:'Оберіть канал.',channel_unavailable:'Цей канал ще не підключено.',bad_frequency:'Оберіть частоту.',unknown_topic:'Невідома тема.'},
   pv:{idle:'Прев’ю ще немає.',invalid:'Спершу виправте помилки вище.',unavailable:'Аудіо недоступне: у цьому браузері немає озвучки, а справжнього файлу ще немає.',playing:'Звучить демо-озвучка вашого браузера (не справжній випуск).',ready:'Демо-прев’ю готове. Можна позначити як переглянуто.',stopped:'Зупинено.'},
   ap:{need:'Затвердження доступне після прев’ю і перегляду.',done:'Профіль затверджено. Розсилка не ввімкнена: бекенду ще немає.',invalidated:'Ви змінили налаштування — прев’ю і затвердження скинуто.'}},
  ru:{eyebrow:'MyCast · персональный подкаст',title_a:'Ваш ежедневный подкаст —',title_b:'только о том, что вам интересно',
@@ -440,12 +484,15 @@ const T = {
   n1:'Scout',n1s:'находит новости',n2:'Researcher',n2s:'проверяет источники',n3:'Editor',n3s:'пишет сценарий',n4:'Voice',n4s:'ваш выпуск',
   b_h:'Три билдера, одна страница',b_p:'MVP Factory строит продукт по очереди: каждая роль передаёт следующей готовый результат. Здесь все три роли выполнил Claude; живых агентов пока нет.',
   b1_role:'Product Strategist',b1_h:'Спека и таксономия',b1_p:'Аудитория, сценарий, 10 категорий и больше 90 тем, правила проверки и честные состояния.',
-  b2_role:'Web Builder',b2_h:'Эта страница',b2_p:'Адаптивный конфигуратор: вложенные темы, регион, список отслеживания, голос, расписание и превью.',b2_link:'К конфигуратору ↓',
+  b2_role:'Web Builder',b2_h:'Эта страница',b2_p:'Адаптивный конфигуратор: вложенные темы со своими пунктами, регион, соцсети, голос, расписание, превью и ссылка для друзей.',b2_link:'К конфигуратору ↓',
   b3_role:'QA & Launch',b3_h:'Тесты и чеклист',b3_p:'Тесты логики, мобильная проверка, утверждение только с галочкой, без сети и платных API.',b_done:'✓ сделано',
   topics_h:'Темы',topics_hint:'Выберите минимум две подтемы, из любых категорий.',search:'Поиск темы',expand:'Развернуть всё',collapse:'Свернуть всё',
-  geo_h:'Регион и список отслеживания',geo_hint:'Для тем, где важно место, выберите Украину, мир или свой город или страну.',geo_empty:'Выберите темы из спорта, новостей или бизнеса — здесь появится выбор региона.',
-  watch_h:'Следить за',watch_kind:'Тип',watch_value:'Имя или слово',watch_add:'Добавить',watch_empty:'Список пуст. Добавьте спортсмена, команду, канал или ключевое слово.',watch_remove:'Убрать',
-  wk:{athlete:'Спортсмен',team:'Команда',channel:'Канал',keyword:'Ключевое слово'},
+  geo_h:'Регион, соцсети и каналы',geo_hint:'Для тем, где важно место, выберите Украину, мир или свой город или страну.',geo_empty:'Выберите темы из спорта, новостей или бизнеса — здесь появится выбор региона.',
+  soc_h:'Соцсети и каналы',soc_hint:'Выберите сеть, впишите название канала, @ник или вставьте ссылку.',soc_add:'Добавить',soc_quick:'Быстро: следить в X (Twitter)',soc_empty:'Пока ни за кем не следите.',soc_remove:'Убрать',soc_bad:'Не похоже на канал этой сети. Впишите @ник, название или ссылку https://',
+  plat:{youtube:'YouTube',x:'X (Twitter)',telegram:'Telegram',instagram:'Instagram',tiktok:'TikTok',facebook:'Facebook',web:'Сайт / другое'},platPh:{youtube:'@channel или youtube.com/@…',x:'@ник или x.com/…',telegram:'@канал или t.me/…',instagram:'@ник или instagram.com/…',tiktok:'@ник или tiktok.com/@…',facebook:'Название страницы или facebook.com/…',web:'Название, ключевое слово или https://…'},platL:'Канал в сети',
+  own_ph:'+ своё: клуб, боец, лига…',own_add:'Добавить своё',own_remove:'Убрать',days_h:'Дни недели',
+  share_h:'Поделиться подкастом',share_hint:'Отправьте друзьям ссылку: она откроет эти настройки в их браузере. Утверждение и превью не передаются.',share_link:'Скопировать ссылку',share_native:'Поделиться…',share_json:'Скопировать JSON',share_import:'Вставить JSON',share_import_l:'Вставьте JSON профиля MyCast',share_import_go:'Применить',share_copied:'Скопировано.',share_copy_fail:'Не удалось скопировать — выделите и скопируйте вручную.',share_bad:'Это не похоже на профиль MyCast.',share_done:'Настройки применены.',
+  imp_banner:'Вы открыли чужой подкаст по ссылке. Использовать эти настройки вместо ваших?',imp_use:'Использовать',imp_keep:'Оставить мои',tg_soon:'Вход в Telegram — скоро',
   free:'Своя тема (до 120 символов)',rss:'Свой источник RSS (макет, ещё не подключён)',
   voice_h:'Голос и расписание',sched_hint:'Расписание только сохраняется в профиле: ничего не запускается автоматически.',tz:'Часовой пояс',time:'Время',freq:'Частота',weekday:'День недели',dur:'Длительность',mode:'Формат',vlang:'Язык',
   deliv_h:'Доставка',deliv_hint:'Telegram — основной канал, но с этой страницы ничего не отправляется. Другие каналы появятся после проверенного подключения.',
@@ -464,8 +511,8 @@ const T = {
   q4:'Когда заработает доставка в Telegram?',a4:'После подключения бота, вашего согласия и сквозного теста. До этого Telegram отмечен как основной, но не подключённый.',
   foot:'Blackbox Lab · MVP Factory · прототип без платных API, рассылки и публикации',
   state:{draft:'Черновик',preview_ready:'Есть превью',reviewed:'Просмотрено',approved:'Утверждено'},scope:{ukraine:'Украина',world:'Мир',custom:'Другой город / страна'},place:'Название города или страны',
-  freqs:{daily:'Ежедневно',weekly:'Еженедельно',manual:'Вручную'},days:{mon:'Пн',tue:'Вт',wed:'Ср',thu:'Чт',fri:'Пт',sat:'Сб',sun:'Вс'},modes:{narrator:'Один ведущий',two_hosts:'Два ведущих'},langs:{uk:'Українська',ru:'Русский',en:'English'},min:'мин',
-  err:{min_topics:'Выберите минимум две подтемы.',custom_place_required:'Укажите город или страну для своей темы.',bad_time:'Время в формате ЧЧ:ММ.',bad_timezone:'Неизвестный часовой пояс.',weekday_required:'Выберите день недели.',bad_duration:'Выберите длительность.',too_long:'Своя тема слишком длинная.',bad_url:'Источник должен начинаться с https://',bad_language:'Выберите язык.',bad_voice:'Выберите формат.',bad_channel:'Выберите канал.',channel_unavailable:'Этот канал ещё не подключён.',bad_frequency:'Выберите частоту.',unknown_topic:'Неизвестная тема.',bad_watch:'Проверьте список отслеживания.',too_many_watch:'Слишком много пунктов в списке отслеживания.'},
+  freqs:{daily:'Ежедневно',days:'В выбранные дни'},days:{mon:'Пн',tue:'Вт',wed:'Ср',thu:'Чт',fri:'Пт',sat:'Сб',sun:'Вс'},modes:{narrator:'Один ведущий',two_hosts:'Два ведущих'},langs:{uk:'Українська',ru:'Русский',en:'English'},min:'мин',
+  err:{min_topics:'Выберите минимум две подтемы.',custom_place_required:'Укажите город или страну для своей темы.',bad_time:'Время в формате ЧЧ:ММ.',bad_timezone:'Неизвестный часовой пояс.',days_required:'Отметьте хотя бы один день.',bad_custom:'Проверьте свои пункты в темах.',bad_follow:'Проверьте каналы в соцсетях.',too_many_follows:'Слишком много каналов.',bad_duration:'Выберите длительность.',too_long:'Своя тема слишком длинная.',bad_url:'Источник должен начинаться с https://',bad_language:'Выберите язык.',bad_voice:'Выберите формат.',bad_channel:'Выберите канал.',channel_unavailable:'Этот канал ещё не подключён.',bad_frequency:'Выберите частоту.',unknown_topic:'Неизвестная тема.'},
   pv:{idle:'Превью ещё нет.',invalid:'Сначала исправьте ошибки выше.',unavailable:'Аудио недоступно: в этом браузере нет озвучки, а настоящего файла ещё нет.',playing:'Звучит демо-озвучка вашего браузера (не настоящий выпуск).',ready:'Демо-превью готово. Можно отметить как просмотрено.',stopped:'Остановлено.'},
   ap:{need:'Утверждение доступно после превью и просмотра.',done:'Профиль утверждён. Рассылка не включена: бэкенда ещё нет.',invalidated:'Вы изменили настройки — превью и утверждение сброшены.'}},
  en:{eyebrow:'MyCast · your personal podcast',title_a:'Your daily podcast,',title_b:'only about what you care about',
@@ -475,12 +522,15 @@ const T = {
   n1:'Scout',n1s:'finds the news',n2:'Researcher',n2s:'checks sources',n3:'Editor',n3s:'writes the script',n4:'Voice',n4s:'your episode',
   b_h:'Three builders, one page',b_p:'MVP Factory builds a product in turns: each role hands a finished result to the next. Here Claude played all three roles; there are no live agents yet.',
   b1_role:'Product Strategist',b1_h:'Spec and taxonomy',b1_p:'Audience, flow, 10 categories and over 90 topics, validation rules and honest states.',
-  b2_role:'Web Builder',b2_h:'This page',b2_p:'A responsive configurator: nested topics, region, watch list, voice, schedule and preview.',b2_link:'To the configurator ↓',
+  b2_role:'Web Builder',b2_h:'This page',b2_p:'A responsive configurator: nested topics with your own entries, region, social channels, voice, schedule, preview and a link for friends.',b2_link:'To the configurator ↓',
   b3_role:'QA & Launch',b3_h:'Tests and checklist',b3_p:'Logic tests, mobile checks, approval only with a checkbox, no network and no paid APIs.',b_done:'✓ done',
   topics_h:'Topics',topics_hint:'Pick at least two subtopics, from any categories.',search:'Search topics',expand:'Expand all',collapse:'Collapse all',
-  geo_h:'Region and watch list',geo_hint:'For topics where place matters, choose Ukraine, the world, or your own city or country.',geo_empty:'Pick sports, news or business topics and a region choice appears here.',
-  watch_h:'Follow',watch_kind:'Type',watch_value:'Name or word',watch_add:'Add',watch_empty:'Nothing yet. Add an athlete, a team, a channel or a keyword.',watch_remove:'Remove',
-  wk:{athlete:'Athlete',team:'Team',channel:'Channel',keyword:'Keyword'},
+  geo_h:'Region, social networks and channels',geo_hint:'For topics where place matters, choose Ukraine, the world, or your own city or country.',geo_empty:'Pick sports, news or business topics and a region choice appears here.',
+  soc_h:'Social networks and channels',soc_hint:'Pick a network, then type a channel name, an @handle or paste a link.',soc_add:'Add',soc_quick:'Quick: follow on X (Twitter)',soc_empty:'You are not following anyone yet.',soc_remove:'Remove',soc_bad:'That does not look like a channel on this network. Type an @handle, a name or an https:// link.',
+  plat:{youtube:'YouTube',x:'X (Twitter)',telegram:'Telegram',instagram:'Instagram',tiktok:'TikTok',facebook:'Facebook',web:'Website / other'},platPh:{youtube:'@channel or youtube.com/@…',x:'@handle or x.com/…',telegram:'@channel or t.me/…',instagram:'@handle or instagram.com/…',tiktok:'@handle or tiktok.com/@…',facebook:'Page name or facebook.com/…',web:'Name, keyword or https://…'},platL:'Channel on the network',
+  own_ph:'+ your own: club, fighter, league…',own_add:'Add your own',own_remove:'Remove',days_h:'Weekdays',
+  share_h:'Share your podcast',share_hint:'Send friends a link: it opens these settings in their browser. Approval and preview are not shared.',share_link:'Copy link',share_native:'Share…',share_json:'Copy JSON',share_import:'Paste JSON',share_import_l:'Paste a MyCast profile JSON',share_import_go:'Apply',share_copied:'Copied.',share_copy_fail:'Could not copy; select and copy it by hand.',share_bad:'That does not look like a MyCast profile.',share_done:'Settings applied.',
+  imp_banner:'You opened someone else\'s podcast from a link. Use these settings instead of yours?',imp_use:'Use them',imp_keep:'Keep mine',tg_soon:'Telegram sign-in: coming soon',
   free:'Your own topic (up to 120 characters)',rss:'Your own RSS source (mock, not connected yet)',
   voice_h:'Voice and schedule',sched_hint:'The schedule is only saved in your profile: nothing runs automatically.',tz:'Time zone',time:'Time',freq:'Frequency',weekday:'Weekday',dur:'Length',mode:'Format',vlang:'Language',
   deliv_h:'Delivery',deliv_hint:'Telegram is the main channel, but nothing is sent from this page. Other channels appear after a verified connection.',
@@ -499,8 +549,8 @@ const T = {
   q4:'When will Telegram delivery work?',a4:'After the bot is connected, you consent, and an end-to-end test passes. Until then Telegram is marked as the main channel but not connected.',
   foot:'Blackbox Lab · MVP Factory · a prototype with no paid APIs, sending or publishing',
   state:{draft:'Draft',preview_ready:'Preview ready',reviewed:'Reviewed',approved:'Approved'},scope:{ukraine:'Ukraine',world:'World',custom:'Other city / country'},place:'City or country name',
-  freqs:{daily:'Daily',weekly:'Weekly',manual:'Manual'},days:{mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'},modes:{narrator:'One narrator',two_hosts:'Two hosts'},langs:{uk:'Українська',ru:'Русский',en:'English'},min:'min',
-  err:{min_topics:'Pick at least two subtopics.',custom_place_required:'Name the city or country for your topic.',bad_time:'Use HH:MM time.',bad_timezone:'Unknown time zone.',weekday_required:'Pick a weekday.',bad_duration:'Pick a length.',too_long:'Your topic is too long.',bad_url:'The source must start with https://',bad_language:'Pick a language.',bad_voice:'Pick a format.',bad_channel:'Pick a channel.',channel_unavailable:'This channel is not connected yet.',bad_frequency:'Pick a frequency.',unknown_topic:'Unknown topic.',bad_watch:'Check the watch list.',too_many_watch:'Too many items in the watch list.'},
+  freqs:{daily:'Daily',days:'On chosen days'},days:{mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'},modes:{narrator:'One narrator',two_hosts:'Two hosts'},langs:{uk:'Українська',ru:'Русский',en:'English'},min:'min',
+  err:{min_topics:'Pick at least two subtopics.',custom_place_required:'Name the city or country for your topic.',bad_time:'Use HH:MM time.',bad_timezone:'Unknown time zone.',days_required:'Tick at least one day.',bad_custom:'Check your own entries in the topics.',bad_follow:'Check the social channels.',too_many_follows:'Too many channels.',bad_duration:'Pick a length.',too_long:'Your topic is too long.',bad_url:'The source must start with https://',bad_language:'Pick a language.',bad_voice:'Pick a format.',bad_channel:'Pick a channel.',channel_unavailable:'This channel is not connected yet.',bad_frequency:'Pick a frequency.',unknown_topic:'Unknown topic.'},
   pv:{idle:'No preview yet.',invalid:'Fix the errors above first.',unavailable:'Audio unavailable: this browser has no speech engine and no real file exists yet.',playing:'Your browser is reading a demo (not a real episode).',ready:'Demo preview ready. You can mark it as reviewed.',stopped:'Stopped.'},
   ap:{need:'Approval opens after a preview and a review.',done:'Profile approved. Delivery is not turned on: there is no backend yet.',invalidated:'You changed the settings, so the preview and approval were reset.'}}};
 
@@ -512,17 +562,25 @@ const calm = mq('(prefers-reduced-motion: reduce)');
 const lowfx = (navigator.connection && navigator.connection.saveData) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
 if (calm) document.documentElement.classList.add('calm');
 if (lowfx) document.documentElement.classList.add('lowfx', 'calm');
-let lang = 'uk', profile = MyCast.newProfile(), openCats = new Set(['sports', 'tech']), lastNote = '', lastCount = 0;
+let lang = 'uk', profile = MyCast.newProfile(), openCats = new Set(['sports', 'tech']), lastNote = '', lastCount = 0, platform = 'x', sharedProfile = null;
 const speech = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
 try {
   const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-  if (saved && saved.version === 1) {
-    profile = { ...MyCast.newProfile(), ...saved, state: 'draft', preview: null, approvedAt: null };
-    if (!Array.isArray(profile.watchList)) profile.watchList = [];
-    if (!MyCast.channelStatus(profile.delivery, null).selectable) profile.delivery = 'telegram';
-  }
+  if (saved && saved.version === 1) profile = MyCast.migrate(saved);  // older drafts: watch list, weekly schedule
 } catch (e) {}
 try { const l = localStorage.getItem(KEY + ':lang'); if (['uk','ru','en'].includes(l)) lang = l; } catch (e) {}
+// A share link carries #p=<code>. It is offered, never applied silently over the visitor's own draft.
+try { const m = /[#&]p=([A-Za-z0-9_-]+)/.exec(location.hash); if (m) sharedProfile = MyCast.decodeShare(m[1]); } catch (e) { sharedProfile = null; }
+
+/* Platform glyphs (simple shapes in each network's colour) used only to label which network a channel is on. */
+const ICONS = {
+  youtube: '<svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4" fill="#ff3b30"/><path d="M10 9l5 3-5 3z" fill="#fff"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="#0b0b0b" stroke="#555"/><path d="M7 6.5l10 11M17 6.5l-10 11" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>',
+  telegram: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#29a9eb"/><path d="M6.5 11.8l9.6-3.9c.5-.2.9.1.7.8l-1.6 7.6c-.1.5-.5.7-1 .4l-2.6-1.9-1.3 1.2c-.1.1-.3.2-.5.2l.2-2.6 4.8-4.3-6 3.7-2.5-.8c-.6-.2-.6-.6.2-.9z" fill="#fff"/></svg>',
+  instagram: '<svg viewBox="0 0 24 24"><rect x="2.5" y="2.5" width="19" height="19" rx="5.5" fill="none" stroke="#e1306c" stroke-width="2"/><circle cx="12" cy="12" r="4.2" fill="none" stroke="#e1306c" stroke-width="2"/><circle cx="17.3" cy="6.7" r="1.2" fill="#e1306c"/></svg>',
+  tiktok: '<svg viewBox="0 0 24 24"><path d="M14 3v11.2a3.3 3.3 0 1 1-3.3-3.3" fill="none" stroke="#25f4ee" stroke-width="2.4" stroke-linecap="round"/><path d="M14 3c.4 2.6 2.1 4.2 4.8 4.5" fill="none" stroke="#fe2c55" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  facebook: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#1877f2"/><path d="M13.2 19v-6h2l.3-2.4h-2.3V9.2c0-.7.2-1.1 1.2-1.1h1.2V6c-.2 0-1-.1-1.8-.1-1.8 0-3 1.1-3 3.1v1.7H9v2.4h1.8v6" fill="#fff"/></svg>',
+  web: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="#a3abc9" stroke-width="2"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18" fill="none" stroke="#a3abc9" stroke-width="1.6"/></svg>' };
 function save() { try { localStorage.setItem(KEY, JSON.stringify(profile)); localStorage.setItem(KEY + ':lang', lang); } catch (e) {} }
 function t() { return T[lang]; }
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
@@ -545,11 +603,15 @@ function renderTaxonomy() {
     const groups = cat.groups.map(g => {
       const topics = g.topics.map(([tid]) => `${cat.id}.${g.id}.${tid}`).filter(id => hits.has(id));
       if (!topics.length) return '';
+      const gk = `${cat.id}.${g.id}`, own = (profile.custom || {})[gk] || [], x = t();
+      const ownRow = `<div class="ownRow">` + own.map((v, i) => `<span class="chip" style="--c:${COLORS[cat.id]}"><span>${esc(v)}</span><button type="button" data-own-del="${gk}" data-i="${i}" aria-label="${esc(x.own_remove + ': ' + v)}">×</button></span>`).join('') +
+        (own.length < MyCast.MAX_CUSTOM_PER_GROUP ? `<input type="text" data-own="${gk}" maxlength="40" placeholder="${esc(x.own_ph)}" aria-label="${esc(x.own_add + ' · ' + g.label[lang])}" enterkeyhint="done">` : '') + `</div>`;
       return `<div class="group"><h4>${esc(g.label[lang])}</h4><div class="topics">` + topics.map(id =>
-        `<label class="topic"><input type="checkbox" data-topic="${id}" ${profile.topics[id] ? 'checked' : ''}><span class="tick" aria-hidden="true"></span>${esc(MyCast.topicLabel(id, lang))}</label>`).join('') + '</div></div>';
+        `<label class="topic"><input type="checkbox" data-topic="${id}" ${profile.topics[id] ? 'checked' : ''}><span class="tick" aria-hidden="true"></span>${esc(MyCast.topicLabel(id, lang))}</label>`).join('') + '</div>' + ownRow + '</div>';
     }).join('');
     if (!groups) return '';
-    const n = Object.keys(profile.topics).filter(id => catOf(id) === cat.id).length;
+    const n = Object.keys(profile.topics).filter(id => catOf(id) === cat.id).length +
+      Object.keys(profile.custom || {}).filter(g => g.startsWith(cat.id + '.')).reduce((k, g) => k + profile.custom[g].length, 0);
     const open = q.trim() ? true : openCats.has(cat.id);
     return `<details class="cat" data-cat="${cat.id}" style="--c:${COLORS[cat.id]}" ${open ? 'open' : ''}><summary><span class="dot" aria-hidden="true"></span><span>${esc(cat.label[lang])}</span><span class="count">${n || ''}</span><span class="chev" aria-hidden="true">›</span></summary><div class="groups">${groups}</div></details>`;
   }).join('');
@@ -562,10 +624,18 @@ function renderGeo() {
       MyCast.SCOPES.map(k => `<option value="${k}" ${s.kind === k ? 'selected' : ''}>${esc(x.scope[k])}</option>`).join('') + '</select>' +
       (s.kind === 'custom' ? `<input type="text" data-place="${id}" maxlength="60" value="${esc(s.place || '')}" placeholder="${esc(x.place)}" aria-label="${esc(x.place)}">` : '') + '</div>'; }).join('')
     : `<p class="empty">${esc(x.geo_empty)}</p>`;
-  const list = profile.watchList || [];
-  $('#watchList').innerHTML = list.length ? list.map((w, i) =>
-    `<span class="chip"><small>${esc(x.wk[w.kind])}</small><span>${esc(w.value)}</span><button type="button" data-unwatch="${i}" aria-label="${esc(x.watch_remove + ': ' + w.value)}">×</button></span>`).join('')
-    : `<p class="empty">${esc(x.watch_empty)}</p>`;
+  $('#platforms').innerHTML = Object.keys(MyCast.PLATFORMS).map(pl =>
+    `<button type="button" class="plat" role="radio" aria-checked="${pl === platform}" data-plat="${pl}">${ICONS[pl]}${esc(x.plat[pl])}</button>`).join('');
+  $('#followLabel').textContent = `${x.platL} · ${x.plat[platform]}`;
+  $('#followValue').placeholder = x.platPh[platform];
+  const follows = profile.follows || [];
+  const has = f => follows.some(y => y.platform === f.platform && y.value.toLowerCase() === f.value.toLowerCase());
+  $('#people').innerHTML = MyCast.SUGGESTED_FOLLOWS.map(f => { const on = has(f), name = f.name[lang] || f.name.en;
+    const ini = name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    return `<button type="button" class="person" aria-pressed="${on}" data-person="${f.id}" title="${esc(f.value)}"><span class="av" aria-hidden="true">${esc(ini)}</span>${esc(name)}<span class="pl" aria-hidden="true">${on ? '✓' : '+'}</span></button>`; }).join('');
+  $('#follows').innerHTML = follows.length ? follows.map((f, i) =>
+    `<span class="chip"><span class="ic" aria-hidden="true">${ICONS[f.platform] || ICONS.web}</span><span>${esc(f.value)}</span><button type="button" data-unfollow="${i}" aria-label="${esc(x.soc_remove + ': ' + f.value)}">×</button></span>`).join('')
+    : `<p class="empty">${esc(x.soc_empty)}</p>`;
 }
 
 function fillSelect(el, values, labelFn, current) { el.innerHTML = values.map(v => `<option value="${v}" ${String(v) === String(current) ? 'selected' : ''}>${esc(labelFn(v))}</option>`).join(''); }
@@ -602,30 +672,33 @@ function renderStage() {
 }
 
 function renderDNA(errors) {
-  const x = t(), ids = Object.keys(profile.topics), n = ids.length;
+  const x = t(), ids = Object.keys(profile.topics), n = MyCast.selectionCount(profile);
   const countEl = $('#dnaCount'); countEl.textContent = n;
   if (n !== lastCount && !calm) { countEl.classList.remove('bump'); void countEl.offsetWidth; countEl.classList.add('bump'); setTimeout(() => countEl.classList.remove('bump'), 300); }
   lastCount = n;
   $('#cover').innerHTML = coverSVG(); $('#cover').setAttribute('aria-label', x.dna_h);
   const byCat = {}; ids.forEach(id => { byCat[catOf(id)] = (byCat[catOf(id)] || 0) + 1; });
   const cats = Object.keys(byCat);
-  $('#mix').innerHTML = cats.map(c => `<i style="width:${(100 * byCat[c] / n).toFixed(1)}%;background:${COLORS[c]}"></i>`).join('');
+  Object.keys(profile.custom || {}).forEach(g => { const c = g.split('.')[0]; byCat[c] = (byCat[c] || 0) + profile.custom[g].length; });
+  const cats2 = Object.keys(byCat); cats.splice(0, cats.length, ...cats2);
+  $('#mix').innerHTML = cats.map(c => `<i style="width:${(100 * byCat[c] / Math.max(1, n)).toFixed(1)}%;background:${COLORS[c]}"></i>`).join('');
   $('#legend').innerHTML = cats.map(c => `<span style="--c:${COLORS[c]}">${esc(catLabel(c))} · ${byCat[c]}</span>`).join('');
   const geo = { ukraine: 0, world: 0, custom: 0 };
   ids.forEach(id => { const s = (profile.topics[id] || {}).scope; if (s) geo[s.kind] = (geo[s.kind] || 0) + 1; });
   const geoText = Object.keys(geo).filter(k => geo[k]).map(k => `${x.scope[k]} ${geo[k]}`).join(' · ') || x.dna_none;
-  const sch = profile.schedule, when = `${x.freqs[sch.frequency]}${sch.frequency === 'weekly' ? ' · ' + x.days[sch.weekday] : ''} · ${sch.time} · ${sch.durationMin} ${x.min}`;
-  const watch = (profile.watchList || []).map(w => w.value).slice(0, 3).join(', ') || x.dna_none;
+  const sch = profile.schedule, when = `${sch.frequency === 'days' ? (sch.days.map(d => x.days[d]).join(' ') || '—') : x.freqs.daily} · ${sch.time} · ${sch.durationMin} ${x.min}`;
+  const watch = (profile.follows || []).map(f => f.value).slice(0, 3).join(', ') || x.dna_none;
   const rows = [[x.dna_geo, geoText], [x.dna_watch, watch], [x.dna_when, when], [x.dna_voice, `${x.modes[profile.voice.mode]} · ${x.langs[profile.voice.language]}`],
     [x.dna_ch, `${x.ch[profile.delivery] || profile.delivery} · ${x.chs[MyCast.channelStatus(profile.delivery, profile.preview).reason || 'ready']}`]];
   $('#dnaFacts').innerHTML = rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
   const has = f => errors.some(e => f.includes(e.field));
-  const steps = [['topics', n >= MyCast.MIN_TOPICS && !has(['topics'])], ['geo', n >= MyCast.MIN_TOPICS && !has(['scope', 'watchList', 'freeText', 'customSources'])],
-    ['voice', !has(['timezone', 'time', 'frequency', 'weekday', 'duration', 'language', 'voice', 'delivery'])], ['preview', profile.state !== 'draft'], ['approved', profile.state === 'approved']];
+  const steps = [['topics', n >= MyCast.MIN_TOPICS && !has(['topics'])], ['geo', n >= MyCast.MIN_TOPICS && !has(['scope', 'follows', 'custom', 'freeText', 'customSources'])],
+    ['voice', !has(['timezone', 'time', 'frequency', 'days', 'duration', 'language', 'voice', 'delivery'])], ['preview', profile.state !== 'draft'], ['approved', profile.state === 'approved']];
   $('#progress').innerHTML = steps.map(([k, on]) => `<li class="${on ? 'on' : ''}">${esc(x.pg[k])}</li>`).join('');
   $('#mbarCount').textContent = `${n} ${x.mbar_n}`;
   $('#mbarState').textContent = `${x.state[profile.state]} · ${geoText}`;
   $('#mbarGo').textContent = n >= MyCast.MIN_TOPICS ? x.mbar_go : x.mbar_pick;
+  $('#mbarGo').dataset.ready = n >= MyCast.MIN_TOPICS ? '1' : '';
 }
 
 function render() {
@@ -635,21 +708,23 @@ function render() {
   $('#statePill').className = 'pill state-' + profile.state; $('#statePill').textContent = x.state[profile.state];
   renderTaxonomy(); renderGeo();
   $('#freeText').value = profile.freeText || ''; $('#rss').value = (profile.customSources || [])[0] || '';
-  fillSelect($('#watchKind'), MyCast.WATCH_KINDS, v => x.wk[v], $('#watchKind').value || 'athlete');
   const zones = ['Europe/Kyiv', 'Europe/Warsaw', 'Europe/Berlin', 'Europe/London', 'America/New_York', 'Asia/Dubai'];
   if (!zones.includes(profile.schedule.timezone)) zones.push(profile.schedule.timezone);
   fillSelect($('#tz'), zones, v => v.replace('_', ' '), profile.schedule.timezone);
   $('#time').value = profile.schedule.time;
   fillSelect($('#freq'), MyCast.FREQUENCIES, v => x.freqs[v], profile.schedule.frequency);
-  fillSelect($('#weekday'), MyCast.WEEKDAYS, v => x.days[v], profile.schedule.weekday);
-  $('#weekdayField').hidden = profile.schedule.frequency !== 'weekly';
+  $('#daysField').hidden = profile.schedule.frequency !== 'days';  // daily needs no weekday
+  $('#days').innerHTML = MyCast.WEEKDAYS.map(d => `<button type="button" class="day" data-day="${d}" aria-pressed="${(profile.schedule.days || []).includes(d)}">${esc(x.days[d])}</button>`).join('');
   fillSelect($('#dur'), MyCast.DURATIONS, v => v + ' ' + x.min, profile.schedule.durationMin);
   fillSelect($('#mode'), MyCast.VOICES, v => x.modes[v], profile.voice.mode);
   fillSelect($('#vlang'), MyCast.LANGUAGES, v => x.langs[v], profile.voice.language);
   $('#channels').innerHTML = Object.keys(MyCast.CHANNELS).map(ch => { const st = MyCast.channelStatus(ch, profile.preview);
     const tag = st.reason === 'planned' ? 'plan' : st.usable ? 'yes' : 'no';
     return `<label class="${st.selectable ? '' : 'off'}"><span class="nm"><input type="radio" name="channel" value="${ch}" ${profile.delivery === ch ? 'checked' : ''} ${st.selectable ? '' : 'disabled'}> ${esc(x.ch[ch])}</span><span class="tags">` +
-      (ch === 'telegram' ? `<span class="tag pri">${esc(x.primary)}</span>` : '') + `<span class="tag ${tag}">${esc(x.chs[st.reason || 'ready'])}</span></span><span class="why">${esc(x.chw[ch])}</span></label>`; }).join('');
+      (ch === 'telegram' ? `<span class="tag pri">${esc(x.primary)}</span>` : '') + `<span class="tag ${tag}">${esc(x.chs[st.reason || 'ready'])}</span></span><span class="why">${esc(x.chw[ch])}</span></label>`; }).join('') +
+    `<button type="button" class="btn" disabled title="${esc(x.tg_soon)}">${ICONS.telegram.replace('<svg ', '<svg width="16" height="16" style="vertical-align:-3px;margin-right:6px" ')}${esc(x.tg_soon)}</button>`;
+  $('#importBanner').hidden = !sharedProfile;
+  $('#shareNative').hidden = !navigator.share;
   const errors = MyCast.validate(profile);
   $('#errors').innerHTML = errors.map(e => `<li>${esc(x.err[e.code] || e.code)}</li>`).join('');
   $('#previewBtn').disabled = errors.length > 0;
@@ -670,12 +745,26 @@ function render() {
 
 $('#wave').innerHTML = Array.from({ length: 36 }, (_, i) => `<i style="--i:${i};--h:${(28 + 62 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * .45))).toFixed(0)}"></i>`).join('');
 
-function addWatch() {
-  const input = $('#watchValue');
-  const next = MyCast.addWatch(profile, $('#watchKind').value, input.value);
-  if (next !== profile) { change(next); }
-  input.value = ''; input.focus();
+function addFollowFromInput() {
+  const input = $('#followValue'), msg = $('#followMsg');
+  if (!input.value.trim()) return;
+  try { change(MyCast.addFollow(profile, platform, input.value)); msg.textContent = ''; input.value = ''; }
+  catch (e) { msg.className = 'msg'; msg.textContent = t().soc_bad; }
+  input.focus();
 }
+function addOwn(input) {
+  const gk = input.dataset.own, value = input.value;
+  if (!value.trim()) return;
+  change(MyCast.addCustom(profile, gk, value));
+  const again = document.querySelector(`input[data-own="${gk}"]`);   // keep typing in the same row after re-render
+  if (again) again.focus();
+}
+function shareUrl() { return location.origin + location.pathname + '#p=' + MyCast.encodeShare(profile); }
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+  try { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; } catch (e) { return false; }
+}
+function shareMsg(text, ok) { const m = $('#shareMsg'); m.className = 'msg' + (ok ? ' ok' : ''); m.textContent = text; }
 
 document.addEventListener('change', e => {
   const el = e.target;
@@ -683,7 +772,7 @@ document.addEventListener('change', e => {
   if (el.dataset.scope) { change(MyCast.setScope(profile, el.dataset.scope, el.value, '')); return; }
   if (el.dataset.place) { change(MyCast.setScope(profile, el.dataset.place, 'custom', el.value)); return; }
   if (el.name === 'channel') { change(MyCast.update(profile, { delivery: el.value })); return; }
-  const sched = { tz: 'timezone', time: 'time', freq: 'frequency', weekday: 'weekday', dur: 'durationMin' }[el.id];
+  const sched = { tz: 'timezone', time: 'time', freq: 'frequency', dur: 'durationMin' }[el.id];
   if (sched) { change(MyCast.update(profile, { schedule: { [sched]: sched === 'durationMin' ? Number(el.value) : el.value } })); return; }
   if (el.id === 'mode') change(MyCast.update(profile, { voice: { mode: el.value } }));
   if (el.id === 'vlang') change(MyCast.update(profile, { voice: { language: el.value } }));
@@ -692,32 +781,77 @@ document.addEventListener('change', e => {
   if (el.id === 'confirm') render();
 });
 document.addEventListener('click', e => {
-  const b = e.target.closest('[data-unwatch]');
-  if (b) change(MyCast.removeWatch(profile, Number(b.dataset.unwatch)));
+  const el = e.target.closest('[data-unfollow],[data-own-del],[data-plat],[data-person],[data-day]');
+  if (!el) return;
+  if (el.dataset.unfollow !== undefined) change(MyCast.removeFollow(profile, Number(el.dataset.unfollow)));
+  else if (el.dataset.ownDel) change(MyCast.removeCustom(profile, el.dataset.ownDel, Number(el.dataset.i)));
+  else if (el.dataset.plat) { platform = el.dataset.plat; $('#followMsg').textContent = ''; renderGeo(); $('#followValue').focus(); }
+  else if (el.dataset.day) change(MyCast.toggleDay(profile, el.dataset.day));
+  else if (el.dataset.person) {
+    const f = MyCast.SUGGESTED_FOLLOWS.find(x => x.id === el.dataset.person);
+    const i = (profile.follows || []).findIndex(y => y.platform === f.platform && y.value.toLowerCase() === f.value.toLowerCase());
+    change(i >= 0 ? MyCast.removeFollow(profile, i) : MyCast.addFollow(profile, f.platform, f.value));
+  }
 });
+document.addEventListener('keydown', e => {
+  const el = e.target;
+  if (e.key === 'Enter' && el.dataset && el.dataset.own) { e.preventDefault(); addOwn(el); }
+});
+document.addEventListener('focusout', e => { const el = e.target; if (el.dataset && el.dataset.own && el.value.trim()) addOwn(el); });
 document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.cat && !$('#search').value.trim()) { d.open ? openCats.add(d.dataset.cat) : openCats.delete(d.dataset.cat); } }, true);
 $('#search').addEventListener('input', renderTaxonomy);
-$('#watchAdd').addEventListener('click', addWatch);
-$('#watchValue').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addWatch(); } });
+$('#followAdd').addEventListener('click', addFollowFromInput);
+$('#followValue').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addFollowFromInput(); } });
+$('#shareLink').addEventListener('click', async () => { const ok = await copyText(shareUrl()); shareMsg(ok ? t().share_copied : t().share_copy_fail, ok); if (!ok) { $('#importBox').hidden = false; $('#importJson').value = shareUrl(); } });
+$('#shareNative').addEventListener('click', async () => { try { await navigator.share({ title: 'MyCast', text: t().share_h, url: shareUrl() }); } catch (e) { /* the visitor closed the sheet */ } });
+$('#copyJson').addEventListener('click', async () => { const ok = await copyText(JSON.stringify(MyCast.toJSON(profile), null, 2)); shareMsg(ok ? t().share_copied : t().share_copy_fail, ok); });
+$('#importJsonBtn').addEventListener('click', () => { $('#importBox').hidden = !$('#importBox').hidden; if (!$('#importBox').hidden) $('#importJson').focus(); });
+$('#importApply').addEventListener('click', () => {
+  const raw = $('#importJson').value.trim();
+  try {
+    const m = /[#&]p=([A-Za-z0-9_-]+)/.exec(raw);
+    const next = m ? MyCast.decodeShare(m[1]) : fromJSON(JSON.parse(raw));
+    change(next); shareMsg(t().share_done, true); $('#importBox').hidden = true; $('#importJson').value = '';
+  } catch (e) { shareMsg(t().share_bad, false); }
+});
+/* JSON exported by toJSON() back into a draft profile, validated through the same functions as the UI. */
+function fromJSON(j) {
+  if (!j || j.version !== 1 || !Array.isArray(j.topics)) throw new Error('not a profile');
+  let p = MyCast.newProfile();
+  for (const tpc of j.topics) if (MyCast.INDEX[tpc.id]) { p = MyCast.setTopic(p, tpc.id, true, tpc.scope || undefined); if (tpc.scope && tpc.scope.kind === 'custom') p = MyCast.setScope(p, tpc.id, 'custom', tpc.scope.place); }
+  for (const c of j.custom || []) if (MyCast.GROUPS[c.group]) for (const v of c.items || []) p = MyCast.addCustom(p, c.group, v);
+  for (const f of j.follows || []) { try { p = MyCast.addFollow(p, f.platform, f.value); } catch (e) {} }
+  const code = MyCast.encodeShare({ ...p, schedule: { ...p.schedule, ...(j.schedule || {}) }, voice: { ...p.voice, ...(j.voice || {}) },
+    delivery: (j.delivery || {}).channel || 'telegram', freeText: j.free_text || '' });
+  return MyCast.decodeShare(code);   // decode re-validates schedule, voice and channel
+}
+$('#impUse').addEventListener('click', () => { const next = sharedProfile; sharedProfile = null; history.replaceState(null, '', location.pathname); change(next); });
+$('#impKeep').addEventListener('click', () => { sharedProfile = null; history.replaceState(null, '', location.pathname); render(); });
 $('#expandAll').addEventListener('click', () => { MyCast.TAXONOMY.forEach(c => openCats.add(c.id)); renderTaxonomy(); });
 $('#collapseAll').addEventListener('click', () => { openCats.clear(); renderTaxonomy(); });
 document.querySelectorAll('.langs button').forEach(b => b.addEventListener('click', () => { lang = b.dataset.lang; save(); render(); }));
 const go = id => $(id).scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' });
 $('#tryDemo').addEventListener('click', () => go('#stepTopics'));
 $('#howBtn').addEventListener('click', () => go('#builders'));
-$('#mbarGo').addEventListener('click', () => go(Object.keys(profile.topics).length >= MyCast.MIN_TOPICS ? '#stepListen' : '#stepTopics'));
+$('#mbarGo').addEventListener('click', () => go($('#mbarGo').dataset.ready ? '#stepListen' : '#stepTopics'));
 $('#previewBtn').addEventListener('click', () => {
   const out = MyCast.makePreview(profile, { speechSynthesis: speech });
   if (!out.ok) { $('#previewStatus').dataset.unavailable = out.reason === 'audio_unavailable' ? '1' : ''; profile = out.profile; render(); return; }
   profile = out.profile; lastNote = ''; save(); render();
-  const st = $('#previewStatus');
-  const u = new SpeechSynthesisUtterance(profile.preview.script); u.lang = { uk: 'uk-UA', ru: 'ru-RU', en: 'en-US' }[profile.voice.language];
-  // The waveform moves only between the engine's real start and end events.
-  u.onstart = () => { setPlaying(true); st.className = 'status info'; st.textContent = t().pv.playing; };
-  u.onend = () => { setPlaying(false); st.textContent = t().pv.ready; };
-  u.onerror = () => { setPlaying(false); st.textContent = t().pv.stopped; };
-  try { speechSynthesis.cancel(); speechSynthesis.speak(u); }
-  catch (err) { setPlaying(false); st.textContent = t().pv.stopped; }  // the script stays readable; no audio was played
+  const st = $('#previewStatus'), code = { uk: 'uk-UA', ru: 'ru-RU', en: 'en-US' }[profile.voice.language];
+  // Two hosts take turns. The browser rarely has two voices for one language, so host B also gets a lower pitch.
+  let voices = []; try { voices = speechSynthesis.getVoices().filter(v => (v.lang || '').toLowerCase().startsWith(code.slice(0, 2))); } catch (e) {}
+  const lines = profile.preview.lines || [{ host: 'A', text: profile.preview.script }];
+  try { speechSynthesis.cancel(); } catch (e) {}
+  lines.forEach((line, i) => {
+    const u = new SpeechSynthesisUtterance(line.text); u.lang = code;
+    if (line.host === 'B') { if (voices[1]) u.voice = voices[1]; u.pitch = 0.8; } else if (voices[0]) u.voice = voices[0];
+    // The waveform moves only between the engine's real start and end events.
+    u.onstart = () => { setPlaying(true); st.className = 'status info'; st.textContent = t().pv.playing; };
+    u.onend = () => { if (i === lines.length - 1) { setPlaying(false); st.textContent = t().pv.ready; } };
+    u.onerror = () => { setPlaying(false); st.textContent = t().pv.stopped; };
+    try { speechSynthesis.speak(u); } catch (err) { setPlaying(false); st.textContent = t().pv.stopped; }  // no audio was played
+  });
 });
 $('#stopBtn').addEventListener('click', () => { if (speech) { try { speechSynthesis.cancel(); } catch (e) {} } setPlaying(false); $('#previewStatus').textContent = t().pv.stopped; });
 $('#reviewBtn').addEventListener('click', () => { profile = MyCast.markReviewed(profile); save(); render(); });
