@@ -97,6 +97,21 @@ def test_runbooks_localized_en_uk_ru():
     assert od.status_detail({"state": "done", "detail": "plain"}, "en") == {"state": "done", "detail": "plain"}
 
 
+def test_every_runbook_has_uk_and_en_translation_with_same_steps():
+    for runbook in od.RUNBOOKS:
+        rb_id = runbook["id"]
+        for lang in ("uk", "en"):
+            assert lang in od.RUNBOOK_I18N, f"Missing language {lang} in RUNBOOK_I18N"
+            assert rb_id in od.RUNBOOK_I18N[lang], f"Missing translation for {rb_id} in {lang}"
+            tr_steps = od.RUNBOOK_I18N[lang][rb_id].get("steps") or {}
+            assert len(tr_steps) == len(runbook["steps"]), (
+                f"Step count mismatch for {rb_id} in {lang}: "
+                f"expected {len(runbook['steps'])}, got {len(tr_steps)}"
+            )
+            for step in runbook["steps"]:
+                assert step["id"] in tr_steps, f"Step {step['id']} missing in {lang} translation of {rb_id}"
+
+
 def test_secret_scrubbing():
     bot = "123456789:" + "A" * 35
     ghp = "ghp_" + "b" * 36
@@ -270,6 +285,7 @@ def main():
     test_every_open_human_task_has_a_runbook()
     test_runbook_shape()
     test_runbooks_localized_en_uk_ru()
+    test_every_runbook_has_uk_and_en_translation_with_same_steps()
     test_secret_scrubbing()
     test_question_queue()
     test_routes_and_auth()
