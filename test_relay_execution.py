@@ -16,7 +16,8 @@ from test_roadmap_claims import TestRoadmapClaims, TestWorkerSide  # noqa: F401 
 from test_lane_board import TestApi, TestLaneStates, TestTelegramMatchesWeb, TestWebRenderer  # noqa: F401  (T-599-F)
 from test_issue_intake import TestIssueIntake  # noqa: F401  (T-599-E; no workflow edit possible)
 from test_intake_fallback_contract import IntakeFallbackContract  # noqa: F401  (#258)
-from test_relay_smoke_evidence import SmokeEvidenceTest  # noqa: F401  (#260)
+from test_relay_smoke_evidence import SmokeEvidenceTest
+from test_intake_pagination import FetchAllTest, IntakeTest as PaginationIntakeTest, SnapshotTest  # #259  # noqa: F401  (#260)
 from test_worker_observability import TestEvidence, TestSignals  # noqa: F401  (T-596)
 from test_worker_observability import TestTelegramMatchesWeb as TestWorkerTelegramMatchesWeb  # noqa: F401
 from test_worker_observability import TestWebRenderer as TestWorkerWebRenderer  # noqa: F401

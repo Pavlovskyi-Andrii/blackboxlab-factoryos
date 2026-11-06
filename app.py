@@ -11334,7 +11334,7 @@ _TEAM_TASKS_CACHE=TeamTasksCache()
 def get_team_tasks(refresh=False):
     """Owner tasks page: Issues/PRs/CI per executor + ROADMAP [HUMAN] tasks + lane heartbeats."""
     def read():
-        github=read_github(github_fetcher(GITHUB_REPO,GITHUB_TOKEN))
+        github=read_github(github_fetcher(GITHUB_REPO,GITHUB_TOKEN),owner=GITHUB_REPO.split("/",1)[0])
         if not github.get("available"):
             # Render's token cannot read the repo (seen 2026-11-04: HTTP 403); use the EC2 worker's snapshot (owner's gh login).
             snap=_load_team_snapshot()

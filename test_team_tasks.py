@@ -124,7 +124,7 @@ class TeamTasksTest(unittest.TestCase):
         body = json.dumps({"available": True, "issues": [issue(5, "Gemini")], "pulls": [], "ci": {}}).encode()
         with patch.object(app, "FACTORY_PASSWORD", "set-so-auth-is-enforced"), \
              patch.object(app, "FACTORY_CLAUDE_WORKER_TOKEN", "worker-token"), \
-             patch.object(app, "read_github", lambda fetch: {"available": False, "error": "HTTP 403", "issues": [], "pulls": [], "ci": {}}):
+             patch.object(app, "read_github", lambda fetch, **kw: {"available": False, "error": "HTTP 403", "issues": [], "pulls": [], "ci": {}}):
             self.assertEqual(asgi_post("/api/factory/team-tasks/worker/snapshot", None, body)[0], 401)
             self.assertEqual(asgi_post("/api/factory/team-tasks/worker/snapshot", "worker-token", b'{"issues": 1}')[0], 400)
             status, out = asgi_post("/api/factory/team-tasks/worker/snapshot", "worker-token", body)

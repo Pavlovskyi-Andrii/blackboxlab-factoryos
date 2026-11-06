@@ -723,7 +723,7 @@ def relay_github_snapshot(repo: str = "", token: str = "") -> dict:
 
 
 def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> dict:
-    """T-599-E: list open Issues created by the repo owner (one free GitHub API call).
+    """T-599-E: list open Issues created by the repo owner. #259: every page, bounded (github_pages.MAX_PAGES).
 
     Failure is reported as ``available: False`` with a short code only — never
     request headers, tokens or response bodies.
@@ -747,9 +747,8 @@ def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> di
             return _json.load(response)
 
     try:
-        raw = (fetch or _fetch)("/issues?state=open&per_page=50&creator=" + owner)
-        if not isinstance(raw, list):
-            raise ValueError("Unexpected GitHub response")
+        from github_pages import fetch_all
+        raw, truncated = fetch_all(fetch or _fetch, "/issues?state=open&creator=" + owner)
         # A malformed entry is passed through as-is so intake counts it as ignored
         # instead of failing the whole pass.
         issues = [{
@@ -761,7 +760,7 @@ def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> di
             "author": str((x.get("user") or {}).get("login") or "") if isinstance(x.get("user"), dict) else "",
             "pull_request": bool(x.get("pull_request")),
         } if isinstance(x, dict) else x for x in raw]
-        return {"available": True, "repo": repo, "owner": owner, "checked_at": _now(), "issues": issues}
+        return {"available": True, "repo": repo, "owner": owner, "checked_at": _now(), "issues": issues, "truncated": truncated}
     except Exception as exc:  # network, HTTP, JSON: all mean UNKNOWN, never success
         code = getattr(exc, "code", None)
         return {"available": False, "repo": repo, "owner": owner, "reason": github_error_reason(exc),
