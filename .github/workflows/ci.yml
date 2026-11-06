@@ -351,8 +351,11 @@ jobs:
           python tools/ui_screenshots.py
       - name: Upload screenshots
         if: always()
+        # Owner-approved 2026-11-06: an artifact-storage quota error at upload must not fail the job.
+        # The screenshot step above still fails on page errors, overflow or failed actions.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ui-screenshots
           path: ui-screenshots/
-          retention-days: 14
+          retention-days: 3
