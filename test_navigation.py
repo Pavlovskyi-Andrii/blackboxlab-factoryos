@@ -47,6 +47,7 @@ BEFORE = {
     "nav.analytics": "openFactoryIntelligence()",
     "nav.qa": "openReleaseReadiness()",
     "nav.settings": None,
+    "mvp.nav": "openMvpFactory()",
     "mycast.nav": "openMyCastConfigurator()",
 }
 GROUPS = ("overview", "create", "publish", "grow", "automation", "mvp", "system")

@@ -13,5 +13,9 @@ data/
 .autopilot/telegram.json
 .autopilot/parking.json
 .autopilot/parking.tmp
+# MyCast daily state (autopilot.py run_daily). Untracked, it made the runner checkout dirty and blocked every
+# Relay task from 2026-11-05 21:20 UTC ("Runner checkout has uncommitted changes").
+.autopilot/mycast.json
+.autopilot/mycast.tmp
 .autopilot/evidence/
 autopilot-ssh/

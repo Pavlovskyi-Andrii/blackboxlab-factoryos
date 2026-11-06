@@ -86,6 +86,18 @@
         ['history', L('History', 'Історія', 'История')], ['environment', L('Environment', 'Довкілля', 'Окружающая среда')]] },
       { id: 'learning', label: L('Learning and career', "Навчання та кар'єра", 'Обучение и карьера'), geo: false, topics: [
         ['languages', L('Languages', 'Мови', 'Языки')], ['courses', L('Courses', 'Курси', 'Курсы')], ['career', L('Career', "Кар'єра", 'Карьера')]] }] },
+    { id: 'auto', label: L('Automotive and transport', 'Авто та транспорт', 'Авто и транспорт'), groups: [
+      { id: 'cars', label: L('Cars', 'Автомобілі', 'Автомобили'), geo: true, topics: [
+        ['ev', L('Electric vehicles', 'Електромобілі', 'Электромобили')], ['launches', L('New models', 'Нові моделі авто', 'Новые модели авто')],
+        ['maintenance', L('Maintenance and repair', 'Обслуговування та ремонт', 'Обслуживание и ремонт')], ['motorsport', L('Motorsport', 'Автоспорт', 'Автоспорт')]] },
+      { id: 'mobility', label: L('Getting around', 'Пересування містом', 'Передвижение по городу'), geo: true, topics: [
+        ['public_transit', L('Public transport', 'Громадський транспорт', 'Общественный транспорт')], ['city_cycling', L('City cycling', 'Велосипед у місті', 'Велосипед в городе')]] }] },
+    { id: 'hobbies', label: L('Food and hobbies', 'Їжа та хобі', 'Еда и хобби'), groups: [
+      { id: 'food', label: L('Food', 'Їжа', 'Еда'), geo: true, topics: [
+        ['recipes', L('Recipes and cooking', 'Рецепти та кулінарія', 'Рецепты и кулинария')], ['coffee', L('Coffee', 'Кава', 'Кофе')]] },
+      { id: 'making', label: L('Making and caring', 'Творчість і турбота', 'Творчество и забота'), geo: false, topics: [
+        ['photography', L('Photography', 'Фотографія', 'Фотография')], ['diy', L('DIY', 'Зроби сам', 'Сделай сам')],
+        ['gardening', L('Gardening', 'Садівництво', 'Садоводство')], ['pets', L('Pets', 'Домашні тварини', 'Домашние животные')]] }] },
   ];
 
   const SCOPES = ['ukraine', 'world', 'custom'];
@@ -94,8 +106,12 @@
   const DURATIONS = [5, 10, 15];
   const LANGUAGES = ['uk', 'ru', 'en'];
   const VOICES = ['narrator', 'two_hosts'];
-  // Only "download" can ever work in this prototype, and only with a real local file. The rest are not connected.
-  const CHANNELS = { download: 'requires_local_file', telegram: 'not_connected', email: 'not_connected' };
+  // Delivery honesty. Telegram is the preferred channel and can be chosen in a draft, but nothing is sent from here.
+  // Download works only with a real local file. Viber, WhatsApp and email are planned and cannot be chosen.
+  const CHANNELS = { telegram: 'primary_not_connected', download: 'requires_local_file', viber: 'planned', whatsapp: 'planned', email: 'planned' };
+  const WATCH_KINDS = ['athlete', 'team', 'channel', 'keyword'];
+  const MAX_WATCH = 20;
+  const MAX_WATCH_LEN = 60;
   const MIN_TOPICS = 2;
   const MAX_FREE_TEXT = 120;
 
@@ -116,7 +132,7 @@
   function newProfile() {
     return { version: 1, topics: {}, freeText: '', customSources: [], schedule: { timezone: 'Europe/Kyiv', time: '07:30',
       frequency: 'daily', weekday: 'mon', durationMin: 10 }, voice: { mode: 'two_hosts', language: 'uk' },
-      delivery: 'download', state: 'draft', preview: null, approvedAt: null };
+      watchList: [], delivery: 'telegram', state: 'draft', preview: null, approvedAt: null };
   }
 
   function clean(text, max) { return String(text || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max); }
@@ -136,6 +152,23 @@
     const next = invalidate(profile);
     const scope = kind === 'custom' ? { kind, place: clean(place, 60) } : { kind };
     return { ...next, topics: { ...next.topics, [id]: { scope } } };
+  }
+
+  // Watch list: athletes, teams, channels or keywords to follow. Duplicates (any case) are ignored.
+  function addWatch(profile, kind, value) {
+    if (!WATCH_KINDS.includes(kind)) throw new Error('bad watch kind ' + kind);
+    const text = clean(value, MAX_WATCH_LEN);
+    const list = profile.watchList || [];
+    if (!text || list.length >= MAX_WATCH || list.some(w => w.kind === kind && w.value.toLowerCase() === text.toLowerCase())) return profile;
+    const next = invalidate(profile);
+    return { ...next, watchList: [...list, { kind, value: text }] };
+  }
+
+  function removeWatch(profile, index) {
+    const list = profile.watchList || [];
+    if (!(index >= 0 && index < list.length)) return profile;
+    const next = invalidate(profile);
+    return { ...next, watchList: list.filter((_, i) => i !== index) };
   }
 
   function update(profile, patch) {
@@ -174,17 +207,24 @@
     for (const url of profile.customSources || []) {
       if (!/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}(\/[^\s]*)?$/i.test(url)) errors.push({ field: 'customSources', code: 'bad_url', url });
     }
+    const watch = profile.watchList || [];
+    if (watch.length > MAX_WATCH) errors.push({ field: 'watchList', code: 'too_many_watch', max: MAX_WATCH });
+    for (const w of watch) if (!WATCH_KINDS.includes(w && w.kind) || !w.value || String(w.value).length > MAX_WATCH_LEN) errors.push({ field: 'watchList', code: 'bad_watch' });
     if (!(profile.delivery in CHANNELS)) errors.push({ field: 'delivery', code: 'bad_channel' });
+    else if (!channelStatus(profile.delivery, profile.preview).selectable) errors.push({ field: 'delivery', code: 'channel_unavailable' });
     return errors;
   }
 
   // Delivery honesty: a channel is usable only if it is really connected (none is, here) or, for download,
   // only when a real local audio file exists.
+  // "usable": something can really be delivered now. "selectable": it may be saved as the preferred channel in a draft.
   function channelStatus(channel, preview) {
     const kind = CHANNELS[channel];
-    if (!kind) return { usable: false, reason: 'unknown_channel' };
-    if (kind === 'not_connected') return { usable: false, reason: 'not_connected' };
-    return preview && preview.kind === 'local_file' && preview.url ? { usable: true, reason: '' } : { usable: false, reason: 'no_local_file' };
+    if (!kind) return { usable: false, selectable: false, reason: 'unknown_channel' };
+    if (kind === 'planned') return { usable: false, selectable: false, reason: 'planned' };
+    if (kind === 'primary_not_connected') return { usable: false, selectable: true, reason: 'not_connected' };
+    return preview && preview.kind === 'local_file' && preview.url ? { usable: true, selectable: true, reason: '' }
+      : { usable: false, selectable: true, reason: 'no_local_file' };
   }
 
   // A preview exists only when something real can play: a local audio file, or the browser's own speech engine
@@ -226,12 +266,13 @@
     return { version: 1, state: profile.state, approved_at: profile.approvedAt, active: false,
       topics: Object.keys(profile.topics).sort().map(id => ({ id, scope: (profile.topics[id] || {}).scope || null })),
       free_text: clean(profile.freeText, MAX_FREE_TEXT), custom_sources: (profile.customSources || []).slice(0, 10),
+      watch_list: (profile.watchList || []).slice(0, MAX_WATCH).map(w => ({ kind: w.kind, value: clean(w.value, MAX_WATCH_LEN) })),
       schedule: { ...profile.schedule, durationMin: Number(profile.schedule.durationMin) }, voice: { ...profile.voice },
       delivery: { channel: profile.delivery, status: channelStatus(profile.delivery, profile.preview).reason || 'ready' },
       preview: profile.preview ? { kind: profile.preview.kind } : null };
   }
 
-  return { TAXONOMY, INDEX, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, MIN_TOPICS, MAX_FREE_TEXT,
-    topicLabel, search, newProfile, setTopic, setScope, update, validate, channelStatus, makePreview, markReviewed,
-    approve, toJSON, demoScript };
+  return { TAXONOMY, INDEX, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, WATCH_KINDS, MAX_WATCH,
+    MIN_TOPICS, MAX_FREE_TEXT, topicLabel, search, newProfile, setTopic, setScope, addWatch, removeWatch, update, validate,
+    channelStatus, makePreview, markReviewed, approve, toJSON, demoScript };
 });

@@ -1,6 +1,6 @@
 {
   "issue": 261,
-  "version": 1,
+  "version": 2,
   "status": "prototype — no generation, scheduling or delivery",
   "taxonomy": {
     "categories": [
@@ -11,9 +11,11 @@
       "health",
       "culture",
       "travel",
-      "science"
+      "science",
+      "auto",
+      "hobbies"
     ],
-    "topic_count": 81,
+    "topic_count": 93,
     "id_format": "category.group.topic",
     "languages": [
       "en",
@@ -44,7 +46,22 @@
       "uk",
       "ru",
       "en"
-    ]
+    ],
+    "voices": [
+      "narrator",
+      "two_hosts"
+    ],
+    "watch_list": {
+      "kinds": [
+        "athlete",
+        "team",
+        "channel",
+        "keyword"
+      ],
+      "max_items": 20,
+      "max_length": 60,
+      "duplicates": "ignored, case-insensitive"
+    }
   },
   "states": [
     "draft",
@@ -53,7 +70,7 @@
     "approved"
   ],
   "state_rules": [
-    "any edit returns the profile to draft and drops preview/approval",
+    "any edit (topics, scope, watch list, schedule, voice, channel) returns the profile to draft and drops preview/approval",
     "approve needs preview + review + explicit confirmation",
     "approved never sets active=true in this prototype"
   ],
@@ -63,8 +80,10 @@
     "none": "audio_unavailable — no preview, state stays draft"
   },
   "channels": {
-    "download": "usable only with a real local file",
-    "telegram": "not_connected",
-    "email": "not_connected"
+    "telegram": "primary; selectable in a draft; not_connected — never shown as delivered",
+    "download": "selectable; usable only with a real local file",
+    "viber": "planned — visible, not selectable",
+    "whatsapp": "planned — visible, not selectable",
+    "email": "planned — visible, not selectable"
   }
 }
