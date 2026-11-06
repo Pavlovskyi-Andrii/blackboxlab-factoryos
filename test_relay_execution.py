@@ -117,6 +117,24 @@ class TestRelayCli(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(stages[-1][1], "blocked")
 
+    def test_dirty_checkout_names_the_paths(self):
+        stages = []
+        porcelain = "M ROADMAP.md\n?? .autopilot/mycast.json\n?? weird name;rm -rf.txt\n?? a\n?? b\n?? c\n?? d"
+        def fake_git(repo, *args):
+            if args == ("branch", "--show-current"): return 0, "autopilot/aws-worker"
+            if args == ("status", "--porcelain"): return 0, porcelain
+            raise AssertionError(args)
+        with patch.object(relay_tasks, "git", side_effect=fake_git):
+            result = relay_tasks.execute({"id": "R-0001", "title": "T"}, Path("/tmp/relay-fake"),
+                                         emit_fn=lambda *args, **kwargs: stages.append(args),
+                                         run_cli=lambda *args, **kwargs: self.fail("CLI must not run on a dirty tree"))
+        self.assertEqual(result["status"], "blocked")
+        note = stages[-1][2]
+        self.assertTrue(note.startswith("Runner checkout has uncommitted changes (M ROADMAP.md, ?? .autopilot/mycast.json"))
+        self.assertIn("weird_name_rm_-rf.txt", note)
+        self.assertIn("+2 more", note)
+        self.assertTrue(note.endswith("do not risk overwriting them"))
+
     def test_real_cli_result_and_commit_push_stages(self):
         stages = []
         heads = iter(["a"*40, "b"*40])
