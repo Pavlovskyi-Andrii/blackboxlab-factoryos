@@ -795,3 +795,18 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - **Progress:** the bar shows the real stage (preparing, Gemini voicing, ready). The percentage is marked "≈" because it is estimated from elapsed time against a typical ~14 s, and it stays capped at 95 % until the audio exists.
 - **Fallback:** no key, a cap reached, a Gemini error or a page opened outside the site (a local file or a preview) all fall back to the browser voice with a stated reason.
 - **Labelling:** a Gemini demo is real audio, so Download is enabled. It is still labelled `demo_not_episode`, never an episode.
+
+## MyCast listener accounts, open beta (2026-11-06, owner: "3 открытая бета", Telegram domain set)
+- Listeners sign in with **Telegram** (Login Widget, `request_access=write`) or **Google** (Google Identity Services).
+  - **Telegram:** the server checks the widget's HMAC, keyed with SHA-256 of the bot token, and refuses logins older than 24 h.
+  - **Google:** it uses the existing `FACTORY_GOOGLE_CLIENT_ID` and `verify_oauth2_token`. MyCast is on the same origin as `/login`, so no new Google Cloud setting is needed.
+- **Separate session:** a listener gets its own signed cookie, `mycast_listener` (`ml1|slug|expiry|HMAC`, 30 days, HttpOnly, SameSite=Lax, Secure on https). It is never a staff session: the dashboard and API stay 401 for a listener, as checked against a locally running app.
+- **Stored data:** a random 8-character public slug, a first name, the provider, a SHA-256 of the provider id, the Telegram chat id (Telegram only, for future delivery), the podcast share code and timestamps. No email, no photo, no tokens. `DELETE /api/mycast/account` erases the record. The page states this next to the sign-in buttons and in the FAQ.
+- **Personal page:** `/mycast/u/<slug>` is a public 307 to the configurator with `#p=<code>&from=<slug>`, so a visitor sees the "use these settings?" banner. Sign-in saves the podcast once, and approval saves it again.
+- **Delivery is still not live:** a Telegram-linked account shows "Telegram linked ✓, delivery coming soon", and the channel status stays `not_connected`.
+- **Also fixed:** `.btn:hover` replaced the background of `.btn.primary`, so primary buttons lost their gradient under a desktop pointer.
+
+## #259 Intake pagination (2026-11-06)
+- `github_pages.fetch_all` reads `per_page=100` page by page until a short page, and at most `MAX_PAGES` = 5 pages. If any page fails, the whole read fails: a 403 on page 2 imports nothing and reports the reason, never a silently partial list. When the limit is reached with a full last page, `truncated` is set.
+- The direct Render read (`relay_github_owner_issues`) previously took the first 50 open owner issues only. The EC2 snapshot, which production actually uses because Render's token gets a 403, held only the 100 most recently updated issues of any state. The snapshot now also carries every open issue the owner created (up to 3 pages, de-duplicated), so `valid_snapshot` allows 400 issues.
+- Lane and owner filters are unchanged: the first line must be exactly `Owner: …`, and the author must be the repository owner. Intake stays idempotent per issue.

@@ -27,7 +27,7 @@ def main():
     url, token = os.environ.get("FACTORYOS_URL", "").rstrip("/"), os.environ.get("FACTORY_CLAUDE_WORKER_TOKEN", "")
     if not url or not token:
         sys.exit("team-tasks-push: FACTORYOS_URL / worker token not configured")
-    github = read_github(fetch)
+    github = read_github(fetch, owner=REPO.split("/", 1)[0])  # #259: also every open owner issue
     if not github.get("available"):
         sys.exit("team-tasks-push: GitHub read failed: " + str(github.get("error")))
     body = json.dumps(compact_github(github)).encode()
