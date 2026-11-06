@@ -309,7 +309,7 @@
     if (!kind) return { usable: false, selectable: false, reason: 'unknown_channel' };
     if (kind === 'planned') return { usable: false, selectable: false, reason: 'planned' };
     if (kind === 'primary_not_connected') return { usable: false, selectable: true, reason: 'not_connected' };
-    return preview && preview.kind === 'local_file' && preview.url ? { usable: true, selectable: true, reason: '' }
+    return preview && (preview.kind === 'local_file' || preview.kind === 'gemini_demo') && preview.url ? { usable: true, selectable: true, reason: '' }
       : { usable: false, selectable: true, reason: 'no_local_file' };
   }
 
@@ -318,6 +318,11 @@
   function makePreview(profile, env) {
     const errors = validate(profile);
     if (errors.length) return { ok: false, profile, reason: 'invalid', errors };
+    if (env && env.demoAudioUrl) {   // a short sample voiced by Gemini on the server: real audio, still only a demo
+      const lines = demoLines(profile);
+      return { ok: true, profile: { ...profile, state: 'preview_ready',
+        preview: { kind: 'gemini_demo', url: env.demoAudioUrl, script: lines.map(l => l.text).join(' '), lines, label: 'demo_not_episode' } } };
+    }
     if (env && env.localAudioUrl) {
       return { ok: true, profile: { ...profile, state: 'preview_ready', preview: { kind: 'local_file', url: env.localAudioUrl } } };
     }

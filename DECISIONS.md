@@ -779,3 +779,19 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - A follow link is accepted only over https and only on the platform's own domains (www/m stripped). Anything else must be an @handle or a name. Quick picks are the public figures' official X accounts, offered as shortcuts with initials (no photos).
 - A share link carries settings only, never state, preview or approval. Topics are stored as positions in the stable topic list, so the code stays around 300 characters, small enough for a later QR code. Decoding runs every value through the same validators as the UI, and a link is offered with a banner, never applied over the visitor's own draft without asking.
 - The QR code is deferred: the session's safety check refused vendoring the MIT `qrcode-generator` package, so the owner decides.
+
+## MyCast QR code and /mycast short link (2026-11-06, owner approved)
+- With the owner's yes, the MIT `qrcode-generator` 1.4.4 is vendored unchanged in `static/mycast-configurator/vendor/`. It was audited first: no network, eval, cookie or storage calls.
+- The QR uses error level Q with the DNA cover clipped into a circle over the central ~5 % of the area. OpenCV's `QRCodeDetectorAruco` decodes it from a 520 px phone screenshot and from the 1024 px PNG download. The classic OpenCV detector fails even on the library's plain output, so it was not used as the gate.
+- The share link uses the public short path `/mycast` (a 307 to the page; browsers keep the `#p=` fragment). That keeps the link near 390 characters, a version-19 QR.
+- Also fixed: a global `[hidden]{display:none!important}`. A `display:grid` class was overriding `hidden`, so the JSON import box was always visible and the weekday dots showed even for "daily".
+
+## MyCast public Gemini demo (2026-11-06, owner: "1 да 30")
+- `POST /api/mycast/demo` is public, because the open beta has no sign-in yet. It reuses `mycast.gemini_tts_pcm` and the existing `FACTORY_GEMINI_API_KEY`, and it guards itself:
+  - **script:** at most 2 lines and 420 characters, and the first line must open with the fixed "this is a MyCast demo" sentence, so it is not a free general voice API;
+  - **caps:** 30 new generations per UTC day for everyone (`MYCAST_DEMO_DAILY_CAP`) and 5 per client (`MYCAST_DEMO_PER_CLIENT_CAP`). Client ids are SHA-256 hashes of the first `X-Forwarded-For` hop and are never stored raw;
+  - **cache:** results are cached by script and language as WAV under `DATA_DIR/mycast_demo` (newest 300 kept). Cached plays are free, even after the cap is reached;
+  - **one generation at a time.**
+- **Progress:** the bar shows the real stage (preparing, Gemini voicing, ready). The percentage is marked "≈" because it is estimated from elapsed time against a typical ~14 s, and it stays capped at 95 % until the audio exists.
+- **Fallback:** no key, a cap reached, a Gemini error or a page opened outside the site (a local file or a preview) all fall back to the browser voice with a stated reason.
+- **Labelling:** a Gemini demo is real audio, so Download is enabled. It is still labelled `demo_not_episode`, never an episode.
