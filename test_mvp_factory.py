@@ -92,24 +92,43 @@ class MvpRegistryTest(unittest.TestCase):
         self.assertEqual(recommend({"stage": "rejected"})["decision"], "hold")
 
 
+class _Req:
+    """Minimal stand-in for a Starlette request: the handlers only read the identity and the JSON body."""
+
+    def __init__(self, body=None, raw=False):
+        self.body, self.raw = body, raw
+
+    async def json(self):
+        if self.raw:
+            raise ValueError("not json")
+        return self.body
+
+
 class MvpRoutesTest(unittest.TestCase):
+    """Calls the installed handlers directly (CI has no HTTP test client)."""
+
     def test_routes_roles(self):
+        import asyncio
         from fastapi import FastAPI
-        from fastapi.testclient import TestClient
         from mvp_factory import install_mvp_factory_routes
         with tempfile.TemporaryDirectory() as d:
             role = {"r": "member"}
             app = FastAPI()
             install_mvp_factory_routes(app, MvpRegistry(Path(d) / "m.json"), lambda req: {"role": role["r"], "email": "a@b"})
-            c = TestClient(app)
-            self.assertEqual(len(c.get("/api/mvp-factory").json()["projects"]), 4)
-            r = c.post("/api/mvp-factory/mycast/events", json={"kind": "advance", "evidence": ["/static/mycast-configurator/index.html"]})
-            self.assertEqual(r.json()["event"]["to_stage"], "owner_review")
-            r = c.post("/api/mvp-factory/mycast/events", json={"kind": "advance", "evidence": [ISSUE]})
-            self.assertEqual((r.status_code, r.json()["detail"]), (403, "owner_only"))
-            self.assertEqual(c.post("/api/mvp-factory/mycast/events", content="x").status_code, 400)
+            h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+            get, post = h[("GET", "/api/mvp-factory")], h[("POST", "/api/mvp-factory/{project_id}/events")]
+
+            def call(body=None, raw=False):
+                out = asyncio.run(post("mycast", _Req(body, raw)))
+                return (out.status_code, json.loads(out.body)) if hasattr(out, "status_code") else (200, out)
+
+            self.assertEqual(len(get(_Req())["projects"]), 4)
+            status, out = call({"kind": "advance", "evidence": ["/static/mycast-configurator/index.html"]})
+            self.assertEqual((status, out["event"]["to_stage"]), (200, "owner_review"))
+            self.assertEqual(call({"kind": "advance", "evidence": [ISSUE]}), (403, {"detail": "owner_only"}))
+            self.assertEqual(call(raw=True)[0], 400)
             role["r"] = "viewer"
-            self.assertEqual(c.post("/api/mvp-factory/mycast/events", json={"kind": "note"}).status_code, 403)
+            self.assertEqual(call({"kind": "note"}), (403, {"detail": "forbidden"}))
 
 
 if __name__ == "__main__":
