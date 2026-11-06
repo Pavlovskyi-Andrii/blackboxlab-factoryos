@@ -18,7 +18,7 @@ Open `index.html` in a browser. No server is needed.
 - Approval needs a preview, a review step and an explicit checkbox. Any later edit drops the profile back to `draft`. The exported JSON always has `active: false`.
 
 ## QA (2026-11-05)
-- `node docs/prototypes/mycast-configurator/test_configurator.js` → 11/11 pass.
+- `node static/mycast-configurator/test_configurator.js` → 11/11 pass.
 - Headless Chromium at 390×844 and 1440×900: 0 page errors, no horizontal overflow, 82 checkboxes rendered.
 - Flow draft → preview (browser speech) → reviewed → approved: state `approved`, `active: false`, Download stays disabled.
 - If `speechSynthesis.speak` throws, the status says playback stopped and the UI does not hang.
