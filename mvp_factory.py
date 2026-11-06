@@ -9,10 +9,15 @@ Rules:
 - owner_review -> validated and any rejection are owner-only. Blocking is allowed from any open stage and needs a reason.
 - Nothing here dispatches a worker, calls a provider, spends money, deploys or publishes. `recommend()` only names the
   next role; the existing Relay queue stays the only executor.
-- Writes are idempotent by `idempotency_key`; a repeat returns the first result and adds nothing.
+- Writes are idempotent by `idempotency_key`. A key belongs to one operation: the same project, kind, actor and payload.
+  Retrying that operation returns the first result and adds nothing. Reusing the key for anything else is refused (409).
+  The client makes a fresh opaque key per intended operation, so two real submissions never collapse into one.
+- Evidence is checked for link shape only. Every event says so (`evidence_check: "link_shape_only"`). Nothing here marks a
+  worker handoff or a deployment as verified.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -42,6 +47,7 @@ REPO = "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos"
 EVIDENCE_RE = re.compile(r"^(https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull|commit|actions/runs)/[A-Za-z0-9]+[^\s<>\"']*"
                          r"|/static/[A-Za-z0-9_./-]+)$")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
+EVIDENCE_CHECK = "link_shape_only"  # the shape of the link is checked; its relevance to the claimed stage is not
 
 
 class MvpError(ValueError):
@@ -65,7 +71,7 @@ def _seed(now: str) -> dict[str, Any]:
     """The starting registry, written once when no file exists. Every step cites what already happened on GitHub."""
     def ev(pid, i, kind, frm, to, evidence, note):
         return {"id": f"seed-{pid}-{i}", "project": pid, "at": now, "actor": "seed", "kind": kind,
-                "from_stage": frm, "to_stage": to, "evidence": evidence, "note": note}
+                "from_stage": frm, "to_stage": to, "evidence": evidence, "evidence_check": EVIDENCE_CHECK, "note": note}
 
     mycast_steps = [
         ("idea", "researching", [f"{REPO}/issues/261"], "Owner requested the MyCast configurator pilot (#261)."),
@@ -124,7 +130,9 @@ class MvpRegistry:
         projects = [dict(p, recommendation=recommend(p), history=[e for e in data["events"] if e["project"] == p["id"]][-20:])
                     for p in sorted(data["projects"].values(), key=lambda p: (STAGES.index(p["stage"]) * -1, p["id"]))]
         return {"stages": list(STAGES), "roles": ROLE, "projects": projects, "events": data["events"][-limit_events:],
-                "note": "Stages change only through recorded events with evidence. No worker is started from here."}
+                "evidence_check": EVIDENCE_CHECK,
+                "note": "Stages change only through recorded events with evidence links. Links are checked for shape only, "
+                        "not verified against the claimed stage. No worker is started from here."}
 
     def record(self, project_id: str, kind: str, *, actor_role: str, actor: str = "", evidence: list[str] | None = None,
                note: str = "", reason: str = "", idempotency_key: str = "") -> dict[str, Any]:
@@ -132,14 +140,19 @@ class MvpRegistry:
             raise MvpError("bad_kind")
         key = _clean(idempotency_key, 80)
         evidence = [str(e).strip() for e in (evidence or []) if str(e).strip()][:5]
-        bad = [e for e in evidence if not EVIDENCE_RE.match(e)]
+        bad = [e for e in evidence if not EVIDENCE_RE.match(e) or ".." in e or "//" in e.split("://", 1)[-1]]
         if bad:
             raise MvpError("bad_evidence")
         note, reason = _clean(note, MAX_NOTE), _clean(reason, 200)
+        scope = {"project": project_id, "kind": kind, "actor": _clean(actor, 80) or actor_role,
+                 "fingerprint": hashlib.sha256(json.dumps([evidence, note, reason], ensure_ascii=False).encode()).hexdigest()[:24]}
         with self._lock:
             data = self._load()
             if key and key in data["keys"]:
-                return {"duplicate": True, "event": data["keys"][key]}
+                held = data["keys"][key]
+                if {k: held.get(k) for k in scope} != scope:
+                    raise MvpError("idempotency_conflict", 409)  # the key was issued for a different operation
+                return {"duplicate": True, "event": held["event"]}
             project = data["projects"].get(project_id)
             if not project:
                 raise MvpError("unknown_project", 404)
@@ -169,11 +182,11 @@ class MvpRegistry:
             now = _iso(self.clock())
             event = {"id": f"ev-{len(data['events']) + 1}-{int(self.clock() * 1000)}", "project": project_id, "at": now,
                      "actor": _clean(actor, 80) or actor_role, "kind": kind, "from_stage": stage, "to_stage": to,
-                     "evidence": evidence, "note": reason if kind == "block" else note}
+                     "evidence": evidence, "evidence_check": EVIDENCE_CHECK, "note": reason if kind == "block" else note}
             project["stage"], project["updated_at"] = to, now
             data["events"].append(event)
             if key:
-                data["keys"][key] = event
+                data["keys"][key] = dict(scope, event=event)
                 if len(data["keys"]) > MAX_EVENTS:
                     for old in list(data["keys"])[: len(data["keys"]) - MAX_EVENTS]:
                         del data["keys"][old]
@@ -198,7 +211,7 @@ class MvpRegistry:
                                             "created_at": now, "updated_at": now}
             data["events"].append({"id": f"ev-{len(data['events']) + 1}-{int(self.clock() * 1000)}", "project": project_id, "at": now,
                                    "actor": actor_role, "kind": "note", "from_stage": "idea", "to_stage": "idea",
-                                   "evidence": [f"{REPO}/issues/{issue}"], "note": "Project added."})
+                                   "evidence": [f"{REPO}/issues/{issue}"], "evidence_check": EVIDENCE_CHECK, "note": "Project added."})
             self._save(data)
             return data["projects"][project_id]
 
