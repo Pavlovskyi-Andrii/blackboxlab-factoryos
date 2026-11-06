@@ -170,6 +170,10 @@ jobs:
           Path("/tmp/factoryos-ui.js").write_text(script, encoding="utf-8")
           PY
           node --check /tmp/factoryos-ui.js
+      - name: MyCast Gemini demo guards (#261)
+        run: |
+          python -m py_compile mycast_demo.py test_mycast_demo.py
+          python test_mycast_demo.py
       - name: MVP Factory registry (#186)
         run: |
           python -m py_compile mvp_factory.py test_mvp_factory.py

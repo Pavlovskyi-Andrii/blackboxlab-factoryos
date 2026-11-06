@@ -99,6 +99,13 @@ test('download only with a real local file; Telegram is preferred but never show
   assert.strictEqual(M.newProfile().delivery, 'telegram');
 });
 
+test('a Gemini-voiced demo is real audio and downloadable, but still labelled a demo', () => {
+  const out = M.makePreview(ready(), { demoAudioUrl: '/api/mycast/demo/j/audio', speechSynthesis: true });
+  assert.deepStrictEqual([out.profile.preview.kind, out.profile.preview.label], ['gemini_demo', 'demo_not_episode']);
+  assert.deepStrictEqual(M.channelStatus('download', out.profile.preview), { usable: true, selectable: true, reason: '' });
+  assert.deepStrictEqual(M.toJSON(out.profile).preview, { kind: 'gemini_demo' });
+});
+
 test('Viber, WhatsApp and email are planned: visible, never selectable', () => {
   for (const ch of ['viber', 'whatsapp', 'email']) {
     assert.deepStrictEqual(M.channelStatus(ch, null), { usable: false, selectable: false, reason: 'planned' });
