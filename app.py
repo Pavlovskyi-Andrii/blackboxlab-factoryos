@@ -8924,7 +8924,7 @@ def github_issue_intake_once(fetch=None):
     direct=relay_github_owner_issues(GITHUB_REPO,GITHUB_TOKEN,fetch=fetch)
     source,render_error,gate_github="render","",None
     if direct.get("available"):
-        issues,owner=direct["issues"],direct["owner"]
+        issues,owner,truncated=direct["issues"],direct["owner"],bool(direct.get("truncated"))
         gate_github={"available":True,"pulls":[],"issues":[{"number":i.get("number"),"title":i.get("title"),"body":i.get("body"),
                      "state":i.get("state"),"html_url":i.get("url"),"labels":[]} for i in issues if isinstance(i,dict)]}
     else:
@@ -8936,6 +8936,7 @@ def github_issue_intake_once(fetch=None):
             return {"ok":False,"error":direct.get("error") or "GitHub unavailable","ec2_snapshot":snapshot_state,
                     "imported":[],"existing":[],"linked":[],"ignored":0}
         issues,owner,source,gate_github=ec2["issues"],GITHUB_REPO.split("/",1)[0],"ec2",ec2["github"]
+        truncated=bool(gate_github.get("issues_truncated"))
     readiness=queue_readiness({**gate_github,"available":True},roadmap=_parse_roadmap_tasks(),agent="claude")
     blocked={t["number"]:t["reasons"] for t in readiness.get("blocked") or []}
     deferred=[{"issue":n,"reasons":r} for n,r in sorted(blocked.items())]
@@ -8943,11 +8944,12 @@ def github_issue_intake_once(fetch=None):
     result={"ok":True,**RELAY_QUEUE.auto_intake_owner_issues(ready,GITHUB_REPO,owner)}
     print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":True,"source":source,"render_error":render_error,
                       "imported":[x["issue"] for x in result["imported"]],"linked":[x["issue"] for x in result["linked"]],
-                      "existing":len(result["existing"]),"ignored":result["ignored"],"deferred":[d["issue"] for d in deferred]}),flush=True)
+                      "existing":len(result["existing"]),"ignored":result["ignored"],"deferred":[d["issue"] for d in deferred],
+                      "truncated":truncated}),flush=True)
     for row in result["imported"]:
         try:_telegram_send(f"📥 Relay {row['ticket']}: GitHub #{row['issue']} (Owner: {row['lane']})\nВ очереди, выполнение ещё не началось.")
         except Exception:pass
-    result.update(source=source,deferred=deferred,render_error=render_error)
+    result.update(source=source,deferred=deferred,render_error=render_error,truncated=truncated)
     return result
 
 def _safe_int(value):

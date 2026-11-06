@@ -26,6 +26,9 @@ _DEP_ISSUE = re.compile(r"#(\d+)")
 _DEP_TASK = re.compile(r"\bT-\d+(?:-[A-Z0-9]+)?\b")
 _OWNER_GATE = re.compile(r"\bCONDITIONAL\b|only after|не начинать до|только после", re.I)
 QUEUE_TARGET = 10
+ISSUE_PAGE_SIZE = 100  # GitHub's maximum
+ISSUE_MAX_PAGES = 10  # 1000 open issues; a longer list is reported as truncated, never passed off as complete
+SNAPSHOT_MAX_ISSUES = ISSUE_PAGE_SIZE * (ISSUE_MAX_PAGES + 1)  # every open page plus the recent-activity page
 
 
 def _ts(value) -> float:
@@ -75,12 +78,42 @@ def github_fetcher(repo: str, token: str) -> Callable[[str], object]:
     return fetch
 
 
+def unique_issues(items: list) -> list:
+    """First entry per issue number. Entries without a number stay, so intake can count them as ignored."""
+    seen, unique = set(), []
+    for item in items:
+        key = str(item["number"]) if isinstance(item, dict) and "number" in item else None
+        if key is None or key not in seen:
+            unique.append(item)
+        if key is not None:
+            seen.add(key)
+    return unique
+
+
+def read_issue_pages(fetch: Callable[[str], object], path: str) -> tuple[list, bool]:
+    """#259: every page of an Issues listing, as (items, truncated). A failed or non-list page raises, so a caller
+    never mistakes a partial read for the full list: a missing open issue would let its dependents start early.
+    An issue that moves between pages during the read shows up twice, hence the dedupe."""
+    items: list = []
+    for page in range(1, ISSUE_MAX_PAGES + 1):
+        raw = fetch(f"{path}&per_page={ISSUE_PAGE_SIZE}&page={page}")
+        if not isinstance(raw, list):
+            raise ValueError("unexpected GitHub response")
+        items.extend(raw)
+        if len(raw) < ISSUE_PAGE_SIZE:
+            return unique_issues(items), False
+    return unique_issues(items), True
+
+
 def read_github(fetch: Callable[[str], object], max_ci: int = 20) -> dict:
     try:
-        issues = fetch("/issues?state=all&per_page=100&sort=updated&direction=desc")
+        # Recent activity (closed work included) is one page; open issues are read in full, however old they are.
+        recent = fetch("/issues?state=all&per_page=100&sort=updated&direction=desc")
         pulls = fetch("/pulls?state=all&per_page=60&sort=updated&direction=desc")
-        if not isinstance(issues, list) or not isinstance(pulls, list):
+        if not isinstance(recent, list) or not isinstance(pulls, list):
             raise ValueError("unexpected GitHub response")
+        open_issues, truncated = read_issue_pages(fetch, "/issues?state=open")
+        issues = unique_issues(recent + open_issues)
         ci = {}
         for pr in [p for p in pulls if isinstance(p, dict) and p.get("state") == "open"][:max_ci]:
             sha = str((pr.get("head") or {}).get("sha") or "")
@@ -90,7 +123,7 @@ def read_github(fetch: Callable[[str], object], max_ci: int = 20) -> dict:
                     ci[sha] = _ci_summary((data or {}).get("check_runs") if isinstance(data, dict) else [])
                 except Exception:
                     ci[sha] = {"state": "unknown", "failed": ""}
-        return {"available": True, "issues": issues, "pulls": pulls, "ci": ci}
+        return {"available": True, "issues": issues, "pulls": pulls, "ci": ci, "issues_truncated": truncated}
     except Exception as exc:
         code = getattr(exc, "code", None)
         return {"available": False, "error": ("HTTP " + str(code)) if code else "GitHub unavailable",
@@ -343,13 +376,14 @@ def compact_github(github: dict) -> dict:
               "html_url": p.get("html_url"), "updated_at": p.get("updated_at"), "created_at": p.get("created_at")}
              for p in github.get("pulls") or [] if isinstance(p, dict)]
     return {"available": bool(github.get("available")), "error": str(github.get("error") or "")[:80],
-            "issues": issues, "pulls": pulls, "ci": {str(k)[:64]: v for k, v in (github.get("ci") or {}).items()}}
+            "issues": issues, "pulls": pulls, "ci": {str(k)[:64]: v for k, v in (github.get("ci") or {}).items()},
+            "issues_truncated": bool(github.get("issues_truncated"))}
 
 
 def valid_snapshot(data) -> bool:
     return (isinstance(data, dict) and data.get("available") is True and isinstance(data.get("issues"), list)
             and isinstance(data.get("pulls"), list) and isinstance(data.get("ci"), dict)
-            and len(data["issues"]) <= 300 and len(data["pulls"]) <= 200)
+            and len(data["issues"]) <= SNAPSHOT_MAX_ISSUES and len(data["pulls"]) <= 200)
 
 
 class TeamTasksCache:

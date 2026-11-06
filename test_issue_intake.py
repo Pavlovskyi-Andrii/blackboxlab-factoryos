@@ -7,6 +7,7 @@ import unittest.mock
 import urllib.error
 from contextlib import redirect_stdout
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from relay import RelayStore, relay_auto_intake_issues, relay_github_owner_issues
 from relay_execution import RelayQueue, issue_owner_lane
@@ -191,6 +192,142 @@ class TestIssueIntake(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn('"ec2_snapshot": "stale"', out2.getvalue())
         self.assertEqual(fresh_queue.store.list(), [])
+
+    def paged(self, pages):
+        """Fake GitHub: serves ``pages`` by the page= query value, records the requests."""
+        calls = []
+
+        def fetch(path):
+            calls.append(path)
+            number = int(parse_qs(urlsplit(path).query)["page"][0])
+            result = pages[number - 1] if number <= len(pages) else []
+            if isinstance(result, Exception):
+                raise result
+            return result
+        return fetch, calls
+
+    def owner_page(self, start, count=100):
+        return [gh_issue(n, "Owner: Claude\nDepends: none") for n in range(start, start + count)]
+
+    def test_259_issue_on_second_page_is_imported_once(self):
+        fetch, calls = self.paged([self.owner_page(1000), [gh_issue(2000, "Owner: Claude\nOld issue")]])
+        first = relay_auto_intake_issues(self.queue, REPO, "", fetch=fetch)
+        self.assertEqual(len(first["imported"]), 101)
+        self.assertIn(2000, [x["issue"] for x in first["imported"]])
+        self.assertFalse(first["truncated"])
+        self.assertEqual(len(calls), 2)  # a short page ends the read
+        self.assertTrue(all("per_page=100" in c and "creator=" + OWNER in c and "state=open" in c for c in calls))
+        second = relay_auto_intake_issues(self.queue, REPO, "", fetch=fetch)
+        self.assertEqual(second["imported"], [])
+        self.assertEqual(len(self.store.list(limit=500)), 101)
+
+    def test_259_exactly_one_full_page_stops_on_the_empty_next_page(self):
+        fetch, calls = self.paged([self.owner_page(1000)])
+        snap = relay_github_owner_issues(REPO, "", fetch=fetch)
+        self.assertEqual((len(snap["issues"]), snap["truncated"], len(calls)), (100, False, 2))
+
+    def test_259_issue_shifted_between_pages_is_listed_once(self):
+        page1 = self.owner_page(1000)
+        fetch, _ = self.paged([page1, [page1[-1], gh_issue(2000, "Owner: Claude")]])
+        numbers = [i["number"] for i in relay_github_owner_issues(REPO, "", fetch=fetch)["issues"]]
+        self.assertEqual(len(numbers), len(set(numbers)))
+        self.assertEqual(len(numbers), 101)
+
+    def test_259_failed_later_page_is_unknown_and_imports_nothing(self):
+        down = urllib.error.HTTPError("https://api.github.com", 502, "bad", {}, None)
+        for bad in (down, {"message": "not a list"}):
+            with self.subTest(type(bad).__name__):
+                fetch, _ = self.paged([self.owner_page(1000), bad])
+                result = relay_auto_intake_issues(self.queue, REPO, FAKE_TOKEN, fetch=fetch)
+                self.assertFalse(result["ok"])
+                self.assertNotIn(FAKE_TOKEN, json.dumps(result))
+                self.assertEqual(self.store.list(), [])  # the first page is not imported on its own
+
+    def test_259_page_limit_is_reported_not_hidden(self):
+        from team_tasks import ISSUE_MAX_PAGES
+        fetch, calls = self.paged([self.owner_page(1000 + 100 * p) for p in range(ISSUE_MAX_PAGES + 1)])
+        snap = relay_github_owner_issues(REPO, "", fetch=fetch)
+        self.assertTrue(snap["available"])
+        self.assertTrue(snap["truncated"])
+        self.assertEqual(len(calls), ISSUE_MAX_PAGES)
+
+    def test_259_dependency_on_second_page_defers_its_dependent(self):
+        import os
+        os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-intake-"))
+        import app
+        page1 = self.owner_page(1000, 99) + [gh_issue(1500, "Owner: Claude\nDepends: #2000")]
+        fetch, _ = self.paged([page1, [gh_issue(2000, "Owner: Claude\nDepends: none")]])
+        with unittest.mock.patch.object(app, "RELAY_QUEUE", self.queue), \
+             unittest.mock.patch.object(app, "_telegram_send", lambda text: None), \
+             redirect_stdout(io.StringIO()) as out:
+            result = app.github_issue_intake_once(fetch=fetch)
+        self.assertEqual(result["source"], "render")
+        self.assertEqual(result["deferred"], [{"issue": 1500, "reasons": ["depends_open_#2000"]}])
+        self.assertIn(2000, [x["issue"] for x in result["imported"]])
+        self.assertNotIn(1500, [x["issue"] for x in result["imported"]])
+        self.assertFalse(result["truncated"])
+        self.assertIn('"truncated": false', out.getvalue())
+
+    def test_259_snapshot_carries_open_issue_beyond_recent_page_into_intake(self):
+        """Render gets 403 in production, so the EC2 snapshot is the path that must see the old open issue."""
+        import os
+        import time as _time
+        os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-intake-"))
+        import app
+        from team_tasks import compact_github, read_github, valid_snapshot
+        recent = [dict(gh_issue(n, "Owner: Claude"), state="closed") for n in range(3000, 3100)]
+        old_open = gh_issue(7, "Owner: Claude\nDepends: none", title="Old open task")
+
+        def fetch(path):
+            if path.startswith("/issues?state=all"):
+                return recent
+            if path.startswith("/issues?state=open"):
+                return [old_open]
+            return []
+        github = compact_github(read_github(fetch))
+        self.assertEqual(len(github["issues"]), 101)
+        self.assertTrue(valid_snapshot(github))
+        self.assertFalse(github["issues_truncated"])
+
+        def forbidden(path):
+            raise urllib.error.HTTPError("https://api.github.com", 403, "Forbidden", {}, io.BytesIO(b"{}"))
+        snap_path = Path(tempfile.mkdtemp()) / "snap.json"
+        snap_path.write_text(json.dumps({"received": _time.time(), "github": dict(github, issues_truncated=True)}))
+        with unittest.mock.patch.object(app, "RELAY_QUEUE", self.queue), \
+             unittest.mock.patch.object(app, "_TEAM_SNAPSHOT_PATH", snap_path), \
+             unittest.mock.patch.object(app, "_telegram_send", lambda text: None), \
+             redirect_stdout(io.StringIO()):
+            result = app.github_issue_intake_once(fetch=forbidden)
+        self.assertEqual(result["source"], "ec2")
+        self.assertEqual([x["issue"] for x in result["imported"]], [7])
+        self.assertTrue(result["truncated"])  # the pusher's page limit reaches the intake report
+
+    def test_259_snapshot_read_fails_as_a_whole_when_an_open_page_fails(self):
+        from team_tasks import read_github
+
+        def fetch(path):
+            if "page=2" in path:
+                raise urllib.error.HTTPError("https://api.github.com", 502, "bad", {}, None)
+            return self.owner_page(1000) if path.startswith("/issues") else []
+        github = read_github(fetch)
+        self.assertEqual((github["available"], github["error"], github["issues"]), (False, "HTTP 502", []))
+
+    def test_259_full_snapshot_fits_the_endpoint_limits(self):
+        from team_tasks import ISSUE_MAX_PAGES, SNAPSHOT_MAX_ISSUES, compact_github, read_github, valid_snapshot
+
+        def fetch(path):
+            if path.startswith("/issues?state=all"):
+                return [dict(gh_issue(n, "Owner: Claude"), state="closed") for n in range(90000, 90100)]
+            if path.startswith("/issues?state=open"):
+                page = int(parse_qs(urlsplit(path).query)["page"][0])
+                return [gh_issue(n, "Owner: Claude\nDepends: #1", title="t" * 200) for n in range(page * 1000, page * 1000 + 100)]
+            return []
+        github = compact_github(read_github(fetch))
+        self.assertEqual(len(github["issues"]), SNAPSHOT_MAX_ISSUES)
+        self.assertEqual(SNAPSHOT_MAX_ISSUES, 100 * (ISSUE_MAX_PAGES + 1))
+        self.assertTrue(github["issues_truncated"])
+        self.assertTrue(valid_snapshot(github))
+        self.assertLess(len(json.dumps(github)), 3_000_000)  # the snapshot endpoint's body limit
 
     def test_github_error_reason_categories(self):
         from relay import github_error_reason

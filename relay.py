@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from relay_execution import lifecycle_text
 from lane_board import lane_board_text, telegram_lang
+from team_tasks import read_issue_pages
 from worker_observability import worker_overview_text
 
 RELAY_STATUSES = ("inbox", "in_progress", "need_you", "done", "archived")
@@ -723,10 +724,11 @@ def relay_github_snapshot(repo: str = "", token: str = "") -> dict:
 
 
 def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> dict:
-    """T-599-E: list open Issues created by the repo owner (one free GitHub API call).
+    """T-599-E / #259: list all open Issues created by the repo owner (free GitHub API calls, one per page).
 
-    Failure is reported as ``available: False`` with a short code only — never
-    request headers, tokens or response bodies.
+    Failure of any page is reported as ``available: False`` with a short code only —
+    never request headers, tokens or response bodies. ``truncated`` means the page
+    limit was reached and more open Issues may exist.
     """
     import urllib.error
     import urllib.request
@@ -747,9 +749,7 @@ def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> di
             return _json.load(response)
 
     try:
-        raw = (fetch or _fetch)("/issues?state=open&per_page=50&creator=" + owner)
-        if not isinstance(raw, list):
-            raise ValueError("Unexpected GitHub response")
+        raw, truncated = read_issue_pages(fetch or _fetch, "/issues?state=open&creator=" + owner)
         # A malformed entry is passed through as-is so intake counts it as ignored
         # instead of failing the whole pass.
         issues = [{
@@ -761,7 +761,8 @@ def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> di
             "author": str((x.get("user") or {}).get("login") or "") if isinstance(x.get("user"), dict) else "",
             "pull_request": bool(x.get("pull_request")),
         } if isinstance(x, dict) else x for x in raw]
-        return {"available": True, "repo": repo, "owner": owner, "checked_at": _now(), "issues": issues}
+        return {"available": True, "repo": repo, "owner": owner, "checked_at": _now(), "issues": issues,
+                "truncated": truncated}
     except Exception as exc:  # network, HTTP, JSON: all mean UNKNOWN, never success
         code = getattr(exc, "code", None)
         return {"available": False, "repo": repo, "owner": owner, "reason": github_error_reason(exc),
@@ -804,7 +805,7 @@ def relay_auto_intake_issues(queue, repo: str, token: str = "", fetch=None) -> d
         return {"ok": False, "error": snapshot.get("error") or "GitHub unavailable",
                 "imported": [], "existing": [], "linked": [], "ignored": 0}
     summary = queue.auto_intake_owner_issues(snapshot["issues"], snapshot["repo"], snapshot["owner"])
-    return {"ok": True, **summary}
+    return {"ok": True, **summary, "truncated": snapshot["truncated"]}
 
 
 def _github_text(snapshot: dict) -> str:

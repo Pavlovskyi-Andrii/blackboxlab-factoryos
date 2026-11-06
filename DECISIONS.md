@@ -731,6 +731,12 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Gate: Claude issues that Queue Keeper (#231) classifies as blocked are deferred, not imported. Blocked means an open Depends issue or PR, an unfinished ROADMAP dependency, an owner gate in the title, or another agent's open PR. Without the gate, restoring intake would hand the EC2 worker tasks that wait for the owner (#240–#242) or are acceptance checks (#219).
 - Failed GitHub reads log a fixed reason category (token_lacks_permission, invalid_token, rate_limited, sso_required, not_found_or_no_access, network), never headers or response text. With no fresh snapshot, intake reports `missing_or_stale` and imports nothing.
 
+## #259 Relay intake reads every page of owner Issues (2026-11-06)
+- Direct intake read only the first 50 open owner Issues, and the EC2 snapshot only the 100 most recently updated Issues of any state. An older open Issue never reached Relay. Its dependents could also pass the Queue Keeper gate, because an unseen `Depends:` issue is only "unverified". Both reads now use `read_issue_pages`, in `team_tasks.py` because the pusher downloads only that module.
+- The snapshot is the page of recent activity plus every open page. It does not read all states: closed Issues grow without limit, and the board only needs recent ones. `valid_snapshot` now allows 1100 Issues instead of 300, otherwise a large open list would be refused with HTTP 400.
+- A failed or non-list page fails the whole read. Partial data is not imported, because a missing open dependency would start its dependents early. The direct read then falls back to the snapshot as usual, and a failed pusher read leaves the old snapshot to go stale.
+- The limit is 10 pages (1000 open Issues). Past that, what was read is still imported, and `truncated: true` appears in the intake log and result. Stopping all intake on a very long list would be worse.
+
 ## #258 Intake fallback contract (2026-11-05)
 - `_intake_issues_from_ec2_snapshot` returns `(data, reason)`, where reason is `fresh`, `missing`, `stale` or `malformed`. Only `fresh` data is ever imported, and the intake log and result carry the reason (`ec2_snapshot`).
 - Malformed means: not JSON, not an object, a non-numeric `received`, no `github` object, or `issues` that is not a list. These used to raise inside the intake loop.
