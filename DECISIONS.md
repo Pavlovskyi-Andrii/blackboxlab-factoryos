@@ -742,3 +742,8 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Topic ids are stable `category.group.topic` strings. Labels are data, so the profile JSON never depends on the UI language.
 - Browser speech counts only as a labelled demo (`demo_not_ai_episode`). It cannot be downloaded or approved as an episode. Any edit drops the profile back to draft, and approval never sets `active`. No generation, scheduling or delivery exists here.
 - CI runs the node tests and `node --check` on the inline script as one step.
+
+## MyCast configurator on the site (2026-11-06, owner request after #261)
+- The prototype moved from `docs/prototypes/mycast-configurator/` to `static/mycast-configurator/`, because the app serves only `/static`. It is public like every `/static` file. It reads no user or factory data and makes no network calls.
+- The sidebar has a new **MVP Factory** section, between Automation & team and System, with one item, **MyCast podcast**. It opens the configurator in a new tab. The rest of #186 (the panel, the pilots, live Relay state) stays with PR #194. That PR edits a different part of `static/index.html` (the main panel, not the nav line), so the two should merge without a textual conflict.
+- `test_navigation.py` now expects 7 sections and the new destination. Nothing else in it changed.

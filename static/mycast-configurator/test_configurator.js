@@ -1,4 +1,4 @@
-// #261 QA: deterministic tests for the MyCast configurator logic. Run: node docs/prototypes/mycast-configurator/test_configurator.js
+// #261 QA: deterministic tests for the MyCast configurator logic. Run: node static/mycast-configurator/test_configurator.js
 'use strict';
 const assert = require('assert');
 const M = require('./configurator.js');
