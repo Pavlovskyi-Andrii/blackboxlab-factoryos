@@ -779,3 +779,9 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - A follow link is accepted only over https and only on the platform's own domains (www/m stripped). Anything else must be an @handle or a name. Quick picks are the public figures' official X accounts, offered as shortcuts with initials (no photos).
 - A share link carries settings only, never state, preview or approval. Topics are stored as positions in the stable topic list, so the code stays around 300 characters, small enough for a later QR code. Decoding runs every value through the same validators as the UI, and a link is offered with a banner, never applied over the visitor's own draft without asking.
 - The QR code is deferred: the session's safety check refused vendoring the MIT `qrcode-generator` package, so the owner decides.
+
+## MyCast QR code and /mycast short link (2026-11-06, owner approved)
+- With the owner's yes, the MIT `qrcode-generator` 1.4.4 is vendored unchanged in `static/mycast-configurator/vendor/`. It was audited first: no network, eval, cookie or storage calls.
+- The QR uses error level Q with the DNA cover clipped into a circle over the central ~5 % of the area. OpenCV's `QRCodeDetectorAruco` decodes it from a 520 px phone screenshot and from the 1024 px PNG download. The classic OpenCV detector fails even on the library's plain output, so it was not used as the gate.
+- The share link uses the public short path `/mycast` (a 307 to the page; browsers keep the `#p=` fragment). That keeps the link near 390 characters, a version-19 QR.
+- Also fixed: a global `[hidden]{display:none!important}`. A `display:grid` class was overriding `hidden`, so the JSON import box was always visible and the weekday dots showed even for "daily".

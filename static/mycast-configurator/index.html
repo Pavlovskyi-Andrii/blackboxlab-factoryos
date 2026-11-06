@@ -19,6 +19,7 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}  /* a class with display:grid/flex must never override hidden */
 html{scroll-behavior:smooth}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--body);-webkit-text-size-adjust:100%}
 body{overflow-x:hidden;padding-bottom:84px}
@@ -167,6 +168,11 @@ details.cat[open]>summary .chev{transform:rotate(90deg)}
 .msg.ok{color:var(--ok)}
 textarea{font:13px var(--mono);background:rgba(9,13,30,.75);color:var(--ink);border:1px solid var(--edge2);border-radius:12px;padding:10px;width:100%;resize:vertical}
 details.jsonBox>summary{cursor:pointer;color:var(--mute);font-size:14px;margin-bottom:8px}
+.qrBox{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.qrBox[hidden]{display:none}
+.qr{width:min(320px,100%);aspect-ratio:1;background:#fff;border-radius:18px;padding:12px}
+.qr svg{display:block;width:100%;height:100%}
+.qrSide{flex:1 1 200px;display:grid;gap:10px}
 .banner{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:16px;border:1px solid rgba(79,227,255,.45);background:rgba(10,30,50,.75)}
 .banner[hidden]{display:none}
 /* Player + waveform: bars move only while the browser is really speaking. */
@@ -394,10 +400,15 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         <div class="btns">
           <button class="btn primary" type="button" id="shareLink" data-t="share_link"></button>
           <button class="btn" type="button" id="shareNative" data-t="share_native" hidden></button>
+          <button class="btn" type="button" id="showQr" data-t="share_qr"></button>
           <button class="btn" type="button" id="copyJson" data-t="share_json"></button>
           <button class="btn" type="button" id="importJsonBtn" data-t="share_import"></button>
         </div>
         <div class="msg" id="shareMsg" role="status" aria-live="polite"></div>
+        <div class="qrBox" id="qrBox" hidden>
+          <div class="qr" id="qr" role="img"></div>
+          <div class="qrSide"><p class="hint" data-t="qr_hint"></p><div class="btns"><button class="btn" type="button" id="qrPng" data-t="qr_png"></button></div></div>
+        </div>
         <div class="field" id="importBox" hidden>
           <label for="importJson" data-t="share_import_l"></label>
           <textarea id="importJson" rows="4"></textarea>
@@ -410,6 +421,7 @@ footer{color:var(--dim);font-size:13px;text-align:center}
     <aside class="dna" aria-labelledby="dnaTitle">
       <h3 id="dnaTitle" data-t="dna_h"></h3>
       <div class="cover" id="cover" role="img"></div>
+      <button class="btn" type="button" id="dnaQr" data-t="dna_qr"></button>
       <div class="counter"><b id="dnaCount">0</b><span data-t="dna_topics"></span></div>
       <div class="mix" id="mix" aria-hidden="true"></div>
       <div class="legend" id="legend"></div>
@@ -436,6 +448,7 @@ footer{color:var(--dim);font-size:13px;text-align:center}
 </div>
 
 <script src="configurator.js"></script>
+<script src="vendor/qrcode.js"></script>
 <script>
 'use strict';
 const T = {
@@ -453,7 +466,7 @@ const T = {
   soc_h:'Соцмережі та канали',soc_hint:'Оберіть мережу, впишіть назву каналу, @нік або вставте посилання.',soc_add:'Додати',soc_quick:'Швидко: стежити в X (Twitter)',soc_empty:'Поки ні за ким не стежите.',soc_remove:'Прибрати',soc_bad:'Не схоже на канал цієї мережі. Впишіть @нік, назву або посилання https://',
   plat:{youtube:'YouTube',x:'X (Twitter)',telegram:'Telegram',instagram:'Instagram',tiktok:'TikTok',facebook:'Facebook',web:'Сайт / інше'},platPh:{youtube:'@channel або youtube.com/@…',x:'@нік або x.com/…',telegram:'@канал або t.me/…',instagram:'@нік або instagram.com/…',tiktok:'@нік або tiktok.com/@…',facebook:'Назва сторінки або facebook.com/…',web:'Назва, ключове слово або https://…'},platL:'Канал у мережі',
   own_ph:'+ своє: клуб, боєць, ліга…',own_add:'Додати своє',own_remove:'Прибрати',days_h:'Дні тижня',
-  share_h:'Поділитися подкастом',share_hint:'Надішліть друзям посилання: воно відкриє ці налаштування в їхньому браузері. Затвердження і прев’ю не передаються.',share_link:'Скопіювати посилання',share_native:'Поділитися…',share_json:'Скопіювати JSON',share_import:'Вставити JSON',share_import_l:'Вставте JSON профілю MyCast',share_import_go:'Застосувати',share_copied:'Скопійовано.',share_copy_fail:'Не вдалося скопіювати — виділіть і скопіюйте вручну.',share_bad:'Це не схоже на профіль MyCast.',share_done:'Налаштування застосовано.',
+  share_h:'Поділитися подкастом',share_hint:'Надішліть друзям посилання: воно відкриє ці налаштування в їхньому браузері. Затвердження і прев’ю не передаються.',share_link:'Скопіювати посилання',share_qr:'Показати QR-код',qr_hint:'Відскануйте камерою телефону: відкриються ці налаштування. У центрі — ДНК вашого подкасту.',qr_png:'Завантажити QR (PNG)',dna_qr:'QR-код ДНК',share_native:'Поділитися…',share_json:'Скопіювати JSON',share_import:'Вставити JSON',share_import_l:'Вставте JSON профілю MyCast',share_import_go:'Застосувати',share_copied:'Скопійовано.',share_copy_fail:'Не вдалося скопіювати — виділіть і скопіюйте вручну.',share_bad:'Це не схоже на профіль MyCast.',share_done:'Налаштування застосовано.',
   imp_banner:'Ви відкрили чужий подкаст за посиланням. Використати ці налаштування замість ваших?',imp_use:'Використати',imp_keep:'Залишити мої',tg_soon:'Вхід у Telegram — скоро',
   free:'Своя тема (до 120 символів)',rss:'Своє джерело RSS (макет, ще не підключено)',
   voice_h:'Голос і розклад',sched_hint:'Розклад лише зберігається в профілі: нічого не запускається автоматично.',tz:'Часовий пояс',time:'Час',freq:'Частота',weekday:'День тижня',dur:'Тривалість',mode:'Формат',vlang:'Мова',
@@ -491,7 +504,7 @@ const T = {
   soc_h:'Соцсети и каналы',soc_hint:'Выберите сеть, впишите название канала, @ник или вставьте ссылку.',soc_add:'Добавить',soc_quick:'Быстро: следить в X (Twitter)',soc_empty:'Пока ни за кем не следите.',soc_remove:'Убрать',soc_bad:'Не похоже на канал этой сети. Впишите @ник, название или ссылку https://',
   plat:{youtube:'YouTube',x:'X (Twitter)',telegram:'Telegram',instagram:'Instagram',tiktok:'TikTok',facebook:'Facebook',web:'Сайт / другое'},platPh:{youtube:'@channel или youtube.com/@…',x:'@ник или x.com/…',telegram:'@канал или t.me/…',instagram:'@ник или instagram.com/…',tiktok:'@ник или tiktok.com/@…',facebook:'Название страницы или facebook.com/…',web:'Название, ключевое слово или https://…'},platL:'Канал в сети',
   own_ph:'+ своё: клуб, боец, лига…',own_add:'Добавить своё',own_remove:'Убрать',days_h:'Дни недели',
-  share_h:'Поделиться подкастом',share_hint:'Отправьте друзьям ссылку: она откроет эти настройки в их браузере. Утверждение и превью не передаются.',share_link:'Скопировать ссылку',share_native:'Поделиться…',share_json:'Скопировать JSON',share_import:'Вставить JSON',share_import_l:'Вставьте JSON профиля MyCast',share_import_go:'Применить',share_copied:'Скопировано.',share_copy_fail:'Не удалось скопировать — выделите и скопируйте вручную.',share_bad:'Это не похоже на профиль MyCast.',share_done:'Настройки применены.',
+  share_h:'Поделиться подкастом',share_hint:'Отправьте друзьям ссылку: она откроет эти настройки в их браузере. Утверждение и превью не передаются.',share_link:'Скопировать ссылку',share_qr:'Показать QR-код',qr_hint:'Отсканируйте камерой телефона: откроются эти настройки. В центре — ДНК вашего подкаста.',qr_png:'Скачать QR (PNG)',dna_qr:'QR-код ДНК',share_native:'Поделиться…',share_json:'Скопировать JSON',share_import:'Вставить JSON',share_import_l:'Вставьте JSON профиля MyCast',share_import_go:'Применить',share_copied:'Скопировано.',share_copy_fail:'Не удалось скопировать — выделите и скопируйте вручную.',share_bad:'Это не похоже на профиль MyCast.',share_done:'Настройки применены.',
   imp_banner:'Вы открыли чужой подкаст по ссылке. Использовать эти настройки вместо ваших?',imp_use:'Использовать',imp_keep:'Оставить мои',tg_soon:'Вход в Telegram — скоро',
   free:'Своя тема (до 120 символов)',rss:'Свой источник RSS (макет, ещё не подключён)',
   voice_h:'Голос и расписание',sched_hint:'Расписание только сохраняется в профиле: ничего не запускается автоматически.',tz:'Часовой пояс',time:'Время',freq:'Частота',weekday:'День недели',dur:'Длительность',mode:'Формат',vlang:'Язык',
@@ -529,7 +542,7 @@ const T = {
   soc_h:'Social networks and channels',soc_hint:'Pick a network, then type a channel name, an @handle or paste a link.',soc_add:'Add',soc_quick:'Quick: follow on X (Twitter)',soc_empty:'You are not following anyone yet.',soc_remove:'Remove',soc_bad:'That does not look like a channel on this network. Type an @handle, a name or an https:// link.',
   plat:{youtube:'YouTube',x:'X (Twitter)',telegram:'Telegram',instagram:'Instagram',tiktok:'TikTok',facebook:'Facebook',web:'Website / other'},platPh:{youtube:'@channel or youtube.com/@…',x:'@handle or x.com/…',telegram:'@channel or t.me/…',instagram:'@handle or instagram.com/…',tiktok:'@handle or tiktok.com/@…',facebook:'Page name or facebook.com/…',web:'Name, keyword or https://…'},platL:'Channel on the network',
   own_ph:'+ your own: club, fighter, league…',own_add:'Add your own',own_remove:'Remove',days_h:'Weekdays',
-  share_h:'Share your podcast',share_hint:'Send friends a link: it opens these settings in their browser. Approval and preview are not shared.',share_link:'Copy link',share_native:'Share…',share_json:'Copy JSON',share_import:'Paste JSON',share_import_l:'Paste a MyCast profile JSON',share_import_go:'Apply',share_copied:'Copied.',share_copy_fail:'Could not copy; select and copy it by hand.',share_bad:'That does not look like a MyCast profile.',share_done:'Settings applied.',
+  share_h:'Share your podcast',share_hint:'Send friends a link: it opens these settings in their browser. Approval and preview are not shared.',share_link:'Copy link',share_qr:'Show QR code',qr_hint:'Scan with a phone camera to open these settings. Your podcast DNA sits in the middle.',qr_png:'Download QR (PNG)',dna_qr:'DNA QR code',share_native:'Share…',share_json:'Copy JSON',share_import:'Paste JSON',share_import_l:'Paste a MyCast profile JSON',share_import_go:'Apply',share_copied:'Copied.',share_copy_fail:'Could not copy; select and copy it by hand.',share_bad:'That does not look like a MyCast profile.',share_done:'Settings applied.',
   imp_banner:'You opened someone else\'s podcast from a link. Use these settings instead of yours?',imp_use:'Use them',imp_keep:'Keep mine',tg_soon:'Telegram sign-in: coming soon',
   free:'Your own topic (up to 120 characters)',rss:'Your own RSS source (mock, not connected yet)',
   voice_h:'Voice and schedule',sched_hint:'The schedule is only saved in your profile: nothing runs automatically.',tz:'Time zone',time:'Time',freq:'Frequency',weekday:'Weekday',dur:'Length',mode:'Format',vlang:'Language',
@@ -595,6 +608,7 @@ function change(next) {
   if (speech) { try { speechSynthesis.cancel(); } catch (e) {} }
   setPlaying(false);
   save(); render();
+  if (!$('#qrBox').hidden) showQr();
 }
 
 function renderTaxonomy() {
@@ -759,7 +773,30 @@ function addOwn(input) {
   const again = document.querySelector(`input[data-own="${gk}"]`);   // keep typing in the same row after re-render
   if (again) again.focus();
 }
-function shareUrl() { return location.origin + location.pathname + '#p=' + MyCast.encodeShare(profile); }
+function shareUrl() {
+  // On the site, use the short public address /mycast; elsewhere (local file, preview) keep the current page.
+  const onSite = location.pathname.startsWith('/static/mycast-configurator/');
+  return (onSite ? location.origin + '/mycast' : location.origin + location.pathname) + '#p=' + MyCast.encodeShare(profile);
+}
+/* QR code of the share link with the podcast DNA cover in the middle. Level Q tolerates the covered centre. */
+function qrSVG(text) {
+  const qr = qrcode(0, 'Q'); qr.addData(text, 'Byte'); qr.make();
+  const n = qr.getModuleCount(), q = 2, size = n + q * 2, hole = Math.round(n * 0.22), lo = Math.floor((n - hole) / 2), hi = lo + hole;
+  let mods = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    if (!qr.isDark(r, c) || (r >= lo && r < hi && c >= lo && c < hi)) continue;
+    mods += `M${c + q} ${r + q}h1v1h-1z`;
+  }
+  const cover = coverSVG().replace('<svg ', `<svg x="${lo + q}" y="${lo + q}" width="${hole}" height="${hole}" `);
+  return `<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/>` +
+    `<path d="${mods}" fill="#0b1024"/><defs><clipPath id="qc"><circle cx="${lo + q + hole / 2}" cy="${lo + q + hole / 2}" r="${hole / 2}"/></clipPath></defs>` +
+    `<circle cx="${lo + q + hole / 2}" cy="${lo + q + hole / 2}" r="${hole / 2 + 0.6}" fill="#fff"/><g clip-path="url(#qc)">${cover}</g></svg>`;
+}
+function showQr() {
+  if (typeof qrcode !== 'function') return;
+  $('#qr').innerHTML = qrSVG(shareUrl()); $('#qr').setAttribute('aria-label', t().share_qr);
+  $('#qrBox').hidden = false;
+}
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
   try { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; } catch (e) { return false; }
@@ -804,6 +841,16 @@ $('#followAdd').addEventListener('click', addFollowFromInput);
 $('#followValue').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addFollowFromInput(); } });
 $('#shareLink').addEventListener('click', async () => { const ok = await copyText(shareUrl()); shareMsg(ok ? t().share_copied : t().share_copy_fail, ok); if (!ok) { $('#importBox').hidden = false; $('#importJson').value = shareUrl(); } });
 $('#shareNative').addEventListener('click', async () => { try { await navigator.share({ title: 'MyCast', text: t().share_h, url: shareUrl() }); } catch (e) { /* the visitor closed the sheet */ } });
+$('#showQr').addEventListener('click', showQr);
+$('#dnaQr').addEventListener('click', () => { showQr(); go('#stepShare'); });
+$('#qrPng').addEventListener('click', () => {
+  const svg = $('#qr svg'); if (!svg) return;
+  const img = new Image(), url = URL.createObjectURL(new Blob([svg.outerHTML], { type: 'image/svg+xml' }));
+  img.onload = () => { const cv = document.createElement('canvas'); cv.width = cv.height = 1024; const g = cv.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, 1024, 1024); g.drawImage(img, 32, 32, 960, 960); URL.revokeObjectURL(url);
+    const a = document.createElement('a'); a.download = 'mycast-qr.png'; a.href = cv.toDataURL('image/png'); a.click(); };
+  img.src = url;
+});
 $('#copyJson').addEventListener('click', async () => { const ok = await copyText(JSON.stringify(MyCast.toJSON(profile), null, 2)); shareMsg(ok ? t().share_copied : t().share_copy_fail, ok); });
 $('#importJsonBtn').addEventListener('click', () => { $('#importBox').hidden = !$('#importBox').hidden; if (!$('#importBox').hidden) $('#importJson').focus(); });
 $('#importApply').addEventListener('click', () => {

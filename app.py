@@ -167,6 +167,12 @@ def favicon():
     """Browsers ask for /favicon.ico before reading the page; serve the Blackbox Lab cube."""
     return FileResponse(BASE / "static" / "favicon-32.png", media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
+
+@app.get("/mycast", include_in_schema=False)
+def mycast_short_link():
+    """Short public address for shared MyCast podcasts. The browser keeps the #p=… part across the redirect."""
+    return RedirectResponse("/static/mycast-configurator/index.html", status_code=307)
+
 FACTORY_USER = os.environ.get("FACTORY_USER", "blackboxlab")
 FACTORY_PASSWORD = os.environ.get("FACTORY_PASSWORD", "")
 FACTORY_SECRET = os.environ.get("FACTORY_SECRET", secrets.token_hex(32))
@@ -704,7 +710,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico"}
+    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast"}
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/")
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
