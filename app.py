@@ -161,6 +161,12 @@ AGENT_SPECS = {
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """Browsers ask for /favicon.ico before reading the page; serve the Blackbox Lab cube."""
+    return FileResponse(BASE / "static" / "favicon-32.png", media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
 FACTORY_USER = os.environ.get("FACTORY_USER", "blackboxlab")
 FACTORY_PASSWORD = os.environ.get("FACTORY_PASSWORD", "")
 FACTORY_SECRET = os.environ.get("FACTORY_SECRET", secrets.token_hex(32))
@@ -698,7 +704,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp"}
+    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico"}
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/")
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
@@ -775,6 +781,7 @@ def login_page(request: Request, lang: str = "en"):
         </script>"""
     return HTMLResponse(f"""<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>
     <meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='icon' href='/static/favicon.svg' type='image/svg+xml'><link rel='apple-touch-icon' href='/static/apple-touch-icon.png'>
     <title>Blackbox Lab — FactoryOS Login</title>
     <style>
     body{{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(700px 420px at 50% 0,#163f6255,transparent 65%),#07101b;color:#fff;font:14px Inter,system-ui,Arial}}
