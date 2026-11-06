@@ -773,3 +773,9 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 
 ## `.autopilot/` is runtime space (2026-11-06, #41/#256)
 - The new block note named the second blocker: `?? .autopilot/ui-check.js`. An earlier delegated run (T-560-E, around 2026-11-01) left that scratch script behind on the EC2 checkout. Rather than ignore files one at a time, `.gitignore` now ignores everything in `.autopilot/` except the two tracked files, `answers.md` and `status.example.json`. The dirty-tree guard is unchanged for every real source file. The regression checks both directions: runtime and scratch paths are ignored, and the two tracked files stay tracked.
+
+## MyCast beta batch 1 (2026-11-06, owner feedback on #261)
+- An own entry belongs to a row (`category.group`) and counts toward the two-pick minimum, so "Arsenal + Usyk" is a valid podcast with no ticked subtopic. The old typed watch list became social follows, and old drafts migrate: watch-list entries become `web` follows, and `weekly` becomes chosen days.
+- A follow link is accepted only over https and only on the platform's own domains (www/m stripped). Anything else must be an @handle or a name. Quick picks are the public figures' official X accounts, offered as shortcuts with initials (no photos).
+- A share link carries settings only, never state, preview or approval. Topics are stored as positions in the stable topic list, so the code stays around 300 characters, small enough for a later QR code. Decoding runs every value through the same validators as the UI, and a link is offered with a banner, never applied over the visitor's own draft without asking.
+- The QR code is deferred: the session's safety check refused vendoring the MIT `qrcode-generator` package, so the owner decides.

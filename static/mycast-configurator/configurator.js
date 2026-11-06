@@ -101,7 +101,8 @@
   ];
 
   const SCOPES = ['ukraine', 'world', 'custom'];
-  const FREQUENCIES = ['daily', 'weekly', 'manual'];
+  // Owner feedback 2026-11-06: "daily" needs no weekday; otherwise the listener ticks the days (dots).
+  const FREQUENCIES = ['daily', 'days'];
   const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   const DURATIONS = [5, 10, 15];
   const LANGUAGES = ['uk', 'ru', 'en'];
@@ -109,30 +110,65 @@
   // Delivery honesty. Telegram is the preferred channel and can be chosen in a draft, but nothing is sent from here.
   // Download works only with a real local file. Viber, WhatsApp and email are planned and cannot be chosen.
   const CHANNELS = { telegram: 'primary_not_connected', download: 'requires_local_file', viber: 'planned', whatsapp: 'planned', email: 'planned' };
-  const WATCH_KINDS = ['athlete', 'team', 'channel', 'keyword'];
-  const MAX_WATCH = 20;
-  const MAX_WATCH_LEN = 60;
+  // Social follows: a handle/name or a link on the platform's own domain.
+  const PLATFORMS = {
+    youtube: ['youtube.com', 'youtu.be'], x: ['x.com', 'twitter.com'], telegram: ['t.me', 'telegram.me'],
+    instagram: ['instagram.com'], tiktok: ['tiktok.com'], facebook: ['facebook.com'], web: [] };
+  // Quick picks: public figures' official X accounts. A shortcut, not an endorsement.
+  const SUGGESTED_FOLLOWS = [
+    { id: 'zelensky', platform: 'x', value: '@ZelenskyyUa', name: L('Volodymyr Zelensky', 'Володимир Зеленський', 'Владимир Зеленский') },
+    { id: 'trump', platform: 'x', value: '@realDonaldTrump', name: L('Donald Trump', 'Дональд Трамп', 'Дональд Трамп') },
+    { id: 'macron', platform: 'x', value: '@EmmanuelMacron', name: L('Emmanuel Macron', 'Емманюель Макрон', 'Эммануэль Макрон') },
+    { id: 'musk', platform: 'x', value: '@elonmusk', name: L('Elon Musk', 'Ілон Маск', 'Илон Маск') },
+    { id: 'gates', platform: 'x', value: '@BillGates', name: L('Bill Gates', 'Білл Гейтс', 'Билл Гейтс') }];
   const MIN_TOPICS = 2;
   const MAX_FREE_TEXT = 120;
+  const MAX_CUSTOM_PER_GROUP = 5;
+  const MAX_CUSTOM_LEN = 40;
+  const MAX_FOLLOWS = 20;
+  const MAX_FOLLOW_LEN = 120;
+  const SHARE_VERSION = 1;
 
   const INDEX = {};
-  for (const cat of TAXONOMY) for (const group of cat.groups) for (const [tid, label] of group.topics) {
-    INDEX[`${cat.id}.${group.id}.${tid}`] = { category: cat.id, group: group.id, label, geo: group.geo };
+  const GROUPS = {};
+  for (const cat of TAXONOMY) for (const group of cat.groups) {
+    GROUPS[`${cat.id}.${group.id}`] = { category: cat.id, label: group.label, geo: group.geo };
+    for (const [tid, label] of group.topics) INDEX[`${cat.id}.${group.id}.${tid}`] = { category: cat.id, group: group.id, label, geo: group.geo };
   }
+  const TOPIC_IDS = Object.keys(INDEX);   // stable order: share links store positions in this list
 
   function topicLabel(id, lang) { const t = INDEX[id]; return t ? (t.label[lang] || t.label.en) : id; }
 
   function search(query, lang) {
     const q = String(query || '').trim().toLowerCase();
-    if (!q) return Object.keys(INDEX);
-    return Object.keys(INDEX).filter(id => ['en', 'uk', 'ru'].some(l => topicLabel(id, l).toLowerCase().includes(q)) ||
+    if (!q) return TOPIC_IDS.slice();
+    return TOPIC_IDS.filter(id => ['en', 'uk', 'ru'].some(l => topicLabel(id, l).toLowerCase().includes(q)) ||
       topicLabel(id, lang).toLowerCase().includes(q));
   }
 
   function newProfile() {
-    return { version: 1, topics: {}, freeText: '', customSources: [], schedule: { timezone: 'Europe/Kyiv', time: '07:30',
-      frequency: 'daily', weekday: 'mon', durationMin: 10 }, voice: { mode: 'two_hosts', language: 'uk' },
-      watchList: [], delivery: 'telegram', state: 'draft', preview: null, approvedAt: null };
+    return { version: 1, topics: {}, custom: {}, freeText: '', customSources: [], follows: [],
+      schedule: { timezone: 'Europe/Kyiv', time: '07:30', frequency: 'daily', days: [], durationMin: 10 },
+      voice: { mode: 'two_hosts', language: 'uk' }, delivery: 'telegram', state: 'draft', preview: null, approvedAt: null };
+  }
+
+  /* Bring an older saved draft up to date: watch list -> follows (keywords), weekly/manual -> chosen days. */
+  function migrate(saved) {
+    const base = newProfile();
+    if (!saved || typeof saved !== 'object') return base;
+    const p = { ...base, ...saved, schedule: { ...base.schedule, ...(saved.schedule || {}) }, voice: { ...base.voice, ...(saved.voice || {}) } };
+    p.topics = {}; for (const id of Object.keys(saved.topics || {})) if (INDEX[id]) p.topics[id] = saved.topics[id];
+    p.custom = {}; for (const g of Object.keys(saved.custom || {})) if (GROUPS[g] && Array.isArray(saved.custom[g])) p.custom[g] = saved.custom[g].map(v => clean(v, MAX_CUSTOM_LEN)).filter(Boolean).slice(0, MAX_CUSTOM_PER_GROUP);
+    p.follows = Array.isArray(saved.follows) ? saved.follows.filter(f => f && PLATFORMS[f.platform] !== undefined && f.value) : [];
+    if (Array.isArray(saved.watchList)) for (const w of saved.watchList) if (w && w.value) p.follows.push({ platform: 'web', value: clean(w.value, MAX_FOLLOW_LEN) });
+    delete p.watchList;
+    const s = p.schedule;
+    if (s.frequency === 'weekly') { s.frequency = 'days'; s.days = WEEKDAYS.includes(s.weekday) ? [s.weekday] : ['mon']; }
+    if (!FREQUENCIES.includes(s.frequency)) s.frequency = 'daily';
+    delete s.weekday;
+    s.days = (Array.isArray(s.days) ? s.days : []).filter(d => WEEKDAYS.includes(d));
+    if (!(p.delivery in CHANNELS) || CHANNELS[p.delivery] === 'planned') p.delivery = 'telegram';
+    return { ...p, state: 'draft', preview: null, approvedAt: null };
   }
 
   function clean(text, max) { return String(text || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max); }
@@ -154,21 +190,65 @@
     return { ...next, topics: { ...next.topics, [id]: { scope } } };
   }
 
-  // Watch list: athletes, teams, channels or keywords to follow. Duplicates (any case) are ignored.
-  function addWatch(profile, kind, value) {
-    if (!WATCH_KINDS.includes(kind)) throw new Error('bad watch kind ' + kind);
-    const text = clean(value, MAX_WATCH_LEN);
-    const list = profile.watchList || [];
-    if (!text || list.length >= MAX_WATCH || list.some(w => w.kind === kind && w.value.toLowerCase() === text.toLowerCase())) return profile;
+  /* "Your own" entry in a row: a club, a fighter, a league (e.g. Arsenal under football, Usyk under boxing). */
+  function addCustom(profile, groupKey, value) {
+    if (!GROUPS[groupKey]) throw new Error('unknown group ' + groupKey);
+    const text = clean(value, MAX_CUSTOM_LEN);
+    const list = (profile.custom || {})[groupKey] || [];
+    if (!text || list.length >= MAX_CUSTOM_PER_GROUP || list.some(v => v.toLowerCase() === text.toLowerCase())) return profile;
     const next = invalidate(profile);
-    return { ...next, watchList: [...list, { kind, value: text }] };
+    return { ...next, custom: { ...(next.custom || {}), [groupKey]: [...list, text] } };
   }
 
-  function removeWatch(profile, index) {
-    const list = profile.watchList || [];
+  function removeCustom(profile, groupKey, index) {
+    const list = ((profile.custom || {})[groupKey] || []);
     if (!(index >= 0 && index < list.length)) return profile;
     const next = invalidate(profile);
-    return { ...next, watchList: list.filter((_, i) => i !== index) };
+    const custom = { ...(next.custom || {}) };
+    const left = list.filter((_, i) => i !== index);
+    if (left.length) custom[groupKey] = left; else delete custom[groupKey];
+    return { ...next, custom };
+  }
+
+  /* Normalise a follow: "@name", a plain name, or an https link on that platform's own domain. Returns null if unusable. */
+  function normalizeFollow(platform, value) {
+    if (!(platform in PLATFORMS)) return null;
+    const raw = clean(value, MAX_FOLLOW_LEN);
+    if (!raw) return null;
+    if (/^[a-z]+:/i.test(raw)) {
+      let url;
+      try { url = new URL(raw); } catch (e) { return null; }
+      if (url.protocol !== 'https:') return null;
+      const host = url.hostname.toLowerCase().replace(/^(www|m|mobile)\./, '');
+      const allowed = PLATFORMS[platform];
+      if (allowed.length && !allowed.includes(host)) return null;
+      return { platform, value: `https://${host}${url.pathname}`.replace(/\/+$/, '') };
+    }
+    if (/\s{2,}/.test(raw)) return null;
+    return { platform, value: raw };
+  }
+
+  function addFollow(profile, platform, value) {
+    const f = normalizeFollow(platform, value);
+    if (!f) throw new Error('bad follow');
+    const list = profile.follows || [];
+    if (list.length >= MAX_FOLLOWS || list.some(x => x.platform === f.platform && x.value.toLowerCase() === f.value.toLowerCase())) return profile;
+    const next = invalidate(profile);
+    return { ...next, follows: [...list, f] };
+  }
+
+  function removeFollow(profile, index) {
+    const list = profile.follows || [];
+    if (!(index >= 0 && index < list.length)) return profile;
+    const next = invalidate(profile);
+    return { ...next, follows: list.filter((_, i) => i !== index) };
+  }
+
+  function toggleDay(profile, day) {
+    if (!WEEKDAYS.includes(day)) throw new Error('bad day ' + day);
+    const days = profile.schedule.days || [];
+    const next = days.includes(day) ? days.filter(d => d !== day) : WEEKDAYS.filter(d => d === day || days.includes(d));
+    return update(profile, { schedule: { days: next } });
   }
 
   function update(profile, patch) {
@@ -186,20 +266,28 @@
     try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch (e) { return false; }
   }
 
+  function selectionCount(profile) {
+    const custom = Object.values(profile.custom || {}).reduce((n, list) => n + list.length, 0);
+    return Object.keys(profile.topics || {}).length + custom;
+  }
+
   function validate(profile) {
     const errors = [];
     const ids = Object.keys(profile.topics || {});
-    if (ids.length < MIN_TOPICS) errors.push({ field: 'topics', code: 'min_topics', min: MIN_TOPICS });
+    if (selectionCount(profile) < MIN_TOPICS) errors.push({ field: 'topics', code: 'min_topics', min: MIN_TOPICS });
     for (const id of ids) {
       if (!INDEX[id]) errors.push({ field: 'topics', code: 'unknown_topic', id });
       const scope = (profile.topics[id] || {}).scope;
       if (scope && scope.kind === 'custom' && !scope.place) errors.push({ field: 'scope', code: 'custom_place_required', id });
     }
+    for (const [g, list] of Object.entries(profile.custom || {})) {
+      if (!GROUPS[g] || !Array.isArray(list) || list.length > MAX_CUSTOM_PER_GROUP || list.some(v => !v || String(v).length > MAX_CUSTOM_LEN)) errors.push({ field: 'custom', code: 'bad_custom', group: g });
+    }
     const s = profile.schedule || {};
     if (!validTimezone(s.timezone)) errors.push({ field: 'timezone', code: 'bad_timezone' });
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(s.time || ''))) errors.push({ field: 'time', code: 'bad_time' });
     if (!FREQUENCIES.includes(s.frequency)) errors.push({ field: 'frequency', code: 'bad_frequency' });
-    if (s.frequency === 'weekly' && !WEEKDAYS.includes(s.weekday)) errors.push({ field: 'weekday', code: 'weekday_required' });
+    if (s.frequency === 'days' && !(Array.isArray(s.days) && s.days.length && s.days.every(d => WEEKDAYS.includes(d)))) errors.push({ field: 'days', code: 'days_required' });
     if (!DURATIONS.includes(Number(s.durationMin))) errors.push({ field: 'duration', code: 'bad_duration' });
     if (!LANGUAGES.includes((profile.voice || {}).language)) errors.push({ field: 'language', code: 'bad_language' });
     if (!VOICES.includes((profile.voice || {}).mode)) errors.push({ field: 'voice', code: 'bad_voice' });
@@ -207,16 +295,14 @@
     for (const url of profile.customSources || []) {
       if (!/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}(\/[^\s]*)?$/i.test(url)) errors.push({ field: 'customSources', code: 'bad_url', url });
     }
-    const watch = profile.watchList || [];
-    if (watch.length > MAX_WATCH) errors.push({ field: 'watchList', code: 'too_many_watch', max: MAX_WATCH });
-    for (const w of watch) if (!WATCH_KINDS.includes(w && w.kind) || !w.value || String(w.value).length > MAX_WATCH_LEN) errors.push({ field: 'watchList', code: 'bad_watch' });
+    const follows = profile.follows || [];
+    if (follows.length > MAX_FOLLOWS) errors.push({ field: 'follows', code: 'too_many_follows', max: MAX_FOLLOWS });
+    for (const f of follows) if (!f || !normalizeFollow(f.platform, f.value)) errors.push({ field: 'follows', code: 'bad_follow' });
     if (!(profile.delivery in CHANNELS)) errors.push({ field: 'delivery', code: 'bad_channel' });
     else if (!channelStatus(profile.delivery, profile.preview).selectable) errors.push({ field: 'delivery', code: 'channel_unavailable' });
     return errors;
   }
 
-  // Delivery honesty: a channel is usable only if it is really connected (none is, here) or, for download,
-  // only when a real local audio file exists.
   // "usable": something can really be delivered now. "selectable": it may be saved as the preferred channel in a draft.
   function channelStatus(channel, preview) {
     const kind = CHANNELS[channel];
@@ -236,19 +322,30 @@
       return { ok: true, profile: { ...profile, state: 'preview_ready', preview: { kind: 'local_file', url: env.localAudioUrl } } };
     }
     if (env && env.speechSynthesis) {
+      const lines = demoLines(profile);
       return { ok: true, profile: { ...profile, state: 'preview_ready',
-        preview: { kind: 'browser_tts_demo', script: demoScript(profile), label: 'demo_not_ai_episode' } } };
+        preview: { kind: 'browser_tts_demo', script: lines.map(l => l.text).join(' '), lines, label: 'demo_not_ai_episode' } } };
     }
     return { ok: false, profile: { ...profile, preview: null }, reason: 'audio_unavailable', errors: [] };
   }
 
-  function demoScript(profile) {
+  /* A short demo, about 15 s: host A greets and names the first picks; with two hosts, host B names the rest. */
+  function demoLines(profile) {
     const lang = profile.voice.language;
-    const names = Object.keys(profile.topics).slice(0, 4).map(id => topicLabel(id, lang));
-    const intro = { uk: 'Це демо-озвучка налаштувань, а не справжній випуск. Ваші теми:', ru: 'Это демо-озвучка настроек, а не настоящий выпуск. Ваши темы:',
-      en: 'This is a demo reading of your settings, not a real episode. Your topics:' }[lang];
-    return `${intro} ${names.join(', ')}.`;
+    const names = Object.keys(profile.topics).map(id => topicLabel(id, lang));
+    for (const list of Object.values(profile.custom || {})) names.push(...list);
+    const T = {
+      uk: { hi: 'Це демо MyCast, а не справжній випуск. Привіт! Це новини, які ти замовив.', a: 'Сьогодні в нас:', b: 'А ще:', bye: 'До зустрічі завтра!' },
+      ru: { hi: 'Это демо MyCast, а не настоящий выпуск. Привет! Это новости, которые ты заказал.', a: 'Сегодня у нас:', b: 'А ещё:', bye: 'До встречи завтра!' },
+      en: { hi: 'This is a MyCast demo, not a real episode. Hi! Here is the news you ordered.', a: 'Today we have:', b: 'And also:', bye: 'See you tomorrow!' } }[lang];
+    if (profile.voice.mode !== 'two_hosts' || names.length < 2) {
+      return [{ host: 'A', text: `${T.hi} ${T.a} ${names.slice(0, 5).join(', ')}. ${T.bye}` }];
+    }
+    const half = Math.ceil(Math.min(names.length, 6) / 2);
+    return [{ host: 'A', text: `${T.hi} ${T.a} ${names.slice(0, half).join(', ')}.` },
+            { host: 'B', text: `${T.b} ${names.slice(half, 6).join(', ')}. ${T.bye}` }];
   }
+  function demoScript(profile) { return demoLines(profile).map(l => l.text).join(' '); }
 
   function markReviewed(profile) {
     if (profile.state !== 'preview_ready') throw new Error('review needs a preview');
@@ -263,16 +360,73 @@
 
   // What the backend would receive. "active" stays false: there is no live scheduler or delivery in this prototype.
   function toJSON(profile) {
+    const s = profile.schedule;
     return { version: 1, state: profile.state, approved_at: profile.approvedAt, active: false,
       topics: Object.keys(profile.topics).sort().map(id => ({ id, scope: (profile.topics[id] || {}).scope || null })),
+      custom: Object.keys(profile.custom || {}).sort().map(g => ({ group: g, items: profile.custom[g].map(v => clean(v, MAX_CUSTOM_LEN)) })),
       free_text: clean(profile.freeText, MAX_FREE_TEXT), custom_sources: (profile.customSources || []).slice(0, 10),
-      watch_list: (profile.watchList || []).slice(0, MAX_WATCH).map(w => ({ kind: w.kind, value: clean(w.value, MAX_WATCH_LEN) })),
-      schedule: { ...profile.schedule, durationMin: Number(profile.schedule.durationMin) }, voice: { ...profile.voice },
+      follows: (profile.follows || []).slice(0, MAX_FOLLOWS).map(f => normalizeFollow(f.platform, f.value)).filter(Boolean),
+      schedule: { timezone: s.timezone, time: s.time, frequency: s.frequency, days: s.frequency === 'days' ? s.days.slice() : [],
+        durationMin: Number(s.durationMin) },
+      voice: { ...profile.voice },
       delivery: { channel: profile.delivery, status: channelStatus(profile.delivery, profile.preview).reason || 'ready' },
       preview: profile.preview ? { kind: profile.preview.kind } : null };
   }
 
-  return { TAXONOMY, INDEX, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, WATCH_KINDS, MAX_WATCH,
-    MIN_TOPICS, MAX_FREE_TEXT, topicLabel, search, newProfile, setTopic, setScope, addWatch, removeWatch, update, validate,
-    channelStatus, makePreview, markReviewed, approve, toJSON, demoScript };
+  /* Share link: the listener's settings (never state, preview or approval) packed into a URL-safe string.
+     Topics are stored as positions in TOPIC_IDS so a QR code stays small. Decoding validates everything again. */
+  function b64urlEncode(str) {
+    const bytes = typeof TextEncoder !== 'undefined' ? new TextEncoder().encode(str) : Buffer.from(str, 'utf8');
+    let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
+    const b64 = typeof btoa !== 'undefined' ? btoa(bin) : Buffer.from(bin, 'binary').toString('base64');
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function b64urlDecode(s) {
+    const b64 = String(s).replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((String(s).length + 3) % 4);
+    const bin = typeof atob !== 'undefined' ? atob(b64) : Buffer.from(b64, 'base64').toString('binary');
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    return typeof TextDecoder !== 'undefined' ? new TextDecoder().decode(bytes) : Buffer.from(bytes).toString('utf8');
+  }
+  const SCOPE_CODE = { ukraine: 'u', world: 'w', custom: 'c' };
+  function encodeShare(profile) {
+    const t = Object.keys(profile.topics).filter(id => INDEX[id]).map(id => {
+      const sc = (profile.topics[id] || {}).scope;
+      const i = TOPIC_IDS.indexOf(id);
+      return sc ? (sc.kind === 'custom' ? [i, 'c', clean(sc.place, 60)] : [i, SCOPE_CODE[sc.kind]]) : [i];
+    });
+    const s = profile.schedule;
+    const data = { v: SHARE_VERSION, n: TOPIC_IDS.length, t, c: profile.custom || {}, f: (profile.follows || []).map(f => [f.platform, f.value]),
+      s: [s.timezone, s.time, s.frequency, s.frequency === 'days' ? s.days : [], Number(s.durationMin)],
+      o: [profile.voice.mode, profile.voice.language], d: profile.delivery, x: clean(profile.freeText, MAX_FREE_TEXT) };
+    return b64urlEncode(JSON.stringify(data));
+  }
+  function decodeShare(code) {
+    let data;
+    try { data = JSON.parse(b64urlDecode(String(code || '').slice(0, 8000))); } catch (e) { throw new Error('bad share code'); }
+    if (!data || data.v !== SHARE_VERSION || data.n !== TOPIC_IDS.length) throw new Error('bad share code');
+    let p = newProfile();
+    const back = { u: 'ukraine', w: 'world', c: 'custom' };
+    for (const row of Array.isArray(data.t) ? data.t : []) {
+      const id = TOPIC_IDS[row && row[0]];
+      if (!id) continue;
+      p = setTopic(p, id, true, row[1] ? { kind: back[row[1]] || 'world' } : undefined);
+      if (row[1] === 'c' && INDEX[id].geo) p = setScope(p, id, 'custom', row[2]);
+    }
+    for (const [g, list] of Object.entries(data.c || {})) if (GROUPS[g] && Array.isArray(list)) for (const v of list) p = addCustom(p, g, v);
+    for (const f of Array.isArray(data.f) ? data.f : []) { try { p = addFollow(p, f[0], f[1]); } catch (e) { /* drop unusable follows */ } }
+    const s = Array.isArray(data.s) ? data.s : [];
+    const freq = FREQUENCIES.includes(s[2]) ? s[2] : 'daily';
+    p = update(p, { schedule: { timezone: validTimezone(s[0]) ? s[0] : 'Europe/Kyiv', time: /^([01]\d|2[0-3]):[0-5]\d$/.test(s[1]) ? s[1] : '07:30',
+      frequency: freq, days: (Array.isArray(s[3]) ? s[3] : []).filter(d => WEEKDAYS.includes(d)), durationMin: DURATIONS.includes(Number(s[4])) ? Number(s[4]) : 10 } });
+    const o = Array.isArray(data.o) ? data.o : [];
+    p = update(p, { voice: { mode: VOICES.includes(o[0]) ? o[0] : 'two_hosts', language: LANGUAGES.includes(o[1]) ? o[1] : 'uk' },
+      delivery: CHANNELS[data.d] && CHANNELS[data.d] !== 'planned' ? data.d : 'telegram', freeText: clean(data.x, MAX_FREE_TEXT) });
+    return { ...p, state: 'draft', preview: null, approvedAt: null };
+  }
+
+  return { TAXONOMY, INDEX, GROUPS, TOPIC_IDS, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, PLATFORMS,
+    SUGGESTED_FOLLOWS, MIN_TOPICS, MAX_FREE_TEXT, MAX_CUSTOM_PER_GROUP, MAX_FOLLOWS,
+    topicLabel, search, newProfile, migrate, setTopic, setScope, addCustom, removeCustom, normalizeFollow, addFollow, removeFollow,
+    toggleDay, update, validate, selectionCount, channelStatus, makePreview, markReviewed, approve, toJSON, demoLines, demoScript,
+    encodeShare, decodeShare };
 });
