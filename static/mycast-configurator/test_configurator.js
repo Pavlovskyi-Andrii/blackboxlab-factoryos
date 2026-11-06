@@ -18,7 +18,7 @@ test('taxonomy ids are unique, labelled in three languages, and cover the owner 
   const ids = Object.keys(M.INDEX);
   assert.strictEqual(new Set(ids).size, ids.length);
   for (const id of ids) for (const l of ['en', 'uk', 'ru']) assert.ok(M.topicLabel(id, l), id + ' ' + l);
-  assert.deepStrictEqual(M.TAXONOMY.map(c => c.id), ['sports', 'tech', 'news', 'business', 'health', 'culture', 'travel', 'science']);
+  assert.deepStrictEqual(M.TAXONOMY.map(c => c.id), ['sports', 'tech', 'news', 'business', 'health', 'culture', 'travel', 'science', 'auto', 'hobbies']);
   assert.ok(ids.length >= 80, 'broad taxonomy: ' + ids.length);
 });
 
@@ -83,13 +83,43 @@ test('browser speech gives a labelled demo, never an "AI episode"', () => {
   assert.strictEqual(invalid.reason, 'invalid');
 });
 
-test('download only with a real local file; Telegram and email are not connected', () => {
+test('download only with a real local file; Telegram is preferred but never shown as delivered', () => {
   const tts = M.makePreview(ready(), { speechSynthesis: true }).profile;
-  assert.deepStrictEqual(M.channelStatus('download', tts.preview), { usable: false, reason: 'no_local_file' });
+  assert.deepStrictEqual(M.channelStatus('download', tts.preview), { usable: false, selectable: true, reason: 'no_local_file' });
   const file = M.makePreview(ready(), { localAudioUrl: 'blob:demo' }).profile;
-  assert.deepStrictEqual(M.channelStatus('download', file.preview), { usable: true, reason: '' });
-  assert.deepStrictEqual(M.channelStatus('telegram', file.preview), { usable: false, reason: 'not_connected' });
-  assert.deepStrictEqual(M.channelStatus('email', file.preview), { usable: false, reason: 'not_connected' });
+  assert.deepStrictEqual(M.channelStatus('download', file.preview), { usable: true, selectable: true, reason: '' });
+  assert.deepStrictEqual(M.channelStatus('telegram', file.preview), { usable: false, selectable: true, reason: 'not_connected' });
+  assert.strictEqual(M.newProfile().delivery, 'telegram');
+});
+
+test('Viber, WhatsApp and email are planned: visible, never selectable', () => {
+  for (const ch of ['viber', 'whatsapp', 'email']) {
+    assert.deepStrictEqual(M.channelStatus(ch, null), { usable: false, selectable: false, reason: 'planned' });
+    assert.deepStrictEqual(M.validate(M.update(ready(), { delivery: ch })).map(e => e.code), ['channel_unavailable']);
+  }
+  assert.deepStrictEqual(M.validate(M.update(ready(), { delivery: 'pigeon' })).map(e => e.code), ['bad_channel']);
+});
+
+test('watch list: typed, cleaned, de-duplicated, bounded, and it invalidates approval', () => {
+  let p = M.addWatch(ready(), 'athlete', '  Oleksandr Usyk <b> ');
+  assert.deepStrictEqual(p.watchList, [{ kind: 'athlete', value: 'Oleksandr Usyk b' }]);
+  assert.strictEqual(M.addWatch(p, 'athlete', 'oleksandr usyk b'), p);          // duplicate ignored
+  assert.strictEqual(M.addWatch(p, 'team', '   '), p);                         // empty ignored
+  assert.throws(() => M.addWatch(p, 'planet', 'Mars'));
+  for (let i = 0; i < 30; i++) p = M.addWatch(p, 'keyword', 'k' + i);
+  assert.strictEqual(p.watchList.length, M.MAX_WATCH);
+  assert.deepStrictEqual(M.toJSON(p).watch_list[0], { kind: 'athlete', value: 'Oleksandr Usyk b' });
+  const approved = M.approve(M.markReviewed(M.makePreview(ready(), { speechSynthesis: true }).profile), true, 't');
+  const edited = M.addWatch(approved, 'team', 'Shakhtar');
+  assert.strictEqual(edited.state, 'draft');
+  assert.strictEqual(M.removeWatch(edited, 0).watchList.length, 0);
+  assert.strictEqual(M.removeWatch(edited, 5), edited);
+});
+
+test('new categories: automotive and food/hobbies, with scope only where it applies', () => {
+  assert.ok(M.INDEX['auto.cars.ev'].geo);
+  assert.strictEqual(M.INDEX['hobbies.making.pets'].geo, false);
+  assert.ok(M.search('кава', 'uk').includes('hobbies.food.coffee'));
 });
 
 test('approval needs preview, review and explicit confirmation', () => {
@@ -121,7 +151,9 @@ test('search finds topics in any language; profile JSON uses stable ids', () => 
   assert.ok(M.search('', 'uk').length === Object.keys(M.INDEX).length);
   const json = M.toJSON(ready());
   assert.deepStrictEqual(json.topics.map(t => t.id), [BOX, AI].sort());
-  assert.strictEqual(json.delivery.status, 'no_local_file');
+  assert.strictEqual(json.delivery.channel, 'telegram');
+  assert.strictEqual(json.delivery.status, 'not_connected');
+  assert.deepStrictEqual(json.watch_list, []);
   assert.strictEqual(json.state, 'draft');
 });
 
