@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mycast_accounts import (COOKIE, AccountError, ListenerStore, install_mycast_account_routes, sign, unsign,
+from mycast_accounts import (COOKIE, AccountError, ListenerStore, install_mycast_account_routes, public_view, sign, unsign,
                              verify_telegram)
 
 BOT = "123456:TEST-token"
@@ -71,6 +71,17 @@ class StoreAndCookieTest(unittest.TestCase):
         self.assertIsNone(self.store.get(rec["slug"]))
         again = self.store.login({"provider": "google", "pid": "1", "name": "G"})
         self.assertNotEqual(again["slug"], rec["slug"])                 # deleted means gone, a new login starts fresh
+
+    def test_invite_gives_seven_days_each_side_once(self):
+        a = self.store.login({"provider": "google", "pid": "1", "name": "A"})
+        self.assertEqual(public_view(a)["free_days"], 7)
+        f = self.store.login({"provider": "google", "pid": "2", "name": "F"}, ref=a["slug"])
+        self.assertEqual((public_view(f)["free_days"], public_view(f)["gifted"]), (14, True))   # 7 + 7 gift
+        self.store.login({"provider": "google", "pid": "2", "name": "F"}, ref=a["slug"])         # same friend again: no double count
+        self.store.login({"provider": "google", "pid": "1", "name": "A"}, ref=a["slug"])         # cannot invite yourself
+        self.store.login({"provider": "telegram", "pid": "3", "name": "G", "chat_id": "3"}, ref="../etc")
+        self.assertEqual(public_view(self.store.get(a["slug"]))["free_days"], 14)                 # 7 + 7 for one friend
+        self.assertEqual(public_view(self.store.get(a["slug"]))["referrals"], 1)
 
     def test_damaged_store_is_refused(self):
         self.path.write_text("{oops")
@@ -163,7 +174,7 @@ class RoutesTest(unittest.TestCase):
             cfg = h[("GET", "/api/mycast/account/config")]()
             self.assertEqual((cfg["telegram_bot"], cfg["telegram_bot_id"], cfg["google_client_id"]), ("FactoryOSBot", "123456", "cid"))
             self.assertNotIn("TEST-token", json.dumps(cfg))                                           # never the secret part
-            r = run(h[("POST", "/api/mycast/account/telegram")](Req(tg_login())))
+            r = run(h[("POST", "/api/mycast/account/telegram")](Req({**tg_login(), "ref": "zzzzzzzz"})))   # ref is not signed by Telegram
             listener = json.loads(r.body)["listener"]
             cookie = r.headers["set-cookie"].split(";")[0].split("=", 1)[1]
             self.assertIn("HttpOnly", r.headers["set-cookie"])
