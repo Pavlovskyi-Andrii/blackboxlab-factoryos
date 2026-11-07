@@ -107,6 +107,45 @@
   const DURATIONS = [5, 10, 15];
   const LANGUAGES = ['uk', 'ru', 'en'];
   const VOICES = ['narrator', 'two_hosts'];
+  // #281: the 30 prebuilt Gemini TTS voices [name, style, gender by ear]. Must match mycast_voices.VOICES (a test checks).
+  const GEMINI_VOICES = [
+    ['Zephyr', 'Bright', 'f'],
+    ['Puck', 'Upbeat', 'm'],
+    ['Charon', 'Informative', 'm'],
+    ['Kore', 'Firm', 'f'],
+    ['Fenrir', 'Excitable', 'm'],
+    ['Leda', 'Youthful', 'f'],
+    ['Orus', 'Firm', 'm'],
+    ['Aoede', 'Breezy', 'f'],
+    ['Callirrhoe', 'Easy-going', 'f'],
+    ['Autonoe', 'Bright', 'f'],
+    ['Enceladus', 'Breathy', 'm'],
+    ['Iapetus', 'Clear', 'm'],
+    ['Umbriel', 'Easy-going', 'm'],
+    ['Algieba', 'Smooth', 'm'],
+    ['Despina', 'Smooth', 'f'],
+    ['Erinome', 'Clear', 'f'],
+    ['Algenib', 'Gravelly', 'm'],
+    ['Rasalgethi', 'Informative', 'm'],
+    ['Laomedeia', 'Upbeat', 'f'],
+    ['Achernar', 'Soft', 'f'],
+    ['Alnilam', 'Firm', 'm'],
+    ['Schedar', 'Even', 'm'],
+    ['Gacrux', 'Mature', 'f'],
+    ['Pulcherrima', 'Forward', 'f'],
+    ['Achird', 'Friendly', 'm'],
+    ['Zubenelgenubi', 'Casual', 'm'],
+    ['Vindemiatrix', 'Gentle', 'f'],
+    ['Sadachbia', 'Lively', 'm'],
+    ['Sadaltager', 'Knowledgeable', 'm'],
+    ['Sulafat', 'Warm', 'f']];
+  const VOICE_GENDER = Object.fromEntries(GEMINI_VOICES.map(v => [v[0], v[2]]));
+  const DEFAULT_VOICES = { narrator: ['Charon'], two_hosts: ['Charon', 'Kore'] };
+  function validVoices(mode, voices) {
+    if (!Array.isArray(voices) || voices.some(v => !VOICE_GENDER[v])) return false;
+    if (mode === 'narrator') return voices.length === 1 && VOICE_GENDER[voices[0]] === 'm';
+    return voices.length === 2 && voices[0] !== voices[1] && VOICE_GENDER[voices[0]] === 'm' && VOICE_GENDER[voices[1]] === 'f';
+  }
   // Delivery honesty. Telegram is the preferred channel and can be chosen in a draft, but nothing is sent from here.
   // Download works only with a real local file. Viber, WhatsApp and email are planned and cannot be chosen.
   const CHANNELS = { telegram: 'primary_not_connected', download: 'requires_local_file', viber: 'planned', whatsapp: 'planned', email: 'planned' };
@@ -149,7 +188,7 @@
   function newProfile() {
     return { version: 1, topics: {}, custom: {}, freeText: '', customSources: [], follows: [],
       schedule: { timezone: 'Europe/Kyiv', time: '07:30', frequency: 'daily', days: [], durationMin: 10 },
-      voice: { mode: 'two_hosts', language: 'uk' }, delivery: 'telegram', state: 'draft', preview: null, approvedAt: null };
+      voice: { mode: 'two_hosts', language: 'uk', voices: DEFAULT_VOICES.two_hosts.slice() }, delivery: 'telegram', state: 'draft', preview: null, approvedAt: null };
   }
 
   /* Bring an older saved draft up to date: watch list -> follows (keywords), weekly/manual -> chosen days. */
@@ -168,6 +207,7 @@
     delete s.weekday;
     s.days = (Array.isArray(s.days) ? s.days : []).filter(d => WEEKDAYS.includes(d));
     if (!(p.delivery in CHANNELS) || CHANNELS[p.delivery] === 'planned') p.delivery = 'telegram';
+    if (!validVoices(p.voice.mode, p.voice.voices)) p.voice = { ...p.voice, voices: (DEFAULT_VOICES[p.voice.mode] || DEFAULT_VOICES.two_hosts).slice() };
     return { ...p, state: 'draft', preview: null, approvedAt: null };
   }
 
@@ -253,7 +293,18 @@
 
   function update(profile, patch) {
     const next = invalidate(profile);
-    return { ...next, ...patch, schedule: { ...next.schedule, ...(patch.schedule || {}) }, voice: { ...next.voice, ...(patch.voice || {}) } };
+    const voice = { ...next.voice, ...(patch.voice || {}) };
+    // Switching one host <-> two hosts keeps a valid pick: fall back to the defaults when the old choice no longer fits.
+    if (!validVoices(voice.mode, voice.voices)) voice.voices = (DEFAULT_VOICES[voice.mode] || DEFAULT_VOICES.two_hosts).slice();
+    return { ...next, ...patch, schedule: { ...next.schedule, ...(patch.schedule || {}) }, voice };
+  }
+
+  /* #281: pick the Gemini voice for one slot (0 = host A / narrator, 1 = host B). Invalid picks are refused. */
+  function setVoice(profile, slot, name) {
+    const voices = (profile.voice.voices || []).slice();
+    voices[slot] = name;
+    if (!validVoices(profile.voice.mode, voices)) throw new Error('bad voice ' + name);
+    return update(profile, { voice: { voices } });
   }
 
   // Any change to an approved/reviewed/previewed profile drops it back to draft: the old preview no longer matches.
@@ -291,6 +342,7 @@
     if (!DURATIONS.includes(Number(s.durationMin))) errors.push({ field: 'duration', code: 'bad_duration' });
     if (!LANGUAGES.includes((profile.voice || {}).language)) errors.push({ field: 'language', code: 'bad_language' });
     if (!VOICES.includes((profile.voice || {}).mode)) errors.push({ field: 'voice', code: 'bad_voice' });
+    else if (!validVoices(profile.voice.mode, profile.voice.voices)) errors.push({ field: 'voice', code: 'bad_voices' });
     if (String(profile.freeText || '').length > MAX_FREE_TEXT) errors.push({ field: 'freeText', code: 'too_long', max: MAX_FREE_TEXT });
     for (const url of profile.customSources || []) {
       if (!/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}(\/[^\s]*)?$/i.test(url)) errors.push({ field: 'customSources', code: 'bad_url', url });
@@ -402,7 +454,7 @@
     const s = profile.schedule;
     const data = { v: SHARE_VERSION, n: TOPIC_IDS.length, t, c: profile.custom || {}, f: (profile.follows || []).map(f => [f.platform, f.value]),
       s: [s.timezone, s.time, s.frequency, s.frequency === 'days' ? s.days : [], Number(s.durationMin)],
-      o: [profile.voice.mode, profile.voice.language], d: profile.delivery, x: clean(profile.freeText, MAX_FREE_TEXT) };
+      o: [profile.voice.mode, profile.voice.language, profile.voice.voices], d: profile.delivery, x: clean(profile.freeText, MAX_FREE_TEXT) };
     return b64urlEncode(JSON.stringify(data));
   }
   function decodeShare(code) {
@@ -424,12 +476,14 @@
     p = update(p, { schedule: { timezone: validTimezone(s[0]) ? s[0] : 'Europe/Kyiv', time: /^([01]\d|2[0-3]):[0-5]\d$/.test(s[1]) ? s[1] : '07:30',
       frequency: freq, days: (Array.isArray(s[3]) ? s[3] : []).filter(d => WEEKDAYS.includes(d)), durationMin: DURATIONS.includes(Number(s[4])) ? Number(s[4]) : 10 } });
     const o = Array.isArray(data.o) ? data.o : [];
-    p = update(p, { voice: { mode: VOICES.includes(o[0]) ? o[0] : 'two_hosts', language: LANGUAGES.includes(o[1]) ? o[1] : 'uk' },
+    const mode = VOICES.includes(o[0]) ? o[0] : 'two_hosts';
+    p = update(p, { voice: { mode, language: LANGUAGES.includes(o[1]) ? o[1] : 'uk', voices: validVoices(mode, o[2]) ? o[2] : DEFAULT_VOICES[mode].slice() },
       delivery: CHANNELS[data.d] && CHANNELS[data.d] !== 'planned' ? data.d : 'telegram', freeText: clean(data.x, MAX_FREE_TEXT) });
     return { ...p, state: 'draft', preview: null, approvedAt: null };
   }
 
-  return { TAXONOMY, INDEX, GROUPS, TOPIC_IDS, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, PLATFORMS,
+  return { GEMINI_VOICES, VOICE_GENDER, DEFAULT_VOICES, validVoices, setVoice,
+    TAXONOMY, INDEX, GROUPS, TOPIC_IDS, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, PLATFORMS,
     SUGGESTED_FOLLOWS, MIN_TOPICS, MAX_FREE_TEXT, MAX_CUSTOM_PER_GROUP, MAX_FOLLOWS,
     topicLabel, search, newProfile, migrate, setTopic, setScope, addCustom, removeCustom, normalizeFollow, addFollow, removeFollow,
     toggleDay, update, validate, selectionCount, channelStatus, makePreview, markReviewed, approve, toJSON, demoLines, demoScript,
