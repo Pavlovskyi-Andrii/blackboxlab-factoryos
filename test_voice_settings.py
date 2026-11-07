@@ -45,6 +45,18 @@ class VoiceSettingsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 store.read()
 
+    def test_failed_atomic_replace_preserves_saved_choice_and_cleans_temp(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = VoiceSettingsStore(Path(d))
+            original = {"voice_a": "Charon", "voice_b": "Kore", "model": DEFAULT_MODEL}
+            replacement = {"voice_a": "Puck", "voice_b": "Aoede", "model": DEFAULT_MODEL}
+            store.write(original)
+            with patch("voice_settings.os.replace", side_effect=OSError("simulated replace failure")):
+                with self.assertRaises(OSError):
+                    store.write(replacement)
+            self.assertEqual(store.read(), original)
+            self.assertEqual(list(Path(d).glob(".mycast-voice-*.tmp")), [])
+
     def test_catalog(self):
         self.assertEqual(len(VOICES), 30)
 
