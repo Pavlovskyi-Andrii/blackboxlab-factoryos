@@ -203,6 +203,17 @@ details.jsonBox>summary{cursor:pointer;color:var(--mute);font-size:14px;margin-b
 .qr{width:min(320px,100%);aspect-ratio:1;background:#fff;border-radius:18px;padding:12px}
 .qr svg{display:block;width:100%;height:100%}
 .qrSide{flex:1 1 200px;display:grid;gap:10px}
+.offer{margin-top:18px;display:grid;gap:4px;padding:14px 16px;border-radius:18px;border:1px solid rgba(255,154,123,.55);background:linear-gradient(135deg,rgba(255,122,107,.18),rgba(139,123,255,.16))}
+.offer b{font:800 clamp(17px,4.2vw,21px)/1.25 var(--body);color:var(--ink)}.offer span{color:var(--mute);font-size:13.5px}
+.offer.gift{border-color:rgba(62,230,193,.7);background:linear-gradient(135deg,rgba(62,230,193,.2),rgba(79,227,255,.14))}
+.triggers{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.trig{display:grid;gap:8px;align-content:start;padding:18px;border-radius:20px;border:1px solid var(--edge);background:var(--glass);color:var(--ink);text-align:left;cursor:pointer;font:inherit}
+.trig .n{font:700 12px var(--mono);color:var(--cyan)}.trig b{font:800 18px/1.25 var(--body)}.trig span{color:var(--mute);font-size:13.5px}
+.trig:hover{border-color:var(--coral)}
+.ideas{margin:0;padding-left:20px;display:grid;gap:8px;color:var(--mute)}.ideas b{color:var(--ink)}
+.ideas .st{font:700 11px var(--mono);padding:2px 7px;border-radius:99px;margin-left:6px;border:1px solid var(--edge2);color:var(--dim)}.ideas .st.on{color:var(--ok);border-color:var(--ok)}
+.qrGift{margin:0;font-weight:800;color:#0b1024;background:#fff;border-radius:12px;padding:8px 10px;text-align:center}
+.invite{display:grid;gap:6px;margin-top:12px;padding:12px 14px;border-radius:14px;border:1px dashed var(--edge2)}
 .banner{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:16px;border:1px solid rgba(79,227,255,.45);background:rgba(10,30,50,.75)}
 .banner[hidden]{display:none}
 /* Player + waveform: bars move only while the browser is really speaking. */
@@ -292,6 +303,7 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         <button class="cta" type="button" id="tryDemo" data-t="cta"></button>
         <button class="ghost" type="button" id="howBtn" data-t="how"></button>
       </div>
+      <div class="offer" id="offer"><b id="offerTitle"></b><span id="offerSub"></span></div>
       <p class="simNote" data-t="sim_note"></p>
     </div>
     <div class="stage" id="stage">
@@ -336,6 +348,12 @@ footer{color:var(--dim);font-size:13px;text-align:center}
     </div>
   </section>
 
+  <section aria-label="MyCast" class="triggers" id="triggers">
+    <button type="button" class="trig" data-go="#stepTopics"><span class="n">01</span><b data-t="tr1"></b><span data-t="tr1s"></span></button>
+    <button type="button" class="trig" data-go="#stepGeo"><span class="n">02</span><b data-t="tr2"></b><span data-t="tr2s"></span></button>
+    <button type="button" class="trig" data-go="#stepShare"><span class="n">03</span><b data-t="tr3"></b><span data-t="tr3s"></span></button>
+  </section>
+
   <section class="step" id="stepAccount" aria-labelledby="accTitle" hidden>
     <h2 id="accTitle"><small>00</small><span data-t="acc_h"></span></h2>
     <div id="accOut">
@@ -351,6 +369,7 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         <button class="btn" type="button" id="accOutBtn" data-t="acc_logout"></button>
         <button class="btn" type="button" id="accDelete" data-t="acc_delete"></button>
       </div>
+      <div class="invite"><b id="inviteDays"></b><span class="hint" id="inviteSub"></span><div class="btns"><button class="btn primary" type="button" id="inviteBtn" data-t="inv_btn"></button></div></div>
     </div>
     <div class="msg" id="accMsg" role="status" aria-live="polite"></div>
   </section>
@@ -467,7 +486,7 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         <div class="msg" id="shareMsg" role="status" aria-live="polite"></div>
         <div class="qrBox" id="qrBox" hidden>
           <div class="qr" id="qr" role="img"></div>
-          <div class="qrSide"><p class="hint" data-t="qr_hint"></p><div class="btns"><button class="btn" type="button" id="qrPng" data-t="qr_png"></button></div></div>
+          <div class="qrSide"><p class="qrGift" data-t="qr_gift"></p><p class="hint" data-t="qr_hint"></p><div class="btns"><button class="btn" type="button" id="qrPng" data-t="qr_png"></button></div></div>
         </div>
         <div class="field" id="importBox" hidden>
           <label for="importJson" data-t="share_import_l"></label>
@@ -489,6 +508,12 @@ footer{color:var(--dim);font-size:13px;text-align:center}
       <ul class="progress" id="progress"></ul>
     </aside>
   </div>
+
+  <section aria-labelledby="ideasTitle" style="display:grid;gap:14px" id="ideas">
+    <div class="sectionHead"><h2 id="ideasTitle" data-t="ideas_h"></h2></div>
+    <p class="hint" data-t="ideas_hint"></p>
+    <ol class="ideas" id="ideasList"></ol>
+  </section>
 
   <section aria-labelledby="faqTitle" style="display:grid;gap:14px">
     <div class="sectionHead"><h2 id="faqTitle" data-t="faq_h"></h2></div>
@@ -627,6 +652,41 @@ const T = {
   pv:{idle:'No preview yet.',invalid:'Fix the errors above first.',unavailable:'Audio unavailable: this browser has no speech engine and no real file exists yet.',playing:'Your browser is reading a demo (not a real episode).',ready:'Demo preview ready. You can mark it as reviewed.',stopped:'Stopped.'},
   ap:{need:'Approval opens after a preview and a review.',done:'Profile approved. Delivery does not turn on by itself: that is a separate step 07.',invalidated:'You changed the settings, so the preview and approval were reset.'}}};
 
+/* Owner, 2026-11-07: 7 free days to start, +7 days for each invited friend (and the friend starts with 14),
+   three entry points on the first screen, and the growth ideas kept on the page as theses to edit later. */
+const GROW = {
+ uk:{offer:'7 днів персональних подкастів — безкоштовно',offer_sub:'Приведи друга — отримай ще +7 днів за кожного. Друг стартує з 14 днями.',
+  gift:'🎁 Вам подарували 7 днів: 14 днів персональних подкастів безкоштовно',gift_sub:'7 днів старту + 7 днів від друга. Увійдіть, щоб подарунок зарахувався.',
+  beta:'Відкрита бета: зараз усе безкоштовно, дні почнуть рахуватися з запуском регулярних випусків.',
+  tr1:'Створи свій персональний подкаст',tr1s:'Теми, голос і розклад — за 2 хвилини.',tr2:'Слухай подкасти друзів і відомих людей',tr2s:'Відкрий посилання друга або додай Зеленського, Маска, Гейтса…',tr3:'Ділись і отримуй дні',tr3s:'Посилання або QR: другу +7 днів, тобі +7 днів.',
+  qr_gift:'🎁 Вам подарували 7 днів MyCast',inv_days:'Ваші безкоштовні дні: {n}',inv_sub:'Друзів приєдналося: {k}. Кожен новий друг за вашим посиланням — ще +7 днів вам і йому.',inv_btn:'Скопіювати запрошення',inv_copied:'Запрошення скопійовано: ',inv_text:'Мій персональний подкаст MyCast. Тримай 7 днів у подарунок 🎁',
+  ideas_h:'Ідеї зростання (чернетка)',ideas_hint:'Тезиси, щоб не загубити. «Є» — вже на сторінці, решта — план.',
+  ideas:[['Старт 7 днів безкоштовно + 7 днів за кожного друга (як Dropbox): отримують обидва',1],['Підпис під QR і посиланням: «Вам подарували 7 днів»',1],['Три входи на головній: створи свій · слухай друзів і відомих · ділись',1],
+   ['Підпис наприкінці кожного випуску: «Цей подкаст зібрав для себе Андрій. Створи свій — 7 днів у подарунок»',0],['Картка ДНК подкасту для сторіс Instagram і Telegram, з QR',0],['Подкасти відомих людей і друзів як готові «станції»: підписатися в один дотик',0],
+   ['Подарувати подкаст: налаштувати для мами чи друга і надіслати як подарунок',0],['Подкаст на двох: спільний випуск із другом про ваші спільні теми',0],['Тижневий «Wrapped»: ваші теми тижня — картка, якою хочеться поділитися',0],
+   ['Серія прослуховувань: 7 днів поспіль — +1 день у подарунок',0],['Групові подкасти для Telegram-чатів: клуб, команда, сім’я',0],['Бейджі амбасадорів і таблиця запрошень',0]],ideas_on:'є',ideas_off:'план'},
+ ru:{offer:'7 дней персональных подкастов — бесплатно',offer_sub:'Приведи друга — получи ещё +7 дней за каждого. Друг стартует с 14 днями.',
+  gift:'🎁 Вам подарили 7 дней: 14 дней персональных подкастов бесплатно',gift_sub:'7 дней старта + 7 дней от друга. Войдите, чтобы подарок засчитался.',
+  beta:'Открытая бета: сейчас всё бесплатно, дни начнут считаться с запуском регулярных выпусков.',
+  tr1:'Создай свой персональный подкаст',tr1s:'Темы, голос и расписание — за 2 минуты.',tr2:'Слушай подкасты друзей и известных людей',tr2s:'Открой ссылку друга или добавь Зеленского, Маска, Гейтса…',tr3:'Делись и получай дни',tr3s:'Ссылка или QR: другу +7 дней, тебе +7 дней.',
+  qr_gift:'🎁 Вам подарили 7 дней MyCast',inv_days:'Ваши бесплатные дни: {n}',inv_sub:'Друзей присоединилось: {k}. Каждый новый друг по вашей ссылке — ещё +7 дней вам и ему.',inv_btn:'Скопировать приглашение',inv_copied:'Приглашение скопировано: ',inv_text:'Мой персональный подкаст MyCast. Держи 7 дней в подарок 🎁',
+  ideas_h:'Идеи роста (черновик)',ideas_hint:'Тезисы, чтобы не потерять. «Есть» — уже на странице, остальное — план.',
+  ideas:[['Старт 7 дней бесплатно + 7 дней за каждого друга (как Dropbox): получают оба',1],['Подпись под QR и ссылкой: «Вам подарили 7 дней»',1],['Три входа на главной: создай свой · слушай друзей и известных · делись',1],
+   ['Подпись в конце каждого выпуска: «Этот подкаст собрал для себя Андрей. Создай свой — 7 дней в подарок»',0],['Карточка ДНК подкаста для сторис Instagram и Telegram, с QR',0],['Подкасты известных людей и друзей как готовые «станции»: подписаться в одно касание',0],
+   ['Подарить подкаст: настроить для мамы или друга и отправить как подарок',0],['Подкаст на двоих: совместный выпуск с другом про ваши общие темы',0],['Недельный «Wrapped»: ваши темы недели — карточка, которой хочется поделиться',0],
+   ['Серия прослушиваний: 7 дней подряд — +1 день в подарок',0],['Групповые подкасты для Telegram-чатов: клуб, команда, семья',0],['Бейджи амбассадоров и таблица приглашений',0]],ideas_on:'есть',ideas_off:'план'},
+ en:{offer:'7 days of personal podcasts, free',offer_sub:'Bring a friend and get +7 more days for each one. Your friend starts with 14 days.',
+  gift:'🎁 You were gifted 7 days: 14 days of personal podcasts, free',gift_sub:'7 starter days + 7 days from your friend. Sign in so the gift counts.',
+  beta:'Open beta: everything is free right now; days start counting when regular episodes launch.',
+  tr1:'Create your own personal podcast',tr1s:'Topics, voice and schedule in 2 minutes.',tr2:'Listen to friends\' and famous people\'s podcasts',tr2s:'Open a friend\'s link or add Zelensky, Musk, Gates…',tr3:'Share and earn days',tr3s:'Link or QR: +7 days for your friend, +7 for you.',
+  qr_gift:'🎁 You were gifted 7 days of MyCast',inv_days:'Your free days: {n}',inv_sub:'Friends joined: {k}. Every new friend from your link adds +7 days for you and for them.',inv_btn:'Copy invite',inv_copied:'Invite copied: ',inv_text:'My personal MyCast podcast. Here are 7 days as a gift 🎁',
+  ideas_h:'Growth ideas (draft)',ideas_hint:'Theses so nothing gets lost. "Live" is already on this page, the rest is a plan.',
+  ideas:[['7 free days to start + 7 days for each friend (the Dropbox way): both sides get them',1],['A line under the QR and the link: "You were gifted 7 days"',1],['Three entry points on the first screen: create yours · listen to friends and famous people · share',1],
+   ['A sign-off at the end of every episode: "Andrii built this podcast for himself. Make yours, 7 days on us"',0],['A podcast DNA card for Instagram and Telegram stories, with the QR',0],['Famous people\'s and friends\' podcasts as ready "stations": follow in one tap',0],
+   ['Gift a podcast: set one up for your mum or a friend and send it as a present',0],['A podcast for two: a joint episode with a friend about the topics you share',0],['A weekly "Wrapped": your topics of the week as a card worth sharing',0],
+   ['Listening streak: 7 days in a row earns +1 free day',0],['Group podcasts for Telegram chats: a club, a team, a family',0],['Ambassador badges and an invite leaderboard',0]],ideas_on:'live',ideas_off:'plan'}};
+for (const l of Object.keys(GROW)) Object.assign(T[l], GROW[l]);
+
 const COLORS = { sports:'#ff7a6b', tech:'#4fe3ff', news:'#a78bfa', business:'#fbbf24', health:'#34d399', culture:'#f472b6', travel:'#60a5fa', science:'#818cf8', auto:'#fb923c', hobbies:'#a3e635' };
 const $ = s => document.querySelector(s);
 const KEY = 'mycast-configurator-draft-v1';
@@ -643,6 +703,9 @@ try {
   if (saved && saved.version === 1) profile = MyCast.migrate(saved);  // older drafts: watch list, weekly schedule
 } catch (e) {}
 try { const l = localStorage.getItem(KEY + ':lang'); if (['uk','ru','en'].includes(l)) lang = l; } catch (e) {}
+// An invite carries &ref=<slug> (or a personal page's &from=<slug>); it is only a hint, the server counts it once for a new account.
+let inviteRef = '';
+try { const m = /[#&](?:ref|from)=([a-z0-9]{8})(?![a-z0-9])/.exec(location.hash); if (m) { inviteRef = m[1]; localStorage.setItem(KEY + ':ref', inviteRef); } else inviteRef = localStorage.getItem(KEY + ':ref') || ''; } catch (e) {}
 // A share link carries #p=<code>. It is offered, never applied silently over the visitor's own draft.
 try { const m = /[#&]p=([A-Za-z0-9_-]+)/.exec(location.hash); if (m) sharedProfile = MyCast.decodeShare(m[1]); } catch (e) { sharedProfile = null; }
 
@@ -801,7 +864,7 @@ function render() {
       (ch === 'telegram' ? `<span class="tag pri">${esc(x.primary)}</span>` : '') + `<span class="tag ${tag}">${esc(x.chs[st.reason || 'ready'])}</span></span><span class="why">${esc(x.chw[ch])}</span></label>`; }).join('') +
     `<button type="button" class="btn" id="tgDeliver" ${listener && listener.telegram_linked ? 'disabled' : ''}>${ICONS.telegram.replace('<svg ', '<svg width="16" height="16" style="vertical-align:-3px;margin-right:6px" ')}${esc(listener && listener.telegram_linked ? x.tg_linked : (account.telegram_bot ? x.tg_login : x.tg_soon))}</button>`;
   $('#importBanner').hidden = !sharedProfile;
-  renderAccount(); renderVoices(); renderTelegram();
+  renderAccount(); renderVoices(); renderTelegram(); renderGrowth();
   $('#shareNative').hidden = !navigator.share;
   const errors = MyCast.validate(profile);
   $('#errors').innerHTML = errors.map(e => `<li>${esc(x.err[e.code] || e.code)}</li>`).join('');
@@ -840,7 +903,7 @@ function addOwn(input) {
 function shareUrl() {
   // On the site, use the short public address /mycast; elsewhere (local file, preview) keep the current page.
   const onSite = location.pathname.startsWith('/static/mycast-configurator/');
-  return (onSite ? location.origin + '/mycast' : location.origin + location.pathname) + '#p=' + MyCast.encodeShare(profile);
+  return (onSite ? location.origin + '/mycast' : location.origin + location.pathname) + '#p=' + MyCast.encodeShare(profile) + (listener ? '&ref=' + listener.slug : '');
 }
 /* QR code of the share link with the podcast DNA cover in the middle. Level Q tolerates the covered centre. */
 function qrSVG(text) {
@@ -911,7 +974,8 @@ $('#qrPng').addEventListener('click', () => {
   const svg = $('#qr svg'); if (!svg) return;
   const img = new Image(), url = URL.createObjectURL(new Blob([svg.outerHTML], { type: 'image/svg+xml' }));
   img.onload = () => { const cv = document.createElement('canvas'); cv.width = cv.height = 1024; const g = cv.getContext('2d');
-    g.fillStyle = '#fff'; g.fillRect(0, 0, 1024, 1024); g.drawImage(img, 32, 32, 960, 960); URL.revokeObjectURL(url);
+    cv.height = 1124; g.fillStyle = '#fff'; g.fillRect(0, 0, 1024, 1124); g.drawImage(img, 32, 32, 960, 960); URL.revokeObjectURL(url);
+    g.fillStyle = '#0b1024'; g.font = '800 46px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(t().qr_gift, 512, 1066);
     const a = document.createElement('a'); a.download = 'mycast-qr.png'; a.href = cv.toDataURL('image/png'); a.click(); };
   img.src = url;
 });
@@ -1033,7 +1097,8 @@ async function signedIn(r) {
   if (!listener.has_podcast && MyCast.validate(profile).length === 0) await savePodcast(true);
   go('#stepTopics');
 }
-window.onTelegramAuth = user => fetch('/api/mycast/account/telegram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(user) }).then(signedIn).catch(() => accMsg(t().acc_fail, false));
+function withRef(body) { return inviteRef && !(listener && listener.slug === inviteRef) ? { ...body, ref: inviteRef } : body; }
+window.onTelegramAuth = user => fetch('/api/mycast/account/telegram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withRef(user)) }).then(signedIn).catch(() => accMsg(t().acc_fail, false));
 function loadScript(src, attrs, parent) {
   const el = document.createElement('script'); el.src = src; el.async = true;
   Object.entries(attrs || {}).forEach(([k, v]) => el.setAttribute(k, v)); (parent || document.head).appendChild(el); return el;
@@ -1056,7 +1121,7 @@ async function initAccounts() {
   if (account.google_client_id) {
     loadScript('https://accounts.google.com/gsi/client').onload = () => {
       google.accounts.id.initialize({ client_id: account.google_client_id, callback: resp =>
-        fetch('/api/mycast/account/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: resp.credential }) }).then(signedIn) });
+        fetch('/api/mycast/account/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withRef({ credential: resp.credential })) }).then(signedIn) });
       google.accounts.id.renderButton($('#googleBtn'), { theme: 'filled_black', shape: 'pill', size: 'large', text: 'signin_with', locale: lang });
     };
   }
@@ -1194,7 +1259,7 @@ async function telegramReturn() {
 async function linkTelegram(user) {
   if (!user) { tgMsg(t().acc_fail, false); return; }
   try {
-    const r = await fetch('/api/mycast/account/telegram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(user) });
+    const r = await fetch('/api/mycast/account/telegram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withRef(user)) });
     const d = await r.json().catch(() => ({}));
     if (r.ok && d.listener) {
       listener = d.listener;
@@ -1222,6 +1287,25 @@ $('#tgBox').addEventListener('click', async e => {
   if (e.target.closest('#dlSample') && lastDemoJob) { if (await tgPost('/api/mycast/account/delivery/sample', { job: lastDemoJob })) tgMsg(x.dl_sample_sent, true); }
 });
 $('#tgBox').addEventListener('change', e => { if (e.target.id === 'dlConsent') { tgConsent = e.target.checked; renderTelegram(); } });
+
+function renderGrowth() {
+  const x = t(), gifted = !!inviteRef && !(listener && listener.slug === inviteRef);
+  $('#offer').classList.toggle('gift', gifted);
+  $('#offerTitle').textContent = gifted ? x.gift : x.offer;
+  $('#offerSub').textContent = (gifted ? x.gift_sub : x.offer_sub) + ' ' + x.beta;
+  $('#ideasList').innerHTML = x.ideas.map(([text, on]) => `<li>${esc(text)}<span class="st${on ? ' on' : ''}">${esc(on ? x.ideas_on : x.ideas_off)}</span></li>`).join('');
+  if (listener) {
+    $('#inviteDays').textContent = x.inv_days.replace('{n}', listener.free_days || 7);
+    $('#inviteSub').textContent = x.inv_sub.replace('{k}', listener.referrals || 0);
+  }
+}
+$('#triggers').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) go(b.dataset.go); });
+$('#inviteBtn').addEventListener('click', async () => {
+  if (!listener) return;
+  const link = shareUrl(), x = t(), text = x.inv_text + ' ' + link;
+  if (navigator.share) { try { await navigator.share({ title: 'MyCast', text: x.inv_text, url: link }); return; } catch (e) {} }
+  const ok = await copyText(text); accMsg(ok ? x.inv_copied + link : link, ok);
+});
 
 /* Gentle pointer parallax on the aurora (fine pointers only, never in calm mode). */
 if (!calm && mq('(pointer: fine)')) {

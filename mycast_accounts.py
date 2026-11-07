@@ -40,6 +40,7 @@ TELEGRAM_MAX_AGE = 24 * 3600
 CONSENT_VERSION = "mycast-delivery-consent-2026-11-07"
 SENDS_PER_DAY = 3
 MAX_AUDIT = 50
+FREE_DAYS, FRIEND_DAYS, MAX_REFERRALS = 7, 7, 50     # owner offer 2026-11-07: 7 free days, +7 per invited friend
 CODE_RE = re.compile(r"^[A-Za-z0-9_-]{8,4000}$")
 SLUG_RE = re.compile(r"^[a-z0-9]{8}$")
 PAGE = "/static/mycast-configurator/index.html"
@@ -104,7 +105,8 @@ class ListenerStore:
     def _key(provider: str, pid: str) -> str:
         return hashlib.sha256(f"{provider}:{pid}".encode()).hexdigest()
 
-    def login(self, who: dict) -> dict:
+    def login(self, who: dict, ref: str = "") -> dict:
+        """ref: the inviting listener's slug from a share link. It counts once, only for a brand-new account."""
         key = self._key(who["provider"], who["pid"])
         now = int(self.clock())
         with self._lock:
@@ -117,6 +119,11 @@ class ListenerStore:
                     slug = "".join(secrets.choice("abcdefghijkmnpqrstuvwxyz23456789") for _ in range(8))
                 rec = {"slug": slug, "provider": who["provider"], "key": key, "created": now, "code": ""}
                 data["index"][key] = slug
+                inviter = data["listeners"].get(ref) if isinstance(ref, str) and SLUG_RE.fullmatch(ref or "") else None
+                if inviter and int(inviter.get("referrals", 0)) < MAX_REFERRALS:
+                    rec["referred_by"] = ref                                     # the friend gets +7 days...
+                    inviter["referrals"] = int(inviter.get("referrals", 0)) + 1  # ...and so does the inviter
+                    self._audit(inviter, now, "friend_joined")
             rec.update({"name": who["name"], "seen": now})
             if who.get("chat_id"):
                 rec["chat_id"] = who["chat_id"]
@@ -257,7 +264,13 @@ def public_view(rec: dict) -> dict:
             "telegram_linked": bool(rec.get("chat_id")), "telegram_verified": bool(rec.get("telegram_verified_at")),
             "approved": bool(rec.get("code")) and rec.get("approved_code") == rec.get("code"),
             "delivery": {"active": bool(d.get("active")), "since": d.get("since"), "paused_reason": d.get("paused_reason", "")},
-            "audit": (rec.get("audit") or [])[-10:]}
+            "audit": (rec.get("audit") or [])[-10:], "referrals": int(rec.get("referrals", 0)),
+            "gifted": bool(rec.get("referred_by")), "free_days": free_days(rec)}
+
+
+def free_days(rec: dict) -> int:
+    """Owner offer 2026-11-07: 7 days to start, +7 for a friend's invite link, +7 for each friend who joins."""
+    return FREE_DAYS + (FRIEND_DAYS if rec.get("referred_by") else 0) + FRIEND_DAYS * int(rec.get("referrals", 0))
 
 
 def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot_token: Callable[[], str],
@@ -311,11 +324,13 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
     @app.post("/api/mycast/account/telegram")
     async def mycast_account_telegram(request: Request):
         try:
-            who = verify_telegram(await _body(request), bot_token(), clock())
+            body = await _body(request)
+            ref = str(body.pop("ref", "") or "")          # not part of Telegram's signed fields
+            who = verify_telegram(body, bot_token(), clock())
             current = _current(request)
             if current and current.get("provider") != "telegram":   # #281: link to the account already signed in
                 return _signed_in(store.link_telegram(current["slug"], who["chat_id"]))
-            return _signed_in(store.login(who))
+            return _signed_in(store.login(who, ref))
         except AccountError as exc:
             return _err(exc)
 
@@ -332,7 +347,8 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             if not claims or not claims.get("sub") or claims.get("email_verified") is False:
                 raise AccountError("bad_google_login", 401)
             return _signed_in(store.login({"provider": "google", "pid": str(claims["sub"]),
-                                           "name": _name(claims.get("given_name") or claims.get("name"))}))
+                                           "name": _name(claims.get("given_name") or claims.get("name"))},
+                                          str(body.get("ref") or "")))
         except AccountError as exc:
             return _err(exc)
 
