@@ -424,6 +424,27 @@ _AVAILABILITY_TEXT = {
 }
 
 
+_COMMAND_LIKE = re.compile(r"^\s*(?:(task|work|done|need|inbox|issue)\s+)?(R-(?:\d+|…|\.\.\.|x+)|#?\d{1,6})\s*$", re.I)
+_BARE_REF = re.compile(r"^\s*R-(?:\d+|…|\.\.\.|x+)\s*$", re.I)
+
+
+def _looks_like_command(text: str) -> bool:
+    """A typed command word without "/" plus a ticket/issue reference, or a bare ticket reference such as "R-…"."""
+    m = _COMMAND_LIKE.match(str(text or ""))
+    return bool(m and (m.group(1) or _BARE_REF.match(str(text or ""))))
+
+
+def _command_hint(text: str, lang: str = "ru") -> str:
+    m = _COMMAND_LIKE.match(str(text or ""))
+    word = (m.group(1) or "task").lower() if m else "task"
+    ref = m.group(2) if m else ""
+    real = bool(re.fullmatch(r"R-\d+|#?\d+", ref or ""))
+    example = f"/{word} {ref.lstrip('#') if word == 'issue' else ref}" if real else f"/{word} R-0034"
+    return {"uk": f"Схоже на команду, тому завдання не створено. Надішліть зі слешем і справжнім номером, наприклад: {example}",
+            "en": f"That looks like a command, so no task was created. Send it with the slash and a real number, e.g. {example}"
+            }.get(lang, f"Похоже на команду, поэтому задача не создана. Отправьте со слешем и настоящим номером, например: {example}")
+
+
 def _t585_lanes(provider: Optional[Callable[[], list]]) -> Optional[dict]:
     """T-586: operator -> T-585 delegation lane; None when the provider is absent or failed."""
     if provider is None:
@@ -445,12 +466,33 @@ def _t585_status_line(lane: dict) -> str:
     return text + " · открытых: " + str(count)
 
 
+def _github_facts(lane: Optional[dict]) -> Optional[dict]:
+    """GitHub activity attached by the app from the cached Team tasks board; None when absent. Never a GitHub read."""
+    g = (lane or {}).get("github") if isinstance(lane, dict) else None
+    if not isinstance(g, dict):
+        return None
+    try:
+        return {"open_prs": max(0, int(g.get("open_prs") or 0)), "done_7d": max(0, int(g.get("done_7d") or 0)),
+                "last": str(g.get("last_activity_at") or "")[:16].replace("T", " ")}
+    except (TypeError, ValueError):
+        return None
+
+
 def _t585_lane_text(name: str, lane: Optional[dict]) -> str:
     """One operator lane from the T-585 delegation board: status, current ticket, open tickets, last result."""
     label = _OPERATOR_LABELS.get(name, name.title())
     if not isinstance(lane, dict):
         return f"{label}\n\nСтатус: {_AVAILABILITY_TEXT['unconfigured']}\nОткрытых тикетов нет."
-    lines = [label, "Статус: " + _AVAILABILITY_TEXT.get(str(lane.get("availability") or ""), "⚪ " + str(lane.get("availability") or "unknown"))]
+    availability = str(lane.get("availability") or "")
+    gh = _github_facts(lane)
+    status = _AVAILABILITY_TEXT.get(availability, "⚪ " + (availability or "unknown"))
+    if availability == "unconfigured" and gh and (gh["open_prs"] or gh["done_7d"]):
+        # The Gemini loop works through GitHub issues/PRs, not a Relay runner: say both facts, not just "not configured".
+        status = "⚫ Relay-runner не подключён — работает через GitHub"
+    lines = [label, "Статус: " + status]
+    if gh:
+        lines.append(f"GitHub: открытых PR {gh['open_prs']} · закрыто за 7 дней {gh['done_7d']}"
+                     + (f" · последняя активность {gh['last']} UTC" if gh["last"] else ""))
     beat = lane.get("heartbeat") or {}
     if beat.get("age_seconds") is not None:
         lines.append("Heartbeat: " + str(int(float(beat["age_seconds"]))) + " сек назад (" + str(beat.get("source") or "?") + ")")
@@ -1244,6 +1286,11 @@ def relay_handle_telegram_update(
         return {"handled": True, "ticket_id": ticket_id}
 
     explicit_new = command == "/new"
+    # 2026-11-07: "task R-0034", "need R-0052" or a bare "R-…" without the slash created junk tickets (R-0050, R-0052).
+    # Text that is only a command word and/or a ticket reference is answered with a hint, never queued as work.
+    if not command and _looks_like_command(text):
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _command_hint(text, lang)})
+        return {"handled": True, "action": "command_hint"}
     if command and not explicit_new:
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _help_text(lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "help"}
