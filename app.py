@@ -11319,8 +11319,21 @@ def get_telegram_lane_board():
     return board
 
 def get_telegram_operator_lanes():
-    """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons."""
-    return get_delegation_board().get("operator_lanes") or []
+    """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons.
+    2026-11-07: each lane also carries its GitHub facts from the cached Team tasks board (never a GitHub read here),
+    so the Gemini lane, which works through GitHub PRs and has no Relay runner, is not shown as merely "not configured"."""
+    lanes=get_delegation_board().get("operator_lanes") or []
+    team=_TEAM_TASKS_CACHE.peek() if "_TEAM_TASKS_CACHE" in globals() else None
+    agents=(team or {}).get("agents") or {}
+    out=[]
+    for lane in lanes:
+        a=agents.get(str((lane or {}).get("operator_id") or "")) if isinstance(lane,dict) else None
+        if isinstance(a,dict):
+            c=a.get("counts") or {}
+            lane={**lane,"github":{"open_prs":int(c.get("review") or 0)+int(c.get("in_progress") or 0)+int(c.get("ci_failed") or 0),
+                                   "done_7d":a.get("done_7d") or 0,"last_activity_at":a.get("last_activity_at") or ""}}
+        out.append(lane)
+    return out
 
 def _owner_decision_cards(roadmap):
     """Owner-desk cards that are open decisions and not already ROADMAP [HUMAN] tasks (those are listed anyway)."""
