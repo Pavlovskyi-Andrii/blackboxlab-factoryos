@@ -106,6 +106,24 @@ test('a Gemini-voiced demo is real audio and downloadable, but still labelled a 
   assert.deepStrictEqual(M.toJSON(out.profile).preview, { kind: 'gemini_demo' });
 });
 
+test('#281 voices: male narrator, male+female pair, mode switch keeps a valid pick, edits reset approval, shared', () => {
+  let p = ready();
+  assert.deepStrictEqual(p.voice.voices, ['Charon', 'Kore']);
+  p = M.setVoice(p, 0, 'Puck'); p = M.setVoice(p, 1, 'Leda');
+  assert.deepStrictEqual(p.voice.voices, ['Puck', 'Leda']);
+  assert.throws(() => M.setVoice(p, 0, 'Kore'));                                  // host A must be male by ear
+  assert.throws(() => M.setVoice(p, 1, 'Puck'));                                  // host B female, and different
+  assert.throws(() => M.setVoice(p, 1, 'Nobody'));
+  const solo = M.update(p, { voice: { mode: 'narrator' } });
+  assert.deepStrictEqual(solo.voice.voices, ['Charon']);                          // two picks do not fit one host
+  assert.deepStrictEqual(M.validate(solo), []);
+  const approved = M.approve(M.markReviewed(M.makePreview(p, { speechSynthesis: true }).profile), true, 't');
+  assert.strictEqual(M.setVoice(approved, 0, 'Orus').state, 'draft');             // a new voice drops approval
+  assert.deepStrictEqual(M.decodeShare(M.encodeShare(p)).voice.voices, ['Puck', 'Leda']);
+  assert.deepStrictEqual(M.validate({ ...p, voice: { ...p.voice, voices: ['Kore', 'Puck'] } }).map(e => e.code), ['bad_voices']);
+  assert.strictEqual(M.GEMINI_VOICES.length, 30);
+});
+
 test('Viber, WhatsApp and email are planned: visible, never selectable', () => {
   for (const ch of ['viber', 'whatsapp', 'email']) {
     assert.deepStrictEqual(M.channelStatus(ch, null), { usable: false, selectable: false, reason: 'planned' });

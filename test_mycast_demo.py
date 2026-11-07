@@ -17,7 +17,7 @@ class Fake:
         self.calls = 0
         self.fail = None
 
-    def __call__(self, key, episode):
+    def __call__(self, key, episode, voices=("Charon", "Kore")):
         self.calls += 1
         if self.fail:
             raise self.fail
@@ -94,6 +94,24 @@ class DemoTest(unittest.TestCase):
         self.t[0] += 60
         view = svc.view("j")
         self.assertEqual((view["progress"], view["estimated"]), (95, True))
+
+
+class VoicesTest(unittest.TestCase):
+    def test_chosen_voices_reach_gemini_and_split_the_cache(self):
+        with tempfile.TemporaryDirectory() as d:
+            seen = []
+            two = lambda key, ep, voices: seen.append(("two", voices)) or (b"\x01\x00" * 10, 24000)
+            one = lambda key, text, voice: seen.append(("one", voice)) or (b"\x01\x00" * 10, 24000)
+            svc = DemoService(Path(d), api_key=lambda: "k", tts=two, tts_single=one, run_async=False)
+            a = svc.start(LINES, "uk", "c", ["Puck", "Leda"])
+            b = svc.start(LINES, "uk", "c", ["Orus", "Kore"])
+            self.assertFalse(b["cached"])                                    # another pair is another sample
+            svc.start([{"host": "A", "text": INTRO + " Solo."}], "uk", "c", ["Charon"])
+            self.assertEqual(seen, [("two", ("Puck", "Leda")), ("two", ("Orus", "Kore")), ("one", "Charon")])
+            self.assertTrue(svc.start(LINES, "uk", "c", ["Puck", "Leda"])["cached"])
+            for bad in (["Kore", "Puck"], ["Puck", "Puck"], ["Nobody", "Kore"], ["Kore"]):
+                with self.assertRaises(DemoRefused):
+                    svc.start([{"host": "A", "text": INTRO + " x"}] if len(bad) == 1 else LINES, "uk", "c", bad)
 
 
 class RoutesTest(unittest.TestCase):

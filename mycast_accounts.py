@@ -11,6 +11,12 @@ What is stored (also stated on the page):
 - for Telegram only, the chat id, needed to send the podcast later (the widget asks for "write" access);
 - the podcast settings as a share code, and timestamps.
 No email, no photo, no access token. DELETE /api/mycast/account removes the record at once.
+
+#281 delivery is a separate, explicit opt-in. Approving a profile, signing in, pairing Telegram, importing a share
+link or auditioning a voice never turns delivery on. "Enable delivery" needs: a signed-in listener, a Telegram chat,
+an approved podcast version equal to the saved one, and an explicit consent flag. Any later edit to the podcast cancels
+the approval and pauses delivery. Every change is written to the listener's audit trail. Test messages and samples go
+only to the listener's own chat, a few per day.
 """
 from __future__ import annotations
 
@@ -31,6 +37,9 @@ from fastapi.responses import JSONResponse, RedirectResponse
 COOKIE = "mycast_listener"
 SESSION_SECONDS = 30 * 24 * 3600
 TELEGRAM_MAX_AGE = 24 * 3600
+CONSENT_VERSION = "mycast-delivery-consent-2026-11-07"
+SENDS_PER_DAY = 3
+MAX_AUDIT = 50
 CODE_RE = re.compile(r"^[A-Za-z0-9_-]{8,4000}$")
 SLUG_RE = re.compile(r"^[a-z0-9]{8}$")
 PAGE = "/static/mycast-configurator/index.html"
@@ -115,12 +124,35 @@ class ListenerStore:
             self._save(data)
             return dict(rec)
 
+    def link_telegram(self, slug: str, chat_id: str) -> dict:
+        """#281: a signed-in listener (e.g. via Google) links their own Telegram chat; nothing is sent here."""
+        now = int(self.clock())
+        with self._lock:
+            data = self._load()
+            rec = data["listeners"].get(slug)
+            if not rec:
+                raise AccountError("signed_out", 401)
+            if rec.get("chat_id") != chat_id:
+                rec["chat_id"] = chat_id
+                rec.pop("telegram_verified_at", None)          # a new chat must be verified again
+                d = rec.get("delivery") or {}
+                if d.get("active"):
+                    rec["delivery"] = {**d, "active": False, "paused_reason": "telegram_changed"}
+                self._audit(rec, now, "telegram_linked")
+            rec["seen"] = now
+            self._save(data)
+            return dict(rec)
+
     def get(self, slug: str) -> Optional[dict]:
         with self._lock:
             rec = self._load()["listeners"].get(slug)
         return dict(rec) if rec else None
 
-    def save_code(self, slug: str, code: str) -> dict:
+    @staticmethod
+    def _audit(rec: dict, now: int, action: str, detail: str = "") -> None:
+        rec["audit"] = (rec.get("audit") or [])[-(MAX_AUDIT - 1):] + [{"at": now, "action": action, "detail": detail[:120]}]
+
+    def save_code(self, slug: str, code: str, approved: bool = False) -> dict:
         if not CODE_RE.match(code or ""):
             raise AccountError("bad_profile")
         with self._lock:
@@ -128,9 +160,67 @@ class ListenerStore:
             rec = data["listeners"].get(slug)
             if not rec:
                 raise AccountError("signed_out", 401)
-            rec["code"], rec["saved"] = code, int(self.clock())
+            now = int(self.clock())
+            rec["code"], rec["saved"] = code, now
+            if approved:
+                if rec.get("approved_code") != code:
+                    self._audit(rec, now, "approved")
+                rec["approved_code"], rec["approved_at"] = code, now
+            elif rec.get("approved_code") and rec.get("approved_code") != code:
+                rec["approved_code"], rec["approved_at"] = "", None          # an edit cancels the approval...
+                self._audit(rec, now, "approval_cleared", "profile changed")
+                if (rec.get("delivery") or {}).get("active"):                # ...and pauses delivery
+                    rec["delivery"] = {**rec["delivery"], "active": False, "paused_reason": "profile_changed"}
+                    self._audit(rec, now, "delivery_paused", "profile changed after approval")
             self._save(data)
             return dict(rec)
+
+    def set_delivery(self, slug: str, enable: bool, consent: bool) -> dict:
+        with self._lock:
+            data = self._load()
+            rec = data["listeners"].get(slug)
+            if not rec:
+                raise AccountError("signed_out", 401)
+            now = int(self.clock())
+            if enable:
+                if consent is not True:
+                    raise AccountError("consent_required")
+                if not rec.get("chat_id"):
+                    raise AccountError("telegram_not_linked", 409)
+                if not rec.get("code") or rec.get("approved_code") != rec.get("code"):
+                    raise AccountError("profile_not_approved", 409)
+                if not (rec.get("delivery") or {}).get("active"):
+                    rec["delivery"] = {"active": True, "since": now, "consent": CONSENT_VERSION, "code": rec["code"]}
+                    self._audit(rec, now, "delivery_enabled", CONSENT_VERSION)
+            elif (rec.get("delivery") or {}).get("active"):
+                rec["delivery"] = {**rec["delivery"], "active": False, "stopped_at": now, "paused_reason": "listener_stopped"}
+                self._audit(rec, now, "delivery_stopped")
+            self._save(data)
+            return dict(rec)
+
+    def take_send(self, slug: str, kind: str) -> dict:
+        """Count one message to the listener's own chat; refuse past SENDS_PER_DAY per UTC day."""
+        with self._lock:
+            data = self._load()
+            rec = data["listeners"].get(slug)
+            if not rec:
+                raise AccountError("signed_out", 401)
+            day = time.strftime("%Y-%m-%d", time.gmtime(self.clock()))
+            sends = rec.get("sends") if (rec.get("sends") or {}).get("day") == day else {"day": day, "n": 0}
+            if sends["n"] >= SENDS_PER_DAY:
+                raise AccountError("send_limit", 429)
+            rec["sends"] = {"day": day, "n": sends["n"] + 1}
+            self._audit(rec, int(self.clock()), "sent_" + kind)
+            self._save(data)
+            return dict(rec)
+
+    def mark(self, slug: str, **fields) -> None:
+        with self._lock:
+            data = self._load()
+            rec = data["listeners"].get(slug)
+            if rec:
+                rec.update(fields)
+                self._save(data)
 
     def delete(self, slug: str) -> bool:
         with self._lock:
@@ -161,15 +251,21 @@ def unsign(secret: str, token: str, now: float) -> Optional[str]:
 
 
 def public_view(rec: dict) -> dict:
+    d = rec.get("delivery") or {}
     return {"slug": rec["slug"], "name": rec.get("name", ""), "provider": rec.get("provider", ""),
             "has_podcast": bool(rec.get("code")), "page": f"/mycast/u/{rec['slug']}",
-            "telegram_linked": bool(rec.get("chat_id"))}
+            "telegram_linked": bool(rec.get("chat_id")), "telegram_verified": bool(rec.get("telegram_verified_at")),
+            "approved": bool(rec.get("code")) and rec.get("approved_code") == rec.get("code"),
+            "delivery": {"active": bool(d.get("active")), "since": d.get("since"), "paused_reason": d.get("paused_reason", "")},
+            "audit": (rec.get("audit") or [])[-10:]}
 
 
 def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot_token: Callable[[], str],
                                   bot_username: Callable[[], str], google_client_id: Callable[[], str],
                                   google_verify: Callable[[str], dict], secure_cookie: bool = True,
-                                  clock: Callable[[], float] = time.time) -> None:
+                                  clock: Callable[[], float] = time.time,
+                                  send_message: Optional[Callable[[str, str], None]] = None,
+                                  send_sample: Optional[Callable[[str, str], None]] = None) -> None:
     def _err(exc: AccountError):
         return JSONResponse({"detail": exc.code}, status_code=exc.status)
 
@@ -199,7 +295,10 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             name = bot_username() if bot_token() else ""
         except Exception:
             name = ""
-        return {"telegram_bot": name or None, "google_client_id": google_client_id() or None}
+        token = bot_token() or ""
+        bot_id = token.split(":", 1)[0] if re.fullmatch(r"\d{5,}:.+", token) else ""   # the public numeric part only
+        return {"telegram_bot": name or None, "telegram_bot_id": bot_id or None, "google_client_id": google_client_id() or None,
+                "consent_version": CONSENT_VERSION}
 
     @app.get("/api/mycast/account/me")
     def mycast_account_me(request: Request):
@@ -213,6 +312,9 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
     async def mycast_account_telegram(request: Request):
         try:
             who = verify_telegram(await _body(request), bot_token(), clock())
+            current = _current(request)
+            if current and current.get("provider") != "telegram":   # #281: link to the account already signed in
+                return _signed_in(store.link_telegram(current["slug"], who["chat_id"]))
             return _signed_in(store.login(who))
         except AccountError as exc:
             return _err(exc)
@@ -241,7 +343,63 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             if not rec:
                 raise AccountError("signed_out", 401)
             body = await _body(request)
-            return {"listener": public_view(store.save_code(rec["slug"], str(body.get("code") or "")))}
+            return {"listener": public_view(store.save_code(rec["slug"], str(body.get("code") or ""), body.get("approved") is True))}
+        except AccountError as exc:
+            return _err(exc)
+
+    def _signed(request: Request) -> dict:
+        rec = _current(request)
+        if not rec:
+            raise AccountError("signed_out", 401)
+        return rec
+
+    @app.post("/api/mycast/account/delivery")
+    async def mycast_account_delivery(request: Request):
+        try:
+            rec, body = _signed(request), await _body(request)
+            return {"listener": public_view(store.set_delivery(rec["slug"], body.get("enable") is True, body.get("consent") is True))}
+        except AccountError as exc:
+            return _err(exc)
+
+    @app.post("/api/mycast/account/telegram/test")
+    def mycast_account_telegram_test(request: Request):
+        """Proves the pairing: the bot writes one short message to the listener's own chat. Only that marks it verified."""
+        try:
+            rec = _signed(request)
+            if not rec.get("chat_id"):
+                raise AccountError("telegram_not_linked", 409)
+            if not send_message or not bot_token():
+                raise AccountError("telegram_not_configured", 503)
+            store.take_send(rec["slug"], "test")
+            try:
+                send_message(rec["chat_id"], "✅ MyCast: цей чат підключено. Розсилка не ввімкнена — її вмикаєте лише ви на сторінці MyCast.")
+            except Exception:
+                raise AccountError("telegram_send_failed", 502)
+            store.mark(rec["slug"], telegram_verified_at=int(clock()))
+            return {"listener": public_view(store.get(rec["slug"]))}
+        except AccountError as exc:
+            return _err(exc)
+
+    @app.post("/api/mycast/account/delivery/sample")
+    async def mycast_account_delivery_sample(request: Request):
+        """One already generated demo, to the listener's own chat, only while delivery is on."""
+        try:
+            rec, body = _signed(request), await _body(request)
+            if not (rec.get("delivery") or {}).get("active"):
+                raise AccountError("delivery_off", 409)
+            if not send_sample:
+                raise AccountError("telegram_not_configured", 503)
+            job = str(body.get("job") or "")
+            if not re.fullmatch(r"[0-9a-f]{32}", job):
+                raise AccountError("bad_job")
+            store.take_send(rec["slug"], "sample")
+            try:
+                send_sample(rec["chat_id"], job)
+            except AccountError:
+                raise
+            except Exception:
+                raise AccountError("telegram_send_failed", 502)
+            return {"listener": public_view(store.get(rec["slug"])), "sent": True}
         except AccountError as exc:
             return _err(exc)
 

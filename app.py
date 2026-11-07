@@ -37,7 +37,8 @@ from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
 from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio, gemini_tts_pcm
 from mycast_demo import DemoService, install_mycast_demo_routes
-from mycast_accounts import ListenerStore, install_mycast_account_routes
+from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
+from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
@@ -700,7 +701,24 @@ install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_wor
 # Gemini coder loop on EC2 calls Google through this proxy, so the key never leaves Render.
 install_gemini_worker_routes(app, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # MyCast public demo (owner 2026-11-06): Gemini voices, at most 30 new per UTC day, cached, one at a time.
-install_mycast_demo_routes(app, DemoService(DATA_DIR / "mycast_demo", api_key=lambda: FACTORY_GEMINI_API_KEY, tts=gemini_tts_pcm))
+MYCAST_DEMO = DemoService(DATA_DIR / "mycast_demo", api_key=lambda: FACTORY_GEMINI_API_KEY, tts=gemini_tts_pcm,
+                          tts_single=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice))
+install_mycast_demo_routes(app, MYCAST_DEMO)
+# #281 voice audition: real cached Gemini samples per prebuilt voice (owner: about 30 samples), honest unavailable states.
+install_mycast_voice_audition_routes(app, VoiceSamples(DATA_DIR / "mycast_voices", api_key=lambda: FACTORY_GEMINI_API_KEY,
+                                                       tts=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice)))
+def _mycast_send_listener_sample(chat_id: str, job_id: str) -> None:
+    """#281: one generated demo, as mp3, to the listener's own Telegram chat (delivery opt-in checked by the caller)."""
+    import wave
+    from mycast import pcm_to_mp3
+    try:
+        path = MYCAST_DEMO.audio_path(job_id)
+    except Exception:
+        raise MyCastAccountError("demo_not_ready", 409)
+    with wave.open(str(path)) as w:
+        pcm, rate = w.readframes(w.getnframes()), w.getframerate()
+    telegram_send_audio(FACTORY_TELEGRAM_BOT_TOKEN, str(chat_id), pcm_to_mp3(pcm, rate), filename="mycast-demo.mp3",
+                        title="MyCast · демо", caption="Демо MyCast (не справжній випуск). Розсилку можна зупинити на сторінці MyCast.")
 _MYCAST_BOT_NAME = {"name": "", "at": 0.0}
 def _mycast_bot_username() -> str:
     # The Login Widget needs the bot's public @username; ask Telegram once an hour, never expose the token.
@@ -712,7 +730,9 @@ install_mycast_account_routes(app, ListenerStore(DATA_DIR / "mycast_listeners.js
                               bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN, bot_username=_mycast_bot_username,
                               google_client_id=lambda: FACTORY_GOOGLE_CLIENT_ID,
                               google_verify=lambda cred: google_id_token.verify_oauth2_token(cred, google_requests.Request(), FACTORY_GOOGLE_CLIENT_ID),
-                              secure_cookie=FACTORY_PUBLIC_BASE_URL.startswith("https://"))
+                              secure_cookie=FACTORY_PUBLIC_BASE_URL.startswith("https://"),
+                              send_message=lambda chat, text: _telegram_api("sendMessage", {"chat_id": chat, "text": text}),
+                              send_sample=_mycast_send_listener_sample)
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
@@ -727,7 +747,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast"}
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo", "/api/mycast/account", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
     claude_worker_api=request.url.path.startswith("/api/claude-worker/") and _claude_worker_authorized(request)

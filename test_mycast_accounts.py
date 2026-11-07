@@ -86,14 +86,69 @@ class StoreAndCookieTest(unittest.TestCase):
         self.assertIsNone(unsign("s3cret", "v2|owner||sig", NOW))       # a staff token is never a listener
 
 
+class DeliveryTest(unittest.TestCase):
+    """#281: approval, pairing and delivery are separate steps; nothing is sent on approval, sign-in or import."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.store = ListenerStore(Path(self.dir.name) / "l.json", clock=lambda: NOW)
+        self.tg = self.store.login({"provider": "telegram", "pid": "777", "name": "A", "chat_id": "777"})
+        self.gg = self.store.login({"provider": "google", "pid": "9", "name": "G"})
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def code(self, fn):
+        with self.assertRaises(AccountError) as ctx:
+            fn()
+        return ctx.exception.code
+
+    def test_each_step_is_separate(self):
+        slug = self.tg["slug"]
+        self.store.save_code(slug, "eyJ2IjoxfQ")                                        # saved, not approved
+        self.assertEqual(self.code(lambda: self.store.set_delivery(slug, True, True)), "profile_not_approved")
+        self.store.save_code(slug, "eyJ2IjoxfQ", approved=True)
+        self.assertFalse((self.store.get(slug).get("delivery") or {}).get("active"))  # approval alone: still off
+        self.assertEqual(self.code(lambda: self.store.set_delivery(slug, True, False)), "consent_required")
+        on = self.store.set_delivery(slug, True, True)
+        self.assertTrue(on["delivery"]["active"])
+        self.assertEqual(on["delivery"]["consent"], "mycast-delivery-consent-2026-11-07")
+        self.store.set_delivery(slug, False, False)                                     # stop really revokes
+        self.assertFalse(self.store.get(slug)["delivery"]["active"])
+        actions = [a["action"] for a in self.store.get(slug)["audit"]]
+        self.assertEqual(actions, ["approved", "delivery_enabled", "delivery_stopped"])
+
+    def test_google_listener_without_telegram_cannot_enable(self):
+        slug = self.gg["slug"]
+        self.store.save_code(slug, "eyJ2IjoxfQ", approved=True)
+        self.assertEqual(self.code(lambda: self.store.set_delivery(slug, True, True)), "telegram_not_linked")
+
+    def test_edit_after_approval_pauses_delivery(self):
+        slug = self.tg["slug"]
+        self.store.save_code(slug, "eyJ2IjoxfQ", approved=True)
+        self.store.set_delivery(slug, True, True)
+        rec = self.store.save_code(slug, "eyJ2IjoyfQ")                                  # a different podcast
+        self.assertEqual((rec["delivery"]["active"], rec["delivery"]["paused_reason"], rec["approved_code"]), (False, "profile_changed", ""))
+        self.assertEqual(self.code(lambda: self.store.set_delivery(slug, True, True)), "profile_not_approved")
+
+    def test_send_limit(self):
+        slug = self.tg["slug"]
+        for _ in range(3):
+            self.store.take_send(slug, "test")
+        self.assertEqual(self.code(lambda: self.store.take_send(slug, "test")), "send_limit")
+
+
 class RoutesTest(unittest.TestCase):
     def test_flow(self):
         from fastapi import FastAPI
         with tempfile.TemporaryDirectory() as d:
             app = FastAPI()
             store = ListenerStore(Path(d) / "l.json", clock=lambda: NOW)
+            sent = []
             install_mycast_account_routes(app, store, secret="s", bot_token=lambda: BOT, bot_username=lambda: "FactoryOSBot",
                                           google_client_id=lambda: "cid", clock=lambda: NOW,
+                                          send_message=lambda chat, text: sent.append(("msg", chat)),
+                                          send_sample=lambda chat, job: sent.append(("sample", chat, job)),
                                           google_verify=lambda c: {"sub": "g-1", "given_name": "Olena"} if c == "good" else (_ for _ in ()).throw(ValueError()))
             h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
 
@@ -105,7 +160,9 @@ class RoutesTest(unittest.TestCase):
                     return self.body
 
             run = asyncio.run
-            self.assertEqual(h[("GET", "/api/mycast/account/config")](), {"telegram_bot": "FactoryOSBot", "google_client_id": "cid"})
+            cfg = h[("GET", "/api/mycast/account/config")]()
+            self.assertEqual((cfg["telegram_bot"], cfg["telegram_bot_id"], cfg["google_client_id"]), ("FactoryOSBot", "123456", "cid"))
+            self.assertNotIn("TEST-token", json.dumps(cfg))                                           # never the secret part
             r = run(h[("POST", "/api/mycast/account/telegram")](Req(tg_login())))
             listener = json.loads(r.body)["listener"]
             cookie = r.headers["set-cookie"].split(";")[0].split("=", 1)[1]
@@ -122,6 +179,23 @@ class RoutesTest(unittest.TestCase):
             g = run(h[("POST", "/api/mycast/account/google")](Req({"credential": "good"})))
             self.assertEqual(json.loads(g.body)["listener"]["name"], "Olena")
             self.assertEqual(run(h[("POST", "/api/mycast/account/google")](Req({"credential": "bad"}))).status_code, 401)
+            # #281: a Google listener links Telegram to the same account; nothing is sent by linking
+            gcookie = g.headers["set-cookie"].split(";")[0].split("=", 1)[1]
+            linked = json.loads(run(h[("POST", "/api/mycast/account/telegram")](Req(tg_login(id=555), gcookie))).body)["listener"]
+            self.assertEqual((linked["slug"], linked["provider"], linked["telegram_linked"], linked["telegram_verified"]),
+                             (json.loads(g.body)["listener"]["slug"], "google", True, False))
+            self.assertEqual(sent, [])
+            # #281 delivery routes: off until approved + consented; messages only to the listener's own chat
+            self.assertEqual(json.loads(run(h[("POST", "/api/mycast/account/delivery")](Req({"enable": True, "consent": True}, cookie))).body)["detail"], "profile_not_approved")
+            run(h[("POST", "/api/mycast/account/podcast")](Req({"code": "eyJ2IjoxfQ", "approved": True}, cookie)))
+            self.assertEqual(json.loads(run(h[("POST", "/api/mycast/account/delivery/sample")](Req({"job": "a" * 32}, cookie))).body)["detail"], "delivery_off")
+            on = run(h[("POST", "/api/mycast/account/delivery")](Req({"enable": True, "consent": True}, cookie)))
+            self.assertTrue(on["listener"]["delivery"]["active"])
+            t = h[("POST", "/api/mycast/account/telegram/test")](Req(cookie=cookie))
+            self.assertTrue(t["listener"]["telegram_verified"])
+            run(h[("POST", "/api/mycast/account/delivery/sample")](Req({"job": "b" * 32}, cookie)))
+            self.assertEqual(sent, [("msg", "777"), ("sample", "777", "b" * 32)])                     # only chat 777
+            self.assertEqual(json.loads(run(h[("POST", "/api/mycast/account/delivery/sample")](Req({"job": "../x"}, cookie))).body)["detail"], "bad_job")
             gone = h[("DELETE", "/api/mycast/account")](Req(cookie=cookie))
             self.assertEqual(json.loads(gone.body), {"deleted": True})
             self.assertEqual(h[("GET", "/api/mycast/account/me")](Req(cookie=cookie)).status_code, 401)

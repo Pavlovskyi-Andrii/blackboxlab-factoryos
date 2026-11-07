@@ -176,6 +176,8 @@ jobs:
           python test_mycast_demo.py
           python -m py_compile mycast_accounts.py test_mycast_accounts.py
           python test_mycast_accounts.py
+          python -m py_compile mycast_voices.py test_mycast_voices.py
+          python test_mycast_voices.py
       - name: MVP Factory registry (#186)
         run: |
           python -m py_compile mvp_factory.py test_mvp_factory.py
