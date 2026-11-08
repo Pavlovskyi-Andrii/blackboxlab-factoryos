@@ -9030,12 +9030,30 @@ def _safe_int(value):
     except (TypeError,ValueError):return 0
 
 
+def relay_pr_reconcile_once():
+    """#289 round trip: follow Relay tickets' PRs (CI passed/failed, merged, closed) from the fresh EC2 GitHub
+    snapshot and tell the owner once per transition. A stale or missing snapshot changes nothing (unknown stays unknown)."""
+    ec2,snapshot_state=_intake_issues_from_ec2_snapshot()
+    if ec2 is None:
+        return {"ok":False,"snapshot":snapshot_state,"notices":0}
+    github=ec2["github"]
+    notices=RELAY_QUEUE.reconcile_pull_requests(github.get("pulls") or [],github.get("ci") if isinstance(github.get("ci"),dict) else {})
+    for n in notices:
+        try:_telegram_send(n["text"])
+        except Exception:pass
+    if notices:
+        print(json.dumps({"event":"RELAY_PR_RECONCILE","notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
+    return {"ok":True,"snapshot":snapshot_state,"notices":len(notices)}
+
 async def github_issue_intake_loop():
     await asyncio.sleep(60)
     while True:
         try:await asyncio.to_thread(github_issue_intake_once)
         except Exception as exc:
             print(json.dumps({"event":"GITHUB_ISSUE_INTAKE_ERROR","error":type(exc).__name__}),flush=True)
+        try:await asyncio.to_thread(relay_pr_reconcile_once)
+        except Exception as exc:
+            print(json.dumps({"event":"RELAY_PR_RECONCILE_ERROR","error":type(exc).__name__}),flush=True)
         await asyncio.sleep(FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC)
 
 
