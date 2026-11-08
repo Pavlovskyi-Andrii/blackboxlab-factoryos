@@ -224,6 +224,15 @@ class TestTelegramMatchesWeb(LaneBoardCase):
         self.assertIn(TEXT["ru"]["title"], text)
         self.assertIn("В работе 1", text)
 
+    def test_lane_board_text(self):
+        board = self.fixture_working()
+        texts = {lang: lane_board_text(board, lang) for lang in ("ru", "uk", "en")}
+        for lang in ("ru", "uk", "en"):
+            self.assertIn(TEXT[lang]["title"], texts[lang])
+        nums = {lang: re.findall(r"\d+", texts[lang]) for lang in ("ru", "uk", "en")}
+        self.assertEqual(nums["ru"], nums["uk"])
+        self.assertEqual(nums["ru"], nums["en"])
+
     def test_telegram_lang(self):
         self.assertEqual(telegram_lang('uk-UA'), 'uk')
         self.assertEqual(telegram_lang('EN'), 'en')
