@@ -1,0 +1,1320 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><link rel="icon" href="/static/favicon-32.png" sizes="32x32" type="image/png"><link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<title>MyCast Configurator</title>
+<!-- #261 MVP Factory pilot. Static prototype: no backend, no network calls, no schedule, no delivery, no AI episode. -->
+<style>
+:root{
+  /* Midnight canvas, aurora light (violet / cyan / teal) and one warm coral accent for "your choice". */
+  --bg:#070a16;--bg2:#0b1024;--glass:rgba(20,27,54,.58);--glass2:rgba(28,37,72,.62);--edge:rgba(160,180,255,.14);--edge2:rgba(160,180,255,.26);
+  --ink:#eef1ff;--mute:#a3abc9;--dim:#717a9c;
+  --violet:#8b7bff;--cyan:#4fe3ff;--teal:#3ee6c1;--coral:#ff7a6b;--coral-ink:#2a0d08;--warn:#ffd27a;--bad:#ff8f86;--ok:#79e8b0;
+  --display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --r:18px;--px:0;--py:0;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}  /* a class with display:grid/flex must never override hidden */
+html{scroll-behavior:smooth}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--body);-webkit-text-size-adjust:100%}
+body{overflow-x:hidden;padding-bottom:84px}
+@media (min-width:960px){body{padding-bottom:0}}
+
+/* Aurora: three soft light fields that drift slowly and lean toward the pointer. */
+.aurora{position:fixed;inset:-20vmax;z-index:0;pointer-events:none;overflow:hidden}
+.aurora i{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;will-change:transform}
+.aurora .a1{width:60vmax;height:60vmax;left:5vmax;top:-5vmax;background:radial-gradient(circle at 40% 40%,#5b43ff 0,rgba(91,67,255,0) 65%);animation:drift1 34s ease-in-out infinite alternate;translate:calc(var(--px)*-26px) calc(var(--py)*-20px)}
+.aurora .a2{width:55vmax;height:55vmax;right:0;top:10vmax;background:radial-gradient(circle at 60% 40%,#00c8ff 0,rgba(0,200,255,0) 62%);opacity:.38;animation:drift2 40s ease-in-out infinite alternate;translate:calc(var(--px)*34px) calc(var(--py)*24px)}
+.aurora .a3{width:50vmax;height:50vmax;left:30vmax;bottom:-10vmax;background:radial-gradient(circle,#11d6a8 0,rgba(17,214,168,0) 60%);opacity:.26;animation:drift3 46s ease-in-out infinite alternate;translate:calc(var(--px)*-18px) calc(var(--py)*30px)}
+@keyframes drift1{to{transform:translate(8vmax,6vmax) scale(1.08)}}
+@keyframes drift2{to{transform:translate(-10vmax,4vmax) scale(.94)}}
+@keyframes drift3{to{transform:translate(-6vmax,-8vmax) scale(1.1)}}
+.grain{position:fixed;inset:0;z-index:0;pointer-events:none;background:linear-gradient(180deg,rgba(7,10,22,0) 0,rgba(7,10,22,.65) 70%,var(--bg) 100%)}
+
+.wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:18px max(16px,env(safe-area-inset-right,0px)) 56px max(16px,env(safe-area-inset-left,0px));display:grid;gap:28px;min-width:0}
+header.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px;font:700 12px/1.2 var(--mono);letter-spacing:.18em;color:var(--mute);text-transform:uppercase}
+.brand svg{flex:none}
+.topR{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.langs{display:flex;gap:4px;padding:3px;border:1px solid var(--edge);border-radius:999px;background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.langs button{font:600 12px var(--mono);background:transparent;color:var(--mute);border:0;border-radius:999px;padding:6px 11px;cursor:pointer}
+.langs button[aria-pressed="true"]{color:var(--bg);background:var(--ink)}
+.pill{display:inline-flex;align-items:center;gap:7px;font:600 12px/1 var(--mono);letter-spacing:.05em;padding:8px 12px;border-radius:999px;border:1px solid var(--edge);background:var(--glass);white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 10px currentColor}
+.pill.state-draft{color:var(--mute)}.pill.state-preview_ready{color:var(--cyan)}.pill.state-reviewed{color:var(--warn)}.pill.state-approved{color:var(--ok)}
+
+/* Hero */
+.hero{display:grid;gap:24px;align-items:center;grid-template-columns:minmax(0,1fr)}
+@media (min-width:900px){.hero{grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:36px;min-height:min(560px,78vh)}}
+.eyebrow{font:700 12px var(--mono);letter-spacing:.2em;text-transform:uppercase;background:linear-gradient(90deg,var(--cyan),var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
+h1{font:700 clamp(34px,6.2vw,64px)/1.02 var(--display);margin:10px 0 14px;letter-spacing:-.01em;text-wrap:balance}
+h1 em{font-style:italic;background:linear-gradient(100deg,#c9c2ff 0,var(--cyan) 45%,var(--teal) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{color:#c8cee8;max-width:58ch;margin:0;font-size:17px}
+.ctaRow{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+.cta{font:700 15px var(--body);background:linear-gradient(135deg,#ff9a7b,var(--coral));color:var(--coral-ink);border:0;border-radius:999px;padding:13px 22px;cursor:pointer;box-shadow:0 10px 30px -10px rgba(255,122,107,.7);transition:transform .2s,box-shadow .2s}
+.cta:hover{transform:translateY(-1px);box-shadow:0 14px 34px -10px rgba(255,122,107,.85)}
+.ghost{font:600 15px var(--body);background:var(--glass);color:var(--ink);border:1px solid var(--edge2);border-radius:999px;padding:12px 20px;cursor:pointer;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.simNote{margin-top:14px;font:12.5px/1.45 var(--mono);color:var(--dim)}
+
+.stage{position:relative;border-radius:28px;border:1px solid var(--edge);background:radial-gradient(120% 90% at 30% 20%,rgba(91,67,255,.22),rgba(7,10,22,.2) 60%),var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);padding:10px;min-width:0;box-shadow:0 30px 80px -40px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.06)}
+.stage svg{display:block;width:100%;height:auto}
+.stage .lbl{font:600 11px var(--mono);letter-spacing:.08em;fill:#d6dcff;text-transform:uppercase}
+.stage .sub{font:10px var(--mono);fill:#8f98c2}
+.stage .node{fill:rgba(12,16,36,.9);stroke:url(#gEdge);stroke-width:1.4}
+.stage .halo{fill:none;stroke:rgba(79,227,255,.25);stroke-width:1;transform-box:fill-box;transform-origin:center;animation:halo 3.2s ease-out infinite}
+.stage .halo.d2{animation-delay:.8s}.stage .halo.d3{animation-delay:1.6s}.stage .halo.d4{animation-delay:2.4s}
+@keyframes halo{from{transform:scale(.7);opacity:.9}to{transform:scale(1.7);opacity:0}}
+.stage .simTag{position:absolute;left:18px;top:16px;font:600 10.5px var(--mono);letter-spacing:.1em;color:var(--warn);border:1px solid rgba(255,210,122,.35);background:rgba(40,30,10,.55);padding:5px 9px;border-radius:999px;text-transform:uppercase}
+
+/* Three builders */
+.sectionHead{display:grid;gap:6px;max-width:70ch}
+.sectionHead h2{font:700 clamp(24px,3.6vw,34px)/1.1 var(--display);margin:0}
+.sectionHead p{margin:0;color:var(--mute)}
+.builders{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));counter-reset:b}
+.builder{position:relative;padding:20px;border-radius:var(--r);border:1px solid var(--edge);background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);overflow:hidden;transition:transform .25s,border-color .25s}
+.builder:hover{transform:translateY(-2px);border-color:var(--edge2)}
+.builder::after{content:"";position:absolute;inset:auto -30% -60% auto;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,var(--glow,rgba(139,123,255,.35)),transparent 70%);pointer-events:none}
+.builder .n{font:700 12px var(--mono);color:var(--dim);letter-spacing:.14em}
+.builder h3{margin:8px 0 6px;font:700 19px var(--body)}
+.builder p{margin:0 0 12px;color:var(--mute);font-size:14.5px}
+.builder a{color:var(--cyan);font:600 13px var(--mono);text-decoration:none;border-bottom:1px solid rgba(79,227,255,.35)}
+.builder .done{display:inline-flex;gap:6px;align-items:center;margin-left:8px;font:600 11px var(--mono);color:var(--ok)}
+
+/* Configurator layout: steps + sticky "podcast DNA" */
+.layout{display:grid;gap:22px;grid-template-columns:minmax(0,1fr);align-items:start}
+@media (min-width:960px){.layout{grid-template-columns:minmax(0,1fr) 340px}}
+.steps{display:grid;gap:18px;min-width:0}
+section.step{scroll-margin-top:16px;background:var(--glass);border:1px solid var(--edge);border-radius:var(--r);padding:20px;display:grid;gap:14px;min-width:0;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+section.step>h2{margin:0;font:700 22px var(--display);display:flex;gap:12px;align-items:baseline}
+section.step>h2 small{font:700 12px var(--mono);color:var(--cyan);letter-spacing:.12em}
+.hint{color:var(--mute);font-size:14px;margin:0}
+input[type=search],input[type=text],input[type=url],input[type=time],select{font:15px var(--body);background:rgba(9,13,30,.75);color:var(--ink);border:1px solid var(--edge2);border-radius:12px;padding:10px 12px;min-width:0;max-width:100%;transition:border-color .2s,box-shadow .2s}
+input:focus,select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(79,227,255,.15);outline:none}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.field{display:grid;gap:5px;min-width:0}.field>label,.field>.lab{font-size:13px;color:var(--mute)}
+.btns{display:flex;flex-wrap:wrap;gap:10px}
+.btn{font:600 14px var(--body);border-radius:12px;padding:10px 15px;border:1px solid var(--edge2);background:rgba(28,37,72,.7);color:var(--ink);cursor:pointer;transition:background .2s,transform .15s}
+.btn:hover:not([disabled]){background:rgba(44,56,104,.85)}
+.btn:active:not([disabled]){transform:scale(.98)}
+.btn.primary{background:linear-gradient(135deg,#ff9a7b,var(--coral));color:var(--coral-ink);border-color:transparent}
+.btn.primary:hover:not([disabled]){background:linear-gradient(135deg,#ffab90,#ff8a7d)}  /* keep the gradient: plain .btn:hover replaced it */
+.btn[disabled]{opacity:.42;cursor:not-allowed}
+
+details.cat{border:1px solid var(--edge);border-radius:14px;background:rgba(10,14,32,.55);transition:border-color .2s}
+details.cat[open]{border-color:var(--edge2)}
+details.cat>summary{cursor:pointer;padding:13px 15px;font-weight:700;display:flex;align-items:center;gap:10px;list-style:none}
+details.cat>summary::-webkit-details-marker{display:none}
+details.cat>summary .dot{width:10px;height:10px;border-radius:50%;background:var(--c);box-shadow:0 0 12px var(--c);flex:none}
+details.cat>summary .count{margin-left:auto;font:700 12px var(--mono);color:var(--bg);background:var(--c);border-radius:999px;padding:2px 8px}
+details.cat>summary .count:empty{display:none}
+details.cat>summary .chev{color:var(--dim);transition:transform .25s}
+details.cat[open]>summary .chev{transform:rotate(90deg)}
+.groups{padding:0 15px 14px;display:grid;gap:12px}
+.group h4{margin:4px 0 8px;font:600 12px var(--mono);color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
+.topics{display:flex;flex-wrap:wrap;gap:8px}
+.topic{position:relative;display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border:1px solid var(--edge2);border-radius:999px;background:rgba(20,27,54,.7);cursor:pointer;font-size:14px;transition:border-color .2s,background .2s,transform .15s;user-select:none}
+.topic:hover{transform:translateY(-1px)}
+.topic input{position:absolute;opacity:0;pointer-events:none}
+.topic .tick{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--dim);display:grid;place-items:center;transition:all .2s;flex:none}
+.topic .tick::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--c);transform:scale(0);transition:transform .2s}
+.topic:has(input:checked){border-color:var(--c);background:color-mix(in srgb,var(--c) 16%,rgba(20,27,54,.8))}
+.topic:has(input:checked) .tick{border-color:var(--c)}
+.topic:has(input:checked) .tick::after{transform:scale(1)}
+.topic:has(input:focus-visible){outline:2px solid var(--cyan);outline-offset:2px}
+.scopes{display:grid;gap:8px}
+.scopeRow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:14px;padding:8px 10px;border-radius:12px;background:rgba(10,14,32,.5);border:1px solid var(--edge)}
+.scopeRow b{min-width:0;flex:1 1 160px;font-weight:600}
+.empty{color:var(--dim);font-size:14px;margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 6px 6px 11px;border-radius:999px;border:1px solid var(--edge2);background:rgba(20,27,54,.7);font-size:14px;max-width:100%}
+.chip small{font:600 10px var(--mono);color:var(--cyan);text-transform:uppercase;letter-spacing:.06em}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.chip button{border:0;background:rgba(255,255,255,.08);color:var(--ink);width:24px;height:24px;border-radius:50%;cursor:pointer;flex:none}
+
+.chan{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.chan label{position:relative;display:grid;gap:4px;padding:14px;border:1px solid var(--edge);border-radius:14px;background:rgba(10,14,32,.55);cursor:pointer;transition:border-color .2s}
+.chan label:has(input:checked){border-color:var(--coral);background:rgba(60,24,24,.35)}
+.chan label.off{cursor:not-allowed;opacity:.6}
+.chan .nm{display:flex;align-items:center;gap:8px;font-weight:700;min-width:0}
+.chan .tags{display:flex;flex-wrap:wrap;gap:6px}
+.chan input{accent-color:var(--coral)}
+.chan .why{font-size:12.5px;color:var(--mute)}
+.tag{font:600 10.5px var(--mono);padding:3px 7px;border-radius:999px;border:1px solid var(--edge2);color:var(--mute);white-space:nowrap}
+.tag.no{color:var(--bad);border-color:rgba(255,143,134,.35)}.tag.yes{color:var(--ok);border-color:rgba(121,232,176,.4)}.tag.plan{color:var(--warn);border-color:rgba(255,210,122,.35)}.tag.pri{color:var(--coral);border-color:rgba(255,122,107,.45)}
+
+/* Own entry in each row, social platforms, quick-pick people, weekday dots, share. */
+.ownRow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.ownRow input{flex:1 1 180px;padding:7px 11px;border-radius:999px;font-size:14px;border-style:dashed}
+.ownRow .chip{border-color:var(--c)}
+.platforms{display:flex;flex-wrap:wrap;gap:8px}
+.plat{display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border-radius:12px;border:1px solid var(--edge2);background:rgba(20,27,54,.7);color:var(--ink);font:600 13.5px var(--body);cursor:pointer}
+.plat svg{width:18px;height:18px;flex:none}
+.plat[aria-checked="true"]{border-color:var(--cyan);background:rgba(79,227,255,.12)}
+.people{display:flex;flex-wrap:wrap;gap:10px}
+.person{display:inline-flex;align-items:center;gap:8px;padding:5px 12px 5px 5px;border-radius:999px;border:1px solid var(--edge2);background:rgba(20,27,54,.7);color:var(--ink);font:600 13.5px var(--body);cursor:pointer}
+.person .av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:700 12px var(--mono);color:#0b1024;background:linear-gradient(135deg,var(--cyan),var(--violet))}
+.person .pl{font-size:16px;line-height:1;color:var(--cyan)}
+.person[aria-pressed="true"]{border-color:var(--ok);background:rgba(121,232,176,.12)}
+.person[aria-pressed="true"] .pl{color:var(--ok)}
+.chip .ic svg{width:14px;height:14px;display:block}
+.days{display:flex;flex-wrap:wrap;gap:8px}
+.day{width:46px;height:46px;border-radius:50%;border:1.5px solid var(--edge2);background:rgba(20,27,54,.7);color:var(--mute);font:700 13px var(--mono);cursor:pointer;transition:all .2s}
+.day[aria-pressed="true"]{background:linear-gradient(135deg,#ff9a7b,var(--coral));color:var(--coral-ink);border-color:transparent}
+.msg{font-size:13.5px;color:var(--bad);min-height:0}
+.msg.ok{color:var(--ok)}
+textarea{font:13px var(--mono);background:rgba(9,13,30,.75);color:var(--ink);border:1px solid var(--edge2);border-radius:12px;padding:10px;width:100%;resize:vertical}
+details.jsonBox>summary{cursor:pointer;color:var(--mute);font-size:14px;margin-bottom:8px}
+.prog{display:grid;gap:6px}
+.prog .bar{height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.prog .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--violet),var(--coral));transition:width .6s ease}
+.prog span{font:600 13px var(--mono);color:var(--mute)}
+.voicePick{display:grid;gap:14px}
+.vslot h4{margin:0 0 8px;font:700 14px var(--body)}
+.vslot .sub{font-size:12.5px;color:var(--mute);margin:0 0 8px}
+.vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.vcard{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 4px;border-radius:14px;border:1px solid var(--edge2);background:rgba(20,27,54,.7)}
+.vpick{flex:1;display:grid;gap:2px;min-width:0;padding:6px 8px;border:0;background:none;color:var(--ink);text-align:left;cursor:pointer;border-radius:10px}
+.vpick b{font-size:14px}.vpick small{color:var(--mute);font-size:12px}
+.vcard:has(.vpick[aria-checked="true"]){border-color:var(--coral);background:rgba(60,24,24,.4)}
+.vpick[aria-checked="true"] b::after{content:" ✓";color:var(--coral)}
+.vplay{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--edge2);background:rgba(9,13,30,.8);color:var(--cyan);font-size:14px;cursor:pointer}
+.vplay[disabled]{opacity:.35;cursor:not-allowed}
+.vplay.busy{animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.4}}
+.calm .vplay.busy{animation:none}
+.tgCta{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:18px 22px;border-radius:18px;border:0;cursor:pointer;
+  font:800 clamp(18px,4.6vw,22px) var(--body);color:#fff;background:linear-gradient(135deg,#2aabee,#229ed9);box-shadow:0 14px 34px -14px rgba(42,171,238,.9)}
+.tgCta svg{width:34px;height:34px;flex:none}
+.tgCta[disabled]{opacity:.5;cursor:not-allowed}
+.tgState{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-weight:700}
+.tgList{margin:0;padding-left:20px;color:var(--mute);font-size:13.5px}
+.tgList li.ok{color:var(--ok)}
+.authRow{display:flex;flex-wrap:wrap;gap:12px;align-items:center;min-height:44px}
+.hint.small{font-size:12.5px}
+.accHello{display:flex;align-items:center;gap:10px;margin:0;font-weight:700}
+.accHello .av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font:700 13px var(--mono);color:#0b1024;background:linear-gradient(135deg,var(--cyan),var(--violet))}
+.qrBox{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.qrBox[hidden]{display:none}
+.qr{width:min(320px,100%);aspect-ratio:1;background:#fff;border-radius:18px;padding:12px}
+.qr svg{display:block;width:100%;height:100%}
+.qrSide{flex:1 1 200px;display:grid;gap:10px}
+.offer{margin-top:18px;display:grid;gap:4px;padding:14px 16px;border-radius:18px;border:1px solid rgba(255,154,123,.55);background:linear-gradient(135deg,rgba(255,122,107,.18),rgba(139,123,255,.16))}
+.offer b{font:800 clamp(17px,4.2vw,21px)/1.25 var(--body);color:var(--ink)}.offer span{color:var(--mute);font-size:13.5px}
+.offer.gift{border-color:rgba(62,230,193,.7);background:linear-gradient(135deg,rgba(62,230,193,.2),rgba(79,227,255,.14))}
+.triggers{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.trig{display:grid;gap:8px;align-content:start;padding:18px;border-radius:20px;border:1px solid var(--edge);background:var(--glass);color:var(--ink);text-align:left;cursor:pointer;font:inherit}
+.trig .n{font:700 12px var(--mono);color:var(--cyan)}.trig b{font:800 18px/1.25 var(--body)}.trig span{color:var(--mute);font-size:13.5px}
+.trig:hover{border-color:var(--coral)}
+.ideas{margin:0;padding-left:20px;display:grid;gap:8px;color:var(--mute)}.ideas b{color:var(--ink)}
+.ideas .st{font:700 11px var(--mono);padding:2px 7px;border-radius:99px;margin-left:6px;border:1px solid var(--edge2);color:var(--dim)}.ideas .st.on{color:var(--ok);border-color:var(--ok)}
+.qrGift{margin:0;font-weight:800;color:#0b1024;background:#fff;border-radius:12px;padding:8px 10px;text-align:center}
+.invite{display:grid;gap:6px;margin-top:12px;padding:12px 14px;border-radius:14px;border:1px dashed var(--edge2)}
+.banner{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:16px;border:1px solid rgba(79,227,255,.45);background:rgba(10,30,50,.75)}
+.banner[hidden]{display:none}
+/* Player + waveform: bars move only while the browser is really speaking. */
+.player{display:grid;gap:14px;padding:16px;border-radius:16px;border:1px solid var(--edge2);background:linear-gradient(135deg,rgba(91,67,255,.18),rgba(0,200,255,.08)),rgba(10,14,32,.6)}
+.wave{display:flex;align-items:center;gap:3px;height:54px}
+.wave i{flex:1;min-width:2px;border-radius:3px;height:calc(var(--h)*1%);background:linear-gradient(180deg,var(--cyan),var(--violet));opacity:.35;transform-origin:center;transition:opacity .3s}
+.player.playing .wave i{opacity:1;animation:bar 1.1s ease-in-out infinite;animation-delay:calc(var(--i)*-73ms)}
+@keyframes bar{0%,100%{transform:scaleY(.35)}50%{transform:scaleY(1)}}
+.status{font-size:14px;padding:11px 13px;border-radius:12px;border:1px solid var(--edge);background:rgba(10,14,32,.55)}
+.status.bad{color:var(--bad);border-color:rgba(255,143,134,.35)}.status.ok{color:var(--ok);border-color:rgba(121,232,176,.4)}.status.info{color:var(--cyan);border-color:rgba(79,227,255,.35)}
+.errors{margin:0;padding-left:20px;color:var(--bad);font-size:14px}
+.errors:empty{display:none}
+.confirm{display:flex;gap:10px;align-items:flex-start;font-size:15px}
+.confirm input{width:20px;height:20px;accent-color:var(--coral);margin-top:2px;flex:none}
+pre{margin:0;background:rgba(4,6,14,.85);border:1px solid var(--edge);border-radius:12px;padding:12px;font:12.5px/1.5 var(--mono);color:#cfd6f4;overflow:auto;max-height:340px}
+
+/* Podcast DNA */
+.dna{position:sticky;top:16px;display:grid;gap:14px;padding:18px;border-radius:22px;border:1px solid var(--edge2);background:linear-gradient(160deg,rgba(91,67,255,.2),rgba(7,10,22,.1) 55%),var(--glass2);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 30px 70px -40px rgba(0,0,0,.95)}
+.dna h3{margin:0;font:700 12px var(--mono);letter-spacing:.16em;color:var(--mute);text-transform:uppercase}
+.cover{border-radius:16px;overflow:hidden;aspect-ratio:1;border:1px solid var(--edge2);background:#0b1024}
+.cover svg{display:block;width:100%;height:100%}
+.counter{display:flex;align-items:baseline;gap:8px}
+.counter b{font:700 40px/1 var(--display);transition:transform .3s}
+.counter b.bump{transform:scale(1.15)}
+.counter span{color:var(--mute);font-size:14px}
+.mix{display:flex;height:10px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.06)}
+.mix i{display:block;height:100%;transition:width .45s cubic-bezier(.2,.8,.2,1)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12.5px;color:var(--mute)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend span::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c)}
+.facts{display:grid;gap:6px;margin:0;font-size:13.5px}
+.facts div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--edge);padding-bottom:6px}
+.facts dt{color:var(--mute)}.facts dd{margin:0;text-align:right;min-width:0;overflow-wrap:anywhere}
+.progress{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:13.5px}
+.progress li{display:flex;gap:8px;align-items:center;color:var(--mute)}
+.progress li::before{content:"";width:16px;height:16px;border-radius:50%;border:1.5px solid var(--dim);flex:none}
+.progress li.on{color:var(--ink)}
+.progress li.on::before{border-color:var(--ok);background:radial-gradient(circle,var(--ok) 0 4px,transparent 5px)}
+
+/* FAQ */
+.faq{display:grid;gap:10px}
+.faq details{border:1px solid var(--edge);border-radius:14px;background:var(--glass);padding:0 16px;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.faq summary{cursor:pointer;padding:14px 0;font-weight:700;list-style:none}
+.faq summary::-webkit-details-marker{display:none}
+.faq p{margin:0 0 14px;color:var(--mute)}
+footer{color:var(--dim);font-size:13px;text-align:center}
+
+/* Mobile action bar */
+.mbar{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;align-items:center;gap:12px;padding:10px max(14px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(14px,env(safe-area-inset-left,0px));background:rgba(9,12,28,.86);border-top:1px solid var(--edge2);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.mbar .sum{flex:1;min-width:0;font-size:13.5px;line-height:1.3}
+.mbar .sum b{font-size:15px}
+.mbar .sum span{display:block;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (min-width:960px){.mbar{display:none}}
+
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+/* Calm mode: reduced motion or a low-power device. Everything still works; nothing drifts or pulses. */
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+.calm .aurora i,.calm .stage .halo,.calm .player.playing .wave i{animation:none!important}
+.calm .aurora i{translate:none!important}
+.calm .player.playing .wave i{opacity:1}
+.lowfx .aurora i{filter:blur(40px)}
+.lowfx .stage,.lowfx section.step,.lowfx .builder,.lowfx .dna,.lowfx .faq details,.lowfx .mbar,.lowfx .langs{backdrop-filter:none;-webkit-backdrop-filter:none}
+</style>
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+<div class="grain" aria-hidden="true"></div>
+
+<div class="wrap">
+  <div class="banner" id="importBanner" hidden role="status"><span data-t="imp_banner"></span><div class="btns"><button class="btn primary" type="button" id="impUse" data-t="imp_use"></button><button class="btn" type="button" id="impKeep" data-t="imp_keep"></button></div></div>
+  <header class="top">
+    <span class="brand"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="bl" x1="0" x2="1"><stop offset="0" stop-color="#4fe3ff"/><stop offset="1" stop-color="#8b7bff"/></linearGradient></defs><circle cx="12" cy="12" r="10" fill="none" stroke="url(#bl)" stroke-width="2"/><path d="M7 14v-4M10 16V8M14 15V9M17 13v-2" stroke="url(#bl)" stroke-width="2" stroke-linecap="round"/></svg>MyCast · MVP Factory</span>
+    <div class="topR">
+      <span id="statePill" class="pill state-draft" role="status"></span>
+      <div class="langs" role="group" aria-label="Language">
+        <button type="button" data-lang="uk">УКР</button><button type="button" data-lang="ru">RU</button><button type="button" data-lang="en">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="hero" aria-labelledby="heroTitle">
+    <div>
+      <div class="eyebrow" data-t="eyebrow"></div>
+      <h1 id="heroTitle"><span data-t="title_a"></span> <em data-t="title_b"></em></h1>
+      <p class="lede" data-t="lede"></p>
+      <div class="ctaRow">
+        <button class="cta" type="button" id="tryDemo" data-t="cta"></button>
+        <button class="ghost" type="button" id="howBtn" data-t="how"></button>
+      </div>
+      <div class="offer" id="offer"><b id="offerTitle"></b><span id="offerSub"></span></div>
+      <p class="simNote" data-t="sim_note"></p>
+    </div>
+    <div class="stage" id="stage">
+      <span class="simTag" data-t="sim_tag"></span>
+      <svg viewBox="0 0 520 380" role="img" aria-labelledby="stageTitle">
+        <title id="stageTitle" data-t="stage_title"></title>
+        <defs>
+          <linearGradient id="gEdge" x1="0" x2="1"><stop offset="0" stop-color="#4fe3ff"/><stop offset="1" stop-color="#8b7bff"/></linearGradient>
+          <linearGradient id="gPath" x1="0" x2="1"><stop offset="0" stop-color="#4fe3ff" stop-opacity=".1"/><stop offset=".5" stop-color="#8b7bff" stop-opacity=".7"/><stop offset="1" stop-color="#ff7a6b" stop-opacity=".9"/></linearGradient>
+          <radialGradient id="gDisc"><stop offset="0" stop-color="#ff9a7b"/><stop offset=".55" stop-color="#8b7bff"/><stop offset="1" stop-color="#1a1f45"/></radialGradient>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <g opacity=".35" stroke="#8f98c2" stroke-width=".6" fill="#8f98c2">
+          <circle cx="40" cy="60" r="1.2"/><circle cx="120" cy="40" r="1"/><circle cx="250" cy="70" r="1.4"/><circle cx="340" cy="40" r="1"/><circle cx="470" cy="60" r="1.2"/>
+          <circle cx="30" cy="190" r="1"/><circle cx="230" cy="330" r="1.2"/><circle cx="360" cy="320" r="1"/><circle cx="500" cy="170" r="1"/><circle cx="110" cy="350" r="1.3"/>
+        </g>
+        <path id="flow" d="M18,300 C70,300 82,150 140,150 S228,250 262,250 S330,120 372,120 S420,270 448,268" fill="none" stroke="url(#gPath)" stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round"/>
+        <g id="particles" filter="url(#glow)"></g>
+        <g>
+          <circle class="halo" cx="140" cy="150" r="22"/><circle class="node" cx="140" cy="150" r="22"/>
+          <path d="M133 150a7 7 0 1 0 14 0a7 7 0 1 0-14 0M146 155l5 5" stroke="#4fe3ff" stroke-width="2" fill="none" stroke-linecap="round"/>
+          <text class="lbl" x="140" y="196" text-anchor="middle" data-t="n1"></text><text class="sub" x="140" y="210" text-anchor="middle" data-t="n1s"></text>
+        </g>
+        <g>
+          <circle class="halo d2" cx="262" cy="250" r="22"/><circle class="node" cx="262" cy="250" r="22"/>
+          <path d="M254 243h16M254 250h16M254 257h10" stroke="#a99bff" stroke-width="2" stroke-linecap="round"/>
+          <text class="lbl" x="262" y="296" text-anchor="middle" data-t="n2"></text><text class="sub" x="262" y="310" text-anchor="middle" data-t="n2s"></text>
+        </g>
+        <g>
+          <circle class="halo d3" cx="372" cy="120" r="22"/><circle class="node" cx="372" cy="120" r="22"/>
+          <path d="M364 128l4-12 12-4-4 12z" stroke="#3ee6c1" stroke-width="2" fill="none" stroke-linejoin="round"/>
+          <text class="lbl" x="372" y="70" text-anchor="middle" data-t="n3"></text><text class="sub" x="372" y="84" text-anchor="middle" data-t="n3s"></text>
+        </g>
+        <g>
+          <circle class="halo d4" cx="448" cy="268" r="34"/>
+          <circle cx="448" cy="268" r="34" fill="url(#gDisc)"/>
+          <circle cx="448" cy="268" r="9" fill="#070a16"/><circle cx="448" cy="268" r="3" fill="#eef1ff"/>
+          <text class="lbl" x="448" y="330" text-anchor="middle" data-t="n4"></text><text class="sub" x="448" y="344" text-anchor="middle" data-t="n4s"></text>
+        </g>
+        <g id="chipCloud" font-family="ui-monospace,Menlo,monospace" font-size="10.5"></g>
+      </svg>
+    </div>
+  </section>
+
+  <section aria-label="MyCast" class="triggers" id="triggers">
+    <button type="button" class="trig" data-go="#stepTopics"><span class="n">01</span><b data-t="tr1"></b><span data-t="tr1s"></span></button>
+    <button type="button" class="trig" data-go="#stepGeo"><span class="n">02</span><b data-t="tr2"></b><span data-t="tr2s"></span></button>
+    <button type="button" class="trig" data-go="#stepShare"><span class="n">03</span><b data-t="tr3"></b><span data-t="tr3s"></span></button>
+  </section>
+
+  <section class="step" id="stepAccount" aria-labelledby="accTitle" hidden>
+    <h2 id="accTitle"><small>00</small><span data-t="acc_h"></span></h2>
+    <div id="accOut">
+      <p class="hint" data-t="acc_hint"></p>
+      <div class="authRow"><div id="googleBtn"></div><div id="tgBtn"></div></div>
+      <p class="hint small" data-t="acc_privacy"></p>
+    </div>
+    <div id="accIn" hidden>
+      <p class="accHello"><span class="av" id="accAv"></span><span id="accName"></span><span class="tag" id="accVia"></span></p>
+      <div class="btns">
+        <button class="btn primary" type="button" id="accSave" data-t="acc_save"></button>
+        <button class="btn" type="button" id="accPage" data-t="acc_page"></button>
+        <button class="btn" type="button" id="accOutBtn" data-t="acc_logout"></button>
+        <button class="btn" type="button" id="accDelete" data-t="acc_delete"></button>
+      </div>
+      <div class="invite"><b id="inviteDays"></b><span class="hint" id="inviteSub"></span><div class="btns"><button class="btn primary" type="button" id="inviteBtn" data-t="inv_btn"></button></div></div>
+    </div>
+    <div class="msg" id="accMsg" role="status" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="buildersTitle" style="display:grid;gap:16px" id="builders">
+    <div class="sectionHead"><h2 id="buildersTitle" data-t="b_h"></h2><p data-t="b_p"></p></div>
+    <div class="builders">
+      <article class="builder" style="--glow:rgba(79,227,255,.3)"><div class="n">01 · <span data-t="b1_role"></span></div><h3 data-t="b1_h"></h3><p data-t="b1_p"></p><a href="spec.json" target="_blank" rel="noopener">spec.json ↗</a><span class="done" data-t="b_done"></span></article>
+      <article class="builder" style="--glow:rgba(139,123,255,.35)"><div class="n">02 · <span data-t="b2_role"></span></div><h3 data-t="b2_h"></h3><p data-t="b2_p"></p><a href="#configurator" data-t="b2_link"></a><span class="done" data-t="b_done"></span></article>
+      <article class="builder" style="--glow:rgba(255,122,107,.3)"><div class="n">03 · <span data-t="b3_role"></span></div><h3 data-t="b3_h"></h3><p data-t="b3_p"></p><a href="README.md" target="_blank" rel="noopener">README · QA ↗</a><span class="done" data-t="b_done"></span></article>
+    </div>
+  </section>
+
+  <div class="layout" id="configurator">
+    <div class="steps">
+      <section class="step" id="stepTopics" aria-labelledby="h1s">
+        <h2 id="h1s"><small>01</small><span data-t="topics_h"></span></h2>
+        <p class="hint" data-t="topics_hint"></p>
+        <div class="row">
+          <div class="field" style="flex:1 1 240px"><label for="search" data-t="search"></label><input id="search" type="search" autocomplete="off"></div>
+          <div class="btns"><button class="btn" type="button" id="expandAll" data-t="expand"></button><button class="btn" type="button" id="collapseAll" data-t="collapse"></button></div>
+        </div>
+        <div id="taxonomy" class="scopes"></div>
+      </section>
+
+      <section class="step" id="stepGeo" aria-labelledby="h2s">
+        <h2 id="h2s"><small>02</small><span data-t="geo_h"></span></h2>
+        <p class="hint" data-t="geo_hint"></p>
+        <div id="scopeBox" class="scopes" aria-live="polite"></div>
+        <div class="field">
+          <span class="lab" data-t="soc_h"></span>
+          <p class="hint" data-t="soc_hint"></p>
+          <div class="platforms" id="platforms" role="radiogroup" aria-labelledby="h2s"></div>
+          <div class="row">
+            <div class="field" style="flex:1 1 220px"><label for="followValue" id="followLabel"></label><input id="followValue" type="text" maxlength="120" autocomplete="off"></div>
+            <button class="btn" type="button" id="followAdd" data-t="soc_add"></button>
+          </div>
+          <div class="msg" id="followMsg" role="status" aria-live="polite"></div>
+          <span class="lab" data-t="soc_quick"></span>
+          <div class="people" id="people"></div>
+          <div class="chips" id="follows" aria-live="polite"></div>
+        </div>
+        <div class="row">
+          <div class="field" style="flex:1 1 260px"><label for="freeText" data-t="free"></label><input id="freeText" type="text" maxlength="120"></div>
+          <div class="field" style="flex:1 1 260px"><label for="rss" data-t="rss"></label><input id="rss" type="url" placeholder="https://"></div>
+        </div>
+      </section>
+
+      <section class="step" id="stepVoice" aria-labelledby="h3s">
+        <h2 id="h3s"><small>03</small><span data-t="voice_h"></span></h2>
+        <p class="hint" data-t="sched_hint"></p>
+        <div class="row">
+          <div class="field"><label for="mode" data-t="mode"></label><select id="mode"></select></div>
+          <div class="field"><label for="vlang" data-t="vlang"></label><select id="vlang"></select></div>
+          <div class="field"><label for="dur" data-t="dur"></label><select id="dur"></select></div>
+        </div>
+        <div class="voicePick" id="voicePick"></div>
+        <div class="msg" id="voiceMsg" role="status" aria-live="polite"></div>
+        <audio id="sampleAudio" preload="none" hidden></audio>
+        <div class="row">
+          <div class="field"><label for="tz" data-t="tz"></label><select id="tz"></select></div>
+          <div class="field"><label for="time" data-t="time"></label><input id="time" type="time"></div>
+          <div class="field"><label for="freq" data-t="freq"></label><select id="freq"></select></div>
+        </div>
+        <div class="field" id="daysField"><span class="lab" data-t="days_h"></span><div class="days" id="days" role="group"></div></div>
+      </section>
+
+      <section class="step" id="stepDelivery" aria-labelledby="h4s">
+        <h2 id="h4s"><small>04</small><span data-t="deliv_h"></span></h2>
+        <p class="hint" data-t="deliv_hint"></p>
+        <div class="chan" id="channels" role="radiogroup" aria-labelledby="h4s"></div>
+      </section>
+
+      <section class="step" id="stepListen" aria-labelledby="h5s">
+        <h2 id="h5s"><small>05</small><span data-t="prev_h"></span></h2>
+        <ul class="errors" id="errors"></ul>
+        <div class="player" id="player">
+          <div class="wave" id="wave" aria-hidden="true"></div>
+          <div class="prog" id="prog" hidden role="progressbar" aria-valuemin="0" aria-valuemax="100"><div class="bar"><i id="progBar"></i></div><span id="progText"></span></div>
+          <audio id="audio" preload="auto" hidden></audio>
+          <div class="btns">
+            <button class="btn primary" type="button" id="previewBtn" data-t="preview"></button>
+            <button class="btn" type="button" id="stopBtn" data-t="stop" disabled></button>
+            <button class="btn" type="button" id="downloadBtn" data-t="download" disabled></button>
+          </div>
+        </div>
+        <div class="status" id="previewStatus" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="step" id="stepApprove" aria-labelledby="h6s">
+        <h2 id="h6s"><small>06</small><span data-t="appr_h"></span></h2>
+        <div class="btns"><button class="btn" type="button" id="reviewBtn" data-t="review" disabled></button></div>
+        <label class="confirm"><input type="checkbox" id="confirm" disabled> <span data-t="confirm"></span></label>
+        <div class="btns"><button class="btn primary" type="button" id="approveBtn" data-t="approve" disabled></button></div>
+        <div class="status" id="approveStatus" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="step" id="stepTelegram" aria-labelledby="h7t">
+        <h2 id="h7t"><small>07</small><span data-t="tg_h"></span></h2>
+        <div id="tgBox"></div>
+        <div class="msg" id="tgMsg" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="step" id="stepShare" aria-labelledby="h7s">
+        <h2 id="h7s"><small>08</small><span data-t="share_h"></span></h2>
+        <p class="hint" data-t="share_hint"></p>
+        <div class="btns">
+          <button class="btn primary" type="button" id="shareLink" data-t="share_link"></button>
+          <button class="btn" type="button" id="shareNative" data-t="share_native" hidden></button>
+          <button class="btn" type="button" id="showQr" data-t="share_qr"></button>
+          <button class="btn" type="button" id="copyJson" data-t="share_json"></button>
+          <button class="btn" type="button" id="importJsonBtn" data-t="share_import"></button>
+        </div>
+        <div class="msg" id="shareMsg" role="status" aria-live="polite"></div>
+        <div class="qrBox" id="qrBox" hidden>
+          <div class="qr" id="qr" role="img"></div>
+          <div class="qrSide"><p class="qrGift" data-t="qr_gift"></p><p class="hint" data-t="qr_hint"></p><div class="btns"><button class="btn" type="button" id="qrPng" data-t="qr_png"></button></div></div>
+        </div>
+        <div class="field" id="importBox" hidden>
+          <label for="importJson" data-t="share_import_l"></label>
+          <textarea id="importJson" rows="4"></textarea>
+          <div class="btns"><button class="btn" type="button" id="importApply" data-t="share_import_go"></button></div>
+        </div>
+        <details class="jsonBox"><summary data-t="json_h"></summary><p class="hint" data-t="json_hint"></p><pre id="json" tabindex="0"></pre></details>
+      </section>
+    </div>
+
+    <aside class="dna" aria-labelledby="dnaTitle">
+      <h3 id="dnaTitle" data-t="dna_h"></h3>
+      <div class="cover" id="cover" role="img"></div>
+      <button class="btn" type="button" id="dnaQr" data-t="dna_qr"></button>
+      <div class="counter"><b id="dnaCount">0</b><span data-t="dna_topics"></span></div>
+      <div class="mix" id="mix" aria-hidden="true"></div>
+      <div class="legend" id="legend"></div>
+      <dl class="facts" id="dnaFacts"></dl>
+      <ul class="progress" id="progress"></ul>
+    </aside>
+  </div>
+
+  <section aria-labelledby="ideasTitle" style="display:grid;gap:14px" id="ideas">
+    <div class="sectionHead"><h2 id="ideasTitle" data-t="ideas_h"></h2></div>
+    <p class="hint" data-t="ideas_hint"></p>
+    <ol class="ideas" id="ideasList"></ol>
+  </section>
+
+  <section aria-labelledby="faqTitle" style="display:grid;gap:14px">
+    <div class="sectionHead"><h2 id="faqTitle" data-t="faq_h"></h2></div>
+    <div class="faq">
+      <details><summary data-t="q1"></summary><p data-t="a1"></p></details>
+      <details><summary data-t="q2"></summary><p data-t="a2"></p></details>
+      <details><summary data-t="q3"></summary><p data-t="a3"></p></details>
+      <details><summary data-t="q4"></summary><p data-t="a4"></p></details>
+    </div>
+  </section>
+  <footer data-t="foot"></footer>
+</div>
+
+<div class="mbar" id="mbar">
+  <div class="sum"><b id="mbarCount"></b><span id="mbarState"></span></div>
+  <button class="btn primary" type="button" id="mbarGo"></button>
+</div>
+
+<script src="configurator.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script>
+'use strict';
+const T = {
+ uk:{eyebrow:'MyCast · персональний подкаст',title_a:'Ваш щоденний подкаст —',title_b:'лише про те, що вам цікаво',
+  lede:'Оберіть теми, регіон, голос і час. Ця сторінка — прототип: вона збирає ваш профіль і показує, як працюватиме MyCast. Справжні випуски ще не генеруються і нікуди не надсилаються.',
+  cta:'Спробувати демо',how:'Як це зроблено',sim_note:'Анімована схема — це симуляція конвеєра. Агенти Scout, Researcher, Editor і Voice зараз не запущені.',sim_tag:'Симуляція',
+  stage_title:'Симуляція: ваші теми проходять через розвідника, дослідника і редактора та стають випуском',
+  n1:'Scout',n1s:'знаходить новини',n2:'Researcher',n2s:'перевіряє джерела',n3:'Editor',n3s:'пише сценарій',n4:'Voice',n4s:'ваш випуск',
+  b_h:'Три білдери, одна сторінка',b_p:'MVP Factory будує продукт по черзі: кожна роль передає наступній готовий результат. Тут усі три ролі виконав Claude; живих агентів ще немає.',
+  b1_role:'Product Strategist',b1_h:'Спека і таксономія',b1_p:'Аудиторія, сценарій, 10 категорій і понад 90 тем, правила перевірки та чесні стани.',
+  b2_role:'Web Builder',b2_h:'Ця сторінка',b2_p:'Адаптивний конфігуратор: вкладені теми зі своїми пунктами, регіон, соцмережі, голос, розклад, прев’ю і посилання для друзів.',b2_link:'До конфігуратора ↓',
+  b3_role:'QA & Launch',b3_h:'Тести і чекліст',b3_p:'Тести логіки, мобільна перевірка, затвердження лише з галочкою, без мережі й платних API.',b_done:'✓ зроблено',
+  topics_h:'Теми',topics_hint:'Оберіть щонайменше дві підтеми, з будь-яких категорій.',search:'Пошук теми',expand:'Розгорнути все',collapse:'Згорнути все',
+  geo_h:'Регіон, соцмережі та канали',geo_hint:'Для тем, де важливе місце, оберіть Україну, світ або своє місто чи країну.',geo_empty:'Оберіть теми зі спорту, новин чи бізнесу — тут з’явиться вибір регіону.',
+  soc_h:'Соцмережі та канали',soc_hint:'Оберіть мережу, впишіть назву каналу, @нік або вставте посилання.',soc_add:'Додати',soc_quick:'Швидко: стежити в X (Twitter)',soc_empty:'Поки ні за ким не стежите.',soc_remove:'Прибрати',soc_bad:'Не схоже на канал цієї мережі. Впишіть @нік, назву або посилання https://',
+  plat:{youtube:'YouTube',x:'X (Twitter)',telegram:'Telegram',instagram:'Instagram',tiktok:'TikTok',facebook:'Facebook',web:'Сайт / інше'},platPh:{youtube:'@channel або youtube.com/@…',x:'@нік або x.com/…',telegram:'@канал або t.me/…',instagram:'@нік або instagram.com/…',tiktok:'@нік або tiktok.com/@…',facebook:'Назва сторінки або facebook.com/…',web:'Назва, ключове слово або https://…'},platL:'Канал у мережі',
+  own_ph:'+ своє: клуб, боєць, ліга…',own_add:'Додати своє',own_remove:'Прибрати',days_h:'Дні тижня',
+  share_h:'Поділитися подкастом',share_hint:'Надішліть друзям посилання: воно відкриє ці налаштування в їхньому браузері. Затвердження і прев’ю не передаються.',share_link:'Скопіювати посилання',share_qr:'Показати QR-код',qr_hint:'Відскануйте камерою телефону: відкриються ці налаштування. У центрі — ДНК вашого подкасту.',qr_png:'Завантажити QR (PNG)',dna_qr:'QR-код ДНК',share_native:'Поділитися…',share_json:'Скопіювати JSON',share_import:'Вставити JSON',share_import_l:'Вставте JSON профілю MyCast',share_import_go:'Застосувати',share_copied:'Скопійовано.',share_copy_fail:'Не вдалося скопіювати — виділіть і скопіюйте вручну.',share_bad:'Це не схоже на профіль MyCast.',share_done:'Налаштування застосовано.',
+  imp_banner:'Ви відкрили чужий подкаст за посиланням. Використати ці налаштування замість ваших?',imp_use:'Використати',imp_keep:'Залишити мої',tg_soon:'Вхід у Telegram — скоро',
+  free:'Своя тема (до 120 символів)',rss:'Своє джерело RSS (макет, ще не підключено)',
+  voice_h:'Голос і розклад',sched_hint:'Розклад лише зберігається в профілі: нічого не запускається автоматично.',tz:'Часовий пояс',time:'Час',freq:'Частота',weekday:'День тижня',dur:'Тривалість',mode:'Формат',vlang:'Мова',
+  deliv_h:'Доставка',deliv_hint:'Telegram — основний канал, але з цієї сторінки нічого не надсилається. Інші канали з’являться після перевіреного підключення.',
+  ch:{telegram:'Telegram',download:'Завантаження файлу',viber:'Viber',whatsapp:'WhatsApp',email:'Email'},
+  chw:{telegram:'Основний. Доставка запрацює після підключення бота, згоди і тесту.',download:'Лише коли існує справжній аудіофайл.',viber:'Заплановано, ще не підключено.',whatsapp:'Заплановано, ще не підключено.',email:'Заплановано, ще не підключено.'},
+  chs:{not_connected:'не підключено',no_local_file:'немає файлу',planned:'заплановано',ready:'готово'},primary:'основний',
+  prev_h:'Прослухати',voice_pick_h:{narrator:'Голос ведучого (чоловічий)',a:'Ведучий 1 · чоловічий голос',b:'Ведучий 2 · жіночий голос'},voice_pick_sub:'Натисніть ▶, щоб почути справжній зразок Gemini. Стать — за звучанням (неофіційно).',voice_left:'Нових зразків сьогодні: ',voice_site_only:'Зразки голосів доступні на сайті MyCast.',voice_gen:'Gemini озвучує зразок «{name}»…',voice_unavail:'Зразок «{name}» зараз недоступний ({reason}).',voice_limit:'Ліміт нових зразків на сьогодні вичерпано — вже готові можна слухати.',voice_play:'Прослухати зразок',tg_h:'Telegram і розсилка',tg_cta:'Підключити до мого Telegram',tg_need_site:'Підключення Telegram працює на сайті MyCast.',tg_linked_unverified:'Telegram прив’язано — перевірте зв’язок:',tg_test:'Надіслати тестове повідомлення',tg_verified:'✓ Telegram підключено й перевірено',tg_test_sent:'Готово: перевірте Telegram — ми надіслали одне повідомлення.',dl_h:'Розсилка цього подкасту',dl_need:{approved:'Профіль затверджено (крок 06)',verified:'Telegram перевірено',consent:'Ваша згода нижче'},dl_consent:'Я хочу отримувати цей подкаст у свій Telegram ({when}). Можу зупинити будь-коли.',dl_on:'Увімкнути розсилку',dl_off:'Зупинити розсилку',dl_active:'Розсилку ввімкнено з {date}.',dl_paused:'Розсилку призупинено: профіль змінено — затвердіть його знову.',dl_sample:'Надіслати демо в Telegram',dl_sample_need:'Спершу прослухайте демо Gemini (крок 05).',dl_sample_sent:'Демо надіслано у ваш Telegram.',dl_note:'Чесно: регулярні персональні випуски для слухачів ще не генеруються автоматично. Розсилка запам’ятовує вашу згоду й розклад; випуски прийдуть, щойно запрацює генерація.',tg_err:{send_limit:'Забагато повідомлень сьогодні — спробуйте завтра.',telegram_send_failed:'Telegram не прийняв повідомлення. Спершу напишіть боту /start і спробуйте ще раз.',telegram_not_configured:'Бот Telegram не налаштовано.',profile_not_approved:'Спершу затвердіть профіль (крок 06).',telegram_not_linked:'Спершу підключіть Telegram.',consent_required:'Поставте галочку згоди.',delivery_off:'Спершу увімкніть розсилку.',demo_not_ready:'Демо ще не готове.',signed_out:'Увійдіть знову.'},acc_h:'Увійти та зберегти свій подкаст',acc_hint:'Увійдіть через Google або Telegram: ваш подкаст збережеться, а у вас з’явиться особиста сторінка, якою можна поділитися.',acc_privacy:'Зберігаємо лише ім’я, спосіб входу, ваші налаштування і (для Telegram) чат для майбутньої розсилки. Без email і фото. Видалити все — одна кнопка.',acc_save:'Зберегти мій подкаст',acc_page:'Скопіювати мою сторінку',acc_logout:'Вийти',acc_delete:'Видалити мої дані',acc_via:{telegram:'через Telegram',google:'через Google'},acc_saved:'Збережено. Ваша сторінка: ',acc_copied:'Посилання на вашу сторінку скопійовано.',acc_need_save:'Спершу збережіть подкаст.',acc_deleted:'Ваші дані видалено.',acc_confirm_delete:'Видалити акаунт MyCast і збережений подкаст? Це не можна скасувати.',acc_fail:'Не вдалося увійти. Спробуйте ще раз.',acc_missing:'Цей подкаст не знайдено або його ще не збережено.',tg_linked:'Telegram прив’язано ✓ — розсилка в кроці 07',tg_login:'Увійти через Telegram',gm:{queued:'Готуємо сценарій',voicing:'Gemini озвучує двома голосами',ready:'Готово — грає демо Gemini',approx:'≈'},gm_fail:{daily_limit:'Ліміт демо Gemini на сьогодні вичерпано — граю голосом браузера.',client_limit:'Ви вже прослухали кілька демо сьогодні — граю голосом браузера.',not_configured:'Голос Gemini не налаштовано — граю голосом браузера.',offline:'Сервер демо недоступний — граю голосом браузера.',failed:'Gemini не зміг озвучити — граю голосом браузера.'},gm_playing:'Звучить демо, озвучене Gemini (це демо, а не справжній випуск).',preview:'Прослухати демо',stop:'Зупинити',download:'Завантажити аудіо',
+  appr_h:'Затвердження',review:'Я прослухав — позначити як переглянуто',confirm:'Я затверджую цей профіль (це не вмикає розсилку)',approve:'Затвердити',
+  json_h:'Профіль JSON',json_hint:'Саме це отримав би бекенд. active завжди false, доки немає справжнього планувальника.',
+  dna_h:'ДНК вашого подкасту',dna_topics:'тем обрано',dna_geo:'Географія',dna_watch:'Стежу',dna_when:'Коли',dna_voice:'Голос',dna_ch:'Канал',dna_none:'—',
+  pg:{topics:'Теми',geo:'Регіон',voice:'Голос і розклад',preview:'Прев’ю',approved:'Затверджено'},
+  mbar_n:'тем',mbar_go:'До прослуховування',mbar_pick:'Обрати теми',
+  faq_h:'Чесно про прототип',q1:'Звідки братимуться новини?',a1:'У справжньому випуску кожен факт іде з посиланням на джерело і датою. Неперевірене позначається. У цьому прототипі новин немає — лише ваш профіль.',
+  q2:'Що відбувається з моїми даними?',a2:'Без входу профіль зберігається лише у вашому браузері. Якщо ви увійдете, ми збережемо ім’я, спосіб входу, налаштування подкасту і (для Telegram) чат для розсилки — без email і фото. «Видалити мої дані» стирає все одразу.',
+  q3:'Чи це справжній ШІ-випуск?',a3:'Ні. «Прослухати демо» створює коротке демо на 15 секунд голосами Gemini (до 30 на день для всіх), а якщо ліміт вичерпано — читає голосом браузера. Справжні випуски з’являться після окремого затвердження.',
+  q4:'Коли запрацює доставка в Telegram?',a4:'Після підключення бота, вашої згоди і наскрізного тесту. До того Telegram позначено як основний, але не підключений.',
+  foot:'Blackbox Lab · MVP Factory · прототип без платних API, розсилки і публікації',
+  state:{draft:'Чернетка',preview_ready:'Є прев’ю',reviewed:'Переглянуто',approved:'Затверджено'},scope:{ukraine:'Україна',world:'Світ',custom:'Інше місто / країна'},place:'Назва міста чи країни',
+  freqs:{daily:'Щодня',days:'У вибрані дні'},days:{mon:'Пн',tue:'Вт',wed:'Ср',thu:'Чт',fri:'Пт',sat:'Сб',sun:'Нд'},modes:{narrator:'Один ведучий',two_hosts:'Два ведучі'},langs:{uk:'Українська',ru:'Русский',en:'English'},min:'хв',
+  err:{min_topics:'Оберіть щонайменше дві підтеми.',custom_place_required:'Вкажіть місто чи країну для своєї теми.',bad_time:'Час у форматі ГГ:ХХ.',bad_timezone:'Невідомий часовий пояс.',days_required:'Позначте хоча б один день.',bad_custom:'Перевірте свої пункти в темах.',bad_follow:'Перевірте канали в соцмережах.',too_many_follows:'Забагато каналів.',bad_duration:'Оберіть тривалість.',too_long:'Своя тема задовга.',bad_url:'Джерело має починатися з https://',bad_language:'Оберіть мову.',bad_voice:'Оберіть формат.',bad_channel:'Оберіть канал.',channel_unavailable:'Цей канал ще не підключено.',bad_frequency:'Оберіть частоту.',unknown_topic:'Невідома тема.'},
+  pv:{idle:'Прев’ю ще немає.',invalid:'Спершу виправте помилки вище.',unavailable:'Аудіо недоступне: у цьому браузері немає озвучки, а справжнього файлу ще немає.',playing:'Звучить демо-озвучка вашого браузера (не справжній випуск).',ready:'Демо-прев’ю готове. Можна позначити як переглянуто.',stopped:'Зупинено.'},
+  ap:{need:'Затвердження доступне після прев’ю і перегляду.',done:'Профіль затверджено. Розсилка сама не вмикається — це окремий крок 07.',invalidated:'Ви змінили налаштування — прев’ю і затвердження скинуто.'}},
+ ru:{eyebrow:'MyCast · персональный подкаст',title_a:'Ваш ежедневный подкаст —',title_b:'только о том, что вам интересно',
+  lede:'Выберите темы, регион, голос и время. Эта страница — прототип: она собирает ваш профиль и показывает, как будет работать MyCast. Настоящие выпуски пока не создаются и никуда не отправляются.',
+  cta:'Попробовать демо',how:'Как это сделано',sim_note:'Анимированная схема — это симуляция конвейера. Агенты Scout, Researcher, Editor и Voice сейчас не запущены.',sim_tag:'Симуляция',
+  stage_title:'Симуляция: ваши темы проходят через разведчика, исследователя и редактора и становятся выпуском',
+  n1:'Scout',n1s:'находит новости',n2:'Researcher',n2s:'проверяет источники',n3:'Editor',n3s:'пишет сценарий',n4:'Voice',n4s:'ваш выпуск',
+  b_h:'Три билдера, одна страница',b_p:'MVP Factory строит продукт по очереди: каждая роль передаёт следующей готовый результат. Здесь все три роли выполнил Claude; живых агентов пока нет.',
+  b1_role:'Product Strategist',b1_h:'Спека и таксономия',b1_p:'Аудитория, сценарий, 10 категорий и больше 90 тем, правила проверки и честные состояния.',
+  b2_role:'Web Builder',b2_h:'Эта страница',b2_p:'Адаптивный конфигуратор: вложенные темы со своими пунктами, регион, соцсети, голос, расписание, превью и ссылка для друзей.',b2_link:'К конфигуратору ↓',
+  b3_role:'QA & Launch',b3_h:'Тесты и чеклист',b3_p:'Тесты логики, мобильная проверка, утверждение только с галочкой, без сети и платных API.',b_done:'✓ сделано',
+  topics_h:'Темы',topics_hint:'Выберите минимум две подтемы, из любых категорий.',search:'Поиск темы',expand:'Развернуть всё',collapse:'Свернуть всё',
+  geo_h:'Регион, соцсети и каналы',geo_hint:'Для тем, где важно место, выберите Украину, мир или свой город или страну.',geo_empty:'Выберите темы из спорта, новостей или бизнеса — здесь появится выбор региона.',
+  soc_h:'Соцсети и каналы',soc_hint:'Выберите сеть, впишите название канала, @ник или вставьте ссылку.',soc_add:'Добавить',soc_quick:'Быстро: следить в X (Twitter)',soc_empty:'Пока ни за кем не следите.',soc_remove:'Убрать',soc_bad:'Не похоже на канал этой сети. Впишите @ник, название или ссылку https://',
+  plat:{youtube:'YouTube',x:'X (Twitter)',telegram:'Telegram',instagram:'Instagram',tiktok:'TikTok',facebook:'Facebook',web:'Сайт / другое'},platPh:{youtube:'@channel или youtube.com/@…',x:'@ник или x.com/…',telegram:'@канал или t.me/…',instagram:'@ник или instagram.com/…',tiktok:'@ник или tiktok.com/@…',facebook:'Название страницы или facebook.com/…',web:'Название, ключевое слово или https://…'},platL:'Канал в сети',
+  own_ph:'+ своё: клуб, боец, лига…',own_add:'Добавить своё',own_remove:'Убрать',days_h:'Дни недели',
+  share_h:'Поделиться подкастом',share_hint:'Отправьте друзьям ссылку: она откроет эти настройки в их браузере. Утверждение и превью не передаются.',share_link:'Скопировать ссылку',share_qr:'Показать QR-код',qr_hint:'Отсканируйте камерой телефона: откроются эти настройки. В центре — ДНК вашего подкаста.',qr_png:'Скачать QR (PNG)',dna_qr:'QR-код ДНК',share_native:'Поделиться…',share_json:'Скопировать JSON',share_import:'Вставить JSON',share_import_l:'Вставьте JSON профиля MyCast',share_import_go:'Применить',share_copied:'Скопировано.',share_copy_fail:'Не удалось скопировать — выделите и скопируйте вручную.',share_bad:'Это не похоже на профиль MyCast.',share_done:'Настройки применены.',
+  imp_banner:'Вы открыли чужой подкаст по ссылке. Использовать эти настройки вместо ваших?',imp_use:'Использовать',imp_keep:'Оставить мои',tg_soon:'Вход в Telegram — скоро',
+  free:'Своя тема (до 120 символов)',rss:'Свой источник RSS (макет, ещё не подключён)',
+  voice_h:'Голос и расписание',sched_hint:'Расписание только сохраняется в профиле: ничего не запускается автоматически.',tz:'Часовой пояс',time:'Время',freq:'Частота',weekday:'День недели',dur:'Длительность',mode:'Формат',vlang:'Язык',
+  deliv_h:'Доставка',deliv_hint:'Telegram — основной канал, но с этой страницы ничего не отправляется. Другие каналы появятся после проверенного подключения.',
+  ch:{telegram:'Telegram',download:'Скачивание файла',viber:'Viber',whatsapp:'WhatsApp',email:'Email'},
+  chw:{telegram:'Основной. Доставка заработает после подключения бота, согласия и теста.',download:'Только когда существует настоящий аудиофайл.',viber:'Запланировано, ещё не подключено.',whatsapp:'Запланировано, ещё не подключено.',email:'Запланировано, ещё не подключено.'},
+  chs:{not_connected:'не подключено',no_local_file:'нет файла',planned:'запланировано',ready:'готово'},primary:'основной',
+  prev_h:'Прослушать',voice_pick_h:{narrator:'Голос ведущего (мужской)',a:'Ведущий 1 · мужской голос',b:'Ведущий 2 · женский голос'},voice_pick_sub:'Нажмите ▶, чтобы услышать настоящий образец Gemini. Пол — на слух (неофициально).',voice_left:'Новых образцов сегодня: ',voice_site_only:'Образцы голосов доступны на сайте MyCast.',voice_gen:'Gemini озвучивает образец «{name}»…',voice_unavail:'Образец «{name}» сейчас недоступен ({reason}).',voice_limit:'Лимит новых образцов на сегодня исчерпан — готовые можно слушать.',voice_play:'Прослушать образец',tg_h:'Telegram и рассылка',tg_cta:'Подключить к моему Telegram',tg_need_site:'Подключение Telegram работает на сайте MyCast.',tg_linked_unverified:'Telegram привязан — проверьте связь:',tg_test:'Отправить тестовое сообщение',tg_verified:'✓ Telegram подключён и проверен',tg_test_sent:'Готово: проверьте Telegram — мы отправили одно сообщение.',dl_h:'Рассылка этого подкаста',dl_need:{approved:'Профиль утверждён (шаг 06)',verified:'Telegram проверен',consent:'Ваше согласие ниже'},dl_consent:'Я хочу получать этот подкаст в свой Telegram ({when}). Могу остановить в любой момент.',dl_on:'Включить рассылку',dl_off:'Остановить рассылку',dl_active:'Рассылка включена с {date}.',dl_paused:'Рассылка приостановлена: профиль изменён — утвердите его снова.',dl_sample:'Отправить демо в Telegram',dl_sample_need:'Сначала прослушайте демо Gemini (шаг 05).',dl_sample_sent:'Демо отправлено в ваш Telegram.',dl_note:'Честно: регулярные персональные выпуски для слушателей пока не генерируются автоматически. Рассылка запоминает ваше согласие и расписание; выпуски придут, как только заработает генерация.',tg_err:{send_limit:'Слишком много сообщений сегодня — попробуйте завтра.',telegram_send_failed:'Telegram не принял сообщение. Сначала напишите боту /start и попробуйте снова.',telegram_not_configured:'Бот Telegram не настроен.',profile_not_approved:'Сначала утвердите профиль (шаг 06).',telegram_not_linked:'Сначала подключите Telegram.',consent_required:'Поставьте галочку согласия.',delivery_off:'Сначала включите рассылку.',demo_not_ready:'Демо ещё не готово.',signed_out:'Войдите снова.'},acc_h:'Войти и сохранить свой подкаст',acc_hint:'Войдите через Google или Telegram: ваш подкаст сохранится, а у вас появится личная страница, которой можно поделиться.',acc_privacy:'Храним только имя, способ входа, ваши настройки и (для Telegram) чат для будущей рассылки. Без email и фото. Удалить всё — одна кнопка.',acc_save:'Сохранить мой подкаст',acc_page:'Скопировать мою страницу',acc_logout:'Выйти',acc_delete:'Удалить мои данные',acc_via:{telegram:'через Telegram',google:'через Google'},acc_saved:'Сохранено. Ваша страница: ',acc_copied:'Ссылка на вашу страницу скопирована.',acc_need_save:'Сначала сохраните подкаст.',acc_deleted:'Ваши данные удалены.',acc_confirm_delete:'Удалить аккаунт MyCast и сохранённый подкаст? Это нельзя отменить.',acc_fail:'Не удалось войти. Попробуйте ещё раз.',acc_missing:'Этот подкаст не найден или ещё не сохранён.',tg_linked:'Telegram привязан ✓ — рассылка в шаге 07',tg_login:'Войти через Telegram',gm:{queued:'Готовим сценарий',voicing:'Gemini озвучивает двумя голосами',ready:'Готово — играет демо Gemini',approx:'≈'},gm_fail:{daily_limit:'Лимит демо Gemini на сегодня исчерпан — играю голосом браузера.',client_limit:'Вы уже прослушали несколько демо сегодня — играю голосом браузера.',not_configured:'Голос Gemini не настроен — играю голосом браузера.',offline:'Сервер демо недоступен — играю голосом браузера.',failed:'Gemini не смог озвучить — играю голосом браузера.'},gm_playing:'Звучит демо, озвученное Gemini (это демо, а не настоящий выпуск).',preview:'Прослушать демо',stop:'Остановить',download:'Скачать аудио',
+  appr_h:'Утверждение',review:'Я прослушал — отметить как просмотрено',confirm:'Я утверждаю этот профиль (это не включает рассылку)',approve:'Утвердить',
+  json_h:'Профиль JSON',json_hint:'Именно это получил бы бэкенд. active всегда false, пока нет настоящего планировщика.',
+  dna_h:'ДНК вашего подкаста',dna_topics:'тем выбрано',dna_geo:'География',dna_watch:'Слежу',dna_when:'Когда',dna_voice:'Голос',dna_ch:'Канал',dna_none:'—',
+  pg:{topics:'Темы',geo:'Регион',voice:'Голос и расписание',preview:'Превью',approved:'Утверждено'},
+  mbar_n:'тем',mbar_go:'К прослушиванию',mbar_pick:'Выбрать темы',
+  faq_h:'Честно о прототипе',q1:'Откуда будут браться новости?',a1:'В настоящем выпуске каждый факт идёт со ссылкой на источник и датой. Непроверенное помечается. В этом прототипе новостей нет — только ваш профиль.',
+  q2:'Что происходит с моими данными?',a2:'Без входа профиль хранится только в вашем браузере. Если вы войдёте, мы сохраним имя, способ входа, настройки подкаста и (для Telegram) чат для рассылки — без email и фото. «Удалить мои данные» стирает всё сразу.',
+  q3:'Это настоящий ИИ-выпуск?',a3:'Нет. «Прослушать демо» создаёт короткое демо на 15 секунд голосами Gemini (до 30 в день для всех), а если лимит исчерпан — читает голосом браузера. Настоящие выпуски появятся после отдельного утверждения.',
+  q4:'Когда заработает доставка в Telegram?',a4:'После подключения бота, вашего согласия и сквозного теста. До этого Telegram отмечен как основной, но не подключённый.',
+  foot:'Blackbox Lab · MVP Factory · прототип без платных API, рассылки и публикации',
+  state:{draft:'Черновик',preview_ready:'Есть превью',reviewed:'Просмотрено',approved:'Утверждено'},scope:{ukraine:'Украина',world:'Мир',custom:'Другой город / страна'},place:'Название города или страны',
+  freqs:{daily:'Ежедневно',days:'В выбранные дни'},days:{mon:'Пн',tue:'Вт',wed:'Ср',thu:'Чт',fri:'Пт',sat:'Сб',sun:'Вс'},modes:{narrator:'Один ведущий',two_hosts:'Два ведущих'},langs:{uk:'Українська',ru:'Русский',en:'English'},min:'мин',
+  err:{min_topics:'Выберите минимум две подтемы.',custom_place_required:'Укажите город или страну для своей темы.',bad_time:'Время в формате ЧЧ:ММ.',bad_timezone:'Неизвестный часовой пояс.',days_required:'Отметьте хотя бы один день.',bad_custom:'Проверьте свои пункты в темах.',bad_follow:'Проверьте каналы в соцсетях.',too_many_follows:'Слишком много каналов.',bad_duration:'Выберите длительность.',too_long:'Своя тема слишком длинная.',bad_url:'Источник должен начинаться с https://',bad_language:'Выберите язык.',bad_voice:'Выберите формат.',bad_channel:'Выберите канал.',channel_unavailable:'Этот канал ещё не подключён.',bad_frequency:'Выберите частоту.',unknown_topic:'Неизвестная тема.'},
+  pv:{idle:'Превью ещё нет.',invalid:'Сначала исправьте ошибки выше.',unavailable:'Аудио недоступно: в этом браузере нет озвучки, а настоящего файла ещё нет.',playing:'Звучит демо-озвучка вашего браузера (не настоящий выпуск).',ready:'Демо-превью готово. Можно отметить как просмотрено.',stopped:'Остановлено.'},
+  ap:{need:'Утверждение доступно после превью и просмотра.',done:'Профиль утверждён. Рассылка сама не включается — это отдельный шаг 07.',invalidated:'Вы изменили настройки — превью и утверждение сброшены.'}},
+ en:{eyebrow:'MyCast · your personal podcast',title_a:'Your daily podcast,',title_b:'only about what you care about',
+  lede:'Pick topics, region, voice and time. This page is a prototype: it builds your profile and shows how MyCast will work. Real episodes are not generated or sent yet.',
+  cta:'Try the demo',how:'How it was built',sim_note:'The animated diagram is a simulation of the pipeline. The Scout, Researcher, Editor and Voice agents are not running.',sim_tag:'Simulation',
+  stage_title:'Simulation: your topics pass through a scout, a researcher and an editor and become an episode',
+  n1:'Scout',n1s:'finds the news',n2:'Researcher',n2s:'checks sources',n3:'Editor',n3s:'writes the script',n4:'Voice',n4s:'your episode',
+  b_h:'Three builders, one page',b_p:'MVP Factory builds a product in turns: each role hands a finished result to the next. Here Claude played all three roles; there are no live agents yet.',
+  b1_role:'Product Strategist',b1_h:'Spec and taxonomy',b1_p:'Audience, flow, 10 categories and over 90 topics, validation rules and honest states.',
+  b2_role:'Web Builder',b2_h:'This page',b2_p:'A responsive configurator: nested topics with your own entries, region, social channels, voice, schedule, preview and a link for friends.',b2_link:'To the configurator ↓',
+  b3_role:'QA & Launch',b3_h:'Tests and checklist',b3_p:'Logic tests, mobile checks, approval only with a checkbox, no network and no paid APIs.',b_done:'✓ done',
+  topics_h:'Topics',topics_hint:'Pick at least two subtopics, from any categories.',search:'Search topics',expand:'Expand all',collapse:'Collapse all',
+  geo_h:'Region, social networks and channels',geo_hint:'For topics where place matters, choose Ukraine, the world, or your own city or country.',geo_empty:'Pick sports, news or business topics and a region choice appears here.',
+  soc_h:'Social networks and channels',soc_hint:'Pick a network, then type a channel name, an @handle or paste a link.',soc_add:'Add',soc_quick:'Quick: follow on X (Twitter)',soc_empty:'You are not following anyone yet.',soc_remove:'Remove',soc_bad:'That does not look like a channel on this network. Type an @handle, a name or an https:// link.',
+  plat:{youtube:'YouTube',x:'X (Twitter)',telegram:'Telegram',instagram:'Instagram',tiktok:'TikTok',facebook:'Facebook',web:'Website / other'},platPh:{youtube:'@channel or youtube.com/@…',x:'@handle or x.com/…',telegram:'@channel or t.me/…',instagram:'@handle or instagram.com/…',tiktok:'@handle or tiktok.com/@…',facebook:'Page name or facebook.com/…',web:'Name, keyword or https://…'},platL:'Channel on the network',
+  own_ph:'+ your own: club, fighter, league…',own_add:'Add your own',own_remove:'Remove',days_h:'Weekdays',
+  share_h:'Share your podcast',share_hint:'Send friends a link: it opens these settings in their browser. Approval and preview are not shared.',share_link:'Copy link',share_qr:'Show QR code',qr_hint:'Scan with a phone camera to open these settings. Your podcast DNA sits in the middle.',qr_png:'Download QR (PNG)',dna_qr:'DNA QR code',share_native:'Share…',share_json:'Copy JSON',share_import:'Paste JSON',share_import_l:'Paste a MyCast profile JSON',share_import_go:'Apply',share_copied:'Copied.',share_copy_fail:'Could not copy; select and copy it by hand.',share_bad:'That does not look like a MyCast profile.',share_done:'Settings applied.',
+  imp_banner:'You opened someone else\'s podcast from a link. Use these settings instead of yours?',imp_use:'Use them',imp_keep:'Keep mine',tg_soon:'Telegram sign-in: coming soon',
+  free:'Your own topic (up to 120 characters)',rss:'Your own RSS source (mock, not connected yet)',
+  voice_h:'Voice and schedule',sched_hint:'The schedule is only saved in your profile: nothing runs automatically.',tz:'Time zone',time:'Time',freq:'Frequency',weekday:'Weekday',dur:'Length',mode:'Format',vlang:'Language',
+  deliv_h:'Delivery',deliv_hint:'Telegram is the main channel, but nothing is sent from this page. Other channels appear after a verified connection.',
+  ch:{telegram:'Telegram',download:'File download',viber:'Viber',whatsapp:'WhatsApp',email:'Email'},
+  chw:{telegram:'Main channel. Delivery starts after the bot is connected, you consent and a test passes.',download:'Only when a real audio file exists.',viber:'Planned, not connected yet.',whatsapp:'Planned, not connected yet.',email:'Planned, not connected yet.'},
+  chs:{not_connected:'not connected',no_local_file:'no file',planned:'planned',ready:'ready'},primary:'main',
+  prev_h:'Listen',voice_pick_h:{narrator:'Host voice (male)',a:'Host 1 · male voice',b:'Host 2 · female voice'},voice_pick_sub:'Press ▶ to hear a real Gemini sample. Gender is by ear (unofficial).',voice_left:'New samples left today: ',voice_site_only:'Voice samples are available on the MyCast site.',voice_gen:'Gemini is voicing the "{name}" sample…',voice_unavail:'The "{name}" sample is unavailable right now ({reason}).',voice_limit:'Today\'s limit for new samples is used up; ready ones still play.',voice_play:'Play sample',tg_h:'Telegram and delivery',tg_cta:'Connect to my Telegram',tg_need_site:'Telegram connection works on the MyCast site.',tg_linked_unverified:'Telegram is linked. Check the connection:',tg_test:'Send a test message',tg_verified:'✓ Telegram connected and verified',tg_test_sent:'Done: check Telegram, we sent one message.',dl_h:'Delivery of this podcast',dl_need:{approved:'Profile approved (step 06)',verified:'Telegram verified',consent:'Your consent below'},dl_consent:'I want to get this podcast in my Telegram ({when}). I can stop it at any time.',dl_on:'Turn on delivery',dl_off:'Stop delivery',dl_active:'Delivery is on since {date}.',dl_paused:'Delivery paused: the profile changed, approve it again.',dl_sample:'Send the demo to Telegram',dl_sample_need:'Play the Gemini demo first (step 05).',dl_sample_sent:'Demo sent to your Telegram.',dl_note:'To be honest: regular personal episodes for listeners are not generated automatically yet. Delivery stores your consent and schedule; episodes arrive as soon as generation runs.',tg_err:{send_limit:'Too many messages today; try tomorrow.',telegram_send_failed:'Telegram refused the message. Send /start to the bot first, then try again.',telegram_not_configured:'The Telegram bot is not set up.',profile_not_approved:'Approve the profile first (step 06).',telegram_not_linked:'Connect Telegram first.',consent_required:'Tick the consent box.',delivery_off:'Turn on delivery first.',demo_not_ready:'The demo is not ready yet.',signed_out:'Sign in again.'},acc_h:'Sign in and keep your podcast',acc_hint:'Sign in with Google or Telegram: your podcast is saved and you get a personal page you can share.',acc_privacy:'We keep only your name, how you signed in, your settings and (for Telegram) the chat for future delivery. No email, no photo. One button deletes it all.',acc_save:'Save my podcast',acc_page:'Copy my page link',acc_logout:'Sign out',acc_delete:'Delete my data',acc_via:{telegram:'via Telegram',google:'via Google'},acc_saved:'Saved. Your page: ',acc_copied:'Your page link is copied.',acc_need_save:'Save your podcast first.',acc_deleted:'Your data is deleted.',acc_confirm_delete:'Delete your MyCast account and saved podcast? This cannot be undone.',acc_fail:'Sign-in failed. Please try again.',acc_missing:'This podcast was not found or is not saved yet.',tg_linked:'Telegram linked ✓, delivery is in step 07',tg_login:'Sign in with Telegram',gm:{queued:'Preparing the script',voicing:'Gemini is voicing two hosts',ready:'Ready: playing the Gemini demo',approx:'≈'},gm_fail:{daily_limit:'Today\'s Gemini demo limit is used up; playing the browser voice.',client_limit:'You have heard a few demos today; playing the browser voice.',not_configured:'The Gemini voice is not set up; playing the browser voice.',offline:'The demo server is unreachable; playing the browser voice.',failed:'Gemini could not voice it; playing the browser voice.'},gm_playing:'Playing a demo voiced by Gemini (a demo, not a real episode).',preview:'Play demo',stop:'Stop',download:'Download audio',
+  appr_h:'Approval',review:'I listened: mark as reviewed',confirm:'I approve this profile (this does not turn on delivery)',approve:'Approve',
+  json_h:'Profile JSON',json_hint:'Exactly what a backend would receive. active stays false until a real scheduler exists.',
+  dna_h:'Your podcast DNA',dna_topics:'topics picked',dna_geo:'Geography',dna_watch:'Following',dna_when:'When',dna_voice:'Voice',dna_ch:'Channel',dna_none:'—',
+  pg:{topics:'Topics',geo:'Region',voice:'Voice and schedule',preview:'Preview',approved:'Approved'},
+  mbar_n:'topics',mbar_go:'Go to listening',mbar_pick:'Pick topics',
+  faq_h:'Honest about the prototype',q1:'Where will the news come from?',a1:'In a real episode every fact carries a source link and a date, and anything unverified is marked. This prototype has no news, only your profile.',
+  q2:'What happens to my data?',a2:'Without signing in, your profile stays in your browser. If you sign in we keep your name, how you signed in, your podcast settings and (for Telegram) the chat for delivery: no email, no photo. "Delete my data" erases it all at once.',
+  q3:'Is this a real AI episode?',a3:'No. "Play demo" makes a 15-second demo voiced by Gemini (up to 30 a day across all visitors); once that is used up, your browser reads it. Real episodes come after a separate approval.',
+  q4:'When will Telegram delivery work?',a4:'After the bot is connected, you consent, and an end-to-end test passes. Until then Telegram is marked as the main channel but not connected.',
+  foot:'Blackbox Lab · MVP Factory · a prototype with no paid APIs, sending or publishing',
+  state:{draft:'Draft',preview_ready:'Preview ready',reviewed:'Reviewed',approved:'Approved'},scope:{ukraine:'Ukraine',world:'World',custom:'Other city / country'},place:'City or country name',
+  freqs:{daily:'Daily',days:'On chosen days'},days:{mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'},modes:{narrator:'One narrator',two_hosts:'Two hosts'},langs:{uk:'Українська',ru:'Русский',en:'English'},min:'min',
+  err:{min_topics:'Pick at least two subtopics.',custom_place_required:'Name the city or country for your topic.',bad_time:'Use HH:MM time.',bad_timezone:'Unknown time zone.',days_required:'Tick at least one day.',bad_custom:'Check your own entries in the topics.',bad_follow:'Check the social channels.',too_many_follows:'Too many channels.',bad_duration:'Pick a length.',too_long:'Your topic is too long.',bad_url:'The source must start with https://',bad_language:'Pick a language.',bad_voice:'Pick a format.',bad_channel:'Pick a channel.',channel_unavailable:'This channel is not connected yet.',bad_frequency:'Pick a frequency.',unknown_topic:'Unknown topic.'},
+  pv:{idle:'No preview yet.',invalid:'Fix the errors above first.',unavailable:'Audio unavailable: this browser has no speech engine and no real file exists yet.',playing:'Your browser is reading a demo (not a real episode).',ready:'Demo preview ready. You can mark it as reviewed.',stopped:'Stopped.'},
+  ap:{need:'Approval opens after a preview and a review.',done:'Profile approved. Delivery does not turn on by itself: that is a separate step 07.',invalidated:'You changed the settings, so the preview and approval were reset.'}}};
+
+/* Owner, 2026-11-07: 7 free days to start, +7 days for each invited friend (and the friend starts with 14),
+   three entry points on the first screen, and the growth ideas kept on the page as theses to edit later. */
+const GROW = {
+ uk:{offer:'7 днів персональних подкастів — безкоштовно',offer_sub:'Приведи друга — отримай ще +7 днів за кожного. Друг стартує з 14 днями.',
+  gift:'🎁 Вам подарували 7 днів: 14 днів персональних подкастів безкоштовно',gift_sub:'7 днів старту + 7 днів від друга. Увійдіть, щоб подарунок зарахувався.',
+  beta:'Відкрита бета: зараз усе безкоштовно, дні почнуть рахуватися з запуском регулярних випусків.',
+  tr1:'Створи свій персональний подкаст',tr1s:'Теми, голос і розклад — за 2 хвилини.',tr2:'Слухай подкасти друзів і відомих людей',tr2s:'Відкрий посилання друга або додай Зеленського, Маска, Гейтса…',tr3:'Ділись і отримуй дні',tr3s:'Посилання або QR: другу +7 днів, тобі +7 днів.',
+  qr_gift:'🎁 Вам подарували 7 днів MyCast',inv_days:'Ваші безкоштовні дні: {n}',inv_sub:'Друзів приєдналося: {k}. Кожен новий друг за вашим посиланням — ще +7 днів вам і йому.',inv_btn:'Скопіювати запрошення',inv_copied:'Запрошення скопійовано: ',inv_text:'Мій персональний подкаст MyCast. Тримай 7 днів у подарунок 🎁',
+  ideas_h:'Ідеї зростання (чернетка)',ideas_hint:'Тезиси, щоб не загубити. «Є» — вже на сторінці, решта — план.',
+  ideas:[['Старт 7 днів безкоштовно + 7 днів за кожного друга (як Dropbox): отримують обидва',1],['Підпис під QR і посиланням: «Вам подарували 7 днів»',1],['Три входи на головній: створи свій · слухай друзів і відомих · ділись',1],
+   ['Підпис наприкінці кожного випуску: «Цей подкаст зібрав для себе Андрій. Створи свій — 7 днів у подарунок»',0],['Картка ДНК подкасту для сторіс Instagram і Telegram, з QR',0],['Подкасти відомих людей і друзів як готові «станції»: підписатися в один дотик',0],
+   ['Подарувати подкаст: налаштувати для мами чи друга і надіслати як подарунок',0],['Подкаст на двох: спільний випуск із другом про ваші спільні теми',0],['Тижневий «Wrapped»: ваші теми тижня — картка, якою хочеться поділитися',0],
+   ['Серія прослуховувань: 7 днів поспіль — +1 день у подарунок',0],['Групові подкасти для Telegram-чатів: клуб, команда, сім’я',0],['Бейджі амбасадорів і таблиця запрошень',0]],ideas_on:'є',ideas_off:'план'},
+ ru:{offer:'7 дней персональных подкастов — бесплатно',offer_sub:'Приведи друга — получи ещё +7 дней за каждого. Друг стартует с 14 днями.',
+  gift:'🎁 Вам подарили 7 дней: 14 дней персональных подкастов бесплатно',gift_sub:'7 дней старта + 7 дней от друга. Войдите, чтобы подарок засчитался.',
+  beta:'Открытая бета: сейчас всё бесплатно, дни начнут считаться с запуском регулярных выпусков.',
+  tr1:'Создай свой персональный подкаст',tr1s:'Темы, голос и расписание — за 2 минуты.',tr2:'Слушай подкасты друзей и известных людей',tr2s:'Открой ссылку друга или добавь Зеленского, Маска, Гейтса…',tr3:'Делись и получай дни',tr3s:'Ссылка или QR: другу +7 дней, тебе +7 дней.',
+  qr_gift:'🎁 Вам подарили 7 дней MyCast',inv_days:'Ваши бесплатные дни: {n}',inv_sub:'Друзей присоединилось: {k}. Каждый новый друг по вашей ссылке — ещё +7 дней вам и ему.',inv_btn:'Скопировать приглашение',inv_copied:'Приглашение скопировано: ',inv_text:'Мой персональный подкаст MyCast. Держи 7 дней в подарок 🎁',
+  ideas_h:'Идеи роста (черновик)',ideas_hint:'Тезисы, чтобы не потерять. «Есть» — уже на странице, остальное — план.',
+  ideas:[['Старт 7 дней бесплатно + 7 дней за каждого друга (как Dropbox): получают оба',1],['Подпись под QR и ссылкой: «Вам подарили 7 дней»',1],['Три входа на главной: создай свой · слушай друзей и известных · делись',1],
+   ['Подпись в конце каждого выпуска: «Этот подкаст собрал для себя Андрей. Создай свой — 7 дней в подарок»',0],['Карточка ДНК подкаста для сторис Instagram и Telegram, с QR',0],['Подкасты известных людей и друзей как готовые «станции»: подписаться в одно касание',0],
+   ['Подарить подкаст: настроить для мамы или друга и отправить как подарок',0],['Подкаст на двоих: совместный выпуск с другом про ваши общие темы',0],['Недельный «Wrapped»: ваши темы недели — карточка, которой хочется поделиться',0],
+   ['Серия прослушиваний: 7 дней подряд — +1 день в подарок',0],['Групповые подкасты для Telegram-чатов: клуб, команда, семья',0],['Бейджи амбассадоров и таблица приглашений',0]],ideas_on:'есть',ideas_off:'план'},
+ en:{offer:'7 days of personal podcasts, free',offer_sub:'Bring a friend and get +7 more days for each one. Your friend starts with 14 days.',
+  gift:'🎁 You were gifted 7 days: 14 days of personal podcasts, free',gift_sub:'7 starter days + 7 days from your friend. Sign in so the gift counts.',
+  beta:'Open beta: everything is free right now; days start counting when regular episodes launch.',
+  tr1:'Create your own personal podcast',tr1s:'Topics, voice and schedule in 2 minutes.',tr2:'Listen to friends\' and famous people\'s podcasts',tr2s:'Open a friend\'s link or add Zelensky, Musk, Gates…',tr3:'Share and earn days',tr3s:'Link or QR: +7 days for your friend, +7 for you.',
+  qr_gift:'🎁 You were gifted 7 days of MyCast',inv_days:'Your free days: {n}',inv_sub:'Friends joined: {k}. Every new friend from your link adds +7 days for you and for them.',inv_btn:'Copy invite',inv_copied:'Invite copied: ',inv_text:'My personal MyCast podcast. Here are 7 days as a gift 🎁',
+  ideas_h:'Growth ideas (draft)',ideas_hint:'Theses so nothing gets lost. "Live" is already on this page, the rest is a plan.',
+  ideas:[['7 free days to start + 7 days for each friend (the Dropbox way): both sides get them',1],['A line under the QR and the link: "You were gifted 7 days"',1],['Three entry points on the first screen: create yours · listen to friends and famous people · share',1],
+   ['A sign-off at the end of every episode: "Andrii built this podcast for himself. Make yours, 7 days on us"',0],['A podcast DNA card for Instagram and Telegram stories, with the QR',0],['Famous people\'s and friends\' podcasts as ready "stations": follow in one tap',0],
+   ['Gift a podcast: set one up for your mum or a friend and send it as a present',0],['A podcast for two: a joint episode with a friend about the topics you share',0],['A weekly "Wrapped": your topics of the week as a card worth sharing',0],
+   ['Listening streak: 7 days in a row earns +1 free day',0],['Group podcasts for Telegram chats: a club, a team, a family',0],['Ambassador badges and an invite leaderboard',0]],ideas_on:'live',ideas_off:'plan'}};
+for (const l of Object.keys(GROW)) Object.assign(T[l], GROW[l]);
+
+const COLORS = { sports:'#ff7a6b', tech:'#4fe3ff', news:'#a78bfa', business:'#fbbf24', health:'#34d399', culture:'#f472b6', travel:'#60a5fa', science:'#818cf8', auto:'#fb923c', hobbies:'#a3e635' };
+const $ = s => document.querySelector(s);
+const KEY = 'mycast-configurator-draft-v1';
+const mq = q => { try { return window.matchMedia(q).matches; } catch (e) { return false; } };
+const calm = mq('(prefers-reduced-motion: reduce)');
+const lowfx = (navigator.connection && navigator.connection.saveData) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
+if (calm) document.documentElement.classList.add('calm');
+if (lowfx) document.documentElement.classList.add('lowfx', 'calm');
+let account = { telegram_bot: null, google_client_id: null }, listener = null;
+let lang = 'uk', profile = MyCast.newProfile(), openCats = new Set(['sports', 'tech']), lastNote = '', lastCount = 0, platform = 'x', sharedProfile = null;
+const speech = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
+try {
+  const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+  if (saved && saved.version === 1) profile = MyCast.migrate(saved);  // older drafts: watch list, weekly schedule
+} catch (e) {}
+try { const l = localStorage.getItem(KEY + ':lang'); if (['uk','ru','en'].includes(l)) lang = l; } catch (e) {}
+// An invite carries &ref=<slug> (or a personal page's &from=<slug>); it is only a hint, the server counts it once for a new account.
+let inviteRef = '';
+try { const m = /[#&](?:ref|from)=([a-z0-9]{8})(?![a-z0-9])/.exec(location.hash); if (m) { inviteRef = m[1]; localStorage.setItem(KEY + ':ref', inviteRef); } else inviteRef = localStorage.getItem(KEY + ':ref') || ''; } catch (e) {}
+// A share link carries #p=<code>. It is offered, never applied silently over the visitor's own draft.
+try { const m = /[#&]p=([A-Za-z0-9_-]+)/.exec(location.hash); if (m) sharedProfile = MyCast.decodeShare(m[1]); } catch (e) { sharedProfile = null; }
+
+/* Platform glyphs (simple shapes in each network's colour) used only to label which network a channel is on. */
+const ICONS = {
+  youtube: '<svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4" fill="#ff3b30"/><path d="M10 9l5 3-5 3z" fill="#fff"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="#0b0b0b" stroke="#555"/><path d="M7 6.5l10 11M17 6.5l-10 11" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>',
+  telegram: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#29a9eb"/><path d="M6.5 11.8l9.6-3.9c.5-.2.9.1.7.8l-1.6 7.6c-.1.5-.5.7-1 .4l-2.6-1.9-1.3 1.2c-.1.1-.3.2-.5.2l.2-2.6 4.8-4.3-6 3.7-2.5-.8c-.6-.2-.6-.6.2-.9z" fill="#fff"/></svg>',
+  instagram: '<svg viewBox="0 0 24 24"><rect x="2.5" y="2.5" width="19" height="19" rx="5.5" fill="none" stroke="#e1306c" stroke-width="2"/><circle cx="12" cy="12" r="4.2" fill="none" stroke="#e1306c" stroke-width="2"/><circle cx="17.3" cy="6.7" r="1.2" fill="#e1306c"/></svg>',
+  tiktok: '<svg viewBox="0 0 24 24"><path d="M14 3v11.2a3.3 3.3 0 1 1-3.3-3.3" fill="none" stroke="#25f4ee" stroke-width="2.4" stroke-linecap="round"/><path d="M14 3c.4 2.6 2.1 4.2 4.8 4.5" fill="none" stroke="#fe2c55" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  facebook: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#1877f2"/><path d="M13.2 19v-6h2l.3-2.4h-2.3V9.2c0-.7.2-1.1 1.2-1.1h1.2V6c-.2 0-1-.1-1.8-.1-1.8 0-3 1.1-3 3.1v1.7H9v2.4h1.8v6" fill="#fff"/></svg>',
+  web: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="#a3abc9" stroke-width="2"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18" fill="none" stroke="#a3abc9" stroke-width="1.6"/></svg>' };
+function save() { try { localStorage.setItem(KEY, JSON.stringify(profile)); localStorage.setItem(KEY + ':lang', lang); } catch (e) {} }
+function t() { return T[lang]; }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
+function catOf(id) { return id.split('.')[0]; }
+function catLabel(id) { const c = MyCast.TAXONOMY.find(x => x.id === id); return c ? c.label[lang] : id; }
+
+function setPlaying(on) { $('#player').classList.toggle('playing', !!on); $('#stopBtn').disabled = !on; }
+
+function change(next) {
+  const wasAhead = profile.state !== 'draft';
+  profile = next; lastNote = wasAhead && next.state === 'draft' ? t().ap.invalidated : '';
+  if (speech) { try { speechSynthesis.cancel(); } catch (e) {} }
+  try { $('#audio').pause(); } catch (e) {}
+  demoRun++; $('#prog').hidden = true;
+  setPlaying(false);
+  save(); render();
+  if (!$('#qrBox').hidden) showQr();
+}
+
+function renderTaxonomy() {
+  const q = $('#search').value, hits = new Set(MyCast.search(q, lang));
+  $('#taxonomy').innerHTML = MyCast.TAXONOMY.map(cat => {
+    const groups = cat.groups.map(g => {
+      const topics = g.topics.map(([tid]) => `${cat.id}.${g.id}.${tid}`).filter(id => hits.has(id));
+      if (!topics.length) return '';
+      const gk = `${cat.id}.${g.id}`, own = (profile.custom || {})[gk] || [], x = t();
+      const ownRow = `<div class="ownRow">` + own.map((v, i) => `<span class="chip" style="--c:${COLORS[cat.id]}"><span>${esc(v)}</span><button type="button" data-own-del="${gk}" data-i="${i}" aria-label="${esc(x.own_remove + ': ' + v)}">×</button></span>`).join('') +
+        (own.length < MyCast.MAX_CUSTOM_PER_GROUP ? `<input type="text" data-own="${gk}" maxlength="40" placeholder="${esc(x.own_ph)}" aria-label="${esc(x.own_add + ' · ' + g.label[lang])}" enterkeyhint="done">` : '') + `</div>`;
+      return `<div class="group"><h4>${esc(g.label[lang])}</h4><div class="topics">` + topics.map(id =>
+        `<label class="topic"><input type="checkbox" data-topic="${id}" ${profile.topics[id] ? 'checked' : ''}><span class="tick" aria-hidden="true"></span>${esc(MyCast.topicLabel(id, lang))}</label>`).join('') + '</div>' + ownRow + '</div>';
+    }).join('');
+    if (!groups) return '';
+    const n = Object.keys(profile.topics).filter(id => catOf(id) === cat.id).length +
+      Object.keys(profile.custom || {}).filter(g => g.startsWith(cat.id + '.')).reduce((k, g) => k + profile.custom[g].length, 0);
+    const open = q.trim() ? true : openCats.has(cat.id);
+    return `<details class="cat" data-cat="${cat.id}" style="--c:${COLORS[cat.id]}" ${open ? 'open' : ''}><summary><span class="dot" aria-hidden="true"></span><span>${esc(cat.label[lang])}</span><span class="count">${n || ''}</span><span class="chev" aria-hidden="true">›</span></summary><div class="groups">${groups}</div></details>`;
+  }).join('');
+}
+
+function renderGeo() {
+  const x = t(), geo = Object.keys(profile.topics).filter(id => MyCast.INDEX[id] && MyCast.INDEX[id].geo);
+  $('#scopeBox').innerHTML = geo.length ? geo.map(id => { const s = profile.topics[id].scope || { kind: 'world' };
+    return `<div class="scopeRow"><b>${esc(MyCast.topicLabel(id, lang))}</b><select data-scope="${id}" aria-label="${esc(MyCast.topicLabel(id, lang))}">` +
+      MyCast.SCOPES.map(k => `<option value="${k}" ${s.kind === k ? 'selected' : ''}>${esc(x.scope[k])}</option>`).join('') + '</select>' +
+      (s.kind === 'custom' ? `<input type="text" data-place="${id}" maxlength="60" value="${esc(s.place || '')}" placeholder="${esc(x.place)}" aria-label="${esc(x.place)}">` : '') + '</div>'; }).join('')
+    : `<p class="empty">${esc(x.geo_empty)}</p>`;
+  $('#platforms').innerHTML = Object.keys(MyCast.PLATFORMS).map(pl =>
+    `<button type="button" class="plat" role="radio" aria-checked="${pl === platform}" data-plat="${pl}">${ICONS[pl]}${esc(x.plat[pl])}</button>`).join('');
+  $('#followLabel').textContent = `${x.platL} · ${x.plat[platform]}`;
+  $('#followValue').placeholder = x.platPh[platform];
+  const follows = profile.follows || [];
+  const has = f => follows.some(y => y.platform === f.platform && y.value.toLowerCase() === f.value.toLowerCase());
+  $('#people').innerHTML = MyCast.SUGGESTED_FOLLOWS.map(f => { const on = has(f), name = f.name[lang] || f.name.en;
+    const ini = name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    return `<button type="button" class="person" aria-pressed="${on}" data-person="${f.id}" title="${esc(f.value)}"><span class="av" aria-hidden="true">${esc(ini)}</span>${esc(name)}<span class="pl" aria-hidden="true">${on ? '✓' : '+'}</span></button>`; }).join('');
+  $('#follows').innerHTML = follows.length ? follows.map((f, i) =>
+    `<span class="chip"><span class="ic" aria-hidden="true">${ICONS[f.platform] || ICONS.web}</span><span>${esc(f.value)}</span><button type="button" data-unfollow="${i}" aria-label="${esc(x.soc_remove + ': ' + f.value)}">×</button></span>`).join('')
+    : `<p class="empty">${esc(x.soc_empty)}</p>`;
+}
+
+function fillSelect(el, values, labelFn, current) { el.innerHTML = values.map(v => `<option value="${v}" ${String(v) === String(current) ? 'selected' : ''}>${esc(labelFn(v))}</option>`).join(''); }
+
+/* Deterministic cover: one ring per chosen topic, coloured by its category. No images, no network. */
+function hash(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function coverSVG() {
+  const ids = Object.keys(profile.topics).sort(), cats = [...new Set(ids.map(catOf))];
+  const c1 = COLORS[cats[0]] || '#5b43ff', c2 = COLORS[cats[1]] || '#00c8ff';
+  const rings = ids.slice(0, 12).map((id, i) => {
+    const h = hash(id), r = 34 + i * 7.5, len = 0.35 + (h % 55) / 100, start = (h >> 8) % 360, circ = 2 * Math.PI * r;
+    return `<circle cx="120" cy="120" r="${r.toFixed(1)}" fill="none" stroke="${COLORS[catOf(id)]}" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="${(circ * len).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(${start} 120 120)" opacity=".92"/>`;
+  }).join('');
+  const label = cats.slice(0, 2).map(catLabel).join(' · ');
+  return `<svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="cv" cx="35%" cy="30%"><stop offset="0" stop-color="${c1}" stop-opacity=".55"/><stop offset=".6" stop-color="${c2}" stop-opacity=".18"/><stop offset="1" stop-color="#0b1024"/></radialGradient></defs>` +
+    `<rect width="240" height="240" fill="#0b1024"/><rect width="240" height="240" fill="url(#cv)"/>${rings || '<circle cx="120" cy="120" r="60" fill="none" stroke="#2a3366" stroke-width="2" stroke-dasharray="4 8"/>'}` +
+    `<circle cx="120" cy="120" r="22" fill="#070a16"/><circle cx="120" cy="120" r="5" fill="#eef1ff"/>` +
+    `<text x="16" y="28" fill="#eef1ff" font-family="Georgia,serif" font-size="20" font-weight="700">MyCast</text>` +
+    `<text x="16" y="224" fill="#c8cee8" font-family="ui-monospace,Menlo,monospace" font-size="10">${esc(label || '— — —')}</text></svg>`;
+}
+
+/* The hero simulation picks up the colours and names of what you chose. */
+function renderStage() {
+  const ids = Object.keys(profile.topics);
+  const cols = ids.length ? ids.map(id => COLORS[catOf(id)]) : Object.values(COLORS);
+  const n = 9, dur = 9;
+  $('#particles').innerHTML = Array.from({ length: n }, (_, i) =>
+    `<circle r="${(3 + (i % 3)).toFixed(1)}" fill="${cols[i % cols.length]}"><animateMotion dur="${dur}s" begin="${(-i * dur / n).toFixed(2)}s" repeatCount="indefinite" rotate="auto"><mpath href="#flow"/></animateMotion></circle>`).join('');
+  const names = (ids.length ? ids : ['sports.boxing.ua_boxers', 'tech.ai.claude', 'news.local.events']).slice(0, 3);
+  $('#chipCloud').innerHTML = names.map((id, i) => { const label = MyCast.topicLabel(id, lang).slice(0, 18), w = label.length * 6.6 + 18, y = 238 + i * 26;
+    return `<g transform="translate(14 ${y})"><rect width="${w.toFixed(0)}" height="20" rx="10" fill="rgba(12,16,36,.85)" stroke="${COLORS[catOf(id)]}" stroke-opacity=".7"/><text x="9" y="14" fill="#dfe4ff">${esc(label)}</text></g>`; }).join('');
+  const svg = $('#stage svg');
+  if (calm && svg.pauseAnimations) svg.pauseAnimations();
+}
+
+function renderDNA(errors) {
+  const x = t(), ids = Object.keys(profile.topics), n = MyCast.selectionCount(profile);
+  const countEl = $('#dnaCount'); countEl.textContent = n;
+  if (n !== lastCount && !calm) { countEl.classList.remove('bump'); void countEl.offsetWidth; countEl.classList.add('bump'); setTimeout(() => countEl.classList.remove('bump'), 300); }
+  lastCount = n;
+  $('#cover').innerHTML = coverSVG(); $('#cover').setAttribute('aria-label', x.dna_h);
+  const byCat = {}; ids.forEach(id => { byCat[catOf(id)] = (byCat[catOf(id)] || 0) + 1; });
+  const cats = Object.keys(byCat);
+  Object.keys(profile.custom || {}).forEach(g => { const c = g.split('.')[0]; byCat[c] = (byCat[c] || 0) + profile.custom[g].length; });
+  const cats2 = Object.keys(byCat); cats.splice(0, cats.length, ...cats2);
+  $('#mix').innerHTML = cats.map(c => `<i style="width:${(100 * byCat[c] / Math.max(1, n)).toFixed(1)}%;background:${COLORS[c]}"></i>`).join('');
+  $('#legend').innerHTML = cats.map(c => `<span style="--c:${COLORS[c]}">${esc(catLabel(c))} · ${byCat[c]}</span>`).join('');
+  const geo = { ukraine: 0, world: 0, custom: 0 };
+  ids.forEach(id => { const s = (profile.topics[id] || {}).scope; if (s) geo[s.kind] = (geo[s.kind] || 0) + 1; });
+  const geoText = Object.keys(geo).filter(k => geo[k]).map(k => `${x.scope[k]} ${geo[k]}`).join(' · ') || x.dna_none;
+  const sch = profile.schedule, when = `${sch.frequency === 'days' ? (sch.days.map(d => x.days[d]).join(' ') || '—') : x.freqs.daily} · ${sch.time} · ${sch.durationMin} ${x.min}`;
+  const watch = (profile.follows || []).map(f => f.value).slice(0, 3).join(', ') || x.dna_none;
+  const rows = [[x.dna_geo, geoText], [x.dna_watch, watch], [x.dna_when, when], [x.dna_voice, `${x.modes[profile.voice.mode]} · ${x.langs[profile.voice.language]}`],
+    [x.dna_ch, `${x.ch[profile.delivery] || profile.delivery} · ${x.chs[MyCast.channelStatus(profile.delivery, profile.preview).reason || 'ready']}`]];
+  $('#dnaFacts').innerHTML = rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
+  const has = f => errors.some(e => f.includes(e.field));
+  const steps = [['topics', n >= MyCast.MIN_TOPICS && !has(['topics'])], ['geo', n >= MyCast.MIN_TOPICS && !has(['scope', 'follows', 'custom', 'freeText', 'customSources'])],
+    ['voice', !has(['timezone', 'time', 'frequency', 'days', 'duration', 'language', 'voice', 'delivery'])], ['preview', profile.state !== 'draft'], ['approved', profile.state === 'approved']];
+  $('#progress').innerHTML = steps.map(([k, on]) => `<li class="${on ? 'on' : ''}">${esc(x.pg[k])}</li>`).join('');
+  $('#mbarCount').textContent = `${n} ${x.mbar_n}`;
+  $('#mbarState').textContent = `${x.state[profile.state]} · ${geoText}`;
+  $('#mbarGo').textContent = n >= MyCast.MIN_TOPICS ? x.mbar_go : x.mbar_pick;
+  $('#mbarGo').dataset.ready = n >= MyCast.MIN_TOPICS ? '1' : '';
+}
+
+function render() {
+  const x = t(); document.documentElement.lang = lang;
+  document.querySelectorAll('[data-t]').forEach(el => { el.textContent = x[el.dataset.t] || ''; });
+  document.querySelectorAll('.langs button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
+  $('#statePill').className = 'pill state-' + profile.state; $('#statePill').textContent = x.state[profile.state];
+  renderTaxonomy(); renderGeo();
+  $('#freeText').value = profile.freeText || ''; $('#rss').value = (profile.customSources || [])[0] || '';
+  const zones = ['Europe/Kyiv', 'Europe/Warsaw', 'Europe/Berlin', 'Europe/London', 'America/New_York', 'Asia/Dubai'];
+  if (!zones.includes(profile.schedule.timezone)) zones.push(profile.schedule.timezone);
+  fillSelect($('#tz'), zones, v => v.replace('_', ' '), profile.schedule.timezone);
+  $('#time').value = profile.schedule.time;
+  fillSelect($('#freq'), MyCast.FREQUENCIES, v => x.freqs[v], profile.schedule.frequency);
+  $('#daysField').hidden = profile.schedule.frequency !== 'days';  // daily needs no weekday
+  $('#days').innerHTML = MyCast.WEEKDAYS.map(d => `<button type="button" class="day" data-day="${d}" aria-pressed="${(profile.schedule.days || []).includes(d)}">${esc(x.days[d])}</button>`).join('');
+  fillSelect($('#dur'), MyCast.DURATIONS, v => v + ' ' + x.min, profile.schedule.durationMin);
+  fillSelect($('#mode'), MyCast.VOICES, v => x.modes[v], profile.voice.mode);
+  fillSelect($('#vlang'), MyCast.LANGUAGES, v => x.langs[v], profile.voice.language);
+  $('#channels').innerHTML = Object.keys(MyCast.CHANNELS).map(ch => { const st = MyCast.channelStatus(ch, profile.preview);
+    const tag = st.reason === 'planned' ? 'plan' : st.usable ? 'yes' : 'no';
+    return `<label class="${st.selectable ? '' : 'off'}"><span class="nm"><input type="radio" name="channel" value="${ch}" ${profile.delivery === ch ? 'checked' : ''} ${st.selectable ? '' : 'disabled'}> ${esc(x.ch[ch])}</span><span class="tags">` +
+      (ch === 'telegram' ? `<span class="tag pri">${esc(x.primary)}</span>` : '') + `<span class="tag ${tag}">${esc(x.chs[st.reason || 'ready'])}</span></span><span class="why">${esc(x.chw[ch])}</span></label>`; }).join('') +
+    `<button type="button" class="btn" id="tgDeliver" ${listener && listener.telegram_linked ? 'disabled' : ''}>${ICONS.telegram.replace('<svg ', '<svg width="16" height="16" style="vertical-align:-3px;margin-right:6px" ')}${esc(listener && listener.telegram_linked ? x.tg_linked : (account.telegram_bot ? x.tg_login : x.tg_soon))}</button>`;
+  $('#importBanner').hidden = !sharedProfile;
+  renderAccount(); renderVoices(); renderTelegram(); renderGrowth();
+  $('#shareNative').hidden = !navigator.share;
+  const errors = MyCast.validate(profile);
+  $('#errors').innerHTML = errors.map(e => `<li>${esc(x.err[e.code] || e.code)}</li>`).join('');
+  $('#previewBtn').disabled = errors.length > 0;
+  const dl = MyCast.channelStatus('download', profile.preview);
+  $('#downloadBtn').disabled = !dl.usable; $('#downloadBtn').title = dl.usable ? '' : x.chs[dl.reason];
+  const st = $('#previewStatus');
+  if (profile.state === 'draft') { st.className = 'status' + (errors.length ? ' bad' : ''); st.textContent = errors.length ? x.pv.invalid : (st.dataset.unavailable ? x.pv.unavailable : x.pv.idle); }
+  else if (!$('#player').classList.contains('playing')) { st.className = 'status info'; st.textContent = x.pv.ready; }
+  $('#reviewBtn').disabled = profile.state !== 'preview_ready';
+  $('#confirm').disabled = profile.state !== 'reviewed'; if (profile.state !== 'reviewed') $('#confirm').checked = false;
+  $('#approveBtn').disabled = profile.state !== 'reviewed' || !$('#confirm').checked;
+  const ap = $('#approveStatus');
+  ap.className = 'status' + (profile.state === 'approved' ? ' ok' : lastNote ? ' bad' : '');
+  ap.textContent = profile.state === 'approved' ? x.ap.done : (lastNote || x.ap.need);
+  $('#json').textContent = JSON.stringify(MyCast.toJSON(profile), null, 2);
+  renderStage(); renderDNA(errors);
+}
+
+$('#wave').innerHTML = Array.from({ length: 36 }, (_, i) => `<i style="--i:${i};--h:${(28 + 62 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * .45))).toFixed(0)}"></i>`).join('');
+
+function addFollowFromInput() {
+  const input = $('#followValue'), msg = $('#followMsg');
+  if (!input.value.trim()) return;
+  try { change(MyCast.addFollow(profile, platform, input.value)); msg.textContent = ''; input.value = ''; }
+  catch (e) { msg.className = 'msg'; msg.textContent = t().soc_bad; }
+  input.focus();
+}
+function addOwn(input) {
+  const gk = input.dataset.own, value = input.value;
+  if (!value.trim()) return;
+  change(MyCast.addCustom(profile, gk, value));
+  const again = document.querySelector(`input[data-own="${gk}"]`);   // keep typing in the same row after re-render
+  if (again) again.focus();
+}
+function shareUrl() {
+  // On the site, use the short public address /mycast; elsewhere (local file, preview) keep the current page.
+  const onSite = location.pathname.startsWith('/static/mycast-configurator/');
+  return (onSite ? location.origin + '/mycast' : location.origin + location.pathname) + '#p=' + MyCast.encodeShare(profile) + (listener ? '&ref=' + listener.slug : '');
+}
+/* QR code of the share link with the podcast DNA cover in the middle. Level Q tolerates the covered centre. */
+function qrSVG(text) {
+  const qr = qrcode(0, 'Q'); qr.addData(text, 'Byte'); qr.make();
+  const n = qr.getModuleCount(), q = 2, size = n + q * 2, hole = Math.round(n * 0.22), lo = Math.floor((n - hole) / 2), hi = lo + hole;
+  let mods = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    if (!qr.isDark(r, c) || (r >= lo && r < hi && c >= lo && c < hi)) continue;
+    mods += `M${c + q} ${r + q}h1v1h-1z`;
+  }
+  const cover = coverSVG().replace('<svg ', `<svg x="${lo + q}" y="${lo + q}" width="${hole}" height="${hole}" `);
+  return `<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/>` +
+    `<path d="${mods}" fill="#0b1024"/><defs><clipPath id="qc"><circle cx="${lo + q + hole / 2}" cy="${lo + q + hole / 2}" r="${hole / 2}"/></clipPath></defs>` +
+    `<circle cx="${lo + q + hole / 2}" cy="${lo + q + hole / 2}" r="${hole / 2 + 0.6}" fill="#fff"/><g clip-path="url(#qc)">${cover}</g></svg>`;
+}
+function showQr() {
+  if (typeof qrcode !== 'function') return;
+  $('#qr').innerHTML = qrSVG(shareUrl()); $('#qr').setAttribute('aria-label', t().share_qr);
+  $('#qrBox').hidden = false;
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+  try { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; } catch (e) { return false; }
+}
+function shareMsg(text, ok) { const m = $('#shareMsg'); m.className = 'msg' + (ok ? ' ok' : ''); m.textContent = text; }
+
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (el.dataset.topic) { change(MyCast.setTopic(profile, el.dataset.topic, el.checked, { kind: 'world' })); return; }
+  if (el.dataset.scope) { change(MyCast.setScope(profile, el.dataset.scope, el.value, '')); return; }
+  if (el.dataset.place) { change(MyCast.setScope(profile, el.dataset.place, 'custom', el.value)); return; }
+  if (el.name === 'channel') { change(MyCast.update(profile, { delivery: el.value })); return; }
+  const sched = { tz: 'timezone', time: 'time', freq: 'frequency', dur: 'durationMin' }[el.id];
+  if (sched) { change(MyCast.update(profile, { schedule: { [sched]: sched === 'durationMin' ? Number(el.value) : el.value } })); return; }
+  if (el.id === 'mode') change(MyCast.update(profile, { voice: { mode: el.value } }));
+  if (el.id === 'vlang') change(MyCast.update(profile, { voice: { language: el.value } }));
+  if (el.id === 'freeText') change(MyCast.update(profile, { freeText: el.value }));
+  if (el.id === 'rss') change(MyCast.update(profile, { customSources: el.value.trim() ? [el.value.trim()] : [] }));
+  if (el.id === 'confirm') render();
+});
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-unfollow],[data-own-del],[data-plat],[data-person],[data-day]');
+  if (!el) return;
+  if (el.dataset.unfollow !== undefined) change(MyCast.removeFollow(profile, Number(el.dataset.unfollow)));
+  else if (el.dataset.ownDel) change(MyCast.removeCustom(profile, el.dataset.ownDel, Number(el.dataset.i)));
+  else if (el.dataset.plat) { platform = el.dataset.plat; $('#followMsg').textContent = ''; renderGeo(); $('#followValue').focus(); }
+  else if (el.dataset.day) change(MyCast.toggleDay(profile, el.dataset.day));
+  else if (el.dataset.person) {
+    const f = MyCast.SUGGESTED_FOLLOWS.find(x => x.id === el.dataset.person);
+    const i = (profile.follows || []).findIndex(y => y.platform === f.platform && y.value.toLowerCase() === f.value.toLowerCase());
+    change(i >= 0 ? MyCast.removeFollow(profile, i) : MyCast.addFollow(profile, f.platform, f.value));
+  }
+});
+document.addEventListener('keydown', e => {
+  const el = e.target;
+  if (e.key === 'Enter' && el.dataset && el.dataset.own) { e.preventDefault(); addOwn(el); }
+});
+document.addEventListener('focusout', e => { const el = e.target; if (el.dataset && el.dataset.own && el.value.trim()) addOwn(el); });
+document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.cat && !$('#search').value.trim()) { d.open ? openCats.add(d.dataset.cat) : openCats.delete(d.dataset.cat); } }, true);
+$('#search').addEventListener('input', renderTaxonomy);
+$('#followAdd').addEventListener('click', addFollowFromInput);
+$('#followValue').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addFollowFromInput(); } });
+$('#shareLink').addEventListener('click', async () => { const ok = await copyText(shareUrl()); shareMsg(ok ? t().share_copied : t().share_copy_fail, ok); if (!ok) { $('#importBox').hidden = false; $('#importJson').value = shareUrl(); } });
+$('#shareNative').addEventListener('click', async () => { try { await navigator.share({ title: 'MyCast', text: t().share_h, url: shareUrl() }); } catch (e) { /* the visitor closed the sheet */ } });
+$('#showQr').addEventListener('click', showQr);
+$('#dnaQr').addEventListener('click', () => { showQr(); go('#stepShare'); });
+$('#qrPng').addEventListener('click', () => {
+  const svg = $('#qr svg'); if (!svg) return;
+  const img = new Image(), url = URL.createObjectURL(new Blob([svg.outerHTML], { type: 'image/svg+xml' }));
+  img.onload = () => { const cv = document.createElement('canvas'); cv.width = cv.height = 1024; const g = cv.getContext('2d');
+    cv.height = 1124; g.fillStyle = '#fff'; g.fillRect(0, 0, 1024, 1124); g.drawImage(img, 32, 32, 960, 960); URL.revokeObjectURL(url);
+    g.fillStyle = '#0b1024'; g.font = '800 46px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(t().qr_gift, 512, 1066);
+    const a = document.createElement('a'); a.download = 'mycast-qr.png'; a.href = cv.toDataURL('image/png'); a.click(); };
+  img.src = url;
+});
+$('#copyJson').addEventListener('click', async () => { const ok = await copyText(JSON.stringify(MyCast.toJSON(profile), null, 2)); shareMsg(ok ? t().share_copied : t().share_copy_fail, ok); });
+$('#importJsonBtn').addEventListener('click', () => { $('#importBox').hidden = !$('#importBox').hidden; if (!$('#importBox').hidden) $('#importJson').focus(); });
+$('#importApply').addEventListener('click', () => {
+  const raw = $('#importJson').value.trim();
+  try {
+    const m = /[#&]p=([A-Za-z0-9_-]+)/.exec(raw);
+    const next = m ? MyCast.decodeShare(m[1]) : fromJSON(JSON.parse(raw));
+    change(next); shareMsg(t().share_done, true); $('#importBox').hidden = true; $('#importJson').value = '';
+  } catch (e) { shareMsg(t().share_bad, false); }
+});
+/* JSON exported by toJSON() back into a draft profile, validated through the same functions as the UI. */
+function fromJSON(j) {
+  if (!j || j.version !== 1 || !Array.isArray(j.topics)) throw new Error('not a profile');
+  let p = MyCast.newProfile();
+  for (const tpc of j.topics) if (MyCast.INDEX[tpc.id]) { p = MyCast.setTopic(p, tpc.id, true, tpc.scope || undefined); if (tpc.scope && tpc.scope.kind === 'custom') p = MyCast.setScope(p, tpc.id, 'custom', tpc.scope.place); }
+  for (const c of j.custom || []) if (MyCast.GROUPS[c.group]) for (const v of c.items || []) p = MyCast.addCustom(p, c.group, v);
+  for (const f of j.follows || []) { try { p = MyCast.addFollow(p, f.platform, f.value); } catch (e) {} }
+  const code = MyCast.encodeShare({ ...p, schedule: { ...p.schedule, ...(j.schedule || {}) }, voice: { ...p.voice, ...(j.voice || {}) },
+    delivery: (j.delivery || {}).channel || 'telegram', freeText: j.free_text || '' });
+  return MyCast.decodeShare(code);   // decode re-validates schedule, voice and channel
+}
+$('#impUse').addEventListener('click', () => { const next = sharedProfile; sharedProfile = null; history.replaceState(null, '', location.pathname); change(next); });
+$('#impKeep').addEventListener('click', () => { sharedProfile = null; history.replaceState(null, '', location.pathname); render(); });
+$('#expandAll').addEventListener('click', () => { MyCast.TAXONOMY.forEach(c => openCats.add(c.id)); renderTaxonomy(); });
+$('#collapseAll').addEventListener('click', () => { openCats.clear(); renderTaxonomy(); });
+document.querySelectorAll('.langs button').forEach(b => b.addEventListener('click', () => { lang = b.dataset.lang; save(); render(); }));
+const go = id => $(id).scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' });
+$('#tryDemo').addEventListener('click', () => go('#stepTopics'));
+$('#howBtn').addEventListener('click', () => go('#builders'));
+$('#mbarGo').addEventListener('click', () => go($('#mbarGo').dataset.ready ? '#stepListen' : '#stepTopics'));
+function speakInBrowser(note) {
+  const out = MyCast.makePreview(profile, { speechSynthesis: speech });
+  if (!out.ok) { $('#previewStatus').dataset.unavailable = out.reason === 'audio_unavailable' ? '1' : ''; profile = out.profile; render(); return; }
+  profile = out.profile; lastNote = ''; save(); render();
+  const st = $('#previewStatus'), code = { uk: 'uk-UA', ru: 'ru-RU', en: 'en-US' }[profile.voice.language];
+  // Two hosts take turns. The browser rarely has two voices for one language, so host B also gets a lower pitch.
+  let voices = []; try { voices = speechSynthesis.getVoices().filter(v => (v.lang || '').toLowerCase().startsWith(code.slice(0, 2))); } catch (e) {}
+  const lines = profile.preview.lines || [{ host: 'A', text: profile.preview.script }];
+  try { speechSynthesis.cancel(); } catch (e) {}
+  lines.forEach((line, i) => {
+    const u = new SpeechSynthesisUtterance(line.text); u.lang = code;
+    if (line.host === 'B') { if (voices[1]) u.voice = voices[1]; u.pitch = 0.8; } else if (voices[0]) u.voice = voices[0];
+    // The waveform moves only between the engine's real start and end events.
+    u.onstart = () => { setPlaying(true); st.className = 'status info'; st.textContent = (note ? note + ' ' : '') + t().pv.playing; };
+    u.onend = () => { if (i === lines.length - 1) { setPlaying(false); st.textContent = t().pv.ready; } };
+    u.onerror = () => { setPlaying(false); st.textContent = t().pv.stopped; };
+    try { speechSynthesis.speak(u); } catch (err) { setPlaying(false); st.textContent = t().pv.stopped; }  // no audio was played
+  });
+}
+function showProgress(state, pct, estimated) {
+  const x = t(), box = $('#prog');
+  box.hidden = false; box.setAttribute('aria-valuenow', String(pct));
+  $('#progBar').style.width = pct + '%';
+  $('#progText').textContent = `${x.gm[state] || ''} · ${estimated ? x.gm.approx : ''}${pct}%`;
+}
+let demoRun = 0, lastDemoJob = '';
+async function geminiDemo() {
+  // The demo server exists only on the site itself; a local file or a preview page goes straight to the browser voice.
+  if (!/^https?:$/.test(location.protocol)) return speakInBrowser('');
+  const run = ++demoRun, x = t(), lines = MyCast.demoLines(profile);
+  $('#previewBtn').disabled = true; showProgress('queued', 5, true);
+  let job;
+  try {
+    const r = await fetch('/api/mycast/demo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lines, language: profile.voice.language, voices: profile.voice.voices }) });
+    job = await r.json().catch(() => ({}));
+    if (!r.ok) { $('#prog').hidden = true; return speakInBrowser(x.gm_fail[job.detail] || x.gm_fail.failed); }
+    while (job.state === 'queued' || job.state === 'voicing') {
+      showProgress(job.state, job.progress, job.estimated);
+      await new Promise(res => setTimeout(res, 700));
+      if (run !== demoRun) return;                       // the listener changed something meanwhile
+      job = await (await fetch('/api/mycast/demo/' + encodeURIComponent(job.job))).json();
+    }
+  } catch (e) { $('#prog').hidden = true; return speakInBrowser(x.gm_fail.offline); }
+  if (job.state !== 'ready') { $('#prog').hidden = true; return speakInBrowser(x.gm_fail.failed); }
+  showProgress('ready', 100, false);
+  lastDemoJob = job.job;
+  const out = MyCast.makePreview(profile, { demoAudioUrl: job.audio });
+  if (!out.ok) return;
+  profile = out.profile; lastNote = ''; save(); render();
+  const a = $('#audio'), st = $('#previewStatus');
+  a.src = job.audio;
+  // The waveform follows the real audio element: it moves only while sound is playing.
+  a.onplaying = () => { setPlaying(true); st.className = 'status info'; st.textContent = x.gm_playing; };
+  a.onpause = a.onended = () => { setPlaying(false); st.textContent = t().pv.ready; };
+  try { await a.play(); } catch (e) { st.textContent = t().pv.ready; }   // autoplay blocked: the Download/Play controls still work
+}
+$('#previewBtn').addEventListener('click', () => {
+  if (MyCast.validate(profile).length) { render(); return; }
+  if (speech) { try { speechSynthesis.cancel(); } catch (e) {} }
+  geminiDemo().finally(() => { $('#previewBtn').disabled = MyCast.validate(profile).length > 0; });
+});
+$('#downloadBtn').addEventListener('click', () => {
+  const pv = profile.preview; if (!pv || !pv.url) return;
+  const a = document.createElement('a'); a.href = pv.url; a.download = 'mycast-demo.wav'; a.click();
+});
+$('#stopBtn').addEventListener('click', () => { if (speech) { try { speechSynthesis.cancel(); } catch (e) {} } try { $('#audio').pause(); } catch (e) {} setPlaying(false); $('#previewStatus').textContent = t().pv.stopped; });
+$('#reviewBtn').addEventListener('click', () => { profile = MyCast.markReviewed(profile); save(); render(); });
+$('#approveBtn').addEventListener('click', () => { if (!$('#confirm').checked) return; profile = MyCast.approve(profile, true); save(); render(); });
+
+/* Listener accounts (open beta): Google Identity Services and the Telegram Login Widget, only on the site itself. */
+function accMsg(text, ok) { const m = $('#accMsg'); m.className = 'msg' + (ok ? ' ok' : ''); m.textContent = text || ''; }
+function myPage() { return listener ? location.origin + listener.page : ''; }
+function renderAccount() {
+  const x = t(), on = !!listener, box = $('#stepAccount');
+  box.hidden = !(account.telegram_bot || account.google_client_id || on);
+  $('#accOut').hidden = on; $('#accIn').hidden = !on;
+  if (on) {
+    $('#accName').textContent = listener.name; $('#accAv').textContent = (listener.name || '?').slice(0, 1).toUpperCase();
+    $('#accVia').textContent = x.acc_via[listener.provider] || '';
+  }
+}
+async function signedIn(r) {
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.listener) { accMsg(t().acc_fail, false); return; }
+  listener = d.listener; accMsg(''); render();
+  if (!listener.has_podcast && MyCast.validate(profile).length === 0) await savePodcast(true);
+  go('#stepTopics');
+}
+function withRef(body) { return inviteRef && !(listener && listener.slug === inviteRef) ? { ...body, ref: inviteRef } : body; }
+window.onTelegramAuth = user => fetch('/api/mycast/account/telegram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withRef(user)) }).then(signedIn).catch(() => accMsg(t().acc_fail, false));
+function loadScript(src, attrs, parent) {
+  const el = document.createElement('script'); el.src = src; el.async = true;
+  Object.entries(attrs || {}).forEach(([k, v]) => el.setAttribute(k, v)); (parent || document.head).appendChild(el); return el;
+}
+async function savePodcast(quiet, approved) {
+  const r = await fetch('/api/mycast/account/podcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: MyCast.encodeShare(profile), approved: !!approved }) });
+  const d = await r.json().catch(() => ({}));
+  if (r.ok) { listener = d.listener; renderTelegram(); if (!quiet) accMsg(t().acc_saved + myPage(), true); }
+  else if (!quiet) accMsg(t().acc_fail, false);
+}
+async function initAccounts() {
+  if (!/^https?:$/.test(location.protocol)) return;               // local file or preview: no accounts
+  if (/[#&]missing/.test(location.hash)) accMsg(t().acc_missing, false);
+  try { account = await (await fetch('/api/mycast/account/config')).json(); } catch (e) { return; }
+  try { const r = await fetch('/api/mycast/account/me'); if (r.ok) listener = (await r.json()).listener; } catch (e) {}
+  loadVoices();
+  await telegramReturn();
+  render();
+  if (listener) { if (account.telegram_bot_id && !(listener.telegram_linked)) loadScript('https://telegram.org/js/telegram-widget.js?22'); return; }
+  if (account.google_client_id) {
+    loadScript('https://accounts.google.com/gsi/client').onload = () => {
+      google.accounts.id.initialize({ client_id: account.google_client_id, callback: resp =>
+        fetch('/api/mycast/account/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withRef({ credential: resp.credential })) }).then(signedIn) });
+      google.accounts.id.renderButton($('#googleBtn'), { theme: 'filled_black', shape: 'pill', size: 'large', text: 'signin_with', locale: lang });
+    };
+  }
+  if (account.telegram_bot) loadScript('https://telegram.org/js/telegram-widget.js?22', { 'data-telegram-login': account.telegram_bot, 'data-size': 'large',
+    'data-radius': '12', 'data-request-access': 'write', 'data-onauth': 'onTelegramAuth(user)', 'data-lang': lang }, $('#tgBtn'));
+}
+$('#accSave').addEventListener('click', () => savePodcast(false));
+$('#accPage').addEventListener('click', async () => {
+  if (!listener || !listener.has_podcast) { accMsg(t().acc_need_save, false); return; }
+  const ok = await copyText(myPage()); accMsg(ok ? t().acc_copied + ' ' + myPage() : myPage(), ok);
+});
+$('#accOutBtn').addEventListener('click', async () => { await fetch('/api/mycast/account/logout', { method: 'POST' }).catch(() => {}); listener = null; location.reload(); });
+$('#accDelete').addEventListener('click', async () => {
+  if (!confirm(t().acc_confirm_delete)) return;
+  const r = await fetch('/api/mycast/account', { method: 'DELETE' }).catch(() => null);
+  if (r && r.ok) { listener = null; render(); accMsg(t().acc_deleted, true); } else accMsg(t().acc_fail, false);
+});
+document.addEventListener('click', e => { if (e.target.closest('#tgDeliver')) go(account.telegram_bot_id ? '#stepTelegram' : '#stepAccount'); });
+$('#approveBtn').addEventListener('click', () => { if (listener && profile.state === 'approved') savePodcast(true, true); });   // an approved profile is kept on the account
+
+/* #281 Gemini voice picker: real cached samples from the server; nothing is claimed playable before it exists. */
+let voiceCat = null, voiceBusy = '';
+const onSite = () => /^https?:$/.test(location.protocol);
+async function loadVoices() {
+  if (!onSite()) return;
+  try { const r = await fetch('/api/mycast/voices?lang=' + encodeURIComponent(profile.voice.language)); if (r.ok) voiceCat = await r.json(); } catch (e) { voiceCat = null; }
+  renderVoices();
+}
+function voiceMsg(text, ok) { const m = $('#voiceMsg'); m.className = 'msg' + (ok ? ' ok' : ''); m.textContent = text || ''; }
+function renderVoices() {
+  const x = t(), mode = profile.voice.mode, chosen = profile.voice.voices || [];
+  const info = Object.fromEntries(((voiceCat && voiceCat.language === profile.voice.language && voiceCat.voices) || []).map(v => [v.name, v]));
+  const slots = mode === 'narrator' ? [['narrator', 0, 'm']] : [['a', 0, 'm'], ['b', 1, 'f']];
+  $('#voicePick').innerHTML = slots.map(([key, slot, g]) => `<div class="vslot" role="radiogroup" aria-label="${esc(x.voice_pick_h[key])}"><h4>${esc(x.voice_pick_h[key])}</h4>` +
+    (slot === 0 ? `<p class="sub">${esc(x.voice_pick_sub)}${voiceCat ? ' · ' + esc(x.voice_left) + voiceCat.remaining_today : ''}</p>` : '') +
+    '<div class="vgrid">' + MyCast.GEMINI_VOICES.filter(v => v[2] === g).map(([name, style]) => {
+      const st = (info[name] || {}).sample || 'not_generated', on = chosen[slot] === name;
+      return `<div class="vcard"><button type="button" class="vpick" role="radio" aria-checked="${on}" data-vslot="${slot}" data-vname="${name}"><b>${esc(name)}</b><small>${esc(style)}</small></button>` +
+        `<button type="button" class="vplay${voiceBusy === name ? ' busy' : ''}" data-vplay="${name}" aria-label="${esc(x.voice_play + ': ' + name)}" title="${esc(st === 'unavailable' ? x.voice_unavail.replace('{name}', name).replace('{reason}', (info[name] || {}).reason || '') : x.voice_play)}" ${!onSite() || st === 'unavailable' ? 'disabled' : ''}>${st === 'ready' ? '▶' : '▷'}</button></div>`;
+    }).join('') + '</div></div>').join('');
+  if (!onSite()) voiceMsg(x.voice_site_only, false);
+}
+async function playSample(name) {
+  const x = t(), lang = profile.voice.language, a = $('#sampleAudio');
+  let item = ((voiceCat && voiceCat.voices) || []).find(v => v.name === name);
+  try { a.pause(); } catch (e) {}
+  if (!item || item.sample !== 'ready' || voiceCat.language !== lang) {
+    voiceBusy = name; renderVoices(); voiceMsg(x.voice_gen.replace('{name}', name), true);
+    let out = {};
+    try {
+      const r = await fetch('/api/mycast/voices/' + encodeURIComponent(name) + '/sample', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language: lang }) });
+      out = await r.json().catch(() => ({}));
+      if (!r.ok) out = { state: 'refused', detail: out.detail };
+    } catch (e) { out = { state: 'refused', detail: 'offline' }; }
+    voiceBusy = '';
+    await loadVoices();
+    if (out.state !== 'ready') {
+      voiceMsg(out.detail === 'daily_limit' ? x.voice_limit : out.detail === 'not_configured' ? x.gm_fail.not_configured
+        : x.voice_unavail.replace('{name}', name).replace('{reason}', out.reason || out.detail || 'failed'), false);
+      return;
+    }
+    item = { url: out.url };
+  }
+  voiceMsg('');
+  a.src = item.url;
+  try { await a.play(); } catch (e) {}
+}
+$('#voicePick').addEventListener('click', e => {
+  const play = e.target.closest('[data-vplay]');
+  if (play) { if (!voiceBusy) playSample(play.dataset.vplay); return; }
+  const pick = e.target.closest('[data-vname]');
+  if (pick) { try { change(MyCast.setVoice(profile, Number(pick.dataset.vslot), pick.dataset.vname)); } catch (err) {} }
+});
+$('#vlang').addEventListener('change', () => setTimeout(loadVoices, 0));
+
+/* #281 step 07: pair Telegram, verify with one test message, then a separate explicit delivery switch.
+   Approval, pairing, sign-in and import never start delivery; every send goes only to the listener's own chat. */
+let tgConsent = false;
+function tgMsg(text, ok) { const m = $('#tgMsg'); m.className = 'msg' + (ok ? ' ok' : ''); m.textContent = text || ''; }
+function schedText() {
+  const x = t(), s = profile.schedule;
+  return s.time + ' · ' + (s.frequency === 'days' ? (s.days || []).map(d => x.days[d]).join(', ') : x.freqs.daily);
+}
+function tgAuthUrl() {
+  const back = location.origin + location.pathname;
+  return `https://oauth.telegram.org/auth?bot_id=${encodeURIComponent(account.telegram_bot_id)}&origin=${encodeURIComponent(location.origin)}&request_access=write&return_to=${encodeURIComponent(back)}`;
+}
+function renderTelegram() {
+  const x = t(), box = $('#tgBox');
+  if (!onSite()) { box.innerHTML = `<p class="hint">${esc(x.tg_need_site)}</p>`; return; }
+  if (!account.telegram_bot_id) { box.innerHTML = `<p class="hint">${esc(x.tg_err.telegram_not_configured)}</p>`; return; }
+  const L = listener;
+  if (!L || !L.telegram_linked) {
+    box.innerHTML = `<button type="button" class="tgCta" id="tgConnect">${ICONS.telegram}<span>${esc(x.tg_cta)}</span></button>`;
+    return;
+  }
+  const d = L.delivery || {}, approved = !!L.approved || profile.state === 'approved', verified = !!L.telegram_verified;  // a local approval is saved as approved on 'turn on'
+  let html = verified ? `<div class="tgState">${esc(x.tg_verified)}</div>`
+    : `<div class="tgState">${esc(x.tg_linked_unverified)} <button type="button" class="btn" id="tgTest">${esc(x.tg_test)}</button></div>`;
+  html += `<h4 style="margin:16px 0 8px">${esc(x.dl_h)}</h4>`;
+  if (d.active) {
+    html += `<p class="status ok">${esc(x.dl_active.replace('{date}', new Date((d.since || 0) * 1000).toLocaleDateString(lang)))}</p>` +
+      `<div class="btns"><button type="button" class="btn" id="dlOff">${esc(x.dl_off)}</button>` +
+      `<button type="button" class="btn" id="dlSample" ${lastDemoJob ? '' : 'disabled'} title="${esc(lastDemoJob ? '' : x.dl_sample_need)}">${esc(x.dl_sample)}</button></div>`;
+  } else {
+    if (d.paused_reason === 'profile_changed') html += `<p class="status bad">${esc(x.dl_paused)}</p>`;
+    html += `<ul class="tgList"><li class="${approved ? 'ok' : ''}">${approved ? '✓' : '○'} ${esc(x.dl_need.approved)}</li>` +
+      `<li class="${verified ? 'ok' : ''}">${verified ? '✓' : '○'} ${esc(x.dl_need.verified)}</li>` +
+      `<li class="${tgConsent ? 'ok' : ''}">${tgConsent ? '✓' : '○'} ${esc(x.dl_need.consent)}</li></ul>` +
+      `<label class="confirm"><input type="checkbox" id="dlConsent" ${tgConsent ? 'checked' : ''} ${approved && verified ? '' : 'disabled'}> <span>${esc(x.dl_consent.replace('{when}', schedText()))}</span></label>` +
+      `<div class="btns"><button type="button" class="btn primary" id="dlOn" ${approved && verified && tgConsent ? '' : 'disabled'}>${esc(x.dl_on)}</button></div>`;
+  }
+  html += `<p class="hint">${esc(x.dl_note)}</p>`;
+  box.innerHTML = html;
+}
+async function tgPost(path, body) {
+  const x = t();
+  try {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { tgMsg(x.tg_err[d.detail] || x.acc_fail, false); return null; }
+    if (d.listener) listener = d.listener;
+    return d;
+  } catch (e) { tgMsg(x.acc_fail, false); return null; }
+}
+// The Telegram redirect comes back with #tgAuthResult=<base64 JSON>; the server checks its signature.
+async function telegramReturn() {
+  const m = /[#&]tgAuthResult=([A-Za-z0-9_=-]+)/.exec(location.hash);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  let user = null;
+  try { user = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, '+').replace(/_/g, '/'))))); } catch (e) { user = null; }
+  await linkTelegram(user);
+}
+async function linkTelegram(user) {
+  if (!user) { tgMsg(t().acc_fail, false); return; }
+  try {
+    const r = await fetch('/api/mycast/account/telegram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withRef(user)) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.listener) {
+      listener = d.listener;
+      if (!listener.has_podcast && MyCast.validate(profile).length === 0) await savePodcast(true, profile.state === 'approved');
+      render(); setTimeout(() => go('#stepTelegram'), 50);
+    } else tgMsg(t().acc_fail, false);
+  } catch (e) { tgMsg(t().acc_fail, false); }
+}
+$('#tgBox').addEventListener('click', async e => {
+  const x = t();
+  if (e.target.closest('#tgConnect')) {
+    // A Telegram pop-up keeps this page (and an approval made here) intact; the full redirect is only the fallback.
+    const tl = window.Telegram && window.Telegram.Login;
+    if (tl && tl.auth) tl.auth({ bot_id: account.telegram_bot_id, request_access: 'write', lang }, user => { if (user) linkTelegram(user); });
+    else location.href = tgAuthUrl();
+    return;
+  }
+  if (e.target.closest('#tgTest')) { if (await tgPost('/api/mycast/account/telegram/test')) { tgMsg(x.tg_test_sent, true); render(); } return; }
+  if (e.target.closest('#dlOn')) {
+    if (profile.state === 'approved' && listener && !listener.approved) await savePodcast(true, true);
+    if (await tgPost('/api/mycast/account/delivery', { enable: true, consent: tgConsent })) { tgConsent = false; tgMsg(''); render(); }
+    return;
+  }
+  if (e.target.closest('#dlOff')) { if (await tgPost('/api/mycast/account/delivery', { enable: false, consent: false })) { tgMsg(''); render(); } return; }
+  if (e.target.closest('#dlSample') && lastDemoJob) { if (await tgPost('/api/mycast/account/delivery/sample', { job: lastDemoJob })) tgMsg(x.dl_sample_sent, true); }
+});
+$('#tgBox').addEventListener('change', e => { if (e.target.id === 'dlConsent') { tgConsent = e.target.checked; renderTelegram(); } });
+
+function renderGrowth() {
+  const x = t(), gifted = !!inviteRef && !(listener && listener.slug === inviteRef);
+  $('#offer').classList.toggle('gift', gifted);
+  $('#offerTitle').textContent = gifted ? x.gift : x.offer;
+  $('#offerSub').textContent = (gifted ? x.gift_sub : x.offer_sub) + ' ' + x.beta;
+  $('#ideasList').innerHTML = x.ideas.map(([text, on]) => `<li>${esc(text)}<span class="st${on ? ' on' : ''}">${esc(on ? x.ideas_on : x.ideas_off)}</span></li>`).join('');
+  if (listener) {
+    $('#inviteDays').textContent = x.inv_days.replace('{n}', listener.free_days || 7);
+    $('#inviteSub').textContent = x.inv_sub.replace('{k}', listener.referrals || 0);
+  }
+}
+$('#triggers').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) go(b.dataset.go); });
+$('#inviteBtn').addEventListener('click', async () => {
+  if (!listener) return;
+  const link = shareUrl(), x = t(), text = x.inv_text + ' ' + link;
+  if (navigator.share) { try { await navigator.share({ title: 'MyCast', text: x.inv_text, url: link }); return; } catch (e) {} }
+  const ok = await copyText(text); accMsg(ok ? x.inv_copied + link : link, ok);
+});
+
+/* Gentle pointer parallax on the aurora (fine pointers only, never in calm mode). */
+if (!calm && mq('(pointer: fine)')) {
+  let raf = 0, px = 0, py = 0;
+  window.addEventListener('pointermove', e => { px = e.clientX / innerWidth - .5; py = e.clientY / innerHeight - .5;
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; document.documentElement.style.setProperty('--px', px.toFixed(3)); document.documentElement.style.setProperty('--py', py.toFixed(3)); }); }, { passive: true });
+}
+render();
+initAccounts();
+</script>
+</body>
+</html>

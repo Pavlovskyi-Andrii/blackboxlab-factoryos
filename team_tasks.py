@@ -75,9 +75,17 @@ def github_fetcher(repo: str, token: str) -> Callable[[str], object]:
     return fetch
 
 
-def read_github(fetch: Callable[[str], object], max_ci: int = 20) -> dict:
+def read_github(fetch: Callable[[str], object], max_ci: int = 20, owner: str = "") -> dict:
+    """Recent activity for the board, plus (#259) every open issue the owner created, so intake from this snapshot
+    does not miss an old open task that is no longer among the 100 most recently updated."""
     try:
         issues = fetch("/issues?state=all&per_page=100&sort=updated&direction=desc")
+        open_truncated = False
+        if owner and isinstance(issues, list):
+            from github_pages import fetch_all
+            open_owner, open_truncated = fetch_all(fetch, "/issues?state=open&creator=" + owner, max_pages=3)
+            seen = {i.get("number") for i in issues if isinstance(i, dict)}
+            issues = issues + [i for i in open_owner if isinstance(i, dict) and i.get("number") not in seen]
         pulls = fetch("/pulls?state=all&per_page=60&sort=updated&direction=desc")
         if not isinstance(issues, list) or not isinstance(pulls, list):
             raise ValueError("unexpected GitHub response")
@@ -90,7 +98,7 @@ def read_github(fetch: Callable[[str], object], max_ci: int = 20) -> dict:
                     ci[sha] = _ci_summary((data or {}).get("check_runs") if isinstance(data, dict) else [])
                 except Exception:
                     ci[sha] = {"state": "unknown", "failed": ""}
-        return {"available": True, "issues": issues, "pulls": pulls, "ci": ci}
+        return {"available": True, "issues": issues, "pulls": pulls, "ci": ci, "open_owner_truncated": open_truncated}
     except Exception as exc:
         code = getattr(exc, "code", None)
         return {"available": False, "error": ("HTTP " + str(code)) if code else "GitHub unavailable",
@@ -332,6 +340,7 @@ def compact_github(github: dict) -> dict:
     def refs(body):
         return " ".join("Refs #" + n for n in _ISSUE_REF.findall(str(body or "")))[:500]
     issues = [{"number": i.get("number"), "title": str(i.get("title") or "")[:200], "body": owner_line(i.get("body")),
+               "author": str((i.get("user") or {}).get("login") or i.get("author") or "")[:60],
                "state": i.get("state"), "html_url": i.get("html_url"), "pull_request": bool(i.get("pull_request")),
                "labels": [{"name": str(l.get("name") or "")[:50]} for l in i.get("labels") or [] if isinstance(l, dict)],
                "updated_at": i.get("updated_at"), "created_at": i.get("created_at"), "closed_at": i.get("closed_at")}
@@ -348,7 +357,7 @@ def compact_github(github: dict) -> dict:
 def valid_snapshot(data) -> bool:
     return (isinstance(data, dict) and data.get("available") is True and isinstance(data.get("issues"), list)
             and isinstance(data.get("pulls"), list) and isinstance(data.get("ci"), dict)
-            and len(data["issues"]) <= 300 and len(data["pulls"]) <= 200)
+            and len(data["issues"]) <= 400 and len(data["pulls"]) <= 200)  # 100 recent + up to 300 open owner issues
 
 
 class TeamTasksCache:
@@ -365,6 +374,11 @@ class TeamTasksCache:
             if self._data is None or age > self.ttl or (refresh and age > self.min_refresh):
                 self._data, self._at = read(), time.time()
             return self._data
+
+    def peek(self) -> Optional[dict]:
+        """The cached board without reading GitHub (None until the first read). Lock-free on purpose: the
+        board builder itself runs inside get() and asks the lane board, which peeks here."""
+        return self._data
 
     def invalidate(self) -> None:
         with self._lock:

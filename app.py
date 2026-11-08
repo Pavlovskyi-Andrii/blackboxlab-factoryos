@@ -24,17 +24,21 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues
+from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues, relay_github_owner_issues
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from operator_lanes import build_operator_lanes
-from team_tasks import TeamTasksCache, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
+from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, install_owner_desk_routes
+from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
-from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio
+from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio, gemini_tts_pcm
+from mycast_demo import DemoService, install_mycast_demo_routes
+from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
+from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
@@ -159,6 +163,18 @@ AGENT_SPECS = {
 
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """Browsers ask for /favicon.ico before reading the page; serve the Blackbox Lab cube."""
+    return FileResponse(BASE / "static" / "favicon-32.png", media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/mycast", include_in_schema=False)
+def mycast_short_link():
+    """Short public address for shared MyCast podcasts. The browser keeps the #p=… part across the redirect."""
+    return RedirectResponse("/static/mycast-configurator/index.html", status_code=307)
 
 FACTORY_USER = os.environ.get("FACTORY_USER", "blackboxlab")
 FACTORY_PASSWORD = os.environ.get("FACTORY_PASSWORD", "")
@@ -684,9 +700,44 @@ install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_wor
 
 # Gemini coder loop on EC2 calls Google through this proxy, so the key never leaves Render.
 install_gemini_worker_routes(app, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY)
+# MyCast public demo (owner 2026-11-06): Gemini voices, at most 30 new per UTC day, cached, one at a time.
+MYCAST_DEMO = DemoService(DATA_DIR / "mycast_demo", api_key=lambda: FACTORY_GEMINI_API_KEY, tts=gemini_tts_pcm,
+                          tts_single=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice))
+install_mycast_demo_routes(app, MYCAST_DEMO)
+# #281 voice audition: real cached Gemini samples per prebuilt voice (owner: about 30 samples), honest unavailable states.
+install_mycast_voice_audition_routes(app, VoiceSamples(DATA_DIR / "mycast_voices", api_key=lambda: FACTORY_GEMINI_API_KEY,
+                                                       tts=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice)))
+def _mycast_send_listener_sample(chat_id: str, job_id: str) -> None:
+    """#281: one generated demo, as mp3, to the listener's own Telegram chat (delivery opt-in checked by the caller)."""
+    import wave
+    from mycast import pcm_to_mp3
+    try:
+        path = MYCAST_DEMO.audio_path(job_id)
+    except Exception:
+        raise MyCastAccountError("demo_not_ready", 409)
+    with wave.open(str(path)) as w:
+        pcm, rate = w.readframes(w.getnframes()), w.getframerate()
+    telegram_send_audio(FACTORY_TELEGRAM_BOT_TOKEN, str(chat_id), pcm_to_mp3(pcm, rate), filename="mycast-demo.mp3",
+                        title="MyCast · демо", caption="Демо MyCast (не справжній випуск). Розсилку можна зупинити на сторінці MyCast.")
+_MYCAST_BOT_NAME = {"name": "", "at": 0.0}
+def _mycast_bot_username() -> str:
+    # The Login Widget needs the bot's public @username; ask Telegram once an hour, never expose the token.
+    if time.time() - _MYCAST_BOT_NAME["at"] > 3600:
+        _MYCAST_BOT_NAME.update(name=str((_telegram_api("getMe").get("result") or {}).get("username") or ""), at=time.time())
+    return _MYCAST_BOT_NAME["name"]
+# MyCast listener accounts (owner 2026-11-06: open beta, Telegram + Google). Separate cookie; never a staff session.
+install_mycast_account_routes(app, ListenerStore(DATA_DIR / "mycast_listeners.json"), secret=FACTORY_SECRET,
+                              bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN, bot_username=_mycast_bot_username,
+                              google_client_id=lambda: FACTORY_GOOGLE_CLIENT_ID,
+                              google_verify=lambda cred: google_id_token.verify_oauth2_token(cred, google_requests.Request(), FACTORY_GOOGLE_CLIENT_ID),
+                              secure_cookie=FACTORY_PUBLIC_BASE_URL.startswith("https://"),
+                              send_message=lambda chat, text: _telegram_api("sendMessage", {"chat_id": chat, "text": text}),
+                              send_sample=_mycast_send_listener_sample)
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
+MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
+install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
                           redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
@@ -695,8 +746,8 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp"}
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/")
+    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast"}
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
     claude_worker_api=request.url.path.startswith("/api/claude-worker/") and _claude_worker_authorized(request)
@@ -772,6 +823,7 @@ def login_page(request: Request, lang: str = "en"):
         </script>"""
     return HTMLResponse(f"""<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>
     <meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='icon' href='/static/favicon.svg' type='image/svg+xml'><link rel='apple-touch-icon' href='/static/apple-touch-icon.png'>
     <title>Blackbox Lab — FactoryOS Login</title>
     <style>
     body{{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(700px 420px at 50% 0,#163f6255,transparent 65%),#07101b;color:#fff;font:14px Inter,system-ui,Arial}}
@@ -8875,16 +8927,65 @@ def sync_cycle_for_publish(publish_id):
     cycle=_cycle_for_publish(publish_id)
     return sync_factory_cycle(cycle["id"]) if cycle else None
 
+INTAKE_SNAPSHOT_MAX_AGE=900  # the EC2 pusher runs every 3 minutes
+
+INTAKE_SNAPSHOT_CLOCK_SKEW=60  # a snapshot "from the future" beyond this is not trusted as fresh
+
+def _intake_issues_from_ec2_snapshot():
+    """#41/#258: owner Issues from the EC2 worker's snapshot (owner gh login) when Render's own read fails.
+    Returns (data, reason): data is None unless the snapshot is present, well-formed and fresh; reason is one of
+    "fresh", "missing", "stale", "malformed". Unknown is never imported as fresh."""
+    snap=_load_team_snapshot()
+    if snap is None:return None,"missing"
+    if not isinstance(snap,dict):return None,"malformed"
+    try:received=float(snap.get("received"))
+    except (TypeError,ValueError):return None,"malformed"
+    age=time.time()-received
+    if age>INTAKE_SNAPSHOT_MAX_AGE or age<-INTAKE_SNAPSHOT_CLOCK_SKEW:return None,"stale"
+    github=snap.get("github")
+    if not isinstance(github,dict) or not isinstance(github.get("issues"),list):return None,"malformed"
+    issues=[{"number":i.get("number"),"title":str(i.get("title") or ""),"body":str(i.get("body") or ""),
+             "url":str(i.get("html_url") or ""),"state":str(i.get("state") or ""),"author":str(i.get("author") or ""),
+             "pull_request":bool(i.get("pull_request"))} for i in github["issues"] if isinstance(i,dict)]
+    return {"issues":issues,"github":{**github,"pulls":github.get("pulls") if isinstance(github.get("pulls"),list) else []}},"fresh"
+
 def github_issue_intake_once(fetch=None):
-    """T-599-E: one owner-Issue intake pass; logs counts/IDs only, never bodies or tokens."""
-    result=relay_auto_intake_issues(RELAY_QUEUE,GITHUB_REPO,GITHUB_TOKEN,fetch=fetch)
-    print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":result["ok"],"error":result.get("error",""),
+    """T-599-E / #41: one owner-Issue intake pass; logs counts/IDs and safe reason codes only, never bodies or tokens.
+
+    Source: Render's own GitHub read, else the fresh EC2 snapshot. Claude issues that Queue Keeper (#231) sees as
+    blocked (open Depends, owner gate, another agent's PR) are deferred, so the worker never starts them early."""
+    direct=relay_github_owner_issues(GITHUB_REPO,GITHUB_TOKEN,fetch=fetch)
+    source,render_error,gate_github="render","",None
+    if direct.get("available"):
+        issues,owner=direct["issues"],direct["owner"]
+        gate_github={"available":True,"pulls":[],"issues":[{"number":i.get("number"),"title":i.get("title"),"body":i.get("body"),
+                     "state":i.get("state"),"html_url":i.get("url"),"labels":[]} for i in issues if isinstance(i,dict)]}
+    else:
+        render_error=f"{direct.get('error','')} ({direct.get('reason','unknown')})"
+        ec2,snapshot_state=_intake_issues_from_ec2_snapshot()
+        if ec2 is None:
+            print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":False,"error":direct.get("error",""),"reason":direct.get("reason",""),
+                              "ec2_snapshot":snapshot_state,"imported":[],"linked":[],"existing":0,"ignored":0}),flush=True)
+            return {"ok":False,"error":direct.get("error") or "GitHub unavailable","ec2_snapshot":snapshot_state,
+                    "imported":[],"existing":[],"linked":[],"ignored":0}
+        issues,owner,source,gate_github=ec2["issues"],GITHUB_REPO.split("/",1)[0],"ec2",ec2["github"]
+    readiness=queue_readiness({**gate_github,"available":True},roadmap=_parse_roadmap_tasks(),agent="claude")
+    blocked={t["number"]:t["reasons"] for t in readiness.get("blocked") or []}
+    deferred=[{"issue":n,"reasons":r} for n,r in sorted(blocked.items())]
+    ready=[i for i in issues if not (isinstance(i,dict) and _safe_int(i.get("number")) in blocked)]
+    result={"ok":True,**RELAY_QUEUE.auto_intake_owner_issues(ready,GITHUB_REPO,owner)}
+    print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":True,"source":source,"render_error":render_error,
                       "imported":[x["issue"] for x in result["imported"]],"linked":[x["issue"] for x in result["linked"]],
-                      "existing":len(result["existing"]),"ignored":result["ignored"]}),flush=True)
+                      "existing":len(result["existing"]),"ignored":result["ignored"],"deferred":[d["issue"] for d in deferred]}),flush=True)
     for row in result["imported"]:
         try:_telegram_send(f"📥 Relay {row['ticket']}: GitHub #{row['issue']} (Owner: {row['lane']})\nВ очереди, выполнение ещё не началось.")
         except Exception:pass
+    result.update(source=source,deferred=deferred,render_error=render_error)
     return result
+
+def _safe_int(value):
+    try:return int(value)
+    except (TypeError,ValueError):return 0
 
 
 async def github_issue_intake_loop():
@@ -11195,7 +11296,13 @@ def get_lane_board():
     """T-599-F: per-lane state and Build Progress columns from Relay events + heartbeats only."""
     lanes=get_operator_lanes()
     beats={k:{"last_seen":v.get("last_seen") or None,"online":v.get("online") is True} for k,v in lanes.items()}
-    return build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds)
+    # GitHub activity from the cached Team tasks board (never a GitHub read here): the Gemini loop works through
+    # GitHub issues/PRs, not Relay, so its lane would otherwise look empty.
+    team=_TEAM_TASKS_CACHE.peek() if "_TEAM_TASKS_CACHE" in globals() else None
+    activity={k:{"done_7d":a.get("done_7d"),"last_activity_at":a.get("last_activity_at")}
+              for k,a in ((team or {}).get("agents") or {}).items() if k in ("claude","chatgpt","gemini")}
+    return build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds,
+                            github_activity=activity)
 
 @app.get("/api/factory/lane-board")
 def factory_lane_board(request: Request):
@@ -11232,8 +11339,21 @@ def get_telegram_lane_board():
     return board
 
 def get_telegram_operator_lanes():
-    """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons."""
-    return get_delegation_board().get("operator_lanes") or []
+    """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons.
+    2026-11-07: each lane also carries its GitHub facts from the cached Team tasks board (never a GitHub read here),
+    so the Gemini lane, which works through GitHub PRs and has no Relay runner, is not shown as merely "not configured"."""
+    lanes=get_delegation_board().get("operator_lanes") or []
+    team=_TEAM_TASKS_CACHE.peek() if "_TEAM_TASKS_CACHE" in globals() else None
+    agents=(team or {}).get("agents") or {}
+    out=[]
+    for lane in lanes:
+        a=agents.get(str((lane or {}).get("operator_id") or "")) if isinstance(lane,dict) else None
+        if isinstance(a,dict):
+            c=a.get("counts") or {}
+            lane={**lane,"github":{"open_prs":int(c.get("review") or 0)+int(c.get("in_progress") or 0)+int(c.get("ci_failed") or 0),
+                                   "done_7d":a.get("done_7d") or 0,"last_activity_at":a.get("last_activity_at") or ""}}
+        out.append(lane)
+    return out
 
 def _owner_decision_cards(roadmap):
     """Owner-desk cards that are open decisions and not already ROADMAP [HUMAN] tasks (those are listed anyway)."""
@@ -11247,7 +11367,7 @@ _TEAM_TASKS_CACHE=TeamTasksCache()
 def get_team_tasks(refresh=False):
     """Owner tasks page: Issues/PRs/CI per executor + ROADMAP [HUMAN] tasks + lane heartbeats."""
     def read():
-        github=read_github(github_fetcher(GITHUB_REPO,GITHUB_TOKEN))
+        github=read_github(github_fetcher(GITHUB_REPO,GITHUB_TOKEN),owner=GITHUB_REPO.split("/",1)[0])
         if not github.get("available"):
             # Render's token cannot read the repo (seen 2026-11-04: HTTP 403); use the EC2 worker's snapshot (owner's gh login).
             snap=_load_team_snapshot()

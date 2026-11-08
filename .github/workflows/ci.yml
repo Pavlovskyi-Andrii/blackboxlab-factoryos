@@ -170,6 +170,35 @@ jobs:
           Path("/tmp/factoryos-ui.js").write_text(script, encoding="utf-8")
           PY
           node --check /tmp/factoryos-ui.js
+      - name: MyCast Gemini demo guards (#261)
+        run: |
+          python -m py_compile mycast_demo.py test_mycast_demo.py
+          python test_mycast_demo.py
+          python -m py_compile mycast_accounts.py test_mycast_accounts.py
+          python test_mycast_accounts.py
+          python -m py_compile mycast_voices.py test_mycast_voices.py
+          python test_mycast_voices.py
+      - name: MVP Factory registry (#186)
+        run: |
+          python -m py_compile mvp_factory.py test_mvp_factory.py
+          python test_mvp_factory.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mvp-factory/index.html").read_text(encoding="utf-8")
+          Path("/tmp/mvp-factory-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/mvp-factory-ui.js
+      - name: MyCast configurator prototype (#261)
+        run: |
+          node --check static/mycast-configurator/configurator.js
+          node static/mycast-configurator/test_configurator.js
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mycast-configurator/index.html").read_text(encoding="utf-8")
+          script = html.rsplit("<script>",1)[1].split("</script>",1)[0]
+          Path("/tmp/mycast-configurator-ui.js").write_text(script, encoding="utf-8")
+          PY
+          node --check /tmp/mycast-configurator-ui.js
       - name: Worker / Delegation Control Center UI fixtures
         env:
           FACTORYOS_REQUIRE_NODE: "1"
@@ -330,8 +359,11 @@ jobs:
           python tools/ui_screenshots.py
       - name: Upload screenshots
         if: always()
+        # Owner-approved 2026-11-06: an artifact-storage quota error at upload must not fail the job.
+        # The screenshot step above still fails on page errors, overflow or failed actions.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ui-screenshots
           path: ui-screenshots/
-          retention-days: 14
+          retention-days: 3

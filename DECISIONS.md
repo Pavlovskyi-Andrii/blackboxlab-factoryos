@@ -720,3 +720,107 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Redaction is mandatory and idempotent. It runs on every string field, nested details included, before a finding is returned. It reuses the token patterns from `owner_desk.py` and adds JWTs, bearer values, key=value secrets, long hex, emails, URL credentials and query strings, and private/internal hosts. Public hosts and ordinary text stay readable.
 - Export fails closed: every finding must be valid and its consent `granted` (or `not_required` for our own repo), and the finished JSON is checked once more for anything sensitive. There is no scanning code here; it works on findings handed to it, and the tests use synthetic fixtures only.
 - The test runs in CI as its own step, because the CI only runs listed test files.
+
+## Lane truthfulness on the mobile Build Progress screen (2026-11-05, T-592/T-596 area)
+- An online lane is "blocked" only while its last blocked or failed event is younger than 24 hours (`blocked_ttl`). Before this, a run blocked on 2026-11-02 kept the Claude lane "Blocked" three days later. An older block is history: the lane shows idle, `last_task_id` still names the task, and the task stays in the Blocked column.
+- Lanes now carry `github` = {done_7d, last_activity_at}, taken from the cached Team tasks board. The Gemini loop works through GitHub issues and PRs, not Relay, so its lane read "Offline · 0 done" while it merged six PRs. This GitHub fact is shown beside the Relay facts and never changes a lane's state: no heartbeat still means offline.
+- The lane board only peeks at the Team tasks cache and never reads GitHub. `peek()` is lock-free because the board builder runs inside the cache's `get()` and calls the lane board; a locked peek deadlocked, which `test_team_tasks` now covers.
+
+## #41 GitHub → Relay intake through the EC2 snapshot (2026-11-05)
+- Render's `GITHUB_TOKEN` gets HTTP 403 on this repository (logged every 5 minutes since 2026-11-04), so owner Issues never reached Relay. The EC2 worker already pushes a compact GitHub snapshot every 3 minutes with the owner's `gh` login (for Team tasks). Intake now uses that snapshot when the direct read fails and the snapshot is younger than 15 minutes. No token, scope or secret changes. The snapshot now also keeps each issue's author login, because intake only accepts the owner's own issues.
+- Gate: Claude issues that Queue Keeper (#231) classifies as blocked are deferred, not imported. Blocked means an open Depends issue or PR, an unfinished ROADMAP dependency, an owner gate in the title, or another agent's open PR. Without the gate, restoring intake would hand the EC2 worker tasks that wait for the owner (#240–#242) or are acceptance checks (#219).
+- Failed GitHub reads log a fixed reason category (token_lacks_permission, invalid_token, rate_limited, sso_required, not_found_or_no_access, network), never headers or response text. With no fresh snapshot, intake reports `missing_or_stale` and imports nothing.
+
+## #258 Intake fallback contract (2026-11-05)
+- `_intake_issues_from_ec2_snapshot` returns `(data, reason)`, where reason is `fresh`, `missing`, `stale` or `malformed`. Only `fresh` data is ever imported, and the intake log and result carry the reason (`ec2_snapshot`).
+- Malformed means: not JSON, not an object, a non-numeric `received`, no `github` object, or `issues` that is not a list. These used to raise inside the intake loop.
+- A snapshot more than 60 s "in the future" (clock skew) counts as stale. Before, it was treated as fresh forever.
+- The six contract tests in `test_intake_fallback_contract.py` run in CI through `test_relay_execution.py`. They fail on the pre-#258 code.
+
+## #261 MyCast configurator prototype (2026-11-05)
+- Lives in `docs/prototypes/mycast-configurator/` as a static page plus a DOM-free logic module, so node can test the rules without a browser. `docs/prototypes/mycast/` belongs to #107 and is not touched. Sidebar integration in `static/index.html` waits for PR #194, which edits the same file.
+- Topic ids are stable `category.group.topic` strings. Labels are data, so the profile JSON never depends on the UI language.
+- Browser speech counts only as a labelled demo (`demo_not_ai_episode`). It cannot be downloaded or approved as an episode. Any edit drops the profile back to draft, and approval never sets `active`. No generation, scheduling or delivery exists here.
+- CI runs the node tests and `node --check` on the inline script as one step.
+
+## MyCast configurator on the site (2026-11-06, owner request after #261)
+- The prototype moved from `docs/prototypes/mycast-configurator/` to `static/mycast-configurator/`, because the app serves only `/static`. It is public like every `/static` file. It reads no user or factory data and makes no network calls.
+- The sidebar has a new **MVP Factory** section, between Automation & team and System, with one item, **MyCast podcast**. It opens the configurator in a new tab. The rest of #186 (the panel, the pilots, live Relay state) stays with PR #194. That PR edits a different part of `static/index.html` (the main panel, not the nav line), so the two should merge without a textual conflict.
+- `test_navigation.py` now expects 7 sections and the new destination. Nothing else in it changed.
+
+## #261 follow-up: the full acceptance list (2026-11-06)
+- Channels now have two flags. `selectable` means the channel may be saved as the preference in a draft: Telegram (the main channel) and download. `usable` means something can really be delivered, which is only a download with a real file. Viber, WhatsApp and email are `planned`, visible but disabled. Choosing one is a validation error, never a silent fallback. The default channel is Telegram, as the issue asks, and it always shows "not connected".
+- Watch-list entries are typed (athlete, team, channel, keyword), cleaned the same way as free text, and de-duplicated without regard to case. There are at most 20, and any change resets approval.
+- The visual directive is met with CSS and a small inline SVG: no libraries, no CDN, no images. The hero pipeline uses SVG `animateMotion` along one path and is labelled as a simulation. In calm mode (reduced motion, data saver, or 2 or fewer CPU cores) the animations pause and the glass blur is dropped. The cover art is generated from the topic ids, so the same profile always gets the same cover.
+
+## #186 MVP Factory phase 1: registry, API and overview page (2026-11-06)
+- On 2026-11-06 the owner reassigned #186 to Claude. ChatGPT's draft PR #194 supplied the state machine, the role map and the "recommend, never dispatch" rule. They live on in `mvp_factory.py` with credit. Its static preview and hard-coded panel were not carried over: that panel showed seed text that looked like live state.
+- The registry is a JSON file in `DATA_DIR`, written atomically. A project changes stage only through a recorded event, and only one step forward. Every advance needs an evidence link (a GitHub issue, PR, commit or actions URL, or a `/static/` page). Validating and rejecting are owner-only. A block needs a reason. Writes are idempotent by key. A damaged file is refused (HTTP 503), never quietly replaced with the seed.
+- The seed is written only when no file exists. MyCast enters at `preview_ready`, and each earlier step cites the PR or file that proves it. #187, #188 and #189 start at `idea`, citing their issues.
+- The UI is a standalone page, `/static/mvp-factory/`, opened from the sidebar (MVP Factory → Projects), instead of a 17th drawer. This keeps the drawer framework and its tests untouched. The page is public like all of `/static`, but its data comes only from `/api/mvp-factory`, which needs a session. Viewers can read; the existing middleware refuses their writes.
+- Nothing here starts a worker, calls a provider, spends money, deploys or publishes. Phase 2 (reading Relay execution state and the pilot end-to-end flow) is separate work.
+- Review fixes from 2026-11-06, ChatGPT on PR #271:
+  - **Idempotency keys.** A key belongs to one operation: project, kind, actor and a fingerprint of the payload. Retrying that operation returns the first event. Reusing the key for anything else gets `409 idempotency_conflict`. The page makes an opaque UUID per intended operation, keeps it only to retry after a network failure, and drops it once the server answers or the form changes. The old minute-bucket key could merge two real submissions.
+  - **Evidence.** Links are checked for shape only. Every event carries `evidence_check: "link_shape_only"`, and the page labels each link "not verified". Nothing in the registry says VERIFIED. `..` and `//` in a path are refused.
+  - **Persistence.** `render.yaml` declares `DATA_DIR=/var/data` on the persistent disk `factory-data` and a single uvicorn process (no `--workers`), so the one-writer lock holds. The live Render settings were not checked from this session.
+
+## CI: screenshot upload and the artifact quota (2026-11-06, owner approved)
+- The repository's GitHub Actions artifact storage filled up, so every PR's `ui-screenshots` job went red at the upload step even though the screenshots passed. With the owner's approval, only the upload step is `continue-on-error`, and retention went from 14 days to 3. The screenshot step itself still fails the job on page errors, overflow or failed actions. No artifacts were deleted.
+
+## Relay Claude lane blocked by the MyCast state file (2026-11-06, #41/#256)
+- The owner's Telegram `/tasks` showed every Claude ticket blocked since 2026-11-05 21:20 UTC with "Runner checkout has uncommitted changes". `autopilot.py` writes the MyCast daily state to `.autopilot/mycast.json` inside the runner checkout, and that path was not git-ignored. So `relay_tasks.execute()` (correctly) refused to touch a dirty tree.
+- Fix: ignore `.autopilot/mycast.json` and `.tmp`. No guard was weakened. The worker's normal merge of main brings in the new `.gitignore`, and the untracked file stops counting. A regression in `autopilot/test_autopilot.py` checks every runtime file the runner writes inside its checkout with `git check-ignore`.
+
+## `.autopilot/` is runtime space (2026-11-06, #41/#256)
+- The new block note named the second blocker: `?? .autopilot/ui-check.js`. An earlier delegated run (T-560-E, around 2026-11-01) left that scratch script behind on the EC2 checkout. Rather than ignore files one at a time, `.gitignore` now ignores everything in `.autopilot/` except the two tracked files, `answers.md` and `status.example.json`. The dirty-tree guard is unchanged for every real source file. The regression checks both directions: runtime and scratch paths are ignored, and the two tracked files stay tracked.
+
+## MyCast beta batch 1 (2026-11-06, owner feedback on #261)
+- An own entry belongs to a row (`category.group`) and counts toward the two-pick minimum, so "Arsenal + Usyk" is a valid podcast with no ticked subtopic. The old typed watch list became social follows, and old drafts migrate: watch-list entries become `web` follows, and `weekly` becomes chosen days.
+- A follow link is accepted only over https and only on the platform's own domains (www/m stripped). Anything else must be an @handle or a name. Quick picks are the public figures' official X accounts, offered as shortcuts with initials (no photos).
+- A share link carries settings only, never state, preview or approval. Topics are stored as positions in the stable topic list, so the code stays around 300 characters, small enough for a later QR code. Decoding runs every value through the same validators as the UI, and a link is offered with a banner, never applied over the visitor's own draft without asking.
+- The QR code is deferred: the session's safety check refused vendoring the MIT `qrcode-generator` package, so the owner decides.
+
+## MyCast QR code and /mycast short link (2026-11-06, owner approved)
+- With the owner's yes, the MIT `qrcode-generator` 1.4.4 is vendored unchanged in `static/mycast-configurator/vendor/`. It was audited first: no network, eval, cookie or storage calls.
+- The QR uses error level Q with the DNA cover clipped into a circle over the central ~5 % of the area. OpenCV's `QRCodeDetectorAruco` decodes it from a 520 px phone screenshot and from the 1024 px PNG download. The classic OpenCV detector fails even on the library's plain output, so it was not used as the gate.
+- The share link uses the public short path `/mycast` (a 307 to the page; browsers keep the `#p=` fragment). That keeps the link near 390 characters, a version-19 QR.
+- Also fixed: a global `[hidden]{display:none!important}`. A `display:grid` class was overriding `hidden`, so the JSON import box was always visible and the weekday dots showed even for "daily".
+
+## MyCast public Gemini demo (2026-11-06, owner: "1 да 30")
+- `POST /api/mycast/demo` is public, because the open beta has no sign-in yet. It reuses `mycast.gemini_tts_pcm` and the existing `FACTORY_GEMINI_API_KEY`, and it guards itself:
+  - **script:** at most 2 lines and 420 characters, and the first line must open with the fixed "this is a MyCast demo" sentence, so it is not a free general voice API;
+  - **caps:** 30 new generations per UTC day for everyone (`MYCAST_DEMO_DAILY_CAP`) and 5 per client (`MYCAST_DEMO_PER_CLIENT_CAP`). Client ids are SHA-256 hashes of the first `X-Forwarded-For` hop and are never stored raw;
+  - **cache:** results are cached by script and language as WAV under `DATA_DIR/mycast_demo` (newest 300 kept). Cached plays are free, even after the cap is reached;
+  - **one generation at a time.**
+- **Progress:** the bar shows the real stage (preparing, Gemini voicing, ready). The percentage is marked "≈" because it is estimated from elapsed time against a typical ~14 s, and it stays capped at 95 % until the audio exists.
+- **Fallback:** no key, a cap reached, a Gemini error or a page opened outside the site (a local file or a preview) all fall back to the browser voice with a stated reason.
+- **Labelling:** a Gemini demo is real audio, so Download is enabled. It is still labelled `demo_not_episode`, never an episode.
+
+## MyCast listener accounts, open beta (2026-11-06, owner: "3 открытая бета", Telegram domain set)
+- Listeners sign in with **Telegram** (Login Widget, `request_access=write`) or **Google** (Google Identity Services).
+  - **Telegram:** the server checks the widget's HMAC, keyed with SHA-256 of the bot token, and refuses logins older than 24 h.
+  - **Google:** it uses the existing `FACTORY_GOOGLE_CLIENT_ID` and `verify_oauth2_token`. MyCast is on the same origin as `/login`, so no new Google Cloud setting is needed.
+- **Separate session:** a listener gets its own signed cookie, `mycast_listener` (`ml1|slug|expiry|HMAC`, 30 days, HttpOnly, SameSite=Lax, Secure on https). It is never a staff session: the dashboard and API stay 401 for a listener, as checked against a locally running app.
+- **Stored data:** a random 8-character public slug, a first name, the provider, a SHA-256 of the provider id, the Telegram chat id (Telegram only, for future delivery), the podcast share code and timestamps. No email, no photo, no tokens. `DELETE /api/mycast/account` erases the record. The page states this next to the sign-in buttons and in the FAQ.
+- **Personal page:** `/mycast/u/<slug>` is a public 307 to the configurator with `#p=<code>&from=<slug>`, so a visitor sees the "use these settings?" banner. Sign-in saves the podcast once, and approval saves it again.
+- **Delivery is still not live:** a Telegram-linked account shows "Telegram linked ✓, delivery coming soon", and the channel status stays `not_connected`.
+- **Also fixed:** `.btn:hover` replaced the background of `.btn.primary`, so primary buttons lost their gradient under a desktop pointer.
+
+## #259 Intake pagination (2026-11-06)
+- `github_pages.fetch_all` reads `per_page=100` page by page until a short page, and at most `MAX_PAGES` = 5 pages. If any page fails, the whole read fails: a 403 on page 2 imports nothing and reports the reason, never a silently partial list. When the limit is reached with a full last page, `truncated` is set.
+- The direct Render read (`relay_github_owner_issues`) previously took the first 50 open owner issues only. The EC2 snapshot, which production actually uses because Render's token gets a 403, held only the 100 most recently updated issues of any state. The snapshot now also carries every open issue the owner created (up to 3 pages, de-duplicated), so `valid_snapshot` allows 400 issues.
+- Lane and owner filters are unchanged: the first line must be exactly `Owner: …`, and the author must be the repository owner. Intake stays idempotent per issue.
+
+## #281 MyCast voice picker, Telegram pairing, separate delivery switch (2026-11-07, owner: "#281: «да»")
+- 30 Gemini prebuilt voices (`mycast_voices.VOICES`; the page copy is tested to match). Gender is labelled "by ear, unofficial": Google publishes names and styles, not genders. A single host picks a male voice; two hosts pick male A plus female B, and the two must differ.
+- Samples are real Gemini audio, generated on the first ▶ and cached per voice and language (`DATA_DIR/mycast_voices`). New samples are capped at 40 a day (`MYCAST_VOICE_SAMPLE_DAILY_CAP`); cached ones always play. A failed voice is shown as unavailable with its reason and is not retried for an hour. Nothing is labelled playable before the file exists.
+- The chosen voices go into the demo request and the demo cache key, so another pair gives another sample.
+- Step 07 has a big "Connect to my Telegram" button. It uses the Telegram pop-up (`Telegram.Login.auth`), so an approval made on the page survives; the oauth.telegram.org redirect is only a fallback. A signed-in Google listener who connects Telegram gets the chat linked to the same account.
+- Approval, pairing, sign-in, import and audition never start delivery. Delivery needs three things: the server-side approved code equals the saved code, a test message was sent to the listener's own chat, and an explicit consent tick (`mycast-delivery-consent-2026-11-07`). Then the listener presses "Turn on delivery". "Stop delivery" really turns it off. An edit saved after approval clears the approval and pauses delivery. A new Telegram chat must be verified again. Sends go only to the listener's own chat, at most 3 a day, and each send is audited.
+- Honest limit: regular personal episodes for listeners are not generated yet. Turning delivery on stores consent and schedule, and the page says so.
+
+## MyCast free days and invites (2026-11-07, owner's voice message)
+- Offer, on the first screen: 7 free days of personal podcasts to start, and +7 days for each invited friend. A friend who arrives through an invite starts with 14 days (7 plus a 7-day gift). It works like Dropbox, with both sides rewarded.
+- The invite is the share link (and QR) with `&ref=<slug>`. A personal page's `&from=<slug>` also counts. The server credits it once, and only when that link creates a brand-new account. Self-invites, repeat logins and bad slugs do not count, and there is a cap of 50 friends per inviter. `ref` is sent next to the Telegram payload and is not part of its signed fields.
+- Days are shown as the formula 7 + 7 (if gifted) + 7 × friends. There is no billing yet. The page says plainly that the open beta is free and the days start counting when regular episodes launch.
+- The first screen has three entry points: create your own podcast · listen to friends and famous people · share and earn days. The growth ideas sit on the page as a numbered draft list, each item marked "live" or "plan", for the owner to edit later.

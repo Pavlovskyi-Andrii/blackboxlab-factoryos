@@ -141,6 +141,23 @@ def git(repo: pathlib.Path, *args: str) -> tuple[int, str]:
     return p.returncode, p.stdout.strip()
 
 
+def dirty_summary(porcelain: str, limit: int = 5) -> str:
+    """Name the paths that make the checkout dirty (status code + path, never file contents).
+
+    2026-11-06: the lane stayed blocked with no hint which file was in the way, and nobody could see the EC2 checkout.
+    """
+    items = []
+    for line in str(porcelain or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        code, _, path = line.partition(" ")
+        path = re.sub(r"[^\w./@+-]", "_", path.strip().strip('"'))[:80]
+        items.append(f"{code[:2]} {path}".strip())
+    more = f" +{len(items) - limit} more" if len(items) > limit else ""
+    return ", ".join(items[:limit]) + more
+
+
 def build_prompt(ticket: dict, branch: str) -> str:
     title = str(ticket.get("title") or "")[:180]
     body = str(ticket.get("body") or "")[:10000]
@@ -195,8 +212,12 @@ def execute(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=None,
         report(ticket_id, "blocked", "Runner is not on a safe non-main branch")
         return {"status": "blocked", "id": ticket_id}
     code, dirty = git(repo, "status", "--porcelain")
-    if code or dirty:
-        report(ticket_id, "blocked", "Runner checkout has uncommitted changes; do not risk overwriting them")
+    if code:
+        report(ticket_id, "blocked", "Runner cannot read git status; do not risk overwriting the checkout")
+        return {"status": "blocked", "id": ticket_id}
+    if dirty:
+        report(ticket_id, "blocked", "Runner checkout has uncommitted changes (" + dirty_summary(dirty)
+               + "); do not risk overwriting them")
         return {"status": "blocked", "id": ticket_id}
     code, before = git(repo, "rev-parse", "HEAD")
     if code:

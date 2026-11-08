@@ -47,8 +47,10 @@ BEFORE = {
     "nav.analytics": "openFactoryIntelligence()",
     "nav.qa": "openReleaseReadiness()",
     "nav.settings": None,
+    "mvp.nav": "openMvpFactory()",
+    "mycast.nav": "openMyCastConfigurator()",
 }
-GROUPS = ("overview", "create", "publish", "grow", "automation", "system")
+GROUPS = ("overview", "create", "publish", "grow", "automation", "mvp", "system")
 # Live counters updated by other renderers must keep their ids inside the sidebar.
 COUNTERS = ("brainNavCount", "discoveryNavCount", "revideoNavCount", "variantNavCount", "packageNavState", "buildNavPct")
 

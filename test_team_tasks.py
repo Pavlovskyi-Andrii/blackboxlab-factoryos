@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from team_tasks import TeamTasksCache, _ci_summary, build_team_tasks, compact_github, queue_readiness, read_github
+from team_tasks import TeamTasksCache, _ci_summary, _reason, build_team_tasks, compact_github, queue_readiness, read_github
 
 NOW = 1_800_000_000.0  # fixed clock
 
@@ -53,6 +53,19 @@ class TeamTasksTest(unittest.TestCase):
         self.assertEqual(gem["PR #13"]["status"], "done")               # merged agent PR without its issue in the list
         self.assertNotIn("PR #15", str(b))                               # unknown branch prefix is not an executor
         self.assertNotIn("#8", {t["id"] for a in b["agents"].values() for t in a["tasks"]})
+
+    def test_reason_all_statuses(self):
+        self.assertEqual(_reason({"status": "in_progress"}, "claude"), "draft_pr")
+        self.assertEqual(_reason({"status": "review", "pr": {"ci": "running"}}, "claude"), "ci_running")
+        self.assertEqual(_reason({"status": "review", "pr": {"ci": "unknown"}}, "claude"), "ci_running")
+        self.assertEqual(_reason({"status": "review", "pr": {"ci": "passed"}}, "claude"), "awaiting_review")
+        self.assertEqual(_reason({"status": "ci_failed"}, "claude"), "ci_failed")
+        self.assertEqual(_reason({"status": "queued", "labels": ["gemini"]}, "gemini"), "gemini_loop")
+        self.assertEqual(_reason({"status": "queued", "labels": []}, "gemini"), "not_started")
+        self.assertEqual(_reason({"status": "queued", "labels": ["gemini"]}, "claude"), "not_started")
+        self.assertEqual(_reason({"status": "waiting_owner"}, "owner"), "owner_action")
+        self.assertEqual(_reason({"status": "blocked"}, "claude"), "blocked_label")
+        self.assertEqual(_reason({"status": "done"}, "claude"), "done")
 
     def test_owner_lane_and_summary(self):
         b = self.board()
@@ -135,7 +148,7 @@ class TeamTasksTest(unittest.TestCase):
         body = json.dumps({"available": True, "issues": [issue(5, "Gemini")], "pulls": [], "ci": {}}).encode()
         with patch.object(app, "FACTORY_PASSWORD", "set-so-auth-is-enforced"), \
              patch.object(app, "FACTORY_CLAUDE_WORKER_TOKEN", "worker-token"), \
-             patch.object(app, "read_github", lambda fetch: {"available": False, "error": "HTTP 403", "issues": [], "pulls": [], "ci": {}}):
+             patch.object(app, "read_github", lambda fetch, **kw: {"available": False, "error": "HTTP 403", "issues": [], "pulls": [], "ci": {}}):
             self.assertEqual(asgi_post("/api/factory/team-tasks/worker/snapshot", None, body)[0], 401)
             self.assertEqual(asgi_post("/api/factory/team-tasks/worker/snapshot", "worker-token", b'{"issues": 1}')[0], 400)
             status, out = asgi_post("/api/factory/team-tasks/worker/snapshot", "worker-token", body)
@@ -144,6 +157,8 @@ class TeamTasksTest(unittest.TestCase):
             self.assertEqual(board["github_source"], "ec2")
             self.assertTrue(board["github_available"])
             self.assertEqual(board["agents"]["gemini"]["tasks"][0]["id"], "#5")
+            # The lane board peeks at this cache while the board is being built: it must not deadlock.
+            self.assertIn("gemini", app.get_lane_board()["lanes"])
 
     def test_owner_only_route(self):
         os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-team-tasks-"))

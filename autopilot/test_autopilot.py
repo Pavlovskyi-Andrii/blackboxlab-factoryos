@@ -50,7 +50,30 @@ def main():
     no_human = write_roadmap("# Roadmap\n\n## v5\n- [x] T-001 Finished\n")
     assert ap.idle_notice(no_human).startswith("🏁")
     dependency_and_owner_regression()
+    runtime_files_ignored_regression()
     print("Autopilot roadmap advancement tests passed")
+
+
+def runtime_files_ignored_regression():
+    """Every file the runner writes inside its own checkout must be git-ignored.
+
+    relay_tasks.execute() refuses to work while `git status --porcelain` shows anything. On 2026-11-05 the untracked
+    MyCast state file .autopilot/mycast.json made the checkout dirty, and every Claude Relay task was blocked.
+    """
+    import subprocess
+    repo = Path(__file__).resolve().parent.parent
+    written = [ap.STATUS, ap.ANSWERS.with_name("mycast.json"), ap.ANSWERS.with_name("mycast.json").with_suffix(".tmp"),
+               repo / ".autopilot" / "run.json", repo / ".autopilot" / "supervisor.json", repo / ".autopilot" / "telegram.json",
+               repo / ".autopilot" / "parking.json", repo / ".autopilot" / "evidence" / "x.json", repo / ".venv" / "x",
+               repo / ".autopilot" / "ui-check.js", repo / ".autopilot" / "any-future-scratch.txt"]
+    for path in written:
+        rel = Path(path).resolve().relative_to(repo.resolve()) if Path(path).is_absolute() else Path(path)
+        result = subprocess.run(["git", "check-ignore", "-q", str(rel)], cwd=repo, check=False)
+        assert result.returncode == 0, f"runner writes {rel} inside its checkout but it is not git-ignored"
+    for tracked in (".autopilot/answers.md", ".autopilot/status.example.json"):  # owner answers stay versioned
+        assert subprocess.run(["git", "check-ignore", "-q", tracked], cwd=repo, check=False).returncode == 1, tracked
+        assert subprocess.run(["git", "ls-files", "--error-unmatch", tracked], cwd=repo, check=False,
+                              capture_output=True).returncode == 0, tracked
 
 
 def dependency_and_owner_regression():

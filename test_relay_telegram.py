@@ -37,6 +37,24 @@ class TestRelayTelegram(unittest.TestCase):
     def last_message(self):
         return [payload["text"] for method, payload in self.calls if method == "sendMessage"][-1]
 
+    def test_command_words_without_slash_never_create_tickets(self):
+        # 2026-11-07: "task R-0034" and a bare "R-…" became junk tickets R-0050 and R-0052.
+        before = len(self.store.list())
+        for text in ("R-…", "task R-0034", "need R-0052", "R-0052", "done R-0046", "issue 41"):
+            result = self.message(text)
+            self.assertEqual(result.get("action"), "command_hint", text)
+            self.assertIn("/", self.last_message())
+        self.assertEqual(len(self.store.list()), before)
+        self.message("Build a landing page for R-0034 users")             # a real request still becomes a ticket
+        self.assertEqual(len(self.store.list()), before + 1)
+
+    def test_gemini_lane_card_shows_github_facts(self):
+        from relay import _t585_lane_text
+        text = _t585_lane_text("gemini", {"availability": "unconfigured", "github": {"open_prs": 9, "done_7d": 6, "last_activity_at": "2026-11-06T12:30:00+00:00"}})
+        self.assertIn("работает через GitHub", text)
+        self.assertIn("открытых PR 9 · закрыто за 7 дней 6", text)
+        self.assertIn("не настроен", _t585_lane_text("gemini", {"availability": "unconfigured"}))   # no facts: unchanged
+
     def test_status_only_shows_verified_telemetry(self):
         r = self.message("/status")
         self.assertEqual(r["action"], "status")
