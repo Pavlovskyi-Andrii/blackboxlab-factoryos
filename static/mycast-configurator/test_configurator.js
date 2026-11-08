@@ -247,4 +247,15 @@ test('a free search offers narrower sub-topics that become valid own entries (ow
   assert.strictEqual(M.decodeShare(M.encodeShare(p)).custom['business.entrepreneurship'].length, 2);
 });
 
+test('calendar wishes (birthdays, events) are stored, shared and never claimed as connected', () => {
+  let p = M.newProfile();
+  assert.deepStrictEqual(p.calendar, { birthdays: false, events: false });
+  p = M.setCalendar(p, 'birthdays', true);
+  assert.strictEqual(M.toJSON(p).calendar.status, 'not_connected');           // nothing reads a calendar yet
+  assert.deepStrictEqual(M.decodeShare(M.encodeShare(p)).calendar, { birthdays: true, events: false });
+  assert.deepStrictEqual(M.migrate({ version: 1 }).calendar, { birthdays: false, events: false });   // old drafts
+  assert.deepStrictEqual(M.migrate({ version: 1, calendar: { birthdays: 'yes' } }).calendar.birthdays, false);
+  assert.throws(() => M.setCalendar(p, 'emails', true));
+});
+
 console.log(`MyCast configurator tests passed: ${passed}`);

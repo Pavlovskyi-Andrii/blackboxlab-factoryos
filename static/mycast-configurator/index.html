@@ -203,6 +203,11 @@ details.jsonBox>summary{cursor:pointer;color:var(--mute);font-size:14px;margin-b
 .qr{width:min(320px,100%);aspect-ratio:1;background:#fff;border-radius:18px;padding:12px}
 .qr svg{display:block;width:100%;height:100%}
 .qrSide{flex:1 1 200px;display:grid;gap:10px}
+.parts{list-style:none;margin:6px 8px 4px;padding:0;display:grid;gap:6px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.parts li{display:flex;gap:8px;align-items:baseline;font-size:13px;color:var(--ink);padding:8px 10px;border-radius:12px;border:1px solid var(--edge);background:rgba(9,13,30,.55)}
+.parts li b{font:700 11px var(--mono);color:var(--cyan)}.parts li small{color:var(--mute)}
+.cal{display:grid;gap:8px;margin-top:14px;padding:14px 16px;border-radius:16px;border:1px solid var(--edge2);background:rgba(20,27,54,.55)}
+.cal h4{margin:0;font:700 15px var(--body)}.cal .note{margin:0;font-size:12.5px;color:var(--mute)}
 .narrow{display:grid;gap:8px;padding:12px 14px;border-radius:16px;border:1px dashed rgba(79,227,255,.5);background:rgba(10,30,50,.5)}
 .narrow p{margin:0;font-size:13.5px;color:var(--mute)}.narrow .chips{display:flex;flex-wrap:wrap;gap:8px}
 .narrow button{border:1px solid var(--edge2);background:rgba(20,27,54,.8);color:var(--ink);border-radius:99px;padding:7px 12px;font:600 13px var(--body);cursor:pointer}
@@ -351,6 +356,7 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         </g>
         <g id="chipCloud" font-family="ui-monospace,Menlo,monospace" font-size="10.5"></g>
       </svg>
+      <ol class="parts" id="episodeParts" aria-label="MyCast"></ol>
     </div>
   </section>
 
@@ -400,6 +406,12 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         </div>
         <div class="narrow" id="narrow" hidden></div>
         <div id="taxonomy" class="scopes"></div>
+        <div class="cal" id="calBox">
+          <h4 data-t="cal_h"></h4>
+          <label class="confirm"><input type="checkbox" id="calBirthdays"> <span data-t="cal_birthdays"></span></label>
+          <label class="confirm"><input type="checkbox" id="calEvents"> <span data-t="cal_events"></span></label>
+          <p class="note" data-t="cal_note"></p>
+        </div>
       </section>
 
       <section class="step" id="stepGeo" aria-labelledby="h2s">
@@ -662,7 +674,7 @@ const T = {
 /* Owner, 2026-11-07: 7 free days to start, +7 days for each invited friend (and the friend starts with 14),
    three entry points on the first screen, and the growth ideas kept on the page as theses to edit later. */
 const GROW = {
- uk:{narrow_h:'Звузьте «{q}» — додайте вузьку тему як свою:',narrow_none:'Готових тем за «{q}» немає. Оберіть вузький варіант — він стане вашою темою.',narrow_added:'Додано у «{g}».',narrow_full:'У «{g}» вже 5 своїх тем — приберіть одну, щоб додати ще.',offer:'7 днів персональних подкастів — безкоштовно',offer_sub:'Приведи друга — отримай ще +7 днів за кожного. Друг стартує з 14 днями.',
+ uk:{parts:[['1','Новини у світі',''],['2','Ваші інтереси','стартапи, IT, growth hacking…'],['3','Дні народження друзів','з Google Календаря'],['4','Ваш день','зустрічі й позначки календаря']],cal_h:'Ваш день у випуску',cal_birthdays:'Дні народження друзів (Google Календар)',cal_events:'Мої зустрічі й позначки на сьогодні (Google Календар)',cal_note:'Підключення Google Календаря — скоро, лише читання і лише з вашого дозволу. Зараз ми запам’ятовуємо побажання, календар не читається.',narrow_h:'Звузьте «{q}» — додайте вузьку тему як свою:',narrow_none:'Готових тем за «{q}» немає. Оберіть вузький варіант — він стане вашою темою.',narrow_added:'Додано у «{g}».',narrow_full:'У «{g}» вже 5 своїх тем — приберіть одну, щоб додати ще.',offer:'7 днів персональних подкастів — безкоштовно',offer_sub:'Приведи друга — отримай ще +7 днів за кожного. Друг стартує з 14 днями.',
   gift:'🎁 Вам подарували 7 днів: 14 днів персональних подкастів безкоштовно',gift_sub:'7 днів старту + 7 днів від друга. Увійдіть, щоб подарунок зарахувався.',
   beta:'Відкрита бета: зараз усе безкоштовно, дні почнуть рахуватися з запуском регулярних випусків.',
   tr1:'Створи свій персональний подкаст',tr1s:'Теми, голос і розклад — за 2 хвилини.',tr2:'Слухай подкасти друзів і відомих людей',tr2s:'Відкрий посилання друга або додай Зеленського, Маска, Гейтса…',tr3:'Ділись і отримуй дні',tr3s:'Посилання або QR: другу +7 днів, тобі +7 днів.',
@@ -671,8 +683,8 @@ const GROW = {
   ideas:[['Старт 7 днів безкоштовно + 7 днів за кожного друга (як Dropbox): отримують обидва',1],['Підпис під QR і посиланням: «Вам подарували 7 днів»',1],['Три входи на головній: створи свій · слухай друзів і відомих · ділись',1],
    ['Підпис наприкінці кожного випуску: «Цей подкаст зібрав для себе Андрій. Створи свій — 7 днів у подарунок»',0],['Картка ДНК подкасту для сторіс Instagram і Telegram, з QR',0],['Подкасти відомих людей і друзів як готові «станції»: підписатися в один дотик',0],
    ['Подарувати подкаст: налаштувати для мами чи друга і надіслати як подарунок',0],['Подкаст на двох: спільний випуск із другом про ваші спільні теми',0],['Тижневий «Wrapped»: ваші теми тижня — картка, якою хочеться поділитися',0],
-   ['Серія прослуховувань: 7 днів поспіль — +1 день у подарунок',0],['Групові подкасти для Telegram-чатів: клуб, команда, сім’я',0],['Бейджі амбасадорів і таблиця запрошень',0]],ideas_on:'є',ideas_off:'план'},
- ru:{narrow_h:'Сузьте «{q}» — добавьте узкую тему как свою:',narrow_none:'Готовых тем по «{q}» нет. Выберите узкий вариант — он станет вашей темой.',narrow_added:'Добавлено в «{g}».',narrow_full:'В «{g}» уже 5 своих тем — уберите одну, чтобы добавить ещё.',offer:'7 дней персональных подкастов — бесплатно',offer_sub:'Приведи друга — получи ещё +7 дней за каждого. Друг стартует с 14 днями.',
+   ['Серія прослуховувань: 7 днів поспіль — +1 день у подарунок',0],['Групові подкасти для Telegram-чатів: клуб, команда, сім’я',0],['Бейджі амбасадорів і таблиця запрошень',0],['Google Календар у випуску: дні народження друзів і ваші зустрічі дня',0]],ideas_on:'є',ideas_off:'план'},
+ ru:{parts:[['1','Новости в мире',''],['2','Ваши интересы','стартапы, IT, growth hacking…'],['3','Дни рождения друзей','из Google Календаря'],['4','Ваш день','встречи и пометки календаря']],cal_h:'Ваш день в выпуске',cal_birthdays:'Дни рождения друзей (Google Календарь)',cal_events:'Мои встречи и пометки на сегодня (Google Календарь)',cal_note:'Подключение Google Календаря — скоро, только чтение и только с вашего разрешения. Сейчас мы запоминаем пожелание, календарь не читается.',narrow_h:'Сузьте «{q}» — добавьте узкую тему как свою:',narrow_none:'Готовых тем по «{q}» нет. Выберите узкий вариант — он станет вашей темой.',narrow_added:'Добавлено в «{g}».',narrow_full:'В «{g}» уже 5 своих тем — уберите одну, чтобы добавить ещё.',offer:'7 дней персональных подкастов — бесплатно',offer_sub:'Приведи друга — получи ещё +7 дней за каждого. Друг стартует с 14 днями.',
   gift:'🎁 Вам подарили 7 дней: 14 дней персональных подкастов бесплатно',gift_sub:'7 дней старта + 7 дней от друга. Войдите, чтобы подарок засчитался.',
   beta:'Открытая бета: сейчас всё бесплатно, дни начнут считаться с запуском регулярных выпусков.',
   tr1:'Создай свой персональный подкаст',tr1s:'Темы, голос и расписание — за 2 минуты.',tr2:'Слушай подкасты друзей и известных людей',tr2s:'Открой ссылку друга или добавь Зеленского, Маска, Гейтса…',tr3:'Делись и получай дни',tr3s:'Ссылка или QR: другу +7 дней, тебе +7 дней.',
@@ -681,8 +693,8 @@ const GROW = {
   ideas:[['Старт 7 дней бесплатно + 7 дней за каждого друга (как Dropbox): получают оба',1],['Подпись под QR и ссылкой: «Вам подарили 7 дней»',1],['Три входа на главной: создай свой · слушай друзей и известных · делись',1],
    ['Подпись в конце каждого выпуска: «Этот подкаст собрал для себя Андрей. Создай свой — 7 дней в подарок»',0],['Карточка ДНК подкаста для сторис Instagram и Telegram, с QR',0],['Подкасты известных людей и друзей как готовые «станции»: подписаться в одно касание',0],
    ['Подарить подкаст: настроить для мамы или друга и отправить как подарок',0],['Подкаст на двоих: совместный выпуск с другом про ваши общие темы',0],['Недельный «Wrapped»: ваши темы недели — карточка, которой хочется поделиться',0],
-   ['Серия прослушиваний: 7 дней подряд — +1 день в подарок',0],['Групповые подкасты для Telegram-чатов: клуб, команда, семья',0],['Бейджи амбассадоров и таблица приглашений',0]],ideas_on:'есть',ideas_off:'план'},
- en:{narrow_h:'Narrow down "{q}": add a narrower topic as your own:',narrow_none:'No ready-made topics for "{q}". Pick a narrower option and it becomes your own topic.',narrow_added:'Added to "{g}".',narrow_full:'"{g}" already has 5 own topics; remove one to add more.',offer:'7 days of personal podcasts, free',offer_sub:'Bring a friend and get +7 more days for each one. Your friend starts with 14 days.',
+   ['Серия прослушиваний: 7 дней подряд — +1 день в подарок',0],['Групповые подкасты для Telegram-чатов: клуб, команда, семья',0],['Бейджи амбассадоров и таблица приглашений',0],['Google Календарь в выпуске: дни рождения друзей и ваши встречи дня',0]],ideas_on:'есть',ideas_off:'план'},
+ en:{parts:[['1','World news',''],['2','Your interests','startups, IT, growth hacking…'],['3','Friends\' birthdays','from Google Calendar'],['4','Your day','meetings and calendar notes']],cal_h:'Your day in the episode',cal_birthdays:'Friends\' birthdays (Google Calendar)',cal_events:'My meetings and notes for today (Google Calendar)',cal_note:'Google Calendar connection is coming: read-only and only with your permission. For now we store the wish; no calendar is read.',narrow_h:'Narrow down "{q}": add a narrower topic as your own:',narrow_none:'No ready-made topics for "{q}". Pick a narrower option and it becomes your own topic.',narrow_added:'Added to "{g}".',narrow_full:'"{g}" already has 5 own topics; remove one to add more.',offer:'7 days of personal podcasts, free',offer_sub:'Bring a friend and get +7 more days for each one. Your friend starts with 14 days.',
   gift:'🎁 You were gifted 7 days: 14 days of personal podcasts, free',gift_sub:'7 starter days + 7 days from your friend. Sign in so the gift counts.',
   beta:'Open beta: everything is free right now; days start counting when regular episodes launch.',
   tr1:'Create your own personal podcast',tr1s:'Topics, voice and schedule in 2 minutes.',tr2:'Listen to friends\' and famous people\'s podcasts',tr2s:'Open a friend\'s link or add Zelensky, Musk, Gates…',tr3:'Share and earn days',tr3s:'Link or QR: +7 days for your friend, +7 for you.',
@@ -691,7 +703,7 @@ const GROW = {
   ideas:[['7 free days to start + 7 days for each friend (the Dropbox way): both sides get them',1],['A line under the QR and the link: "You were gifted 7 days"',1],['Three entry points on the first screen: create yours · listen to friends and famous people · share',1],
    ['A sign-off at the end of every episode: "Andrii built this podcast for himself. Make yours, 7 days on us"',0],['A podcast DNA card for Instagram and Telegram stories, with the QR',0],['Famous people\'s and friends\' podcasts as ready "stations": follow in one tap',0],
    ['Gift a podcast: set one up for your mum or a friend and send it as a present',0],['A podcast for two: a joint episode with a friend about the topics you share',0],['A weekly "Wrapped": your topics of the week as a card worth sharing',0],
-   ['Listening streak: 7 days in a row earns +1 free day',0],['Group podcasts for Telegram chats: a club, a team, a family',0],['Ambassador badges and an invite leaderboard',0]],ideas_on:'live',ideas_off:'plan'}};
+   ['Listening streak: 7 days in a row earns +1 free day',0],['Group podcasts for Telegram chats: a club, a team, a family',0],['Ambassador badges and an invite leaderboard',0],['Google Calendar in the episode: friends\' birthdays and your meetings of the day',0]],ideas_on:'live',ideas_off:'plan'}};
 for (const l of Object.keys(GROW)) Object.assign(T[l], GROW[l]);
 
 const COLORS = { sports:'#ff7a6b', tech:'#4fe3ff', news:'#a78bfa', business:'#fbbf24', health:'#34d399', culture:'#f472b6', travel:'#60a5fa', science:'#818cf8', auto:'#fb923c', hobbies:'#a3e635' };
@@ -873,6 +885,8 @@ function render() {
     `<button type="button" class="btn" id="tgDeliver" ${listener && listener.telegram_linked ? 'disabled' : ''}>${ICONS.telegram.replace('<svg ', '<svg width="16" height="16" style="vertical-align:-3px;margin-right:6px" ')}${esc(listener && listener.telegram_linked ? x.tg_linked : (account.telegram_bot ? x.tg_login : x.tg_soon))}</button>`;
   $('#importBanner').hidden = !sharedProfile;
   renderAccount(); renderVoices(); renderTelegram(); renderGrowth();
+  $('#episodeParts').innerHTML = x.parts.map(([n, h, sub]) => `<li><b>${esc(n)}</b><span>${esc(h)}${sub ? ` <small>· ${esc(sub)}</small>` : ''}</span></li>`).join('');
+  $('#calBirthdays').checked = !!(profile.calendar || {}).birthdays; $('#calEvents').checked = !!(profile.calendar || {}).events;
   $('#shareNative').hidden = !navigator.share;
   const errors = MyCast.validate(profile);
   $('#errors').innerHTML = errors.map(e => `<li>${esc(x.err[e.code] || e.code)}</li>`).join('');
@@ -951,6 +965,7 @@ document.addEventListener('change', e => {
   if (el.id === 'freeText') change(MyCast.update(profile, { freeText: el.value }));
   if (el.id === 'rss') change(MyCast.update(profile, { customSources: el.value.trim() ? [el.value.trim()] : [] }));
   if (el.id === 'confirm') render();
+  if (el.id === 'calBirthdays' || el.id === 'calEvents') change(MyCast.setCalendar(profile, el.id === 'calBirthdays' ? 'birthdays' : 'events', el.checked));
 });
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-unfollow],[data-own-del],[data-plat],[data-person],[data-day]');
