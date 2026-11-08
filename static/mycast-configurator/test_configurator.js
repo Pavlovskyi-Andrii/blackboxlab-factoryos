@@ -229,4 +229,22 @@ test('search finds topics in any language; profile JSON uses stable ids', () => 
   assert.strictEqual(json.state, 'draft');
 });
 
+test('a free search offers narrower sub-topics that become valid own entries (owner request 2026-11-08)', () => {
+  const list = M.suggestSubtopics('growth hacking', 'uk');
+  assert.strictEqual(list[0], 'Growth hacking');
+  assert.ok(list.includes('Growth hacking: ідеї для стартапів') && list.includes('Growth hacking: для готового бізнесу'));
+  assert.ok(list.every(v => v.length <= 40));
+  assert.ok(M.suggestSubtopics('growth hacking', 'en').includes('Growth hacking: ideas for startups'));
+  assert.deepStrictEqual(M.suggestSubtopics(' a ', 'uk'), []);
+  assert.ok(M.suggestSubtopics('<b>x</b>yz', 'uk').every(v => !/[<>]/.test(v)));
+  assert.strictEqual(M.guessGroup('growth hacking', 'uk'), 'business.entrepreneurship');
+  assert.strictEqual(M.guessGroup('бокс', 'uk'), 'sports.boxing');           // a real topic match wins
+  assert.strictEqual(M.guessGroup('інші новини', 'uk'), 'news.headlines');   // "ші" inside a word is not AI
+  assert.strictEqual(M.guessGroup('AI agents', 'en'), 'tech.ai');
+  let p = M.newProfile();
+  for (const v of list.slice(1, 3)) p = M.addCustom(p, M.guessGroup('growth hacking', 'uk'), v);
+  assert.deepStrictEqual(M.validate(p), []);                                 // two narrow topics are enough to start
+  assert.strictEqual(M.decodeShare(M.encodeShare(p)).custom['business.entrepreneurship'].length, 2);
+});
+
 console.log(`MyCast configurator tests passed: ${passed}`);
