@@ -1213,7 +1213,7 @@ def relay_handle_telegram_update(
                 match = next((x for x in (snapshot.get("issues") or []) if str(x.get("number") or "") == number), None)
             except Exception:
                 match = None
-            if match:
+            if match and snapshot.get("available") and str(match.get("state") or "").lower() == "open":
                 detail = "🔗 GitHub #" + number + "\n" + str(match.get("title") or "") + "\nСтатус: open (проверено в GitHub)\n" + str(match.get("url") or "")
             else:
                 detail = "GitHub #" + number + ": нет в текущей выборке открытых задач. Статус неизвестен; проверь GitHub."

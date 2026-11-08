@@ -81,6 +81,21 @@ class TestRelayTelegram(unittest.TestCase):
         self.assertIn("GitHub #41", self.last_message())
         self.assertIn("open (проверено", self.last_message())
 
+    def test_github_issue_requires_available_open_snapshot(self):
+        """Cached or failed GitHub snapshots must not claim a verified open issue."""
+        for snapshot in (
+            {"available": False, "issues": [{"number": 41, "title": "Old issue", "state": "open"}]},
+            {"available": True, "issues": [{"number": 41, "title": "Closed issue", "state": "closed"}]},
+        ):
+            with self.subTest(snapshot=snapshot):
+                self.calls.clear()
+                relay_handle_telegram_update(
+                    {"update_id": 100, "message": {"chat": {"id": 42, "type": "private"},
+                                                   "text": "/task #41"}},
+                    self.store, self.pair, self.tg, self.lanes, lambda: snapshot)
+                self.assertIn("Статус неизвестен", self.last_message())
+                self.assertNotIn("open (проверено", self.last_message())
+
     def test_github_verified_ci_and_buttons(self):
         self.message("/github")
         self.assertIn("CI passed", self.last_message())
