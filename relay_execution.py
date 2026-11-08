@@ -65,6 +65,9 @@ def lifecycle(ticket: dict) -> list[dict]:
                 row["detail"] = str(evidence["commit"])[:12]
             elif stage == "pushed":
                 row["detail"] = "branch " + str(evidence.get("branch") or ex.get("branch") or "?")
+            elif stage in ("ci", "merged"):
+                row["source"] = "github"
+                row["detail"] = str(event.get("note") or "")[:120]
         elif stage == "pr" and ex.get("pr_url"):
             row.update(state="linked", source="worker", detail=str(ex["pr_url"]))
         elif stage in ("pr", "ci", "merged", "deployed"):
@@ -82,6 +85,8 @@ def lifecycle_text(ticket: dict) -> str:
     lines = ["Этапы (факт из Relay):"]
     for row in lifecycle(ticket):
         icon = {"blocked": "🙋", "failed": "❌"}.get(row["stage"], icons.get(row["state"], "•"))
+        if row["stage"] == "ci" and row["detail"].startswith("CI failed"):
+            icon = "❌"
         label = row["stage"] + (" — не проверено" if row["state"] == "unverified" else "")
         parts = [icon + " " + label]
         if row["at"]:
@@ -460,6 +465,59 @@ class RelayQueue:
             "at": now, "actor": worker_id, "action": "stale_released",
             "note": note, "from_status": before, "to_status": "blocked"
         })
+
+    def reconcile_pull_requests(self, pulls: list, ci: dict) -> list[dict]:
+        """#289 round trip, server side: follow each ticket's PR (the worker's pr_url evidence) on GitHub.
+
+        Facts come only from the GitHub read passed in (the EC2 snapshot); a PR that is not in it stays unknown.
+        Each transition is recorded once in the ticket history (actor "github") and returned as an owner notice:
+        CI passed / CI failed / merged / closed without merge. Nothing is merged or retried here.
+        """
+        by_url = {str(p.get("html_url") or ""): p for p in pulls or [] if isinstance(p, dict) and p.get("html_url")}
+        notices = []
+        with self.store.lock:
+            state = self.store._load_unlocked()
+            changed = False
+            for item in state["tickets"]:
+                ex = item.get("execution") or {}
+                url = str(ex.get("pr_url") or "")
+                if not url or ex.get("pr_final"):
+                    continue
+                pr = by_url.get(url)
+                if pr is None:
+                    continue
+                now = utc_now()
+
+                def record(action, note, text):
+                    item.setdefault("history", []).append({"at": now, "actor": "github", "action": action, "note": note,
+                                                           "evidence": {"pr_url": url}})
+                    notices.append({"ticket": item["id"], "action": action, "text": text})
+
+                if pr.get("merged_at"):
+                    ex.update(pr_final="merged", merged_at=str(pr.get("merged_at"))[:40])
+                    record("merged", "PR merged into main (GitHub)", f"🔀 Relay {item['id']}: PR смержен в main\n{url}\n"
+                           "Деплой на Render — после зелёных проверок main.")
+                elif str(pr.get("state") or "") == "closed":
+                    ex.update(pr_final="closed")
+                    record("pr_closed", "PR closed without merge (GitHub)", f"🚫 Relay {item['id']}: PR закрыт без мержа\n{url}")
+                else:
+                    summary = (ci or {}).get(str((pr.get("head") or {}).get("sha") or "")) or {}
+                    ci_state = summary.get("state") if isinstance(summary, dict) else None
+                    if ci_state in ("passed", "failed") and ci_state != ex.get("ci_state"):
+                        ex["ci_state"] = ci_state
+                        if ci_state == "passed":
+                            record("ci", "CI passed (GitHub)", f"✅ Relay {item['id']}: CI зелёный — PR готов к ревью и мержу\n{url}")
+                        else:
+                            failed = str(summary.get("failed") or "")[:80]
+                            record("ci", "CI failed: " + failed, f"❌ Relay {item['id']}: CI упал ({failed or 'check'})\n{url}")
+                    else:
+                        continue
+                item["execution"] = ex
+                item["updated_at"] = now
+                changed = True
+            if changed:
+                self.store._save_unlocked(state)
+        return notices
 
     def counts(self, tickets: list[dict]) -> dict:
         """Effective queue depth must reflect the same predicates as claim()."""

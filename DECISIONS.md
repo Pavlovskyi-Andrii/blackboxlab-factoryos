@@ -834,3 +834,9 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
   - Screenshot artifacts are kept for 1 day instead of 3, because Actions storage is full too.
 - Main still runs CI on every push: Render deploys with `autoDeployTrigger: checksPass`. A skipped screenshot job counts as passing, not as failing.
 - Working habit until the reset: fewer, larger pushes per PR.
+
+## Relay round trip (#289, #41), 2026-11-08, owner: «доделать релей, чтобы была круговая работа»
+- Each claimed ticket runs in its own git worktree on branch `relay/<ticket>-<run>`, cut from freshly fetched `origin/main`. The runner's checkout and branch are never touched: a dirty runner tree no longer blocks Relay work, and tickets no longer share one branch. `RELAY_ISOLATED_WORKTREE=0` switches back to the old in-place mode.
+- After a commit, the worker pushes the branch and opens a PR with its existing `gh` login. The PR URL is the evidence on the `done` event. A push without a PR is reported as `blocked`, never as `done`. The worker never merges or deploys.
+- Server: on every intake pass, `relay_pr_reconcile_once` follows each ticket's PR in the fresh EC2 GitHub snapshot. CI passed, CI failed, merged and closed-without-merge are each recorded once in the ticket history (actor `github`) and each sent once to the owner's Telegram. A PR missing from the snapshot, or a stale snapshot, stays unknown. `deployed` stays unverified: Render deploys on checksPass, and no Render read exists yet.
+- Merging stays a human or Claude-review step. "CI passed" in Telegram means "ready for review and merge", not "merged".
