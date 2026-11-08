@@ -39,6 +39,7 @@ from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_rout
 from mycast_demo import DemoService, install_mycast_demo_routes
 from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
+from voice_settings import VoiceSettingsStore, install_voice_settings_routes
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
@@ -688,6 +689,7 @@ def _mycast_send_audio(audio, filename, title, caption):
                         filename=filename, title=title, caption=caption)
 
 MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
+VOICE_SETTINGS = VoiceSettingsStore(DATA_DIR)
 _mycast_paired = lambda: bool(FACTORY_TELEGRAM_BOT_TOKEN and _telegram_public_status().get("paired"))
 install_mycast_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
                       send_audio=_mycast_send_audio, paired=_mycast_paired)
@@ -695,8 +697,9 @@ install_mycast_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_au
 install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
                             send_audio=_mycast_send_audio, paired=_mycast_paired, api_key=lambda: FACTORY_GEMINI_API_KEY,
                             model=os.environ.get("FACTORY_MYCAST_TTS_MODEL", "").strip(),
-                            voices=(os.environ.get("FACTORY_MYCAST_VOICE_A", "Charon").strip() or "Charon",
-                                    os.environ.get("FACTORY_MYCAST_VOICE_B", "Kore").strip() or "Kore"))
+                            voices=lambda: VOICE_SETTINGS.current_pair())
+# #140: the owner picks the daily two-host pair; owner-only API, same catalogue and pair rule as the demo.
+install_voice_settings_routes(app, VOICE_SETTINGS, is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
 
 # Gemini coder loop on EC2 calls Google through this proxy, so the key never leaves Render.
 install_gemini_worker_routes(app, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY)
