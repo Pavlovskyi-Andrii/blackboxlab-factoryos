@@ -10,7 +10,7 @@ import json
 import os
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urlparse
@@ -121,7 +121,10 @@ class RelayStore:
         source: Optional[dict] = None,
         created_by: str = "owner",
         priority: str = "normal",
+        owner: str = "claude",
     ) -> tuple[dict, bool]:
+        if owner not in ("claude", "chatgpt", "gemini", "unassigned"):
+            raise ValueError("Invalid owner")
         source = dict(source or {})
         source_key = str(source.get("source_key") or "").strip()
         with self.lock:
@@ -156,11 +159,11 @@ class RelayStore:
                 }],
                 "execution": {
                     "state": "queued",
-                    "owner": "claude",
+                    "owner": owner,
                     "queued_at": now,
                     "attempts": 0,
                     "last_seen_at": None,
-                    "note": "Ожидает работающего Claude worker",
+                    "note": "Ожидает выбора исполнителя" if owner == "unassigned" else "Назначено " + owner + " (не запущено)",
                 },
                 "operator": {
                     "state": "not_requested",
@@ -171,6 +174,48 @@ class RelayStore:
             state["tickets"].append(item)
             self._save_unlocked(state)
             return dict(item), True
+
+
+    def assign_owner(self, ticket_id: str, lane: str, actor: str = "telegram") -> dict:
+        if lane not in ("claude", "chatgpt", "gemini"):
+            raise ValueError("Invalid lane")
+        with self.lock:
+            data = self._load_unlocked()
+            for task in data["tickets"]:
+                if task.get("id") != ticket_id:
+                    continue
+                ex = task.get("execution") or {}
+                if ex.get("owner") == lane and ex.get("state") == "queued":
+                    return dict(task)
+                if ex.get("owner") != "unassigned" or ex.get("state") != "queued" or task.get("status") != "inbox":
+                    raise ValueError("Already assigned or claimed")
+                now = _now()
+                task["execution"] = {**ex, "owner": lane, "note": "Назначено " + lane + "; пока не запущено"}
+                task["updated_at"] = now
+                task.setdefault("history", []).append({"at": now, "actor": actor, "action": "assigned",
+                    "from_status": "inbox", "to_status": "inbox", "note": "Owner: " + lane})
+                self._save_unlocked(data)
+                return dict(task)
+        raise KeyError(ticket_id)
+
+    def cancel_queued(self, ticket_id: str, actor: str = "telegram") -> dict:
+        with self.lock:
+            data = self._load_unlocked()
+            for task in data["tickets"]:
+                if task.get("id") != ticket_id:
+                    continue
+                ex = task.get("execution") or {}
+                if ex.get("state") != "queued" or task.get("status") != "inbox":
+                    raise ValueError("Cannot cancel active task")
+                now = _now()
+                task["execution"] = {**ex, "state": "cancelled", "note": "Отменено до запуска"}
+                task["status"] = "archived"
+                task["updated_at"] = now
+                task.setdefault("history", []).append({"at": now, "actor": actor, "action": "cancelled",
+                    "from_status": "inbox", "to_status": "archived", "note": "Owner cancelled before worker claim"})
+                self._save_unlocked(data)
+                return dict(task)
+        raise KeyError(ticket_id)
 
     def set_status(self, ticket_id: str, status: str, actor: str = "owner", note: str = "") -> dict:
         status = (status or "").strip().lower()
@@ -297,6 +342,12 @@ def _operator_keyboard(lane: Optional[dict] = None) -> dict:
     return {"inline_keyboard": rows}
 
 
+def _assignment_keyboard(ticket_id: str) -> dict:
+    # Owner 2026-11-08: the ChatGPT lane was taken over by Claude (#94), so it is no longer offered here.
+    return {"inline_keyboard": [[{"text": "🟠 Claude", "callback_data": f"relay:assign:{ticket_id}:claude"},
+                                {"text": "🔵 Gemini (через GitHub)", "callback_data": f"relay:assign:{ticket_id}:gemini"}]]}
+
+
 def _ticket_keyboard(ticket_id: str) -> dict:
     return {
         "inline_keyboard": [
@@ -312,6 +363,8 @@ def _ticket_keyboard(ticket_id: str) -> dict:
                 {"text": "🟠 Claude", "callback_data": "relay:operator:claude"},
                 {"text": "🔵 Gemini", "callback_data": "relay:operator:gemini"},
             ],
+            [{"text": "↻ Retry", "callback_data": f"relay:retry:{ticket_id}"},
+             {"text": "✖ Cancel queued", "callback_data": f"relay:cancel:{ticket_id}"}],
             [{"text": "📋 Мои задачи", "callback_data": "relay:list:active"}],
         ]
     }
@@ -567,6 +620,7 @@ _HELP_TEXTS = {
         "/workers — Статус воркеров и операторов\n"
         "/operators — Состояние линий операторов\n"
         "/new — Создать новую задачу (напр. /new Текст)\n"
+        "/ask — Задать вопрос Claude (ответ придёт сюда)\n"
         "/work — Перевести задачу в работу (напр. /work R-0001)\n"
         "/done — Завершить задачу (напр. /done R-0001)\n"
         "/need — Пометить задачу как требующую внимания (напр. /need R-0001)\n"
@@ -590,6 +644,7 @@ _HELP_TEXTS = {
         "/workers — Статус воркерів та операторів\n"
         "/operators — Стан ліній операторів\n"
         "/new — Створити нове завдання (напр. /new Текст)\n"
+        "/ask — Запитати Claude (відповідь прийде сюди)\n"
         "/work — Взяти завдання в роботу (напр. /work R-0001)\n"
         "/done — Завершити завдання (напр. /done R-0001)\n"
         "/need — Позначити завдання як таке, що потребує уваги (напр. /need R-0001)\n"
@@ -613,6 +668,7 @@ _HELP_TEXTS = {
         "/workers — Status of workers and operators\n"
         "/operators — Operator lanes status\n"
         "/new — Create a new Relay task (e.g. /new Task text)\n"
+        "/ask — Ask Claude a question (the answer comes here)\n"
         "/work — Set task status to in progress (e.g. /work R-0001)\n"
         "/done — Mark task as done (e.g. /done R-0001)\n"
         "/need — Mark task as needing owner attention (e.g. /need R-0001)\n"
@@ -951,9 +1007,42 @@ def _legacy_lane_lines(provider: Optional[Callable[[], dict]]) -> list:
     return lines
 
 
+def _team_ticket_counts(store: RelayStore) -> str:
+    tasks = store.list(limit=500)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    def finished_last_day(task):
+        # Only a recorded completion transition counts; a stale done flag is insufficient.
+        if (task.get("execution") or {}).get("state") != "done":
+            return False
+        for event in reversed(task.get("history") or []):
+            if event.get("to_status") != "done" and event.get("action") not in ("finished", "completed"):
+                continue
+            try:
+                stamp = datetime.fromisoformat(str(event.get("at") or "").replace("Z", "+00:00"))
+                if stamp.tzinfo is not None and stamp >= cutoff:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
+    lines = ["👥 Relay по исполнителям (назначение ≠ выполнение):"]
+    for lane in ("claude", "chatgpt", "gemini"):
+        items = [t for t in tasks if (t.get("execution") or {}).get("owner") == lane]
+        state = lambda t: (t.get("execution") or {}).get("state")
+        counts = (sum(state(t) == "queued" for t in items),
+                  sum(state(t) in ("claimed", "running", "checkpoint", "committed", "pushed") for t in items),
+                  sum(state(t) in ("blocked", "failed", "stale") for t in items),
+                  sum(finished_last_day(t) for t in items))
+        lines.append(f"{lane}: очередь {counts[0]} · работа {counts[1]} · блок {counts[2]} · готово за 24 ч {counts[3]}")
+    lines.append("Последние 5:")
+    for t in tasks[:5]:
+        ex = t.get("execution") or {}
+        lines.append(f"{t['id']} · {ex.get('owner') or '?'} · {ex.get('state') or '?'} · {t.get('title', '')[:55]}")
+    return "\n".join(lines)
+
+
 def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]], github: Optional[Callable[[], dict]],
                       lane_board: Optional[Callable[[], dict]] = None, lang: str = "ru") -> str:
-    lines = [_active_list_text(store)]
+    lines = [_team_ticket_counts(store), "", _active_list_text(store)]
     if lane_board is not None:
         lines.extend(_lane_section(lane_board, lang))
     else:
@@ -1124,6 +1213,42 @@ def relay_handle_telegram_update(
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
             telegram_api("sendMessage", {"chat_id": chat_id, "text": _active_list_text(store), "reply_markup": _operator_keyboard()})
             return {"handled": True, "action": "list"}
+
+        assign = re.fullmatch(r"relay:assign:(R-\d{4,8}):(claude|chatgpt|gemini)", data)
+        if assign:
+            tid, lane = assign.groups()
+            try:
+                task = store.assign_owner(tid, lane)
+            except (KeyError, ValueError):
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Задача уже назначена или недоступна"})
+                return {"handled": True, "action": "assign_refused"}
+            telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Назначено " + lane})
+            note = ("\n\nGemini не имеет Relay-runner: он работает через GitHub-задачи с меткой gemini. "
+                    "Этот тикет сам не запустится — создай Issue для Gemini или переназначь." if lane == "gemini" else "")
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "Назначено (запуск не подтверждён):\n" + _ticket_card(task) + note,
+                                         "reply_markup": _ticket_keyboard(tid)})
+            return {"handled": True, "action": "assigned", "ticket_id": tid, "lane": lane}
+        control = re.fullmatch(r"relay:(retry|cancel):(R-\d{4,8})", data)
+        if control:
+            action, tid = control.groups()
+            task = store.get(tid)
+            stage = ((queue.view(task) if queue and task else task) or {}).get("execution") or {}
+            try:
+                if not task:
+                    raise ValueError("No task")
+                if action == "cancel":
+                    task = store.cancel_queued(tid)
+                else:
+                    if stage.get("state") not in ("blocked", "failed", "stale") or queue is None:
+                        raise ValueError("Retry not allowed")
+                    task = queue.enqueue(tid, actor="telegram")
+            except (KeyError, ValueError):
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Недоступно в текущем состоянии"})
+                return {"handled": True, "action": action + "_refused"}
+            telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Принято"})
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": _ticket_card(task),
+                                         "reply_markup": _ticket_keyboard(tid)})
+            return {"handled": True, "action": action, "ticket_id": tid}
         match_operator=re.fullmatch(r"relay:operator:(claude|gemini)",data)
         if match_operator:
             name=match_operator.group(1)
@@ -1213,7 +1338,7 @@ def relay_handle_telegram_update(
                 match = next((x for x in (snapshot.get("issues") or []) if str(x.get("number") or "") == number), None)
             except Exception:
                 match = None
-            if match:
+            if match and snapshot.get("available") and str(match.get("state") or "").lower() == "open":
                 detail = "🔗 GitHub #" + number + "\n" + str(match.get("title") or "") + "\nСтатус: open (проверено в GitHub)\n" + str(match.get("url") or "")
             else:
                 detail = "GitHub #" + number + ": нет в текущей выборке открытых задач. Статус неизвестен; проверь GitHub."
@@ -1297,6 +1422,9 @@ def relay_handle_telegram_update(
     if explicit_new:
         parts = text.split(maxsplit=1)
         text = parts[1].strip() if len(parts) > 1 else ""
+        if not text:
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "Пример: /new Исправить страницу Workers"})
+            return {"handled": True, "action": "new_help"}
 
     attachment = _telegram_attachment(message)
     if not text and not attachment:
@@ -1320,11 +1448,14 @@ def relay_handle_telegram_update(
         body=text,
         source=source,
         created_by="telegram",
+        owner="unassigned" if explicit_new else "claude",
     )
+    choose = explicit_new and (ticket.get("execution") or {}).get("owner") == "unassigned"
     telegram_api("sendMessage", {
         "chat_id": chat_id,
-        "text": ("Создал тикет.\n\n" if created else "Тикет уже существует.\n\n") + _ticket_card(ticket),
-        "reply_markup": _ticket_keyboard(ticket["id"]),
+        "text": ("Выбери исполнителя (выполнение ещё не началось):\n\n" if choose else
+                 ("Тикет уже существует.\n\n" if not created else "Создал тикет.\n\n")) + _ticket_card(ticket),
+        "reply_markup": _assignment_keyboard(ticket["id"]) if choose else _ticket_keyboard(ticket["id"]),
     })
     # Preserve the existing plain-text agent inbox: Relay is the durable task layer,
     # the bridge remains the processing channel.
