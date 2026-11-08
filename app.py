@@ -35,11 +35,13 @@ from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
-from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio, gemini_tts_pcm
+from mycast import (DeliveryLog, check_mp3, gemini_tts_pcm, install_mycast_routes, install_mycast_voice_routes, pcm_to_mp3,
+                    telegram_send_audio)
 from mycast_demo import DemoService, install_mycast_demo_routes
 from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
-from voice_settings import VoiceSettingsStore, install_voice_settings_routes
+from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_route, install_voice_history_routes,
+                            install_voice_settings_routes)
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
@@ -690,6 +692,7 @@ def _mycast_send_audio(audio, filename, title, caption):
 
 MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
 VOICE_SETTINGS = VoiceSettingsStore(DATA_DIR)
+VOICE_HISTORY = VoiceHistory(DATA_DIR)
 _mycast_paired = lambda: bool(FACTORY_TELEGRAM_BOT_TOKEN and _telegram_public_status().get("paired"))
 install_mycast_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
                       send_audio=_mycast_send_audio, paired=_mycast_paired)
@@ -697,9 +700,18 @@ install_mycast_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_au
 install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
                             send_audio=_mycast_send_audio, paired=_mycast_paired, api_key=lambda: FACTORY_GEMINI_API_KEY,
                             model=os.environ.get("FACTORY_MYCAST_TTS_MODEL", "").strip(),
-                            voices=lambda: VOICE_SETTINGS.current_pair())
+                            voices=lambda: VOICE_SETTINGS.current_pair(),
+                            on_result=lambda row: VOICE_HISTORY.record(kind="mycast", item_id=row["id"], status=row["status"],
+                                                                      seconds=row.get("seconds", 0),
+                                                                      voice="+".join(VOICE_SETTINGS.current_pair())))
 # #140: the owner picks the daily two-host pair; owner-only API, same catalogue and pair rule as the demo.
 install_voice_settings_routes(app, VOICE_SETTINGS, is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
+install_voice_history_routes(app, VOICE_HISTORY, is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
+# Morning brief in the owner's host-A voice, once per date, only when a worker calls it (no schedule added here).
+install_brief_route(app, VOICE_HISTORY, MYCAST_DELIVERIES, VOICE_SETTINGS, authorize_worker=_claude_worker_authorized,
+                    api_key=lambda: FACTORY_GEMINI_API_KEY, paired=_mycast_paired,
+                    tts_single=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice),
+                    encode=pcm_to_mp3, send_audio=_mycast_send_audio, check_audio=lambda audio: check_mp3(audio))
 
 # Gemini coder loop on EC2 calls Google through this proxy, so the key never leaves Render.
 install_gemini_worker_routes(app, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY)
@@ -758,7 +770,7 @@ async def auth_middleware(request: Request, call_next):
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
-    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/")) and _claude_worker_authorized(request)
+    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/")) and _claude_worker_authorized(request)
     if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
