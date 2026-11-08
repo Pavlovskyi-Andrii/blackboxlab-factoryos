@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from team_tasks import TeamTasksCache, _reason, build_team_tasks, compact_github, queue_readiness, read_github
+from team_tasks import TeamTasksCache, _ci_summary, _reason, build_team_tasks, compact_github, queue_readiness, read_github
 
 NOW = 1_800_000_000.0  # fixed clock
 
@@ -106,6 +106,17 @@ class TeamTasksTest(unittest.TestCase):
         g = read_github(fetch)
         self.assertEqual(g["ci"], {"s1": {"state": "running", "failed": ""}})
         self.assertEqual(sum(p.startswith("/commits/") for p in calls), 1)  # only open PR heads
+
+    def test_ci_summary(self):
+        self.assertEqual(_ci_summary([]), {"state": "none", "failed": ""})
+        self.assertEqual(_ci_summary(None), {"state": "none", "failed": ""})
+        self.assertEqual(_ci_summary([{"name": "build", "status": "completed", "conclusion": "success"}]),
+                         {"state": "passed", "failed": ""})
+        self.assertEqual(_ci_summary([{"name": "lint", "status": "in_progress", "conclusion": None}]),
+                         {"state": "running", "failed": ""})
+        for conclusion in ("failure", "timed_out", "cancelled", "action_required"):
+            res = _ci_summary([{"name": f"check_{conclusion}", "status": "completed", "conclusion": conclusion}])
+            self.assertEqual(res, {"state": "failed", "failed": f"check_{conclusion}"})
 
     def test_cache(self):
         n = []
