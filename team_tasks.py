@@ -141,9 +141,15 @@ def _reason(task: dict, agent: str) -> str:
     return "done"
 
 
+_NO_DEPENDS = re.compile(r"^(none|no|n/a|нет|немає|ні)\b|^[-—–]\s", re.I)
+
+
 def _depends(body) -> str:
+    """The Depends: value. "Depends: none …" means no dependencies, even if references follow as context
+    (#289 said "Depends: none for diagnosis … Reuse #41, #61" and was deferred forever behind the open epic #41)."""
     m = _DEPENDS_LINE.search(str(body or ""))
-    return m.group(1).strip()[:300] if m else ""
+    value = m.group(1).strip()[:300] if m else ""
+    return "" if _NO_DEPENDS.match(value) else value
 
 
 def _prs_by_issue(prs: list) -> dict:
