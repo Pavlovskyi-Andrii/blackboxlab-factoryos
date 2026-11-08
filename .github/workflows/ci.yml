@@ -205,6 +205,13 @@ jobs:
           Path("/tmp/mvp-factory-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
           PY
           node --check /tmp/mvp-factory-ui.js
+      - name: MVP Builder M1 contracts (#272-#275, offline)
+        run: |
+          python -m py_compile mvp_builder_request.py mvp_builder_preflight.py mvp_builder_manifest.py mvp_builder_projection.py
+          python test_mvp_builder_request.py
+          python test_mvp_builder_preflight.py
+          python test_mvp_builder_manifest.py
+          python test_mvp_builder_projection.py
       - name: MyCast configurator prototype (#261)
         run: |
           node --check static/mycast-configurator/configurator.js
