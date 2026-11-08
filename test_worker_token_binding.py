@@ -57,6 +57,31 @@ def asgi_post(path, bearer=None, body=b"{}", content_type="application/json"):
     return start["status"], b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
 
 
+def asgi_get(path, bearer=None):
+    """GET through the full ASGI app, auth middleware included. Returns (status, body)."""
+    import asyncio
+    headers = [(b"host", b"testserver")]
+    if bearer is not None:
+        headers.append((b"authorization", ("Bearer " + bearer).encode("ascii")))
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET", "scheme": "http",
+             "path": path, "raw_path": path.encode(), "query_string": b"", "headers": headers,
+             "server": ("testserver", 80), "client": ("127.0.0.1", 50000), "root_path": ""}
+    sent, delivered = [], []
+
+    async def receive():
+        if not delivered:
+            delivered.append(True)
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await asyncio.Event().wait()
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(factory.app(scope, receive, send))
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    return start["status"], b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+
+
 class OwnerDeskWorkerMiddlewareTest(unittest.TestCase):
     """2026-11-02: the middleware rejected worker calls to /api/factory/owner-desk/worker/* before the
     route's own worker check ran, so owner questions were never answered. Test through the real app."""
@@ -141,6 +166,42 @@ class GeminiProxyTest(unittest.TestCase):
             self.assertEqual(_json.loads(body)["detail"]["upstream_status"], 503)
             with patch.object(factory, "FACTORY_GEMINI_API_KEY", ""):
                 self.assertEqual(asgi_post("/api/factory/gemini/worker/generate", "primary-worker-token", ok)[0], 409)
+
+    def test_models_route_filters_non_text_and_non_flash_models(self):
+        import io
+        import json as _json
+        import gemini_proxy
+
+        mock_models_response = {
+            "models": [
+                {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["embedContent"]},
+                {"name": "models/gemini-3.8-pro", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-2.5-flash-preview-tts", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.8-flash-image", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+            ]
+        }
+
+        class _Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def opener(req, timeout):
+            self.assertTrue(req.full_url.endswith("models?pageSize=200"))
+            return _Resp(_json.dumps(mock_models_response).encode())
+
+        with patch.object(factory, "FACTORY_PASSWORD", "set-so-auth-is-enforced"), \
+             patch.object(factory, "FACTORY_CLAUDE_WORKER_TOKEN", "primary-worker-token"), \
+             patch.object(factory, "FACTORY_GEMINI_API_KEY", "KEY-1"), \
+             patch.object(gemini_proxy.urlrequest, "urlopen", opener):
+            status, body = asgi_get("/api/factory/gemini/worker/models", "primary-worker-token")
+            self.assertEqual(status, 200, body)
+            data = _json.loads(body)
+            self.assertEqual(data, {"models": ["gemini-2.5-flash", "gemini-3.5-flash-lite"]})
 
 
 class GeminiKeyCheckTest(unittest.TestCase):
