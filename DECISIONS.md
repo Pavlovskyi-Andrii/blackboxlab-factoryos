@@ -840,3 +840,9 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - After a commit, the worker pushes the branch and opens a PR with its existing `gh` login. The PR URL is the evidence on the `done` event. A push without a PR is reported as `blocked`, never as `done`. The worker never merges or deploys.
 - Server: on every intake pass, `relay_pr_reconcile_once` follows each ticket's PR in the fresh EC2 GitHub snapshot. CI passed, CI failed, merged and closed-without-merge are each recorded once in the ticket history (actor `github`) and each sent once to the owner's Telegram. A PR missing from the snapshot, or a stale snapshot, stays unknown. `deployed` stays unverified: Render deploys on checksPass, and no Render read exists yet.
 - Merging stays a human or Claude-review step. "CI passed" in Telegram means "ready for review and merge", not "merged".
+
+## Owner voice messages → text (2026-11-08, owner: «1 вариант» = Gemini)
+- A voice or audio message with no caption, from the paired owner's private chat only, is transcribed by Gemini Flash (`gemini-2.5-flash`, override with `FACTORY_VOICE_TRANSCRIBE_MODEL`) with the owner's existing key.
+- The owner gets the text back to check. The Relay ticket gets the transcript instead of an empty "Голосовое сообщение".
+- Limits: 30 new transcriptions per UTC day (`FACTORY_VOICE_TRANSCRIBE_DAILY_CAP`), and files up to 4 MB (about 3 minutes). A repeat of the same Telegram file comes from a cache and costs nothing.
+- When transcription fails, the owner gets the reason in plain words and the old behaviour stays: a ticket with the attachment only. Provider text and keys never reach the chat or the logs.
