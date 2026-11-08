@@ -824,3 +824,13 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - The invite is the share link (and QR) with `&ref=<slug>`. A personal page's `&from=<slug>` also counts. The server credits it once, and only when that link creates a brand-new account. Self-invites, repeat logins and bad slugs do not count, and there is a cap of 50 friends per inviter. `ref` is sent next to the Telegram payload and is not part of its signed fields.
 - Days are shown as the formula 7 + 7 (if gifted) + 7 × friends. There is no billing yet. The page says plainly that the open beta is free and the days start counting when regular episodes launch.
 - The first screen has three entry points: create your own podcast · listen to friends and famous people · share and earn days. The growth ideas sit on the page as a numbered draft list, each item marked "live" or "plan", for the owner to edit later.
+
+## CI on a budget until 1 Dec (2026-11-08, owner: "$5 бюджет, растянуть до нового месяца")
+- The 2000 free Actions minutes ($12 of included compute at $0.006/min) were used up by 8 Nov. The budget is now $5, so CI must spend as little as possible.
+- In `ci.yml`:
+  - A newer push to the same PR cancels the older run.
+  - The Python 3.9 EC2 import check is a step inside `syntax-and-smoke`, not its own job (one fewer rounded-up billed minute per run).
+  - `ui-screenshots` (about 4 minutes) runs only when page files change (`static/`, `tools/ui_screenshots.py`, `requirements.txt`, `ci.yml`), or on a manual dispatch, and only after the smoke job has passed.
+  - Screenshot artifacts are kept for 1 day instead of 3, because Actions storage is full too.
+- Main still runs CI on every push: Render deploys with `autoDeployTrigger: checksPass`. A skipped screenshot job counts as passing, not as failing.
+- Working habit until the reset: fewer, larger pushes per PR.

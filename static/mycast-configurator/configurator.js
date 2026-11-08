@@ -230,7 +230,8 @@
   function newProfile() {
     return { version: 1, topics: {}, custom: {}, freeText: '', customSources: [], follows: [],
       schedule: { timezone: 'Europe/Kyiv', time: '07:30', frequency: 'daily', days: [], durationMin: 10 },
-      voice: { mode: 'two_hosts', language: 'uk', voices: DEFAULT_VOICES.two_hosts.slice() }, delivery: 'telegram', state: 'draft', preview: null, approvedAt: null };
+      voice: { mode: 'two_hosts', language: 'uk', voices: DEFAULT_VOICES.two_hosts.slice() }, delivery: 'telegram', state: 'draft', preview: null, approvedAt: null,
+      calendar: { birthdays: false, events: false } };
   }
 
   /* Bring an older saved draft up to date: watch list -> follows (keywords), weekly/manual -> chosen days. */
@@ -239,6 +240,7 @@
     if (!saved || typeof saved !== 'object') return base;
     const p = { ...base, ...saved, schedule: { ...base.schedule, ...(saved.schedule || {}) }, voice: { ...base.voice, ...(saved.voice || {}) } };
     p.topics = {}; for (const id of Object.keys(saved.topics || {})) if (INDEX[id]) p.topics[id] = saved.topics[id];
+    p.calendar = { birthdays: !!(saved.calendar && saved.calendar.birthdays === true), events: !!(saved.calendar && saved.calendar.events === true) };
     p.custom = {}; for (const g of Object.keys(saved.custom || {})) if (GROUPS[g] && Array.isArray(saved.custom[g])) p.custom[g] = saved.custom[g].map(v => clean(v, MAX_CUSTOM_LEN)).filter(Boolean).slice(0, MAX_CUSTOM_PER_GROUP);
     p.follows = Array.isArray(saved.follows) ? saved.follows.filter(f => f && PLATFORMS[f.platform] !== undefined && f.value) : [];
     if (Array.isArray(saved.watchList)) for (const w of saved.watchList) if (w && w.value) p.follows.push({ platform: 'web', value: clean(w.value, MAX_FOLLOW_LEN) });
@@ -339,6 +341,16 @@
     // Switching one host <-> two hosts keeps a valid pick: fall back to the defaults when the old choice no longer fits.
     if (!validVoices(voice.mode, voice.voices)) voice.voices = (DEFAULT_VOICES[voice.mode] || DEFAULT_VOICES.two_hosts).slice();
     return { ...next, ...patch, schedule: { ...next.schedule, ...(patch.schedule || {}) }, voice };
+  }
+
+  /* Owner note 2026-11-08: an episode = world news + personal interests + friends' birthdays + today's calendar
+     (Google Calendar). Only the wish is stored here; nothing is read from any calendar until the owner approves a
+     read-only Google Calendar connection, so the status stays not_connected. */
+  const CALENDAR_PARTS = ['birthdays', 'events'];
+  function setCalendar(profile, part, on) {
+    if (!CALENDAR_PARTS.includes(part)) throw new Error('bad calendar part ' + part);
+    const next = invalidate(profile);
+    return { ...next, calendar: { ...(next.calendar || { birthdays: false, events: false }), [part]: !!on } };
   }
 
   /* #281: pick the Gemini voice for one slot (0 = host A / narrator, 1 = host B). Invalid picks are refused. */
@@ -469,7 +481,8 @@
         durationMin: Number(s.durationMin) },
       voice: { ...profile.voice },
       delivery: { channel: profile.delivery, status: channelStatus(profile.delivery, profile.preview).reason || 'ready' },
-      preview: profile.preview ? { kind: profile.preview.kind } : null };
+      preview: profile.preview ? { kind: profile.preview.kind } : null,
+      calendar: { birthdays: !!(profile.calendar || {}).birthdays, events: !!(profile.calendar || {}).events, source: 'google_calendar', status: 'not_connected' } };
   }
 
   /* Share link: the listener's settings (never state, preview or approval) packed into a URL-safe string.
@@ -496,7 +509,8 @@
     const s = profile.schedule;
     const data = { v: SHARE_VERSION, n: TOPIC_IDS.length, t, c: profile.custom || {}, f: (profile.follows || []).map(f => [f.platform, f.value]),
       s: [s.timezone, s.time, s.frequency, s.frequency === 'days' ? s.days : [], Number(s.durationMin)],
-      o: [profile.voice.mode, profile.voice.language, profile.voice.voices], d: profile.delivery, x: clean(profile.freeText, MAX_FREE_TEXT) };
+      o: [profile.voice.mode, profile.voice.language, profile.voice.voices], d: profile.delivery, x: clean(profile.freeText, MAX_FREE_TEXT),
+      k: [(profile.calendar || {}).birthdays ? 1 : 0, (profile.calendar || {}).events ? 1 : 0] };
     return b64urlEncode(JSON.stringify(data));
   }
   function decodeShare(code) {
@@ -521,12 +535,15 @@
     const mode = VOICES.includes(o[0]) ? o[0] : 'two_hosts';
     p = update(p, { voice: { mode, language: LANGUAGES.includes(o[1]) ? o[1] : 'uk', voices: validVoices(mode, o[2]) ? o[2] : DEFAULT_VOICES[mode].slice() },
       delivery: CHANNELS[data.d] && CHANNELS[data.d] !== 'planned' ? data.d : 'telegram', freeText: clean(data.x, MAX_FREE_TEXT) });
+    const k = Array.isArray(data.k) ? data.k : [];
+    p = { ...p, calendar: { birthdays: k[0] === 1, events: k[1] === 1 } };
     return { ...p, state: 'draft', preview: null, approvedAt: null };
   }
 
   return { GEMINI_VOICES, VOICE_GENDER, DEFAULT_VOICES, validVoices, setVoice,
     TAXONOMY, INDEX, GROUPS, TOPIC_IDS, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, PLATFORMS,
     SUGGESTED_FOLLOWS, MIN_TOPICS, MAX_FREE_TEXT, MAX_CUSTOM_PER_GROUP, MAX_FOLLOWS,
+    CALENDAR_PARTS, setCalendar,
     topicLabel, search, guessGroup, suggestSubtopics, newProfile, migrate, setTopic, setScope, addCustom, removeCustom, normalizeFollow, addFollow, removeFollow,
     toggleDay, update, validate, selectionCount, channelStatus, makePreview, markReviewed, approve, toJSON, demoLines, demoScript,
     encodeShare, decodeShare };
