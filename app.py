@@ -24,7 +24,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues, relay_github_owner_issues
+from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues, relay_github_owner_issues, _telegram_attachment
+from voice_transcribe import VoiceTranscriber
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from operator_lanes import build_operator_lanes
@@ -692,6 +693,8 @@ def _mycast_send_audio(audio, filename, title, caption):
                         filename=filename, title=title, caption=caption)
 
 MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
+VOICE_TRANSCRIBER = VoiceTranscriber(DATA_DIR, api_key=lambda: FACTORY_GEMINI_API_KEY, bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN)
+VOICE_REASONS = {"not_configured":"ключ Gemini не задан","daily_limit":"дневной лимит 30 голосовых исчерпан","too_long":"слишком длинное, больше ~3 минут","rate_limited":"Gemini перегружен, попробуй позже","invalid_key":"ключ Gemini не принят","telegram_file_unavailable":"Telegram не отдал файл","empty_transcript":"пустой результат","model_not_found":"модель Gemini недоступна"}
 VOICE_SETTINGS = VoiceSettingsStore(DATA_DIR)
 VOICE_HISTORY = VoiceHistory(DATA_DIR)
 _mycast_paired = lambda: bool(FACTORY_TELEGRAM_BOT_TOKEN and _telegram_public_status().get("paired"))
@@ -1001,6 +1004,20 @@ async def telegram_webhook(request: Request):
             return {"ok":True,"action":"ask_invalid"}
         _telegram_send_to(ask_chat_id,"Принял вопрос "+item["id"]+". Claude ответит после того, как его воркер заберёт задачу.")
         return {"ok":True,"action":"ask_queued","question_id":item["id"]}
+    # Owner voice → text (owner: «1 вариант», 2026-11-08): Gemini transcribes the paired owner's voice message,
+    # the owner sees the text, and the Relay ticket gets that text instead of an empty "Голосовое сообщение".
+    voice_msg=update.get("message") if isinstance(update.get("message"),dict) else {}
+    voice_chat=voice_msg.get("chat") if isinstance(voice_msg.get("chat"),dict) else {}
+    voice_att=_telegram_attachment(voice_msg) if voice_msg else {}
+    if (voice_att and voice_att.get("kind") in ("voice","audio") and not str(voice_msg.get("text") or voice_msg.get("caption") or "").strip()
+            and voice_chat.get("type")=="private" and str(voice_chat.get("id") or "")==str(_telegram_load_state().get("chat_id") or "")):
+        transcript,reason=await asyncio.to_thread(VOICE_TRANSCRIBER,voice_att)
+        chat=str(voice_chat.get("id"))
+        if transcript:
+            voice_msg["text"]=transcript
+            _telegram_send_to(chat,"🎙 Распознал голосовое (Gemini):\n«"+transcript[:3500]+"»")
+        else:
+            _telegram_send_to(chat,"🎙 Не удалось распознать голосовое ("+VOICE_REASONS.get(reason,reason)+"). Создаю тикет без текста; можно продублировать текстом.")
     relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
