@@ -185,6 +185,48 @@
       topicLabel(id, lang).toLowerCase().includes(q));
   }
 
+
+  /* Owner request 2026-11-08: a search like "growth hacking" offers narrower sub-topics to add as the listener's own
+     entries ("Growth hacking: ідеї для стартапів", "… для готового бізнесу", …). Offline templates, no AI call. */
+  const NARROW = {
+    uk: ['ідеї для стартапів', 'для готового бізнесу', 'для малого бізнесу', 'кейси компаній', 'інструменти', 'тренди', 'в Україні', 'для початківців', 'помилки й уроки'],
+    ru: ['идеи для стартапов', 'для готового бизнеса', 'для малого бизнеса', 'кейсы компаний', 'инструменты', 'тренды', 'в Украине', 'для начинающих', 'ошибки и уроки'],
+    en: ['ideas for startups', 'for established business', 'for small business', 'company case studies', 'tools', 'trends', 'in Ukraine', 'for beginners', 'mistakes and lessons'] };
+  const GUESS = [
+    [/growth|маркет|market|sales|продаж|brand|бренд|smm|seo|реклам|advert|startup|стартап|business|бізнес|бизнес|founder|ceo/i, 'business.entrepreneurship'],
+    [/money|financ|фінанс|финанс|invest|інвест|инвест|crypto|крипт|bitcoin|stock|акці|акци/i, 'business.money'],
+    [/(^|[\s,.])(ai|ші|ии)([\s,.]|$)|gpt|claude|gemini|llm|machine learning|нейро/i, 'tech.ai'],
+    [/code|program|програм|python|javascript|dev|розроб|разраб/i, 'tech.programming'],
+    [/secur|безпек|безопас|hack(?!ing\b)|кібер|кибер/i, 'tech.security'],
+    [/health|здоров|sport|спорт|fitness|фітнес|фитнес|run|біг|бег/i, 'health.wellbeing'],
+    [/travel|подорож|путеш|trip|туризм/i, 'travel.trips'],
+    [/film|кіно|кино|music|музик|book|книг|art|мистец|искусств/i, 'culture.arts'],
+    [/science|наук|space|космос|physics|фізик|физик/i, 'science.science_topics'],
+    [/car|авто|tesla|ev\b|електромоб|электромоб/i, 'auto.cars'],
+    [/food|їж|еда|cook|кулін|кулин|recipe|рецепт/i, 'hobbies.food']];
+
+  /** The best taxonomy group for a free query: the group of a matching topic, else a keyword guess, else news. */
+  function guessGroup(query, lang) {
+    const q = String(query || '').trim();
+    const hit = q ? search(q, lang || 'uk')[0] : null;
+    if (hit) return hit.split('.').slice(0, 2).join('.');
+    for (const [re, g] of GUESS) if (re.test(q) && GROUPS[g]) return g;
+    return 'news.headlines';
+  }
+
+  /** Narrower sub-topics for a query, each at most MAX_CUSTOM_LEN characters; the query itself comes first. */
+  function suggestSubtopics(query, lang) {
+    const raw = clean(query, MAX_CUSTOM_LEN);
+    if (raw.length < 2) return [];
+    const q = raw.charAt(0).toUpperCase() + raw.slice(1);
+    const out = [q];
+    for (const facet of NARROW[lang] || NARROW.en) {
+      const text = `${q}: ${facet}`;
+      if (text.length <= MAX_CUSTOM_LEN) out.push(text);
+    }
+    return out;
+  }
+
   function newProfile() {
     return { version: 1, topics: {}, custom: {}, freeText: '', customSources: [], follows: [],
       schedule: { timezone: 'Europe/Kyiv', time: '07:30', frequency: 'daily', days: [], durationMin: 10 },
@@ -485,7 +527,7 @@
   return { GEMINI_VOICES, VOICE_GENDER, DEFAULT_VOICES, validVoices, setVoice,
     TAXONOMY, INDEX, GROUPS, TOPIC_IDS, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, PLATFORMS,
     SUGGESTED_FOLLOWS, MIN_TOPICS, MAX_FREE_TEXT, MAX_CUSTOM_PER_GROUP, MAX_FOLLOWS,
-    topicLabel, search, newProfile, migrate, setTopic, setScope, addCustom, removeCustom, normalizeFollow, addFollow, removeFollow,
+    topicLabel, search, guessGroup, suggestSubtopics, newProfile, migrate, setTopic, setScope, addCustom, removeCustom, normalizeFollow, addFollow, removeFollow,
     toggleDay, update, validate, selectionCount, channelStatus, makePreview, markReviewed, approve, toJSON, demoLines, demoScript,
     encodeShare, decodeShare };
 });

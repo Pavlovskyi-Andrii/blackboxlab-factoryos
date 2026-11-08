@@ -119,3 +119,98 @@ def install_voice_settings_routes(app, store: VoiceSettingsStore, *, is_owner: C
             return {"settings": store.write(body), "state": "ok"}
         except ValueError as exc:
             return JSONResponse({"detail": str(exc).replace(" ", "_")}, status_code=400)
+
+
+class VoiceHistory:
+    """Shared delivery history for the owner (#140): MyCast episodes and morning briefs, newest last, 200 kept."""
+
+    KINDS = ("mycast", "brief")
+    MAX = 200
+
+    def __init__(self, data_dir: Path, *, clock: Callable = None):
+        import time
+        self.path = Path(data_dir) / "voice-history.json"
+        self.clock = clock or time.time
+
+    def entries(self) -> list:
+        try:
+            value = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        return value if isinstance(value, list) else []
+
+    def record(self, *, kind: str, item_id: str, voice: str, status: str, seconds: int = 0) -> dict:
+        if kind not in self.KINDS:
+            raise ValueError("unknown kind")
+        entry = {"id": str(item_id)[:80], "kind": kind, "voice": str(voice)[:40], "status": str(status)[:60],
+                 "seconds": int(seconds or 0), "at": int(self.clock())}
+        with _LOCK:
+            rows = (self.entries() + [entry])[-self.MAX:]
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, self.path)
+        return entry
+
+
+BRIEF_MAX_CHARS = 1400
+_DATE = __import__("re").compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def install_voice_history_routes(app, history: VoiceHistory, *, is_owner: Callable) -> None:
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+
+    @app.get("/api/factory/voice/history")
+    def voice_history(request: Request):
+        if not is_owner(request):
+            return JSONResponse({"detail": "owner_only"}, status_code=403)
+        return {"deliveries": list(reversed(history.entries()))[:50]}
+
+
+def install_brief_route(app, history: VoiceHistory, log, store: VoiceSettingsStore, *, authorize_worker: Callable,
+                        api_key: Callable, paired: Callable, tts_single: Callable, encode: Callable, send_audio: Callable,
+                        check_audio: Callable = lambda audio: None) -> None:
+    """POST /api/factory/voice/worker/brief-deliver {date, text}: a short morning brief in the owner's host-A voice,
+    to the owner's own paired chat, at most once per date. Nothing calls it on a schedule yet; a worker must."""
+    import asyncio
+    from fastapi import HTTPException, Request
+
+    @app.post("/api/factory/voice/worker/brief-deliver")
+    async def voice_brief_deliver(request: Request):
+        if not authorize_worker(request):
+            raise HTTPException(401, "Worker token required")
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        date = str((body or {}).get("date") or "") if isinstance(body, dict) else ""
+        text = (body or {}).get("text") if isinstance(body, dict) else None
+        if not _DATE.fullmatch(date) or not isinstance(text, str) or not 1 <= len(text.strip()) <= BRIEF_MAX_CHARS:
+            raise HTTPException(400, "bad brief")
+        key = api_key()
+        if not key:
+            raise HTTPException(409, "gemini key not configured")
+        if not paired():
+            raise HTTPException(409, "Telegram owner chat is not paired")
+        brief_id = f"brief-{date}"
+        if not log.claim(brief_id):
+            return {"sent": False, "duplicate": True}
+        voice = store.current_pair()[0]
+
+        def produce():
+            pcm, rate = tts_single(key, text.strip(), voice)
+            audio = encode(pcm, rate)
+            check_audio(audio)
+            send_audio(audio, f"{brief_id}.mp3", f"Ранковий брифінг {date}", f"🎙 Ранковий брифінг · {date} · голос {voice}")
+            return round(len(pcm) / 2 / rate)
+
+        try:
+            seconds = await asyncio.to_thread(produce)
+        except Exception as exc:  # the category only, never the provider's text
+            log.release(brief_id)
+            category = str(getattr(exc, "category", "") or getattr(exc, "reason", "") or "voice_failed")[:40]
+            history.record(kind="brief", item_id=brief_id, voice=voice, status="failed:" + category)
+            raise HTTPException(502, f"brief failed: {category}")
+        history.record(kind="brief", item_id=brief_id, voice=voice, status="sent", seconds=seconds)
+        return {"sent": True, "duplicate": False, "voice": voice, "seconds": seconds}

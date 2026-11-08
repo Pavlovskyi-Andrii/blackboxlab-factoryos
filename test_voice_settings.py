@@ -101,5 +101,104 @@ class VoiceSettingsTests(unittest.TestCase):
             self.assertEqual(asyncio.run(h[("POST", "/api/factory/voice/settings")](Req({}))).status_code, 403)
 
 
+class HistoryAndBriefTests(unittest.TestCase):
+    """#140 follow-up: shared delivery history and a once-per-date morning brief to the owner's own chat."""
+
+    def setUp(self):
+        import asyncio
+        from fastapi import FastAPI
+        from mycast import DeliveryLog
+        from voice_settings import VoiceHistory, install_brief_route, install_voice_history_routes
+        self.run = asyncio.run
+        self.dir = tempfile.TemporaryDirectory()
+        d = Path(self.dir.name)
+        self.store, self.history = VoiceSettingsStore(d), VoiceHistory(d, clock=lambda: 1_800_000_000)
+        self.store.write({"voice_a": "Orus", "voice_b": "Leda", "model": DEFAULT_MODEL})
+        self.sent, self.err, self.key, self.paired, self.owner = [], [None], ["k"], [True], [True]
+
+        def tts(key, text, voice):
+            if self.err[0]:
+                raise self.err[0]
+            return b"\x01\x00" * 24000, 24000
+        app = FastAPI()
+        install_voice_history_routes(app, self.history, is_owner=lambda r: self.owner[0])
+        install_brief_route(app, self.history, DeliveryLog(d / "log.json"), self.store,
+                            authorize_worker=lambda r: getattr(r, "worker", True), api_key=lambda: self.key[0],
+                            paired=lambda: self.paired[0], tts_single=tts, encode=lambda pcm, rate: b"MP3",
+                            send_audio=lambda audio, name, title, caption: self.sent.append((name, caption)))
+        self.h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def brief(self, body, worker=True):
+        class Req:
+            async def json(self_):
+                if body is None: raise ValueError
+                return body
+        r = Req(); r.worker = worker
+        try:
+            return self.run(self.h[("POST", "/api/factory/voice/worker/brief-deliver")](r))
+        except Exception as exc:
+            return getattr(exc, "status_code", exc)
+
+    def test_brief_once_per_date_in_host_a_voice(self):
+        out = self.brief({"date": "2026-11-08", "text": "Доброго ранку. Три новини."})
+        self.assertEqual((out["sent"], out["voice"], out["seconds"]), (True, "Orus", 1))
+        self.assertEqual(self.brief({"date": "2026-11-08", "text": "again"}), {"sent": False, "duplicate": True})
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("Ранковий брифінг", self.sent[0][1])
+        rows = self.h[("GET", "/api/factory/voice/history")](None)["deliveries"]
+        self.assertEqual([(r["kind"], r["id"], r["status"], r["voice"]) for r in rows], [("brief", "brief-2026-11-08", "sent", "Orus")])
+
+    def test_brief_refusals(self):
+        self.assertEqual(self.brief({"date": "8 Nov", "text": "x"}), 400)
+        self.assertEqual(self.brief({"date": "2026-11-08", "text": "x" * 1401}), 400)
+        self.assertEqual(self.brief(None), 400)
+        self.assertEqual(self.brief({"date": "2026-11-08", "text": "x"}, worker=False), 401)
+        self.key[0] = ""
+        self.assertEqual(self.brief({"date": "2026-11-08", "text": "x"}), 409)
+        self.key[0], self.paired[0] = "k", False
+        self.assertEqual(self.brief({"date": "2026-11-08", "text": "x"}), 409)
+        self.assertEqual(self.sent, [])
+
+    def test_failure_is_recorded_and_retry_allowed(self):
+        err = RuntimeError("provider text"); err.category = "rate_limited"
+        self.err[0] = err
+        self.assertEqual(self.brief({"date": "2026-11-09", "text": "x"}), 502)
+        self.err[0] = None
+        self.assertTrue(self.brief({"date": "2026-11-09", "text": "x"})["sent"])      # the claim was released
+        statuses = [r["status"] for r in self.history.entries()]
+        self.assertEqual(statuses, ["failed:rate_limited", "sent"])
+        self.assertNotIn("provider text", json.dumps(self.history.entries()))
+
+    def test_history_is_owner_only_and_bounded(self):
+        self.owner[0] = False
+        self.assertEqual(self.h[("GET", "/api/factory/voice/history")](None).status_code, 403)
+        for i in range(205):
+            self.history.record(kind="mycast", item_id=f"mycast-{i}", voice="Charon+Kore", status="sent")
+        self.assertEqual(len(self.history.entries()), 200)
+        with self.assertRaises(ValueError):
+            self.history.record(kind="other", item_id="x", voice="v", status="sent")
+
+    def test_daily_delivery_reports_to_history(self):
+        import mycast
+        from fastapi import FastAPI
+        rows, app = [], FastAPI()
+        mycast.install_mycast_voice_routes(app, mycast.DeliveryLog(Path(self.dir.name) / "d.json"), authorize_worker=lambda r: True,
+                                           send_audio=lambda *a: None, paired=lambda: True, api_key=lambda: "k",
+                                           voices=lambda: ("Orus", "Leda"),
+                                           tts=lambda key, ep, model="", voices=(): (_ for _ in ()).throw(mycast.GeminiTTSError("rate_limited")),
+                                           on_result=rows.append)
+        h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+
+        class Req:
+            async def json(self_):
+                return {"episode": {"id": "mycast-2026-11-08", "lines": [["A", "Привіт"]]}}
+        with self.assertRaises(Exception):
+            self.run(h[("POST", "/api/factory/mycast/worker/voice-deliver")](Req()))
+        self.assertEqual(rows, [{"id": "mycast-2026-11-08", "status": "failed:rate_limited"}])
+
+
 if __name__ == "__main__":
     unittest.main()
