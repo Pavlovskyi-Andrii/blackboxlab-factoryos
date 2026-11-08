@@ -17,6 +17,9 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from fastapi import HTTPException, Request  # module level: with postponed annotations FastAPI resolves
+from fastapi.responses import JSONResponse   # `request: Request` here, or it becomes a required query param
+
 from mycast_voices import NAMES, VOICES as CATALOGUE, valid_voices
 
 VOICES = frozenset(NAMES)
@@ -91,8 +94,6 @@ class VoiceSettingsStore:
 
 
 def install_voice_settings_routes(app, store: VoiceSettingsStore, *, is_owner: Callable) -> None:
-    from fastapi import Request
-    from fastapi.responses import JSONResponse
 
     catalogue = [{"name": n, "style": st, "gender": g, "gender_source": "by_ear"} for n, st, g in CATALOGUE]
 
@@ -158,8 +159,6 @@ _DATE = __import__("re").compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def install_voice_history_routes(app, history: VoiceHistory, *, is_owner: Callable) -> None:
-    from fastapi import Request
-    from fastapi.responses import JSONResponse
 
     @app.get("/api/factory/voice/history")
     def voice_history(request: Request):
@@ -174,7 +173,6 @@ def install_brief_route(app, history: VoiceHistory, log, store: VoiceSettingsSto
     """POST /api/factory/voice/worker/brief-deliver {date, text}: a short morning brief in the owner's host-A voice,
     to the owner's own paired chat, at most once per date. Nothing calls it on a schedule yet; a worker must."""
     import asyncio
-    from fastapi import HTTPException, Request
 
     @app.post("/api/factory/voice/worker/brief-deliver")
     async def voice_brief_deliver(request: Request):

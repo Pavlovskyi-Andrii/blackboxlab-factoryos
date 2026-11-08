@@ -200,5 +200,23 @@ class HistoryAndBriefTests(unittest.TestCase):
         self.assertEqual(rows, [{"id": "mycast-2026-11-08", "status": "failed:rate_limited"}])
 
 
+
+class FullAppRoutesTest(unittest.TestCase):
+    """Route audit #114 found every /api/factory/voice/* route answering 422: `Request` was imported inside the
+    install functions, so with postponed annotations FastAPI read `request` as a required query parameter.
+    Calling the real ASGI app (middleware included) catches that; direct endpoint calls did not."""
+
+    def test_voice_routes_resolve_through_the_real_app(self):
+        from test_worker_token_binding import asgi_get, asgi_post, factory
+        from unittest.mock import patch
+        with patch.object(factory, "FACTORY_PASSWORD", ""):      # open mode: the caller is the owner
+            status, body = asgi_get("/api/factory/voice/settings")
+            self.assertEqual(status, 200, body)
+            self.assertIn(b"available_voices", body)
+            self.assertEqual(asgi_get("/api/factory/voice/history")[0], 200)
+        status, body = asgi_post("/api/factory/voice/worker/brief-deliver", body=b'{"date":"2026-11-08","text":"x"}')
+        self.assertEqual(status, 401, body)                    # no worker token: refused, not 422
+
+
 if __name__ == "__main__":
     unittest.main()
