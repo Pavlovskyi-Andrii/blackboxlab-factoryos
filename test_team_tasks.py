@@ -235,5 +235,23 @@ class QueueKeeperTest(unittest.TestCase):
         self.assertEqual(board["queue_keeper"]["counts"]["ready"], 2)
 
 
+class DependsNoneTest(unittest.TestCase):
+    """#289 was deferred forever: "Depends: none for diagnosis … Reuse #41, #61" read as two open dependencies."""
+
+    def test_none_means_no_dependencies_even_with_context_refs(self):
+        from team_tasks import _depends
+        body = "Owner: Claude\nDepends: none for diagnosis and bounded smoke. Reuse #41, #61 and existing Relay."
+        self.assertEqual(_depends(body), "")
+        for text in ("Depends: none", "Depends: None — standalone", "Depends: нет", "Depends: немає (#41 лише для контексту)",
+                     "Depends: n/a", "Depends: - see #41"):
+            self.assertEqual(_depends(text), "", text)
+        self.assertEqual(_depends("Depends: #41, #61"), "#41, #61")                    # a real dependency still counts
+        self.assertEqual(_depends("Depends: nonetheless #41"), "nonetheless #41")      # only the word "none" itself
+        issues = [{"number": 289, "title": "P0 · live E2E", "body": body, "state": "open", "html_url": "u", "labels": []},
+                  {"number": 41, "title": "epic", "body": "x", "state": "open", "html_url": "v", "labels": []}]
+        q = queue_readiness({"available": True, "pulls": [], "issues": issues}, roadmap=[], agent="claude")
+        self.assertIn(289, [t["number"] for t in q["ready"]])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
