@@ -203,6 +203,8 @@ details.jsonBox>summary{cursor:pointer;color:var(--mute);font-size:14px;margin-b
 .qr{width:min(320px,100%);aspect-ratio:1;background:#fff;border-radius:18px;padding:12px}
 .qr svg{display:block;width:100%;height:100%}
 .qrSide{flex:1 1 200px;display:grid;gap:10px}
+.stage .agentsH{margin:12px 12px 0 auto;width:max-content;max-width:calc(100% - 140px);text-align:right;font:700 13px var(--body);color:var(--ink)}
+.parts li .gcal{width:16px;height:16px;flex:none;align-self:center}
 .parts{list-style:none;margin:6px 8px 4px;padding:0;display:grid;gap:6px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
 .parts li{display:flex;gap:8px;align-items:baseline;font-size:13px;color:var(--ink);padding:8px 10px;border-radius:12px;border:1px solid var(--edge);background:rgba(9,13,30,.55)}
 .parts li b{font:700 11px var(--mono);color:var(--cyan)}.parts li small{color:var(--mute)}
@@ -319,6 +321,7 @@ footer{color:var(--dim);font-size:13px;text-align:center}
     </div>
     <div class="stage" id="stage">
       <span class="simTag" data-t="sim_tag"></span>
+      <p class="agentsH" data-t="agents_h"></p>
       <svg viewBox="0 0 520 380" role="img" aria-labelledby="stageTitle">
         <title id="stageTitle" data-t="stage_title"></title>
         <defs>
@@ -331,28 +334,33 @@ footer{color:var(--dim);font-size:13px;text-align:center}
           <circle cx="40" cy="60" r="1.2"/><circle cx="120" cy="40" r="1"/><circle cx="250" cy="70" r="1.4"/><circle cx="340" cy="40" r="1"/><circle cx="470" cy="60" r="1.2"/>
           <circle cx="30" cy="190" r="1"/><circle cx="230" cy="330" r="1.2"/><circle cx="360" cy="320" r="1"/><circle cx="500" cy="170" r="1"/><circle cx="110" cy="350" r="1.3"/>
         </g>
-        <path id="flow" d="M18,300 C70,300 82,150 140,150 S228,250 262,250 S330,120 372,120 S420,270 448,268" fill="none" stroke="url(#gPath)" stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round"/>
+        <path id="flow" d="M18,330 C60,330 60,140 95,140 S170,250 200,250 S270,110 300,110 S360,240 390,240 S450,130 475,130" fill="none" stroke="url(#gPath)" stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round"/>
         <g id="particles" filter="url(#glow)"></g>
         <g>
-          <circle class="halo" cx="140" cy="150" r="22"/><circle class="node" cx="140" cy="150" r="22"/>
-          <path d="M133 150a7 7 0 1 0 14 0a7 7 0 1 0-14 0M146 155l5 5" stroke="#4fe3ff" stroke-width="2" fill="none" stroke-linecap="round"/>
-          <text class="lbl" x="140" y="196" text-anchor="middle" data-t="n1"></text><text class="sub" x="140" y="210" text-anchor="middle" data-t="n1s"></text>
+          <circle class="halo" cx="95" cy="140" r="22"/><circle class="node" cx="95" cy="140" r="22"/>
+          <path d="M88 140a7 7 0 1 0 14 0a7 7 0 1 0-14 0M101 145l5 5" stroke="#4fe3ff" stroke-width="2" fill="none" stroke-linecap="round"/>
+          <text class="lbl" x="95" y="186" text-anchor="middle" data-t="n1"></text><text class="sub" x="95" y="200" text-anchor="middle" data-t="n1s"></text>
         </g>
         <g>
-          <circle class="halo d2" cx="262" cy="250" r="22"/><circle class="node" cx="262" cy="250" r="22"/>
-          <path d="M254 243h16M254 250h16M254 257h10" stroke="#a99bff" stroke-width="2" stroke-linecap="round"/>
-          <text class="lbl" x="262" y="296" text-anchor="middle" data-t="n2"></text><text class="sub" x="262" y="310" text-anchor="middle" data-t="n2s"></text>
+          <circle class="halo d2" cx="200" cy="250" r="22"/><circle class="node" cx="200" cy="250" r="22"/>
+          <path d="M192 243h16M192 250h16M192 257h10" stroke="#a99bff" stroke-width="2" stroke-linecap="round"/>
+          <text class="lbl" x="200" y="296" text-anchor="middle" data-t="n2"></text><text class="sub" x="200" y="310" text-anchor="middle" data-t="n2s"></text>
         </g>
         <g>
-          <circle class="halo d3" cx="372" cy="120" r="22"/><circle class="node" cx="372" cy="120" r="22"/>
-          <path d="M364 128l4-12 12-4-4 12z" stroke="#3ee6c1" stroke-width="2" fill="none" stroke-linejoin="round"/>
-          <text class="lbl" x="372" y="70" text-anchor="middle" data-t="n3"></text><text class="sub" x="372" y="84" text-anchor="middle" data-t="n3s"></text>
+          <circle class="halo d3" cx="300" cy="110" r="22"/><circle class="node" cx="300" cy="110" r="22"/>
+          <path d="M292 118l4-12 12-4-4 12z" stroke="#3ee6c1" stroke-width="2" fill="none" stroke-linejoin="round"/>
+          <text class="lbl" x="300" y="64" text-anchor="middle" data-t="n3"></text><text class="sub" x="300" y="78" text-anchor="middle" data-t="n3s"></text>
         </g>
         <g>
-          <circle class="halo d4" cx="448" cy="268" r="34"/>
-          <circle cx="448" cy="268" r="34" fill="url(#gDisc)"/>
-          <circle cx="448" cy="268" r="9" fill="#070a16"/><circle cx="448" cy="268" r="3" fill="#eef1ff"/>
-          <text class="lbl" x="448" y="330" text-anchor="middle" data-t="n4"></text><text class="sub" x="448" y="344" text-anchor="middle" data-t="n4s"></text>
+          <circle class="halo d4" cx="390" cy="240" r="30"/>
+          <circle cx="390" cy="240" r="30" fill="url(#gDisc)"/>
+          <circle cx="390" cy="240" r="8" fill="#070a16"/><circle cx="390" cy="240" r="3" fill="#eef1ff"/>
+          <text class="lbl" x="390" y="296" text-anchor="middle" data-t="n4"></text><text class="sub" x="390" y="310" text-anchor="middle" data-t="n4s"></text>
+        </g>
+        <g>
+          <circle class="halo" cx="475" cy="130" r="22"/><circle class="node" cx="475" cy="130" r="22"/>
+          <path d="M465 131l20-9-7 20-3-8z M475 134l10-12" stroke="#ff9a7b" stroke-width="2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          <text class="lbl" x="475" y="84" text-anchor="middle" data-t="n5"></text><text class="sub" x="475" y="98" text-anchor="middle" data-t="n5s"></text>
         </g>
         <g id="chipCloud" font-family="ui-monospace,Menlo,monospace" font-size="10.5"></g>
       </svg>
@@ -558,9 +566,9 @@ footer{color:var(--dim);font-size:13px;text-align:center}
 const T = {
  uk:{eyebrow:'MyCast · персональний подкаст',title_a:'Ваш щоденний подкаст —',title_b:'лише про те, що вам цікаво',
   lede:'Оберіть теми, регіон, голос і час. Ця сторінка — прототип: вона збирає ваш профіль і показує, як працюватиме MyCast. Справжні випуски ще не генеруються і нікуди не надсилаються.',
-  cta:'Спробувати демо',how:'Як це зроблено',sim_note:'Анімована схема — це симуляція конвеєра. Агенти Scout, Researcher, Editor і Voice зараз не запущені.',sim_tag:'Симуляція',
-  stage_title:'Симуляція: ваші теми проходять через розвідника, дослідника і редактора та стають випуском',
-  n1:'Scout',n1s:'знаходить новини',n2:'Researcher',n2s:'перевіряє джерела',n3:'Editor',n3s:'пише сценарій',n4:'Voice',n4s:'ваш випуск',
+  cta:'Спробувати демо',how:'Як це зроблено',sim_note:'Анімована схема — це симуляція конвеєра. Агенти Scout, Researcher, Editor, Voice і Sender зараз не запущені.',sim_tag:'Симуляція',
+  stage_title:'Симуляція: 5 AI-агентів — Scout, Researcher, Editor, Voice і Sender — перетворюють ваші теми на випуск і надсилають його вам',
+  n1:'Scout',n1s:'знаходить новини',n2:'Researcher',n2s:'перевіряє джерела',n3:'Editor',n3s:'пише сценарій',n4:'Voice',n4s:'озвучує',n5:'Sender',n5s:'надсилає вам',agents_h:'5 AI-агентів працюють над вашим випуском',
   b_h:'Три білдери, одна сторінка',b_p:'MVP Factory будує продукт по черзі: кожна роль передає наступній готовий результат. Тут усі три ролі виконав Claude; живих агентів ще немає.',
   b1_role:'Product Strategist',b1_h:'Спека і таксономія',b1_p:'Аудиторія, сценарій, 10 категорій і понад 90 тем, правила перевірки та чесні стани.',
   b2_role:'Web Builder',b2_h:'Ця сторінка',b2_p:'Адаптивний конфігуратор: вкладені теми зі своїми пунктами, регіон, соцмережі, голос, розклад, прев’ю і посилання для друзів.',b2_link:'До конфігуратора ↓',
@@ -596,9 +604,9 @@ const T = {
   ap:{need:'Затвердження доступне після прев’ю і перегляду.',done:'Профіль затверджено. Розсилка сама не вмикається — це окремий крок 07.',invalidated:'Ви змінили налаштування — прев’ю і затвердження скинуто.'}},
  ru:{eyebrow:'MyCast · персональный подкаст',title_a:'Ваш ежедневный подкаст —',title_b:'только о том, что вам интересно',
   lede:'Выберите темы, регион, голос и время. Эта страница — прототип: она собирает ваш профиль и показывает, как будет работать MyCast. Настоящие выпуски пока не создаются и никуда не отправляются.',
-  cta:'Попробовать демо',how:'Как это сделано',sim_note:'Анимированная схема — это симуляция конвейера. Агенты Scout, Researcher, Editor и Voice сейчас не запущены.',sim_tag:'Симуляция',
-  stage_title:'Симуляция: ваши темы проходят через разведчика, исследователя и редактора и становятся выпуском',
-  n1:'Scout',n1s:'находит новости',n2:'Researcher',n2s:'проверяет источники',n3:'Editor',n3s:'пишет сценарий',n4:'Voice',n4s:'ваш выпуск',
+  cta:'Попробовать демо',how:'Как это сделано',sim_note:'Анимированная схема — это симуляция конвейера. Агенты Scout, Researcher, Editor, Voice и Sender сейчас не запущены.',sim_tag:'Симуляция',
+  stage_title:'Симуляция: 5 AI-агентов — Scout, Researcher, Editor, Voice и Sender — превращают ваши темы в выпуск и отправляют его вам',
+  n1:'Scout',n1s:'находит новости',n2:'Researcher',n2s:'проверяет источники',n3:'Editor',n3s:'пишет сценарий',n4:'Voice',n4s:'озвучивает',n5:'Sender',n5s:'отправляет вам',agents_h:'5 AI-агентов работают над вашим выпуском',
   b_h:'Три билдера, одна страница',b_p:'MVP Factory строит продукт по очереди: каждая роль передаёт следующей готовый результат. Здесь все три роли выполнил Claude; живых агентов пока нет.',
   b1_role:'Product Strategist',b1_h:'Спека и таксономия',b1_p:'Аудитория, сценарий, 10 категорий и больше 90 тем, правила проверки и честные состояния.',
   b2_role:'Web Builder',b2_h:'Эта страница',b2_p:'Адаптивный конфигуратор: вложенные темы со своими пунктами, регион, соцсети, голос, расписание, превью и ссылка для друзей.',b2_link:'К конфигуратору ↓',
@@ -634,9 +642,9 @@ const T = {
   ap:{need:'Утверждение доступно после превью и просмотра.',done:'Профиль утверждён. Рассылка сама не включается — это отдельный шаг 07.',invalidated:'Вы изменили настройки — превью и утверждение сброшены.'}},
  en:{eyebrow:'MyCast · your personal podcast',title_a:'Your daily podcast,',title_b:'only about what you care about',
   lede:'Pick topics, region, voice and time. This page is a prototype: it builds your profile and shows how MyCast will work. Real episodes are not generated or sent yet.',
-  cta:'Try the demo',how:'How it was built',sim_note:'The animated diagram is a simulation of the pipeline. The Scout, Researcher, Editor and Voice agents are not running.',sim_tag:'Simulation',
-  stage_title:'Simulation: your topics pass through a scout, a researcher and an editor and become an episode',
-  n1:'Scout',n1s:'finds the news',n2:'Researcher',n2s:'checks sources',n3:'Editor',n3s:'writes the script',n4:'Voice',n4s:'your episode',
+  cta:'Try the demo',how:'How it was built',sim_note:'The animated diagram is a simulation of the pipeline. The Scout, Researcher, Editor, Voice and Sender agents are not running.',sim_tag:'Simulation',
+  stage_title:'Simulation: 5 AI agents (Scout, Researcher, Editor, Voice and Sender) turn your topics into an episode and send it to you',
+  n1:'Scout',n1s:'finds the news',n2:'Researcher',n2s:'checks sources',n3:'Editor',n3s:'writes the script',n4:'Voice',n4s:'voices it',n5:'Sender',n5s:'sends it to you',agents_h:'5 AI agents work on your episode',
   b_h:'Three builders, one page',b_p:'MVP Factory builds a product in turns: each role hands a finished result to the next. Here Claude played all three roles; there are no live agents yet.',
   b1_role:'Product Strategist',b1_h:'Spec and taxonomy',b1_p:'Audience, flow, 10 categories and over 90 topics, validation rules and honest states.',
   b2_role:'Web Builder',b2_h:'This page',b2_p:'A responsive configurator: nested topics with your own entries, region, social channels, voice, schedule, preview and a link for friends.',b2_link:'To the configurator ↓',
@@ -674,7 +682,7 @@ const T = {
 /* Owner, 2026-11-07: 7 free days to start, +7 days for each invited friend (and the friend starts with 14),
    three entry points on the first screen, and the growth ideas kept on the page as theses to edit later. */
 const GROW = {
- uk:{parts:[['1','Новини у світі',''],['2','Ваші інтереси','стартапи, IT, growth hacking…'],['3','Дні народження друзів','з Google Календаря'],['4','Ваш день','зустрічі й позначки календаря']],cal_h:'Ваш день у випуску',cal_birthdays:'Дні народження друзів (Google Календар)',cal_events:'Мої зустрічі й позначки на сьогодні (Google Календар)',cal_note:'Підключення Google Календаря — скоро, лише читання і лише з вашого дозволу. Зараз ми запам’ятовуємо побажання, календар не читається.',narrow_h:'Звузьте «{q}» — додайте вузьку тему як свою:',narrow_none:'Готових тем за «{q}» немає. Оберіть вузький варіант — він стане вашою темою.',narrow_added:'Додано у «{g}».',narrow_full:'У «{g}» вже 5 своїх тем — приберіть одну, щоб додати ще.',offer:'7 днів персональних подкастів — безкоштовно',offer_sub:'Приведи друга — отримай ще +7 днів за кожного. Друг стартує з 14 днями.',
+ uk:{parts:[['1','Новини світу','те, що ви обрали'],['2','Персональні інтереси','стартапи, IT, growth hacks…'],['3','Дні народження друзів','інтеграція з Google Календарем',1],['4','Позначки календаря','зустрічі й справи дня · Google Календар',1]],cal_h:'Ваш день у випуску',cal_birthdays:'Дні народження друзів (Google Календар)',cal_events:'Мої зустрічі й позначки на сьогодні (Google Календар)',cal_note:'Підключення Google Календаря — скоро, лише читання і лише з вашого дозволу. Зараз ми запам’ятовуємо побажання, календар не читається.',narrow_h:'Звузьте «{q}» — додайте вузьку тему як свою:',narrow_none:'Готових тем за «{q}» немає. Оберіть вузький варіант — він стане вашою темою.',narrow_added:'Додано у «{g}».',narrow_full:'У «{g}» вже 5 своїх тем — приберіть одну, щоб додати ще.',offer:'7 днів персональних подкастів — безкоштовно',offer_sub:'Приведи друга — отримай ще +7 днів за кожного. Друг стартує з 14 днями.',
   gift:'🎁 Вам подарували 7 днів: 14 днів персональних подкастів безкоштовно',gift_sub:'7 днів старту + 7 днів від друга. Увійдіть, щоб подарунок зарахувався.',
   beta:'Відкрита бета: зараз усе безкоштовно, дні почнуть рахуватися з запуском регулярних випусків.',
   tr1:'Створи свій персональний подкаст',tr1s:'Теми, голос і розклад — за 2 хвилини.',tr2:'Слухай подкасти друзів і відомих людей',tr2s:'Відкрий посилання друга або додай Зеленського, Маска, Гейтса…',tr3:'Ділись і отримуй дні',tr3s:'Посилання або QR: другу +7 днів, тобі +7 днів.',
@@ -684,7 +692,7 @@ const GROW = {
    ['Підпис наприкінці кожного випуску: «Цей подкаст зібрав для себе Андрій. Створи свій — 7 днів у подарунок»',0],['Картка ДНК подкасту для сторіс Instagram і Telegram, з QR',0],['Подкасти відомих людей і друзів як готові «станції»: підписатися в один дотик',0],
    ['Подарувати подкаст: налаштувати для мами чи друга і надіслати як подарунок',0],['Подкаст на двох: спільний випуск із другом про ваші спільні теми',0],['Тижневий «Wrapped»: ваші теми тижня — картка, якою хочеться поділитися',0],
    ['Серія прослуховувань: 7 днів поспіль — +1 день у подарунок',0],['Групові подкасти для Telegram-чатів: клуб, команда, сім’я',0],['Бейджі амбасадорів і таблиця запрошень',0],['Google Календар у випуску: дні народження друзів і ваші зустрічі дня',0]],ideas_on:'є',ideas_off:'план'},
- ru:{parts:[['1','Новости в мире',''],['2','Ваши интересы','стартапы, IT, growth hacking…'],['3','Дни рождения друзей','из Google Календаря'],['4','Ваш день','встречи и пометки календаря']],cal_h:'Ваш день в выпуске',cal_birthdays:'Дни рождения друзей (Google Календарь)',cal_events:'Мои встречи и пометки на сегодня (Google Календарь)',cal_note:'Подключение Google Календаря — скоро, только чтение и только с вашего разрешения. Сейчас мы запоминаем пожелание, календарь не читается.',narrow_h:'Сузьте «{q}» — добавьте узкую тему как свою:',narrow_none:'Готовых тем по «{q}» нет. Выберите узкий вариант — он станет вашей темой.',narrow_added:'Добавлено в «{g}».',narrow_full:'В «{g}» уже 5 своих тем — уберите одну, чтобы добавить ещё.',offer:'7 дней персональных подкастов — бесплатно',offer_sub:'Приведи друга — получи ещё +7 дней за каждого. Друг стартует с 14 днями.',
+ ru:{parts:[['1','Новости мира','то, что вы выбрали'],['2','Личные интересы','стартапы, IT, growth hacks…'],['3','Дни рождения друзей','интеграция с Google Календарём',1],['4','Пометки календаря','встречи и дела дня · Google Календарь',1]],cal_h:'Ваш день в выпуске',cal_birthdays:'Дни рождения друзей (Google Календарь)',cal_events:'Мои встречи и пометки на сегодня (Google Календарь)',cal_note:'Подключение Google Календаря — скоро, только чтение и только с вашего разрешения. Сейчас мы запоминаем пожелание, календарь не читается.',narrow_h:'Сузьте «{q}» — добавьте узкую тему как свою:',narrow_none:'Готовых тем по «{q}» нет. Выберите узкий вариант — он станет вашей темой.',narrow_added:'Добавлено в «{g}».',narrow_full:'В «{g}» уже 5 своих тем — уберите одну, чтобы добавить ещё.',offer:'7 дней персональных подкастов — бесплатно',offer_sub:'Приведи друга — получи ещё +7 дней за каждого. Друг стартует с 14 днями.',
   gift:'🎁 Вам подарили 7 дней: 14 дней персональных подкастов бесплатно',gift_sub:'7 дней старта + 7 дней от друга. Войдите, чтобы подарок засчитался.',
   beta:'Открытая бета: сейчас всё бесплатно, дни начнут считаться с запуском регулярных выпусков.',
   tr1:'Создай свой персональный подкаст',tr1s:'Темы, голос и расписание — за 2 минуты.',tr2:'Слушай подкасты друзей и известных людей',tr2s:'Открой ссылку друга или добавь Зеленского, Маска, Гейтса…',tr3:'Делись и получай дни',tr3s:'Ссылка или QR: другу +7 дней, тебе +7 дней.',
@@ -694,7 +702,7 @@ const GROW = {
    ['Подпись в конце каждого выпуска: «Этот подкаст собрал для себя Андрей. Создай свой — 7 дней в подарок»',0],['Карточка ДНК подкаста для сторис Instagram и Telegram, с QR',0],['Подкасты известных людей и друзей как готовые «станции»: подписаться в одно касание',0],
    ['Подарить подкаст: настроить для мамы или друга и отправить как подарок',0],['Подкаст на двоих: совместный выпуск с другом про ваши общие темы',0],['Недельный «Wrapped»: ваши темы недели — карточка, которой хочется поделиться',0],
    ['Серия прослушиваний: 7 дней подряд — +1 день в подарок',0],['Групповые подкасты для Telegram-чатов: клуб, команда, семья',0],['Бейджи амбассадоров и таблица приглашений',0],['Google Календарь в выпуске: дни рождения друзей и ваши встречи дня',0]],ideas_on:'есть',ideas_off:'план'},
- en:{parts:[['1','World news',''],['2','Your interests','startups, IT, growth hacking…'],['3','Friends\' birthdays','from Google Calendar'],['4','Your day','meetings and calendar notes']],cal_h:'Your day in the episode',cal_birthdays:'Friends\' birthdays (Google Calendar)',cal_events:'My meetings and notes for today (Google Calendar)',cal_note:'Google Calendar connection is coming: read-only and only with your permission. For now we store the wish; no calendar is read.',narrow_h:'Narrow down "{q}": add a narrower topic as your own:',narrow_none:'No ready-made topics for "{q}". Pick a narrower option and it becomes your own topic.',narrow_added:'Added to "{g}".',narrow_full:'"{g}" already has 5 own topics; remove one to add more.',offer:'7 days of personal podcasts, free',offer_sub:'Bring a friend and get +7 more days for each one. Your friend starts with 14 days.',
+ en:{parts:[['1','World news','what you picked'],['2','Personal interests','startups, IT, growth hacks…'],['3','Friends\' birthdays','Google Calendar integration',1],['4','Calendar notes','meetings and tasks of the day · Google Calendar',1]],cal_h:'Your day in the episode',cal_birthdays:'Friends\' birthdays (Google Calendar)',cal_events:'My meetings and notes for today (Google Calendar)',cal_note:'Google Calendar connection is coming: read-only and only with your permission. For now we store the wish; no calendar is read.',narrow_h:'Narrow down "{q}": add a narrower topic as your own:',narrow_none:'No ready-made topics for "{q}". Pick a narrower option and it becomes your own topic.',narrow_added:'Added to "{g}".',narrow_full:'"{g}" already has 5 own topics; remove one to add more.',offer:'7 days of personal podcasts, free',offer_sub:'Bring a friend and get +7 more days for each one. Your friend starts with 14 days.',
   gift:'🎁 You were gifted 7 days: 14 days of personal podcasts, free',gift_sub:'7 starter days + 7 days from your friend. Sign in so the gift counts.',
   beta:'Open beta: everything is free right now; days start counting when regular episodes launch.',
   tr1:'Create your own personal podcast',tr1s:'Topics, voice and schedule in 2 minutes.',tr2:'Listen to friends\' and famous people\'s podcasts',tr2s:'Open a friend\'s link or add Zelensky, Musk, Gates…',tr3:'Share and earn days',tr3s:'Link or QR: +7 days for your friend, +7 for you.',
@@ -885,7 +893,8 @@ function render() {
     `<button type="button" class="btn" id="tgDeliver" ${listener && listener.telegram_linked ? 'disabled' : ''}>${ICONS.telegram.replace('<svg ', '<svg width="16" height="16" style="vertical-align:-3px;margin-right:6px" ')}${esc(listener && listener.telegram_linked ? x.tg_linked : (account.telegram_bot ? x.tg_login : x.tg_soon))}</button>`;
   $('#importBanner').hidden = !sharedProfile;
   renderAccount(); renderVoices(); renderTelegram(); renderGrowth();
-  $('#episodeParts').innerHTML = x.parts.map(([n, h, sub]) => `<li><b>${esc(n)}</b><span>${esc(h)}${sub ? ` <small>· ${esc(sub)}</small>` : ''}</span></li>`).join('');
+  const gcal = '<svg class="gcal" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3" fill="#fff"/><path d="M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v2H3z" fill="#4285f4"/><rect x="7" y="2" width="2" height="4" rx="1" fill="#1a73e8"/><rect x="15" y="2" width="2" height="4" rx="1" fill="#1a73e8"/><rect x="6" y="12" width="3" height="3" fill="#ea4335"/><rect x="10.5" y="12" width="3" height="3" fill="#fbbc04"/><rect x="15" y="12" width="3" height="3" fill="#34a853"/><rect x="6" y="16.5" width="3" height="3" fill="#4285f4"/></svg>';
+  $('#episodeParts').innerHTML = x.parts.map(([n, h, sub, cal]) => `<li>${cal ? gcal : `<b>${esc(n)}</b>`}<span>${esc(h)}${sub ? ` <small>· ${esc(sub)}</small>` : ''}</span></li>`).join('');
   $('#calBirthdays').checked = !!(profile.calendar || {}).birthdays; $('#calEvents').checked = !!(profile.calendar || {}).events;
   $('#shareNative').hidden = !navigator.share;
   const errors = MyCast.validate(profile);
