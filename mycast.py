@@ -314,7 +314,7 @@ def pcm_to_mp3(pcm: bytes, rate: int) -> bytes:
 
 def install_mycast_voice_routes(app, log: DeliveryLog, *, authorize_worker: Callable[[Request], bool],
                                 send_audio: Callable[[bytes, str, str, str], None], paired: Callable[[], bool],
-                                api_key: Callable[[], str], model: str = "", voices: tuple[str, str] = ("Charon", "Kore"),
+                                api_key: Callable[[], str], model: str = "", voices=("Charon", "Kore"),
                                 tts: Callable = gemini_tts_pcm, encode: Callable = pcm_to_mp3) -> None:
     @app.post("/api/factory/mycast/worker/voice-deliver")
     async def mycast_voice_deliver(request: Request):
@@ -341,7 +341,7 @@ def install_mycast_voice_routes(app, log: DeliveryLog, *, authorize_worker: Call
             def produce():
                 stats: list = []
                 extra = {"stats": stats} if "stats" in inspect.signature(tts).parameters else {}
-                pcm, rate = tts(key, episode, model=model, voices=voices, **extra)
+                pcm, rate = tts(key, episode, model=model, voices=tuple(voices() if callable(voices) else voices), **extra)  # #140: owner's stored pair
                 check_pcm(pcm, rate, lines, stats)  # silence / length / truncated chunk → not delivered
                 audio = encode(pcm, rate)
                 check_mp3(audio)
