@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from team_tasks import TeamTasksCache, build_team_tasks, compact_github, queue_readiness, read_github
+from team_tasks import TeamTasksCache, _reason, build_team_tasks, compact_github, queue_readiness, read_github
 
 NOW = 1_800_000_000.0  # fixed clock
 
@@ -53,6 +53,19 @@ class TeamTasksTest(unittest.TestCase):
         self.assertEqual(gem["PR #13"]["status"], "done")               # merged agent PR without its issue in the list
         self.assertNotIn("PR #15", str(b))                               # unknown branch prefix is not an executor
         self.assertNotIn("#8", {t["id"] for a in b["agents"].values() for t in a["tasks"]})
+
+    def test_reason_all_statuses(self):
+        self.assertEqual(_reason({"status": "in_progress"}, "claude"), "draft_pr")
+        self.assertEqual(_reason({"status": "review", "pr": {"ci": "running"}}, "claude"), "ci_running")
+        self.assertEqual(_reason({"status": "review", "pr": {"ci": "unknown"}}, "claude"), "ci_running")
+        self.assertEqual(_reason({"status": "review", "pr": {"ci": "passed"}}, "claude"), "awaiting_review")
+        self.assertEqual(_reason({"status": "ci_failed"}, "claude"), "ci_failed")
+        self.assertEqual(_reason({"status": "queued", "labels": ["gemini"]}, "gemini"), "gemini_loop")
+        self.assertEqual(_reason({"status": "queued", "labels": []}, "gemini"), "not_started")
+        self.assertEqual(_reason({"status": "queued", "labels": ["gemini"]}, "claude"), "not_started")
+        self.assertEqual(_reason({"status": "waiting_owner"}, "owner"), "owner_action")
+        self.assertEqual(_reason({"status": "blocked"}, "claude"), "blocked_label")
+        self.assertEqual(_reason({"status": "done"}, "claude"), "done")
 
     def test_owner_lane_and_summary(self):
         b = self.board()
