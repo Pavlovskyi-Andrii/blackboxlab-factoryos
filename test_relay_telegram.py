@@ -62,6 +62,32 @@ class TestRelayTelegram(unittest.TestCase):
         self.assertIn("ChatGPT: нет автоматической телеметрии", self.last_message())
         self.assertIn("heartbeat", self.last_message())
 
+    def test_tasks_done_24h_requires_recent_completion_event(self):
+        from datetime import datetime, timedelta, timezone
+        from relay import _team_ticket_counts
+        recent = datetime.now(timezone.utc).isoformat()
+        old = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        with self.store.lock:
+            data = self.store._load_unlocked()
+            for index, timestamp in enumerate((recent, old), start=2):
+                data["tickets"].append({
+                    "id": f"R-{index:04d}", "title": "Finished",
+                    "status": "done", "created_at": timestamp,
+                    "updated_at": timestamp,
+                    "execution": {"owner": "claude", "state": "done"},
+                    "history": [{"at": timestamp, "action": "status_changed",
+                                 "from_status": "in_progress", "to_status": "done"}],
+                })
+            data["tickets"].append({
+                "id": "R-0004", "title": "Unverified done",
+                "status": "done", "updated_at": recent,
+                "execution": {"owner": "claude", "state": "done"}, "history": [],
+            })
+            self.store._save_unlocked(data)
+        text = _team_ticket_counts(self.store)
+        self.assertIn("готово за 24 ч 1", text)
+        self.assertNotIn("готово за 24 ч 3", text)
+
     def test_tasks_include_github_and_executor(self):
         self.message("/tasks")
         message = self.last_message()
@@ -212,6 +238,74 @@ class TestTelegramBattles(unittest.TestCase):
     def test_webhook_battles(self):
         import test_telegram_battles as t587
         t587.app_checks()
+
+
+class TestTelegramAssignmentLoop(unittest.TestCase):
+    def setUp(self):
+        from relay_execution import RelayQueue
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = RelayStore(Path(self.tmp.name) / "relay.json")
+        self.queue = RelayQueue(self.store)
+        self.sent = []
+        self.seq = 0
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def tg(self, method, payload=None):
+        self.sent.append((method, payload or {}))
+        return {"ok": True}
+
+    def send(self, command, chat_id=42, update_id=None):
+        self.seq += 1
+        uid = update_id if update_id is not None else self.seq
+        upd = {"update_id": uid, "message": {"chat": {"id": chat_id, "type": "private"},
+               "message_id": uid, "text": command}}
+        return relay_handle_telegram_update(upd, self.store, lambda: {"chat_id": "42"}, self.tg, queue=self.queue)
+
+    def click(self, data, chat_id=42):
+        upd = {"callback_query": {"id": "c", "data": data, "message": {"chat": {"id": chat_id}}}}
+        return relay_handle_telegram_update(upd, self.store, lambda: {"chat_id": "42"}, self.tg, queue=self.queue)
+
+    def test_no_claim_until_assignment_and_idempotent_update(self):
+        task = self.send("/new Fix Telegram", update_id=901)
+        tid = task["ticket_id"]
+        self.assertEqual(self.store.get(tid)["execution"]["owner"], "unassigned")
+        self.assertIsNone(self.queue.claim("worker-test"))
+        self.assertEqual(self.send("/new Fix Telegram", update_id=901)["ticket_id"], tid)
+        self.assertEqual(self.store.summary()["total"], 1)
+        self.assertEqual(self.click("relay:assign:" + tid + ":claude")["action"], "assigned")
+        self.assertEqual(self.click("relay:assign:" + tid + ":claude")["action"], "assigned")
+        self.assertEqual(self.click("relay:assign:" + tid + ":gemini")["action"], "assign_refused")
+        self.assertEqual(self.queue.claim("worker-test")["id"], tid)
+        self.assertEqual(self.click("relay:cancel:" + tid)["action"], "cancel_refused")
+
+    def test_other_executor_and_cancel_stay_truthful(self):
+        t = self.send("/new Assign Gemini")
+        tid = t["ticket_id"]
+        self.click("relay:assign:" + tid + ":gemini")
+        self.assertEqual(self.store.get(tid)["execution"]["state"], "queued")
+        self.assertIsNone(self.queue.claim("worker-test"))
+        self.send("/tasks")
+        self.assertIn("gemini: очередь 1", [p["text"] for m,p in self.sent if m=="sendMessage"][-1])
+
+    def test_assignment_buttons_offer_claude_and_honest_gemini_only(self):
+        tid = self.send("/new Something")["ticket_id"]
+        kb = [p for m, p in self.sent if m == "sendMessage"][-1]["reply_markup"]["inline_keyboard"][0]
+        self.assertEqual([b["callback_data"].rsplit(":", 1)[1] for b in kb], ["claude", "gemini"])  # ChatGPT lane taken over (#94)
+        self.click("relay:assign:" + tid + ":gemini")
+        self.assertIn("не имеет Relay-runner", [p["text"] for m, p in self.sent if m == "sendMessage"][-1])
+        self.assertEqual(self.click("relay:retry:" + tid)["action"], "retry_refused")
+        self.assertEqual(self.click("relay:cancel:" + tid)["action"], "cancel")
+        self.assertEqual(self.store.get(tid)["execution"]["state"], "cancelled")
+        self.assertEqual(self.store.get(tid)["status"], "archived")
+
+    def test_foreign_chat_cannot_assign(self):
+        tid = self.send("/new Secure task")["ticket_id"]
+        count = len(self.sent)
+        self.click("relay:assign:" + tid + ":claude", chat_id=93)
+        self.assertEqual(len(self.sent), count)
+        self.assertEqual(self.store.get(tid)["execution"]["owner"], "unassigned")
 
 
 if __name__ == "__main__":
