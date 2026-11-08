@@ -167,7 +167,8 @@ class TestRelayTelegram(unittest.TestCase):
         handled_commands = {
             "/help", "/start", "/pair", "/status", "/tasks", "/relay", "/roadmap", "/task",
             "/history", "/github", "/issue", "/battles", "/battle", "/workers", "/operators",
-            "/new", "/work", "/done", "/need", "/inbox"
+            "/new", "/work", "/done", "/need", "/inbox",
+            "/ask",  # #133: handled by the app webhook (owner question queue) before the Relay handler
         }
         for lang in ("ru", "uk", "en"):
             text = _help_text(lang)
