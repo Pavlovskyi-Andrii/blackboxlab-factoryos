@@ -142,7 +142,7 @@ jobs:
           DATA_DIR: /tmp/factoryos-team-tasks-ci
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
-        run: python test_team_tasks.py
+        run: python test_team_tasks.py && python test_team_truthfulness.py
       - name: Security Check findings schema and redaction (#237)
         run: |
           python -m py_compile security_findings.py test_security_findings.py

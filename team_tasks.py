@@ -49,7 +49,7 @@ def _agent_of_pr(pr: dict) -> str:
 
 
 def _ci_summary(runs: list) -> dict:
-    """passed | failed | running | none, plus the first failing check name."""
+    """passed | failed | running | none | unknown (a stale run), plus the first failing check name."""
     runs = [r for r in runs or [] if isinstance(r, dict)]
     if not runs:
         return {"state": "none", "failed": ""}
@@ -58,6 +58,8 @@ def _ci_summary(runs: list) -> dict:
         return {"state": "failed", "failed": str(failed[0].get("name") or "")[:80]}
     if any(r.get("status") != "completed" for r in runs):
         return {"state": "running", "failed": ""}
+    if any(r.get("conclusion") == "stale" for r in runs):  # #242: GitHub gave up on it; no result is not a pass
+        return {"state": "unknown", "failed": ""}
     return {"state": "passed", "failed": ""}
 
 
@@ -95,7 +97,15 @@ def read_github(fetch: Callable[[str], object], max_ci: int = 20, owner: str = "
             if sha:
                 try:
                     data = fetch("/commits/" + sha + "/check-runs?per_page=50")
-                    ci[sha] = _ci_summary((data or {}).get("check_runs") if isinstance(data, dict) else [])
+                    runs = data.get("check_runs") if isinstance(data, dict) else None
+                    if not isinstance(runs, list):  # #242: an unexpected body is unknown, not "no checks"
+                        ci[sha] = {"state": "unknown", "failed": ""}
+                        continue
+                    summary = _ci_summary(runs)
+                    total = data.get("total_count")
+                    if summary["state"] in ("passed", "none") and isinstance(total, int) and total > len(runs):
+                        summary = {"state": "unknown", "failed": ""}  # #242: unseen runs (next page) may be red
+                    ci[sha] = summary
                 except Exception:
                     ci[sha] = {"state": "unknown", "failed": ""}
         return {"available": True, "issues": issues, "pulls": pulls, "ci": ci, "open_owner_truncated": open_truncated}

@@ -869,3 +869,8 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Publishing is not a transition (no `publish` kind; `approval.publish` stays False after `validated`). Owner rejection is terminal; the spec has no "back to spec" edge, so none is invented.
 - Known gap, recorded not patched: `MvpRegistry.record("advance")` does not call the Builder gates itself; the tests compose gate → advance in a `DemoPipeline` helper. Wiring that into production is M2 of #186.
 - Every record the tests write is DEMO-marked; pilots #187–#189 are asserted unchanged after every test.
+
+## #242 Team Tasks truthfulness regression (2026-11-09)
+- `test_team_truthfulness.py` (22 tests): stale/future/malformed snapshot, GitHub 403 vs a real empty read, partial CI, heartbeat without a claimed task, stale queued tasks, provenance timestamps and the fixed progress set. Render deploy SHA vs main is not compared anywhere in code, so that case is a documented skip, not an invented adapter.
+- Fix in `team_tasks.py`: CI is `unknown`, not `passed`, when a check run is `stale`, when the check-runs body is unexpected (was `none`), or when `total_count` exceeds the runs read (a red run may sit on the next page). Relay's PR reconcile only acts on passed/failed, so it can no longer announce "CI passed" on partial evidence.
+- Left open (recorded): a corrupted snapshot file can still make the board return 500; board TTL (3600 s) differs from intake (900 s); the page tiles show 0 next to the "GitHub unavailable" banner (the API keeps unknown and empty apart).
