@@ -622,6 +622,7 @@ _HELP_TEXTS = {
         "/new — Создать новую задачу (напр. /new Текст)\n"
         "/ask — Задать вопрос Claude (ответ придёт сюда)\n"
         "/group — Привязать группу FactoryOS Team (код для /pair_group)\n"
+        "/brief — Утренний брифинг 08:00: on / off / test\n"
         "/work — Перевести задачу в работу (напр. /work R-0001)\n"
         "/done — Завершить задачу (напр. /done R-0001)\n"
         "/need — Пометить задачу как требующую внимания (напр. /need R-0001)\n"
@@ -647,6 +648,7 @@ _HELP_TEXTS = {
         "/new — Створити нове завдання (напр. /new Текст)\n"
         "/ask — Запитати Claude (відповідь прийде сюди)\n"
         "/group — Прив'язати групу FactoryOS Team (код для /pair_group)\n"
+        "/brief — Ранковий брифінг 08:00: on / off / test\n"
         "/work — Взяти завдання в роботу (напр. /work R-0001)\n"
         "/done — Завершити завдання (напр. /done R-0001)\n"
         "/need — Позначити завдання як таке, що потребує уваги (напр. /need R-0001)\n"
@@ -672,6 +674,7 @@ _HELP_TEXTS = {
         "/new — Create a new Relay task (e.g. /new Task text)\n"
         "/ask — Ask Claude a question (the answer comes here)\n"
         "/group — Link the FactoryOS Team group (code for /pair_group)\n"
+        "/brief — Morning brief at 08:00: on / off / test\n"
         "/work — Set task status to in progress (e.g. /work R-0001)\n"
         "/done — Mark task as done (e.g. /done R-0001)\n"
         "/need — Mark task as needing owner attention (e.g. /need R-0001)\n"
@@ -1453,6 +1456,9 @@ def relay_handle_telegram_update(
         created_by="telegram",
         owner="unassigned" if explicit_new else "claude",
     )
+    if not created and update_id:
+        # #241: Telegram redelivered the same update (our first 200 was lost): it was answered already.
+        return {"handled": True, "ticket_id": ticket["id"], "created": False, "replayed": True}
     choose = explicit_new and (ticket.get("execution") or {}).get("owner") == "unassigned"
     telegram_api("sendMessage", {
         "chat_id": chat_id,
@@ -1527,11 +1533,15 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
         identity = _owner_guard(request, request_identity)
         if queue is None:
             raise HTTPException(503, "Claude queue unavailable")
+        existing = store.get(ticket_id)
+        before = str(queue.view(existing)["execution"].get("state") or "") if existing else ""
         try:
             ticket = queue.enqueue(ticket_id, actor=identity.get("email") or "owner")
         except KeyError:
             raise HTTPException(404, "Relay ticket not found")
-        if notify_owner:
+        # #241: a repeated Run (refresh, retry) on queued/active work changes nothing, so it notifies nothing.
+        requeued = before not in ("queued", "claimed", "running", "checkpoint", "committed", "pushed")  # stale → Retry
+        if notify_owner and requeued:
             try:
                 notify_owner(f"⏳ Relay {ticket_id}: передано Claude; ожидает worker.")
             except Exception:

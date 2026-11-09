@@ -167,12 +167,55 @@ def install_voice_history_routes(app, history: VoiceHistory, *, is_owner: Callab
         return {"deliveries": list(reversed(history.entries()))[:50]}
 
 
+class BriefError(Exception):
+    def __init__(self, status: int, detail: str):
+        super().__init__(detail)
+        self.status, self.detail = status, detail
+
+
+def make_brief_sender(history: VoiceHistory, log, store: VoiceSettingsStore, *, api_key: Callable, paired: Callable,
+                      tts_single: Callable, encode: Callable, send_audio: Callable,
+                      check_audio: Callable = lambda audio: None) -> Callable[[str, str], dict]:
+    """deliver(date, text): the brief in the owner's host-A voice to the owner's own paired chat, at most once per
+    date (the claim is released on failure so a retry can run). Blocking; raises BriefError(status, detail).
+    Shared by the worker route and the 08:00 schedule (#106), so both use one delivery log."""
+
+    def deliver(date: str, text) -> dict:
+        if not _DATE.fullmatch(str(date or "")) or not isinstance(text, str) or not 1 <= len(text.strip()) <= BRIEF_MAX_CHARS:
+            raise BriefError(400, "bad brief")
+        key = api_key()
+        if not key:
+            raise BriefError(409, "gemini key not configured")
+        if not paired():
+            raise BriefError(409, "Telegram owner chat is not paired")
+        brief_id = f"brief-{date}"
+        if not log.claim(brief_id):
+            return {"sent": False, "duplicate": True}
+        voice = store.current_pair()[0]
+        try:
+            pcm, rate = tts_single(key, text.strip(), voice)
+            audio = encode(pcm, rate)
+            check_audio(audio)
+            send_audio(audio, f"{brief_id}.mp3", f"Ранковий брифінг {date}", f"🎙 Ранковий брифінг · {date} · голос {voice}")
+            seconds = round(len(pcm) / 2 / rate)
+        except Exception as exc:  # the category only, never the provider's text
+            log.release(brief_id)
+            category = str(getattr(exc, "category", "") or getattr(exc, "reason", "") or "voice_failed")[:40]
+            history.record(kind="brief", item_id=brief_id, voice=voice, status="failed:" + category)
+            raise BriefError(502, f"brief failed: {category}")
+        history.record(kind="brief", item_id=brief_id, voice=voice, status="sent", seconds=seconds)
+        return {"sent": True, "duplicate": False, "voice": voice, "seconds": seconds}
+    return deliver
+
+
 def install_brief_route(app, history: VoiceHistory, log, store: VoiceSettingsStore, *, authorize_worker: Callable,
                         api_key: Callable, paired: Callable, tts_single: Callable, encode: Callable, send_audio: Callable,
-                        check_audio: Callable = lambda audio: None) -> None:
-    """POST /api/factory/voice/worker/brief-deliver {date, text}: a short morning brief in the owner's host-A voice,
-    to the owner's own paired chat, at most once per date. Nothing calls it on a schedule yet; a worker must."""
+                        check_audio: Callable = lambda audio: None) -> Callable[[str, str], dict]:
+    """POST /api/factory/voice/worker/brief-deliver {date, text}: see make_brief_sender. Returns the sender so the
+    server's own 08:00 schedule (morning_brief.py) shares the same once-per-date log."""
     import asyncio
+    deliver = make_brief_sender(history, log, store, api_key=api_key, paired=paired, tts_single=tts_single,
+                                encode=encode, send_audio=send_audio, check_audio=check_audio)
 
     @app.post("/api/factory/voice/worker/brief-deliver")
     async def voice_brief_deliver(request: Request):
@@ -182,33 +225,9 @@ def install_brief_route(app, history: VoiceHistory, log, store: VoiceSettingsSto
             body = await request.json()
         except ValueError:
             body = None
-        date = str((body or {}).get("date") or "") if isinstance(body, dict) else ""
-        text = (body or {}).get("text") if isinstance(body, dict) else None
-        if not _DATE.fullmatch(date) or not isinstance(text, str) or not 1 <= len(text.strip()) <= BRIEF_MAX_CHARS:
-            raise HTTPException(400, "bad brief")
-        key = api_key()
-        if not key:
-            raise HTTPException(409, "gemini key not configured")
-        if not paired():
-            raise HTTPException(409, "Telegram owner chat is not paired")
-        brief_id = f"brief-{date}"
-        if not log.claim(brief_id):
-            return {"sent": False, "duplicate": True}
-        voice = store.current_pair()[0]
-
-        def produce():
-            pcm, rate = tts_single(key, text.strip(), voice)
-            audio = encode(pcm, rate)
-            check_audio(audio)
-            send_audio(audio, f"{brief_id}.mp3", f"Ранковий брифінг {date}", f"🎙 Ранковий брифінг · {date} · голос {voice}")
-            return round(len(pcm) / 2 / rate)
-
+        body = body if isinstance(body, dict) else {}
         try:
-            seconds = await asyncio.to_thread(produce)
-        except Exception as exc:  # the category only, never the provider's text
-            log.release(brief_id)
-            category = str(getattr(exc, "category", "") or getattr(exc, "reason", "") or "voice_failed")[:40]
-            history.record(kind="brief", item_id=brief_id, voice=voice, status="failed:" + category)
-            raise HTTPException(502, f"brief failed: {category}")
-        history.record(kind="brief", item_id=brief_id, voice=voice, status="sent", seconds=seconds)
-        return {"sent": True, "duplicate": False, "voice": voice, "seconds": seconds}
+            return await asyncio.to_thread(deliver, str(body.get("date") or ""), body.get("text"))
+        except BriefError as exc:
+            raise HTTPException(exc.status, exc.detail)
+    return deliver

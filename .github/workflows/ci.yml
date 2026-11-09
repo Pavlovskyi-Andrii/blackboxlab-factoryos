@@ -119,6 +119,8 @@ jobs:
         run: python test_relay_telegram.py
       - name: Relay worker queue / Claude execution unit tests
         run: python test_relay_execution.py
+      - name: Relay owner-notice dedupe regression (#241)
+        run: python test_relay_notify_dedupe.py
       - name: Relay secure worker pairing unit tests
         run: python test_relay_pairing.py
       - name: Claude delegation adapter regression
@@ -140,7 +142,7 @@ jobs:
           DATA_DIR: /tmp/factoryos-team-tasks-ci
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
-        run: python test_team_tasks.py
+        run: python test_team_tasks.py && python test_team_truthfulness.py
       - name: Security Check findings schema and redaction (#237)
         run: |
           python -m py_compile security_findings.py test_security_findings.py
@@ -201,10 +203,14 @@ jobs:
           python test_route_auth_fixes.py
           python -m py_compile telegram_group.py test_telegram_group.py
           python test_telegram_group.py
+          python -m py_compile morning_brief.py test_morning_brief.py
+          python test_morning_brief.py
       - name: MVP Factory registry (#186)
         run: |
           python -m py_compile mvp_factory.py test_mvp_factory.py
           python test_mvp_factory.py
+          python -m py_compile test_mvp_state_machine.py
+          python test_mvp_state_machine.py
           python - <<'PY'
           from pathlib import Path
           html = Path("static/mvp-factory/index.html").read_text(encoding="utf-8")

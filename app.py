@@ -42,6 +42,7 @@ from mycast import (DeliveryLog, check_mp3, gemini_tts_pcm, install_mycast_route
 from mycast_demo import DemoService, install_mycast_demo_routes
 from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
+from morning_brief import MorningBrief, compose_brief
 from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_route, install_voice_history_routes,
                             install_voice_settings_routes)
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
@@ -654,6 +655,7 @@ async def sync_telegram_relay_webhook():
             {"command":"new","description":"Создать новую задачу"},
             {"command":"ask","description":"Вопрос Claude: /ask текст"},
             {"command":"group","description":"Привязать группу FactoryOS Team"},
+            {"command":"brief","description":"Ранковий брифінг 08:00: on / off / test"},
             {"command":"work","description":"Перевести тикет в работу"},
             {"command":"need","description":"Нужно действие от меня"},
             {"command":"done","description":"Закрыть тикет"},
@@ -727,8 +729,8 @@ install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_wor
 # #140: the owner picks the daily two-host pair; owner-only API, same catalogue and pair rule as the demo.
 install_voice_settings_routes(app, VOICE_SETTINGS, is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
 install_voice_history_routes(app, VOICE_HISTORY, is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
-# Morning brief in the owner's host-A voice, once per date, only when a worker calls it (no schedule added here).
-install_brief_route(app, VOICE_HISTORY, MYCAST_DELIVERIES, VOICE_SETTINGS, authorize_worker=_claude_worker_authorized,
+# Morning brief in the owner's host-A voice, once per date: the worker route and the #106 08:00 schedule share it.
+BRIEF_DELIVER = install_brief_route(app, VOICE_HISTORY, MYCAST_DELIVERIES, VOICE_SETTINGS, authorize_worker=_claude_worker_authorized,
                     api_key=lambda: FACTORY_GEMINI_API_KEY, paired=_mycast_paired,
                     tts_single=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice),
                     encode=pcm_to_mp3, send_audio=_mycast_send_audio, check_audio=lambda audio: check_mp3(audio))
@@ -1015,6 +1017,10 @@ async def telegram_webhook(request: Request):
             except Exception:pass
         return {"ok":True,**result}
     if g_chat.get("type")=="private" and owner_chat and str(g_chat.get("id") or "")==owner_chat:
+        reply=MORNING_BRIEF.handle_private(str(g_msg.get("text") or ""))
+        if reply:
+            _telegram_send_to(owner_chat,reply)
+            return {"ok":True,"action":"morning_brief"}
         reply=GROUP_BRIDGE.handle_private(str(g_msg.get("text") or ""))
         if reply:
             _telegram_send_to(owner_chat,reply)
@@ -7419,6 +7425,7 @@ async def start_factory_cycle_reconciler():
         asyncio.create_task(github_issue_intake_loop())
     if FACTORY_PUBLISHER_SCHEDULER_ENABLED:
         asyncio.create_task(publisher_scheduler_loop())
+    asyncio.create_task(morning_brief_loop())
     asyncio.create_task(run_real_world_pilot_once())
     asyncio.create_task(run_media_finisher_pilot_once())
 
@@ -9112,6 +9119,26 @@ def relay_pr_reconcile_once():
     if notices:
         print(json.dumps({"event":"RELAY_PR_RECONCILE","notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
     return {"ok":True,"snapshot":snapshot_state,"notices":len(notices)}
+
+def _morning_brief_compose(date,now):
+    ec2,_state=_intake_issues_from_ec2_snapshot()
+    return compose_brief(date,now,github=ec2["github"] if ec2 else None,tickets=RELAY_STORE.list(limit=500),
+                         questions_open=int(OWNER_QUESTIONS.queue_stats().get("open") or 0))
+
+
+MORNING_BRIEF=MorningBrief(DATA_DIR,deliver=lambda date,text:BRIEF_DELIVER(date,text),send_text=_telegram_send,
+                           compose=_morning_brief_compose)
+
+
+async def morning_brief_loop():
+    """#106: owner opt-in (/brief on), 08:00 Europe/Kyiv, one brief per date; see morning_brief.py."""
+    await asyncio.sleep(30)
+    while True:
+        try:await asyncio.to_thread(MORNING_BRIEF.tick)
+        except Exception as exc:
+            print(json.dumps({"event":"MORNING_BRIEF_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
+
 
 async def github_issue_intake_loop():
     await asyncio.sleep(60)

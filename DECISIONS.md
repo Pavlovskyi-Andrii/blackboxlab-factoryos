@@ -853,3 +853,24 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - `/discuss` and replies to the bot use the existing owner-question queue: the same Claude subscription worker as `/ask`, with no new paid calls. The answer goes back to the group labelled `[Claude] D-xxxx`, and not to the private chat.
 - ChatGPT and Gemini are shown as unavailable until each has a real Relay runner. They are never imitated.
 - `/stop` means later answers are dropped, not posted. `/decision` records only after the owner taps ✅. Decisions are versioned in the bridge's own store, and no rules or prod files are edited.
+
+## #106 Morning brief at 08:00 Kyiv (2026-11-09)
+- Runs on the server (Render), not on the EC2 worker: the voice (owner's Gemini key), the paired chat and the data already live there, and a long worker task cannot delay it. `morning_brief_loop` ticks once a minute.
+- Owner opt-in, off by default: `/brief on|off` in the paired private chat (any other chat is ignored). `/brief test` sends the composed text only, no Gemini call — the "harmless test first" step of #106.
+- Content is FactoryOS facts only: PRs merged in the last 24 h (titles without issue/task numbers or priority codes, per the MyCast feedback), open PRs and red CI from the fresh EC2 snapshot, active Relay tickets and how many wait for the owner, open questions. A missing/stale snapshot is said as "GitHub status unknown", never guessed. AI/world news stays in the MyCast episode (06:00); the ChatGPT automation's text cannot be pulled (no export path), so it is not imitated.
+- One brief per Kyiv date through the same once-per-date delivery log as the worker route (`make_brief_sender`, shared). First try 08:00 (zoneinfo, DST-safe), up to 3 tries 20 min apart, none at or after 11:00, so a restart later in the day sends nothing stale. After the 3rd failure the owner gets the text plus one explicit "voice not delivered (category)" note. Cost: one Gemini TTS call per day on the existing free-tier key; no new paid provider.
+
+## #241 Relay owner-notice dedupe (2026-11-09)
+- `test_relay_notify_dedupe.py`: six scenarios through the real Relay routes with a fake notifier and a persistent temp store, a fresh store/queue/app per "process" so restarts are real: worker event retried after a restart (event_id), repeated Run on queued/running work, a late event after `done`, an event from a superseded run, a redelivered Telegram update, PR CI/merge transitions re-read after a restart.
+- Two real duplicates found and fixed minimally in `relay.py`: (1) `POST /api/relay/{id}/run` told the owner "передано Claude" on every call, even when the ticket was already queued or running; now only when the call really requeues (new or stale → owner Retry). (2) A Telegram update redelivered with the same `update_id` (our first 200 was lost) got a second "Тикет уже существует" reply; now it is recognised as a replay and answered once. Owner-only filtering is unchanged.
+
+## #240 MVP Factory state-machine contract tests (2026-11-09)
+- No new state-machine module: `mvp_factory.NEXT` already is the transition table, so `test_mvp_state_machine.py` (21 tests) asserts against it and against the real Builder gates (request validate, preflight, manifest, projection). Issue phases map to registry stages (idea → researching/spec_draft/spec_review → build_queued → building/qa_review → preview_ready/owner_review → validated|rejected).
+- Publishing is not a transition (no `publish` kind; `approval.publish` stays False after `validated`). Owner rejection is terminal; the spec has no "back to spec" edge, so none is invented.
+- Known gap, recorded not patched: `MvpRegistry.record("advance")` does not call the Builder gates itself; the tests compose gate → advance in a `DemoPipeline` helper. Wiring that into production is M2 of #186.
+- Every record the tests write is DEMO-marked; pilots #187–#189 are asserted unchanged after every test.
+
+## #242 Team Tasks truthfulness regression (2026-11-09)
+- `test_team_truthfulness.py` (22 tests): stale/future/malformed snapshot, GitHub 403 vs a real empty read, partial CI, heartbeat without a claimed task, stale queued tasks, provenance timestamps and the fixed progress set. Render deploy SHA vs main is not compared anywhere in code, so that case is a documented skip, not an invented adapter.
+- Fix in `team_tasks.py`: CI is `unknown`, not `passed`, when a check run is `stale`, when the check-runs body is unexpected (was `none`), or when `total_count` exceeds the runs read (a red run may sit on the next page). Relay's PR reconcile only acts on passed/failed, so it can no longer announce "CI passed" on partial evidence.
+- Left open (recorded): a corrupted snapshot file can still make the board return 500; board TTL (3600 s) differs from intake (900 s); the page tiles show 0 next to the "GitHub unavailable" banner (the API keeps unknown and empty apart).
