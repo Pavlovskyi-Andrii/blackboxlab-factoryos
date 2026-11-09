@@ -37,6 +37,23 @@
 3. The HTTP middleware does not run for the WebSocket `/ws`; that route checks the staff cookie itself (app.py:12068).
 4. If `FACTORY_PASSWORD` is empty, `request_identity` returns owner for every request (app.py:316–318) — see D-6.
 
+## Fix status (updated 2026-11-09)
+
+| ID | Status | How |
+|---|---|---|
+| A-1 | **Fixed** | Without a session, `/health` returns only `ok`, `service` and `version`. Pilot and spend details need a signed-in session (`health_details()`). |
+| B-1 | **Fixed** | `GET /api/factory-cycles/{id}` only reads (`get_factory_cycle`). Sync and learning stay on the POST routes. |
+| B-2 | **Fixed** | Only the owner's request may archive media. Viewers and members only read. |
+| C-1 | **Fixed** | Middleware: POSTs under `/api/claude-worker/`, `/api/operator-worker/` and `/api/local-booster/` need the worker's own token. A session gets 401. The owner dashboard's local-booster GETs are unchanged. |
+| C-2 | **Fixed** | `/api/media-jobs/{id}/callback` gets past the middleware when `FACTORY_VIDEO_CALLBACK_TOKEN` is set, and the route checks the token. Unset means closed. |
+| C-3 | **Fixed** | In #293: `Request` moved to module-level imports. |
+| C-4 | **Fixed, owner action** | `FACTORY_TELEGRAM_BRIDGE_TOKEN`, once set on Render, replaces the MCP token for the bridge. Until then the old behaviour stays, so nothing breaks. |
+| C-7 | **Fixed** | MyCast public prefixes now end with `/`, and the exact paths are listed separately. |
+| D-2 | **Fixed (MCP tools/call, artifact media)** | Only validation messages are returned. Other errors return the exception type only. |
+| C-5, C-6, D-1, D-3–D-8 | Open | Low impact or needs a product decision. See the details below. |
+
+Regression tests: `test_route_auth_fixes.py`, which runs through the real ASGI app with middleware.
+
 ## Summary of findings
 
 | ID | Pri | Route | Location | One line |

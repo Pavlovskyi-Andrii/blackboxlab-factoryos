@@ -24,7 +24,7 @@ def route_exists(path, method):
     method=method.upper()
     return any(getattr(route,"path",None)==path and method in set(getattr(route,"methods",set()) or set()) for route in app.app.routes)
 
-health=app.health()
+health=app.health_details()  # #114 A-1: the public /health only says ok; details need a session
 require(health["ok"] is True,"health must be ok")
 require(health["version"]==app.APP_VERSION=="v5.7.1","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")

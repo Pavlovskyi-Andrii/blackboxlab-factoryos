@@ -533,13 +533,16 @@ def _telegram_webhook_authorized(request: Request) -> bool:
 
 
 def _telegram_bridge_authorized(request: Request) -> bool:
-    if not FACTORY_MCP_TOKEN:
+    """#114 C-4: once FACTORY_TELEGRAM_BRIDGE_TOKEN is set, only it opens the bridge (the MCP connector token, which
+    the public /mcp also accepts in a URL, no longer reads the owner's inbox). Unset: the old MCP-token behaviour."""
+    token=os.environ.get("FACTORY_TELEGRAM_BRIDGE_TOKEN","").strip() or FACTORY_MCP_TOKEN
+    if not token:
         return False
     auth=(request.headers.get("authorization") or "").strip()
     if not auth.lower().startswith("bearer "):
         return False
     supplied=auth.split(" ",1)[1].strip()
-    return bool(supplied and hmac.compare_digest(supplied,FACTORY_MCP_TOKEN))
+    return bool(supplied and hmac.compare_digest(supplied,token))
 
 
 def _telegram_load_state() -> dict:
@@ -765,9 +768,13 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast"}
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
+    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast",
+                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices"}
+    # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
+    # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
+    media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
     claude_worker_api=request.url.path.startswith("/api/claude-worker/") and _claude_worker_authorized(request)
     operator_worker_api=request.url.path.startswith("/api/operator-worker/") and _operator_worker_authorized(request)
@@ -775,7 +782,11 @@ async def auth_middleware(request: Request, call_next):
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
     owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/")) and _claude_worker_authorized(request)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
+    if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
+            and not (claude_worker_api or operator_worker_api or local_booster_api)):
+        return JSONResponse({"detail":"worker token required"},status_code=401)
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
@@ -1269,7 +1280,9 @@ async def factory_mcp(request: Request):
                 return JSONResponse({"jsonrpc":"2.0","id":req_id,"error":{"code":-32601,"message":"Unknown tool"}},status_code=404)
             return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":result})
         except Exception as exc:
-            return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,"content":[{"type":"text","text":str(exc)}]}})
+            # #114 D-2: validation messages are meant for the caller; anything else is reported by type only.
+            text=str(getattr(exc,"detail",None) or exc)[:300] if isinstance(exc,(ValueError,HTTPException)) else "internal error ("+type(exc).__name__+")"
+            return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,"content":[{"type":"text","text":text}]}})
     return JSONResponse({"jsonrpc":"2.0","id":req_id,"error":{"code":-32601,"message":"Method not found"}},status_code=404)
 
 @app.get("/mcp")
@@ -1281,7 +1294,13 @@ def factory_mcp_info(request: Request):
     return {"enabled":True,"server":"Blackbox Lab FactoryOS","version":APP_VERSION,"tools":[x["name"] for x in FACTORY_MCP_TOOLS]}
 
 @app.get("/health")
-def health():
+def health(request: Request):
+    """#114 A-1: anyone (Render's health check) gets liveness only; pilot/spend details need a signed-in session."""
+    if not request_identity(request):
+        return {"ok": True, "service": "factoryos", "version": APP_VERSION}
+    return health_details()
+
+def health_details():
     verification=get_paid_verification()
     return {
         "ok": True,
@@ -5012,18 +5031,20 @@ def _artifact_archive_file(artifact):
     return path,archive_meta
 
 @app.get("/api/artifacts/{artifact_id}/media",name="artifact_media")
-def artifact_media(artifact_id:str,download:bool=False):
+def artifact_media(artifact_id:str,request:Request=None,download:bool=False):
     artifact=_artifact_media_row(artifact_id)
     if not artifact:raise HTTPException(404,"Artifact not found")
     path,archive_meta=_artifact_archive_file(artifact)
-    if not path and artifact.get("kind")=="video" and _is_ephemeral_finisher_url(artifact.get("url")):
+    # #114 B-2: only the owner's request may download and rewrite the artifact; viewers and members only read.
+    may_archive=request is None or (request_identity(request) or {}).get("role")=="owner"
+    if may_archive and not path and artifact.get("kind")=="video" and _is_ephemeral_finisher_url(artifact.get("url")):
         try:
             _archive_media_artifact(artifact_id)
             artifact=_artifact_media_row(artifact_id) or artifact
             path,archive_meta=_artifact_archive_file(artifact)
         except Exception as exc:
             if not str(artifact.get("url") or ""):
-                raise HTTPException(410,f"Media is no longer available: {str(exc)[:220]}")
+                raise HTTPException(410,"Media is no longer available ("+type(exc).__name__+")")  # #114 D-2
     if path and archive_meta:
         response=FileResponse(path,media_type=archive_meta.get("content_type") or artifact.get("mime_type") or "application/octet-stream",
                               filename=archive_meta.get("filename") or path.name,
@@ -9324,7 +9345,8 @@ def factory_cycles(limit:int=80):
 
 @app.get("/api/factory-cycles/{cycle_id}")
 def factory_cycle_detail(cycle_id:str):
-    cycle=sync_factory_cycle(cycle_id,True)
+    # #114 B-1: a GET (viewers included) only reads; reconciliation and learning run through POST /sync and /learn.
+    cycle=get_factory_cycle(cycle_id,True)
     if not cycle:raise HTTPException(404,"Factory cycle not found")
     return cycle
 
