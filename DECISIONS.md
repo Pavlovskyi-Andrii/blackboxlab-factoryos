@@ -846,3 +846,10 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - The owner gets the text back to check. The Relay ticket gets the transcript instead of an empty "Голосовое сообщение".
 - Limits: 30 new transcriptions per UTC day (`FACTORY_VOICE_TRANSCRIBE_DAILY_CAP`), and files up to 4 MB (about 3 minutes). A repeat of the same Telegram file comes from a cache and costs nothing.
 - When transcription fails, the owner gets the reason in plain words and the old behaviour stays: a ticket with the attachment only. Provider text and keys never reach the chat or the logs.
+
+## FactoryOS Team Telegram group (#129), 2026-11-09
+- The owner created the group "FactoryOS Team" and added the existing bot. The bot keeps privacy mode, so it sees only commands and replies to its own messages. That is enough for this bridge.
+- Pairing: `/group` in the bot's private chat gives a one-time code valid for 10 minutes. `/pair_group CODE` in the group binds that group's chat id. Only the paired owner's Telegram id (the owner's private chat id) can pair, discuss, stop or record decisions. Other members and unbound groups are ignored. `/group off` unbinds the group.
+- `/discuss` and replies to the bot use the existing owner-question queue: the same Claude subscription worker as `/ask`, with no new paid calls. The answer goes back to the group labelled `[Claude] D-xxxx`, and not to the private chat.
+- ChatGPT and Gemini are shown as unavailable until each has a real Relay runner. They are never imitated.
+- `/stop` means later answers are dropped, not posted. `/decision` records only after the owner taps ✅. Decisions are versioned in the bridge's own store, and no rules or prod files are edited.

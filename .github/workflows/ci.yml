@@ -199,6 +199,8 @@ jobs:
           python test_voice_transcribe.py
           python -m py_compile test_route_auth_fixes.py
           python test_route_auth_fixes.py
+          python -m py_compile telegram_group.py test_telegram_group.py
+          python test_telegram_group.py
       - name: MVP Factory registry (#186)
         run: |
           python -m py_compile mvp_factory.py test_mvp_factory.py

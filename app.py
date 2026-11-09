@@ -26,6 +26,7 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues, relay_github_owner_issues, _telegram_attachment
 from voice_transcribe import VoiceTranscriber
+from telegram_group import GroupBridge, GROUP_TYPES as TELEGRAM_GROUP_TYPES
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from operator_lanes import build_operator_lanes
@@ -593,6 +594,16 @@ def _telegram_api(method: str, payload: Optional[dict]=None) -> dict:
     return result
 
 
+def _telegram_send_markup(chat_id: str, text: str, reply_markup: Optional[dict]=None):
+    """#129: send to any chat the bridge already authorised (the paired group); never raises."""
+    try:
+        payload={"chat_id":str(chat_id),"text":str(text)[:4000]}
+        if reply_markup:payload["reply_markup"]=reply_markup
+        _telegram_api("sendMessage",payload)
+        return True
+    except Exception:
+        return False
+
 def _telegram_send_to(chat_id: str, text: str) -> bool:
     target=str(chat_id or "").strip()
     if not target or not FACTORY_TELEGRAM_BOT_TOKEN:
@@ -642,6 +653,7 @@ async def sync_telegram_relay_webhook():
             {"command":"roadmap","description":"Roadmap и открытые задачи"},
             {"command":"new","description":"Создать новую задачу"},
             {"command":"ask","description":"Вопрос Claude: /ask текст"},
+            {"command":"group","description":"Привязать группу FactoryOS Team"},
             {"command":"work","description":"Перевести тикет в работу"},
             {"command":"need","description":"Нужно действие от меня"},
             {"command":"done","description":"Закрыть тикет"},
@@ -696,6 +708,7 @@ def _mycast_send_audio(audio, filename, title, caption):
                         filename=filename, title=title, caption=caption)
 
 MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
+GROUP_BRIDGE = GroupBridge(DATA_DIR, ask=lambda text, source_key="", meta=None: OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",text,source_key=source_key,meta=meta))
 VOICE_TRANSCRIBER = VoiceTranscriber(DATA_DIR, api_key=lambda: FACTORY_GEMINI_API_KEY, bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN)
 VOICE_REASONS = {"not_configured":"ключ Gemini не задан","daily_limit":"дневной лимит 30 голосовых исчерпан","too_long":"слишком длинное, больше ~3 минут","rate_limited":"Gemini перегружен, попробуй позже","invalid_key":"ключ Gemini не принят","telegram_file_unavailable":"Telegram не отдал файл","empty_transcript":"пустой результат","model_not_found":"модель Gemini недоступна"}
 VOICE_SETTINGS = VoiceSettingsStore(DATA_DIR)
@@ -763,7 +776,8 @@ install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidenc
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
                           redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
-                          notify_owner=_telegram_send)
+                          notify_owner=_telegram_send,
+                          route_answer=lambda item: GROUP_BRIDGE.deliver_answer(item,_telegram_send_markup))
 
 
 @app.middleware("http")
@@ -989,6 +1003,22 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
+    # #129 FactoryOS Team group: pairing (/group in the private chat), group commands and decision buttons.
+    owner_chat=str(_telegram_load_state().get("chat_id") or "")
+    g_msg=update.get("message") if isinstance(update.get("message"),dict) else {}
+    g_chat=g_msg.get("chat") if isinstance(g_msg.get("chat"),dict) else {}
+    g_cb=update.get("callback_query") if isinstance(update.get("callback_query"),dict) else {}
+    if g_chat.get("type") in TELEGRAM_GROUP_TYPES or str(g_cb.get("data") or "").startswith("grp:"):
+        result=GROUP_BRIDGE.handle_group(update,owner_chat,_telegram_send_markup)
+        if g_cb.get("id"):
+            try:_telegram_api("answerCallbackQuery",{"callback_query_id":g_cb["id"]})
+            except Exception:pass
+        return {"ok":True,**result}
+    if g_chat.get("type")=="private" and owner_chat and str(g_chat.get("id") or "")==owner_chat:
+        reply=GROUP_BRIDGE.handle_private(str(g_msg.get("text") or ""))
+        if reply:
+            _telegram_send_to(owner_chat,reply)
+            return {"ok":True,"action":"group_pairing"}
     # #133: Telegram owner -> existing Claude subscription worker question queue.
     # This precedes the Relay command fallback (which would otherwise treat /ask as unknown).
     ask_msg=update.get("message") if isinstance(update.get("message"),dict) else {}
