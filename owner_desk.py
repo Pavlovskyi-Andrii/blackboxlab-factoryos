@@ -442,7 +442,8 @@ class QuestionStore:
         stale = [q.get("task_id") for q, age in zip(open_items, ages) if age > STALE_QUESTION_SECONDS]
         return {"open": len(open_items), "oldest_seconds": oldest, "stale_tasks": stale}
 
-    def create(self, task_id: str, step_id: str, quote: str, question: str, source_key: str = "") -> dict[str, Any]:
+    def create(self, task_id: str, step_id: str, quote: str, question: str, source_key: str = "",
+               meta: Optional[dict] = None) -> dict[str, Any]:
         if task_id not in RUNBOOK_BY_ID and task_id not in (SELFTEST_TASK, TELEGRAM_TASK):
             raise ValueError("unknown task")
         quote, question = _clean(quote, QUOTE_MAX), _clean(question, QUESTION_MAX)
@@ -465,6 +466,8 @@ class QuestionStore:
                     "question": question, "status": "pending", "created_at": _now_iso(), "answer": ""}
             if source_key:
                 item["source_key"] = _clean(source_key, 120)
+            if meta and isinstance(meta, dict):  # #129: where the answer goes back (a Telegram group thread id)
+                item["meta"] = {str(k)[:40]: _clean(str(v), 80) for k, v in list(meta.items())[:5]}
             items.append(item)
             self._save(items)
         return item
@@ -524,7 +527,8 @@ def install_owner_desk_routes(app, store: QuestionStore, identity_fn: Callable[[
                               authorize_worker: Callable[[Request], bool],
                               status_fn: Callable[[], dict[str, dict[str, str]]],
                               redact_fn: Callable[[str], str] = lambda s: s,
-                              notify_owner: Optional[Callable[[str], Any]] = None) -> None:
+                              notify_owner: Optional[Callable[[str], Any]] = None,
+                              route_answer: Optional[Callable[[dict], bool]] = None) -> None:
     def require_owner(request: Request) -> None:
         if (identity_fn(request) or {}).get("role") != "owner":
             raise HTTPException(403, "Owner access required")
@@ -583,6 +587,12 @@ def install_owner_desk_routes(app, store: QuestionStore, identity_fn: Callable[[
             raise HTTPException(400, str(exc))
         except LookupError as exc:
             raise HTTPException(409, str(exc))
+        if route_answer and item.get("status") == "answered":
+            try:
+                if route_answer(item):  # #129: a group-thread answer is posted to the group, not the private chat
+                    return {"ok": True, "status": item.get("status")}
+            except Exception:
+                pass
         if notify_owner and item.get("status") == "answered":
             try:
                 if item.get("task_id") == TELEGRAM_TASK:
