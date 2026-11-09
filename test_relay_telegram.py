@@ -170,6 +170,7 @@ class TestRelayTelegram(unittest.TestCase):
             "/new", "/work", "/done", "/need", "/inbox",
             "/ask",  # #133: handled by the app webhook (owner question queue) before the Relay handler
             "/group",  # #129: handled by the app webhook (group pairing) before the Relay handler
+            "/brief",  # #106: handled by the app webhook (morning brief opt-in) before the Relay handler
         }
         for lang in ("ru", "uk", "en"):
             text = _help_text(lang)

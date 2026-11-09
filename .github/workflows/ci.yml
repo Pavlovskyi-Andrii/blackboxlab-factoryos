@@ -201,6 +201,8 @@ jobs:
           python test_route_auth_fixes.py
           python -m py_compile telegram_group.py test_telegram_group.py
           python test_telegram_group.py
+          python -m py_compile morning_brief.py test_morning_brief.py
+          python test_morning_brief.py
       - name: MVP Factory registry (#186)
         run: |
           python -m py_compile mvp_factory.py test_mvp_factory.py
