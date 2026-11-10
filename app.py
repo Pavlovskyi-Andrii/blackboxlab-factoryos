@@ -56,6 +56,8 @@ APP_VERSION = "v5.7.1"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
+# Evidence Protocol: a separate read-only token, so verification never needs (or enables) the Builder's write token.
+GITHUB_READ_TOKEN = os.environ.get("FACTORY_GITHUB_READ_TOKEN", "").strip()
 # T-599-E: owner Issue auto-intake; never polls more often than every 5 minutes.
 FACTORY_GITHUB_ISSUE_INTAKE_ENABLED = os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE", "1").strip().lower() not in ("0","false","no","off")
 FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC = max(300, int(os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC", "300") or 300))
@@ -11387,7 +11389,7 @@ def get_delegation_board():
                   "human_publish_approval_required":True},
     }
     board["operator_lanes"]=get_delegation_operator_lanes(board["worker"],results,queue)
-    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
+    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,GITHUB_READ_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
                                FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,
                                FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,
                                FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8]
@@ -11468,7 +11470,7 @@ def factory_lane_board(request: Request):
 
 def _board_secret_values():
     return sorted([s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,
-                               GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,
+                               GITHUB_TOKEN,GITHUB_READ_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,
                                FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,
                                FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8],key=len,reverse=True)
 
@@ -11519,6 +11521,31 @@ def _owner_decision_cards(roadmap):
             if r["id"] not in known and (status.get(r["id"]) or {}).get("state")=="todo"]
 
 _TEAM_TASKS_CACHE=TeamTasksCache()
+
+def github_read_check(fetch=None):
+    """Evidence Protocol: can the read-only token read what verification needs? Codes only, never the token."""
+    if fetch is None:
+        if not GITHUB_READ_TOKEN:
+            return {"configured":False,"reads":{}}
+        fetch=github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN)
+    reads={}
+    for name,path in (("issues","/issues?per_page=1"),("pulls","/pulls?state=all&per_page=1"),
+                      ("checks","/commits/main/check-runs?per_page=1"),("statuses","/commits/main/status")):
+        try:
+            data=fetch(path)
+            reads[name]="ok" if isinstance(data,(list,dict)) else "unexpected"
+        except Exception as exc:
+            code=getattr(exc,"code",None)
+            reads[name]=f"http_{code}" if code else "unreachable"
+    return {"configured":True,"reads":reads,"all_ok":all(v=="ok" for v in reads.values())}
+
+
+@app.get("/api/factory/evidence/github-read-check")
+def evidence_github_read_check(request: Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+    return github_read_check()
+
 
 def get_team_tasks(refresh=False):
     """Owner tasks page: Issues/PRs/CI per executor + ROADMAP [HUMAN] tasks + lane heartbeats."""

@@ -12,6 +12,8 @@ import re
 import secrets
 from typing import Any
 
+import evidence as proof
+
 ACTIVE_STATES = {"claimed", "running", "checkpoint", "committed", "pushed"}
 FINAL_STATES = {"done", "blocked", "failed"}
 ALLOWED_EVENTS = ACTIVE_STATES | FINAL_STATES | {"heartbeat"}
@@ -466,7 +468,20 @@ class RelayQueue:
             "note": note, "from_status": before, "to_status": "blocked"
         })
 
-    def reconcile_pull_requests(self, pulls: list, ci: dict) -> list[dict]:
+    def _close_if_proven(self, item: dict, now: str) -> bool:
+        """Evidence T1.4: close a ticket whose worker finished once the required evidence is complete."""
+        if item.get("verification") is None or item.get("status") == "done" or not proof.satisfied(item):
+            return False
+        if str((item.get("execution") or {}).get("state") or "") in ACTIVE_STATES:
+            return False
+        before = item.get("status")
+        item["status"] = "done"
+        item.setdefault("history", []).append({"at": now, "actor": "evidence", "action": "verified", "from_status": before,
+                                               "to_status": "done", "note": "Required evidence complete: " +
+                                               ", ".join(item["verification"].get("required_checks") or [])})
+        return True
+
+    def reconcile_pull_requests(self, pulls: list, ci: dict, source: str = "github:ec2-snapshot") -> list[dict]:
         """#289 round trip, server side: follow each ticket's PR (the worker's pr_url evidence) on GitHub.
 
         Facts come only from the GitHub read passed in (the EC2 snapshot); a PR that is not in it stays unknown.
@@ -481,7 +496,10 @@ class RelayQueue:
             for item in state["tickets"]:
                 ex = item.get("execution") or {}
                 url = str(ex.get("pr_url") or "")
-                if not url or ex.get("pr_final"):
+                final = ex.get("pr_final")
+                # A merged PR still waiting for its evidence (e.g. CI read later) keeps being followed.
+                if not url or (final and (final != "merged" or item.get("status") == "done"
+                                          or item.get("verification") is None)):
                     continue
                 pr = by_url.get(url)
                 if pr is None:
@@ -493,24 +511,48 @@ class RelayQueue:
                                                            "evidence": {"pr_url": url}})
                     notices.append({"ticket": item["id"], "action": action, "text": text})
 
-                if pr.get("merged_at"):
+                ver = item.get("verification")
+                head = str((pr.get("head") or {}).get("sha") or "")
+                summary = (ci or {}).get(head) or {}
+                ci_state = summary.get("state") if isinstance(summary, dict) else None
+                touched = False
+                if ver is not None:
+                    # Evidence T1.3/T1.5: record only what this GitHub read shows, bound to the PR head commit.
+                    touched |= proof.set_head(ver, head)
+                    if ci_state in ("passed", "failed"):
+                        touched |= proof.record_check(ver, "ci_passed", "pass" if ci_state == "passed" else "fail",
+                                                         source=source, sha=head, detail=str(summary.get("failed") or ""))
+                if pr.get("merged_at") and final == "merged":
+                    if self._close_if_proven(item, now):
+                        record("verified", "Evidence complete after merge", f"✅ Relay {item['id']}: доказательства "
+                               f"собраны (CI на смерженном коммите) — тикет закрыт.\n{url}")
+                    elif not touched:
+                        continue
+                elif pr.get("merged_at"):
                     ex.update(pr_final="merged", merged_at=str(pr.get("merged_at"))[:40])
+                    if ver is not None:
+                        proof.record_check(ver, "pr_merged", "pass", source=source, sha=head)
+                    closed = self._close_if_proven(item, now)
                     record("merged", "PR merged into main (GitHub)", f"🔀 Relay {item['id']}: PR смержен в main\n{url}\n"
-                           "Деплой на Render — после зелёных проверок main.")
+                           + ("✅ Доказательства собраны — тикет закрыт.\n" if closed else
+                              "" if ver is None else
+                              "⚠️ CI на смерженном коммите не подтверждён — тикет не закрыт. "
+                              f"Закрыть вручную: /done {item['id']} причина\n")
+                           + "Деплой на Render — после зелёных проверок main.")
                 elif str(pr.get("state") or "") == "closed":
                     ex.update(pr_final="closed")
+                    if ver is not None:
+                        proof.record_check(ver, "pr_merged", "fail", source=source, sha=head, detail="closed_unmerged")
                     record("pr_closed", "PR closed without merge (GitHub)", f"🚫 Relay {item['id']}: PR закрыт без мержа\n{url}")
                 else:
-                    summary = (ci or {}).get(str((pr.get("head") or {}).get("sha") or "")) or {}
-                    ci_state = summary.get("state") if isinstance(summary, dict) else None
-                    if ci_state in ("passed", "failed") and ci_state != ex.get("ci_state"):
-                        ex["ci_state"] = ci_state
+                    if ci_state in ("passed", "failed") and (ci_state != ex.get("ci_state") or head != ex.get("ci_sha")):
+                        ex["ci_state"], ex["ci_sha"] = ci_state, head
                         if ci_state == "passed":
                             record("ci", "CI passed (GitHub)", f"✅ Relay {item['id']}: CI зелёный — PR готов к ревью и мержу\n{url}")
                         else:
                             failed = str(summary.get("failed") or "")[:80]
                             record("ci", "CI failed: " + failed, f"❌ Relay {item['id']}: CI упал ({failed or 'check'})\n{url}")
-                    else:
+                    elif not touched:
                         continue
                 item["execution"] = ex
                 item["updated_at"] = now
@@ -586,7 +628,9 @@ class RelayQueue:
                 if stage in FINAL_STATES:
                     ex["finished_at"] = now
                 if stage in {"done"}:
-                    item["status"] = "done"
+                    # Evidence Protocol T1.4: the worker's "done" is a claim. The ticket closes only when the
+                    # required evidence is there (for code: merged PR + CI on that commit, set by the server).
+                    item["status"] = "done" if proof.satisfied({**item, "execution": ex}) else "in_progress"
                 elif stage in {"blocked", "failed"}:
                     item["status"] = "need_you"
                 elif stage in {"running", "checkpoint", "committed", "pushed"}:

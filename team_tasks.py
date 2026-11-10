@@ -92,7 +92,10 @@ def read_github(fetch: Callable[[str], object], max_ci: int = 20, owner: str = "
         if not isinstance(issues, list) or not isinstance(pulls, list):
             raise ValueError("unexpected GitHub response")
         ci = {}
-        for pr in [p for p in pulls if isinstance(p, dict) and p.get("state") == "open"][:max_ci]:
+        # Open PRs, then recently merged ones: Evidence T1.3 needs CI on the commit that was merged.
+        wanted = [p for p in pulls if isinstance(p, dict) and p.get("state") == "open"] + \
+                 [p for p in pulls if isinstance(p, dict) and p.get("state") == "closed" and p.get("merged_at")]
+        for pr in wanted[:max_ci]:
             sha = str((pr.get("head") or {}).get("sha") or "")
             if sha:
                 try:
