@@ -10,7 +10,7 @@ os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-evidence-")
 
 import evidence  # noqa: E402
 from relay import RelayStatusRequest, RelayStore, install_relay_routes, relay_handle_telegram_update  # noqa: E402
-from relay_execution import RelayQueue  # noqa: E402
+from relay_execution import RelayQueue, lifecycle_text  # noqa: E402
 
 URL = "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/pull/950"
 
@@ -358,6 +358,107 @@ class TrustedSourceTest(Base):
             out = factory.relay_pr_reconcile_once(fetch=fetch)
         self.assertEqual(out["source"], "github:ec2-snapshot")
         self.assertEqual(self.t()["status"], "in_progress")
+
+
+class Tier2Test(Base):
+    def close(self):
+        self.finish()
+        return self.queue.reconcile_pull_requests([{**merged(), "merge_commit_sha": "f" * 40}], {"abc123": {"state": "passed"}})
+
+    def test_t22_deploy_is_told_once_and_shown(self):
+        self.close()
+        asked = []
+        contains = lambda sha: asked.append(sha) or True
+        self.assertEqual(self.queue.reconcile_deploys("local", contains), [])                  # no real build sha
+        n = self.queue.reconcile_deploys("a" * 40, contains)
+        self.assertEqual([x["action"] for x in n], ["deployed"])
+        self.assertIn("работают на Render (сборка aaaaaaa)", n[0]["text"])
+        self.assertEqual(asked, ["f" * 40])
+        self.assertEqual(self.queue.reconcile_deploys("a" * 40, contains), [])                 # once
+        self.assertIn("🚀 на Render", evidence.summary_line(self.t()))
+        self.assertIn("✅ deployed", lifecycle_text(self.t()))
+
+    def test_t22_not_in_build_or_unknown_is_not_claimed(self):
+        self.close()
+        self.assertEqual(self.queue.reconcile_deploys("a" * 40, lambda sha: False), [])
+        self.assertEqual(self.queue.reconcile_deploys("a" * 40, lambda sha: None), [])
+        self.assertIn("deployed — не проверено", lifecycle_text(self.t()))
+        self.assertEqual([x["action"] for x in self.queue.reconcile_deploys("f" * 40, lambda sha: None)], ["deployed"])
+
+    def test_t23_closing_notice_offers_the_owner_buttons(self):
+        n = self.close()
+        self.assertEqual(n[0]["markup"]["inline_keyboard"][0][0]["callback_data"], f"relay:accept:{self.tid}:yes")
+
+    def tap(self, answer):
+        sent = []
+        api = lambda method, payload=None: sent.append((method, payload or {})) or {"ok": True}
+        upd = {"update_id": 77, "callback_query": {"id": "c", "data": f"relay:accept:{self.tid}:{answer}",
+                                                   "from": {"id": 42}, "message": {"chat": {"id": 42}}}}
+        return relay_handle_telegram_update(upd, self.store, lambda: {"chat_id": "42"}, api, queue=self.queue), sent
+
+    def test_t23_accept_and_send_back(self):
+        self.close()
+        out, _ = self.tap("yes")
+        self.assertEqual(out["action"], "owner_accepted")
+        self.assertEqual(evidence.level(self.t()), "accepted")
+        self.assertIn("👍 принято владельцем", evidence.summary_line(self.t()))
+        self.tap("yes")
+        self.assertEqual(sum(h["action"] == "owner_accepted" for h in self.t()["history"]), 1)   # replay: no change
+        out, sent = self.tap("no")
+        self.assertEqual((out["action"], self.t()["status"]), ("owner_rejected", "need_you"))
+        self.assertNotEqual(evidence.level(self.t()), "accepted")
+        self.assertIn("Retry", sent[-1][1]["text"])
+
+    def test_t23_foreign_chat_cannot_tap(self):
+        self.close()
+        api = lambda method, payload=None: {"ok": True}
+        upd = {"update_id": 78, "callback_query": {"id": "c", "data": f"relay:accept:{self.tid}:no",
+                                                   "from": {"id": 9}, "message": {"chat": {"id": 9}}}}
+        relay_handle_telegram_update(upd, self.store, lambda: {"chat_id": "42"}, api, queue=self.queue)
+        self.assertEqual(self.t()["status"], "done")
+
+    def test_t22_app_compares_the_merge_commit_with_the_running_build(self):
+        import app as factory
+        calls, sent = [], []
+
+        def fetch(path):
+            calls.append(path)
+            if path.startswith("/issues"):
+                return []
+            if path.startswith("/pulls"):
+                return [{**merged(), "merge_commit_sha": "f" * 40}]
+            if path.startswith("/compare/"):
+                return {"status": "ahead"}
+            return {"total_count": 1, "check_runs": [{"status": "completed", "conclusion": "success", "name": "ci"}]}
+        self.finish()
+        with patch.object(factory, "RELAY_QUEUE", self.queue), patch.object(factory, "BUILD_SHA", "a" * 40), \
+             patch.object(factory, "_telegram_send", side_effect=sent.append), \
+             patch.object(factory, "_telegram_load_state", return_value={}):
+            out = factory.relay_pr_reconcile_once(fetch=fetch)
+        self.assertEqual(out["notices"], 2)
+        self.assertIn("/compare/" + "f" * 40 + "..." + "a" * 40, calls)
+        self.assertTrue(any("работают на Render" in t for t in sent))
+
+    def test_t25_metrics(self):
+        import time
+        self.close()
+        other, _ = self.store.create("second")
+        run = self.queue.claim("w2")["execution"]["run_id"]
+        self.queue.event(other["id"], "w2", "running", "", {}, run_id=run, event_id=run + ":1")
+        self.queue.event(other["id"], "w2", "done", "", {}, run_id=run, event_id=run + ":2")
+        third, _ = self.store.create("third")
+        self.store.set_status(third["id"], "done", actor="owner", note="closed by hand")
+        m = evidence.metrics(self.store.list(), time.time())
+        self.assertEqual(m, {"verified": 1, "overridden": 1, "rejected": 0, "waiting": 1})
+        self.assertEqual(evidence.metrics(self.store.list(), time.time() + 30 * 86400)["verified"], 0)
+
+    def test_t25_brief_line(self):
+        from morning_brief import compose_brief
+        text = compose_brief("2026-11-11", 0, github=None, tickets=[], questions_open=0,
+                             evidence_metrics={"verified": 3, "overridden": 1, "rejected": 0, "waiting": 2})
+        self.assertIn("Докази за тиждень: підтверджено 3, закрито вручну 1", text)
+        self.assertIn("доказів ще немає: 2", text)
+        self.assertNotIn("Докази", compose_brief("2026-11-11", 0, github=None, tickets=[], questions_open=0))
 
 
 if __name__ == "__main__":

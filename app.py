@@ -42,6 +42,7 @@ from mycast import (DeliveryLog, check_mp3, gemini_tts_pcm, install_mycast_route
 from mycast_demo import DemoService, install_mycast_demo_routes
 from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
+import evidence as _evidence
 from morning_brief import MorningBrief, compose_brief
 from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_route, install_voice_history_routes,
                             install_voice_settings_routes)
@@ -9132,8 +9133,23 @@ def relay_pr_reconcile_once(fetch=None):
         github=ec2["github"]
     notices=RELAY_QUEUE.reconcile_pull_requests(github.get("pulls") or [],github.get("ci") if isinstance(github.get("ci"),dict) else {},
                                                 source=source)
+    if source=="github:render":
+        # Evidence T2.2: is a ticket's merge commit inside the build Render runs now? Only from our own read.
+        reader=fetch or github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN)
+
+        def contains(merge_sha):
+            try:
+                data=reader(f"/compare/{merge_sha}...{BUILD_SHA}")
+            except Exception:
+                return None
+            status=str((data or {}).get("status") or "") if isinstance(data,dict) else ""
+            return True if status in ("ahead","identical") else False if status in ("behind","diverged") else None
+        notices+=RELAY_QUEUE.reconcile_deploys(BUILD_SHA,contains)
+    owner_chat=str((_telegram_load_state() or {}).get("chat_id") or "")
     for n in notices:
-        try:_telegram_send(n["text"])
+        try:
+            if n.get("markup") and owner_chat:_telegram_send_markup(owner_chat,n["text"],n["markup"])
+            else:_telegram_send(n["text"])
         except Exception:pass
     if notices:
         print(json.dumps({"event":"RELAY_PR_RECONCILE","source":source,"notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
@@ -9141,8 +9157,10 @@ def relay_pr_reconcile_once(fetch=None):
 
 def _morning_brief_compose(date,now):
     ec2,_state=_intake_issues_from_ec2_snapshot()
-    return compose_brief(date,now,github=ec2["github"] if ec2 else None,tickets=RELAY_STORE.list(limit=500),
-                         questions_open=int(OWNER_QUESTIONS.queue_stats().get("open") or 0))
+    tickets=RELAY_STORE.list(limit=500)
+    return compose_brief(date,now,github=ec2["github"] if ec2 else None,tickets=tickets,
+                         questions_open=int(OWNER_QUESTIONS.queue_stats().get("open") or 0),
+                         evidence_metrics=_evidence.metrics(tickets,now))
 
 
 MORNING_BRIEF=MorningBrief(DATA_DIR,deliver=lambda date,text:BRIEF_DELIVER(date,text),send_text=_telegram_send,

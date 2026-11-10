@@ -249,6 +249,37 @@ class RelayStore:
                 return dict(item)
         raise KeyError(ticket_id)
 
+    def owner_verdict(self, ticket_id: str, accepted: bool, actor: str = "owner") -> dict:
+        """Evidence T2.3: the owner confirms a closed result (level accepted) or sends it back to need_you."""
+        ticket_id = str(ticket_id or "").strip().upper()
+        with self.lock:
+            state = self._load_unlocked()
+            for item in state["tickets"]:
+                if str(item.get("id") or "").upper() != ticket_id:
+                    continue
+                ver = item.get("verification")
+                if ver is None:
+                    raise ValueError("no_verification")
+                now = _now()
+                if accepted:
+                    if ver.get("accepted"):
+                        return dict(item)                       # a replayed tap changes nothing
+                    ver["accepted"] = {"actor": actor[:80], "at": now}
+                    item.setdefault("history", []).append({"at": now, "actor": actor[:80], "action": "owner_accepted",
+                                                           "from_status": item.get("status"), "to_status": item.get("status"),
+                                                           "note": "Результат принят владельцем"})
+                else:
+                    before = item.get("status")
+                    ver["accepted"] = None
+                    item["status"] = "need_you"
+                    item.setdefault("history", []).append({"at": now, "actor": actor[:80], "action": "owner_rejected",
+                                                           "from_status": before, "to_status": "need_you",
+                                                           "note": "Владелец: результат не тот"})
+                item["updated_at"] = now
+                self._save_unlocked(state)
+                return dict(item)
+        raise KeyError(ticket_id)
+
     def add_note(self, ticket_id: str, text: str, actor: str = "owner", kind: str = "note") -> dict:
         ticket_id = str(ticket_id or "").strip().upper()
         note_text = str(text or "").strip()
@@ -1228,6 +1259,22 @@ def relay_handle_telegram_update(
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
             telegram_api("sendMessage", {"chat_id": chat_id, "text": _active_list_text(store), "reply_markup": _operator_keyboard()})
             return {"handled": True, "action": "list"}
+
+        verdict = re.fullmatch(r"relay:accept:(R-\d{4,8}):(yes|no)", data)
+        if verdict:
+            tid, answer = verdict.groups()
+            try:
+                ticket = store.owner_verdict(tid, answer == "yes", actor="telegram")
+            except (KeyError, ValueError):
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Тикет не найден"})
+                return {"handled": True}
+            telegram_api("answerCallbackQuery", {"callback_query_id": callback_id,
+                                                 "text": "👍 Принято" if answer == "yes" else "Вернул в «нужно от меня»"})
+            if answer == "no":
+                telegram_api("sendMessage", {"chat_id": chat_id, "text": (
+                    f"👎 {tid} вернул в «нужно от меня». Нажми ↻ Retry, чтобы исполнитель переделал, или опиши новую задачу: /new …"),
+                    "reply_markup": _ticket_keyboard(tid)})
+            return {"handled": True, "action": "owner_" + ("accepted" if answer == "yes" else "rejected"), "ticket_id": tid}
 
         assign = re.fullmatch(r"relay:assign:(R-\d{4,8}):(claude|chatgpt|gemini)", data)
         if assign:

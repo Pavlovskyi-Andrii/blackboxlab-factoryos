@@ -67,6 +67,9 @@ def lifecycle(ticket: dict) -> list[dict]:
                 row["detail"] = str(evidence["commit"])[:12]
             elif stage == "pushed":
                 row["detail"] = "branch " + str(evidence.get("branch") or ex.get("branch") or "?")
+            elif stage == "deployed":
+                row["source"] = "render"
+                row["detail"] = str(event.get("note") or "")[:120]
             elif stage in ("ci", "merged"):
                 row["source"] = "github"
                 row["detail"] = str(event.get("note") or "")[:120]
@@ -481,6 +484,43 @@ class RelayQueue:
                                                ", ".join(item["verification"].get("required_checks") or [])})
         return True
 
+    def reconcile_deploys(self, build_sha: str, contains, limit: int = 10) -> list[dict]:
+        """Evidence T2.2: is the merge commit of a ticket in the code Render is running now?
+
+        ``contains(merge_sha)`` answers True / False / None (unknown) from GitHub; build_sha is Render's
+        RENDER_GIT_COMMIT. Informational: "deployed" is recorded and told once, it is not a done requirement."""
+        build_sha = str(build_sha or "").lower()
+        if not SHA_RE.fullmatch(build_sha):
+            return []
+        notices = []
+        with self.store.lock:
+            state = self.store._load_unlocked()
+            changed = False
+            asked = 0
+            for item in state["tickets"]:
+                ex = item.get("execution") or {}
+                ver = item.get("verification")
+                merge = str(ex.get("merge_sha") or "")
+                if ver is None or not merge or ((ver.get("checks") or {}).get("deployed") or {}).get("result") == "pass":
+                    continue
+                if asked >= limit:
+                    break
+                asked += 1
+                ok = True if merge == build_sha else contains(merge)
+                if ok is not True:
+                    continue
+                proof.record_check(ver, "deployed", "pass", source="render:build", sha=build_sha)
+                now = utc_now()
+                item.setdefault("history", []).append({"at": now, "actor": "render", "action": "deployed",
+                                                       "note": "Merge commit is in the running build " + build_sha[:7],
+                                                       "evidence": {"commit": build_sha}})
+                notices.append({"ticket": item["id"], "action": "deployed",
+                                "text": f"🚀 Relay {item['id']}: изменения работают на Render (сборка {build_sha[:7]})"})
+                changed = True
+            if changed:
+                self.store._save_unlocked(state)
+        return notices
+
     def reconcile_pull_requests(self, pulls: list, ci: dict, source: str = "github:ec2-snapshot") -> list[dict]:
         """#289 round trip, server side: follow each ticket's PR (the worker's pr_url evidence) on GitHub.
 
@@ -509,7 +549,10 @@ class RelayQueue:
                 def record(action, note, text):
                     item.setdefault("history", []).append({"at": now, "actor": "github", "action": action, "note": note,
                                                            "evidence": {"pr_url": url}})
-                    notices.append({"ticket": item["id"], "action": action, "text": text})
+                    notice = {"ticket": item["id"], "action": action, "text": text}
+                    if item.get("status") == "done" and item.get("verification") is not None:
+                        notice["markup"] = proof.accept_buttons(item["id"])          # T2.3
+                    notices.append(notice)
 
                 ver = item.get("verification")
                 head = str((pr.get("head") or {}).get("sha") or "")
@@ -530,6 +573,9 @@ class RelayQueue:
                         continue
                 elif pr.get("merged_at"):
                     ex.update(pr_final="merged", merged_at=str(pr.get("merged_at"))[:40])
+                    merge_sha = str(pr.get("merge_commit_sha") or "")
+                    if SHA_RE.fullmatch(merge_sha):
+                        ex["merge_sha"] = merge_sha.lower()                         # T2.2: what must reach Render
                     if ver is not None:
                         proof.record_check(ver, "pr_merged", "pass", source=source, sha=head)
                     closed = self._close_if_proven(item, now)

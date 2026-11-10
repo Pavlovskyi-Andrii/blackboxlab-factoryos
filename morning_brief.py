@@ -42,7 +42,8 @@ def _ts(value) -> Optional[float]:
         return None
 
 
-def compose_brief(date: str, now: float, *, github: Optional[dict], tickets: list, questions_open: int) -> str:
+def compose_brief(date: str, now: float, *, github: Optional[dict], tickets: list, questions_open: int,
+                  evidence_metrics: Optional[dict] = None) -> str:
     lines = [f"Доброго ранку. Ранковий брифінг FactoryOS на {date}."]
     if github is None:
         lines.append("Дані GitHub зараз недоступні, тому статус PR невідомий.")
@@ -67,6 +68,11 @@ def compose_brief(date: str, now: float, *, github: Optional[dict], tickets: lis
         lines.append("У Relay активних задач немає.")
     if questions_open:
         lines.append(f"Відкритих питань до команди: {questions_open}.")
+    m = evidence_metrics or {}
+    if any(m.get(k) for k in ("verified", "overridden", "rejected", "waiting")):
+        # Evidence T2.5: what was proven, what the owner closed by hand, and "done" still waiting for proof.
+        lines.append(f"Докази за тиждень: підтверджено {m.get('verified', 0)}, закрито вручну {m.get('overridden', 0)}, "
+                     f"повернуто тобою {m.get('rejected', 0)}. Агент сказав «готово», але доказів ще немає: {m.get('waiting', 0)}.")
     lines.append("Новини світу AI — у випуску MyCast. Гарного дня.")
     return "\n".join(lines)[:1400]
 

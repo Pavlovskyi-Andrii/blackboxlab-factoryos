@@ -116,6 +116,38 @@ def override(ver: dict, actor: str, reason: str) -> None:
     ver["override"] = {"actor": str(actor or "owner")[:80], "reason": reason[:300], "at": _now()}
 
 
+def accept_buttons(ticket_id: str) -> dict:
+    """T2.3: after a ticket closes on evidence, the owner confirms the result (accepted) or sends it back."""
+    return {"inline_keyboard": [[{"text": "✅ Принял", "callback_data": f"relay:accept:{ticket_id}:yes"},
+                                 {"text": "👎 Не то", "callback_data": f"relay:accept:{ticket_id}:no"}]]}
+
+
+def _ts(value) -> float:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def metrics(tickets: list, now: float, days: int = 7) -> dict:
+    """T2.5 over the last ``days``: closed on evidence, closed by the owner without it, sent back by the owner,
+    and how many tickets an agent called done that are still waiting for proof (the "false done" queue)."""
+    since = now - days * 86400
+    out = {"verified": 0, "overridden": 0, "rejected": 0, "waiting": 0}
+    for t in tickets or []:
+        if not isinstance(t, dict) or not t.get("verification"):
+            continue
+        hist = t.get("history") or []
+        out["verified"] += sum(1 for h in hist if h.get("action") == "verified" and _ts(h.get("at")) >= since)
+        out["rejected"] += sum(1 for h in hist if h.get("action") == "owner_rejected" and _ts(h.get("at")) >= since)
+        ov = t["verification"].get("override") or {}
+        if ov and _ts(ov.get("at")) >= since:
+            out["overridden"] += 1
+        if (t.get("execution") or {}).get("state") == "done" and t.get("status") not in ("done", "archived"):
+            out["waiting"] += 1
+    return out
+
+
 def missing(ticket: dict) -> list[str]:
     ver = ticket.get("verification") or {}
     head = str(ver.get("head_sha") or "")
@@ -132,7 +164,7 @@ def missing(ticket: dict) -> list[str]:
     return out
 
 
-LABELS = {"pr_merged": "PR смержен", "ci_passed": "CI зелёный", "delivered_qc": "доставлено после QC",
+LABELS = {"pr_merged": "PR смержен", "ci_passed": "CI зелёный", "deployed": "на Render", "delivered_qc": "доставлено после QC",
           "message_sent": "сообщение отправлено"}
 
 
@@ -144,6 +176,10 @@ def summary_line(ticket: dict) -> str:
     lvl, need = level(ticket), str(ver.get("required_level") or "")
     if ver.get("override"):
         return f"🔎 Закрыто владельцем без доказательств: {ver['override']['reason']}"
+    deployed = (ver.get("checks") or {}).get("deployed") or {}
+    tail = " · 🚀 на Render" if deployed.get("result") == "pass" else ""
+    if ver.get("accepted"):
+        tail += " · 👍 принято владельцем"
     head = "✅" if RANK[lvl] >= RANK.get(need, 2) else "⏳"
     parts = []
     for name in ver.get("required_checks") or []:
@@ -153,7 +189,7 @@ def summary_line(ticket: dict) -> str:
         if c and mark == "✅" and not _trusted(c):
             mark = "☑️"                                   # seen, but only in the worker's own snapshot
         parts.append(f"{mark} {LABELS.get(name, name)}")
-    return f"🔎 Доказательства: {head} {lvl} (нужно {need})" + (" · " + " · ".join(parts) if parts else "")
+    return f"🔎 Доказательства: {head} {lvl} (нужно {need})" + (" · " + " · ".join(parts) if parts else "") + tail
 
 
 # ---- pure checkers: they read results that already exist and never start anything ----
