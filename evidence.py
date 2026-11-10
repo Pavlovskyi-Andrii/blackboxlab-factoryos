@@ -192,6 +192,35 @@ def summary_line(ticket: dict) -> str:
     return f"🔎 Доказательства: {head} {lvl} (нужно {need})" + (" · " + " · ".join(parts) if parts else "") + tail
 
 
+def overview(tickets: list, now: float, limit: int = 30) -> dict:
+    """T2.4 Agent Office panel: the latest tickets that carry a verification block, as plain facts."""
+    rows = []
+    for t in tickets or []:
+        ver = t.get("verification") if isinstance(t, dict) else None
+        if not ver:
+            continue
+        head = str(ver.get("head_sha") or "")
+        checks = []
+        for name in list(ver.get("required_checks") or []) + (["deployed"] if (ver.get("checks") or {}).get("deployed") else []):
+            c = (ver.get("checks") or {}).get(name) or {}
+            stale = bool(c) and bool(head) and name != "deployed" and c.get("sha") != head
+            checks.append({"name": name, "label": LABELS.get(name, name), "required": name != "deployed",
+                           "result": c.get("result") or "missing", "source": c.get("source") or "",
+                           "trusted": bool(c) and _trusted(c), "stale": stale, "sha": str(c.get("sha") or "")[:12],
+                           "observed_at": c.get("observed_at") or ""})
+        ex = t.get("execution") or {}
+        rows.append({"id": t.get("id"), "title": str(t.get("title") or "")[:140], "status": t.get("status"),
+                     "agent_state": ex.get("state") or "", "owner": ex.get("owner") or "",
+                     "level": level(t), "required_level": ver.get("required_level"), "satisfied": satisfied(t),
+                     "checks": checks, "missing": missing(t), "pr_url": ex.get("pr_url") or "",
+                     "override": ver.get("override"), "accepted": bool(ver.get("accepted")),
+                     "updated_at": t.get("updated_at") or ""})
+        if len(rows) >= limit:
+            break
+    return {"metrics": metrics(tickets, now), "tickets": rows,
+            "strict_sources": sorted(TRUSTED_SOURCES), "levels": list(LEVELS)}
+
+
 # ---- pure checkers: they read results that already exist and never start anything ----
 
 def check_mycast(history_entries: list, item_id: str) -> dict:

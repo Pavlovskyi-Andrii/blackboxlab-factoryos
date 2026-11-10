@@ -461,5 +461,50 @@ class Tier2Test(Base):
         self.assertNotIn("Докази", compose_brief("2026-11-11", 0, github=None, tickets=[], questions_open=0))
 
 
+class AgentOfficePanelTest(Base):
+    """T2.4: owner-only overview route + the Agent Office drawer (button, handlers, EN/UK/RU, hidden for viewers)."""
+
+    def test_overview_facts(self):
+        self.finish()
+        self.queue.reconcile_pull_requests([merged()], {"abc123": {"state": "passed"}})
+        other, _ = self.store.create("closed by hand")
+        self.store.set_status(other["id"], "done", actor="owner", note="answered in chat")
+        out = evidence.overview(self.store.list(), 2_000_000_000)
+        rows = {r["id"]: r for r in out["tickets"]}
+        self.assertEqual((rows[self.tid]["level"], rows[self.tid]["satisfied"]), ("checked", True))
+        self.assertEqual([c["name"] for c in rows[self.tid]["checks"]], ["pr_merged", "ci_passed"])
+        self.assertEqual(rows[other["id"]]["override"]["reason"], "answered in chat")
+        self.assertEqual(set(out["metrics"]), {"verified", "overridden", "rejected", "waiting"})
+
+    def test_route_is_owner_only(self):
+        import app as factory
+        from test_route_auth_fixes import AUTH_ON, call
+        with patch.object(factory, "FACTORY_PASSWORD", AUTH_ON), patch.object(factory, "RELAY_STORE", self.store):
+            self.assertEqual(call("GET", "/api/factory/evidence/overview")[0], 401)
+            viewer = factory._role_session_token("viewer", "guest")
+            self.assertEqual(call("GET", "/api/factory/evidence/overview", cookie=viewer)[0], 403)
+            status, body = call("GET", "/api/factory/evidence/overview", cookie=factory.session_token(factory.FACTORY_USER))
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data["tickets"][0]["id"], self.tid)
+        self.assertIn(data["source"], ("render", "ec2_snapshot"))
+
+    def test_dashboard_drawer(self):
+        import re
+        html = (Path(__file__).resolve().parent / "static" / "index.html").read_text(encoding="utf-8")
+        script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+        self.assertIn('id="evidenceOpenBtn" onclick="openEvidence()"', html)
+        for fn in ("openEvidence", "evidenceRefresh", "evidenceHtml"):
+            self.assertRegex(script, r"(async )?function " + fn + r"\(")
+        self.assertIn("const eb=$('#evidenceOpenBtn');if(eb)eb.style.display=readOnly?'none':'';", script)
+        keys = {k for k in re.findall(r"tr\('(evidence\.[A-Za-z0-9_.]+)'", script) if not k.endswith(".")} | {"evidence.open"}
+        keys |= {"evidence.level." + x for x in ("claimed", "linked", "checked", "accepted", "override")}
+        keys |= {"evidence.check." + x for x in evidence.RULES["code"]["checks"] + ["deployed"]}
+        for lang in ("en", "uk", "ru"):
+            line = next(l for l in script.split("\n") if l.startswith(f'Object.assign(I18N.{lang},{{"evidence.level.override"'))
+            table = json.loads(line[len(f"Object.assign(I18N.{lang},"):-2])
+            self.assertFalse(keys - set(table), f"{lang} missing {sorted(keys - set(table))}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
