@@ -63,6 +63,22 @@ def _ci_summary(runs: list) -> dict:
     return {"state": "passed", "failed": ""}
 
 
+def _actions_summary(runs: list) -> dict:
+    """Same labels as _ci_summary, from GitHub Actions workflow runs (fine-grained tokens cannot read check runs)."""
+    runs = [r for r in runs or [] if isinstance(r, dict)]
+    if not runs:
+        return {"state": "none", "failed": ""}
+    bad = [r for r in runs if r.get("status") == "completed"
+           and r.get("conclusion") in ("failure", "cancelled", "timed_out", "action_required", "startup_failure")]
+    if bad:
+        return {"state": "failed", "failed": str(bad[0].get("name") or "")[:80]}
+    if any(r.get("status") != "completed" for r in runs):
+        return {"state": "running", "failed": ""}
+    if any(r.get("conclusion") not in ("success", "skipped", "neutral") for r in runs):
+        return {"state": "unknown", "failed": ""}
+    return {"state": "passed", "failed": ""}
+
+
 def github_fetcher(repo: str, token: str) -> Callable[[str], object]:
     import urllib.request
 
@@ -95,11 +111,30 @@ def read_github(fetch: Callable[[str], object], max_ci: int = 20, owner: str = "
         # Open PRs, then recently merged ones: Evidence T1.3 needs CI on the commit that was merged.
         wanted = [p for p in pulls if isinstance(p, dict) and p.get("state") == "open"] + \
                  [p for p in pulls if isinstance(p, dict) and p.get("state") == "closed" and p.get("merged_at")]
+        via_actions = False
         for pr in wanted[:max_ci]:
             sha = str((pr.get("head") or {}).get("sha") or "")
             if sha:
                 try:
-                    data = fetch("/commits/" + sha + "/check-runs?per_page=50")
+                    if not via_actions:
+                        try:
+                            data = fetch("/commits/" + sha + "/check-runs?per_page=50")
+                        except Exception as exc:
+                            if getattr(exc, "code", None) not in (403, 404):
+                                raise
+                            via_actions = True      # fine-grained token: no Checks permission exists
+                    if via_actions:
+                        data = fetch("/actions/runs?head_sha=" + sha + "&per_page=50")
+                        runs = data.get("workflow_runs") if isinstance(data, dict) else None
+                        if not isinstance(runs, list):
+                            ci[sha] = {"state": "unknown", "failed": ""}
+                            continue
+                        summary = _actions_summary(runs)
+                        total = data.get("total_count")
+                        if summary["state"] in ("passed", "none") and isinstance(total, int) and total > len(runs):
+                            summary = {"state": "unknown", "failed": ""}
+                        ci[sha] = summary
+                        continue
                     runs = data.get("check_runs") if isinstance(data, dict) else None
                     if not isinstance(runs, list):  # #242: an unexpected body is unknown, not "no checks"
                         ci[sha] = {"state": "unknown", "failed": ""}

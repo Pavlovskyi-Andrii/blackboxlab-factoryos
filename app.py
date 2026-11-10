@@ -58,6 +58,10 @@ GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxl
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
 # Evidence Protocol: a separate read-only token, so verification never needs (or enables) the Builder's write token.
 GITHUB_READ_TOKEN = os.environ.get("FACTORY_GITHUB_READ_TOKEN", "").strip()
+if GITHUB_READ_TOKEN:
+    # Evidence Tier 2.1: only Render's own GitHub read counts as "checked" once the read-only token exists.
+    import evidence as _evidence
+    _evidence.set_trusted_sources({"github:render","delivery_log","telegram_api"})
 # T-599-E: owner Issue auto-intake; never polls more often than every 5 minutes.
 FACTORY_GITHUB_ISSUE_INTAKE_ENABLED = os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE", "1").strip().lower() not in ("0","false","no","off")
 FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC = max(300, int(os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC", "300") or 300))
@@ -9107,20 +9111,29 @@ def _safe_int(value):
     except (TypeError,ValueError):return 0
 
 
-def relay_pr_reconcile_once():
-    """#289 round trip: follow Relay tickets' PRs (CI passed/failed, merged, closed) from the fresh EC2 GitHub
-    snapshot and tell the owner once per transition. A stale or missing snapshot changes nothing (unknown stays unknown)."""
-    ec2,snapshot_state=_intake_issues_from_ec2_snapshot()
-    if ec2 is None:
-        return {"ok":False,"snapshot":snapshot_state,"notices":0}
-    github=ec2["github"]
-    notices=RELAY_QUEUE.reconcile_pull_requests(github.get("pulls") or [],github.get("ci") if isinstance(github.get("ci"),dict) else {})
+def relay_pr_reconcile_once(fetch=None):
+    """#289 round trip: follow Relay tickets' PRs (CI passed/failed, merged, closed) and tell the owner once per
+    transition. Evidence Tier 2.1: with FACTORY_GITHUB_READ_TOKEN the facts come from Render's own GitHub read
+    (source github:render, the only source that counts as checked); otherwise, or if that read fails, from the fresh
+    EC2 snapshot, which the worker itself uploads (source github:ec2-snapshot). Unknown stays unknown."""
+    github,source,snapshot_state=None,"github:ec2-snapshot",""
+    if GITHUB_READ_TOKEN or fetch is not None:
+        own=read_github(fetch or github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN))
+        if own.get("available"):
+            github,source,snapshot_state=own,"github:render","render"
+    if github is None:
+        ec2,snapshot_state=_intake_issues_from_ec2_snapshot()
+        if ec2 is None:
+            return {"ok":False,"snapshot":snapshot_state,"notices":0}
+        github=ec2["github"]
+    notices=RELAY_QUEUE.reconcile_pull_requests(github.get("pulls") or [],github.get("ci") if isinstance(github.get("ci"),dict) else {},
+                                                source=source)
     for n in notices:
         try:_telegram_send(n["text"])
         except Exception:pass
     if notices:
-        print(json.dumps({"event":"RELAY_PR_RECONCILE","notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
-    return {"ok":True,"snapshot":snapshot_state,"notices":len(notices)}
+        print(json.dumps({"event":"RELAY_PR_RECONCILE","source":source,"notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
+    return {"ok":True,"snapshot":snapshot_state,"source":source,"notices":len(notices)}
 
 def _morning_brief_compose(date,now):
     ec2,_state=_intake_issues_from_ec2_snapshot()
@@ -11530,14 +11543,17 @@ def github_read_check(fetch=None):
         fetch=github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN)
     reads={}
     for name,path in (("issues","/issues?per_page=1"),("pulls","/pulls?state=all&per_page=1"),
-                      ("checks","/commits/main/check-runs?per_page=1"),("statuses","/commits/main/status")):
+                      ("checks","/commits/main/check-runs?per_page=1"),("actions","/actions/runs?per_page=1")):
         try:
             data=fetch(path)
             reads[name]="ok" if isinstance(data,(list,dict)) else "unexpected"
         except Exception as exc:
             code=getattr(exc,"code",None)
             reads[name]=f"http_{code}" if code else "unreachable"
-    return {"configured":True,"reads":reads,"all_ok":all(v=="ok" for v in reads.values())}
+    # Fine-grained tokens have no Checks permission; CI is then read from Actions runs, which is enough.
+    ci_via="checks" if reads.get("checks")=="ok" else "actions" if reads.get("actions")=="ok" else ""
+    return {"configured":True,"reads":reads,"ci_via":ci_via,
+            "all_ok":reads.get("issues")=="ok" and reads.get("pulls")=="ok" and bool(ci_via)}
 
 
 @app.get("/api/factory/evidence/github-read-check")

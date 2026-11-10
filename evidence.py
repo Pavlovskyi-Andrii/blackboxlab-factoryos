@@ -31,6 +31,18 @@ RULES: dict[str, dict] = {
     "other": {"required_level": "linked", "checks": []},
 }
 CODE_LANES = ("claude", "gemini", "unassigned")
+# Tier 2.1: when set, only checks from these sources count towards "checked" (e.g. Render's own GitHub read).
+# Empty = Tier 1 behaviour (any server-recorded source counts). Set by the app from its configuration.
+TRUSTED_SOURCES: set = set()
+
+
+def set_trusted_sources(sources) -> None:
+    TRUSTED_SOURCES.clear()
+    TRUSTED_SOURCES.update(sources or ())
+
+
+def _trusted(check: dict) -> bool:
+    return not TRUSTED_SOURCES or str(check.get("source") or "") in TRUSTED_SOURCES
 OVERRIDE_MIN_CHARS = 3
 
 
@@ -63,7 +75,8 @@ def level(ticket: dict) -> str:
     required = ver.get("required_checks") or []
     checks = ver.get("checks") or {}
     current = [checks.get(name) for name in required]
-    if required and all(c and c.get("result") == "pass" and (not head or c.get("sha") == head) for c in current):
+    if required and all(c and c.get("result") == "pass" and (not head or c.get("sha") == head) and _trusted(c)
+                        for c in current):
         return "checked"
     if _links(execution):
         return "linked"
@@ -114,6 +127,8 @@ def missing(ticket: dict) -> list[str]:
             out.append(name)
         elif head and c.get("sha") != head:
             out.append(name + " (старый коммит)")
+        elif not _trusted(c):
+            out.append(name + " (только по данным воркера)")
     return out
 
 
@@ -135,6 +150,8 @@ def summary_line(ticket: dict) -> str:
         c = (ver.get("checks") or {}).get(name) or {}
         stale = c and ver.get("head_sha") and c.get("sha") != ver.get("head_sha")
         mark = "✅" if c.get("result") == "pass" and not stale else ("❌" if c.get("result") == "fail" and not stale else "·")
+        if c and mark == "✅" and not _trusted(c):
+            mark = "☑️"                                   # seen, but only in the worker's own snapshot
         parts.append(f"{mark} {LABELS.get(name, name)}")
     return f"🔎 Доказательства: {head} {lvl} (нужно {need})" + (" · " + " · ".join(parts) if parts else "")
 
