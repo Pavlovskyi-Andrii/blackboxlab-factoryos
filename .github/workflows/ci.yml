@@ -44,7 +44,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Compile Python
-        run: python -m py_compile app.py relay.py relay_execution.py relay_pairing.py test_relay_pairing.py test_relay_execution.py test_relay_telegram.py autopilot/relay_tasks.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py autopilot/autopilot.py autopilot/notify.py autopilot/claude_pro_worker.py autopilot/pair_worker.py autopilot/test_pair_worker.py autopilot/supervisor.py autopilot/test_supervisor.py test_worker_token_binding.py autopilot/delegation.py autopilot/test_autopilot.py autopilot/test_notify.py autopilot/test_delegation.py autopilot/control.py autopilot/test_control.py test_delegation_ui.py browser_runner/__init__.py browser_runner/core.py browser_runner/sessions.py browser_runner/playwright_executor.py browser_runner/observability.py test_browser_runner.py test_browser_sessions.py test_browser_playwright.py test_browser_observability.py
+        run: python -m py_compile app.py relay.py relay_execution.py relay_pairing.py test_relay_pairing.py test_relay_execution.py test_relay_telegram.py autopilot/relay_tasks.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py autopilot/autopilot.py autopilot/notify.py autopilot/claude_pro_worker.py autopilot/pair_worker.py autopilot/test_pair_worker.py autopilot/supervisor.py autopilot/test_supervisor.py test_worker_token_binding.py autopilot/delegation.py autopilot/test_autopilot.py autopilot/test_notify.py autopilot/test_delegation.py autopilot/control.py autopilot/test_control.py test_delegation_ui.py browser_runner/__init__.py browser_runner/core.py browser_runner/sessions.py browser_runner/playwright_executor.py browser_runner/observability.py browser_runner/vault.py test_browser_vault.py test_vault_ui.py test_browser_runner.py test_browser_sessions.py test_browser_playwright.py test_browser_observability.py
       - name: Install runtime dependencies
         run: python -m pip install -r requirements.txt
       - name: Dependency vulnerability audit (pip-audit)
@@ -157,6 +157,13 @@ jobs:
         run: python test_browser_sessions.py
       - name: Browser executor isolated fake-browser fixture
         run: python test_browser_playwright.py
+      - name: Encrypted vault (AES-256-GCM) regression (T-560-F)
+        run: python test_browser_vault.py
+      - name: Access vault owner routes + dashboard drawer (T-560-F)
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: python test_vault_ui.py
       - name: Browser Runner observability view/API/UI fixtures
         env:
           DATA_DIR: /tmp/factoryos-browser-obs-ci

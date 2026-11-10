@@ -257,6 +257,18 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: expose Browser Runner plans/results/checkpoints/artifacts in Worker Results and Trace Viewer so the owner can see what site/action ran, where it stopped and what factual evidence exists.
   DONE: deterministic UI/API fixtures render plan status, step progress, blocker/checkpoint, redacted action log and screenshot/artifact references without exposing credentials, cookies, tokens or fabricated receipts.
 
+- [x] T-560-F Encrypted vault backend + session restore
+  Owner: claude
+  Depends: T-560-B,T-560-C
+  Spec: docs/roadmap/T-560_BROWSER_ACTION_RUNNER.md, DECISIONS.md T-560-F
+  Goal: durable AES-256-GCM vault (key from FACTORY_VAULT_KEY, rotation via FACTORY_VAULT_KEY_PREVIOUS) for browser login fields, Playwright storage_state sessions and OAuth tokens; opt-in restore of a bound session in the Playwright executor without loosening the write/submit guard.
+  DONE: `python test_browser_vault.py` proves ciphertext-only files, scope binding (no cross-workspace decrypt, tamper/move rejected), human-only material refused, key rotation, session capture/replace/disconnect, restored state reaches the browser context but never results/artifacts, unbound refs block before launch, and the OAuth flow drops `vault_unavailable` when the key is set.
+
+- [ ] [HUMAN] T-560-G Configure FACTORY_VAULT_KEY
+  Depends: T-560-F
+  Need: owner generates a key (`python -c "from browser_runner.vault import generate_key; print(generate_key())"`) and stores it only in the Render secret environment (and the browser runner host), never in Git or chat.
+  DONE: owner-only `GET /api/factory/vault/status` reports `configured: true`.
+
 
 ## v5.1 — Viral Discovery Loop
 
