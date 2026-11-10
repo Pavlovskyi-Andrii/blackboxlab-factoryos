@@ -11715,6 +11715,16 @@ def evidence_github_read_check(request: Request):
     return github_read_check()
 
 
+@app.get("/api/factory/evidence/overview")
+def evidence_overview(request: Request):
+    """Evidence T2.4: the Agent Office panel. Owner only; facts from the Relay tickets, no secrets."""
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+    out=_evidence.overview(RELAY_STORE.list(limit=500),time.time())
+    out["source"]="render" if GITHUB_READ_TOKEN else "ec2_snapshot"
+    return out
+
+
 def get_team_tasks(refresh=False):
     """Owner tasks page: Issues/PRs/CI per executor + ROADMAP [HUMAN] tasks + lane heartbeats."""
     def read():

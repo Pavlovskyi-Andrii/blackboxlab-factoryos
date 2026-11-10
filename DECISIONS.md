@@ -915,3 +915,9 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - T2.3 owner buttons: the notice that closes a ticket on evidence carries "✅ Принял / 👎 Не то". Accept sets `verification.accepted` (level accepted, shown on the card; a replayed tap adds nothing). "Не то" moves the ticket to need_you with history `owner_rejected` and suggests Retry. Only the paired owner chat (existing callback guard).
 - T2.5 metrics (`evidence.metrics`, 7 days): closed on evidence, closed by the owner without it, sent back by the owner, and tickets an agent called done that still wait for proof. One line in the 08:00 brief, only when any is non-zero.
 - Not done in this step: T2.4 Agent Office panel (the Telegram card already shows level and checks), T2.6 cross-agent review.
+
+## Evidence Protocol Tier 2.4 — Agent Office panel (2026-11-10)
+- "🔎 Proof / Докази / Доказательства" button in the Agent Office header opens the existing generic agent drawer (same pattern as the vault, #302), so the 16-drawer and 26-destination layouts are unchanged. Hidden for read-only viewers.
+- Content from the new owner-only `GET /api/factory/evidence/overview` (`evidence.overview`): 7-day metrics (closed on evidence, closed by the owner without it, sent back, "done" still without proof), the data source (Render's own read vs the worker's snapshot), and the latest 30 tickets with a verification block: level, what is required, each check (✅ server-checked, ☑️ seen only in the worker's data, ❌ failed, · missing; stale commit marked), deploy, owner acceptance, the owner's override reason, PR link.
+- A ticket the owner closed by hand shows "closed by you", not "accepted", even though the level rank is the same.
+- Verified in a real browser (Playwright) on seeded DEMO tickets at 1440 px and 390 px, EN and RU, no page errors. EN/UK/RU strings added; locale parity, drawer and navigation tests pass.
