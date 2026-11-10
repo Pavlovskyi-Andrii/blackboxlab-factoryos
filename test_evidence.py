@@ -225,8 +225,15 @@ class GithubReadTest(unittest.TestCase):
                 raise E()
             return [] if "issues" in path or "pulls" in path else {}
         out = factory.github_read_check(fetch)
-        self.assertEqual(out["reads"], {"issues": "ok", "pulls": "ok", "checks": "http_403", "statuses": "ok"})
-        self.assertFalse(out["all_ok"])
+        # Fine-grained tokens have no Checks permission: Actions runs are enough for CI.
+        self.assertEqual(out["reads"], {"issues": "ok", "pulls": "ok", "checks": "http_403", "actions": "ok"})
+        self.assertEqual((out["ci_via"], out["all_ok"]), ("actions", True))
+
+        def no_ci(path):
+            if "check-runs" in path or "actions" in path:
+                raise E()
+            return []
+        self.assertEqual(factory.github_read_check(no_ci)["all_ok"], False)
         with patch.object(factory, "GITHUB_READ_TOKEN", ""):
             self.assertEqual(factory.github_read_check(), {"configured": False, "reads": {}})
 
@@ -239,6 +246,104 @@ class GithubReadTest(unittest.TestCase):
             self.assertEqual(call("GET", "/api/factory/evidence/github-read-check", cookie=viewer)[0], 403)
             status, body = call("GET", "/api/factory/evidence/github-read-check", cookie=factory.session_token(factory.FACTORY_USER))
             self.assertEqual((status, json.loads(body)), (200, {"configured": False, "reads": {}}))
+
+
+class ActionsFallbackTest(unittest.TestCase):
+    """Fine-grained token: check-runs answers 403, CI is read from Actions workflow runs instead."""
+
+    def read(self, runs_by_sha, total=None):
+        from team_tasks import read_github
+
+        class E(Exception):
+            code = 403
+        calls = []
+
+        def fetch(path):
+            calls.append(path)
+            if path.startswith("/issues"):
+                return []
+            if path.startswith("/pulls"):
+                return [{"number": n, "state": "open", "head": {"sha": sha}} for n, sha in enumerate(runs_by_sha, 1)]
+            if "check-runs" in path:
+                raise E()
+            sha = path.split("head_sha=")[1].split("&")[0]
+            runs = runs_by_sha[sha]
+            return {"total_count": total if total is not None else len(runs), "workflow_runs": runs}
+        return read_github(fetch)["ci"], calls
+
+    def test_actions_runs_give_the_same_labels(self):
+        ok = {"status": "completed", "conclusion": "success", "name": "CI"}
+        ci, calls = self.read({"a": [ok], "b": [ok, {"status": "completed", "conclusion": "failure", "name": "CI"}],
+                               "c": [{"status": "in_progress", "conclusion": None}], "d": []})
+        self.assertEqual({k: v["state"] for k, v in ci.items()}, {"a": "passed", "b": "failed", "c": "running", "d": "none"})
+        self.assertEqual(sum("check-runs" in c for c in calls), 1)                 # asked once, then Actions only
+
+    def test_truncated_or_odd_runs_are_unknown(self):
+        ok = {"status": "completed", "conclusion": "success"}
+        self.assertEqual(self.read({"a": [ok]}, total=5)[0]["a"]["state"], "unknown")
+        self.assertEqual(self.read({"a": [{"status": "completed", "conclusion": "stale"}]})[0]["a"]["state"], "unknown")
+
+
+class TrustedSourceTest(Base):
+    """Tier 2.1: with the read-only token, only Render's own GitHub read can make a ticket "checked"."""
+
+    def setUp(self):
+        super().setUp()
+        evidence.set_trusted_sources({"github:render"})
+
+    def tearDown(self):
+        evidence.set_trusted_sources(())
+        super().tearDown()
+
+    def test_worker_snapshot_is_only_linked(self):
+        self.finish()
+        self.queue.reconcile_pull_requests([merged()], {"abc123": {"state": "passed"}})      # default: EC2 snapshot
+        t = self.t()
+        self.assertEqual((t["status"], evidence.level(t)), ("in_progress", "linked"))
+        self.assertIn("только по данным воркера", ", ".join(evidence.missing(t)))
+        self.assertIn("☑️ CI зелёный", evidence.summary_line(t))
+
+    def test_render_read_closes_it(self):
+        self.finish()
+        self.queue.reconcile_pull_requests([merged()], {"abc123": {"state": "passed"}}, source="github:render")
+        self.assertEqual((self.t()["status"], evidence.level(self.t())), ("done", "checked"))
+
+    def test_app_reconcile_uses_its_own_read(self):
+        import app as factory
+        sent = []
+
+        def fetch(path):
+            if path.startswith("/issues"):
+                return []
+            if path.startswith("/pulls"):
+                return [merged()]
+            if "check-runs" in path:
+                return {"total_count": 1, "check_runs": [{"status": "completed", "conclusion": "success", "name": "ci"}]}
+            raise AssertionError(path)
+        self.finish()
+        with patch.object(factory, "RELAY_QUEUE", self.queue), patch.object(factory, "_telegram_send", side_effect=sent.append), \
+             patch.object(factory, "_intake_issues_from_ec2_snapshot", side_effect=AssertionError("snapshot not needed")):
+            out = factory.relay_pr_reconcile_once(fetch=fetch)
+        self.assertEqual((out["source"], out["notices"]), ("github:render", 1))
+        self.assertEqual(self.t()["status"], "done")
+        self.assertEqual(self.t()["verification"]["checks"]["ci_passed"]["source"], "github:render")
+        self.assertIn("тикет закрыт", sent[0])
+
+    def test_own_read_failure_falls_back_to_the_snapshot_without_closing(self):
+        import app as factory
+
+        class E(Exception):
+            code = 502
+
+        def fetch(path):
+            raise E()
+        snap = {"github": {"pulls": [merged()], "ci": {"abc123": {"state": "passed"}}}}
+        self.finish()
+        with patch.object(factory, "RELAY_QUEUE", self.queue), patch.object(factory, "_telegram_send"), \
+             patch.object(factory, "_intake_issues_from_ec2_snapshot", return_value=(snap, "fresh")):
+            out = factory.relay_pr_reconcile_once(fetch=fetch)
+        self.assertEqual(out["source"], "github:ec2-snapshot")
+        self.assertEqual(self.t()["status"], "in_progress")
 
 
 if __name__ == "__main__":
