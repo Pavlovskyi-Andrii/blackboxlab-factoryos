@@ -121,6 +121,10 @@ jobs:
         run: python test_relay_execution.py
       - name: Relay owner-notice dedupe regression (#241)
         run: python test_relay_notify_dedupe.py
+      - name: Evidence Protocol Tier 1 (No Evidence — No Done)
+        run: |
+          python -m py_compile evidence.py test_evidence.py
+          python test_evidence.py
       - name: Relay secure worker pairing unit tests
         run: python test_relay_pairing.py
       - name: Claude delegation adapter regression

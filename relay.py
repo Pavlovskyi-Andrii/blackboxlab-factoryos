@@ -19,6 +19,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+import evidence as proof
 from relay_execution import lifecycle_text
 from lane_board import lane_board_text, telegram_lang
 from worker_observability import worker_overview_text
@@ -170,6 +171,8 @@ class RelayStore:
                     "requires_confirmation": False,
                     "confirmation_reason": "",
                 },
+                # Evidence Protocol T1.6: what "done" means is fixed here, from code, not by the agent.
+                "verification": proof.new_verification(proof.task_type_for(owner)),
             }
             state["tickets"].append(item)
             self._save_unlocked(state)
@@ -229,6 +232,9 @@ class RelayStore:
                     continue
                 before = item.get("status") or "inbox"
                 now = _now()
+                if status == "done" and before != "done" and not proof.satisfied(item):
+                    # T1.4: no evidence, no done. The owner may still close it, with a reason that is kept.
+                    proof.override(item["verification"], actor, note)       # ValueError("evidence_required")
                 item["status"] = status
                 item["updated_at"] = now
                 item.setdefault("history", []).append({
@@ -393,6 +399,9 @@ def _ticket_card(ticket: dict) -> str:
             lines.append(str(execution["note"])[:230])
         if execution.get("commit"):
             lines.append("Commit: " + str(execution["commit"])[:10] + " (worker report)")
+    proof_line = proof.summary_line(ticket)
+    if proof_line:
+        lines.append(proof_line)
     notes = ticket.get("notes") or []
     if notes:
         lines.append(f"📝 Заметок: {len(notes)}")
@@ -624,7 +633,7 @@ _HELP_TEXTS = {
         "/group — Привязать группу FactoryOS Team (код для /pair_group)\n"
         "/brief — Утренний брифинг 08:00: on / off / test\n"
         "/work — Перевести задачу в работу (напр. /work R-0001)\n"
-        "/done — Завершить задачу (напр. /done R-0001)\n"
+        "/done — Завершить задачу: закроется по доказательствам, иначе /done R-0001 причина\n"
         "/need — Пометить задачу как требующую внимания (напр. /need R-0001)\n"
         "/inbox — Вернуть задачу в inbox (напр. /inbox R-0001)"
     ),
@@ -650,7 +659,7 @@ _HELP_TEXTS = {
         "/group — Прив'язати групу FactoryOS Team (код для /pair_group)\n"
         "/brief — Ранковий брифінг 08:00: on / off / test\n"
         "/work — Взяти завдання в роботу (напр. /work R-0001)\n"
-        "/done — Завершити завдання (напр. /done R-0001)\n"
+        "/done — Завершити завдання: закриється за доказами, інакше /done R-0001 причина\n"
         "/need — Позначити завдання як таке, що потребує уваги (напр. /need R-0001)\n"
         "/inbox — Повернути завдання в inbox (напр. /inbox R-0001)"
     ),
@@ -676,7 +685,7 @@ _HELP_TEXTS = {
         "/group — Link the FactoryOS Team group (code for /pair_group)\n"
         "/brief — Morning brief at 08:00: on / off / test\n"
         "/work — Set task status to in progress (e.g. /work R-0001)\n"
-        "/done — Mark task as done (e.g. /done R-0001)\n"
+        "/done — Close a task: by evidence, or /done R-0001 reason\n"
         "/need — Mark task as needing owner attention (e.g. /need R-0001)\n"
         "/inbox — Move task back to inbox (e.g. /inbox R-0001)"
     ),
@@ -1292,6 +1301,10 @@ def relay_handle_telegram_update(
             except KeyError:
                 telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Тикет не найден"})
                 return {"handled": True}
+            except ValueError:
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id,
+                                                     "text": f"Нет доказательств. Закрыть вручную: /done {ticket_id} причина"})
+                return {"handled": True, "action": "evidence_required", "ticket_id": ticket_id}
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": STATUS_LABELS[status]})
             telegram_api("sendMessage", {
                 "chat_id": chat_id,
@@ -1397,16 +1410,26 @@ def relay_handle_telegram_update(
         "/inbox": "inbox",
     }
     if command in command_status:
-        parts = text.split(maxsplit=1)
+        parts = text.split(maxsplit=2)
         ticket_id = parts[1].strip().upper() if len(parts) > 1 else ""
+        reason = parts[2].strip() if len(parts) > 2 else ""
         current = store.get(ticket_id)
         ex_state = str(((current or {}).get("execution") or {}).get("state") or "")
         if queue and command == "/done" and ex_state in ("queued", "claimed", "running", "checkpoint", "committed", "pushed"):
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "⏳ Задание ещё не выполнено. Claude должен подтвердить результат."})
             return {"handled": True}
         try:
-            ticket = queue.enqueue(ticket_id, actor="telegram") if command == "/work" and queue else store.set_status(ticket_id, command_status[command], actor="telegram")
-        except (KeyError, ValueError):
+            ticket = queue.enqueue(ticket_id, actor="telegram") if command == "/work" and queue else store.set_status(ticket_id, command_status[command], actor="telegram", note=reason)
+        except ValueError as exc:
+            if str(exc) != "evidence_required":
+                telegram_api("sendMessage", {"chat_id": chat_id, "text": "Не нашёл тикет. Пример: /done R-0001"})
+                return {"handled": True}
+            missing = ", ".join(proof.missing(current or {})) or "доказательства"
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": (
+                f"🔎 {ticket_id} не закрыт: нет доказательств ({missing}).\n"
+                f"Закрыть вручную с причиной: /done {ticket_id} причина")})
+            return {"handled": True, "action": "evidence_required", "ticket_id": ticket_id}
+        except KeyError:
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "Не нашёл тикет. Пример: /done R-0001"})
             return {"handled": True}
         telegram_api("sendMessage", {
@@ -1513,6 +1536,8 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
         except KeyError:
             raise HTTPException(404, "Relay ticket not found")
         except ValueError as exc:
+            if str(exc) == "evidence_required":
+                raise HTTPException(409, "evidence_required: give a reason in note to close without evidence")
             raise HTTPException(400, str(exc))
         return {"ok": True, "ticket": ticket}
 

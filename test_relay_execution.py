@@ -59,9 +59,13 @@ class TestRelayQueue(unittest.TestCase):
         self.queue.event(tid, "claude-ec2-1", "committed", "Local commit", {"commit": "deadbeef"*5})
         self.queue.event(tid, "claude-ec2-1", "pushed", "git push returned 0", {"pushed": True})
         finished = self.queue.event(tid, "claude-ec2-1", "done", "CLI succeeded")
-        self.assertEqual(finished["status"], "done")
+        # Evidence Protocol: the worker's "done" is a claim; without a merged PR + CI the ticket stays open.
+        self.assertEqual(finished["status"], "in_progress")
         self.assertEqual(finished["execution"]["state"], "done")
         self.assertEqual([e["action"] for e in finished["history"]], ["queued", "claimed", "running", "committed", "pushed", "done"])
+        with self.assertRaises(ValueError):
+            self.store.set_status(tid, "done", actor="owner")                 # no evidence, no reason
+        self.assertEqual(self.store.set_status(tid, "done", actor="owner", note="checked by hand")["status"], "done")
         self.assertEqual(self.queue.claim("claude-ec2-1"), None)
 
     def test_durable_restart_retry_and_no_duplicate(self):

@@ -41,7 +41,8 @@ class TestRoadmapClaims(unittest.TestCase):
                                 ("pushed", {"pushed": True}), ("done", {})):
             self.queue.event(ticket["id"], "claude-ec2", stage, stage, evidence, run_id=run_id, event_id=f"{run_id}:{stage}")
         final = self.store.get(ticket["id"])
-        self.assertEqual(final["status"], "done")
+        # Evidence Protocol: a commit is a link, not proof; the ticket waits for a merged PR + CI or the owner.
+        self.assertEqual((final["status"], final["execution"]["state"]), ("in_progress", "done"))
         self.assertEqual([h["action"] for h in final["history"]],
                          ["queued", "claimed", "running", "committed", "pushed", "done"])
 
