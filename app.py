@@ -58,6 +58,10 @@ GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxl
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
 # Evidence Protocol: a separate read-only token, so verification never needs (or enables) the Builder's write token.
 GITHUB_READ_TOKEN = os.environ.get("FACTORY_GITHUB_READ_TOKEN", "").strip()
+def _github_read_token():
+    """Every server-side GitHub *read* (intake, team board, /github, PR reconcile) prefers the read-only token;
+    the Builder's write paths keep FACTORY_GITHUB_TOKEN. Evaluated at call time."""
+    return GITHUB_READ_TOKEN or GITHUB_TOKEN
 if GITHUB_READ_TOKEN:
     # Evidence Tier 2.1: only Render's own GitHub read counts as "checked" once the read-only token exists.
     import evidence as _evidence
@@ -1071,7 +1075,7 @@ async def telegram_webhook(request: Request):
             _telegram_send_to(chat,"🎙 Распознал голосовое (Gemini):\n«"+transcript[:3500]+"»")
         else:
             _telegram_send_to(chat,"🎙 Не удалось распознать голосовое ("+VOICE_REASONS.get(reason,reason)+"). Создаю тикет без текста; можно продублировать текстом.")
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,_github_read_token()),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}
@@ -9077,7 +9081,7 @@ def github_issue_intake_once(fetch=None):
 
     Source: Render's own GitHub read, else the fresh EC2 snapshot. Claude issues that Queue Keeper (#231) sees as
     blocked (open Depends, owner gate, another agent's PR) are deferred, so the worker never starts them early."""
-    direct=relay_github_owner_issues(GITHUB_REPO,GITHUB_TOKEN,fetch=fetch)
+    direct=relay_github_owner_issues(GITHUB_REPO,_github_read_token(),fetch=fetch)
     source,render_error,gate_github="render","",None
     if direct.get("available"):
         issues,owner=direct["issues"],direct["owner"]
@@ -11566,7 +11570,7 @@ def evidence_github_read_check(request: Request):
 def get_team_tasks(refresh=False):
     """Owner tasks page: Issues/PRs/CI per executor + ROADMAP [HUMAN] tasks + lane heartbeats."""
     def read():
-        github=read_github(github_fetcher(GITHUB_REPO,GITHUB_TOKEN),owner=GITHUB_REPO.split("/",1)[0])
+        github=read_github(github_fetcher(GITHUB_REPO,_github_read_token()),owner=GITHUB_REPO.split("/",1)[0])
         if not github.get("available"):
             # Render's token cannot read the repo (seen 2026-11-04: HTTP 403); use the EC2 worker's snapshot (owner's gh login).
             snap=_load_team_snapshot()
