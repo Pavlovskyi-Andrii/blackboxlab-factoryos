@@ -9832,13 +9832,33 @@ async def switch_integration(provider: str):
         "history_preserved":True,
     }
 
-# T-551-A: provider OAuth scaffold. No real adapters and no token vault yet (T-552), so
-# authorize refuses with blockers in production; tests inject mock adapters + memory vault.
+# T-551-A: provider OAuth scaffold. No real adapters yet (T-552), so authorize still refuses
+# with blockers in production; tests inject mock adapters + memory vault.
+# T-560-F: tokens go to the AES-256-GCM vault when FACTORY_VAULT_KEY is configured. Missing or
+# malformed key -> UnavailableTokenVault (fail closed); the app still boots.
+def _oauth_token_vault():
+    from browser_runner.vault import Keyring, VaultConfigError, make_token_vault, vault_paths
+    try:
+        keyring=Keyring.from_env()
+    except VaultConfigError:
+        return UnavailableTokenVault()
+    if keyring is None:
+        return UnavailableTokenVault()
+    return make_token_vault(vault_paths(DATA_DIR)["oauth_token"],keyring)
+
 OAUTH_FLOW = OAuthFlow(
     redirect_base=FACTORY_PUBLIC_BASE_URL,
     client_id_lookup=lambda spec: os.environ.get(spec.client_id_env,""),
-    vault=UnavailableTokenVault(),
+    vault=_oauth_token_vault(),
 )
+
+@app.get("/api/factory/vault/status")
+def factory_vault_status(request: Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+    # Owner-visible: configured or not, algorithm, key ids and record counts. Never key material.
+    from browser_runner.vault import vault_status
+    return {**vault_status(DATA_DIR),"oauth_vault":OAUTH_FLOW.vault.kind,"secrets_exposed":False}
 
 def _oauth_subject(request: Request) -> str:
     identity=request_identity(request) or {}
