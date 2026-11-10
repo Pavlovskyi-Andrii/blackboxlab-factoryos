@@ -164,7 +164,9 @@ class _EncryptedFile:
         data = json.loads(self._path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
 
-    def put(self, record_id: str, scope: Tuple[str, ...], plaintext: bytes) -> None:
+    def put(self, record_id: str, scope: Tuple[str, ...], plaintext: bytes,
+            meta: Optional[Mapping[str, Any]] = None) -> None:
+        """``meta`` is stored in plaintext: only non-secret labels (e.g. field kinds)."""
         with self._lock:
             items = self._load()
             existing = items.get(record_id)
@@ -174,8 +176,19 @@ class _EncryptedFile:
                 "scope": list(scope),
                 "envelope": self._keyring.encrypt(plaintext, _aad(self._namespace, record_id, scope)),
                 "updated_at": round(time.time(), 3),
+                "meta": dict(meta or {}),
             }
             _atomic_write_json(self._path, items)
+
+    def entries(self) -> Tuple[Dict[str, Any], ...]:
+        """Non-secret listing: record id, scope, update time, key id, plaintext meta."""
+        with self._lock:
+            items = self._load()
+        return tuple({
+            "id": record_id, "scope": tuple(item.get("scope") or ()),
+            "updated_at": item.get("updated_at"), "kid": (item.get("envelope") or {}).get("kid"),
+            "meta": dict(item.get("meta") or {}),
+        } for record_id, item in items.items())
 
     def get(self, record_id: str, scope: Tuple[str, ...]) -> Optional[bytes]:
         with self._lock:
@@ -247,7 +260,32 @@ class EncryptedCredentialVault:
             clean[kind] = value
         if not clean:
             raise VaultError("no credential values")
-        self._file.put(credential_ref, scope, json.dumps(clean).encode("utf-8"))
+        self._file.put(credential_ref, scope, json.dumps(clean).encode("utf-8"),
+                       meta={"kinds": sorted(clean)})
+
+    def entries(self, workspace_id: str) -> Tuple[Dict[str, Any], ...]:
+        return tuple({
+            "ref": e["id"], "provider": e["scope"][1], "account": e["scope"][2],
+            "kinds": list(e["meta"].get("kinds") or ()), "updated_at": e["updated_at"], "kid": e["kid"],
+        } for e in self._file.entries() if len(e["scope"]) == 3 and e["scope"][0] == workspace_id)
+
+    def find_ref(self, *, workspace_id: str, provider: str, account_binding_id: str) -> Optional[str]:
+        scope = _scope(workspace_id, provider, account_binding_id)
+        for e in self._file.entries():
+            if e["scope"] == scope:
+                return e["id"]
+        return None
+
+    def check(self, credential_ref: str, *, workspace_id: str, provider: str,
+              account_binding_id: str) -> Dict[str, Any]:
+        """Decrypts in memory and reports only which fields are present."""
+        try:
+            raw = self._file.get(credential_ref, _scope(workspace_id, provider, account_binding_id))
+        except VaultError:
+            raw = None
+        if raw is None:
+            return {"ok": False, "reason": "not_decryptable"}
+        return {"ok": True, "fields": sorted(json.loads(raw.decode("utf-8")))}
 
     def resolve(self, credential_ref: str, *, workspace_id: str, provider: str,
                 account_binding_id: str, kind: str) -> SecretValue:
@@ -307,6 +345,17 @@ def _validate_storage_state(state: Any) -> bytes:
     return raw
 
 
+def _state_summary(state: Mapping[str, Any]) -> Dict[str, Any]:
+    """Non-secret shape of a storage_state: counts, domains and earliest cookie expiry."""
+    cookies = [c for c in state.get("cookies") or [] if isinstance(c, Mapping)]
+    origins = [o for o in state.get("origins") or [] if isinstance(o, Mapping)]
+    domains = sorted({str(c.get("domain") or "").lstrip(".")[:253] for c in cookies} - {""})[:20]
+    expiries = [float(c["expires"]) for c in cookies
+                if isinstance(c.get("expires"), (int, float)) and c["expires"] > 0]
+    return {"cookies": len(cookies), "origins": len(origins), "domains": domains,
+            "earliest_expiry": min(expiries) if expiries else None}
+
+
 class EncryptedSessionStore:
     """Encrypted browser sessions behind opaque ``session://`` refs.
 
@@ -330,7 +379,7 @@ class EncryptedSessionStore:
         raw = _validate_storage_state(storage_state)
         previous = self._registry.resolve(*scope)
         session_ref = f"{SESSION_REF_PREFIX}{_secrets.token_hex(16)}"
-        self._file.put(session_ref, scope, raw)
+        self._file.put(session_ref, scope, raw, meta=_state_summary(json.loads(raw)))
         self._registry.bind(SessionBinding(workspace_id, provider, account_binding_id, session_ref))
         if previous:
             self._file.delete(previous, scope)  # replaced session material is not kept
@@ -348,6 +397,27 @@ class EncryptedSessionStore:
         if raw is None:
             raise VaultError("session_ref not available for this binding")
         return SecretState(json.loads(raw.decode("utf-8")))
+
+    def entries(self, workspace_id: str) -> Tuple[Dict[str, Any], ...]:
+        return tuple({
+            "ref": e["id"], "provider": e["scope"][1], "account": e["scope"][2],
+            "updated_at": e["updated_at"], "kid": e["kid"], **e["meta"],
+        } for e in self._file.entries()
+            if len(e["scope"]) == 3 and e["scope"][0] == workspace_id
+            and self._registry.resolve(*e["scope"]) == e["id"])
+
+    def check(self, *, workspace_id: str, provider: str, account_binding_id: str) -> Dict[str, Any]:
+        """Decrypts in memory; returns counts, domains and earliest cookie expiry, no values."""
+        scope = _scope(workspace_id, provider, account_binding_id)
+        ref = self._registry.resolve(*scope)
+        if not ref:
+            return {"ok": False, "reason": "no_session"}
+        try:
+            state = self.load(ref, workspace_id=workspace_id, provider=provider,
+                              account_binding_id=account_binding_id).reveal()
+        except VaultError:
+            return {"ok": False, "reason": "not_decryptable"}
+        return {"ok": True, **_state_summary(state)}
 
     def disconnect(self, *, workspace_id: str, provider: str, account_binding_id: str) -> bool:
         scope = _scope(workspace_id, provider, account_binding_id)

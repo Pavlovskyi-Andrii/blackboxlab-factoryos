@@ -9858,7 +9858,117 @@ def factory_vault_status(request: Request):
         raise HTTPException(403,"owner_only")
     # Owner-visible: configured or not, algorithm, key ids and record counts. Never key material.
     from browser_runner.vault import vault_status
-    return {**vault_status(DATA_DIR),"oauth_vault":OAUTH_FLOW.vault.kind,"secrets_exposed":False}
+    out={**vault_status(DATA_DIR),"oauth_vault":OAUTH_FLOW.vault.kind,"secrets_exposed":False,
+         "credentials":[],"sessions":[],"workspace":tenancy.binding_workspace()}
+    parts=_vault_parts(required=False)
+    if parts:
+        creds,sessions=parts
+        out["credentials"]=list(creds.entries(out["workspace"]))
+        out["sessions"]=list(sessions.entries(out["workspace"]))
+    return out
+
+# T-560-F UI: owner-only vault management. Secrets go in, never come back out: responses carry
+# refs, field kinds, cookie counts and domains only. Workspace comes from the server binding.
+_VAULT_SLUG=re.compile(r"^[a-z0-9][a-z0-9_.-]{0,39}$")
+_VAULT_ACCOUNT=re.compile(r"^[\w.@+ -]{1,80}$")
+
+def _vault_parts(required=True):
+    from browser_runner.sessions import SessionRegistry
+    from browser_runner.vault import (EncryptedCredentialVault,EncryptedSessionStore,Keyring,
+                                      VaultConfigError,vault_paths)
+    try:
+        keyring=Keyring.from_env()
+    except VaultConfigError:
+        keyring=None
+    if keyring is None:
+        if required:raise HTTPException(409,"vault_not_configured")
+        return None
+    paths=vault_paths(DATA_DIR)
+    return (EncryptedCredentialVault(paths["credential"],keyring),
+            EncryptedSessionStore(paths["session"],keyring,SessionRegistry(paths["session_registry"])))
+
+def _vault_owner(request: Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+
+def _vault_binding(body: dict):
+    provider=str(body.get("provider") or "").strip().lower()
+    account=str(body.get("account") or "default").strip()
+    if not _VAULT_SLUG.match(provider):raise HTTPException(400,"invalid_provider")
+    if not _VAULT_ACCOUNT.match(account):raise HTTPException(400,"invalid_account")
+    return tenancy.binding_workspace(),provider,account
+
+@app.post("/api/factory/vault/credentials")
+async def factory_vault_save_credential(request: Request):
+    _vault_owner(request)
+    from browser_runner.sessions import VaultError
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    values={k:str(body.get(k) or "") for k in ("username","password") if body.get(k)}
+    creds,_=_vault_parts()
+    ref=creds.find_ref(workspace_id=workspace,provider=provider,account_binding_id=account) or f"vault://{secrets.token_hex(16)}"
+    try:
+        creds.put(ref,workspace_id=workspace,provider=provider,account_binding_id=account,values=values)
+    except VaultError as e:
+        raise HTTPException(400,str(e))
+    event(None,f"Vault: login saved for {provider}/{account}")
+    return {"ok":True,"ref":ref,"provider":provider,"account":account,"fields":sorted(values),"secrets_exposed":False}
+
+@app.post("/api/factory/vault/credentials/delete")
+async def factory_vault_delete_credential(request: Request):
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    creds,_=_vault_parts()
+    ref=creds.find_ref(workspace_id=workspace,provider=provider,account_binding_id=account)
+    deleted=bool(ref and creds.delete(ref,workspace_id=workspace,provider=provider,account_binding_id=account))
+    if deleted:event(None,f"Vault: login deleted for {provider}/{account}")
+    return {"ok":deleted,"provider":provider,"account":account}
+
+@app.post("/api/factory/vault/sessions")
+async def factory_vault_save_session(request: Request):
+    _vault_owner(request)
+    from browser_runner.sessions import SessionIsolationError, VaultError
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    state=body.get("storage_state")
+    if isinstance(state,str):
+        try:state=json.loads(state)
+        except ValueError:raise HTTPException(400,"storage_state_not_json")
+    _,sessions=_vault_parts()
+    try:
+        sessions.capture(workspace_id=workspace,provider=provider,account_binding_id=account,storage_state=state)
+    except (VaultError,SessionIsolationError,ValueError) as e:
+        raise HTTPException(400,str(e))
+    event(None,f"Vault: browser session saved for {provider}/{account}")
+    return {"ok":True,"provider":provider,"account":account,
+            **sessions.check(workspace_id=workspace,provider=provider,account_binding_id=account),
+            "secrets_exposed":False}
+
+@app.post("/api/factory/vault/sessions/disconnect")
+async def factory_vault_disconnect_session(request: Request):
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    _,sessions=_vault_parts()
+    deleted=sessions.disconnect(workspace_id=workspace,provider=provider,account_binding_id=account)
+    if deleted:event(None,f"Vault: browser session removed for {provider}/{account}")
+    return {"ok":deleted,"provider":provider,"account":account}
+
+@app.post("/api/factory/vault/check")
+async def factory_vault_check(request: Request):
+    # Proves the stored record decrypts with the current key, without returning any value.
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    creds,sessions=_vault_parts()
+    if body.get("kind")=="session":
+        return {"kind":"session","provider":provider,"account":account,
+                **sessions.check(workspace_id=workspace,provider=provider,account_binding_id=account)}
+    ref=creds.find_ref(workspace_id=workspace,provider=provider,account_binding_id=account)
+    if not ref:return {"kind":"login","provider":provider,"account":account,"ok":False,"reason":"no_login"}
+    return {"kind":"login","provider":provider,"account":account,
+            **creds.check(ref,workspace_id=workspace,provider=provider,account_binding_id=account)}
 
 def _oauth_subject(request: Request) -> str:
     identity=request_identity(request) or {}
