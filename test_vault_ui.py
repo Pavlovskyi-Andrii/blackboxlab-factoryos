@@ -16,8 +16,48 @@ from browser_runner.vault import generate_key  # noqa: E402
 
 os.environ["FACTORY_VAULT_KEY"] = generate_key()
 
-from fastapi.testclient import TestClient  # noqa: E402
+import asyncio  # noqa: E402
+
 import app  # noqa: E402
+
+
+class _Resp:
+    def __init__(self, status, body):
+        self.status_code, self.text = status, body.decode("utf-8", "replace")
+
+    def json(self):
+        return json.loads(self.text)
+
+
+class Client:
+    """Raw ASGI calls (same pattern as test_route_auth_fixes); no httpx dependency."""
+
+    def _call(self, method, path, body=b""):
+        headers = [(b"host", b"testserver"), (b"content-type", b"application/json")]
+        scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method,
+                 "scheme": "http", "path": path, "raw_path": path.encode(), "query_string": b"",
+                 "headers": headers, "server": ("testserver", 80), "client": ("127.0.0.1", 50000), "root_path": ""}
+        sent, delivered = [], []
+
+        async def receive():
+            if not delivered:
+                delivered.append(True)
+                return {"type": "http.request", "body": body, "more_body": False}
+            await asyncio.Event().wait()
+
+        async def send(message):
+            sent.append(message)
+
+        asyncio.run(app.app(scope, receive, send))
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        return _Resp(start["status"], b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body"))
+
+    def get(self, path):
+        return self._call("GET", path)
+
+    def post(self, path, json=None):
+        import json as _json
+        return self._call("POST", path, _json.dumps(json or {}).encode())
 
 PASSWORD = "Route-Secret-Pa55"
 COOKIE = "route-cookie-secret-77"
@@ -38,7 +78,7 @@ def no_secret(resp, where):
 
 
 def routes():
-    c = TestClient(app.app)
+    c = Client()
     post = lambda u, b: no_secret(c.post(u, json=b), u)
 
     r = post("/api/factory/vault/credentials", {"provider": "olx", "account": "shop",
