@@ -12,3 +12,5 @@ requests>=2.33.0; python_version >= "3.10"
 python-dotenv>=1.2.2; python_version >= "3.10"
 # MyCast: PCM from Gemini TTS → mp3 on the server (no ffmpeg on Render).
 lameenc>=1.9; python_version >= "3.10"
+# T-560-F: AES-256-GCM vault for browser credentials, sessions and OAuth tokens.
+cryptography>=46.0

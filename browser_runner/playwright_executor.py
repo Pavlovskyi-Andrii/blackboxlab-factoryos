@@ -2,8 +2,14 @@
 
 Security boundary: this module executes ONLY read/draft/upload preparation steps
 within origins supplied by trusted application configuration. No credentials,
-session cookies, browser storage-state restoration, arbitrary shell commands,
-external submissions, or automatic social publishing.
+arbitrary shell commands, external submissions, or automatic social publishing.
+
+T-560-F: a logged-in browser session may be restored ONLY when the trusted host
+passes an ``EncryptedSessionStore`` and the plan's ``session_ref`` is bound to the
+plan's exact workspace/provider/account binding. The decrypted storage_state goes
+straight into the Chromium context and never into results, logs or artifacts.
+The network guard (GET/HEAD/OPTIONS only, allowlisted origins) still applies, so a
+restored session can read and prepare drafts but cannot write to the site.
 
 Playwright is an optional dependency of the separate runner host, NOT the
 FactoryOS Render web service. The default runner never uses an API service.
@@ -214,6 +220,7 @@ def run_playwright(
     policy: BrowserRuntimePolicy,
     playwright_factory: Callable[[], Any] | None = None,
     clock: Callable[[], float] = time.monotonic,
+    session_store: Any | None = None,
 ) -> BrowserActionResult:
     """Execute a bounded, fresh anonymous Chromium context; no external writes.
 
@@ -239,6 +246,21 @@ def run_playwright(
                 executor="playwright",
             )
         playwright_factory = sync_playwright
+
+    context_state: dict[str, Any] = {}
+    if session_store is not None:
+        try:
+            if not plan.session_ref:
+                raise PermissionError("session_ref_required_for_session_restore")
+            context_state = {"storage_state": session_store.load(
+                plan.session_ref, workspace_id=plan.workspace_id, provider=plan.provider,
+                account_binding_id=plan.account_binding_id,
+            ).reveal()}
+        except PermissionError:
+            return BrowserActionResult(
+                plan_id=plan.plan_id, status="blocked",
+                blocker_reason="session_unavailable_for_binding", executor="playwright",
+            )
 
     deadline = clock() + plan.timeout_seconds
     log: list[dict[str, Any]] = []
@@ -282,8 +304,9 @@ def run_playwright(
             try:
                 context = browser.new_context(
                     accept_downloads=False, service_workers="block",
-                    permissions=[], ignore_https_errors=False,
+                    permissions=[], ignore_https_errors=False, **context_state,
                 )
+                context_state = {}
                 try:
                     context.route("**/*", guard_route)
                     if not hasattr(context, "route_web_socket"):
