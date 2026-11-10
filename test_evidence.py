@@ -237,6 +237,20 @@ class GithubReadTest(unittest.TestCase):
         with patch.object(factory, "GITHUB_READ_TOKEN", ""):
             self.assertEqual(factory.github_read_check(), {"configured": False, "reads": {}})
 
+    def test_server_reads_prefer_the_read_only_token(self):
+        """Production log 2026-11-10: intake got 403 with the Builder token while the read token can read issues."""
+        import app as factory
+        seen = []
+        with patch.object(factory, "GITHUB_READ_TOKEN", "read-tok"), patch.object(factory, "GITHUB_TOKEN", "write-tok"), \
+             patch.object(factory, "relay_github_owner_issues",
+                          side_effect=lambda repo, token, fetch=None: seen.append(token) or {"available": False, "error": "x"}), \
+             patch.object(factory, "_intake_issues_from_ec2_snapshot", return_value=(None, "stale")):
+            factory.github_issue_intake_once()
+            self.assertEqual(factory._github_read_token(), "read-tok")
+        self.assertEqual(seen, ["read-tok"])
+        with patch.object(factory, "GITHUB_READ_TOKEN", ""), patch.object(factory, "GITHUB_TOKEN", "write-tok"):
+            self.assertEqual(factory._github_read_token(), "write-tok")                 # unchanged without it
+
     def test_read_check_route_is_owner_only(self):
         import app as factory
         from test_route_auth_fixes import AUTH_ON, call
