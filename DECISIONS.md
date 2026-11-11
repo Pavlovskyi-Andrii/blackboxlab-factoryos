@@ -931,3 +931,7 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 
 ## CI runner pinned to ubuntu-24.04 (2026-11-11)
 - `ubuntu-latest` became Ubuntu 26.04; `actions/setup-python` has no Python 3.9 for it ("version '3.9' ... not found for Ubuntu 26.04"), so `syntax-and-smoke` failed in 7 seconds before any test, on every branch. The job needs 3.9 because the deployed EC2 worker runs 3.9. The job is pinned to `ubuntu-24.04`; nothing else changes. Revisit when the worker moves off 3.9 (24.04 runners will be retired eventually).
+
+## Worker branch unstuck (2026-11-11)
+- Owner's live `/new` test (R-0063) ran the legacy path: commit on `autopilot/aws-worker`, no ticket branch, no PR, so no CI/merge evidence and no owner buttons. Cause: `autopilot/aws-worker` had not merged `main` since 2026-11-06 — its own R-0051 version of #259 conflicts with main's #259, and `sync_branch` keeps running the old code on a conflict. The worker had reported this itself in R-0058.
+- Fix: `main` merged with `autopilot/aws-worker`, conflicts resolved to main's code (`app.py`, `relay.py`, `team_tasks.py`, `test_issue_intake.py`); the worker's README `/brief` section (R-0063), the R-0058 verification doc and its test are kept; its DECISIONS entry for the unused #259 variant is dropped. Merged into `autopilot/aws-worker` through a PR (merge commit, no force-push), so its next sync fast-forwards to main and restarts on the current runner code (isolated worktree per ticket).
