@@ -940,13 +940,10 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - **Relay notices** (`relay.worker_event_text`): one readable Russian card per worker stage — icon + "who did what", the task title, branch / commit / PR, the executor's own summary on done/blocked/failed, the evidence line, and "what comes next". The Claude CLI prompt now asks for the final answer in Russian, three points, ≤500 chars (summary cap 440 → 600). Evidence line speaks Russian ("есть ссылки (нужно: проверено сервером)"), missing checks ⬜, failed checks named as failures ("CI красный").
 - **Voice**: Google answered 404 for `gemini-2.5-flash` on the owner's key. `gemini_proxy.resolve_flash_model` lists the key's models (cached 6 h) and picks the preferred one if listed, else `gemini-flash-latest`, else the newest non-lite x.y-flash; used by transcription and peer review. A voice message that cannot be transcribed no longer creates an empty ticket (R-0065 made Claude run just to answer "BLOCKED").
 - **Morning brief** rewritten: GitHub from Render's own read (the stale EC2 snapshot made it say "GitHub unavailable"); yesterday's closed tickets (manual ones counted), merged PRs, red CI; plan vs fact with a completion rate (today's agent plan is stored per date on the real 08:00 run, not on /brief test, and compared next morning); today's plan per agent; what waits for the owner with a hint when many are stale. The voice reads headline lines only (≤1400 chars); details go in the text message.
-<<<<<<< HEAD
 
 ## Gemini joins /discuss in the FactoryOS Team group (2026-11-11)
 - Owner asked for the other models in the group. Gemini answers every `/discuss` and follow-up in the same thread with `[Gemini] D-xxxx`, on the owner's free key (model picked per key), in a background thread so the Telegram webhook is not held; a stopped thread drops a late answer; failures are said ("не ответил (…)"); 40 answers per UTC day. Its previous answer is passed as context on follow-ups; it is told not to invent project facts.
 - ChatGPT stays "not connected": a ChatGPT subscription gives no programmatic access, only the paid per-token OpenAI API, which needs the owner's explicit approval.
-=======
->>>>>>> origin/main
 
 ## MyCast AI subtopics (2026-11-11, owner: "через нейронку, по подписке, не по копеечке")
 - `GET /api/mycast/subtopics?q=&lang=` (public, like the demo): Gemini on the owner's free key (no per-request bill), stable Flash picked per key, JSON answer cleaned (≤6 items, ≤40 chars, tags stripped). 30-day cache for identical queries; 300 new generations per UTC day, 30 per visitor (hashed address only). Any failure, missing key or cap → 200 with an empty list, so the page keeps its local templates.
