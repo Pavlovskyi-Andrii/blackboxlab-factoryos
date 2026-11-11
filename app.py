@@ -39,7 +39,8 @@ from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
 from mycast import (DeliveryLog, check_mp3, gemini_tts_pcm, install_mycast_routes, install_mycast_voice_routes, pcm_to_mp3,
                     telegram_send_audio)
-from mycast_demo import DemoService, install_mycast_demo_routes
+from mycast_demo import DemoService, install_mycast_demo_routes, _client_id as _mycast_client_id
+from mycast_subtopics import SubtopicService
 from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
 import evidence as _evidence
@@ -723,7 +724,30 @@ def _mycast_send_audio(audio, filename, title, caption):
                         filename=filename, title=title, caption=caption)
 
 MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
-GROUP_BRIDGE = GroupBridge(DATA_DIR, ask=lambda text, source_key="", meta=None: OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",text,source_key=source_key,meta=meta))
+GROUP_GEMINI_PROMPT=("Ты Gemini — участник рабочего чата FactoryOS Team вместе с владельцем и Claude. "
+                    "Отвечай по-русски, по делу, до 1200 символов, без воды. Если не знаешь фактов о проекте — так и скажи, "
+                    "не выдумывай статусы, цифры и результаты. Claude ответит отдельно, не повторяй его.\n\n")
+
+
+def _group_gemini(prompt):
+    """Owner 2026-11-11: Gemini joins /discuss on the owner's free key (stable Flash, picked per key)."""
+    if not FACTORY_GEMINI_API_KEY:
+        return None,"ключ Gemini не задан"
+    try:
+        model=resolve_flash_model(FACTORY_GEMINI_API_KEY)
+        data=_gemini_raw_call(FACTORY_GEMINI_API_KEY,"POST",f"models/{model}:generateContent",
+                              {"contents":[{"parts":[{"text":GROUP_GEMINI_PROMPT+str(prompt)[:6000]}]}],
+                               "generationConfig":{"maxOutputTokens":1024,"temperature":0.4}},None,60)
+    except Exception as exc:
+        status=getattr(exc,"detail",{}) if isinstance(getattr(exc,"detail",None),dict) else {}
+        return None,{429:"перегружен, попробуй позже",404:"модель недоступна"}.get(status.get("upstream_status"),"недоступен")
+    parts=((((data or {}).get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+    text="".join(str(p.get("text") or "") for p in parts).strip()
+    return (text[:6000],"") if text else (None,"пустой ответ")
+
+
+GROUP_BRIDGE = GroupBridge(DATA_DIR, ask=lambda text, source_key="", meta=None: OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",text,source_key=source_key,meta=meta),
+                           gemini=_group_gemini)
 VOICE_TRANSCRIBER = VoiceTranscriber(DATA_DIR, api_key=lambda: FACTORY_GEMINI_API_KEY, bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN)
 VOICE_REASONS = {"not_configured":"ключ Gemini не задан","daily_limit":"дневной лимит 30 голосовых исчерпан","too_long":"слишком длинное, больше ~3 минут","rate_limited":"Gemini перегружен, попробуй позже","invalid_key":"ключ Gemini не принят","telegram_file_unavailable":"Telegram не отдал файл","empty_transcript":"пустой результат","model_not_found":"модель Gemini недоступна"}
 VOICE_SETTINGS = VoiceSettingsStore(DATA_DIR)
@@ -751,6 +775,27 @@ BRIEF_DELIVER = install_brief_route(app, VOICE_HISTORY, MYCAST_DELIVERIES, VOICE
 # Gemini coder loop on EC2 calls Google through this proxy, so the key never leaves Render.
 install_gemini_worker_routes(app, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # MyCast public demo (owner 2026-11-06): Gemini voices, at most 30 new per UTC day, cached, one at a time.
+def _subtopics_generate(key,prompt):
+    try:
+        model=resolve_flash_model(key)
+        data=_gemini_raw_call(key,"POST",f"models/{model}:generateContent",
+                              {"contents":[{"parts":[{"text":prompt}]}],
+                               "generationConfig":{"responseMimeType":"application/json","maxOutputTokens":512,"temperature":0.5}},None,20)
+    except Exception:
+        return None
+    parts=((((data or {}).get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+    return "".join(str(p.get("text") or "") for p in parts) or None
+
+
+MYCAST_SUBTOPICS=SubtopicService(DATA_DIR/"mycast_subtopics",api_key=lambda: FACTORY_GEMINI_API_KEY,generate=_subtopics_generate)
+
+
+@app.get("/api/mycast/subtopics")
+def mycast_subtopics(request: Request, q: str = "", lang: str = "en"):
+    """Public beta: AI subtopic suggestions on the free Gemini key; capped, cached, never an error page."""
+    return MYCAST_SUBTOPICS.suggest(q,lang,_mycast_client_id(request))
+
+
 MYCAST_DEMO = DemoService(DATA_DIR / "mycast_demo", api_key=lambda: FACTORY_GEMINI_API_KEY, tts=gemini_tts_pcm,
                           tts_single=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice))
 install_mycast_demo_routes(app, MYCAST_DEMO)
@@ -798,7 +843,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast",
-                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices"}
+                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)

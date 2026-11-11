@@ -129,6 +129,8 @@ jobs:
           python test_evidence.py
           python -m py_compile peer_review.py test_peer_review.py
           python test_peer_review.py
+          python -m py_compile mycast_subtopics.py test_mycast_subtopics.py
+          python test_mycast_subtopics.py
       - name: Relay secure worker pairing unit tests
         run: python test_relay_pairing.py
       - name: Claude delegation adapter regression
@@ -387,7 +389,7 @@ jobs:
     # Runs only when page files changed and the smoke job passed (budget, 2026-11-08).
     needs: syntax-and-smoke
     if: needs.syntax-and-smoke.outputs.ui == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # 26.04 has no Playwright browser deps (apt failed 2026-11-11); same pin as syntax-and-smoke
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -397,7 +399,13 @@ jobs:
       - name: Install runtime dependencies and headless Chromium
         run: |
           python -m pip install -r requirements.txt playwright
-          python -m playwright install --with-deps chromium
+          # 2026-11-11: GitHub runners could not resolve the Ubuntu mirrors for >1 h, so `--with-deps` (apt) burned
+          # the whole 20-minute job three times. Runner images already carry Chromium's system libraries: install the
+          # browser alone, prove it launches, and touch apt only if it does not (bounded to 5 minutes).
+          python -m playwright install chromium
+          if ! python -c "from playwright.sync_api import sync_playwright as s; p=s().start(); p.chromium.launch().close(); p.stop()"; then
+            timeout 300 python -m playwright install --with-deps chromium
+          fi
       - name: Start FactoryOS locally without credentials
         env:
           DATA_DIR: /tmp/factoryos-ui
