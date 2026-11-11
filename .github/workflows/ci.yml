@@ -16,7 +16,9 @@ concurrency:
 
 jobs:
   syntax-and-smoke:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04 (2026-11-11), where setup-python has no 3.9 build, and the deployed
+    # EC2 worker still runs Python 3.9 (import check below). Move on when the worker leaves 3.9.
+    runs-on: ubuntu-24.04
     outputs:
       ui: ${{ steps.changes.outputs.ui }}
     steps:
