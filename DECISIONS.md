@@ -731,12 +731,6 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Gate: Claude issues that Queue Keeper (#231) classifies as blocked are deferred, not imported. Blocked means an open Depends issue or PR, an unfinished ROADMAP dependency, an owner gate in the title, or another agent's open PR. Without the gate, restoring intake would hand the EC2 worker tasks that wait for the owner (#240–#242) or are acceptance checks (#219).
 - Failed GitHub reads log a fixed reason category (token_lacks_permission, invalid_token, rate_limited, sso_required, not_found_or_no_access, network), never headers or response text. With no fresh snapshot, intake reports `missing_or_stale` and imports nothing.
 
-## #259 Relay intake reads every page of owner Issues (2026-11-06)
-- Direct intake read only the first 50 open owner Issues, and the EC2 snapshot only the 100 most recently updated Issues of any state. An older open Issue never reached Relay. Its dependents could also pass the Queue Keeper gate, because an unseen `Depends:` issue is only "unverified". Both reads now use `read_issue_pages`, in `team_tasks.py` because the pusher downloads only that module.
-- The snapshot is the page of recent activity plus every open page. It does not read all states: closed Issues grow without limit, and the board only needs recent ones. `valid_snapshot` now allows 1100 Issues instead of 300, otherwise a large open list would be refused with HTTP 400.
-- A failed or non-list page fails the whole read. Partial data is not imported, because a missing open dependency would start its dependents early. The direct read then falls back to the snapshot as usual, and a failed pusher read leaves the old snapshot to go stale.
-- The limit is 10 pages (1000 open Issues). Past that, what was read is still imported, and `truncated: true` appears in the intake log and result. Stopping all intake on a very long list would be worse.
-
 ## #258 Intake fallback contract (2026-11-05)
 - `_intake_issues_from_ec2_snapshot` returns `(data, reason)`, where reason is `fresh`, `missing`, `stale` or `malformed`. Only `fresh` data is ever imported, and the intake log and result carry the reason (`ec2_snapshot`).
 - Malformed means: not JSON, not an object, a non-numeric `received`, no `github` object, or `issues` that is not a list. These used to raise inside the intake loop.
@@ -801,3 +795,143 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - **Progress:** the bar shows the real stage (preparing, Gemini voicing, ready). The percentage is marked "≈" because it is estimated from elapsed time against a typical ~14 s, and it stays capped at 95 % until the audio exists.
 - **Fallback:** no key, a cap reached, a Gemini error or a page opened outside the site (a local file or a preview) all fall back to the browser voice with a stated reason.
 - **Labelling:** a Gemini demo is real audio, so Download is enabled. It is still labelled `demo_not_episode`, never an episode.
+
+## MyCast listener accounts, open beta (2026-11-06, owner: "3 открытая бета", Telegram domain set)
+- Listeners sign in with **Telegram** (Login Widget, `request_access=write`) or **Google** (Google Identity Services).
+  - **Telegram:** the server checks the widget's HMAC, keyed with SHA-256 of the bot token, and refuses logins older than 24 h.
+  - **Google:** it uses the existing `FACTORY_GOOGLE_CLIENT_ID` and `verify_oauth2_token`. MyCast is on the same origin as `/login`, so no new Google Cloud setting is needed.
+- **Separate session:** a listener gets its own signed cookie, `mycast_listener` (`ml1|slug|expiry|HMAC`, 30 days, HttpOnly, SameSite=Lax, Secure on https). It is never a staff session: the dashboard and API stay 401 for a listener, as checked against a locally running app.
+- **Stored data:** a random 8-character public slug, a first name, the provider, a SHA-256 of the provider id, the Telegram chat id (Telegram only, for future delivery), the podcast share code and timestamps. No email, no photo, no tokens. `DELETE /api/mycast/account` erases the record. The page states this next to the sign-in buttons and in the FAQ.
+- **Personal page:** `/mycast/u/<slug>` is a public 307 to the configurator with `#p=<code>&from=<slug>`, so a visitor sees the "use these settings?" banner. Sign-in saves the podcast once, and approval saves it again.
+- **Delivery is still not live:** a Telegram-linked account shows "Telegram linked ✓, delivery coming soon", and the channel status stays `not_connected`.
+- **Also fixed:** `.btn:hover` replaced the background of `.btn.primary`, so primary buttons lost their gradient under a desktop pointer.
+
+## #259 Intake pagination (2026-11-06)
+- `github_pages.fetch_all` reads `per_page=100` page by page until a short page, and at most `MAX_PAGES` = 5 pages. If any page fails, the whole read fails: a 403 on page 2 imports nothing and reports the reason, never a silently partial list. When the limit is reached with a full last page, `truncated` is set.
+- The direct Render read (`relay_github_owner_issues`) previously took the first 50 open owner issues only. The EC2 snapshot, which production actually uses because Render's token gets a 403, held only the 100 most recently updated issues of any state. The snapshot now also carries every open issue the owner created (up to 3 pages, de-duplicated), so `valid_snapshot` allows 400 issues.
+- Lane and owner filters are unchanged: the first line must be exactly `Owner: …`, and the author must be the repository owner. Intake stays idempotent per issue.
+
+## #281 MyCast voice picker, Telegram pairing, separate delivery switch (2026-11-07, owner: "#281: «да»")
+- 30 Gemini prebuilt voices (`mycast_voices.VOICES`; the page copy is tested to match). Gender is labelled "by ear, unofficial": Google publishes names and styles, not genders. A single host picks a male voice; two hosts pick male A plus female B, and the two must differ.
+- Samples are real Gemini audio, generated on the first ▶ and cached per voice and language (`DATA_DIR/mycast_voices`). New samples are capped at 40 a day (`MYCAST_VOICE_SAMPLE_DAILY_CAP`); cached ones always play. A failed voice is shown as unavailable with its reason and is not retried for an hour. Nothing is labelled playable before the file exists.
+- The chosen voices go into the demo request and the demo cache key, so another pair gives another sample.
+- Step 07 has a big "Connect to my Telegram" button. It uses the Telegram pop-up (`Telegram.Login.auth`), so an approval made on the page survives; the oauth.telegram.org redirect is only a fallback. A signed-in Google listener who connects Telegram gets the chat linked to the same account.
+- Approval, pairing, sign-in, import and audition never start delivery. Delivery needs three things: the server-side approved code equals the saved code, a test message was sent to the listener's own chat, and an explicit consent tick (`mycast-delivery-consent-2026-11-07`). Then the listener presses "Turn on delivery". "Stop delivery" really turns it off. An edit saved after approval clears the approval and pauses delivery. A new Telegram chat must be verified again. Sends go only to the listener's own chat, at most 3 a day, and each send is audited.
+- Honest limit: regular personal episodes for listeners are not generated yet. Turning delivery on stores consent and schedule, and the page says so.
+
+## MyCast free days and invites (2026-11-07, owner's voice message)
+- Offer, on the first screen: 7 free days of personal podcasts to start, and +7 days for each invited friend. A friend who arrives through an invite starts with 14 days (7 plus a 7-day gift). It works like Dropbox, with both sides rewarded.
+- The invite is the share link (and QR) with `&ref=<slug>`. A personal page's `&from=<slug>` also counts. The server credits it once, and only when that link creates a brand-new account. Self-invites, repeat logins and bad slugs do not count, and there is a cap of 50 friends per inviter. `ref` is sent next to the Telegram payload and is not part of its signed fields.
+- Days are shown as the formula 7 + 7 (if gifted) + 7 × friends. There is no billing yet. The page says plainly that the open beta is free and the days start counting when regular episodes launch.
+- The first screen has three entry points: create your own podcast · listen to friends and famous people · share and earn days. The growth ideas sit on the page as a numbered draft list, each item marked "live" or "plan", for the owner to edit later.
+
+## CI on a budget until 1 Dec (2026-11-08, owner: "$5 бюджет, растянуть до нового месяца")
+- The 2000 free Actions minutes ($12 of included compute at $0.006/min) were used up by 8 Nov. The budget is now $5, so CI must spend as little as possible.
+- In `ci.yml`:
+  - A newer push to the same PR cancels the older run.
+  - The Python 3.9 EC2 import check is a step inside `syntax-and-smoke`, not its own job (one fewer rounded-up billed minute per run).
+  - `ui-screenshots` (about 4 minutes) runs only when page files change (`static/`, `tools/ui_screenshots.py`, `requirements.txt`, `ci.yml`), or on a manual dispatch, and only after the smoke job has passed.
+  - Screenshot artifacts are kept for 1 day instead of 3, because Actions storage is full too.
+- Main still runs CI on every push: Render deploys with `autoDeployTrigger: checksPass`. A skipped screenshot job counts as passing, not as failing.
+- Working habit until the reset: fewer, larger pushes per PR.
+
+## Relay round trip (#289, #41), 2026-11-08, owner: «доделать релей, чтобы была круговая работа»
+- Each claimed ticket runs in its own git worktree on branch `relay/<ticket>-<run>`, cut from freshly fetched `origin/main`. The runner's checkout and branch are never touched: a dirty runner tree no longer blocks Relay work, and tickets no longer share one branch. `RELAY_ISOLATED_WORKTREE=0` switches back to the old in-place mode.
+- After a commit, the worker pushes the branch and opens a PR with its existing `gh` login. The PR URL is the evidence on the `done` event. A push without a PR is reported as `blocked`, never as `done`. The worker never merges or deploys.
+- Server: on every intake pass, `relay_pr_reconcile_once` follows each ticket's PR in the fresh EC2 GitHub snapshot. CI passed, CI failed, merged and closed-without-merge are each recorded once in the ticket history (actor `github`) and each sent once to the owner's Telegram. A PR missing from the snapshot, or a stale snapshot, stays unknown. `deployed` stays unverified: Render deploys on checksPass, and no Render read exists yet.
+- Merging stays a human or Claude-review step. "CI passed" in Telegram means "ready for review and merge", not "merged".
+
+## Owner voice messages → text (2026-11-08, owner: «1 вариант» = Gemini)
+- A voice or audio message with no caption, from the paired owner's private chat only, is transcribed by Gemini Flash (`gemini-2.5-flash`, override with `FACTORY_VOICE_TRANSCRIBE_MODEL`) with the owner's existing key.
+- The owner gets the text back to check. The Relay ticket gets the transcript instead of an empty "Голосовое сообщение".
+- Limits: 30 new transcriptions per UTC day (`FACTORY_VOICE_TRANSCRIBE_DAILY_CAP`), and files up to 4 MB (about 3 minutes). A repeat of the same Telegram file comes from a cache and costs nothing.
+- When transcription fails, the owner gets the reason in plain words and the old behaviour stays: a ticket with the attachment only. Provider text and keys never reach the chat or the logs.
+
+## FactoryOS Team Telegram group (#129), 2026-11-09
+- The owner created the group "FactoryOS Team" and added the existing bot. The bot keeps privacy mode, so it sees only commands and replies to its own messages. That is enough for this bridge.
+- Pairing: `/group` in the bot's private chat gives a one-time code valid for 10 minutes. `/pair_group CODE` in the group binds that group's chat id. Only the paired owner's Telegram id (the owner's private chat id) can pair, discuss, stop or record decisions. Other members and unbound groups are ignored. `/group off` unbinds the group.
+- `/discuss` and replies to the bot use the existing owner-question queue: the same Claude subscription worker as `/ask`, with no new paid calls. The answer goes back to the group labelled `[Claude] D-xxxx`, and not to the private chat.
+- ChatGPT and Gemini are shown as unavailable until each has a real Relay runner. They are never imitated.
+- `/stop` means later answers are dropped, not posted. `/decision` records only after the owner taps ✅. Decisions are versioned in the bridge's own store, and no rules or prod files are edited.
+
+## #106 Morning brief at 08:00 Kyiv (2026-11-09)
+- Runs on the server (Render), not on the EC2 worker: the voice (owner's Gemini key), the paired chat and the data already live there, and a long worker task cannot delay it. `morning_brief_loop` ticks once a minute.
+- Owner opt-in, off by default: `/brief on|off` in the paired private chat (any other chat is ignored). `/brief test` sends the composed text only, no Gemini call — the "harmless test first" step of #106.
+- Content is FactoryOS facts only: PRs merged in the last 24 h (titles without issue/task numbers or priority codes, per the MyCast feedback), open PRs and red CI from the fresh EC2 snapshot, active Relay tickets and how many wait for the owner, open questions. A missing/stale snapshot is said as "GitHub status unknown", never guessed. AI/world news stays in the MyCast episode (06:00); the ChatGPT automation's text cannot be pulled (no export path), so it is not imitated.
+- One brief per Kyiv date through the same once-per-date delivery log as the worker route (`make_brief_sender`, shared). First try 08:00 (zoneinfo, DST-safe), up to 3 tries 20 min apart, none at or after 11:00, so a restart later in the day sends nothing stale. After the 3rd failure the owner gets the text plus one explicit "voice not delivered (category)" note. Cost: one Gemini TTS call per day on the existing free-tier key; no new paid provider.
+
+## #241 Relay owner-notice dedupe (2026-11-09)
+- `test_relay_notify_dedupe.py`: six scenarios through the real Relay routes with a fake notifier and a persistent temp store, a fresh store/queue/app per "process" so restarts are real: worker event retried after a restart (event_id), repeated Run on queued/running work, a late event after `done`, an event from a superseded run, a redelivered Telegram update, PR CI/merge transitions re-read after a restart.
+- Two real duplicates found and fixed minimally in `relay.py`: (1) `POST /api/relay/{id}/run` told the owner "передано Claude" on every call, even when the ticket was already queued or running; now only when the call really requeues (new or stale → owner Retry). (2) A Telegram update redelivered with the same `update_id` (our first 200 was lost) got a second "Тикет уже существует" reply; now it is recognised as a replay and answered once. Owner-only filtering is unchanged.
+
+## #240 MVP Factory state-machine contract tests (2026-11-09)
+- No new state-machine module: `mvp_factory.NEXT` already is the transition table, so `test_mvp_state_machine.py` (21 tests) asserts against it and against the real Builder gates (request validate, preflight, manifest, projection). Issue phases map to registry stages (idea → researching/spec_draft/spec_review → build_queued → building/qa_review → preview_ready/owner_review → validated|rejected).
+- Publishing is not a transition (no `publish` kind; `approval.publish` stays False after `validated`). Owner rejection is terminal; the spec has no "back to spec" edge, so none is invented.
+- Known gap, recorded not patched: `MvpRegistry.record("advance")` does not call the Builder gates itself; the tests compose gate → advance in a `DemoPipeline` helper. Wiring that into production is M2 of #186.
+- Every record the tests write is DEMO-marked; pilots #187–#189 are asserted unchanged after every test.
+
+## #242 Team Tasks truthfulness regression (2026-11-09)
+- `test_team_truthfulness.py` (22 tests): stale/future/malformed snapshot, GitHub 403 vs a real empty read, partial CI, heartbeat without a claimed task, stale queued tasks, provenance timestamps and the fixed progress set. Render deploy SHA vs main is not compared anywhere in code, so that case is a documented skip, not an invented adapter.
+- Fix in `team_tasks.py`: CI is `unknown`, not `passed`, when a check run is `stale`, when the check-runs body is unexpected (was `none`), or when `total_count` exceeds the runs read (a red run may sit on the next page). Relay's PR reconcile only acts on passed/failed, so it can no longer announce "CI passed" on partial evidence.
+- Left open (recorded): a corrupted snapshot file can still make the board return 500; board TTL (3600 s) differs from intake (900 s); the page tiles show 0 next to the "GitHub unavailable" banner (the API keeps unknown and empty apart).
+
+## Evidence Protocol Tier 1 (2026-11-10, owner approved)
+- Spec: `docs/specs/EVIDENCE_PROTOCOL.md`. Module `evidence.py`: levels claimed < linked < checked < accepted, rules per task type in code (code, mycast, telegram, publish, other), pure checkers.
+- Every new Relay ticket gets a `verification` block at creation (T1.6); engineering lanes (claude/gemini/unassigned) are type `code` (PR merged + CI passed on that commit), others `other` (a link). Workers cannot write it: `safe_evidence` already drops anything not allow-listed, and `event()` never touches the block.
+- Behaviour change: a worker's `done` no longer closes the ticket. The execution state is `done`, the ticket stays `in_progress` until the server's PR reconcile records `pr_merged` + `ci_passed` on the merged head commit, then closes it and tells the owner once. Two tests that asserted the old rule (worker done → ticket done) were rewritten to assert the new one; nothing was removed.
+- A merged PR whose CI was not yet read keeps being followed and closes when a later read shows CI green on that commit; red CI on the merged commit never closes it. To make that possible the GitHub read now also fetches CI for recently merged PRs (same 20-PR cap).
+- T1.5: checks carry the PR head SHA; a new head makes them not count.
+- Owner override: `/done R-0001 причина`, the API `note`, minimum 3 characters; kept in `verification.override` and history, shown on the card. The Telegram button and a bare `/done` explain how. Archive needs no evidence (it is not "done").
+- Legacy tickets (created before this change, no block) keep the old behaviour.
+- Tier 1 still accepts the EC2 snapshot as the source for `checked` (labelled `github:ec2-snapshot`), so the round trip keeps working; Tier 2.1 moves `checked` to Render's own read. For that a separate `FACTORY_GITHUB_READ_TOKEN` (read-only, fine-grained) is added instead of reusing `FACTORY_GITHUB_TOKEN`, which also enables the Builder's workflow dispatch. Owner-only `GET /api/factory/evidence/github-read-check` reports per-read codes, never the token.
+- MyCast and Telegram checkers exist and are tested, but are not yet wired to tickets: those runs do not create Relay tickets today.
+
+## Evidence Protocol Tier 2.1 — independent source (2026-11-10)
+- Owner's read-only token check on production: issues ok, pulls ok, check-runs `http_403`. Fine-grained personal tokens have no Checks permission at all, so this is a GitHub limitation, not a mis-set token. `read_github` now falls back to `GET /actions/runs?head_sha=` (Actions: Read) after the first 403/404 on check-runs and maps workflow runs to the same labels (passed / failed / running / none / unknown; truncated or odd conclusions → unknown). Our CI is GitHub Actions only, so nothing is lost.
+- `github-read-check` now reports `actions` too and `ci_via` (checks or actions); `all_ok` needs issues + pulls + one CI path.
+- With `FACTORY_GITHUB_READ_TOKEN` set, `relay_pr_reconcile_once` reads GitHub itself (source `github:render`) and only that source (plus delivery log / Bot API) counts towards `checked`. If Render's own read fails it falls back to the EC2 snapshot for notices, but those checks stay `linked` (card ☑️, "только по данным воркера"), so a ticket never closes on the worker's own data. Without the token, Tier 1 behaviour is unchanged.
+
+## Server GitHub reads use the read-only token (2026-11-10)
+- Production log after the owner added `FACTORY_GITHUB_READ_TOKEN`: `GITHUB_ISSUE_INTAKE ok:false HTTP 403 token_lacks_permission, ec2_snapshot: stale` — the Builder token cannot read issues and the worker's snapshot was stale, so no owner Issue was being imported. The read token can (`issues: ok`).
+- `_github_read_token()` (read token, else the Builder token) is now used for every server-side read: Issue intake, the Team Tasks board, Telegram `/github`. Write paths (Builder workflow dispatch) still use `FACTORY_GITHUB_TOKEN` only.
+- Still open: why the EC2 snapshot is stale (worker side; not visible from here).
+
+## T-560-F Encrypted vault backend (2026-11-10)
+- Trigger: owner asked for the "Browser Agent & Secure Vault" from a Gemini draft spec. Most of that spec already exists (T-560-A..E: contracts, approval policy, waiting_human takeover, Playwright executor, observability). The missing piece was a real vault: only `InMemoryVault` (tests) and `UnavailableTokenVault` (OAuth, refuses to store) existed. This task adds only that piece.
+- `browser_runner/vault.py`: AES-256-GCM via `cryptography` (new dependency). Key from `FACTORY_VAULT_KEY` (32 bytes, base64 or hex); `FACTORY_VAULT_KEY_PREVIOUS` (comma-separated) is decrypt-only for rotation, `reencrypt_all()` rewrites under the primary key. Only a 12-hex key fingerprint (`kid`) is stored. No key or malformed key → no vault (fail closed); the app still boots.
+- Each record's GCM associated data binds namespace + record id + scope (workspace/provider/account), so a ciphertext copied into another workspace's record or edited on disk does not decrypt. Missing, out-of-scope and tampered refs give the same error (no existence oracle), matching `InMemoryVault`.
+- Storage: JSON files under `DATA_DIR/vault/` (Render persistent disk), 0600, ciphertext + non-secret scope only. Chosen over the SQLite DB to keep secrets out of DB backups/exports and keep the module independent of app.py; reversible (same `_EncryptedFile` interface).
+- Credential vault refuses to *store* anything but `username`/`password` (OTP, TOTP seeds, recovery codes, cookies stay human-only), stricter than the in-memory one which only refused to resolve them.
+- `EncryptedSessionStore.capture()` encrypts a Playwright `storage_state` after a human finished login, mints a fresh `session://` ref and binds it in `SessionRegistry`; a replaced session's ciphertext is deleted, disconnect deletes it too.
+- Security-boundary change in `playwright_executor`: it was "fresh anonymous context, no storage-state restore". Now a session is restored ONLY when the trusted host passes a `session_store` and the plan's `session_ref` is bound to the plan's exact binding; otherwise blocked before the browser launches. The network guard (GET/HEAD/OPTIONS, allowlisted origins) and the submit ban are unchanged, so a logged-in run can read and prepare drafts but still cannot write to the site.
+- OAuth: `OAUTH_FLOW` uses the encrypted token vault when the key is set (removes the `vault_unavailable` blocker only; `client_not_configured`/`adapter_missing` stay until T-551/T-552). Owner-only `GET /api/factory/vault/status` shows configured/algorithm/kids/record counts, never key material.
+- Not done here (deliberately): live screen streaming/takeover UI, an LLM step planner (would need paid API, ZERO ADDITIONAL SPEND), stealth/anti-detect and proxies for OLX (ToS / account-ban risk; prefer official APIs), wiring capture into an HTTP route (needs the takeover UI). Setting `FACTORY_VAULT_KEY` on Render is owner work.
+- UI (same task, owner request): "🔐 Access vault" button in the Connections card opens the existing generic agent drawer (no new drawer id, so the 16-drawer and 26-destination layouts are unchanged). Sections: encryption status (or key setup steps), logins (site + account + login/password, masked, cleared after save), browser sessions (upload a Playwright `state.json` made on the owner's own computer with `npx playwright codegen --save-storage`, so 2FA/CAPTCHA stay with the human), limits. Each record has Check (decrypts server-side, returns only field names / cookie count / domains) and Delete/Disconnect. Hidden for read-only viewers.
+- Owner-only routes: `POST /api/factory/vault/credentials`, `/credentials/delete`, `/sessions`, `/sessions/disconnect`, `/check`; `GET /api/factory/vault/status` now also lists records (refs, field kinds, cookie counts, domains, dates). Saving the same site/account replaces the record. Workspace always comes from the server binding, never from the request. Site/account names are validated (`[a-z0-9_.-]`, ≤80 chars). Field kinds, cookie counts, domains and earliest expiry are stored as plaintext record metadata so the list renders without decrypting.
+
+## Evidence Protocol Tier 2.2 / 2.3 / 2.5 (2026-11-10)
+- Owner's production check after #300/#301: `{"issues":"ok","pulls":"ok","checks":"http_403","actions":"ok","ci_via":"actions","all_ok":true}` — Tier 2.1 confirmed live.
+- T2.2 deploy: the merge commit (`merge_commit_sha` from the PR) is stored on merge; each reconcile with Render's own read asks GitHub `compare/<merge>...<RENDER_GIT_COMMIT>` (ahead/identical = included) for up to 10 merged, not-yet-deployed tickets. Recorded once as check `deployed` (source `render:build`), the lifecycle "deployed" stage and one owner notice. Informational, not a done requirement: done means merged + CI; deploy follows the normal CI-gated flow. Unknown or not-yet-included stays "не проверено". No snapshot path: only our own read.
+- T2.3 owner buttons: the notice that closes a ticket on evidence carries "✅ Принял / 👎 Не то". Accept sets `verification.accepted` (level accepted, shown on the card; a replayed tap adds nothing). "Не то" moves the ticket to need_you with history `owner_rejected` and suggests Retry. Only the paired owner chat (existing callback guard).
+- T2.5 metrics (`evidence.metrics`, 7 days): closed on evidence, closed by the owner without it, sent back by the owner, and tickets an agent called done that still wait for proof. One line in the 08:00 brief, only when any is non-zero.
+- Not done in this step: T2.4 Agent Office panel (the Telegram card already shows level and checks), T2.6 cross-agent review.
+
+## Evidence Protocol Tier 2.4 — Agent Office panel (2026-11-10)
+- "🔎 Proof / Докази / Доказательства" button in the Agent Office header opens the existing generic agent drawer (same pattern as the vault, #302), so the 16-drawer and 26-destination layouts are unchanged. Hidden for read-only viewers.
+- Content from the new owner-only `GET /api/factory/evidence/overview` (`evidence.overview`): 7-day metrics (closed on evidence, closed by the owner without it, sent back, "done" still without proof), the data source (Render's own read vs the worker's snapshot), and the latest 30 tickets with a verification block: level, what is required, each check (✅ server-checked, ☑️ seen only in the worker's data, ❌ failed, · missing; stale commit marked), deploy, owner acceptance, the owner's override reason, PR link.
+- A ticket the owner closed by hand shows "closed by you", not "accepted", even though the level rank is the same.
+- Verified in a real browser (Playwright) on seeded DEMO tickets at 1440 px and 390 px, EN and RU, no page errors. EN/UK/RU strings added; locale parity, drawer and navigation tests pass.
+
+## Evidence Protocol Tier 2.6 — cross-agent review, option A (2026-11-11, owner chose A)
+- `peer_review.py`: Gemini reviews **Claude-authored** Relay PRs only when the diff touches a risky path (auth, token, secret, vault, OAuth, password, credential, payment, billing, budget, publish, approval, `.github/workflows/`, `requirements.txt`) or changes more than 300 lines. Gemini's own PRs are not reviewed by Gemini; Claude keeps reviewing those at merge time.
+- When required, the server (not the agent) adds `peer_review` to the ticket's required checks; the ticket does not close until Gemini has no blocking finding on the current head, or the owner closes it with a reason. A new push needs a new review. If the diff cannot be read, review is treated as required (a risky PR cannot close unreviewed during a GitHub hiccup).
+- Runs in the server's PR reconcile, before closing, only with Render's own GitHub read (`/pulls/{n}/files`), only after CI is green on the head; at most 2 per cycle and 20 per UTC day (persisted). Free Gemini key, stable `gemini-2.5-flash`, JSON verdict; any error, malformed answer, missing key or cap → nothing recorded as passed, retried after 30 minutes.
+- What is sent to Google: the changed files' patches (secret patterns redacted, 60k characters max, lock/binary files skipped), the ticket title and text. Owner accepted the free-tier data-use trade-off when choosing option A.
+- The verdict is an opinion, not proof: approval never closes a ticket by itself (merge + CI still required), blockers can be overridden by the owner. The owner gets one Telegram notice per review (findings listed); findings also show in the Proof panel. No PR comment is posted: the server only holds a read-only GitHub token, and posting with the Builder token was not attempted.
+
+## CI runner pinned to ubuntu-24.04 (2026-11-11)
+- `ubuntu-latest` became Ubuntu 26.04; `actions/setup-python` has no Python 3.9 for it ("version '3.9' ... not found for Ubuntu 26.04"), so `syntax-and-smoke` failed in 7 seconds before any test, on every branch. The job needs 3.9 because the deployed EC2 worker runs 3.9. The job is pinned to `ubuntu-24.04`; nothing else changes. Revisit when the worker moves off 3.9 (24.04 runners will be retired eventually).
+
+## Worker branch unstuck (2026-11-11)
+- Owner's live `/new` test (R-0063) ran the legacy path: commit on `autopilot/aws-worker`, no ticket branch, no PR, so no CI/merge evidence and no owner buttons. Cause: `autopilot/aws-worker` had not merged `main` since 2026-11-06 — its own R-0051 version of #259 conflicts with main's #259, and `sync_branch` keeps running the old code on a conflict. The worker had reported this itself in R-0058.
+- Fix: `main` merged with `autopilot/aws-worker`, conflicts resolved to main's code (`app.py`, `relay.py`, `team_tasks.py`, `test_issue_intake.py`); the worker's README `/brief` section (R-0063), the R-0058 verification doc and its test are kept; its DECISIONS entry for the unused #259 variant is dropped. Merged into `autopilot/aws-worker` through a PR (merge commit, no force-push), so its next sync fast-forwards to main and restarts on the current runner code (isolated worktree per ticket).

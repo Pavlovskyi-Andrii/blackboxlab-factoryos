@@ -314,8 +314,16 @@ def pcm_to_mp3(pcm: bytes, rate: int) -> bytes:
 
 def install_mycast_voice_routes(app, log: DeliveryLog, *, authorize_worker: Callable[[Request], bool],
                                 send_audio: Callable[[bytes, str, str, str], None], paired: Callable[[], bool],
-                                api_key: Callable[[], str], model: str = "", voices: tuple[str, str] = ("Charon", "Kore"),
-                                tts: Callable = gemini_tts_pcm, encode: Callable = pcm_to_mp3) -> None:
+                                api_key: Callable[[], str], model: str = "", voices=("Charon", "Kore"),
+                                tts: Callable = gemini_tts_pcm, encode: Callable = pcm_to_mp3,
+                                on_result: Optional[Callable[[dict], None]] = None) -> None:
+    def _note(**row):  # #140 shared history; a history failure never breaks delivery
+        if on_result:
+            try:
+                on_result(row)
+            except Exception:
+                pass
+
     @app.post("/api/factory/mycast/worker/voice-deliver")
     async def mycast_voice_deliver(request: Request):
         if not authorize_worker(request):
@@ -341,7 +349,7 @@ def install_mycast_voice_routes(app, log: DeliveryLog, *, authorize_worker: Call
             def produce():
                 stats: list = []
                 extra = {"stats": stats} if "stats" in inspect.signature(tts).parameters else {}
-                pcm, rate = tts(key, episode, model=model, voices=voices, **extra)
+                pcm, rate = tts(key, episode, model=model, voices=tuple(voices() if callable(voices) else voices), **extra)  # #140: owner's stored pair
                 check_pcm(pcm, rate, lines, stats)  # silence / length / truncated chunk → not delivered
                 audio = encode(pcm, rate)
                 check_mp3(audio)
@@ -354,11 +362,15 @@ def install_mycast_voice_routes(app, log: DeliveryLog, *, authorize_worker: Call
             pcm, rate, audio = await asyncio.to_thread(produce)
         except GeminiTTSError as exc:
             log.release(episode["id"])
+            _note(id=episode["id"], status="failed:" + exc.category)
             raise HTTPException(502, f"gemini tts: {exc.category}")
         except AudioQCError as exc:
             log.release(episode["id"])
+            _note(id=episode["id"], status="failed:qc")
             raise HTTPException(502, f"audio qc: {exc.reason}")
         except Exception:
             log.release(episode["id"])
+            _note(id=episode["id"], status="failed:voice_failed")
             raise HTTPException(502, "voice delivery failed")
+        _note(id=episode["id"], status="sent", seconds=round(len(pcm) / 2 / rate))
         return {"sent": True, "duplicate": False, "voice": "gemini", "seconds": round(len(pcm) / 2 / rate), "bytes": len(audio)}

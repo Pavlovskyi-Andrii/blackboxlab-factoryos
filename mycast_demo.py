@@ -22,7 +22,7 @@ import uuid
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from fastapi import Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -80,9 +80,11 @@ def pcm_to_wav(pcm: bytes, rate: int) -> bytes:
 
 class DemoService:
     def __init__(self, root: Path, *, api_key: Callable[[], str], tts: Callable, clock: Callable[[], float] = time.time,
-                 daily_cap: int = DAILY_CAP, per_client_cap: int = PER_CLIENT_CAP, run_async: bool = True):
+                 daily_cap: int = DAILY_CAP, per_client_cap: int = PER_CLIENT_CAP, run_async: bool = True,
+                 tts_single: Optional[Callable] = None):
         self.root = Path(root)
         self.api_key, self.tts, self.clock = api_key, tts, clock
+        self.tts_single = tts_single      # #281: one chosen voice for a single host
         self.daily_cap, self.per_client_cap, self.run_async = daily_cap, per_client_cap, run_async
         self._lock = threading.Lock()        # guards jobs and the counter file
         self._voice = threading.Lock()       # one Gemini generation at a time
@@ -116,9 +118,10 @@ class DemoService:
     def _cache_path(self, key: str) -> Path:
         return self.root / f"{key}.wav"
 
-    def start(self, lines: Any, language: Any, client: str) -> dict:
+    def start(self, lines: Any, language: Any, client: str, voices: Any = None) -> dict:
         script, lang = validate_script(lines, language)
-        key = hashlib.sha256(json.dumps([script, lang], ensure_ascii=False).encode()).hexdigest()[:32]
+        voices = self._voices(script, voices)
+        key = hashlib.sha256(json.dumps([script, lang, voices], ensure_ascii=False).encode()).hexdigest()[:32]
         now = self.clock()
         if self._cache_path(key).exists():
             job = {"id": uuid.uuid4().hex, "key": key, "state": "ready", "started": now, "finished": now, "cached": True}
@@ -142,19 +145,32 @@ class DemoService:
             self.jobs[job["id"]] = job
             for old in [j for j, v in self.jobs.items() if now - v["started"] > 3600]:
                 self.jobs.pop(old, None)
-        args = (job["id"], script, lang)
+        args = (job["id"], script, lang, voices)
         if self.run_async:
             threading.Thread(target=self._run, args=args, daemon=True).start()
         else:
             self._run(*args)
         return self.view(job["id"])
 
-    def _run(self, job_id: str, script: list, lang: str) -> None:
+    def _voices(self, script: list, voices: Any) -> list:
+        """#281: the chosen Gemini voices. None keeps the old default pair; anything else must be a valid choice."""
+        from mycast_voices import DEFAULTS, valid_voices
+        mode = "narrator" if len({h for h, _ in script}) == 1 and voices and len(voices) == 1 else "two_hosts"
+        if voices is None:
+            return list(DEFAULTS["two_hosts"])
+        if not valid_voices(mode, list(voices)) or (mode == "narrator" and not self.tts_single):
+            raise DemoRefused("bad_voices")
+        return list(voices)
+
+    def _run(self, job_id: str, script: list, lang: str, voices: list) -> None:
         with self._voice:
             job = self.jobs[job_id]
             job["state"], job["voicing_at"] = "voicing", self.clock()
             try:
-                pcm, rate = self.tts(self.api_key(), {"lines": script, "language": lang})
+                if len(voices) == 1:
+                    pcm, rate = self.tts_single(self.api_key(), " ".join(t for _, t in script), voices[0])
+                else:
+                    pcm, rate = self.tts(self.api_key(), {"lines": script, "language": lang}, voices=tuple(voices))
                 if not pcm:
                     raise RuntimeError("no_audio")
                 self.root.mkdir(parents=True, exist_ok=True)
@@ -223,7 +239,7 @@ def install_mycast_demo_routes(app, service: DemoService) -> None:
         if not isinstance(body, dict):
             return JSONResponse({"detail": "bad_body"}, status_code=400)
         try:
-            return service.start(body.get("lines"), body.get("language"), _client_id(request))
+            return service.start(body.get("lines"), body.get("language"), _client_id(request), body.get("voices"))
         except DemoRefused as exc:
             return _err(exc)
 

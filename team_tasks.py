@@ -26,9 +26,6 @@ _DEP_ISSUE = re.compile(r"#(\d+)")
 _DEP_TASK = re.compile(r"\bT-\d+(?:-[A-Z0-9]+)?\b")
 _OWNER_GATE = re.compile(r"\bCONDITIONAL\b|only after|не начинать до|только после", re.I)
 QUEUE_TARGET = 10
-ISSUE_PAGE_SIZE = 100  # GitHub's maximum
-ISSUE_MAX_PAGES = 10  # 1000 open issues; a longer list is reported as truncated, never passed off as complete
-SNAPSHOT_MAX_ISSUES = ISSUE_PAGE_SIZE * (ISSUE_MAX_PAGES + 1)  # every open page plus the recent-activity page
 
 
 def _ts(value) -> float:
@@ -52,7 +49,7 @@ def _agent_of_pr(pr: dict) -> str:
 
 
 def _ci_summary(runs: list) -> dict:
-    """passed | failed | running | none, plus the first failing check name."""
+    """passed | failed | running | none | unknown (a stale run), plus the first failing check name."""
     runs = [r for r in runs or [] if isinstance(r, dict)]
     if not runs:
         return {"state": "none", "failed": ""}
@@ -61,6 +58,24 @@ def _ci_summary(runs: list) -> dict:
         return {"state": "failed", "failed": str(failed[0].get("name") or "")[:80]}
     if any(r.get("status") != "completed" for r in runs):
         return {"state": "running", "failed": ""}
+    if any(r.get("conclusion") == "stale" for r in runs):  # #242: GitHub gave up on it; no result is not a pass
+        return {"state": "unknown", "failed": ""}
+    return {"state": "passed", "failed": ""}
+
+
+def _actions_summary(runs: list) -> dict:
+    """Same labels as _ci_summary, from GitHub Actions workflow runs (fine-grained tokens cannot read check runs)."""
+    runs = [r for r in runs or [] if isinstance(r, dict)]
+    if not runs:
+        return {"state": "none", "failed": ""}
+    bad = [r for r in runs if r.get("status") == "completed"
+           and r.get("conclusion") in ("failure", "cancelled", "timed_out", "action_required", "startup_failure")]
+    if bad:
+        return {"state": "failed", "failed": str(bad[0].get("name") or "")[:80]}
+    if any(r.get("status") != "completed" for r in runs):
+        return {"state": "running", "failed": ""}
+    if any(r.get("conclusion") not in ("success", "skipped", "neutral") for r in runs):
+        return {"state": "unknown", "failed": ""}
     return {"state": "passed", "failed": ""}
 
 
@@ -78,52 +93,60 @@ def github_fetcher(repo: str, token: str) -> Callable[[str], object]:
     return fetch
 
 
-def unique_issues(items: list) -> list:
-    """First entry per issue number. Entries without a number stay, so intake can count them as ignored."""
-    seen, unique = set(), []
-    for item in items:
-        key = str(item["number"]) if isinstance(item, dict) and "number" in item else None
-        if key is None or key not in seen:
-            unique.append(item)
-        if key is not None:
-            seen.add(key)
-    return unique
-
-
-def read_issue_pages(fetch: Callable[[str], object], path: str) -> tuple[list, bool]:
-    """#259: every page of an Issues listing, as (items, truncated). A failed or non-list page raises, so a caller
-    never mistakes a partial read for the full list: a missing open issue would let its dependents start early.
-    An issue that moves between pages during the read shows up twice, hence the dedupe."""
-    items: list = []
-    for page in range(1, ISSUE_MAX_PAGES + 1):
-        raw = fetch(f"{path}&per_page={ISSUE_PAGE_SIZE}&page={page}")
-        if not isinstance(raw, list):
-            raise ValueError("unexpected GitHub response")
-        items.extend(raw)
-        if len(raw) < ISSUE_PAGE_SIZE:
-            return unique_issues(items), False
-    return unique_issues(items), True
-
-
-def read_github(fetch: Callable[[str], object], max_ci: int = 20) -> dict:
+def read_github(fetch: Callable[[str], object], max_ci: int = 20, owner: str = "") -> dict:
+    """Recent activity for the board, plus (#259) every open issue the owner created, so intake from this snapshot
+    does not miss an old open task that is no longer among the 100 most recently updated."""
     try:
-        # Recent activity (closed work included) is one page; open issues are read in full, however old they are.
-        recent = fetch("/issues?state=all&per_page=100&sort=updated&direction=desc")
+        issues = fetch("/issues?state=all&per_page=100&sort=updated&direction=desc")
+        open_truncated = False
+        if owner and isinstance(issues, list):
+            from github_pages import fetch_all
+            open_owner, open_truncated = fetch_all(fetch, "/issues?state=open&creator=" + owner, max_pages=3)
+            seen = {i.get("number") for i in issues if isinstance(i, dict)}
+            issues = issues + [i for i in open_owner if isinstance(i, dict) and i.get("number") not in seen]
         pulls = fetch("/pulls?state=all&per_page=60&sort=updated&direction=desc")
-        if not isinstance(recent, list) or not isinstance(pulls, list):
+        if not isinstance(issues, list) or not isinstance(pulls, list):
             raise ValueError("unexpected GitHub response")
-        open_issues, truncated = read_issue_pages(fetch, "/issues?state=open")
-        issues = unique_issues(recent + open_issues)
         ci = {}
-        for pr in [p for p in pulls if isinstance(p, dict) and p.get("state") == "open"][:max_ci]:
+        # Open PRs, then recently merged ones: Evidence T1.3 needs CI on the commit that was merged.
+        wanted = [p for p in pulls if isinstance(p, dict) and p.get("state") == "open"] + \
+                 [p for p in pulls if isinstance(p, dict) and p.get("state") == "closed" and p.get("merged_at")]
+        via_actions = False
+        for pr in wanted[:max_ci]:
             sha = str((pr.get("head") or {}).get("sha") or "")
             if sha:
                 try:
-                    data = fetch("/commits/" + sha + "/check-runs?per_page=50")
-                    ci[sha] = _ci_summary((data or {}).get("check_runs") if isinstance(data, dict) else [])
+                    if not via_actions:
+                        try:
+                            data = fetch("/commits/" + sha + "/check-runs?per_page=50")
+                        except Exception as exc:
+                            if getattr(exc, "code", None) not in (403, 404):
+                                raise
+                            via_actions = True      # fine-grained token: no Checks permission exists
+                    if via_actions:
+                        data = fetch("/actions/runs?head_sha=" + sha + "&per_page=50")
+                        runs = data.get("workflow_runs") if isinstance(data, dict) else None
+                        if not isinstance(runs, list):
+                            ci[sha] = {"state": "unknown", "failed": ""}
+                            continue
+                        summary = _actions_summary(runs)
+                        total = data.get("total_count")
+                        if summary["state"] in ("passed", "none") and isinstance(total, int) and total > len(runs):
+                            summary = {"state": "unknown", "failed": ""}
+                        ci[sha] = summary
+                        continue
+                    runs = data.get("check_runs") if isinstance(data, dict) else None
+                    if not isinstance(runs, list):  # #242: an unexpected body is unknown, not "no checks"
+                        ci[sha] = {"state": "unknown", "failed": ""}
+                        continue
+                    summary = _ci_summary(runs)
+                    total = data.get("total_count")
+                    if summary["state"] in ("passed", "none") and isinstance(total, int) and total > len(runs):
+                        summary = {"state": "unknown", "failed": ""}  # #242: unseen runs (next page) may be red
+                    ci[sha] = summary
                 except Exception:
                     ci[sha] = {"state": "unknown", "failed": ""}
-        return {"available": True, "issues": issues, "pulls": pulls, "ci": ci, "issues_truncated": truncated}
+        return {"available": True, "issues": issues, "pulls": pulls, "ci": ci, "open_owner_truncated": open_truncated}
     except Exception as exc:
         code = getattr(exc, "code", None)
         return {"available": False, "error": ("HTTP " + str(code)) if code else "GitHub unavailable",
@@ -166,9 +189,15 @@ def _reason(task: dict, agent: str) -> str:
     return "done"
 
 
+_NO_DEPENDS = re.compile(r"^(none|no|n/a|нет|немає|ні)\b|^[-—–]\s", re.I)
+
+
 def _depends(body) -> str:
+    """The Depends: value. "Depends: none …" means no dependencies, even if references follow as context
+    (#289 said "Depends: none for diagnosis … Reuse #41, #61" and was deferred forever behind the open epic #41)."""
     m = _DEPENDS_LINE.search(str(body or ""))
-    return m.group(1).strip()[:300] if m else ""
+    value = m.group(1).strip()[:300] if m else ""
+    return "" if _NO_DEPENDS.match(value) else value
 
 
 def _prs_by_issue(prs: list) -> dict:
@@ -376,14 +405,13 @@ def compact_github(github: dict) -> dict:
               "html_url": p.get("html_url"), "updated_at": p.get("updated_at"), "created_at": p.get("created_at")}
              for p in github.get("pulls") or [] if isinstance(p, dict)]
     return {"available": bool(github.get("available")), "error": str(github.get("error") or "")[:80],
-            "issues": issues, "pulls": pulls, "ci": {str(k)[:64]: v for k, v in (github.get("ci") or {}).items()},
-            "issues_truncated": bool(github.get("issues_truncated"))}
+            "issues": issues, "pulls": pulls, "ci": {str(k)[:64]: v for k, v in (github.get("ci") or {}).items()}}
 
 
 def valid_snapshot(data) -> bool:
     return (isinstance(data, dict) and data.get("available") is True and isinstance(data.get("issues"), list)
             and isinstance(data.get("pulls"), list) and isinstance(data.get("ci"), dict)
-            and len(data["issues"]) <= SNAPSHOT_MAX_ISSUES and len(data["pulls"]) <= 200)
+            and len(data["issues"]) <= 400 and len(data["pulls"]) <= 200)  # 100 recent + up to 300 open owner issues
 
 
 class TeamTasksCache:

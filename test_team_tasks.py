@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from team_tasks import TeamTasksCache, build_team_tasks, compact_github, queue_readiness, read_github
+from team_tasks import TeamTasksCache, _ci_summary, _reason, build_team_tasks, compact_github, queue_readiness, read_github
 
 NOW = 1_800_000_000.0  # fixed clock
 
@@ -54,6 +54,19 @@ class TeamTasksTest(unittest.TestCase):
         self.assertNotIn("PR #15", str(b))                               # unknown branch prefix is not an executor
         self.assertNotIn("#8", {t["id"] for a in b["agents"].values() for t in a["tasks"]})
 
+    def test_reason_all_statuses(self):
+        self.assertEqual(_reason({"status": "in_progress"}, "claude"), "draft_pr")
+        self.assertEqual(_reason({"status": "review", "pr": {"ci": "running"}}, "claude"), "ci_running")
+        self.assertEqual(_reason({"status": "review", "pr": {"ci": "unknown"}}, "claude"), "ci_running")
+        self.assertEqual(_reason({"status": "review", "pr": {"ci": "passed"}}, "claude"), "awaiting_review")
+        self.assertEqual(_reason({"status": "ci_failed"}, "claude"), "ci_failed")
+        self.assertEqual(_reason({"status": "queued", "labels": ["gemini"]}, "gemini"), "gemini_loop")
+        self.assertEqual(_reason({"status": "queued", "labels": []}, "gemini"), "not_started")
+        self.assertEqual(_reason({"status": "queued", "labels": ["gemini"]}, "claude"), "not_started")
+        self.assertEqual(_reason({"status": "waiting_owner"}, "owner"), "owner_action")
+        self.assertEqual(_reason({"status": "blocked"}, "claude"), "blocked_label")
+        self.assertEqual(_reason({"status": "done"}, "claude"), "done")
+
     def test_owner_lane_and_summary(self):
         b = self.board()
         owner = b["agents"]["owner"]
@@ -94,6 +107,17 @@ class TeamTasksTest(unittest.TestCase):
         self.assertEqual(g["ci"], {"s1": {"state": "running", "failed": ""}})
         self.assertEqual(sum(p.startswith("/commits/") for p in calls), 1)  # only open PR heads
 
+    def test_ci_summary(self):
+        self.assertEqual(_ci_summary([]), {"state": "none", "failed": ""})
+        self.assertEqual(_ci_summary(None), {"state": "none", "failed": ""})
+        self.assertEqual(_ci_summary([{"name": "build", "status": "completed", "conclusion": "success"}]),
+                         {"state": "passed", "failed": ""})
+        self.assertEqual(_ci_summary([{"name": "lint", "status": "in_progress", "conclusion": None}]),
+                         {"state": "running", "failed": ""})
+        for conclusion in ("failure", "timed_out", "cancelled", "action_required"):
+            res = _ci_summary([{"name": f"check_{conclusion}", "status": "completed", "conclusion": conclusion}])
+            self.assertEqual(res, {"state": "failed", "failed": f"check_{conclusion}"})
+
     def test_cache(self):
         n = []
         c = TeamTasksCache(ttl=999, min_refresh=0)
@@ -124,7 +148,7 @@ class TeamTasksTest(unittest.TestCase):
         body = json.dumps({"available": True, "issues": [issue(5, "Gemini")], "pulls": [], "ci": {}}).encode()
         with patch.object(app, "FACTORY_PASSWORD", "set-so-auth-is-enforced"), \
              patch.object(app, "FACTORY_CLAUDE_WORKER_TOKEN", "worker-token"), \
-             patch.object(app, "read_github", lambda fetch: {"available": False, "error": "HTTP 403", "issues": [], "pulls": [], "ci": {}}):
+             patch.object(app, "read_github", lambda fetch, **kw: {"available": False, "error": "HTTP 403", "issues": [], "pulls": [], "ci": {}}):
             self.assertEqual(asgi_post("/api/factory/team-tasks/worker/snapshot", None, body)[0], 401)
             self.assertEqual(asgi_post("/api/factory/team-tasks/worker/snapshot", "worker-token", b'{"issues": 1}')[0], 400)
             status, out = asgi_post("/api/factory/team-tasks/worker/snapshot", "worker-token", body)
@@ -209,6 +233,24 @@ class QueueKeeperTest(unittest.TestCase):
         self.assertNotIn("Priority", two["body"])  # the rest of the body is still dropped
         board = build_team_tasks(snap, roadmap=[{"id": "T-593", "done": False}], repo="o/r", now=NOW)
         self.assertEqual(board["queue_keeper"]["counts"]["ready"], 2)
+
+
+class DependsNoneTest(unittest.TestCase):
+    """#289 was deferred forever: "Depends: none for diagnosis … Reuse #41, #61" read as two open dependencies."""
+
+    def test_none_means_no_dependencies_even_with_context_refs(self):
+        from team_tasks import _depends
+        body = "Owner: Claude\nDepends: none for diagnosis and bounded smoke. Reuse #41, #61 and existing Relay."
+        self.assertEqual(_depends(body), "")
+        for text in ("Depends: none", "Depends: None — standalone", "Depends: нет", "Depends: немає (#41 лише для контексту)",
+                     "Depends: n/a", "Depends: - see #41"):
+            self.assertEqual(_depends(text), "", text)
+        self.assertEqual(_depends("Depends: #41, #61"), "#41, #61")                    # a real dependency still counts
+        self.assertEqual(_depends("Depends: nonetheless #41"), "nonetheless #41")      # only the word "none" itself
+        issues = [{"number": 289, "title": "P0 · live E2E", "body": body, "state": "open", "html_url": "u", "labels": []},
+                  {"number": 41, "title": "epic", "body": "x", "state": "open", "html_url": "v", "labels": []}]
+        q = queue_readiness({"available": True, "pulls": [], "issues": issues}, roadmap=[], agent="claude")
+        self.assertIn(289, [t["number"] for t in q["ready"]])
 
 
 if __name__ == "__main__":

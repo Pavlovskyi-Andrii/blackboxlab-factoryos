@@ -107,6 +107,45 @@
   const DURATIONS = [5, 10, 15];
   const LANGUAGES = ['uk', 'ru', 'en'];
   const VOICES = ['narrator', 'two_hosts'];
+  // #281: the 30 prebuilt Gemini TTS voices [name, style, gender by ear]. Must match mycast_voices.VOICES (a test checks).
+  const GEMINI_VOICES = [
+    ['Zephyr', 'Bright', 'f'],
+    ['Puck', 'Upbeat', 'm'],
+    ['Charon', 'Informative', 'm'],
+    ['Kore', 'Firm', 'f'],
+    ['Fenrir', 'Excitable', 'm'],
+    ['Leda', 'Youthful', 'f'],
+    ['Orus', 'Firm', 'm'],
+    ['Aoede', 'Breezy', 'f'],
+    ['Callirrhoe', 'Easy-going', 'f'],
+    ['Autonoe', 'Bright', 'f'],
+    ['Enceladus', 'Breathy', 'm'],
+    ['Iapetus', 'Clear', 'm'],
+    ['Umbriel', 'Easy-going', 'm'],
+    ['Algieba', 'Smooth', 'm'],
+    ['Despina', 'Smooth', 'f'],
+    ['Erinome', 'Clear', 'f'],
+    ['Algenib', 'Gravelly', 'm'],
+    ['Rasalgethi', 'Informative', 'm'],
+    ['Laomedeia', 'Upbeat', 'f'],
+    ['Achernar', 'Soft', 'f'],
+    ['Alnilam', 'Firm', 'm'],
+    ['Schedar', 'Even', 'm'],
+    ['Gacrux', 'Mature', 'f'],
+    ['Pulcherrima', 'Forward', 'f'],
+    ['Achird', 'Friendly', 'm'],
+    ['Zubenelgenubi', 'Casual', 'm'],
+    ['Vindemiatrix', 'Gentle', 'f'],
+    ['Sadachbia', 'Lively', 'm'],
+    ['Sadaltager', 'Knowledgeable', 'm'],
+    ['Sulafat', 'Warm', 'f']];
+  const VOICE_GENDER = Object.fromEntries(GEMINI_VOICES.map(v => [v[0], v[2]]));
+  const DEFAULT_VOICES = { narrator: ['Charon'], two_hosts: ['Charon', 'Kore'] };
+  function validVoices(mode, voices) {
+    if (!Array.isArray(voices) || voices.some(v => !VOICE_GENDER[v])) return false;
+    if (mode === 'narrator') return voices.length === 1 && VOICE_GENDER[voices[0]] === 'm';
+    return voices.length === 2 && voices[0] !== voices[1] && VOICE_GENDER[voices[0]] === 'm' && VOICE_GENDER[voices[1]] === 'f';
+  }
   // Delivery honesty. Telegram is the preferred channel and can be chosen in a draft, but nothing is sent from here.
   // Download works only with a real local file. Viber, WhatsApp and email are planned and cannot be chosen.
   const CHANNELS = { telegram: 'primary_not_connected', download: 'requires_local_file', viber: 'planned', whatsapp: 'planned', email: 'planned' };
@@ -146,10 +185,53 @@
       topicLabel(id, lang).toLowerCase().includes(q));
   }
 
+
+  /* Owner request 2026-11-08: a search like "growth hacking" offers narrower sub-topics to add as the listener's own
+     entries ("Growth hacking: ідеї для стартапів", "… для готового бізнесу", …). Offline templates, no AI call. */
+  const NARROW = {
+    uk: ['ідеї для стартапів', 'для готового бізнесу', 'для малого бізнесу', 'кейси компаній', 'інструменти', 'тренди', 'в Україні', 'для початківців', 'помилки й уроки'],
+    ru: ['идеи для стартапов', 'для готового бизнеса', 'для малого бизнеса', 'кейсы компаний', 'инструменты', 'тренды', 'в Украине', 'для начинающих', 'ошибки и уроки'],
+    en: ['ideas for startups', 'for established business', 'for small business', 'company case studies', 'tools', 'trends', 'in Ukraine', 'for beginners', 'mistakes and lessons'] };
+  const GUESS = [
+    [/growth|маркет|market|sales|продаж|brand|бренд|smm|seo|реклам|advert|startup|стартап|business|бізнес|бизнес|founder|ceo/i, 'business.entrepreneurship'],
+    [/money|financ|фінанс|финанс|invest|інвест|инвест|crypto|крипт|bitcoin|stock|акці|акци/i, 'business.money'],
+    [/(^|[\s,.])(ai|ші|ии)([\s,.]|$)|gpt|claude|gemini|llm|machine learning|нейро/i, 'tech.ai'],
+    [/code|program|програм|python|javascript|dev|розроб|разраб/i, 'tech.programming'],
+    [/secur|безпек|безопас|hack(?!ing\b)|кібер|кибер/i, 'tech.security'],
+    [/health|здоров|sport|спорт|fitness|фітнес|фитнес|run|біг|бег/i, 'health.wellbeing'],
+    [/travel|подорож|путеш|trip|туризм/i, 'travel.trips'],
+    [/film|кіно|кино|music|музик|book|книг|art|мистец|искусств/i, 'culture.arts'],
+    [/science|наук|space|космос|physics|фізик|физик/i, 'science.science_topics'],
+    [/car|авто|tesla|ev\b|електромоб|электромоб/i, 'auto.cars'],
+    [/food|їж|еда|cook|кулін|кулин|recipe|рецепт/i, 'hobbies.food']];
+
+  /** The best taxonomy group for a free query: the group of a matching topic, else a keyword guess, else news. */
+  function guessGroup(query, lang) {
+    const q = String(query || '').trim();
+    const hit = q ? search(q, lang || 'uk')[0] : null;
+    if (hit) return hit.split('.').slice(0, 2).join('.');
+    for (const [re, g] of GUESS) if (re.test(q) && GROUPS[g]) return g;
+    return 'news.headlines';
+  }
+
+  /** Narrower sub-topics for a query, each at most MAX_CUSTOM_LEN characters; the query itself comes first. */
+  function suggestSubtopics(query, lang) {
+    const raw = clean(query, MAX_CUSTOM_LEN);
+    if (raw.length < 2) return [];
+    const q = raw.charAt(0).toUpperCase() + raw.slice(1);
+    const out = [q];
+    for (const facet of NARROW[lang] || NARROW.en) {
+      const text = `${q}: ${facet}`;
+      if (text.length <= MAX_CUSTOM_LEN) out.push(text);
+    }
+    return out;
+  }
+
   function newProfile() {
     return { version: 1, topics: {}, custom: {}, freeText: '', customSources: [], follows: [],
       schedule: { timezone: 'Europe/Kyiv', time: '07:30', frequency: 'daily', days: [], durationMin: 10 },
-      voice: { mode: 'two_hosts', language: 'uk' }, delivery: 'telegram', state: 'draft', preview: null, approvedAt: null };
+      voice: { mode: 'two_hosts', language: 'uk', voices: DEFAULT_VOICES.two_hosts.slice() }, delivery: 'telegram', state: 'draft', preview: null, approvedAt: null,
+      calendar: { birthdays: false, events: false } };
   }
 
   /* Bring an older saved draft up to date: watch list -> follows (keywords), weekly/manual -> chosen days. */
@@ -158,6 +240,7 @@
     if (!saved || typeof saved !== 'object') return base;
     const p = { ...base, ...saved, schedule: { ...base.schedule, ...(saved.schedule || {}) }, voice: { ...base.voice, ...(saved.voice || {}) } };
     p.topics = {}; for (const id of Object.keys(saved.topics || {})) if (INDEX[id]) p.topics[id] = saved.topics[id];
+    p.calendar = { birthdays: !!(saved.calendar && saved.calendar.birthdays === true), events: !!(saved.calendar && saved.calendar.events === true) };
     p.custom = {}; for (const g of Object.keys(saved.custom || {})) if (GROUPS[g] && Array.isArray(saved.custom[g])) p.custom[g] = saved.custom[g].map(v => clean(v, MAX_CUSTOM_LEN)).filter(Boolean).slice(0, MAX_CUSTOM_PER_GROUP);
     p.follows = Array.isArray(saved.follows) ? saved.follows.filter(f => f && PLATFORMS[f.platform] !== undefined && f.value) : [];
     if (Array.isArray(saved.watchList)) for (const w of saved.watchList) if (w && w.value) p.follows.push({ platform: 'web', value: clean(w.value, MAX_FOLLOW_LEN) });
@@ -168,6 +251,7 @@
     delete s.weekday;
     s.days = (Array.isArray(s.days) ? s.days : []).filter(d => WEEKDAYS.includes(d));
     if (!(p.delivery in CHANNELS) || CHANNELS[p.delivery] === 'planned') p.delivery = 'telegram';
+    if (!validVoices(p.voice.mode, p.voice.voices)) p.voice = { ...p.voice, voices: (DEFAULT_VOICES[p.voice.mode] || DEFAULT_VOICES.two_hosts).slice() };
     return { ...p, state: 'draft', preview: null, approvedAt: null };
   }
 
@@ -253,7 +337,28 @@
 
   function update(profile, patch) {
     const next = invalidate(profile);
-    return { ...next, ...patch, schedule: { ...next.schedule, ...(patch.schedule || {}) }, voice: { ...next.voice, ...(patch.voice || {}) } };
+    const voice = { ...next.voice, ...(patch.voice || {}) };
+    // Switching one host <-> two hosts keeps a valid pick: fall back to the defaults when the old choice no longer fits.
+    if (!validVoices(voice.mode, voice.voices)) voice.voices = (DEFAULT_VOICES[voice.mode] || DEFAULT_VOICES.two_hosts).slice();
+    return { ...next, ...patch, schedule: { ...next.schedule, ...(patch.schedule || {}) }, voice };
+  }
+
+  /* Owner note 2026-11-08: an episode = world news + personal interests + friends' birthdays + today's calendar
+     (Google Calendar). Only the wish is stored here; nothing is read from any calendar until the owner approves a
+     read-only Google Calendar connection, so the status stays not_connected. */
+  const CALENDAR_PARTS = ['birthdays', 'events'];
+  function setCalendar(profile, part, on) {
+    if (!CALENDAR_PARTS.includes(part)) throw new Error('bad calendar part ' + part);
+    const next = invalidate(profile);
+    return { ...next, calendar: { ...(next.calendar || { birthdays: false, events: false }), [part]: !!on } };
+  }
+
+  /* #281: pick the Gemini voice for one slot (0 = host A / narrator, 1 = host B). Invalid picks are refused. */
+  function setVoice(profile, slot, name) {
+    const voices = (profile.voice.voices || []).slice();
+    voices[slot] = name;
+    if (!validVoices(profile.voice.mode, voices)) throw new Error('bad voice ' + name);
+    return update(profile, { voice: { voices } });
   }
 
   // Any change to an approved/reviewed/previewed profile drops it back to draft: the old preview no longer matches.
@@ -291,6 +396,7 @@
     if (!DURATIONS.includes(Number(s.durationMin))) errors.push({ field: 'duration', code: 'bad_duration' });
     if (!LANGUAGES.includes((profile.voice || {}).language)) errors.push({ field: 'language', code: 'bad_language' });
     if (!VOICES.includes((profile.voice || {}).mode)) errors.push({ field: 'voice', code: 'bad_voice' });
+    else if (!validVoices(profile.voice.mode, profile.voice.voices)) errors.push({ field: 'voice', code: 'bad_voices' });
     if (String(profile.freeText || '').length > MAX_FREE_TEXT) errors.push({ field: 'freeText', code: 'too_long', max: MAX_FREE_TEXT });
     for (const url of profile.customSources || []) {
       if (!/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}(\/[^\s]*)?$/i.test(url)) errors.push({ field: 'customSources', code: 'bad_url', url });
@@ -375,7 +481,8 @@
         durationMin: Number(s.durationMin) },
       voice: { ...profile.voice },
       delivery: { channel: profile.delivery, status: channelStatus(profile.delivery, profile.preview).reason || 'ready' },
-      preview: profile.preview ? { kind: profile.preview.kind } : null };
+      preview: profile.preview ? { kind: profile.preview.kind } : null,
+      calendar: { birthdays: !!(profile.calendar || {}).birthdays, events: !!(profile.calendar || {}).events, source: 'google_calendar', status: 'not_connected' } };
   }
 
   /* Share link: the listener's settings (never state, preview or approval) packed into a URL-safe string.
@@ -402,7 +509,8 @@
     const s = profile.schedule;
     const data = { v: SHARE_VERSION, n: TOPIC_IDS.length, t, c: profile.custom || {}, f: (profile.follows || []).map(f => [f.platform, f.value]),
       s: [s.timezone, s.time, s.frequency, s.frequency === 'days' ? s.days : [], Number(s.durationMin)],
-      o: [profile.voice.mode, profile.voice.language], d: profile.delivery, x: clean(profile.freeText, MAX_FREE_TEXT) };
+      o: [profile.voice.mode, profile.voice.language, profile.voice.voices], d: profile.delivery, x: clean(profile.freeText, MAX_FREE_TEXT),
+      k: [(profile.calendar || {}).birthdays ? 1 : 0, (profile.calendar || {}).events ? 1 : 0] };
     return b64urlEncode(JSON.stringify(data));
   }
   function decodeShare(code) {
@@ -424,14 +532,19 @@
     p = update(p, { schedule: { timezone: validTimezone(s[0]) ? s[0] : 'Europe/Kyiv', time: /^([01]\d|2[0-3]):[0-5]\d$/.test(s[1]) ? s[1] : '07:30',
       frequency: freq, days: (Array.isArray(s[3]) ? s[3] : []).filter(d => WEEKDAYS.includes(d)), durationMin: DURATIONS.includes(Number(s[4])) ? Number(s[4]) : 10 } });
     const o = Array.isArray(data.o) ? data.o : [];
-    p = update(p, { voice: { mode: VOICES.includes(o[0]) ? o[0] : 'two_hosts', language: LANGUAGES.includes(o[1]) ? o[1] : 'uk' },
+    const mode = VOICES.includes(o[0]) ? o[0] : 'two_hosts';
+    p = update(p, { voice: { mode, language: LANGUAGES.includes(o[1]) ? o[1] : 'uk', voices: validVoices(mode, o[2]) ? o[2] : DEFAULT_VOICES[mode].slice() },
       delivery: CHANNELS[data.d] && CHANNELS[data.d] !== 'planned' ? data.d : 'telegram', freeText: clean(data.x, MAX_FREE_TEXT) });
+    const k = Array.isArray(data.k) ? data.k : [];
+    p = { ...p, calendar: { birthdays: k[0] === 1, events: k[1] === 1 } };
     return { ...p, state: 'draft', preview: null, approvedAt: null };
   }
 
-  return { TAXONOMY, INDEX, GROUPS, TOPIC_IDS, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, PLATFORMS,
+  return { GEMINI_VOICES, VOICE_GENDER, DEFAULT_VOICES, validVoices, setVoice,
+    TAXONOMY, INDEX, GROUPS, TOPIC_IDS, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, PLATFORMS,
     SUGGESTED_FOLLOWS, MIN_TOPICS, MAX_FREE_TEXT, MAX_CUSTOM_PER_GROUP, MAX_FOLLOWS,
-    topicLabel, search, newProfile, migrate, setTopic, setScope, addCustom, removeCustom, normalizeFollow, addFollow, removeFollow,
+    CALENDAR_PARTS, setCalendar,
+    topicLabel, search, guessGroup, suggestSubtopics, newProfile, migrate, setTopic, setScope, addCustom, removeCustom, normalizeFollow, addFollow, removeFollow,
     toggleDay, update, validate, selectionCount, channelStatus, makePreview, markReviewed, approve, toJSON, demoLines, demoScript,
     encodeShare, decodeShare };
 });

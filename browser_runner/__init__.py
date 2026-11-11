@@ -25,8 +25,24 @@ from .sessions import (
     VaultError,
     run_mock_resumable,
 )
+from .vault import (
+    EncryptedCredentialVault,
+    EncryptedSessionStore,
+    Keyring,
+    SecretState,
+    VaultConfigError,
+    make_token_vault,
+    vault_status,
+)
 
 __all__ = [
+    "EncryptedCredentialVault",
+    "EncryptedSessionStore",
+    "Keyring",
+    "SecretState",
+    "VaultConfigError",
+    "make_token_vault",
+    "vault_status",
     "CheckpointStore",
     "CredentialVault",
     "InMemoryVault",

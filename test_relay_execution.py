@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from relay import RelayStore
-from relay_execution import RelayQueue, safe_evidence
+from relay_execution import RelayQueue, lifecycle_text, safe_evidence
 from autopilot import relay_tasks
 # T-590 vertical-slice suite; imported here so the existing CI step runs it.
 from test_relay_lifecycle import TestEndToEndSlice, TestOwnerIntake, TestWorkerLifecycle  # noqa: F401
@@ -16,7 +16,8 @@ from test_roadmap_claims import TestRoadmapClaims, TestWorkerSide  # noqa: F401 
 from test_lane_board import TestApi, TestLaneStates, TestTelegramMatchesWeb, TestWebRenderer  # noqa: F401  (T-599-F)
 from test_issue_intake import TestIssueIntake  # noqa: F401  (T-599-E; no workflow edit possible)
 from test_intake_fallback_contract import IntakeFallbackContract  # noqa: F401  (#258)
-from test_relay_smoke_evidence import SmokeEvidenceTest  # noqa: F401  (#260)
+from test_relay_smoke_evidence import SmokeEvidenceTest
+from test_intake_pagination import FetchAllTest, IntakeTest as PaginationIntakeTest, SnapshotTest  # #259  # noqa: F401  (#260)
 from test_worker_observability import TestEvidence, TestSignals  # noqa: F401  (T-596)
 from test_worker_observability import TestTelegramMatchesWeb as TestWorkerTelegramMatchesWeb  # noqa: F401
 from test_worker_observability import TestWebRenderer as TestWorkerWebRenderer  # noqa: F401
@@ -58,9 +59,13 @@ class TestRelayQueue(unittest.TestCase):
         self.queue.event(tid, "claude-ec2-1", "committed", "Local commit", {"commit": "deadbeef"*5})
         self.queue.event(tid, "claude-ec2-1", "pushed", "git push returned 0", {"pushed": True})
         finished = self.queue.event(tid, "claude-ec2-1", "done", "CLI succeeded")
-        self.assertEqual(finished["status"], "done")
+        # Evidence Protocol: the worker's "done" is a claim; without a merged PR + CI the ticket stays open.
+        self.assertEqual(finished["status"], "in_progress")
         self.assertEqual(finished["execution"]["state"], "done")
         self.assertEqual([e["action"] for e in finished["history"]], ["queued", "claimed", "running", "committed", "pushed", "done"])
+        with self.assertRaises(ValueError):
+            self.store.set_status(tid, "done", actor="owner")                 # no evidence, no reason
+        self.assertEqual(self.store.set_status(tid, "done", actor="owner", note="checked by hand")["status"], "done")
         self.assertEqual(self.queue.claim("claude-ec2-1"), None)
 
     def test_durable_restart_retry_and_no_duplicate(self):
@@ -104,6 +109,22 @@ class TestRelayQueue(unittest.TestCase):
         self.assertNotIn("password", str(val))
         self.assertNotIn("dont-save", str(val))
         self.assertTrue(val["pushed_reported"])
+
+    def test_nonexistent_and_empty_ticket_id_operations(self):
+        t, _ = self.store.create("Existing task")
+        with self.assertRaises(KeyError):
+            self.queue.enqueue("R-9999")
+        with self.assertRaises(KeyError):
+            self.queue.event("R-9999", "good-worker", "running")
+        with self.assertRaises(KeyError):
+            self.queue.enqueue("")
+        with self.assertRaises(KeyError):
+            self.queue.event("", "good-worker", "running")
+
+        with self.store.lock:
+            tickets = self.store._load_unlocked()["tickets"]
+            self.assertEqual(len(tickets), 1)
+            self.assertEqual(tickets[0]["id"], t["id"])
 
 
 class TestRelayCli(unittest.TestCase):
@@ -170,6 +191,138 @@ class TestRelayCli(unittest.TestCase):
                                          emit_fn=lambda *args, **kwargs: stages.append(args))
         self.assertNotEqual(result["status"], "done")
         self.assertEqual(stages[-1][1], "blocked")
+
+
+
+class TestRelayIsolatedRoundTrip(unittest.TestCase):
+    """#289: each ticket runs in its own worktree branch from fresh origin/main, pushes it and opens a PR.
+    Real git (temporary bare origin + runner clone); the Claude CLI and `gh` are fakes."""
+
+    def setUp(self):
+        import subprocess, tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.origin, self.runner = root / "origin.git", root / "runner"
+        run = lambda *a, cwd=root: subprocess.run(a, cwd=cwd, check=True, capture_output=True, text=True)
+        self.run = run
+        run("git", "init", "--bare", "-b", "main", str(self.origin))
+        run("git", "clone", str(self.origin), str(self.runner))
+        for k, v in (("user.email", "w@example.invalid"), ("user.name", "worker")):
+            run("git", "config", k, v, cwd=self.runner)
+        (self.runner / "README.md").write_text("hi\n")
+        run("git", "add", "README.md", cwd=self.runner); run("git", "commit", "-m", "init", cwd=self.runner)
+        run("git", "push", "origin", "HEAD:main", cwd=self.runner)
+        run("git", "checkout", "-b", "autopilot/aws-worker", cwd=self.runner)
+        (self.runner / "local-notes.txt").write_text("the runner's own dirty file\n")    # must survive untouched
+        self.ticket = {"id": "R-0123", "title": "Add verification doc", "execution": {"run_id": "run-1a2b3c4d5e6f"}}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def cli(self, change=True):
+        import subprocess
+        def fake(cmd, cwd=None, **kw):
+            self.assertEqual(cmd[0], "claude")
+            self.cwd = Path(cwd)
+            if change:
+                (Path(cwd) / "docs").mkdir(exist_ok=True)
+                (Path(cwd) / "docs" / "verification.md").write_text("ok\n")
+                subprocess.run(["git", "add", "-A"], cwd=cwd, check=True)
+                subprocess.run(["git", "-c", "user.email=w@example.invalid", "-c", "user.name=w", "commit", "-m", "R-0123 doc"],
+                               cwd=cwd, check=True, capture_output=True)
+            return SimpleNamespace(returncode=0, stdout=json.dumps({"result": "Added the doc"}), stderr="")
+        return fake
+
+    def test_commit_push_pr_without_touching_the_runner(self):
+        stages, prs = [], []
+        out = relay_tasks.execute_isolated(self.ticket, self.runner, run_cli=self.cli(),
+                                           emit_fn=lambda *a, **k: stages.append(a),
+                                           pr_fn=lambda wd, br, t, run: (prs.append(br) or ("https://github.com/o/r/pull/77", "")))
+        self.assertEqual(out["status"], "done")
+        self.assertEqual([s[1] for s in stages], ["running", "committed", "pushed", "done"])
+        self.assertEqual(out["branch"], "relay/r-0123-3c4d5e6f")
+        self.assertEqual(stages[-1][3]["pr_url"], "https://github.com/o/r/pull/77")
+        self.assertEqual(prs, [out["branch"]])
+        self.assertNotEqual(self.cwd, self.runner)                                   # ran in its own worktree
+        self.assertFalse(self.cwd.exists())                                          # and it was cleaned up
+        self.assertEqual(relay_tasks.git(self.runner, "branch", "--show-current")[1], "autopilot/aws-worker")
+        self.assertTrue((self.runner / "local-notes.txt").exists())                  # dirty runner file untouched
+        remote = self.run("git", "ls-remote", "--heads", str(self.origin)).stdout
+        self.assertIn("refs/heads/" + out["branch"], remote)                         # really pushed
+        self.assertIn("refs/heads/main", remote)
+
+    def test_no_change_means_done_without_pr(self):
+        stages = []
+        out = relay_tasks.execute_isolated(self.ticket, self.runner, run_cli=self.cli(change=False),
+                                           emit_fn=lambda *a, **k: stages.append(a),
+                                           pr_fn=lambda *a: self.fail("no PR without a commit"))
+        self.assertEqual(([s[1] for s in stages], out["status"]), (["running", "done"], "done"))
+
+    def test_pushed_but_no_pr_is_blocked_not_done(self):
+        stages = []
+        out = relay_tasks.execute_isolated(self.ticket, self.runner, run_cli=self.cli(),
+                                           emit_fn=lambda *a, **k: stages.append(a),
+                                           pr_fn=lambda *a: ("", "gh unavailable: FileNotFoundError"))
+        self.assertEqual(out["status"], "blocked")
+        self.assertEqual([s[1] for s in stages], ["running", "committed", "pushed", "blocked"])
+        self.assertIn("PR не создан", stages[-1][2])
+
+    def test_branch_name_is_safe(self):
+        self.assertEqual(relay_tasks.relay_branch("R-0123", "run-1a2b3c4d5e6f"), "relay/r-0123-3c4d5e6f")
+        self.assertEqual(relay_tasks.relay_branch("../x", ""), "relay/x-run")
+
+
+
+class TestRelayPrReconcile(unittest.TestCase):
+    """#289 server side: the ticket's PR is followed from the GitHub snapshot; each transition is told once."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = RelayStore(Path(self.tmp.name) / "relay.json")
+        self.queue = RelayQueue(self.store)
+        t, _ = self.store.create("Round trip")
+        self.tid = t["id"]
+        claimed = self.queue.claim("w1")
+        run = claimed["execution"]["run_id"]
+        self.url = "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/pull/901"
+        self.queue.event(self.tid, "w1", "running", "", {}, run_id=run, event_id=run + ":1:running")
+        self.queue.event(self.tid, "w1", "done", "PR opened", {"pr_url": self.url, "branch": "relay/r-0001-x"},
+                         run_id=run, event_id=run + ":2:done")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def pr(self, **over):
+        return {"number": 901, "html_url": self.url, "state": "open", "merged_at": None, "head": {"sha": "abc123"}, **over}
+
+    def test_ci_then_merge_each_told_once(self):
+        q = self.queue
+        self.assertEqual(q.reconcile_pull_requests([self.pr()], {}), [])                              # CI unknown: silent
+        self.assertEqual(q.reconcile_pull_requests([self.pr()], {"abc123": {"state": "running"}}), [])
+        n = q.reconcile_pull_requests([self.pr()], {"abc123": {"state": "failed", "failed": "syntax-and-smoke"}})
+        self.assertEqual([(x["action"], "CI упал (syntax-and-smoke)" in x["text"]) for x in n], [("ci", True)])
+        self.assertEqual(q.reconcile_pull_requests([self.pr()], {"abc123": {"state": "failed", "failed": "x"}}), [])  # no repeat
+        n = q.reconcile_pull_requests([self.pr(head={"sha": "def456"})], {"def456": {"state": "passed"}})
+        self.assertIn("готов к ревью и мержу", n[0]["text"])
+        n = q.reconcile_pull_requests([self.pr(state="closed", merged_at="2026-11-08T20:00:00Z")], {})
+        self.assertEqual(n[0]["action"], "merged")
+        self.assertEqual(q.reconcile_pull_requests([self.pr(state="closed", merged_at="2026-11-08T20:00:00Z")], {}), [])
+        text = lifecycle_text(self.store.get(self.tid))
+        self.assertIn("✅ ci", text)
+        self.assertIn("merged", text)
+        self.assertNotIn("merged — не проверено", text)
+        self.assertIn("deployed — не проверено", text)                                # deploy is still not claimed
+
+    def test_closed_without_merge_and_missing_pr(self):
+        self.assertEqual(self.queue.reconcile_pull_requests([], {}), [])                              # not in the read
+        n = self.queue.reconcile_pull_requests([self.pr(state="closed")], {})
+        self.assertEqual(n[0]["action"], "pr_closed")
+        self.assertEqual(self.queue.reconcile_pull_requests([self.pr(state="closed")], {}), [])
+
+    def test_failed_ci_shows_red_in_the_trace(self):
+        self.queue.reconcile_pull_requests([self.pr()], {"abc123": {"state": "failed", "failed": "ui"}})
+        self.assertIn("❌ ci", lifecycle_text(self.store.get(self.tid)))
 
 
 if __name__ == "__main__":

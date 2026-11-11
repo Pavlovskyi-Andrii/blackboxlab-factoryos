@@ -37,6 +37,7 @@ QUESTION_STATES = ("pending", "answering", "answered", "failed")
 # Internal round-trip probe: the worker asks itself a question so the site → worker → answer → Telegram
 # chain is proven regularly without the owner and without a Claude run. Never shown in the owner UI.
 SELFTEST_TASK = "SELFTEST"
+TELEGRAM_TASK = "TELEGRAM"  # owner-only `/ask` input; not a ROADMAP runbook
 STALE_QUESTION_SECONDS = 3600
 
 RENDER_ENV = ("Render → Dashboard → сервис blackboxlab-factoryos → вкладка Environment → "
@@ -175,6 +176,27 @@ RUNBOOKS: list[dict[str, Any]] = [
              "if": [{"when": "Хотите начать раньше", "then": "Можно заранее создать аккаунты разработчика (Google Cloud, Meta for Developers, TikTok for Developers, HubSpot developer) — это бесплатно и ни к чему не обязывает."}]},
         ],
         "done": "У каждого провайдера есть боевые client credentials только в секретном хранилище и одобренный callback URL.",
+    },
+    {
+        "id": "T-560-G",
+        "title": "Ключ шифрования хранилища (FACTORY_VAULT_KEY) в Render",
+        "why": "Без ключа зашифрованное хранилище логинов, браузерных сессий и OAuth-токенов выключено, и фабрика отказывается их сохранять. Ключ ничего платного не включает.",
+        "time": "≈5 минут",
+        "steps": [
+            {"id": "generate", "title": "Сгенерируйте ключ",
+             "do": ["На своём компьютере в папке проекта выполните: python -c \"from browser_runner.vault import generate_key; print(generate_key())\"",
+                    "Получится строка из 44 символов, это секрет. " + NO_SECRETS],
+             "check": "Строка длиной 44 символа, оканчивается на «=».",
+             "if": [{"when": "Ошибка «No module named cryptography»", "then": "Сначала выполните pip install cryptography, потом повторите."}]},
+            {"id": "render", "title": "Добавьте ключ в Render",
+             "do": [RENDER_ENV + ".",
+                    "Key: FACTORY_VAULT_KEY, Value: ваш ключ (без пробелов и кавычек).",
+                    "Сохраните ключ ещё в менеджере паролей: без него сохранённые сессии и токены не расшифровать.",
+                    RENDER_SAVE],
+             "check": "GET /api/factory/vault/status показывает configured: true.",
+             "if": [{"when": "configured: false и причина «must be 32 bytes»", "then": "Ключ вставлен не полностью или с пробелом. Сгенерируйте новый и вставьте заново."}]},
+        ],
+        "done": "GET /api/factory/vault/status показывает configured: true.",
     },
     {
         "id": "T-605",
@@ -421,7 +443,7 @@ class QuestionStore:
         with self._lock:
             items = self._load()
             self._expire_leases(items)
-        owner_items = [q for q in items if q.get("task_id") != SELFTEST_TASK]
+        owner_items = [q for q in items if q.get("task_id") not in (SELFTEST_TASK, TELEGRAM_TASK)]
         return [{k: v for k, v in q.items() if k != "claimed_ts"} for q in owner_items[-limit:]]
 
     def queue_stats(self) -> dict[str, Any]:
@@ -441,8 +463,9 @@ class QuestionStore:
         stale = [q.get("task_id") for q, age in zip(open_items, ages) if age > STALE_QUESTION_SECONDS]
         return {"open": len(open_items), "oldest_seconds": oldest, "stale_tasks": stale}
 
-    def create(self, task_id: str, step_id: str, quote: str, question: str) -> dict[str, Any]:
-        if task_id not in RUNBOOK_BY_ID and task_id != SELFTEST_TASK:
+    def create(self, task_id: str, step_id: str, quote: str, question: str, source_key: str = "",
+               meta: Optional[dict] = None) -> dict[str, Any]:
+        if task_id not in RUNBOOK_BY_ID and task_id not in (SELFTEST_TASK, TELEGRAM_TASK):
             raise ValueError("unknown task")
         quote, question = _clean(quote, QUOTE_MAX), _clean(question, QUESTION_MAX)
         if not question:
@@ -452,12 +475,20 @@ class QuestionStore:
         with self._lock:
             items = self._load()
             self._expire_leases(items)
+            if source_key:
+                existing = next((q for q in items if q.get("source_key") == source_key), None)
+                if existing:
+                    return existing
             if task_id == SELFTEST_TASK and any(q.get("task_id") == SELFTEST_TASK and q.get("status") in ("pending", "answering") for q in items):
                 raise OverflowError("a self-test is already in flight")
             if sum(1 for q in items if q.get("status") in ("pending", "answering")) >= MAX_OPEN_QUESTIONS:
                 raise OverflowError("too many open questions")
             item = {"id": "Q-" + secrets.token_hex(4), "task_id": task_id, "step_id": step_id, "quote": quote,
                     "question": question, "status": "pending", "created_at": _now_iso(), "answer": ""}
+            if source_key:
+                item["source_key"] = _clean(source_key, 120)
+            if meta and isinstance(meta, dict):  # #129: where the answer goes back (a Telegram group thread id)
+                item["meta"] = {str(k)[:40]: _clean(str(v), 80) for k, v in list(meta.items())[:5]}
             items.append(item)
             self._save(items)
         return item
@@ -517,7 +548,8 @@ def install_owner_desk_routes(app, store: QuestionStore, identity_fn: Callable[[
                               authorize_worker: Callable[[Request], bool],
                               status_fn: Callable[[], dict[str, dict[str, str]]],
                               redact_fn: Callable[[str], str] = lambda s: s,
-                              notify_owner: Optional[Callable[[str], Any]] = None) -> None:
+                              notify_owner: Optional[Callable[[str], Any]] = None,
+                              route_answer: Optional[Callable[[dict], bool]] = None) -> None:
     def require_owner(request: Request) -> None:
         if (identity_fn(request) or {}).get("role") != "owner":
             raise HTTPException(403, "Owner access required")
@@ -576,10 +608,22 @@ def install_owner_desk_routes(app, store: QuestionStore, identity_fn: Callable[[
             raise HTTPException(400, str(exc))
         except LookupError as exc:
             raise HTTPException(409, str(exc))
+        if route_answer and item.get("status") == "answered":
+            try:
+                if route_answer(item):  # #129: a group-thread answer is posted to the group, not the private chat
+                    return {"ok": True, "status": item.get("status")}
+            except Exception:
+                pass
         if notify_owner and item.get("status") == "answered":
             try:
-                notify_owner(selftest_message(store.queue_stats()) if item.get("task_id") == SELFTEST_TASK else
-                             f"💬 Ответ на ваш вопрос по {item['task_id']} готов: Worker Center → «Ваши задачи».")
+                if item.get("task_id") == TELEGRAM_TASK:
+                    answer = str(item.get("answer") or "") or "Claude вернул пустой ответ."
+                    parts = [answer[i:i + 3800] for i in range(0, len(answer), 3800)]
+                    for n, part in enumerate(parts, 1):
+                        notify_owner(f"💬 Claude · ответ на {item['id']} ({n}/{len(parts)})\n{part}")
+                else:
+                    notify_owner(selftest_message(store.queue_stats()) if item.get("task_id") == SELFTEST_TASK else
+                                 f"💬 Ответ на ваш вопрос по {item['task_id']} готов: Worker Center → «Ваши задачи».")
             except Exception:
                 pass
         return {"ok": True, "status": item.get("status")}

@@ -106,6 +106,24 @@ test('a Gemini-voiced demo is real audio and downloadable, but still labelled a 
   assert.deepStrictEqual(M.toJSON(out.profile).preview, { kind: 'gemini_demo' });
 });
 
+test('#281 voices: male narrator, male+female pair, mode switch keeps a valid pick, edits reset approval, shared', () => {
+  let p = ready();
+  assert.deepStrictEqual(p.voice.voices, ['Charon', 'Kore']);
+  p = M.setVoice(p, 0, 'Puck'); p = M.setVoice(p, 1, 'Leda');
+  assert.deepStrictEqual(p.voice.voices, ['Puck', 'Leda']);
+  assert.throws(() => M.setVoice(p, 0, 'Kore'));                                  // host A must be male by ear
+  assert.throws(() => M.setVoice(p, 1, 'Puck'));                                  // host B female, and different
+  assert.throws(() => M.setVoice(p, 1, 'Nobody'));
+  const solo = M.update(p, { voice: { mode: 'narrator' } });
+  assert.deepStrictEqual(solo.voice.voices, ['Charon']);                          // two picks do not fit one host
+  assert.deepStrictEqual(M.validate(solo), []);
+  const approved = M.approve(M.markReviewed(M.makePreview(p, { speechSynthesis: true }).profile), true, 't');
+  assert.strictEqual(M.setVoice(approved, 0, 'Orus').state, 'draft');             // a new voice drops approval
+  assert.deepStrictEqual(M.decodeShare(M.encodeShare(p)).voice.voices, ['Puck', 'Leda']);
+  assert.deepStrictEqual(M.validate({ ...p, voice: { ...p.voice, voices: ['Kore', 'Puck'] } }).map(e => e.code), ['bad_voices']);
+  assert.strictEqual(M.GEMINI_VOICES.length, 30);
+});
+
 test('Viber, WhatsApp and email are planned: visible, never selectable', () => {
   for (const ch of ['viber', 'whatsapp', 'email']) {
     assert.deepStrictEqual(M.channelStatus(ch, null), { usable: false, selectable: false, reason: 'planned' });
@@ -209,6 +227,35 @@ test('search finds topics in any language; profile JSON uses stable ids', () => 
   assert.strictEqual(json.delivery.status, 'not_connected');
   assert.deepStrictEqual([json.follows, json.custom], [[], []]);
   assert.strictEqual(json.state, 'draft');
+});
+
+test('a free search offers narrower sub-topics that become valid own entries (owner request 2026-11-08)', () => {
+  const list = M.suggestSubtopics('growth hacking', 'uk');
+  assert.strictEqual(list[0], 'Growth hacking');
+  assert.ok(list.includes('Growth hacking: ідеї для стартапів') && list.includes('Growth hacking: для готового бізнесу'));
+  assert.ok(list.every(v => v.length <= 40));
+  assert.ok(M.suggestSubtopics('growth hacking', 'en').includes('Growth hacking: ideas for startups'));
+  assert.deepStrictEqual(M.suggestSubtopics(' a ', 'uk'), []);
+  assert.ok(M.suggestSubtopics('<b>x</b>yz', 'uk').every(v => !/[<>]/.test(v)));
+  assert.strictEqual(M.guessGroup('growth hacking', 'uk'), 'business.entrepreneurship');
+  assert.strictEqual(M.guessGroup('бокс', 'uk'), 'sports.boxing');           // a real topic match wins
+  assert.strictEqual(M.guessGroup('інші новини', 'uk'), 'news.headlines');   // "ші" inside a word is not AI
+  assert.strictEqual(M.guessGroup('AI agents', 'en'), 'tech.ai');
+  let p = M.newProfile();
+  for (const v of list.slice(1, 3)) p = M.addCustom(p, M.guessGroup('growth hacking', 'uk'), v);
+  assert.deepStrictEqual(M.validate(p), []);                                 // two narrow topics are enough to start
+  assert.strictEqual(M.decodeShare(M.encodeShare(p)).custom['business.entrepreneurship'].length, 2);
+});
+
+test('calendar wishes (birthdays, events) are stored, shared and never claimed as connected', () => {
+  let p = M.newProfile();
+  assert.deepStrictEqual(p.calendar, { birthdays: false, events: false });
+  p = M.setCalendar(p, 'birthdays', true);
+  assert.strictEqual(M.toJSON(p).calendar.status, 'not_connected');           // nothing reads a calendar yet
+  assert.deepStrictEqual(M.decodeShare(M.encodeShare(p)).calendar, { birthdays: true, events: false });
+  assert.deepStrictEqual(M.migrate({ version: 1 }).calendar, { birthdays: false, events: false });   // old drafts
+  assert.deepStrictEqual(M.migrate({ version: 1, calendar: { birthdays: 'yes' } }).calendar.birthdays, false);
+  assert.throws(() => M.setCalendar(p, 'emails', true));
 });
 
 console.log(`MyCast configurator tests passed: ${passed}`);

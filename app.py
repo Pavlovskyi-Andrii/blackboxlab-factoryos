@@ -24,7 +24,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues, relay_github_owner_issues
+from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues, relay_github_owner_issues, _telegram_attachment
+from voice_transcribe import VoiceTranscriber
+from telegram_group import GroupBridge, GROUP_TYPES as TELEGRAM_GROUP_TYPES
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from operator_lanes import build_operator_lanes
@@ -32,11 +34,20 @@ from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compac
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
-from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, install_owner_desk_routes
+from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
-from mycast import DeliveryLog, install_mycast_routes, install_mycast_voice_routes, telegram_send_audio, gemini_tts_pcm
+from mycast import (DeliveryLog, check_mp3, gemini_tts_pcm, install_mycast_routes, install_mycast_voice_routes, pcm_to_mp3,
+                    telegram_send_audio)
 from mycast_demo import DemoService, install_mycast_demo_routes
+from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
+from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
+import evidence as _evidence
+from gemini_proxy import _call as _gemini_raw_call
+from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
+from morning_brief import MorningBrief, compose_brief
+from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_route, install_voice_history_routes,
+                            install_voice_settings_routes)
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
@@ -48,6 +59,16 @@ APP_VERSION = "v5.7.1"
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
+# Evidence Protocol: a separate read-only token, so verification never needs (or enables) the Builder's write token.
+GITHUB_READ_TOKEN = os.environ.get("FACTORY_GITHUB_READ_TOKEN", "").strip()
+def _github_read_token():
+    """Every server-side GitHub *read* (intake, team board, /github, PR reconcile) prefers the read-only token;
+    the Builder's write paths keep FACTORY_GITHUB_TOKEN. Evaluated at call time."""
+    return GITHUB_READ_TOKEN or GITHUB_TOKEN
+if GITHUB_READ_TOKEN:
+    # Evidence Tier 2.1: only Render's own GitHub read counts as "checked" once the read-only token exists.
+    import evidence as _evidence
+    _evidence.set_trusted_sources({"github:render","delivery_log","telegram_api","gemini:review"})
 # T-599-E: owner Issue auto-intake; never polls more often than every 5 minutes.
 FACTORY_GITHUB_ISSUE_INTAKE_ENABLED = os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE", "1").strip().lower() not in ("0","false","no","off")
 FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC = max(300, int(os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC", "300") or 300))
@@ -527,13 +548,16 @@ def _telegram_webhook_authorized(request: Request) -> bool:
 
 
 def _telegram_bridge_authorized(request: Request) -> bool:
-    if not FACTORY_MCP_TOKEN:
+    """#114 C-4: once FACTORY_TELEGRAM_BRIDGE_TOKEN is set, only it opens the bridge (the MCP connector token, which
+    the public /mcp also accepts in a URL, no longer reads the owner's inbox). Unset: the old MCP-token behaviour."""
+    token=os.environ.get("FACTORY_TELEGRAM_BRIDGE_TOKEN","").strip() or FACTORY_MCP_TOKEN
+    if not token:
         return False
     auth=(request.headers.get("authorization") or "").strip()
     if not auth.lower().startswith("bearer "):
         return False
     supplied=auth.split(" ",1)[1].strip()
-    return bool(supplied and hmac.compare_digest(supplied,FACTORY_MCP_TOKEN))
+    return bool(supplied and hmac.compare_digest(supplied,token))
 
 
 def _telegram_load_state() -> dict:
@@ -584,6 +608,16 @@ def _telegram_api(method: str, payload: Optional[dict]=None) -> dict:
     return result
 
 
+def _telegram_send_markup(chat_id: str, text: str, reply_markup: Optional[dict]=None):
+    """#129: send to any chat the bridge already authorised (the paired group); never raises."""
+    try:
+        payload={"chat_id":str(chat_id),"text":str(text)[:4000]}
+        if reply_markup:payload["reply_markup"]=reply_markup
+        _telegram_api("sendMessage",payload)
+        return True
+    except Exception:
+        return False
+
 def _telegram_send_to(chat_id: str, text: str) -> bool:
     target=str(chat_id or "").strip()
     if not target or not FACTORY_TELEGRAM_BOT_TOKEN:
@@ -632,6 +666,9 @@ async def sync_telegram_relay_webhook():
             {"command":"github","description":"GitHub PR, коммиты и CI"},
             {"command":"roadmap","description":"Roadmap и открытые задачи"},
             {"command":"new","description":"Создать новую задачу"},
+            {"command":"ask","description":"Вопрос Claude: /ask текст"},
+            {"command":"group","description":"Привязать группу FactoryOS Team"},
+            {"command":"brief","description":"Ранковий брифінг 08:00: on / off / test"},
             {"command":"work","description":"Перевести тикет в работу"},
             {"command":"need","description":"Нужно действие от меня"},
             {"command":"done","description":"Закрыть тикет"},
@@ -686,6 +723,11 @@ def _mycast_send_audio(audio, filename, title, caption):
                         filename=filename, title=title, caption=caption)
 
 MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
+GROUP_BRIDGE = GroupBridge(DATA_DIR, ask=lambda text, source_key="", meta=None: OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",text,source_key=source_key,meta=meta))
+VOICE_TRANSCRIBER = VoiceTranscriber(DATA_DIR, api_key=lambda: FACTORY_GEMINI_API_KEY, bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN)
+VOICE_REASONS = {"not_configured":"ключ Gemini не задан","daily_limit":"дневной лимит 30 голосовых исчерпан","too_long":"слишком длинное, больше ~3 минут","rate_limited":"Gemini перегружен, попробуй позже","invalid_key":"ключ Gemini не принят","telegram_file_unavailable":"Telegram не отдал файл","empty_transcript":"пустой результат","model_not_found":"модель Gemini недоступна"}
+VOICE_SETTINGS = VoiceSettingsStore(DATA_DIR)
+VOICE_HISTORY = VoiceHistory(DATA_DIR)
 _mycast_paired = lambda: bool(FACTORY_TELEGRAM_BOT_TOKEN and _telegram_public_status().get("paired"))
 install_mycast_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
                       send_audio=_mycast_send_audio, paired=_mycast_paired)
@@ -693,13 +735,54 @@ install_mycast_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_au
 install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
                             send_audio=_mycast_send_audio, paired=_mycast_paired, api_key=lambda: FACTORY_GEMINI_API_KEY,
                             model=os.environ.get("FACTORY_MYCAST_TTS_MODEL", "").strip(),
-                            voices=(os.environ.get("FACTORY_MYCAST_VOICE_A", "Charon").strip() or "Charon",
-                                    os.environ.get("FACTORY_MYCAST_VOICE_B", "Kore").strip() or "Kore"))
+                            voices=lambda: VOICE_SETTINGS.current_pair(),
+                            on_result=lambda row: VOICE_HISTORY.record(kind="mycast", item_id=row["id"], status=row["status"],
+                                                                      seconds=row.get("seconds", 0),
+                                                                      voice="+".join(VOICE_SETTINGS.current_pair())))
+# #140: the owner picks the daily two-host pair; owner-only API, same catalogue and pair rule as the demo.
+install_voice_settings_routes(app, VOICE_SETTINGS, is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
+install_voice_history_routes(app, VOICE_HISTORY, is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
+# Morning brief in the owner's host-A voice, once per date: the worker route and the #106 08:00 schedule share it.
+BRIEF_DELIVER = install_brief_route(app, VOICE_HISTORY, MYCAST_DELIVERIES, VOICE_SETTINGS, authorize_worker=_claude_worker_authorized,
+                    api_key=lambda: FACTORY_GEMINI_API_KEY, paired=_mycast_paired,
+                    tts_single=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice),
+                    encode=pcm_to_mp3, send_audio=_mycast_send_audio, check_audio=lambda audio: check_mp3(audio))
 
 # Gemini coder loop on EC2 calls Google through this proxy, so the key never leaves Render.
 install_gemini_worker_routes(app, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # MyCast public demo (owner 2026-11-06): Gemini voices, at most 30 new per UTC day, cached, one at a time.
-install_mycast_demo_routes(app, DemoService(DATA_DIR / "mycast_demo", api_key=lambda: FACTORY_GEMINI_API_KEY, tts=gemini_tts_pcm))
+MYCAST_DEMO = DemoService(DATA_DIR / "mycast_demo", api_key=lambda: FACTORY_GEMINI_API_KEY, tts=gemini_tts_pcm,
+                          tts_single=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice))
+install_mycast_demo_routes(app, MYCAST_DEMO)
+# #281 voice audition: real cached Gemini samples per prebuilt voice (owner: about 30 samples), honest unavailable states.
+install_mycast_voice_audition_routes(app, VoiceSamples(DATA_DIR / "mycast_voices", api_key=lambda: FACTORY_GEMINI_API_KEY,
+                                                       tts=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice)))
+def _mycast_send_listener_sample(chat_id: str, job_id: str) -> None:
+    """#281: one generated demo, as mp3, to the listener's own Telegram chat (delivery opt-in checked by the caller)."""
+    import wave
+    from mycast import pcm_to_mp3
+    try:
+        path = MYCAST_DEMO.audio_path(job_id)
+    except Exception:
+        raise MyCastAccountError("demo_not_ready", 409)
+    with wave.open(str(path)) as w:
+        pcm, rate = w.readframes(w.getnframes()), w.getframerate()
+    telegram_send_audio(FACTORY_TELEGRAM_BOT_TOKEN, str(chat_id), pcm_to_mp3(pcm, rate), filename="mycast-demo.mp3",
+                        title="MyCast · демо", caption="Демо MyCast (не справжній випуск). Розсилку можна зупинити на сторінці MyCast.")
+_MYCAST_BOT_NAME = {"name": "", "at": 0.0}
+def _mycast_bot_username() -> str:
+    # The Login Widget needs the bot's public @username; ask Telegram once an hour, never expose the token.
+    if time.time() - _MYCAST_BOT_NAME["at"] > 3600:
+        _MYCAST_BOT_NAME.update(name=str((_telegram_api("getMe").get("result") or {}).get("username") or ""), at=time.time())
+    return _MYCAST_BOT_NAME["name"]
+# MyCast listener accounts (owner 2026-11-06: open beta, Telegram + Google). Separate cookie; never a staff session.
+install_mycast_account_routes(app, ListenerStore(DATA_DIR / "mycast_listeners.json"), secret=FACTORY_SECRET,
+                              bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN, bot_username=_mycast_bot_username,
+                              google_client_id=lambda: FACTORY_GOOGLE_CLIENT_ID,
+                              google_verify=lambda cred: google_id_token.verify_oauth2_token(cred, google_requests.Request(), FACTORY_GOOGLE_CLIENT_ID),
+                              secure_cookie=FACTORY_PUBLIC_BASE_URL.startswith("https://"),
+                              send_message=lambda chat, text: _telegram_api("sendMessage", {"chat_id": chat, "text": text}),
+                              send_sample=_mycast_send_listener_sample)
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
@@ -708,22 +791,31 @@ install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidenc
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
                           redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
-                          notify_owner=_telegram_send)
+                          notify_owner=_telegram_send,
+                          route_answer=lambda item: GROUP_BRIDGE.deliver_answer(item,_telegram_send_markup))
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast"}
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo")  # demo: capped in mycast_demo
+    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast",
+                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices"}
+    # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
+    # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
+    media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
     claude_worker_api=request.url.path.startswith("/api/claude-worker/") and _claude_worker_authorized(request)
     operator_worker_api=request.url.path.startswith("/api/operator-worker/") and _operator_worker_authorized(request)
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
-    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/")) and _claude_worker_authorized(request)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/")) and _claude_worker_authorized(request)
+    # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
+    if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
+            and not (claude_worker_api or operator_worker_api or local_booster_api)):
+        return JSONResponse({"detail":"worker token required"},status_code=401)
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
@@ -926,7 +1018,67 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
+    # #129 FactoryOS Team group: pairing (/group in the private chat), group commands and decision buttons.
+    owner_chat=str(_telegram_load_state().get("chat_id") or "")
+    g_msg=update.get("message") if isinstance(update.get("message"),dict) else {}
+    g_chat=g_msg.get("chat") if isinstance(g_msg.get("chat"),dict) else {}
+    g_cb=update.get("callback_query") if isinstance(update.get("callback_query"),dict) else {}
+    if g_chat.get("type") in TELEGRAM_GROUP_TYPES or str(g_cb.get("data") or "").startswith("grp:"):
+        result=GROUP_BRIDGE.handle_group(update,owner_chat,_telegram_send_markup)
+        if g_cb.get("id"):
+            try:_telegram_api("answerCallbackQuery",{"callback_query_id":g_cb["id"]})
+            except Exception:pass
+        return {"ok":True,**result}
+    if g_chat.get("type")=="private" and owner_chat and str(g_chat.get("id") or "")==owner_chat:
+        reply=MORNING_BRIEF.handle_private(str(g_msg.get("text") or ""))
+        if reply:
+            _telegram_send_to(owner_chat,reply)
+            return {"ok":True,"action":"morning_brief"}
+        reply=GROUP_BRIDGE.handle_private(str(g_msg.get("text") or ""))
+        if reply:
+            _telegram_send_to(owner_chat,reply)
+            return {"ok":True,"action":"group_pairing"}
+    # #133: Telegram owner -> existing Claude subscription worker question queue.
+    # This precedes the Relay command fallback (which would otherwise treat /ask as unknown).
+    ask_msg=update.get("message") if isinstance(update.get("message"),dict) else {}
+    ask_chat=ask_msg.get("chat") if isinstance(ask_msg.get("chat"),dict) else {}
+    ask_text=str(ask_msg.get("text") or "").strip()
+    ask_cmd=ask_text.split(maxsplit=1)[0].split("@",1)[0].lower() if ask_text.startswith("/") else ""
+    ask_chat_id=str(ask_chat.get("id") or "").strip()
+    if (ask_cmd=="/ask" and ask_chat.get("type")=="private"
+            and ask_chat_id and ask_chat_id==str(_telegram_load_state().get("chat_id") or "")):
+        question=ask_text.split(maxsplit=1)[1].strip() if len(ask_text.split(maxsplit=1))>1 else ""
+        if not question:
+            _telegram_send_to(ask_chat_id,"Использование: /ask Вопрос Claude")
+            return {"ok":True,"action":"ask_help"}
+        update_id=str(update.get("update_id") or "")
+        source_key=("telegram-ask:"+update_id) if update_id else (
+            "telegram-ask:"+ask_chat_id+":"+str(ask_msg.get("message_id") or ""))
+        try:
+            item=OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",question,source_key=source_key)
+        except OverflowError:
+            _telegram_send_to(ask_chat_id,"Очередь вопросов заполнена. Попробуй позже.")
+            return {"ok":True,"action":"ask_full"}
+        except ValueError:
+            _telegram_send_to(ask_chat_id,"Пустой или неподдерживаемый вопрос.")
+            return {"ok":True,"action":"ask_invalid"}
+        _telegram_send_to(ask_chat_id,"Принял вопрос "+item["id"]+". Claude ответит после того, как его воркер заберёт задачу.")
+        return {"ok":True,"action":"ask_queued","question_id":item["id"]}
+    # Owner voice → text (owner: «1 вариант», 2026-11-08): Gemini transcribes the paired owner's voice message,
+    # the owner sees the text, and the Relay ticket gets that text instead of an empty "Голосовое сообщение".
+    voice_msg=update.get("message") if isinstance(update.get("message"),dict) else {}
+    voice_chat=voice_msg.get("chat") if isinstance(voice_msg.get("chat"),dict) else {}
+    voice_att=_telegram_attachment(voice_msg) if voice_msg else {}
+    if (voice_att and voice_att.get("kind") in ("voice","audio") and not str(voice_msg.get("text") or voice_msg.get("caption") or "").strip()
+            and voice_chat.get("type")=="private" and str(voice_chat.get("id") or "")==str(_telegram_load_state().get("chat_id") or "")):
+        transcript,reason=await asyncio.to_thread(VOICE_TRANSCRIBER,voice_att)
+        chat=str(voice_chat.get("id"))
+        if transcript:
+            voice_msg["text"]=transcript
+            _telegram_send_to(chat,"🎙 Распознал голосовое (Gemini):\n«"+transcript[:3500]+"»")
+        else:
+            _telegram_send_to(chat,"🎙 Не удалось распознать голосовое ("+VOICE_REASONS.get(reason,reason)+"). Создаю тикет без текста; можно продублировать текстом.")
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,_github_read_token()),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}
@@ -1177,7 +1329,9 @@ async def factory_mcp(request: Request):
                 return JSONResponse({"jsonrpc":"2.0","id":req_id,"error":{"code":-32601,"message":"Unknown tool"}},status_code=404)
             return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":result})
         except Exception as exc:
-            return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,"content":[{"type":"text","text":str(exc)}]}})
+            # #114 D-2: validation messages are meant for the caller; anything else is reported by type only.
+            text=str(getattr(exc,"detail",None) or exc)[:300] if isinstance(exc,(ValueError,HTTPException)) else "internal error ("+type(exc).__name__+")"
+            return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,"content":[{"type":"text","text":text}]}})
     return JSONResponse({"jsonrpc":"2.0","id":req_id,"error":{"code":-32601,"message":"Method not found"}},status_code=404)
 
 @app.get("/mcp")
@@ -1189,7 +1343,13 @@ def factory_mcp_info(request: Request):
     return {"enabled":True,"server":"Blackbox Lab FactoryOS","version":APP_VERSION,"tools":[x["name"] for x in FACTORY_MCP_TOOLS]}
 
 @app.get("/health")
-def health():
+def health(request: Request):
+    """#114 A-1: anyone (Render's health check) gets liveness only; pilot/spend details need a signed-in session."""
+    if not request_identity(request):
+        return {"ok": True, "service": "factoryos", "version": APP_VERSION}
+    return health_details()
+
+def health_details():
     verification=get_paid_verification()
     return {
         "ok": True,
@@ -4920,18 +5080,20 @@ def _artifact_archive_file(artifact):
     return path,archive_meta
 
 @app.get("/api/artifacts/{artifact_id}/media",name="artifact_media")
-def artifact_media(artifact_id:str,download:bool=False):
+def artifact_media(artifact_id:str,request:Request=None,download:bool=False):
     artifact=_artifact_media_row(artifact_id)
     if not artifact:raise HTTPException(404,"Artifact not found")
     path,archive_meta=_artifact_archive_file(artifact)
-    if not path and artifact.get("kind")=="video" and _is_ephemeral_finisher_url(artifact.get("url")):
+    # #114 B-2: only the owner's request may download and rewrite the artifact; viewers and members only read.
+    may_archive=request is None or (request_identity(request) or {}).get("role")=="owner"
+    if may_archive and not path and artifact.get("kind")=="video" and _is_ephemeral_finisher_url(artifact.get("url")):
         try:
             _archive_media_artifact(artifact_id)
             artifact=_artifact_media_row(artifact_id) or artifact
             path,archive_meta=_artifact_archive_file(artifact)
         except Exception as exc:
             if not str(artifact.get("url") or ""):
-                raise HTTPException(410,f"Media is no longer available: {str(exc)[:220]}")
+                raise HTTPException(410,"Media is no longer available ("+type(exc).__name__+")")  # #114 D-2
     if path and archive_meta:
         response=FileResponse(path,media_type=archive_meta.get("content_type") or artifact.get("mime_type") or "application/octet-stream",
                               filename=archive_meta.get("filename") or path.name,
@@ -7276,6 +7438,7 @@ async def start_factory_cycle_reconciler():
         asyncio.create_task(github_issue_intake_loop())
     if FACTORY_PUBLISHER_SCHEDULER_ENABLED:
         asyncio.create_task(publisher_scheduler_loop())
+    asyncio.create_task(morning_brief_loop())
     asyncio.create_task(run_real_world_pilot_once())
     asyncio.create_task(run_media_finisher_pilot_once())
 
@@ -8921,10 +9084,10 @@ def github_issue_intake_once(fetch=None):
 
     Source: Render's own GitHub read, else the fresh EC2 snapshot. Claude issues that Queue Keeper (#231) sees as
     blocked (open Depends, owner gate, another agent's PR) are deferred, so the worker never starts them early."""
-    direct=relay_github_owner_issues(GITHUB_REPO,GITHUB_TOKEN,fetch=fetch)
+    direct=relay_github_owner_issues(GITHUB_REPO,_github_read_token(),fetch=fetch)
     source,render_error,gate_github="render","",None
     if direct.get("available"):
-        issues,owner,truncated=direct["issues"],direct["owner"],bool(direct.get("truncated"))
+        issues,owner=direct["issues"],direct["owner"]
         gate_github={"available":True,"pulls":[],"issues":[{"number":i.get("number"),"title":i.get("title"),"body":i.get("body"),
                      "state":i.get("state"),"html_url":i.get("url"),"labels":[]} for i in issues if isinstance(i,dict)]}
     else:
@@ -8936,7 +9099,6 @@ def github_issue_intake_once(fetch=None):
             return {"ok":False,"error":direct.get("error") or "GitHub unavailable","ec2_snapshot":snapshot_state,
                     "imported":[],"existing":[],"linked":[],"ignored":0}
         issues,owner,source,gate_github=ec2["issues"],GITHUB_REPO.split("/",1)[0],"ec2",ec2["github"]
-        truncated=bool(gate_github.get("issues_truncated"))
     readiness=queue_readiness({**gate_github,"available":True},roadmap=_parse_roadmap_tasks(),agent="claude")
     blocked={t["number"]:t["reasons"] for t in readiness.get("blocked") or []}
     deferred=[{"issue":n,"reasons":r} for n,r in sorted(blocked.items())]
@@ -8944,17 +9106,118 @@ def github_issue_intake_once(fetch=None):
     result={"ok":True,**RELAY_QUEUE.auto_intake_owner_issues(ready,GITHUB_REPO,owner)}
     print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":True,"source":source,"render_error":render_error,
                       "imported":[x["issue"] for x in result["imported"]],"linked":[x["issue"] for x in result["linked"]],
-                      "existing":len(result["existing"]),"ignored":result["ignored"],"deferred":[d["issue"] for d in deferred],
-                      "truncated":truncated}),flush=True)
+                      "existing":len(result["existing"]),"ignored":result["ignored"],"deferred":[d["issue"] for d in deferred]}),flush=True)
     for row in result["imported"]:
         try:_telegram_send(f"📥 Relay {row['ticket']}: GitHub #{row['issue']} (Owner: {row['lane']})\nВ очереди, выполнение ещё не началось.")
         except Exception:pass
-    result.update(source=source,deferred=deferred,render_error=render_error,truncated=truncated)
+    result.update(source=source,deferred=deferred,render_error=render_error)
     return result
 
 def _safe_int(value):
     try:return int(value)
     except (TypeError,ValueError):return 0
+
+
+PEER_REVIEW_BUDGET=ReviewBudget(DATA_DIR)
+
+
+def relay_peer_review_once(pulls,ci,reader,gemini_call=None,limit=2):
+    """Evidence T2.6 (owner option A): Gemini reviews Claude's PRs that touch risky areas or are large, once
+    per head commit after CI is green. Free tier, stable Flash, DAILY_CAP per day; unavailable = retried later."""
+    notices=[]
+    for c in RELAY_QUEUE.review_candidates(pulls,ci,time.time())[:limit]:
+        files=None
+        if not c["scope_known"]:
+            try:files=reader(f"/pulls/{c['number']}/files?per_page=100")
+            except Exception:files=None
+            if not isinstance(files,list):
+                # Unknown diff: be conservative, so a risky PR cannot close unreviewed while GitHub is flaky.
+                RELAY_QUEUE.record_review_scope(c["ticket"],c["head"],True,"diff unreadable")
+                continue
+            required,reason=needs_review(files)
+            RELAY_QUEUE.record_review_scope(c["ticket"],c["head"],required,reason)
+            if not required:
+                continue
+        if not FACTORY_GEMINI_API_KEY or not PEER_REVIEW_BUDGET.take():
+            RELAY_QUEUE.record_review(c["ticket"],c["head"],None,time.time())
+            continue
+        if files is None:
+            try:files=reader(f"/pulls/{c['number']}/files?per_page=100")
+            except Exception:files=None
+        if not isinstance(files,list):
+            RELAY_QUEUE.record_review(c["ticket"],c["head"],None,time.time())
+            continue
+        verdict=gemini_review(FACTORY_GEMINI_API_KEY,build_prompt(c["title"],c["body"],files),gemini_call or _gemini_raw_call)
+        RELAY_QUEUE.record_review(c["ticket"],c["head"],verdict,time.time())
+        print(json.dumps({"event":"PEER_REVIEW","ticket":c["ticket"],"status":"unavailable" if verdict is None else verdict["verdict"],
+                          "blockers":0 if verdict is None else verdict["blockers"]}),flush=True)
+        if verdict is not None:
+            notices.append({"ticket":c["ticket"],"action":"peer_review","text":review_notice_text(c["ticket"],c["url"],verdict)})
+    return notices
+
+
+def relay_pr_reconcile_once(fetch=None):
+    """#289 round trip: follow Relay tickets' PRs (CI passed/failed, merged, closed) and tell the owner once per
+    transition. Evidence Tier 2.1: with FACTORY_GITHUB_READ_TOKEN the facts come from Render's own GitHub read
+    (source github:render, the only source that counts as checked); otherwise, or if that read fails, from the fresh
+    EC2 snapshot, which the worker itself uploads (source github:ec2-snapshot). Unknown stays unknown."""
+    github,source,snapshot_state=None,"github:ec2-snapshot",""
+    if GITHUB_READ_TOKEN or fetch is not None:
+        own=read_github(fetch or github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN))
+        if own.get("available"):
+            github,source,snapshot_state=own,"github:render","render"
+    if github is None:
+        ec2,snapshot_state=_intake_issues_from_ec2_snapshot()
+        if ec2 is None:
+            return {"ok":False,"snapshot":snapshot_state,"notices":0}
+        github=ec2["github"]
+    ci=github.get("ci") if isinstance(github.get("ci"),dict) else {}
+    notices=[]
+    if source=="github:render":
+        notices+=relay_peer_review_once(github.get("pulls") or [],ci,fetch or github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN))
+    notices+=RELAY_QUEUE.reconcile_pull_requests(github.get("pulls") or [],ci,source=source)
+    if source=="github:render":
+        # Evidence T2.2: is a ticket's merge commit inside the build Render runs now? Only from our own read.
+        reader=fetch or github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN)
+
+        def contains(merge_sha):
+            try:
+                data=reader(f"/compare/{merge_sha}...{BUILD_SHA}")
+            except Exception:
+                return None
+            status=str((data or {}).get("status") or "") if isinstance(data,dict) else ""
+            return True if status in ("ahead","identical") else False if status in ("behind","diverged") else None
+        notices+=RELAY_QUEUE.reconcile_deploys(BUILD_SHA,contains)
+    owner_chat=str((_telegram_load_state() or {}).get("chat_id") or "")
+    for n in notices:
+        try:
+            if n.get("markup") and owner_chat:_telegram_send_markup(owner_chat,n["text"],n["markup"])
+            else:_telegram_send(n["text"])
+        except Exception:pass
+    if notices:
+        print(json.dumps({"event":"RELAY_PR_RECONCILE","source":source,"notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
+    return {"ok":True,"snapshot":snapshot_state,"source":source,"notices":len(notices)}
+
+def _morning_brief_compose(date,now):
+    ec2,_state=_intake_issues_from_ec2_snapshot()
+    tickets=RELAY_STORE.list(limit=500)
+    return compose_brief(date,now,github=ec2["github"] if ec2 else None,tickets=tickets,
+                         questions_open=int(OWNER_QUESTIONS.queue_stats().get("open") or 0),
+                         evidence_metrics=_evidence.metrics(tickets,now))
+
+
+MORNING_BRIEF=MorningBrief(DATA_DIR,deliver=lambda date,text:BRIEF_DELIVER(date,text),send_text=_telegram_send,
+                           compose=_morning_brief_compose)
+
+
+async def morning_brief_loop():
+    """#106: owner opt-in (/brief on), 08:00 Europe/Kyiv, one brief per date; see morning_brief.py."""
+    await asyncio.sleep(30)
+    while True:
+        try:await asyncio.to_thread(MORNING_BRIEF.tick)
+        except Exception as exc:
+            print(json.dumps({"event":"MORNING_BRIEF_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
 
 
 async def github_issue_intake_loop():
@@ -8963,6 +9226,9 @@ async def github_issue_intake_loop():
         try:await asyncio.to_thread(github_issue_intake_once)
         except Exception as exc:
             print(json.dumps({"event":"GITHUB_ISSUE_INTAKE_ERROR","error":type(exc).__name__}),flush=True)
+        try:await asyncio.to_thread(relay_pr_reconcile_once)
+        except Exception as exc:
+            print(json.dumps({"event":"RELAY_PR_RECONCILE_ERROR","error":type(exc).__name__}),flush=True)
         await asyncio.sleep(FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC)
 
 
@@ -9216,7 +9482,8 @@ def factory_cycles(limit:int=80):
 
 @app.get("/api/factory-cycles/{cycle_id}")
 def factory_cycle_detail(cycle_id:str):
-    cycle=sync_factory_cycle(cycle_id,True)
+    # #114 B-1: a GET (viewers included) only reads; reconciliation and learning run through POST /sync and /learn.
+    cycle=get_factory_cycle(cycle_id,True)
     if not cycle:raise HTTPException(404,"Factory cycle not found")
     return cycle
 
@@ -9626,13 +9893,143 @@ async def switch_integration(provider: str):
         "history_preserved":True,
     }
 
-# T-551-A: provider OAuth scaffold. No real adapters and no token vault yet (T-552), so
-# authorize refuses with blockers in production; tests inject mock adapters + memory vault.
+# T-551-A: provider OAuth scaffold. No real adapters yet (T-552), so authorize still refuses
+# with blockers in production; tests inject mock adapters + memory vault.
+# T-560-F: tokens go to the AES-256-GCM vault when FACTORY_VAULT_KEY is configured. Missing or
+# malformed key -> UnavailableTokenVault (fail closed); the app still boots.
+def _oauth_token_vault():
+    from browser_runner.vault import Keyring, VaultConfigError, make_token_vault, vault_paths
+    try:
+        keyring=Keyring.from_env()
+    except VaultConfigError:
+        return UnavailableTokenVault()
+    if keyring is None:
+        return UnavailableTokenVault()
+    return make_token_vault(vault_paths(DATA_DIR)["oauth_token"],keyring)
+
 OAUTH_FLOW = OAuthFlow(
     redirect_base=FACTORY_PUBLIC_BASE_URL,
     client_id_lookup=lambda spec: os.environ.get(spec.client_id_env,""),
-    vault=UnavailableTokenVault(),
+    vault=_oauth_token_vault(),
 )
+
+@app.get("/api/factory/vault/status")
+def factory_vault_status(request: Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+    # Owner-visible: configured or not, algorithm, key ids and record counts. Never key material.
+    from browser_runner.vault import vault_status
+    out={**vault_status(DATA_DIR),"oauth_vault":OAUTH_FLOW.vault.kind,"secrets_exposed":False,
+         "credentials":[],"sessions":[],"workspace":tenancy.binding_workspace()}
+    parts=_vault_parts(required=False)
+    if parts:
+        creds,sessions=parts
+        out["credentials"]=list(creds.entries(out["workspace"]))
+        out["sessions"]=list(sessions.entries(out["workspace"]))
+    return out
+
+# T-560-F UI: owner-only vault management. Secrets go in, never come back out: responses carry
+# refs, field kinds, cookie counts and domains only. Workspace comes from the server binding.
+_VAULT_SLUG=re.compile(r"^[a-z0-9][a-z0-9_.-]{0,39}$")
+_VAULT_ACCOUNT=re.compile(r"^[\w.@+ -]{1,80}$")
+
+def _vault_parts(required=True):
+    from browser_runner.sessions import SessionRegistry
+    from browser_runner.vault import (EncryptedCredentialVault,EncryptedSessionStore,Keyring,
+                                      VaultConfigError,vault_paths)
+    try:
+        keyring=Keyring.from_env()
+    except VaultConfigError:
+        keyring=None
+    if keyring is None:
+        if required:raise HTTPException(409,"vault_not_configured")
+        return None
+    paths=vault_paths(DATA_DIR)
+    return (EncryptedCredentialVault(paths["credential"],keyring),
+            EncryptedSessionStore(paths["session"],keyring,SessionRegistry(paths["session_registry"])))
+
+def _vault_owner(request: Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+
+def _vault_binding(body: dict):
+    provider=str(body.get("provider") or "").strip().lower()
+    account=str(body.get("account") or "default").strip()
+    if not _VAULT_SLUG.match(provider):raise HTTPException(400,"invalid_provider")
+    if not _VAULT_ACCOUNT.match(account):raise HTTPException(400,"invalid_account")
+    return tenancy.binding_workspace(),provider,account
+
+@app.post("/api/factory/vault/credentials")
+async def factory_vault_save_credential(request: Request):
+    _vault_owner(request)
+    from browser_runner.sessions import VaultError
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    values={k:str(body.get(k) or "") for k in ("username","password") if body.get(k)}
+    creds,_=_vault_parts()
+    ref=creds.find_ref(workspace_id=workspace,provider=provider,account_binding_id=account) or f"vault://{secrets.token_hex(16)}"
+    try:
+        creds.put(ref,workspace_id=workspace,provider=provider,account_binding_id=account,values=values)
+    except VaultError as e:
+        raise HTTPException(400,str(e))
+    event(None,f"Vault: login saved for {provider}/{account}")
+    return {"ok":True,"ref":ref,"provider":provider,"account":account,"fields":sorted(values),"secrets_exposed":False}
+
+@app.post("/api/factory/vault/credentials/delete")
+async def factory_vault_delete_credential(request: Request):
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    creds,_=_vault_parts()
+    ref=creds.find_ref(workspace_id=workspace,provider=provider,account_binding_id=account)
+    deleted=bool(ref and creds.delete(ref,workspace_id=workspace,provider=provider,account_binding_id=account))
+    if deleted:event(None,f"Vault: login deleted for {provider}/{account}")
+    return {"ok":deleted,"provider":provider,"account":account}
+
+@app.post("/api/factory/vault/sessions")
+async def factory_vault_save_session(request: Request):
+    _vault_owner(request)
+    from browser_runner.sessions import SessionIsolationError, VaultError
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    state=body.get("storage_state")
+    if isinstance(state,str):
+        try:state=json.loads(state)
+        except ValueError:raise HTTPException(400,"storage_state_not_json")
+    _,sessions=_vault_parts()
+    try:
+        sessions.capture(workspace_id=workspace,provider=provider,account_binding_id=account,storage_state=state)
+    except (VaultError,SessionIsolationError,ValueError) as e:
+        raise HTTPException(400,str(e))
+    event(None,f"Vault: browser session saved for {provider}/{account}")
+    return {"ok":True,"provider":provider,"account":account,
+            **sessions.check(workspace_id=workspace,provider=provider,account_binding_id=account),
+            "secrets_exposed":False}
+
+@app.post("/api/factory/vault/sessions/disconnect")
+async def factory_vault_disconnect_session(request: Request):
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    _,sessions=_vault_parts()
+    deleted=sessions.disconnect(workspace_id=workspace,provider=provider,account_binding_id=account)
+    if deleted:event(None,f"Vault: browser session removed for {provider}/{account}")
+    return {"ok":deleted,"provider":provider,"account":account}
+
+@app.post("/api/factory/vault/check")
+async def factory_vault_check(request: Request):
+    # Proves the stored record decrypts with the current key, without returning any value.
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    creds,sessions=_vault_parts()
+    if body.get("kind")=="session":
+        return {"kind":"session","provider":provider,"account":account,
+                **sessions.check(workspace_id=workspace,provider=provider,account_binding_id=account)}
+    ref=creds.find_ref(workspace_id=workspace,provider=provider,account_binding_id=account)
+    if not ref:return {"kind":"login","provider":provider,"account":account,"ok":False,"reason":"no_login"}
+    return {"kind":"login","provider":provider,"account":account,
+            **creds.check(ref,workspace_id=workspace,provider=provider,account_binding_id=account)}
 
 def _oauth_subject(request: Request) -> str:
     identity=request_identity(request) or {}
@@ -11200,7 +11597,7 @@ def get_delegation_board():
                   "human_publish_approval_required":True},
     }
     board["operator_lanes"]=get_delegation_operator_lanes(board["worker"],results,queue)
-    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
+    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,GITHUB_READ_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
                                FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,
                                FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,
                                FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8]
@@ -11281,7 +11678,7 @@ def factory_lane_board(request: Request):
 
 def _board_secret_values():
     return sorted([s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,
-                               GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,
+                               GITHUB_TOKEN,GITHUB_READ_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,
                                FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,
                                FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8],key=len,reverse=True)
 
@@ -11308,8 +11705,21 @@ def get_telegram_lane_board():
     return board
 
 def get_telegram_operator_lanes():
-    """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons."""
-    return get_delegation_board().get("operator_lanes") or []
+    """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons.
+    2026-11-07: each lane also carries its GitHub facts from the cached Team tasks board (never a GitHub read here),
+    so the Gemini lane, which works through GitHub PRs and has no Relay runner, is not shown as merely "not configured"."""
+    lanes=get_delegation_board().get("operator_lanes") or []
+    team=_TEAM_TASKS_CACHE.peek() if "_TEAM_TASKS_CACHE" in globals() else None
+    agents=(team or {}).get("agents") or {}
+    out=[]
+    for lane in lanes:
+        a=agents.get(str((lane or {}).get("operator_id") or "")) if isinstance(lane,dict) else None
+        if isinstance(a,dict):
+            c=a.get("counts") or {}
+            lane={**lane,"github":{"open_prs":int(c.get("review") or 0)+int(c.get("in_progress") or 0)+int(c.get("ci_failed") or 0),
+                                   "done_7d":a.get("done_7d") or 0,"last_activity_at":a.get("last_activity_at") or ""}}
+        out.append(lane)
+    return out
 
 def _owner_decision_cards(roadmap):
     """Owner-desk cards that are open decisions and not already ROADMAP [HUMAN] tasks (those are listed anyway)."""
@@ -11320,10 +11730,48 @@ def _owner_decision_cards(roadmap):
 
 _TEAM_TASKS_CACHE=TeamTasksCache()
 
+def github_read_check(fetch=None):
+    """Evidence Protocol: can the read-only token read what verification needs? Codes only, never the token."""
+    if fetch is None:
+        if not GITHUB_READ_TOKEN:
+            return {"configured":False,"reads":{}}
+        fetch=github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN)
+    reads={}
+    for name,path in (("issues","/issues?per_page=1"),("pulls","/pulls?state=all&per_page=1"),
+                      ("checks","/commits/main/check-runs?per_page=1"),("actions","/actions/runs?per_page=1")):
+        try:
+            data=fetch(path)
+            reads[name]="ok" if isinstance(data,(list,dict)) else "unexpected"
+        except Exception as exc:
+            code=getattr(exc,"code",None)
+            reads[name]=f"http_{code}" if code else "unreachable"
+    # Fine-grained tokens have no Checks permission; CI is then read from Actions runs, which is enough.
+    ci_via="checks" if reads.get("checks")=="ok" else "actions" if reads.get("actions")=="ok" else ""
+    return {"configured":True,"reads":reads,"ci_via":ci_via,
+            "all_ok":reads.get("issues")=="ok" and reads.get("pulls")=="ok" and bool(ci_via)}
+
+
+@app.get("/api/factory/evidence/github-read-check")
+def evidence_github_read_check(request: Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+    return github_read_check()
+
+
+@app.get("/api/factory/evidence/overview")
+def evidence_overview(request: Request):
+    """Evidence T2.4: the Agent Office panel. Owner only; facts from the Relay tickets, no secrets."""
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+    out=_evidence.overview(RELAY_STORE.list(limit=500),time.time())
+    out["source"]="render" if GITHUB_READ_TOKEN else "ec2_snapshot"
+    return out
+
+
 def get_team_tasks(refresh=False):
     """Owner tasks page: Issues/PRs/CI per executor + ROADMAP [HUMAN] tasks + lane heartbeats."""
     def read():
-        github=read_github(github_fetcher(GITHUB_REPO,GITHUB_TOKEN))
+        github=read_github(github_fetcher(GITHUB_REPO,_github_read_token()),owner=GITHUB_REPO.split("/",1)[0])
         if not github.get("available"):
             # Render's token cannot read the repo (seen 2026-11-04: HTTP 403); use the EC2 worker's snapshot (owner's gh login).
             snap=_load_team_snapshot()

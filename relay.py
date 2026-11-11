@@ -10,7 +10,7 @@ import json
 import os
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urlparse
@@ -19,9 +19,9 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+import evidence as proof
 from relay_execution import lifecycle_text
 from lane_board import lane_board_text, telegram_lang
-from team_tasks import read_issue_pages
 from worker_observability import worker_overview_text
 
 RELAY_STATUSES = ("inbox", "in_progress", "need_you", "done", "archived")
@@ -122,7 +122,10 @@ class RelayStore:
         source: Optional[dict] = None,
         created_by: str = "owner",
         priority: str = "normal",
+        owner: str = "claude",
     ) -> tuple[dict, bool]:
+        if owner not in ("claude", "chatgpt", "gemini", "unassigned"):
+            raise ValueError("Invalid owner")
         source = dict(source or {})
         source_key = str(source.get("source_key") or "").strip()
         with self.lock:
@@ -157,21 +160,65 @@ class RelayStore:
                 }],
                 "execution": {
                     "state": "queued",
-                    "owner": "claude",
+                    "owner": owner,
                     "queued_at": now,
                     "attempts": 0,
                     "last_seen_at": None,
-                    "note": "Ожидает работающего Claude worker",
+                    "note": "Ожидает выбора исполнителя" if owner == "unassigned" else "Назначено " + owner + " (не запущено)",
                 },
                 "operator": {
                     "state": "not_requested",
                     "requires_confirmation": False,
                     "confirmation_reason": "",
                 },
+                # Evidence Protocol T1.6: what "done" means is fixed here, from code, not by the agent.
+                "verification": proof.new_verification(proof.task_type_for(owner)),
             }
             state["tickets"].append(item)
             self._save_unlocked(state)
             return dict(item), True
+
+
+    def assign_owner(self, ticket_id: str, lane: str, actor: str = "telegram") -> dict:
+        if lane not in ("claude", "chatgpt", "gemini"):
+            raise ValueError("Invalid lane")
+        with self.lock:
+            data = self._load_unlocked()
+            for task in data["tickets"]:
+                if task.get("id") != ticket_id:
+                    continue
+                ex = task.get("execution") or {}
+                if ex.get("owner") == lane and ex.get("state") == "queued":
+                    return dict(task)
+                if ex.get("owner") != "unassigned" or ex.get("state") != "queued" or task.get("status") != "inbox":
+                    raise ValueError("Already assigned or claimed")
+                now = _now()
+                task["execution"] = {**ex, "owner": lane, "note": "Назначено " + lane + "; пока не запущено"}
+                task["updated_at"] = now
+                task.setdefault("history", []).append({"at": now, "actor": actor, "action": "assigned",
+                    "from_status": "inbox", "to_status": "inbox", "note": "Owner: " + lane})
+                self._save_unlocked(data)
+                return dict(task)
+        raise KeyError(ticket_id)
+
+    def cancel_queued(self, ticket_id: str, actor: str = "telegram") -> dict:
+        with self.lock:
+            data = self._load_unlocked()
+            for task in data["tickets"]:
+                if task.get("id") != ticket_id:
+                    continue
+                ex = task.get("execution") or {}
+                if ex.get("state") != "queued" or task.get("status") != "inbox":
+                    raise ValueError("Cannot cancel active task")
+                now = _now()
+                task["execution"] = {**ex, "state": "cancelled", "note": "Отменено до запуска"}
+                task["status"] = "archived"
+                task["updated_at"] = now
+                task.setdefault("history", []).append({"at": now, "actor": actor, "action": "cancelled",
+                    "from_status": "inbox", "to_status": "archived", "note": "Owner cancelled before worker claim"})
+                self._save_unlocked(data)
+                return dict(task)
+        raise KeyError(ticket_id)
 
     def set_status(self, ticket_id: str, status: str, actor: str = "owner", note: str = "") -> dict:
         status = (status or "").strip().lower()
@@ -185,6 +232,9 @@ class RelayStore:
                     continue
                 before = item.get("status") or "inbox"
                 now = _now()
+                if status == "done" and before != "done" and not proof.satisfied(item):
+                    # T1.4: no evidence, no done. The owner may still close it, with a reason that is kept.
+                    proof.override(item["verification"], actor, note)       # ValueError("evidence_required")
                 item["status"] = status
                 item["updated_at"] = now
                 item.setdefault("history", []).append({
@@ -195,6 +245,37 @@ class RelayStore:
                     "to_status": status,
                     "note": str(note or "")[:1000],
                 })
+                self._save_unlocked(state)
+                return dict(item)
+        raise KeyError(ticket_id)
+
+    def owner_verdict(self, ticket_id: str, accepted: bool, actor: str = "owner") -> dict:
+        """Evidence T2.3: the owner confirms a closed result (level accepted) or sends it back to need_you."""
+        ticket_id = str(ticket_id or "").strip().upper()
+        with self.lock:
+            state = self._load_unlocked()
+            for item in state["tickets"]:
+                if str(item.get("id") or "").upper() != ticket_id:
+                    continue
+                ver = item.get("verification")
+                if ver is None:
+                    raise ValueError("no_verification")
+                now = _now()
+                if accepted:
+                    if ver.get("accepted"):
+                        return dict(item)                       # a replayed tap changes nothing
+                    ver["accepted"] = {"actor": actor[:80], "at": now}
+                    item.setdefault("history", []).append({"at": now, "actor": actor[:80], "action": "owner_accepted",
+                                                           "from_status": item.get("status"), "to_status": item.get("status"),
+                                                           "note": "Результат принят владельцем"})
+                else:
+                    before = item.get("status")
+                    ver["accepted"] = None
+                    item["status"] = "need_you"
+                    item.setdefault("history", []).append({"at": now, "actor": actor[:80], "action": "owner_rejected",
+                                                           "from_status": before, "to_status": "need_you",
+                                                           "note": "Владелец: результат не тот"})
+                item["updated_at"] = now
                 self._save_unlocked(state)
                 return dict(item)
         raise KeyError(ticket_id)
@@ -298,6 +379,12 @@ def _operator_keyboard(lane: Optional[dict] = None) -> dict:
     return {"inline_keyboard": rows}
 
 
+def _assignment_keyboard(ticket_id: str) -> dict:
+    # Owner 2026-11-08: the ChatGPT lane was taken over by Claude (#94), so it is no longer offered here.
+    return {"inline_keyboard": [[{"text": "🟠 Claude", "callback_data": f"relay:assign:{ticket_id}:claude"},
+                                {"text": "🔵 Gemini (через GitHub)", "callback_data": f"relay:assign:{ticket_id}:gemini"}]]}
+
+
 def _ticket_keyboard(ticket_id: str) -> dict:
     return {
         "inline_keyboard": [
@@ -313,6 +400,8 @@ def _ticket_keyboard(ticket_id: str) -> dict:
                 {"text": "🟠 Claude", "callback_data": "relay:operator:claude"},
                 {"text": "🔵 Gemini", "callback_data": "relay:operator:gemini"},
             ],
+            [{"text": "↻ Retry", "callback_data": f"relay:retry:{ticket_id}"},
+             {"text": "✖ Cancel queued", "callback_data": f"relay:cancel:{ticket_id}"}],
             [{"text": "📋 Мои задачи", "callback_data": "relay:list:active"}],
         ]
     }
@@ -341,6 +430,9 @@ def _ticket_card(ticket: dict) -> str:
             lines.append(str(execution["note"])[:230])
         if execution.get("commit"):
             lines.append("Commit: " + str(execution["commit"])[:10] + " (worker report)")
+    proof_line = proof.summary_line(ticket)
+    if proof_line:
+        lines.append(proof_line)
     notes = ticket.get("notes") or []
     if notes:
         lines.append(f"📝 Заметок: {len(notes)}")
@@ -425,6 +517,27 @@ _AVAILABILITY_TEXT = {
 }
 
 
+_COMMAND_LIKE = re.compile(r"^\s*(?:(task|work|done|need|inbox|issue)\s+)?(R-(?:\d+|…|\.\.\.|x+)|#?\d{1,6})\s*$", re.I)
+_BARE_REF = re.compile(r"^\s*R-(?:\d+|…|\.\.\.|x+)\s*$", re.I)
+
+
+def _looks_like_command(text: str) -> bool:
+    """A typed command word without "/" plus a ticket/issue reference, or a bare ticket reference such as "R-…"."""
+    m = _COMMAND_LIKE.match(str(text or ""))
+    return bool(m and (m.group(1) or _BARE_REF.match(str(text or ""))))
+
+
+def _command_hint(text: str, lang: str = "ru") -> str:
+    m = _COMMAND_LIKE.match(str(text or ""))
+    word = (m.group(1) or "task").lower() if m else "task"
+    ref = m.group(2) if m else ""
+    real = bool(re.fullmatch(r"R-\d+|#?\d+", ref or ""))
+    example = f"/{word} {ref.lstrip('#') if word == 'issue' else ref}" if real else f"/{word} R-0034"
+    return {"uk": f"Схоже на команду, тому завдання не створено. Надішліть зі слешем і справжнім номером, наприклад: {example}",
+            "en": f"That looks like a command, so no task was created. Send it with the slash and a real number, e.g. {example}"
+            }.get(lang, f"Похоже на команду, поэтому задача не создана. Отправьте со слешем и настоящим номером, например: {example}")
+
+
 def _t585_lanes(provider: Optional[Callable[[], list]]) -> Optional[dict]:
     """T-586: operator -> T-585 delegation lane; None when the provider is absent or failed."""
     if provider is None:
@@ -446,12 +559,33 @@ def _t585_status_line(lane: dict) -> str:
     return text + " · открытых: " + str(count)
 
 
+def _github_facts(lane: Optional[dict]) -> Optional[dict]:
+    """GitHub activity attached by the app from the cached Team tasks board; None when absent. Never a GitHub read."""
+    g = (lane or {}).get("github") if isinstance(lane, dict) else None
+    if not isinstance(g, dict):
+        return None
+    try:
+        return {"open_prs": max(0, int(g.get("open_prs") or 0)), "done_7d": max(0, int(g.get("done_7d") or 0)),
+                "last": str(g.get("last_activity_at") or "")[:16].replace("T", " ")}
+    except (TypeError, ValueError):
+        return None
+
+
 def _t585_lane_text(name: str, lane: Optional[dict]) -> str:
     """One operator lane from the T-585 delegation board: status, current ticket, open tickets, last result."""
     label = _OPERATOR_LABELS.get(name, name.title())
     if not isinstance(lane, dict):
         return f"{label}\n\nСтатус: {_AVAILABILITY_TEXT['unconfigured']}\nОткрытых тикетов нет."
-    lines = [label, "Статус: " + _AVAILABILITY_TEXT.get(str(lane.get("availability") or ""), "⚪ " + str(lane.get("availability") or "unknown"))]
+    availability = str(lane.get("availability") or "")
+    gh = _github_facts(lane)
+    status = _AVAILABILITY_TEXT.get(availability, "⚪ " + (availability or "unknown"))
+    if availability == "unconfigured" and gh and (gh["open_prs"] or gh["done_7d"]):
+        # The Gemini loop works through GitHub issues/PRs, not a Relay runner: say both facts, not just "not configured".
+        status = "⚫ Relay-runner не подключён — работает через GitHub"
+    lines = [label, "Статус: " + status]
+    if gh:
+        lines.append(f"GitHub: открытых PR {gh['open_prs']} · закрыто за 7 дней {gh['done_7d']}"
+                     + (f" · последняя активность {gh['last']} UTC" if gh["last"] else ""))
     beat = lane.get("heartbeat") or {}
     if beat.get("age_seconds") is not None:
         lines.append("Heartbeat: " + str(int(float(beat["age_seconds"]))) + " сек назад (" + str(beat.get("source") or "?") + ")")
@@ -526,8 +660,11 @@ _HELP_TEXTS = {
         "/workers — Статус воркеров и операторов\n"
         "/operators — Состояние линий операторов\n"
         "/new — Создать новую задачу (напр. /new Текст)\n"
+        "/ask — Задать вопрос Claude (ответ придёт сюда)\n"
+        "/group — Привязать группу FactoryOS Team (код для /pair_group)\n"
+        "/brief — Утренний брифинг 08:00: on / off / test\n"
         "/work — Перевести задачу в работу (напр. /work R-0001)\n"
-        "/done — Завершить задачу (напр. /done R-0001)\n"
+        "/done — Завершить задачу: закроется по доказательствам, иначе /done R-0001 причина\n"
         "/need — Пометить задачу как требующую внимания (напр. /need R-0001)\n"
         "/inbox — Вернуть задачу в inbox (напр. /inbox R-0001)"
     ),
@@ -549,8 +686,11 @@ _HELP_TEXTS = {
         "/workers — Статус воркерів та операторів\n"
         "/operators — Стан ліній операторів\n"
         "/new — Створити нове завдання (напр. /new Текст)\n"
+        "/ask — Запитати Claude (відповідь прийде сюди)\n"
+        "/group — Прив'язати групу FactoryOS Team (код для /pair_group)\n"
+        "/brief — Ранковий брифінг 08:00: on / off / test\n"
         "/work — Взяти завдання в роботу (напр. /work R-0001)\n"
-        "/done — Завершити завдання (напр. /done R-0001)\n"
+        "/done — Завершити завдання: закриється за доказами, інакше /done R-0001 причина\n"
         "/need — Позначити завдання як таке, що потребує уваги (напр. /need R-0001)\n"
         "/inbox — Повернути завдання в inbox (напр. /inbox R-0001)"
     ),
@@ -572,8 +712,11 @@ _HELP_TEXTS = {
         "/workers — Status of workers and operators\n"
         "/operators — Operator lanes status\n"
         "/new — Create a new Relay task (e.g. /new Task text)\n"
+        "/ask — Ask Claude a question (the answer comes here)\n"
+        "/group — Link the FactoryOS Team group (code for /pair_group)\n"
+        "/brief — Morning brief at 08:00: on / off / test\n"
         "/work — Set task status to in progress (e.g. /work R-0001)\n"
-        "/done — Mark task as done (e.g. /done R-0001)\n"
+        "/done — Close a task: by evidence, or /done R-0001 reason\n"
         "/need — Mark task as needing owner attention (e.g. /need R-0001)\n"
         "/inbox — Move task back to inbox (e.g. /inbox R-0001)"
     ),
@@ -724,11 +867,10 @@ def relay_github_snapshot(repo: str = "", token: str = "") -> dict:
 
 
 def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> dict:
-    """T-599-E / #259: list all open Issues created by the repo owner (free GitHub API calls, one per page).
+    """T-599-E: list open Issues created by the repo owner. #259: every page, bounded (github_pages.MAX_PAGES).
 
-    Failure of any page is reported as ``available: False`` with a short code only —
-    never request headers, tokens or response bodies. ``truncated`` means the page
-    limit was reached and more open Issues may exist.
+    Failure is reported as ``available: False`` with a short code only — never
+    request headers, tokens or response bodies.
     """
     import urllib.error
     import urllib.request
@@ -749,7 +891,8 @@ def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> di
             return _json.load(response)
 
     try:
-        raw, truncated = read_issue_pages(fetch or _fetch, "/issues?state=open&creator=" + owner)
+        from github_pages import fetch_all
+        raw, truncated = fetch_all(fetch or _fetch, "/issues?state=open&creator=" + owner)
         # A malformed entry is passed through as-is so intake counts it as ignored
         # instead of failing the whole pass.
         issues = [{
@@ -761,8 +904,7 @@ def relay_github_owner_issues(repo: str = "", token: str = "", fetch=None) -> di
             "author": str((x.get("user") or {}).get("login") or "") if isinstance(x.get("user"), dict) else "",
             "pull_request": bool(x.get("pull_request")),
         } if isinstance(x, dict) else x for x in raw]
-        return {"available": True, "repo": repo, "owner": owner, "checked_at": _now(), "issues": issues,
-                "truncated": truncated}
+        return {"available": True, "repo": repo, "owner": owner, "checked_at": _now(), "issues": issues, "truncated": truncated}
     except Exception as exc:  # network, HTTP, JSON: all mean UNKNOWN, never success
         code = getattr(exc, "code", None)
         return {"available": False, "repo": repo, "owner": owner, "reason": github_error_reason(exc),
@@ -805,7 +947,7 @@ def relay_auto_intake_issues(queue, repo: str, token: str = "", fetch=None) -> d
         return {"ok": False, "error": snapshot.get("error") or "GitHub unavailable",
                 "imported": [], "existing": [], "linked": [], "ignored": 0}
     summary = queue.auto_intake_owner_issues(snapshot["issues"], snapshot["repo"], snapshot["owner"])
-    return {"ok": True, **summary, "truncated": snapshot["truncated"]}
+    return {"ok": True, **summary}
 
 
 def _github_text(snapshot: dict) -> str:
@@ -911,9 +1053,42 @@ def _legacy_lane_lines(provider: Optional[Callable[[], dict]]) -> list:
     return lines
 
 
+def _team_ticket_counts(store: RelayStore) -> str:
+    tasks = store.list(limit=500)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    def finished_last_day(task):
+        # Only a recorded completion transition counts; a stale done flag is insufficient.
+        if (task.get("execution") or {}).get("state") != "done":
+            return False
+        for event in reversed(task.get("history") or []):
+            if event.get("to_status") != "done" and event.get("action") not in ("finished", "completed"):
+                continue
+            try:
+                stamp = datetime.fromisoformat(str(event.get("at") or "").replace("Z", "+00:00"))
+                if stamp.tzinfo is not None and stamp >= cutoff:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
+    lines = ["👥 Relay по исполнителям (назначение ≠ выполнение):"]
+    for lane in ("claude", "chatgpt", "gemini"):
+        items = [t for t in tasks if (t.get("execution") or {}).get("owner") == lane]
+        state = lambda t: (t.get("execution") or {}).get("state")
+        counts = (sum(state(t) == "queued" for t in items),
+                  sum(state(t) in ("claimed", "running", "checkpoint", "committed", "pushed") for t in items),
+                  sum(state(t) in ("blocked", "failed", "stale") for t in items),
+                  sum(finished_last_day(t) for t in items))
+        lines.append(f"{lane}: очередь {counts[0]} · работа {counts[1]} · блок {counts[2]} · готово за 24 ч {counts[3]}")
+    lines.append("Последние 5:")
+    for t in tasks[:5]:
+        ex = t.get("execution") or {}
+        lines.append(f"{t['id']} · {ex.get('owner') or '?'} · {ex.get('state') or '?'} · {t.get('title', '')[:55]}")
+    return "\n".join(lines)
+
+
 def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]], github: Optional[Callable[[], dict]],
                       lane_board: Optional[Callable[[], dict]] = None, lang: str = "ru") -> str:
-    lines = [_active_list_text(store)]
+    lines = [_team_ticket_counts(store), "", _active_list_text(store)]
     if lane_board is not None:
         lines.extend(_lane_section(lane_board, lang))
     else:
@@ -1084,6 +1259,58 @@ def relay_handle_telegram_update(
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
             telegram_api("sendMessage", {"chat_id": chat_id, "text": _active_list_text(store), "reply_markup": _operator_keyboard()})
             return {"handled": True, "action": "list"}
+
+        verdict = re.fullmatch(r"relay:accept:(R-\d{4,8}):(yes|no)", data)
+        if verdict:
+            tid, answer = verdict.groups()
+            try:
+                ticket = store.owner_verdict(tid, answer == "yes", actor="telegram")
+            except (KeyError, ValueError):
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Тикет не найден"})
+                return {"handled": True}
+            telegram_api("answerCallbackQuery", {"callback_query_id": callback_id,
+                                                 "text": "👍 Принято" if answer == "yes" else "Вернул в «нужно от меня»"})
+            if answer == "no":
+                telegram_api("sendMessage", {"chat_id": chat_id, "text": (
+                    f"👎 {tid} вернул в «нужно от меня». Нажми ↻ Retry, чтобы исполнитель переделал, или опиши новую задачу: /new …"),
+                    "reply_markup": _ticket_keyboard(tid)})
+            return {"handled": True, "action": "owner_" + ("accepted" if answer == "yes" else "rejected"), "ticket_id": tid}
+
+        assign = re.fullmatch(r"relay:assign:(R-\d{4,8}):(claude|chatgpt|gemini)", data)
+        if assign:
+            tid, lane = assign.groups()
+            try:
+                task = store.assign_owner(tid, lane)
+            except (KeyError, ValueError):
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Задача уже назначена или недоступна"})
+                return {"handled": True, "action": "assign_refused"}
+            telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Назначено " + lane})
+            note = ("\n\nGemini не имеет Relay-runner: он работает через GitHub-задачи с меткой gemini. "
+                    "Этот тикет сам не запустится — создай Issue для Gemini или переназначь." if lane == "gemini" else "")
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "Назначено (запуск не подтверждён):\n" + _ticket_card(task) + note,
+                                         "reply_markup": _ticket_keyboard(tid)})
+            return {"handled": True, "action": "assigned", "ticket_id": tid, "lane": lane}
+        control = re.fullmatch(r"relay:(retry|cancel):(R-\d{4,8})", data)
+        if control:
+            action, tid = control.groups()
+            task = store.get(tid)
+            stage = ((queue.view(task) if queue and task else task) or {}).get("execution") or {}
+            try:
+                if not task:
+                    raise ValueError("No task")
+                if action == "cancel":
+                    task = store.cancel_queued(tid)
+                else:
+                    if stage.get("state") not in ("blocked", "failed", "stale") or queue is None:
+                        raise ValueError("Retry not allowed")
+                    task = queue.enqueue(tid, actor="telegram")
+            except (KeyError, ValueError):
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Недоступно в текущем состоянии"})
+                return {"handled": True, "action": action + "_refused"}
+            telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Принято"})
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": _ticket_card(task),
+                                         "reply_markup": _ticket_keyboard(tid)})
+            return {"handled": True, "action": action, "ticket_id": tid}
         match_operator=re.fullmatch(r"relay:operator:(claude|gemini)",data)
         if match_operator:
             name=match_operator.group(1)
@@ -1121,6 +1348,10 @@ def relay_handle_telegram_update(
             except KeyError:
                 telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Тикет не найден"})
                 return {"handled": True}
+            except ValueError:
+                telegram_api("answerCallbackQuery", {"callback_query_id": callback_id,
+                                                     "text": f"Нет доказательств. Закрыть вручную: /done {ticket_id} причина"})
+                return {"handled": True, "action": "evidence_required", "ticket_id": ticket_id}
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": STATUS_LABELS[status]})
             telegram_api("sendMessage", {
                 "chat_id": chat_id,
@@ -1173,7 +1404,7 @@ def relay_handle_telegram_update(
                 match = next((x for x in (snapshot.get("issues") or []) if str(x.get("number") or "") == number), None)
             except Exception:
                 match = None
-            if match:
+            if match and snapshot.get("available") and str(match.get("state") or "").lower() == "open":
                 detail = "🔗 GitHub #" + number + "\n" + str(match.get("title") or "") + "\nСтатус: open (проверено в GitHub)\n" + str(match.get("url") or "")
             else:
                 detail = "GitHub #" + number + ": нет в текущей выборке открытых задач. Статус неизвестен; проверь GitHub."
@@ -1226,16 +1457,26 @@ def relay_handle_telegram_update(
         "/inbox": "inbox",
     }
     if command in command_status:
-        parts = text.split(maxsplit=1)
+        parts = text.split(maxsplit=2)
         ticket_id = parts[1].strip().upper() if len(parts) > 1 else ""
+        reason = parts[2].strip() if len(parts) > 2 else ""
         current = store.get(ticket_id)
         ex_state = str(((current or {}).get("execution") or {}).get("state") or "")
         if queue and command == "/done" and ex_state in ("queued", "claimed", "running", "checkpoint", "committed", "pushed"):
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "⏳ Задание ещё не выполнено. Claude должен подтвердить результат."})
             return {"handled": True}
         try:
-            ticket = queue.enqueue(ticket_id, actor="telegram") if command == "/work" and queue else store.set_status(ticket_id, command_status[command], actor="telegram")
-        except (KeyError, ValueError):
+            ticket = queue.enqueue(ticket_id, actor="telegram") if command == "/work" and queue else store.set_status(ticket_id, command_status[command], actor="telegram", note=reason)
+        except ValueError as exc:
+            if str(exc) != "evidence_required":
+                telegram_api("sendMessage", {"chat_id": chat_id, "text": "Не нашёл тикет. Пример: /done R-0001"})
+                return {"handled": True}
+            missing = ", ".join(proof.missing(current or {})) or "доказательства"
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": (
+                f"🔎 {ticket_id} не закрыт: нет доказательств ({missing}).\n"
+                f"Закрыть вручную с причиной: /done {ticket_id} причина")})
+            return {"handled": True, "action": "evidence_required", "ticket_id": ticket_id}
+        except KeyError:
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "Не нашёл тикет. Пример: /done R-0001"})
             return {"handled": True}
         telegram_api("sendMessage", {
@@ -1246,12 +1487,20 @@ def relay_handle_telegram_update(
         return {"handled": True, "ticket_id": ticket_id}
 
     explicit_new = command == "/new"
+    # 2026-11-07: "task R-0034", "need R-0052" or a bare "R-…" without the slash created junk tickets (R-0050, R-0052).
+    # Text that is only a command word and/or a ticket reference is answered with a hint, never queued as work.
+    if not command and _looks_like_command(text):
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _command_hint(text, lang)})
+        return {"handled": True, "action": "command_hint"}
     if command and not explicit_new:
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _help_text(lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "help"}
     if explicit_new:
         parts = text.split(maxsplit=1)
         text = parts[1].strip() if len(parts) > 1 else ""
+        if not text:
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "Пример: /new Исправить страницу Workers"})
+            return {"handled": True, "action": "new_help"}
 
     attachment = _telegram_attachment(message)
     if not text and not attachment:
@@ -1275,11 +1524,17 @@ def relay_handle_telegram_update(
         body=text,
         source=source,
         created_by="telegram",
+        owner="unassigned" if explicit_new else "claude",
     )
+    if not created and update_id:
+        # #241: Telegram redelivered the same update (our first 200 was lost): it was answered already.
+        return {"handled": True, "ticket_id": ticket["id"], "created": False, "replayed": True}
+    choose = explicit_new and (ticket.get("execution") or {}).get("owner") == "unassigned"
     telegram_api("sendMessage", {
         "chat_id": chat_id,
-        "text": ("Создал тикет.\n\n" if created else "Тикет уже существует.\n\n") + _ticket_card(ticket),
-        "reply_markup": _ticket_keyboard(ticket["id"]),
+        "text": ("Выбери исполнителя (выполнение ещё не началось):\n\n" if choose else
+                 ("Тикет уже существует.\n\n" if not created else "Создал тикет.\n\n")) + _ticket_card(ticket),
+        "reply_markup": _assignment_keyboard(ticket["id"]) if choose else _ticket_keyboard(ticket["id"]),
     })
     # Preserve the existing plain-text agent inbox: Relay is the durable task layer,
     # the bridge remains the processing channel.
@@ -1328,6 +1583,8 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
         except KeyError:
             raise HTTPException(404, "Relay ticket not found")
         except ValueError as exc:
+            if str(exc) == "evidence_required":
+                raise HTTPException(409, "evidence_required: give a reason in note to close without evidence")
             raise HTTPException(400, str(exc))
         return {"ok": True, "ticket": ticket}
 
@@ -1348,11 +1605,15 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
         identity = _owner_guard(request, request_identity)
         if queue is None:
             raise HTTPException(503, "Claude queue unavailable")
+        existing = store.get(ticket_id)
+        before = str(queue.view(existing)["execution"].get("state") or "") if existing else ""
         try:
             ticket = queue.enqueue(ticket_id, actor=identity.get("email") or "owner")
         except KeyError:
             raise HTTPException(404, "Relay ticket not found")
-        if notify_owner:
+        # #241: a repeated Run (refresh, retry) on queued/active work changes nothing, so it notifies nothing.
+        requeued = before not in ("queued", "claimed", "running", "checkpoint", "committed", "pushed")  # stale → Retry
+        if notify_owner and requeued:
             try:
                 notify_owner(f"⏳ Relay {ticket_id}: передано Claude; ожидает worker.")
             except Exception:
