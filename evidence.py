@@ -164,7 +164,7 @@ def missing(ticket: dict) -> list[str]:
     return out
 
 
-LABELS = {"pr_merged": "PR смержен", "ci_passed": "CI зелёный", "deployed": "на Render", "delivered_qc": "доставлено после QC",
+LABELS = {"pr_merged": "PR смержен", "ci_passed": "CI зелёный", "deployed": "на Render", "peer_review": "ревью Gemini", "delivered_qc": "доставлено после QC",
           "message_sent": "сообщение отправлено"}
 
 
@@ -214,6 +214,7 @@ def overview(tickets: list, now: float, limit: int = 30) -> dict:
                      "level": level(t), "required_level": ver.get("required_level"), "satisfied": satisfied(t),
                      "checks": checks, "missing": missing(t), "pr_url": ex.get("pr_url") or "",
                      "override": ver.get("override"), "accepted": bool(ver.get("accepted")),
+                     "review": ver.get("review"), "review_reason": (ver.get("review_scope") or {}).get("reason") or "",
                      "updated_at": t.get("updated_at") or ""})
         if len(rows) >= limit:
             break

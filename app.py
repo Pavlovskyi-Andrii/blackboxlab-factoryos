@@ -43,6 +43,8 @@ from mycast_demo import DemoService, install_mycast_demo_routes
 from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
 import evidence as _evidence
+from gemini_proxy import _call as _gemini_raw_call
+from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
 from morning_brief import MorningBrief, compose_brief
 from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_route, install_voice_history_routes,
                             install_voice_settings_routes)
@@ -66,7 +68,7 @@ def _github_read_token():
 if GITHUB_READ_TOKEN:
     # Evidence Tier 2.1: only Render's own GitHub read counts as "checked" once the read-only token exists.
     import evidence as _evidence
-    _evidence.set_trusted_sources({"github:render","delivery_log","telegram_api"})
+    _evidence.set_trusted_sources({"github:render","delivery_log","telegram_api","gemini:review"})
 # T-599-E: owner Issue auto-intake; never polls more often than every 5 minutes.
 FACTORY_GITHUB_ISSUE_INTAKE_ENABLED = os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE", "1").strip().lower() not in ("0","false","no","off")
 FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC = max(300, int(os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC", "300") or 300))
@@ -9116,6 +9118,44 @@ def _safe_int(value):
     except (TypeError,ValueError):return 0
 
 
+PEER_REVIEW_BUDGET=ReviewBudget(DATA_DIR)
+
+
+def relay_peer_review_once(pulls,ci,reader,gemini_call=None,limit=2):
+    """Evidence T2.6 (owner option A): Gemini reviews Claude's PRs that touch risky areas or are large, once
+    per head commit after CI is green. Free tier, stable Flash, DAILY_CAP per day; unavailable = retried later."""
+    notices=[]
+    for c in RELAY_QUEUE.review_candidates(pulls,ci,time.time())[:limit]:
+        files=None
+        if not c["scope_known"]:
+            try:files=reader(f"/pulls/{c['number']}/files?per_page=100")
+            except Exception:files=None
+            if not isinstance(files,list):
+                # Unknown diff: be conservative, so a risky PR cannot close unreviewed while GitHub is flaky.
+                RELAY_QUEUE.record_review_scope(c["ticket"],c["head"],True,"diff unreadable")
+                continue
+            required,reason=needs_review(files)
+            RELAY_QUEUE.record_review_scope(c["ticket"],c["head"],required,reason)
+            if not required:
+                continue
+        if not FACTORY_GEMINI_API_KEY or not PEER_REVIEW_BUDGET.take():
+            RELAY_QUEUE.record_review(c["ticket"],c["head"],None,time.time())
+            continue
+        if files is None:
+            try:files=reader(f"/pulls/{c['number']}/files?per_page=100")
+            except Exception:files=None
+        if not isinstance(files,list):
+            RELAY_QUEUE.record_review(c["ticket"],c["head"],None,time.time())
+            continue
+        verdict=gemini_review(FACTORY_GEMINI_API_KEY,build_prompt(c["title"],c["body"],files),gemini_call or _gemini_raw_call)
+        RELAY_QUEUE.record_review(c["ticket"],c["head"],verdict,time.time())
+        print(json.dumps({"event":"PEER_REVIEW","ticket":c["ticket"],"status":"unavailable" if verdict is None else verdict["verdict"],
+                          "blockers":0 if verdict is None else verdict["blockers"]}),flush=True)
+        if verdict is not None:
+            notices.append({"ticket":c["ticket"],"action":"peer_review","text":review_notice_text(c["ticket"],c["url"],verdict)})
+    return notices
+
+
 def relay_pr_reconcile_once(fetch=None):
     """#289 round trip: follow Relay tickets' PRs (CI passed/failed, merged, closed) and tell the owner once per
     transition. Evidence Tier 2.1: with FACTORY_GITHUB_READ_TOKEN the facts come from Render's own GitHub read
@@ -9131,8 +9171,11 @@ def relay_pr_reconcile_once(fetch=None):
         if ec2 is None:
             return {"ok":False,"snapshot":snapshot_state,"notices":0}
         github=ec2["github"]
-    notices=RELAY_QUEUE.reconcile_pull_requests(github.get("pulls") or [],github.get("ci") if isinstance(github.get("ci"),dict) else {},
-                                                source=source)
+    ci=github.get("ci") if isinstance(github.get("ci"),dict) else {}
+    notices=[]
+    if source=="github:render":
+        notices+=relay_peer_review_once(github.get("pulls") or [],ci,fetch or github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN))
+    notices+=RELAY_QUEUE.reconcile_pull_requests(github.get("pulls") or [],ci,source=source)
     if source=="github:render":
         # Evidence T2.2: is a ticket's merge commit inside the build Render runs now? Only from our own read.
         reader=fetch or github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN)

@@ -499,9 +499,9 @@ class AgentOfficePanelTest(Base):
         self.assertIn("const eb=$('#evidenceOpenBtn');if(eb)eb.style.display=readOnly?'none':'';", script)
         keys = {k for k in re.findall(r"tr\('(evidence\.[A-Za-z0-9_.]+)'", script) if not k.endswith(".")} | {"evidence.open"}
         keys |= {"evidence.level." + x for x in ("claimed", "linked", "checked", "accepted", "override")}
-        keys |= {"evidence.check." + x for x in evidence.RULES["code"]["checks"] + ["deployed"]}
+        keys |= {"evidence.check." + x for x in evidence.RULES["code"]["checks"] + ["deployed", "peer_review"]}
         for lang in ("en", "uk", "ru"):
-            line = next(l for l in script.split("\n") if l.startswith(f'Object.assign(I18N.{lang},{{"evidence.level.override"'))
+            line = next(l for l in script.split("\n") if l.startswith(f"Object.assign(I18N.{lang},") and '"evidence.open"' in l)
             table = json.loads(line[len(f"Object.assign(I18N.{lang},"):-2])
             self.assertFalse(keys - set(table), f"{lang} missing {sorted(keys - set(table))}")
 
