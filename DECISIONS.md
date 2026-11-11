@@ -929,7 +929,7 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - What is sent to Google: the changed files' patches (secret patterns redacted, 60k characters max, lock/binary files skipped), the ticket title and text. Owner accepted the free-tier data-use trade-off when choosing option A.
 - The verdict is an opinion, not proof: approval never closes a ticket by itself (merge + CI still required), blockers can be overridden by the owner. The owner gets one Telegram notice per review (findings listed); findings also show in the Proof panel. No PR comment is posted: the server only holds a read-only GitHub token, and posting with the Builder token was not attempted.
 
-## CI runner pinned to ubuntu-24.04 (2026-11-11)
+## CI runners pinned to ubuntu-24.04 (2026-11-11)
 - `ubuntu-latest` became Ubuntu 26.04; `actions/setup-python` has no Python 3.9 for it ("version '3.9' ... not found for Ubuntu 26.04"), so `syntax-and-smoke` failed in 7 seconds before any test, on every branch. The job needs 3.9 because the deployed EC2 worker runs 3.9. The job is pinned to `ubuntu-24.04`; nothing else changes. Revisit when the worker moves off 3.9 (24.04 runners will be retired eventually).
 
 ## Worker branch unstuck (2026-11-11)
@@ -956,3 +956,4 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Signed in: the project hero is hidden, a card with initials avatar and name is shown instead.
 - Sub-topic suggestions call `GET /api/mycast/subtopics` 500 ms after typing stops (once per query); AI results get a "✨ AI" tag; any failure keeps the local templates silently.
 - Built by a subagent on Claude's brief; reviewed here: node tests 29/29, inline JS `node --check`, screenshots at 1280 and 390 px.
+- Same day, `ui-screenshots` on 26.04 failed in `playwright install --with-deps` ("apt: Unable to fetch some archives", "Failed to install browsers") before any screenshot; pinned to `ubuntu-24.04` too.

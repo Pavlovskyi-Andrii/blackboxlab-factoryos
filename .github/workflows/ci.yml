@@ -389,7 +389,7 @@ jobs:
     # Runs only when page files changed and the smoke job passed (budget, 2026-11-08).
     needs: syntax-and-smoke
     if: needs.syntax-and-smoke.outputs.ui == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # 26.04 has no Playwright browser deps (apt failed 2026-11-11); same pin as syntax-and-smoke
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
