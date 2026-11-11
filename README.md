@@ -333,6 +333,16 @@ This document is the source of truth for milestone status, Definition of Done, p
 - Introduced the overnight product-improvement roadmap and build manifest.
 - Added structured roadmap steps for live LLM hardening, worker visibility, trace viewing, live pipeline visualization, error center, responsive/i18n work, smoke tests and morning QA.
 
+## Telegram: /brief (morning brief)
+
+Owner opt-in voice brief, sent at 08:00 Europe/Kyiv to the paired private Telegram chat (#106, `morning_brief.py`). Off by default.
+
+- `/brief on` / `/brief off`: turn the daily brief on or off.
+- `/brief test`: send the composed text only (no voice, no Gemini call) so the owner can check it first.
+- `/brief`: show the current state and the result of the last send.
+
+Content comes only from data FactoryOS already holds: PRs merged in the last 24 h, open PRs with red CI, active Relay tickets (including how many wait for the owner) and open questions. If the GitHub snapshot is missing, the brief says GitHub status is unknown instead of guessing. One brief per Kyiv date, up to 3 tries 20 min apart, none at or after 11:00. Cost: one Gemini TTS call per day on the existing free-tier key. Commands from any other chat are ignored.
+
 ## Safety invariants
 
 - Human approval is required before publishing.
