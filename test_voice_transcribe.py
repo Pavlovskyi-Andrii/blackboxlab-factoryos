@@ -111,5 +111,48 @@ class WebhookTest(unittest.TestCase):
             self.assertEqual(calls, ["F9"])
 
 
+class NoEmptyTicketTest(unittest.TestCase):
+    """2026-11-11 (R-0065): a voice message that could not be transcribed must not become an empty ticket."""
+
+    def test_failed_transcription_creates_no_ticket(self):
+        from test_worker_token_binding import asgi_post, factory
+        sent = []
+        body = {"update_id": 7801, "message": {"message_id": 7801, "chat": {"id": 42, "type": "private"},
+                                               "voice": {"file_id": "F8", "file_unique_id": "U8", "duration": 4, "mime_type": "audio/ogg"}}}
+        with patch.object(factory, "VOICE_TRANSCRIBER", lambda att: (None, "model_not_found")), \
+             patch.object(factory, "_telegram_webhook_authorized", return_value=True), \
+             patch.object(factory, "_telegram_load_state", return_value={"chat_id": "42"}), \
+             patch.object(factory, "_telegram_send_to", side_effect=lambda c, t: sent.append(t)), \
+             patch.object(factory, "_telegram_api", return_value={"ok": True}):
+            status, _ = asgi_post("/api/integrations/telegram/webhook", body=json.dumps(body).encode())
+        self.assertEqual(status, 200)
+        self.assertTrue(any("Задачу не создаю" in t for t in sent))
+        self.assertFalse(any((t.get("source") or {}).get("update_id") == 7801 for t in factory.RELAY_STORE.list(limit=500)))
+
+
+class ModelResolveTest(unittest.TestCase):
+    def test_picks_an_available_flash_model(self):
+        import gemini_proxy as gp
+
+        def listing(models):
+            def call(key, method, path, payload, opener, timeout):
+                return {"models": [{"name": "models/" + m, "supportedGenerationMethods": ["generateContent"]} for m in models]}
+            return call
+        for models, want in ((["gemini-2.5-flash", "gemini-3-flash"], "gemini-2.5-flash"),
+                             (["gemini-3-flash", "gemini-flash-latest"], "gemini-flash-latest"),
+                             (["gemini-3.1-flash-lite", "gemini-3-flash", "gemini-3-pro"], "gemini-3-flash"),
+                             ([], "gemini-2.5-flash")):
+            gp._MODEL_CACHE.clear()
+            with patch.object(gp, "_call", listing(models)):
+                self.assertEqual(gp.resolve_flash_model("k", "gemini-2.5-flash"), want, models)
+        gp._MODEL_CACHE.clear()
+
+        def down(*a):
+            raise RuntimeError("503")
+        with patch.object(gp, "_call", down):
+            self.assertEqual(gp.resolve_flash_model("k", "gemini-2.5-flash"), "gemini-2.5-flash")
+        gp._MODEL_CACHE.clear()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

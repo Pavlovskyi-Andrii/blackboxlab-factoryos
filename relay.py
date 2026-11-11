@@ -1541,6 +1541,56 @@ def relay_handle_telegram_update(
     return {"handled": bool(explicit_new or not message.get("text")), "ticket_id": ticket["id"], "created": created}
 
 
+WORKER_STAGE_TEXT = {
+    "claimed": ("📥", "взял задачу"),
+    "running": ("⚙️", "работает над задачей"),
+    "committed": ("📦", "сохранил изменения (commit)"),
+    "pushed": ("⬆️", "отправил изменения на GitHub"),
+    "done": ("🏁", "закончил работу"),
+    "blocked": ("🙋", "нужна твоя помощь"),
+    "failed": ("❌", "ошибка выполнения"),
+}
+
+
+def worker_event_text(ticket: dict, stage: str) -> str:
+    """Owner feedback 2026-11-11: worker notices were terse and half English. One readable card per stage:
+    what happened, the task, the facts (branch / commit / PR), the agent's own summary, evidence, what comes next."""
+    ex = ticket.get("execution") or {}
+    state = str(ex.get("state") or stage or "")
+    icon, label = WORKER_STAGE_TEXT.get(state, ("📡", state))
+    who = {"claude": "Claude", "gemini": "Gemini", "chatgpt": "ChatGPT"}.get(str(ex.get("owner") or "claude"), "Claude")
+    lines = [f"{icon} {ticket.get('id')} · {who} {label}", "📝 " + str(ticket.get("title") or "")[:160]]
+    facts = []
+    if ex.get("branch"):
+        facts.append("🌿 ветка " + str(ex["branch"])[:60])
+    if ex.get("commit"):
+        facts.append("🔖 коммит " + str(ex["commit"])[:7])
+    if ex.get("pr_url"):
+        facts.append("🔗 PR " + str(ex["pr_url"]))
+    if facts:
+        lines.append(" · ".join(facts))
+    note = str(ex.get("note") or "").strip()
+    if note and state in ("done", "blocked", "failed"):
+        lines.append("💬 Итог исполнителя: " + note[:600])
+    proof_line = proof.summary_line(ticket)
+    if proof_line and state in ("done", "pushed"):
+        lines.append(proof_line)
+    nxt = {
+        "running": "Дальше: коммит и push в отдельную ветку задачи.",
+        "committed": "Дальше: push на GitHub и PR.",
+        "pushed": "Дальше: PR и проверка CI на GitHub.",
+        "blocked": f"Дальше: ответь, что нужно, или ↻ Retry. Закрыть без доказательств: /done {ticket.get('id')} причина",
+        "failed": "Дальше: ↻ Retry или опиши задачу точнее.",
+    }.get(state)
+    if state == "done":
+        nxt = ("Дальше: CI на GitHub → мерж → задача закроется сама, придут кнопки ✅ Принял / 👎 Не то."
+               if ex.get("pr_url") else
+               f"PR нет, поэтому сама задача не закроется. Если результат устраивает: /done {ticket.get('id')} причина")
+    if nxt:
+        lines.append("➡️ " + nxt)
+    return "\n".join(lines)[:3900]
+
+
 def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, queue=None, authorize_worker=None, notify_owner=None) -> None:
     @app.get("/api/relay")
     def relay_list(request: Request, status: str = "", limit: int = 200):
@@ -1680,10 +1730,7 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
             raise HTTPException(409, str(exc))
         if payload.stage not in {"heartbeat", "checkpoint"} and notify_owner and not ticket.get("replayed"):
             try:
-                execution = ticket.get("execution") or {}
-                stage = execution.get("state") or payload.stage
-                note = str(execution.get("note") or "")[:200]
-                notify_owner(f"📡 Relay {payload.ticket_id} · Claude {stage}\n{note}")
+                notify_owner(worker_event_text(ticket, payload.stage))
             except Exception:
                 pass
         return {"ok": True, "ticket": ticket}

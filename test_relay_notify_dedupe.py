@@ -64,7 +64,8 @@ class NotifyDedupeTest(unittest.TestCase):
         restarted = Process(self.path, self.trace)                       # new process, same file
         again = restarted.event(self.tid, "running", "e-1", run)
         self.assertTrue(again["ticket"].get("replayed"))
-        self.assertEqual([t for t in self.trace if "Claude running" in t], [f"📡 Relay {self.tid} · Claude running\nrunning"])
+        running = [t for t in self.trace if t.startswith(f"⚙️ {self.tid} · Claude работает над задачей")]
+        self.assertEqual(len(running), 1)                                         # exactly one notice
 
     def test_2_repeated_run_is_silent_only_a_real_retry_notifies(self):
         self.p.run(self.tid)

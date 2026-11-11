@@ -168,6 +168,12 @@ LABELS = {"pr_merged": "PR смержен", "ci_passed": "CI зелёный", "d
           "message_sent": "сообщение отправлено"}
 
 
+LEVEL_RU = {"claimed": "только слова агента", "linked": "есть ссылки", "checked": "проверено сервером",
+            "accepted": "принято тобой"}
+FAIL_LABELS = {"ci_passed": "CI красный", "pr_merged": "PR закрыт без мержа", "peer_review": "ревью: есть блокеры",
+               "delivered_qc": "не доставлено", "message_sent": "сообщение не ушло"}
+
+
 def summary_line(ticket: dict) -> str:
     """One line for the Telegram card; empty for legacy tickets."""
     ver = ticket.get("verification")
@@ -181,15 +187,18 @@ def summary_line(ticket: dict) -> str:
     if ver.get("accepted"):
         tail += " · 👍 принято владельцем"
     head = "✅" if RANK[lvl] >= RANK.get(need, 2) else "⏳"
+    ru = LEVEL_RU
     parts = []
     for name in ver.get("required_checks") or []:
         c = (ver.get("checks") or {}).get(name) or {}
         stale = c and ver.get("head_sha") and c.get("sha") != ver.get("head_sha")
-        mark = "✅" if c.get("result") == "pass" and not stale else ("❌" if c.get("result") == "fail" and not stale else "·")
+        mark = "✅" if c.get("result") == "pass" and not stale else ("❌" if c.get("result") == "fail" and not stale else "⬜")
         if c and mark == "✅" and not _trusted(c):
             mark = "☑️"                                   # seen, but only in the worker's own snapshot
-        parts.append(f"{mark} {LABELS.get(name, name)}")
-    return f"🔎 Доказательства: {head} {lvl} (нужно {need})" + (" · " + " · ".join(parts) if parts else "") + tail
+        label = FAIL_LABELS.get(name, LABELS.get(name, name)) if mark == "❌" else LABELS.get(name, name)
+        parts.append(f"{mark} {label}")
+    return (f"🔎 Доказательства: {head} {ru.get(lvl, lvl)} (нужно: {ru.get(need, need)})"
+            + (" · " + " · ".join(parts) if parts else "") + tail)
 
 
 def overview(tickets: list, now: float, limit: int = 30) -> dict:

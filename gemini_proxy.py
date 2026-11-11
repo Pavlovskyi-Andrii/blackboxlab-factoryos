@@ -32,6 +32,45 @@ def _call(api_key: str, method: str, path: str, payload, opener, timeout: int):
         raise HTTPException(status_code=502, detail={"error": "gemini upstream", "upstream_status": status or 504}) from None
 
 
+_MODEL_CACHE: dict = {}
+_MODEL_TTL = 6 * 3600
+
+
+def _version_key(name: str):
+    m = re.match(r"gemini-([0-9.]+)-flash", name)
+    nums = tuple(int(x) for x in m.group(1).split(".") if x.isdigit()) if m else (0,)
+    return ("lite" not in name, nums)
+
+
+def resolve_flash_model(api_key: str, preferred: str = "gemini-2.5-flash", *, opener=None, clock=None) -> str:
+    """2026-11-11: Google answered 404 for gemini-2.5-flash on the owner's key (voice transcription failed).
+    Ask the key which stable Flash text models it can use and pick: the preferred one if listed, else the
+    gemini-flash-latest alias, else the newest non-lite x.y-flash. Cached 6 h; on any listing error the
+    preferred name is returned unchanged (the caller then reports the real error)."""
+    import time as _time
+    now = (clock or _time.time)()
+    cached = _MODEL_CACHE.get(preferred)
+    if cached and now - cached[1] < _MODEL_TTL:
+        return cached[0]
+    try:
+        listing = _call(api_key, "GET", "models?pageSize=200", None, opener, 20)
+    except Exception:
+        return preferred
+    names = [str(m.get("name", "")).split("/")[-1] for m in (listing or {}).get("models") or []
+             if "generateContent" in (m.get("supportedGenerationMethods") or [])]
+    flash = [n for n in names if FLASH_MODEL.fullmatch(n)]
+    if preferred in flash:
+        chosen = preferred
+    elif "gemini-flash-latest" in flash:
+        chosen = "gemini-flash-latest"
+    elif flash:
+        chosen = sorted(flash, key=_version_key, reverse=True)[0]
+    else:
+        chosen = preferred
+    _MODEL_CACHE[preferred] = (chosen, now)
+    return chosen
+
+
 def install_gemini_worker_routes(app, *, authorize_worker: Callable[[Request], bool], api_key: Callable[[], str],
                                  opener: Callable | None = None) -> None:
     def _key(request: Request) -> str:

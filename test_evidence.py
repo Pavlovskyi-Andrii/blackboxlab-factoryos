@@ -66,7 +66,7 @@ class RulesTest(Base):
         self.assertEqual(evidence.level(self.t()), "claimed")
         self.finish({})
         self.assertEqual(evidence.level(self.t()), "claimed")
-        self.assertIn("⏳ claimed (нужно checked)", evidence.summary_line(self.t()))
+        self.assertIn("⏳ только слова агента (нужно: проверено сервером)", evidence.summary_line(self.t()))
 
 
 class RoundTripTest(Base):
@@ -108,7 +108,7 @@ class RoundTripTest(Base):
         self.finish()
         self.queue.reconcile_pull_requests([merged()], {"abc123": {"state": "failed", "failed": "smoke"}})
         self.assertEqual(self.t()["status"], "in_progress")
-        self.assertIn("❌ CI зелёный", evidence.summary_line(self.t()))
+        self.assertIn("❌ CI красный", evidence.summary_line(self.t()))
 
     def test_closed_without_merge_never_closes(self):
         self.finish()
@@ -457,7 +457,7 @@ class Tier2Test(Base):
         text = compose_brief("2026-11-11", 0, github=None, tickets=[], questions_open=0,
                              evidence_metrics={"verified": 3, "overridden": 1, "rejected": 0, "waiting": 2})
         self.assertIn("Докази за тиждень: підтверджено 3, закрито вручну 1", text)
-        self.assertIn("доказів ще немає: 2", text)
+        self.assertIn("«готово» без доказів: 2", text)
         self.assertNotIn("Докази", compose_brief("2026-11-11", 0, github=None, tickets=[], questions_open=0))
 
 

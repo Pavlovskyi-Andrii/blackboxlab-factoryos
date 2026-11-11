@@ -66,7 +66,11 @@ def gemini_transcribe(api_key: str, audio: bytes, mime: str, *, opener=urlreques
                                        {"inline_data": {"mime_type": mime or "audio/ogg",
                                                         "data": base64.b64encode(audio).decode("ascii")}}]}],
                "generationConfig": {"temperature": 0}}
-    req = urlrequest.Request(f"{GEMINI_API}/models/{MODEL}:generateContent", data=json.dumps(payload).encode("utf-8"),
+    model = MODEL
+    if opener is urlrequest.urlopen:
+        from gemini_proxy import resolve_flash_model
+        model = resolve_flash_model(api_key, MODEL)            # 2026-11-11: 2.5-flash returned 404 for this key
+    req = urlrequest.Request(f"{GEMINI_API}/models/{model}:generateContent", data=json.dumps(payload).encode("utf-8"),
                              method="POST", headers={"x-goog-api-key": api_key, "Content-Type": "application/json"})
     try:
         with opener(req, timeout=60) as r:
