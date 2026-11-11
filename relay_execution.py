@@ -484,6 +484,72 @@ class RelayQueue:
                                                ", ".join(item["verification"].get("required_checks") or [])})
         return True
 
+    def review_candidates(self, pulls: list, ci: dict, now: float, retry_after: float = 1800) -> list[dict]:
+        """Evidence T2.6: Claude-authored PRs with CI green on the head and no review decision for that head."""
+        by_url = {str(p.get("html_url") or ""): p for p in pulls or [] if isinstance(p, dict) and p.get("html_url")}
+        out = []
+        for item in self.store.list(limit=500):
+            ver, ex = item.get("verification"), item.get("execution") or {}
+            pr = by_url.get(str(ex.get("pr_url") or ""))
+            if ver is None or pr is None or item.get("status") in ("done", "archived") or ver.get("override"):
+                continue
+            if str(ex.get("owner") or "claude") != "claude":
+                continue                                   # Gemini's own PRs are not reviewed by Gemini
+            if str(pr.get("state") or "") == "closed" and not pr.get("merged_at"):
+                continue
+            head = str((pr.get("head") or {}).get("sha") or "")
+            if not head or ((ci or {}).get(head) or {}).get("state") != "passed":
+                continue
+            scope = ver.get("review_scope") or {}
+            if scope.get("sha") == head and not scope.get("required"):
+                continue                                   # decided: this head needs no review
+            if ((ver.get("checks") or {}).get("peer_review") or {}).get("sha") == head:
+                continue                                   # already reviewed
+            attempt = ver.get("review_attempt") or {}
+            if attempt.get("sha") == head and now - float(attempt.get("at") or 0) < retry_after:
+                continue
+            m = re.search(r"/pull/(\d+)$", str(ex.get("pr_url") or ""))
+            out.append({"ticket": item["id"], "url": ex.get("pr_url"), "number": int(m.group(1)) if m else 0,
+                        "head": head, "title": item.get("title") or "", "body": item.get("body") or "",
+                        "scope_known": scope.get("sha") == head})
+        return out
+
+    def _update_ver(self, ticket_id: str, fn) -> dict | None:
+        with self.store.lock:
+            state = self.store._load_unlocked()
+            for item in state["tickets"]:
+                if item.get("id") == ticket_id and item.get("verification") is not None:
+                    fn(item, item["verification"])
+                    item["updated_at"] = utc_now()
+                    self.store._save_unlocked(state)
+                    return dict(item)
+        return None
+
+    def record_review_scope(self, ticket_id: str, head: str, required: bool, reason: str) -> None:
+        """The server (not the agent) adds peer_review to the required checks when the diff is risky or large."""
+        def apply(item, ver):
+            ver["review_scope"] = {"sha": head[:40], "required": bool(required), "reason": reason[:200]}
+            if required and "peer_review" not in (ver.get("required_checks") or []):
+                ver.setdefault("required_checks", []).append("peer_review")
+                item.setdefault("history", []).append({"at": utc_now(), "actor": "evidence", "action": "review_required",
+                                                       "note": "Gemini review required: " + reason[:200]})
+        self._update_ver(ticket_id, apply)
+
+    def record_review(self, ticket_id: str, head: str, verdict: dict | None, now: float) -> dict | None:
+        """None = review unavailable (error, cap): remembered for a retry, never a pass."""
+        def apply(item, ver):
+            if verdict is None:
+                ver["review_attempt"] = {"sha": head[:40], "at": now}
+                return
+            blockers = int(verdict.get("blockers") or 0)
+            proof.record_check(ver, "peer_review", "fail" if blockers else "pass", source="gemini:review", sha=head,
+                               detail=f"{blockers} blocker(s), {len(verdict.get('findings') or [])} finding(s)")
+            ver["review"] = {"sha": head[:40], "verdict": verdict.get("verdict"), "findings": verdict.get("findings") or []}
+            item.setdefault("history", []).append({"at": utc_now(), "actor": "gemini", "action": "peer_review",
+                                                   "note": ("blockers: %d" % blockers) if blockers else "no blocking findings"})
+            # Closing (with the owner's buttons) is left to reconcile_pull_requests, which runs right after.
+        return self._update_ver(ticket_id, apply)
+
     def reconcile_deploys(self, build_sha: str, contains, limit: int = 10) -> list[dict]:
         """Evidence T2.2: is the merge commit of a ticket in the code Render is running now?
 
