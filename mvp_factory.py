@@ -40,12 +40,16 @@ ROLE = {"idea": "MVP Manager", "researching": "Product Analyst", "spec_draft": "
         "build_queued": "Claude Builder", "building": "Claude Builder", "qa_review": "QA / Security",
         "preview_ready": "Deploy Agent", "owner_review": "Owner", "validated": "Content Factory", "rejected": "—"}
 OWNER_ONLY_TARGETS = ("validated", "rejected")
+# MVP Builder step 2 (2026-11-11): autonomous agents may move a project through research and spec, never into a build,
+# a preview, a verdict or a rejection — those stay with the owner (or a member, for build/preview).
+AGENT_FORBIDDEN_TARGETS = ("build_queued", "preview_ready", "owner_review", "validated", "rejected")
 KINDS = ("advance", "block", "unblock", "reject", "note")
 MAX_EVENTS = 2000
 MAX_NOTE = 500
 REPO = "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos"
 EVIDENCE_RE = re.compile(r"^(https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull|commit|actions/runs)/[A-Za-z0-9]+[^\s<>\"']*"
-                         r"|/static/[A-Za-z0-9_./-]+)$")
+                         r"|/static/[A-Za-z0-9_./-]+"
+                         r"|/api/mvp-factory/[a-z0-9-]+/artifacts/[a-z0-9_.-]+)$")   # agent artifacts (2026-11-11)
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 EVIDENCE_CHECK = "link_shape_only"  # the shape of the link is checked; its relevance to the claimed stage is not
 
@@ -168,6 +172,8 @@ class MvpRegistry:
                     raise MvpError("evidence_required")
                 if to in OWNER_ONLY_TARGETS and actor_role != "owner":
                     raise MvpError("owner_only", 403)
+                if actor_role == "agent" and to in AGENT_FORBIDDEN_TARGETS:
+                    raise MvpError("owner_gate", 403)
             elif kind == "reject":
                 if actor_role != "owner":
                     raise MvpError("owner_only", 403)

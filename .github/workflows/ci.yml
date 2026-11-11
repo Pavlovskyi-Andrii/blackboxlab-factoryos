@@ -133,6 +133,8 @@ jobs:
           python test_mycast_subtopics.py
           python -m py_compile mvp_cycle.py test_mvp_cycle.py
           python test_mvp_cycle.py
+          python -m py_compile mvp_pipeline.py test_mvp_pipeline.py
+          python test_mvp_pipeline.py
       - name: Relay secure worker pairing unit tests
         run: python test_relay_pairing.py
       - name: Claude delegation adapter regression
