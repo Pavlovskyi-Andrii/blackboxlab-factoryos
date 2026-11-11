@@ -33,7 +33,7 @@ SAME_AS_EN = {
     # product / workspace names
     "approval.title", "brain.nav", "cycle.title", "discovery.nav", "experiment.title", "finisher.nav",
     "finisher.title", "intel.title", "owner.builder", "package.title", "performance.title",
-    "publishing.title", "revideo.nav", "variant.title",
+    "publishing.title", "revideo.nav", "variant.title", "navGroup.mvp",
     # glossary / technical terms
     "approval.hook", "build.workflow", "dc.cpu", "dc.doneCriteria", "dc.state.human", "dc.tl.push",
     "discovery.short", "finisher.routeQa", "package.cta", "qa.roadmap", "stage.qa",

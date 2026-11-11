@@ -957,3 +957,10 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Sub-topic suggestions call `GET /api/mycast/subtopics` 500 ms after typing stops (once per query); AI results get a "✨ AI" tag; any failure keeps the local templates silently.
 - Built by a subagent on Claude's brief; reviewed here: node tests 29/29, inline JS `node --check`, screenshots at 1280 and 390 px.
 - Same day, `ui-screenshots` on 26.04 failed in `playwright install --with-deps` ("apt: Unable to fetch some archives", "Failed to install browsers") before any screenshot; pinned to `ubuntu-24.04` too.
+
+## MVP Builder on the main dashboard (2026-11-11, owner request)
+- Renamed "MVP Factory" → "MVP Builder" in the UI (API/URLs unchanged). The name stays "MVP Builder" in UK/RU too, as a product name: added to the locale allowlists (`SAME_AS_EN` in test_locale_parity, `PRODUCT_NAMES` in test_navigation); every other nav label is still required to be translated.
+- Projects block under Current Jobs (same row style): stage chips, progress bar with %, next step and role, age, "Деталі →" (side drawer: stage, x% / 100, next step, brief, history; link to the full page anchored `#p-<id>`), "+ Новий проєкт" modal (title, brief, optional issue → `POST /api/mvp-factory/projects`), "Відкрити повну сторінку ↗". The nav item scrolls to the block instead of opening a new tab. Nothing in the block starts a worker or moves a stage.
+- Full page: "x% / 100" next to the stage bar, project anchors, collapsible brief, issue link only when an issue exists, team rendered as a pipeline with arrows (MVP Manager → Product Analyst → Spec Writer → Claude Builder → QA / Security, then Deploy Agent → Owner → Content Factory; ↓ on phones) with "зараз: N" on roles that have projects at their stage.
+- Backend: projects can be created from a brief alone (issue optional, id derived from the title), and every project reports `progress` from its recorded stage (idea 0 %, validated 100 %).
+- UI built by a subagent on Claude's brief; reviewed here with locale/nav/drawer tests and screenshots at 1440/390 px.
