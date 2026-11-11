@@ -36,6 +36,7 @@ from worker_observability import build_worker_overview, sanitize_supervisor, san
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
+from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
 from mycast import (DeliveryLog, check_mp3, gemini_tts_pcm, install_mycast_routes, install_mycast_voice_routes, pcm_to_mp3,
                     telegram_send_audio)
@@ -731,12 +732,17 @@ GROUP_GEMINI_PROMPT=("Ты Gemini — участник рабочего чата
 
 def _group_gemini(prompt):
     """Owner 2026-11-11: Gemini joins /discuss on the owner's free key (stable Flash, picked per key)."""
+    return _gemini_text(GROUP_GEMINI_PROMPT+str(prompt)[:6000])
+
+
+def _gemini_text(full_prompt):
+    """One free-key Gemini text answer: (text, "") or (None, reason in Russian). Never raises."""
     if not FACTORY_GEMINI_API_KEY:
         return None,"ключ Gemini не задан"
     try:
         model=resolve_flash_model(FACTORY_GEMINI_API_KEY)
         data=_gemini_raw_call(FACTORY_GEMINI_API_KEY,"POST",f"models/{model}:generateContent",
-                              {"contents":[{"parts":[{"text":GROUP_GEMINI_PROMPT+str(prompt)[:6000]}]}],
+                              {"contents":[{"parts":[{"text":str(full_prompt)[:8000]}]}],
                                "generationConfig":{"maxOutputTokens":1024,"temperature":0.4}},None,60)
     except Exception as exc:
         status=getattr(exc,"detail",{}) if isinstance(getattr(exc,"detail",None),dict) else {}
@@ -832,12 +838,80 @@ install_gemini_verify_route(app, request_identity=request_identity, api_key=lamb
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
+MVP_CHAT = AgentChat(DATA_DIR)
+
+
+def _mvp_project(project_id):
+    return next((p for p in MVP_REGISTRY.snapshot()["projects"] if p.get("id")==project_id),None)
+
+
+def _mvp_connections():
+    return {"gemini":bool(FACTORY_GEMINI_API_KEY),"github":bool(GITHUB_READ_TOKEN),"claude_worker":_claude_worker_online(),
+            "render":BUILD_SHA!="local","channels":False}
+
+
+def _mvp_route_answer(item):
+    """Claude worker answers for MVP agents go back into the agent's chat (2026-11-11)."""
+    meta=item.get("meta") if isinstance(item.get("meta"),dict) else {}
+    pid,agent=meta.get("mvp_project"),meta.get("mvp_agent")
+    if not pid or agent not in MVP_AGENT_IDS:
+        return False
+    try:MVP_CHAT.add(pid,agent,"agent",str(item.get("answer") or "")[:1500] or "(порожня відповідь)",ref=str(item.get("id") or ""))
+    except ValueError:pass
+    return True
+
+
+@app.get("/api/mvp-factory/{project_id}/cycle")
+def mvp_project_cycle(project_id: str, request: Request):
+    """MVP Builder panel: phase, five agents, what they produced, what to connect, their chats. Read-only facts."""
+    if not request_identity(request):
+        raise HTTPException(401,"login required")
+    project=_mvp_project(project_id)
+    if not project:
+        raise HTTPException(404,"unknown_project")
+    return mvp_cycle_view(project,_mvp_connections(),MVP_CHAT.thread(project_id))
+
+
+@app.post("/api/mvp-factory/{project_id}/agents/{agent}/message")
+async def mvp_agent_message(project_id: str, agent: str, request: Request):
+    """Owner → agent. Gemini roles answer at once (free key); Claude roles go through the worker question queue."""
+    if (request_identity(request) or {}).get("role") not in ("owner","member"):
+        raise HTTPException(403,"forbidden")
+    project=_mvp_project(project_id)
+    spec=next((a for a in MVP_AGENTS if a["id"]==agent),None)
+    if not project or not spec:
+        raise HTTPException(404,"unknown_project_or_agent")
+    try:body=await request.json()
+    except ValueError:body={}
+    text=str((body or {}).get("text") or "") if isinstance(body,dict) else ""
+    try:msg=MVP_CHAT.add(project_id,agent,"owner",text)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+    chat=(MVP_CHAT.thread(project_id).get(agent) or [])
+    if spec["engine"]=="claude":
+        question=(f"MVP Builder · проєкт «{project.get('title')}» ({project.get('stage')}) · агент {spec['label']} "
+                  f"({spec['does']}).\nТЗ (початок): {str(project.get('brief') or '—')[:500]}\n\nВласник: {msg['text'][:700]}")
+        try:
+            item=OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",question,source_key=f"mvp:{project_id}:{agent}:{msg['at']}",
+                                        meta={"mvp_project":project_id,"mvp_agent":agent})
+            MVP_CHAT.add(project_id,agent,"system",f"📨 Передано Claude-воркеру ({item.get('id')}). Відповідь з'явиться тут.")
+        except Exception:
+            MVP_CHAT.add(project_id,agent,"system","⚠️ Черга Claude зараз недоступна, повідомлення збережено.")
+        return {"ok":True,"routed":"claude_worker"}
+    prompt=mvp_agent_prompt(project,spec,msg["text"],chat)
+
+    def work():
+        text_out,reason=_gemini_text(prompt)
+        MVP_CHAT.add(project_id,agent,"agent" if text_out else "system",
+                     text_out or f"⚠️ Gemini не відповів ({reason}). Повідомлення збережено.")
+    threading.Thread(target=work,daemon=True).start()
+    return {"ok":True,"routed":"gemini"}
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
                           redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
                           notify_owner=_telegram_send,
-                          route_answer=lambda item: GROUP_BRIDGE.deliver_answer(item,_telegram_send_markup))
+                          route_answer=lambda item: _mvp_route_answer(item) or GROUP_BRIDGE.deliver_answer(item,_telegram_send_markup))
 
 
 @app.middleware("http")
