@@ -36,6 +36,7 @@ from worker_observability import build_worker_overview, sanitize_supervisor, san
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
+from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
 from mycast import (DeliveryLog, check_mp3, gemini_tts_pcm, install_mycast_routes, install_mycast_voice_routes, pcm_to_mp3,
@@ -861,6 +862,85 @@ def _mvp_route_answer(item):
     return True
 
 
+MVP_ARTIFACTS=MvpArtifacts(DATA_DIR)
+
+
+def _mvp_ticket_done(ticket):
+    """Build hand-off needs real evidence: the Relay ticket closed on merged PR + CI, not by an owner override."""
+    ver=ticket.get("verification") or {}
+    return ticket.get("status")=="done" and not ver.get("override") and _evidence.level(ticket) in ("checked","accepted")
+
+
+MVP_PIPELINE=MvpPipeline(DATA_DIR,registry=MVP_REGISTRY,chat=MVP_CHAT,artifacts=MVP_ARTIFACTS,gemini=lambda prompt:_gemini_text(prompt),
+    create_ticket=lambda title,body,key,pid:RELAY_STORE.create(title,body,source={"channel":"mvp","source_key":key,"url":""},
+                                                               created_by="mvp-pipeline",owner="claude")[0],
+    get_ticket=lambda tid:RELAY_STORE.get(tid) if tid else None,ticket_done=_mvp_ticket_done)
+
+
+def _mvp_owner(request,members=False):
+    role=(request_identity(request) or {}).get("role")
+    if role!="owner" and not (members and role=="member"):
+        raise HTTPException(403,"owner_only")
+
+
+@app.get("/api/mvp-factory/{project_id}/artifacts/{name}")
+def mvp_artifact(project_id: str, name: str, request: Request):
+    if not request_identity(request):
+        raise HTTPException(401,"login required")
+    text=MVP_ARTIFACTS.read(project_id,name)
+    if text is None:
+        raise HTTPException(404,"unknown_artifact")
+    media="application/json" if name.endswith(".json") else "text/markdown"
+    return Response(text,media_type=media+"; charset=utf-8")
+
+
+@app.post("/api/mvp-factory/{project_id}/autopilot")
+async def mvp_autopilot(project_id: str, request: Request):
+    """Owner starts or stops the agents' hand-off for one project (free Gemini key; build still needs the owner)."""
+    _mvp_owner(request)
+    if not _mvp_project(project_id):
+        raise HTTPException(404,"unknown_project")
+    try:body=await request.json()
+    except ValueError:body={}
+    on=bool((body or {}).get("on")) if isinstance(body,dict) else False
+    return MVP_PIPELINE.set_autopilot(project_id,on)
+
+
+@app.post("/api/mvp-factory/{project_id}/spec/approve")
+def mvp_spec_approve(project_id: str, request: Request):
+    """The owner's "так" on the spec: spec_review → build_queued with the spec as evidence. Agents can't do this."""
+    _mvp_owner(request)
+    project=_mvp_project(project_id)
+    if not project or project.get("stage")!="spec_review":
+        raise HTTPException(409,"not_in_spec_review")
+    version=int(MVP_PIPELINE.state(project_id).get("spec_version") or 0)
+    if not version:
+        raise HTTPException(409,"no_spec")
+    out=MVP_REGISTRY.record(project_id,"advance",actor_role="owner",actor=(request_identity(request) or {}).get("email") or "owner",
+                            evidence=[f"/api/mvp-factory/{project_id}/artifacts/spec-v{version}.md"],
+                            note=f"owner approved spec v{version}",idempotency_key=f"mvp:{project_id}:approve:{version}")
+    MVP_CHAT.add(project_id,"spec","system",f"✅ Власник затвердив ТЗ v{version}. Передаю Builder'у.")
+    return out
+
+
+@app.post("/api/mvp-factory/{project_id}/spec/redo")
+async def mvp_spec_redo(project_id: str, request: Request):
+    """Battle: redo the spec on another variant and/or with the owner's feedback (before approval)."""
+    _mvp_owner(request,members=True)
+    project=_mvp_project(project_id)
+    if not project or project.get("stage") not in ("spec_draft","spec_review"):
+        raise HTTPException(409,"not_in_spec_stage")
+    try:body=await request.json()
+    except ValueError:body={}
+    body=body if isinstance(body,dict) else {}
+    variant=str(body.get("variant") or "").strip().upper()[:2]
+    if variant:
+        MVP_PIPELINE._update(project_id,variant=variant)
+    feedback=str(body.get("feedback") or "")[:1500]
+    threading.Thread(target=lambda:MVP_PIPELINE.run_spec(project,feedback),daemon=True).start()
+    return {"ok":True,"variant":variant or MVP_PIPELINE.state(project_id).get("variant")}
+
+
 @app.get("/api/mvp-factory/{project_id}/cycle")
 def mvp_project_cycle(project_id: str, request: Request):
     """MVP Builder panel: phase, five agents, what they produced, what to connect, their chats. Read-only facts."""
@@ -869,7 +949,12 @@ def mvp_project_cycle(project_id: str, request: Request):
     project=_mvp_project(project_id)
     if not project:
         raise HTTPException(404,"unknown_project")
-    return mvp_cycle_view(project,_mvp_connections(),MVP_CHAT.thread(project_id))
+    view=mvp_cycle_view(project,_mvp_connections(),MVP_CHAT.thread(project_id))
+    st=MVP_PIPELINE.state(project_id)
+    view["pipeline"]={"autopilot":bool(st.get("autopilot")),"variant":st.get("variant"),"spec_version":st.get("spec_version"),
+                      "build_ticket":st.get("build_ticket"),"last_error":st.get("last_error"),
+                      "artifacts":[f"/api/mvp-factory/{project_id}/artifacts/{n}" for n in MVP_ARTIFACTS.names(project_id)]}
+    return view
 
 
 @app.post("/api/mvp-factory/{project_id}/agents/{agent}/message")
@@ -7562,6 +7647,7 @@ async def start_factory_cycle_reconciler():
     if FACTORY_PUBLISHER_SCHEDULER_ENABLED:
         asyncio.create_task(publisher_scheduler_loop())
     asyncio.create_task(morning_brief_loop())
+    asyncio.create_task(mvp_pipeline_loop())
     asyncio.create_task(run_real_world_pilot_once())
     asyncio.create_task(run_media_finisher_pilot_once())
 
@@ -9342,6 +9428,18 @@ def _morning_brief_compose(date,now,yesterday_plan=None):
 
 MORNING_BRIEF=MorningBrief(DATA_DIR,deliver=lambda date,text:BRIEF_DELIVER(date,text),send_text=_telegram_send,
                            compose=_morning_brief_compose,plan_source=lambda:brief_plan_ids(RELAY_STORE.list(limit=500)))
+
+
+async def mvp_pipeline_loop():
+    """MVP Builder step 2: move autopilot projects one hand-off per minute (see mvp_pipeline.py)."""
+    await asyncio.sleep(45)
+    while True:
+        try:
+            moved=await asyncio.to_thread(MVP_PIPELINE.tick)
+            if moved:print(json.dumps({"event":"MVP_PIPELINE","moved":moved}),flush=True)
+        except Exception as exc:
+            print(json.dumps({"event":"MVP_PIPELINE_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
 
 
 async def morning_brief_loop():
