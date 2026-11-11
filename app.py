@@ -723,7 +723,30 @@ def _mycast_send_audio(audio, filename, title, caption):
                         filename=filename, title=title, caption=caption)
 
 MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
-GROUP_BRIDGE = GroupBridge(DATA_DIR, ask=lambda text, source_key="", meta=None: OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",text,source_key=source_key,meta=meta))
+GROUP_GEMINI_PROMPT=("Ты Gemini — участник рабочего чата FactoryOS Team вместе с владельцем и Claude. "
+                    "Отвечай по-русски, по делу, до 1200 символов, без воды. Если не знаешь фактов о проекте — так и скажи, "
+                    "не выдумывай статусы, цифры и результаты. Claude ответит отдельно, не повторяй его.\n\n")
+
+
+def _group_gemini(prompt):
+    """Owner 2026-11-11: Gemini joins /discuss on the owner's free key (stable Flash, picked per key)."""
+    if not FACTORY_GEMINI_API_KEY:
+        return None,"ключ Gemini не задан"
+    try:
+        model=resolve_flash_model(FACTORY_GEMINI_API_KEY)
+        data=_gemini_raw_call(FACTORY_GEMINI_API_KEY,"POST",f"models/{model}:generateContent",
+                              {"contents":[{"parts":[{"text":GROUP_GEMINI_PROMPT+str(prompt)[:6000]}]}],
+                               "generationConfig":{"maxOutputTokens":1024,"temperature":0.4}},None,60)
+    except Exception as exc:
+        status=getattr(exc,"detail",{}) if isinstance(getattr(exc,"detail",None),dict) else {}
+        return None,{429:"перегружен, попробуй позже",404:"модель недоступна"}.get(status.get("upstream_status"),"недоступен")
+    parts=((((data or {}).get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+    text="".join(str(p.get("text") or "") for p in parts).strip()
+    return (text[:6000],"") if text else (None,"пустой ответ")
+
+
+GROUP_BRIDGE = GroupBridge(DATA_DIR, ask=lambda text, source_key="", meta=None: OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",text,source_key=source_key,meta=meta),
+                           gemini=_group_gemini)
 VOICE_TRANSCRIBER = VoiceTranscriber(DATA_DIR, api_key=lambda: FACTORY_GEMINI_API_KEY, bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN)
 VOICE_REASONS = {"not_configured":"ключ Gemini не задан","daily_limit":"дневной лимит 30 голосовых исчерпан","too_long":"слишком длинное, больше ~3 минут","rate_limited":"Gemini перегружен, попробуй позже","invalid_key":"ключ Gemini не принят","telegram_file_unavailable":"Telegram не отдал файл","empty_transcript":"пустой результат","model_not_found":"модель Gemini недоступна"}
 VOICE_SETTINGS = VoiceSettingsStore(DATA_DIR)

@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 from unittest.mock import patch
 
@@ -92,6 +93,64 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(self.b.handle_group(cb(OWNER, "yes"), OWNER, self.send)["action"], "decision_yes")
         self.assertEqual(self.b.handle_group(cb(OWNER, "yes"), OWNER, self.send)["action"], "decision_stale")
         self.assertEqual(self.b.status()["decisions"], 1)
+
+
+class GeminiInGroupTest(unittest.TestCase):
+    """Owner 2026-11-11: Gemini answers in /discuss threads too; ChatGPT stays honestly not connected."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.t = [1_800_000_000.0]
+        self.sent, self.prompts, self.pending = [], [], []
+        self.reply = [("Предлагаю начать с теста круга.", "")]
+
+        def gem(prompt):
+            self.prompts.append(prompt)
+            return self.reply[0]
+        ask = lambda text, source_key="", meta=None: {"id": "Q-%d" % len(self.prompts)}
+        self.b = GroupBridge(Path(self.dir.name), ask=ask, clock=lambda: self.t[0], gemini=gem,
+                             run_async=self.pending.append)          # run later, like a background thread
+        self.send = lambda chat, text, markup=None: self.sent.append((chat, text))
+        code = self.b.handle_private("/group").split("Код привязки группы: ")[1].split()[0]
+        self.b.handle_group(group_msg("/pair_group " + code, 1), OWNER, self.send)
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def flush(self):
+        while self.pending:
+            self.pending.pop(0)()
+
+    def test_gemini_answers_in_the_thread(self):
+        self.assertIn("ChatGPT не подключён", self.sent[-1][1])
+        self.b.handle_group(group_msg("/discuss релиз MyCast", 2), OWNER, self.send)
+        self.assertIn("Gemini", self.sent[-1][1])
+        self.flush()
+        self.assertEqual(self.sent[-1], (GROUP, "[Gemini] D-0001\nПредлагаю начать с теста круга."))
+        self.assertIn("релиз MyCast", self.prompts[0])
+        self.b.handle_group(group_msg("а сроки?", 3, reply_to_bot=True), OWNER, self.send)
+        self.flush()
+        self.assertIn("Твой предыдущий ответ: Предлагаю", self.prompts[1])
+
+    def test_stop_drops_a_late_answer_and_failures_are_said(self):
+        self.b.handle_group(group_msg("/discuss тема", 2), OWNER, self.send)
+        self.b.handle_group(group_msg("/stop", 3), OWNER, self.send)
+        n = len(self.sent)
+        self.flush()
+        self.assertEqual(len(self.sent), n)                                      # stopped: nothing posted
+        self.reply[0] = (None, "перегружен, попробуй позже")
+        self.b.handle_group(group_msg("/discuss ещё", 4), OWNER, self.send)
+        self.flush()
+        self.assertIn("[Gemini] D-0002: не ответил (перегружен, попробуй позже)", self.sent[-1][1])
+
+    def test_daily_cap(self):
+        import telegram_group
+        with unittest.mock.patch.object(telegram_group, "GEMINI_DAILY_CAP", 1):
+            self.b.handle_group(group_msg("/discuss one", 2), OWNER, self.send)
+            self.b.handle_group(group_msg("/discuss two", 3), OWNER, self.send)
+        self.assertIn("дневной лимит 1", self.sent[-1][1])
+        self.flush()
+        self.assertEqual(len(self.prompts), 1)
 
 
 class EndToEndTest(unittest.TestCase):
