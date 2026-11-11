@@ -127,7 +127,8 @@ class MvpRegistry:
     def snapshot(self, limit_events: int = 60) -> dict[str, Any]:
         with self._lock:
             data = self._load()
-        projects = [dict(p, recommendation=recommend(p), history=[e for e in data["events"] if e["project"] == p["id"]][-20:])
+        projects = [dict(p, recommendation=recommend(p), progress=progress(p),
+                         history=[e for e in data["events"] if e["project"] == p["id"]][-20:])
                     for p in sorted(data["projects"].values(), key=lambda p: (STAGES.index(p["stage"]) * -1, p["id"]))]
         return {"stages": list(STAGES), "roles": ROLE, "projects": projects, "events": data["events"][-limit_events:],
                 "evidence_check": EVIDENCE_CHECK,
@@ -193,27 +194,52 @@ class MvpRegistry:
             self._save(data)
             return {"duplicate": False, "event": event, "project": dict(project, recommendation=recommend(project))}
 
-    def add_project(self, project_id: str, title: str, issue: int, *, actor_role: str) -> dict[str, Any]:
+    def add_project(self, project_id: str, title: str, issue: int = 0, *, actor_role: str, brief: str = "") -> dict[str, Any]:
+        """Owner 2026-11-11 ("New Project" in the dashboard): a GitHub issue is optional and the owner's technical
+        brief (goal, users, must-haves, acceptance) is stored with the project. The id is derived from the title
+        when not given."""
         if actor_role not in ("owner", "member"):
             raise MvpError("forbidden", 403)
+        title = _clean(title, 120)
+        if not project_id and title:
+            slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:36] or "project"
+            project_id = slug if re.match(r"^[a-z0-9]", slug) else "p-" + slug
+            with self._lock:
+                existing = self._load()["projects"]
+            base, n = project_id, 2
+            while project_id in existing:
+                project_id, n = f"{base[:36]}-{n}", n + 1
         if not ID_RE.match(project_id or ""):
             raise MvpError("bad_id")
-        title = _clean(title, 120)
-        if not title or not isinstance(issue, int) or issue <= 0:
+        brief = str(brief or "").replace("\r", "").strip()[:8000]
+        if not title or not isinstance(issue, int) or issue < 0 or (issue == 0 and not brief):
             raise MvpError("bad_project")
         with self._lock:
             data = self._load()
             if project_id in data["projects"]:
                 raise MvpError("project_exists", 409)
             now = _iso(self.clock())
-            data["projects"][project_id] = {"id": project_id, "title": title, "issue": issue, "stage": "idea", "blocked": None,
+            data["projects"][project_id] = {"id": project_id, "title": title, "issue": issue, "brief": brief, "stage": "idea", "blocked": None,
                                             "prototype": "", "cost_usd": 0, "approval": {"deploy": False, "outreach": False, "publish": False},
                                             "created_at": now, "updated_at": now}
             data["events"].append({"id": f"ev-{len(data['events']) + 1}-{int(self.clock() * 1000)}", "project": project_id, "at": now,
                                    "actor": actor_role, "kind": "note", "from_stage": "idea", "to_stage": "idea",
-                                   "evidence": [f"{REPO}/issues/{issue}"], "evidence_check": EVIDENCE_CHECK, "note": "Project added."})
+                                   "evidence": [f"{REPO}/issues/{issue}"] if issue else [], "evidence_check": EVIDENCE_CHECK,
+                                   "note": "Project added." + (" Brief by the owner." if brief else "")})
             self._save(data)
             return data["projects"][project_id]
+
+
+def progress(project: dict[str, Any]) -> int:
+    """Owner 2026-11-11 ("10% / 100"): share of the stage path done, from the recorded stage only.
+    idea = 0 %, validated = 100 %; rejected stays at the stage it was rejected from (shown separately)."""
+    stage = project.get("stage")
+    path = [s for s in STAGES if s != "rejected"]
+    if stage == "validated":
+        return 100
+    if stage not in path:
+        return 0
+    return round(100 * path.index(stage) / (len(path) - 1))
 
 
 def recommend(project: dict[str, Any]) -> dict[str, Any]:
@@ -277,6 +303,7 @@ def install_mvp_factory_routes(app, registry: MvpRegistry, identity_fn: Callable
         try:
             issue = body.get("issue")
             return registry.add_project(str(body.get("id") or ""), body.get("title") or "",
-                                        issue if isinstance(issue, int) else 0, actor_role=role)
+                                        issue if isinstance(issue, int) else 0, actor_role=role,
+                                        brief=str(body.get("brief") or ""))
         except MvpError as exc:
             return _err(exc)

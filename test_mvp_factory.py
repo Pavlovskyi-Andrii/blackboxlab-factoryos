@@ -136,6 +136,24 @@ class MvpRegistryTest(unittest.TestCase):
         self.assertEqual(self.code(lambda: self.reg.record("nope", "advance", actor_role="owner", evidence=[ISSUE])), "unknown_project")
         self.assertEqual(self.code(lambda: self.reg.record("ai-hangout", "launch", actor_role="owner")), "bad_kind")
 
+    def test_new_project_from_a_brief_without_issue(self):
+        """Owner 2026-11-11: "New Project" in the dashboard carries the technical brief; a GitHub issue is optional."""
+        p = self.reg.add_project("", "Telegram CRM для салону", actor_role="owner",
+                                 brief="Мета: запис клієнтів через бота.\nГотово, коли: бот приймає запис і нагадує.")
+        self.assertTrue(p["id"].startswith("telegram-crm"))
+        self.assertEqual((p["issue"], p["stage"]), (0, "idea"))
+        self.assertIn("нагадує", p["brief"])
+        again = self.reg.add_project("", "Telegram CRM для салону", actor_role="owner", brief="x")
+        self.assertNotEqual(again["id"], p["id"])                                  # unique id, no overwrite
+        self.assertEqual(self.code(lambda: self.reg.add_project("", "No brief, no issue", actor_role="owner")), "bad_project")
+        snap = {x["id"]: x for x in self.reg.snapshot()["projects"]}
+        self.assertEqual(snap[p["id"]]["progress"], 0)
+
+    def test_progress_follows_the_recorded_stage(self):
+        from mvp_factory import progress
+        self.assertEqual([progress({"stage": s}) for s in ("idea", "building", "owner_review", "validated", "rejected")],
+                         [0, 56, 89, 100, 0])
+
     def test_recommend_never_dispatches(self):
         self.assertEqual(recommend({"stage": "build_queued"})["role"], "Claude Builder")
         self.assertEqual(recommend({"stage": "rejected"})["decision"], "hold")
