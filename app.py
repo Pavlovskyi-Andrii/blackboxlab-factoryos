@@ -43,9 +43,9 @@ from mycast_demo import DemoService, install_mycast_demo_routes
 from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
 import evidence as _evidence
-from gemini_proxy import _call as _gemini_raw_call
+from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
-from morning_brief import MorningBrief, compose_brief
+from morning_brief import MorningBrief, compose_brief, plan_ids as brief_plan_ids
 from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_route, install_voice_history_routes,
                             install_voice_settings_routes)
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
@@ -1077,7 +1077,11 @@ async def telegram_webhook(request: Request):
             voice_msg["text"]=transcript
             _telegram_send_to(chat,"🎙 Распознал голосовое (Gemini):\n«"+transcript[:3500]+"»")
         else:
-            _telegram_send_to(chat,"🎙 Не удалось распознать голосовое ("+VOICE_REASONS.get(reason,reason)+"). Создаю тикет без текста; можно продублировать текстом.")
+            # 2026-11-11 (R-0065): an empty voice ticket only made Claude run and answer "BLOCKED, no text".
+            # No ticket without text: the owner resends it as text.
+            _telegram_send_to(chat,"🎙 Не удалось распознать голосовое ("+VOICE_REASONS.get(reason,reason)+").\n"
+                              "Задачу не создаю: без текста исполнителю нечего делать. Отправь её текстом или голосом ещё раз.")
+            return {"ok":True,"action":"voice_not_transcribed","reason":reason}
     relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,_github_read_token()),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
@@ -9147,7 +9151,8 @@ def relay_peer_review_once(pulls,ci,reader,gemini_call=None,limit=2):
         if not isinstance(files,list):
             RELAY_QUEUE.record_review(c["ticket"],c["head"],None,time.time())
             continue
-        verdict=gemini_review(FACTORY_GEMINI_API_KEY,build_prompt(c["title"],c["body"],files),gemini_call or _gemini_raw_call)
+        verdict=gemini_review(FACTORY_GEMINI_API_KEY,build_prompt(c["title"],c["body"],files),gemini_call or _gemini_raw_call,
+                              None if gemini_call else resolve_flash_model)
         RELAY_QUEUE.record_review(c["ticket"],c["head"],verdict,time.time())
         print(json.dumps({"event":"PEER_REVIEW","ticket":c["ticket"],"status":"unavailable" if verdict is None else verdict["verdict"],
                           "blockers":0 if verdict is None else verdict["blockers"]}),flush=True)
@@ -9198,16 +9203,26 @@ def relay_pr_reconcile_once(fetch=None):
         print(json.dumps({"event":"RELAY_PR_RECONCILE","source":source,"notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
     return {"ok":True,"snapshot":snapshot_state,"source":source,"notices":len(notices)}
 
-def _morning_brief_compose(date,now):
+def _morning_brief_github():
+    """Render's own read when the read-only token exists (2026-11-11: the EC2 snapshot was stale, so the brief said
+    'GitHub unavailable'); the snapshot otherwise."""
+    if GITHUB_READ_TOKEN:
+        own=read_github(github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN))
+        if own.get("available"):
+            return own
     ec2,_state=_intake_issues_from_ec2_snapshot()
+    return ec2["github"] if ec2 else None
+
+
+def _morning_brief_compose(date,now,yesterday_plan=None):
     tickets=RELAY_STORE.list(limit=500)
-    return compose_brief(date,now,github=ec2["github"] if ec2 else None,tickets=tickets,
+    return compose_brief(date,now,github=_morning_brief_github(),tickets=tickets,
                          questions_open=int(OWNER_QUESTIONS.queue_stats().get("open") or 0),
-                         evidence_metrics=_evidence.metrics(tickets,now))
+                         evidence_metrics=_evidence.metrics(tickets,now),yesterday_plan=yesterday_plan)
 
 
 MORNING_BRIEF=MorningBrief(DATA_DIR,deliver=lambda date,text:BRIEF_DELIVER(date,text),send_text=_telegram_send,
-                           compose=_morning_brief_compose)
+                           compose=_morning_brief_compose,plan_source=lambda:brief_plan_ids(RELAY_STORE.list(limit=500)))
 
 
 async def morning_brief_loop():
