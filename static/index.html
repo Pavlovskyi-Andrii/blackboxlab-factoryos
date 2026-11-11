@@ -480,7 +480,58 @@ a.btn.mvpLink{text-decoration:none;display:inline-block}
 .mvpHist a{color:#63d9ff}
 @media(max-width:1500px){.job.mvpRow{grid-template-columns:88px minmax(0,1.3fr) minmax(110px,1fr) minmax(0,1fr) auto}}
 @media(max-width:1280px){.job.mvpRow{grid-template-columns:88px minmax(0,1fr) minmax(110px,.8fr) minmax(0,1fr) auto}}
-@media(max-width:760px){.job.mvpRow{grid-template-columns:72px minmax(0,1fr)}.job.mvpRow .mvpNext,.job.mvpRow .jobProg,.job.mvpRow>.btn{grid-column:1/-1}}
+@media(max-width:760px){.job.mvpRow{grid-template-columns:72px minmax(0,1fr)}.job.mvpRow .mvpNext,.job.mvpRow .jobProg,.job.mvpRow>.btn,.job.mvpRow .mvpRowActions{grid-column:1/-1}}
+/* mvp-cycle (owner 2026-11-11): accordion panel under a project row: cycle strip, five agents, agent card + chat */
+.mvpRowActions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.job.mvpRow.mvpOpen{background:linear-gradient(90deg,#10263d,#0b1a29);box-shadow:inset 3px 0 0 var(--cyan)}
+.mvpToggle .mvpChev{display:inline-block;transition:transform .15s}.mvpToggle[aria-expanded="true"] .mvpChev{transform:rotate(180deg)}
+.mvpPanel{margin:2px 0 10px;padding:12px;border:1px solid #1f4462;border-radius:12px;background:linear-gradient(180deg,#0b1c2d,#08141f);display:grid;gap:12px;min-width:0;font-size:12px;color:#c9d8e6}
+.mvpPanel .sub{font-size:12px}
+.mvpPanel h5{margin:0 0 6px;font-size:11px;color:#8ea3b8;text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+.mvpPanel button:focus-visible,.mvpPanel textarea:focus-visible,.mvpPanel input:focus-visible,.mvpPanel a:focus-visible,.mvpRow .btn:focus-visible{outline:2px solid #63d9ff;outline-offset:2px}
+.mvpBanner{padding:8px 10px;border:1px solid #76531d;background:#2a1d0d;color:#ffd48a;border-radius:9px;overflow-wrap:anywhere}
+.mvpCycle{list-style:none;margin:0;padding:0;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.mvpCycle li{display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #1c3853;background:#0d1d2f;border-radius:999px;font-size:12px;color:#9fb4c8}
+.mvpCycle li small{font-size:10px;color:#7f98ad}
+.mvpCycle li.cur{border-color:var(--cyan);background:#0e2940;color:#e6f7ff;box-shadow:0 0 14px #27caff22;animation:stagePulse 1.5s ease-in-out infinite}
+.mvpCycle li.cur small{color:#68e5ff}
+.mvpCycle li.done{border-color:#1b6040;background:#0c231a;color:#9ff0c2}.mvpCycle li.done small{color:#5fe594}
+.mvpCycle li.mvpCycleArrow{border:0;background:none;padding:0;color:#35688e;box-shadow:none}
+.mvpAgents{display:flex;align-items:stretch;gap:4px;overflow-x:auto;padding-bottom:2px}
+.mvpTile{flex:1 1 0;min-width:118px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;text-align:left;padding:9px 10px;border:1px solid #1e3d58;border-radius:10px;background:linear-gradient(180deg,#0d1d2d,#091521);color:#e6f1fb;font:inherit;cursor:pointer;transition:border-color .15s,transform .15s}
+.mvpTile:hover{border-color:#3a8fbc;transform:translateY(-1px)}
+.mvpTile b{font-size:12px;line-height:1.25}
+.mvpTile small{font-size:10px;color:#7f98ad}
+.mvpTile[aria-expanded="true"]{border-color:var(--cyan);box-shadow:inset 0 -2px 0 var(--cyan)}
+.mvpTile.s-working{border-color:#1f5a7a}.mvpTile.s-done{border-color:#20593d}.mvpTile.s-blocked{border-color:#76531d}.mvpTile.s-stopped{opacity:.7}
+.mvpArrow{flex:0 0 auto;align-self:center;color:#35688e;font-size:15px}.mvpArrow::before{content:"→"}
+.mvpBadge{display:inline-flex;align-items:center;gap:5px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:999px;background:#152637;color:#91a7b9;white-space:nowrap}
+.mvpBadge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.mvpBadge.s-working{background:#0e2940;color:#68e5ff}.mvpBadge.s-working::before{animation:mvpPulse 1.2s ease-in-out infinite;box-shadow:0 0 6px #27caff}
+.mvpBadge.s-done{background:#123724;color:#77e6a0}.mvpBadge.s-blocked{background:#3a2c10;color:#ffc65f}.mvpBadge.s-stopped{background:#1c2229;color:#8b96a1}
+@keyframes mvpPulse{50%{opacity:.25;transform:scale(1.5)}}
+.mvpAgentCard{border:1px solid #1f5a7a;border-radius:11px;background:#0a1826;padding:12px;display:grid;gap:12px;min-width:0;animation:mvpSlide .18s ease-out}
+@keyframes mvpSlide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.mvpCardHead{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center}.mvpCardHead b{font-size:14px}
+.mvpCardGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.mvpKv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;margin:0}.mvpKv dt{color:#7f98ad}.mvpKv dd{margin:0;overflow-wrap:anywhere}
+.mvpEvents{list-style:none;margin:0;padding:0;display:grid;gap:6px}.mvpEvents li{border-left:2px solid #21405e;padding-left:9px;overflow-wrap:anywhere}.mvpEvents small{display:block;color:#8ea3b8;font-size:11px}
+.mvpLinks{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:6px;overflow-wrap:anywhere}.mvpLinks a,.mvpEvents a{color:#63d9ff}
+.mvpNeeds{list-style:none;margin:0;padding:0;display:grid;gap:5px}.mvpNeeds li{overflow-wrap:anywhere}.mvpNeeds small{color:#ffc65f;margin-left:4px}
+.mvpChat{display:grid;gap:6px;max-height:300px;overflow-y:auto;padding:8px;border:1px solid #173047;border-radius:9px;background:#07121c}
+.mvpMsg{max-width:86%;padding:7px 9px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45}
+.mvpMsg small{display:block;font-size:10px;color:#7f98ad;margin-bottom:2px;white-space:normal}
+.mvpMsg.a-owner{justify-self:end;background:#123a5c;border:1px solid #23608f;color:#e6f4ff}
+.mvpMsg.a-agent{justify-self:start;background:#10251b;border:1px solid #20593d;color:#d9f7e6}
+.mvpMsg.a-system{justify-self:center;max-width:96%;background:transparent;border:1px dashed #33506b;color:#a9bdd0;font-size:11px}
+.mvpPanel textarea,.mvpPanel input{background:#06121e;border:1px solid #24445f;color:#eaf7ff;border-radius:8px;padding:8px}
+.mvpCompose{display:grid;gap:6px}.mvpCompose textarea{width:100%;min-height:64px;resize:vertical;box-sizing:border-box;font:inherit;font-size:12px}
+.mvpActions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.mvpActions .btn{font-size:12px}
+.mvpStopAsk{display:flex;flex-wrap:wrap;gap:6px;align-items:center;width:100%}.mvpStopAsk input{flex:1 1 200px;min-width:0;box-sizing:border-box}
+.mvpMsgLine{min-height:16px;font-size:12px;color:#9fb4c8}.mvpMsgLine.err{color:#ff9f95}
+.mvpNote{font-size:11px;color:#8ea3b8;border-top:1px dashed #1d3a52;padding-top:8px}
+@media(max-width:760px){.mvpPanel{padding:10px}.mvpAgents{flex-direction:column;overflow:visible}.mvpTile{min-width:0;width:100%;box-sizing:border-box;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between}.mvpArrow{align-self:center}.mvpArrow::before{content:"↓"}.mvpCardGrid{grid-template-columns:1fr}.mvpMsg{max-width:94%}.mvpCycle li.mvpCycleArrow{display:none}}
+@media(prefers-reduced-motion:reduce){.mvpCycle li.cur,.mvpBadge.s-working::before,.mvpAgentCard{animation:none}}
 /* closed slide-in studios sit just off-screen; their shadows bled over the right edge */
 :is(.flowPage,.packagePage,.variantPage,.brainPage,.taskPage,.qaPage,.intelPage):not(.open){box-shadow:none!important}
 
@@ -2208,6 +2259,9 @@ Object.assign(I18N.ru,{"ro.title":"Роли · назначение операт
 Object.assign(I18N.en,{"mvpb.title":"MVP Builder · Projects","mvpb.summary":"{n} projects · {active} in work","mvpb.new":"New Project","mvpb.full":"Open full page","mvpb.loading":"Loading MVP projects…","mvpb.none":"No MVP projects yet. Press “+ New Project” to add the first one.","mvpb.auth":"Sign in to see the MVP projects.","mvpb.failed":"Could not load the MVP projects. They will reload on the next update.","mvpb.next":"Next step","mvpb.ownerRole":"Your review of the preview","mvpb.blocked":"Blocked","mvpb.closed":"Closed","mvpb.details":"Details","mvpb.progress":"Progress","mvpb.stageLabel":"Stage","mvpb.brief":"Technical brief","mvpb.noBrief":"No brief yet; see the linked GitHub issue.","mvpb.history":"History","mvpb.noHistory":"No events recorded yet.","mvpb.notFound":"This project is no longer in the registry. Reload the page.","mvpb.drawerNote":"Read-only view. A stage changes only through a recorded event with an evidence link on the full page; nothing is started from here.","mvpb.formTitle":"New MVP project","mvpb.formSub":"The project starts at the Idea stage. Nothing is built, started or published from this form.","mvpb.lTitle":"Title (required, up to 120 characters)","mvpb.pTitle":"Short project name","mvpb.lBrief":"Technical brief (required unless you give a GitHub issue)","mvpb.pBrief":"Goal: what the MVP must prove\nFor whom: who uses it and in what situation\nMust-have features: 3–5 items\nDone when: checks that show it works\nNot to do: what is out of scope","mvpb.lIssue":"GitHub issue number (optional)","mvpb.pIssue":"for example 186","mvpb.create":"Create project","mvpb.created":"MVP project created","mvpb.err.title":"Add a project title.","mvpb.err.brief":"Write a technical brief or give a GitHub issue number.","mvpb.err.issue":"The issue number must be a whole number above zero.","mvpb.err.bad_project":"The project needs a title and either a brief or a GitHub issue number.","mvpb.err.bad_id":"A project id could not be made from this title. Use letters or digits in the title.","mvpb.err.project_exists":"A project with this id already exists.","mvpb.err.forbidden":"You do not have permission to add projects.","mvpb.err.bad_body":"The form could not be sent. Reload the page and try again.","mvpb.err.network":"No connection. Check the network and press “Create project” again.","mvpb.err.http":"Could not create the project (error {code}).","mvpb.kind.advance":"Moved to the next stage","mvpb.kind.note":"Note","mvpb.kind.block":"Blocked","mvpb.kind.unblock":"Unblocked","mvpb.kind.reject":"Rejected","mvpb.stage.idea":"Idea","mvpb.stage.researching":"Research","mvpb.stage.spec_draft":"Spec draft","mvpb.stage.spec_review":"Spec review","mvpb.stage.build_queued":"Queued to build","mvpb.stage.building":"Building","mvpb.stage.qa_review":"Quality check (QA)","mvpb.stage.preview_ready":"Preview ready","mvpb.stage.owner_review":"Your decision","mvpb.stage.validated":"Validated","mvpb.stage.rejected":"Rejected"});
 Object.assign(I18N.uk,{"mvpb.title":"MVP Builder · Проєкти","mvpb.summary":"{n} проєктів · {active} у роботі","mvpb.new":"Новий проєкт","mvpb.full":"Відкрити повну сторінку","mvpb.loading":"Завантаження MVP-проєктів…","mvpb.none":"MVP-проєктів ще немає. Натисніть «+ Новий проєкт», щоб додати перший.","mvpb.auth":"Увійдіть, щоб побачити MVP-проєкти.","mvpb.failed":"Не вдалося завантажити MVP-проєкти. Вони оновляться під час наступного оновлення.","mvpb.next":"Наступний крок","mvpb.ownerRole":"Ваша перевірка прев’ю","mvpb.blocked":"Заблоковано","mvpb.closed":"Закрито","mvpb.details":"Деталі","mvpb.progress":"Прогрес","mvpb.stageLabel":"Етап","mvpb.brief":"Технічне завдання","mvpb.noBrief":"Технічного завдання ще немає; див. пов’язану задачу GitHub.","mvpb.history":"Історія","mvpb.noHistory":"Подій ще не записано.","mvpb.notFound":"Цього проєкту вже немає в реєстрі. Оновіть сторінку.","mvpb.drawerNote":"Лише перегляд. Етап змінюється тільки записаною подією з посиланням-доказом на повній сторінці; звідси нічого не запускається.","mvpb.formTitle":"Новий MVP-проєкт","mvpb.formSub":"Проєкт починається з етапу «Ідея». Ця форма нічого не збирає, не запускає і не публікує.","mvpb.lTitle":"Назва (обов’язково, до 120 символів)","mvpb.pTitle":"Коротка назва проєкту","mvpb.lBrief":"Технічне завдання (обов’язкове, якщо не вказано задачу GitHub)","mvpb.pBrief":"Мета: що має довести MVP\nДля кого: хто користується і в якій ситуації\nОбов’язкові функції: 3–5 пунктів\nГотово, коли: перевірки, що показують, що все працює\nЧого НЕ робити: що поза обсягом","mvpb.lIssue":"Номер задачі GitHub (необов’язково)","mvpb.pIssue":"наприклад 186","mvpb.create":"Створити проєкт","mvpb.created":"MVP-проєкт створено","mvpb.err.title":"Додайте назву проєкту.","mvpb.err.brief":"Напишіть технічне завдання або вкажіть номер задачі GitHub.","mvpb.err.issue":"Номер задачі має бути цілим числом, більшим за нуль.","mvpb.err.bad_project":"Проєкту потрібні назва і технічне завдання або номер задачі GitHub.","mvpb.err.bad_id":"З цієї назви не вдалося створити ідентифікатор. Використайте в назві літери або цифри.","mvpb.err.project_exists":"Проєкт із таким ідентифікатором уже існує.","mvpb.err.forbidden":"У вас немає прав додавати проєкти.","mvpb.err.bad_body":"Не вдалося надіслати форму. Оновіть сторінку і спробуйте ще раз.","mvpb.err.network":"Немає зв’язку. Перевірте мережу і натисніть «Створити проєкт» ще раз.","mvpb.err.http":"Не вдалося створити проєкт (помилка {code}).","mvpb.kind.advance":"Перехід на наступний етап","mvpb.kind.note":"Нотатка","mvpb.kind.block":"Заблоковано","mvpb.kind.unblock":"Розблоковано","mvpb.kind.reject":"Відхилено","mvpb.stage.idea":"Ідея","mvpb.stage.researching":"Дослідження","mvpb.stage.spec_draft":"Чернетка спеки","mvpb.stage.spec_review":"Перевірка спеки","mvpb.stage.build_queued":"У черзі на збірку","mvpb.stage.building":"Збірка","mvpb.stage.qa_review":"Перевірка якості (QA)","mvpb.stage.preview_ready":"Прев’ю готове","mvpb.stage.owner_review":"Ваше рішення","mvpb.stage.validated":"Підтверджено","mvpb.stage.rejected":"Відхилено"});
 Object.assign(I18N.ru,{"mvpb.title":"MVP Builder · Проекты","mvpb.summary":"{n} проектов · {active} в работе","mvpb.new":"Новый проект","mvpb.full":"Открыть полную страницу","mvpb.loading":"Загрузка MVP-проектов…","mvpb.none":"MVP-проектов пока нет. Нажмите «+ Новый проект», чтобы добавить первый.","mvpb.auth":"Войдите, чтобы увидеть MVP-проекты.","mvpb.failed":"Не удалось загрузить MVP-проекты. Они обновятся при следующем обновлении.","mvpb.next":"Следующий шаг","mvpb.ownerRole":"Ваша проверка превью","mvpb.blocked":"Заблокировано","mvpb.closed":"Закрыто","mvpb.details":"Детали","mvpb.progress":"Прогресс","mvpb.stageLabel":"Этап","mvpb.brief":"Техническое задание","mvpb.noBrief":"Технического задания пока нет; см. связанную задачу GitHub.","mvpb.history":"История","mvpb.noHistory":"Событий пока не записано.","mvpb.notFound":"Этого проекта уже нет в реестре. Обновите страницу.","mvpb.drawerNote":"Только просмотр. Этап меняется только записанным событием со ссылкой-доказательством на полной странице; отсюда ничего не запускается.","mvpb.formTitle":"Новый MVP-проект","mvpb.formSub":"Проект начинается с этапа «Идея». Эта форма ничего не собирает, не запускает и не публикует.","mvpb.lTitle":"Название (обязательно, до 120 символов)","mvpb.pTitle":"Короткое название проекта","mvpb.lBrief":"Техническое задание (обязательно, если не указана задача GitHub)","mvpb.pBrief":"Цель: что должен доказать MVP\nДля кого: кто пользуется и в какой ситуации\nОбязательные функции: 3–5 пунктов\nГотово, когда: проверки, которые показывают, что всё работает\nЧего НЕ делать: что вне объёма","mvpb.lIssue":"Номер задачи GitHub (необязательно)","mvpb.pIssue":"например 186","mvpb.create":"Создать проект","mvpb.created":"MVP-проект создан","mvpb.err.title":"Добавьте название проекта.","mvpb.err.brief":"Напишите техническое задание или укажите номер задачи GitHub.","mvpb.err.issue":"Номер задачи должен быть целым числом больше нуля.","mvpb.err.bad_project":"Проекту нужны название и техническое задание или номер задачи GitHub.","mvpb.err.bad_id":"Из этого названия не удалось создать идентификатор. Используйте в названии буквы или цифры.","mvpb.err.project_exists":"Проект с таким идентификатором уже существует.","mvpb.err.forbidden":"У вас нет прав добавлять проекты.","mvpb.err.bad_body":"Не удалось отправить форму. Обновите страницу и попробуйте ещё раз.","mvpb.err.network":"Нет связи. Проверьте сеть и нажмите «Создать проект» ещё раз.","mvpb.err.http":"Не удалось создать проект (ошибка {code}).","mvpb.kind.advance":"Переход на следующий этап","mvpb.kind.note":"Заметка","mvpb.kind.block":"Заблокировано","mvpb.kind.unblock":"Разблокировано","mvpb.kind.reject":"Отклонено","mvpb.stage.idea":"Идея","mvpb.stage.researching":"Исследование","mvpb.stage.spec_draft":"Черновик спеки","mvpb.stage.spec_review":"Проверка спеки","mvpb.stage.build_queued":"В очереди на сборку","mvpb.stage.building":"Сборка","mvpb.stage.qa_review":"Проверка качества (QA)","mvpb.stage.preview_ready":"Превью готово","mvpb.stage.owner_review":"Ваше решение","mvpb.stage.validated":"Подтверждено","mvpb.stage.rejected":"Отклонено"});
+Object.assign(I18N.en,{"mvpc.open":"Agents","mvpc.panel":"Project cycle and agents","mvpc.loading":"Loading the project cycle…","mvpc.retry":"Try again","mvpc.err.auth":"Sign in to see the project cycle.","mvpc.err.gone":"This project is no longer in the registry. Reload the page.","mvpc.err.failed":"Could not load the project cycle. Check the connection and try again.","mvpc.err.network":"No connection. Check the network and try again.","mvpc.err.http":"The server refused the request (error {code}). Nothing was changed.","mvpc.err.empty_message":"Write a message first.","mvpc.err.unknown_agent":"This agent is not part of the project.","mvpc.err.reason_required":"Write a short reason why you stop the project.","mvpc.err.forbidden":"You do not have permission for this action.","mvpc.err.owner_only":"Only the owner can do this.","mvpc.err.not_blocked":"The project is not stopped any more. The panel has been refreshed.","mvpc.err.project_closed":"The project is closed; it can no longer be stopped or resumed.","mvpc.err.project_blocked":"The project is stopped. Resume it first.","mvpc.err.unknown_project":"This project is no longer in the registry. Reload the page.","mvpc.err.unknown_project_or_agent":"This project or agent was not found. Reload the page.","mvpc.err.idempotency_conflict":"This action was already sent with other details. Reload the page and try again.","mvpc.err.registry_unreadable":"The project registry cannot be read right now. Nothing was changed.","mvpc.err.bad_kind":"The server did not accept this action. Reload the page.","mvpc.cycle":"Cycle","mvpc.agents":"Agents","mvpc.pickAgent":"Click an agent to see what it does, what it did and to talk to it.","mvpc.phase.battle":"Battle","mvpc.phase.build":"Build","mvpc.phase.promote":"Promote","mvpc.phase.learn":"Learn","mvpc.phaseNow":"now","mvpc.phaseDone":"done","mvpc.phaseLater":"later","mvpc.st.waiting":"waiting","mvpc.st.working":"working","mvpc.st.done":"done","mvpc.st.blocked":"blocked","mvpc.st.stopped":"stopped","mvpc.does":"What it does","mvpc.engine":"Runs on","mvpc.doesText.researcher":"Audience, competitors, the problem, ideas for Battle","mvpc.doesText.spec":"Technical brief with “done when” criteria","mvpc.doesText.builder":"Code in a separate branch, PR, CI","mvpc.doesText.qa":"Tests, secrets, access, preview on Render","mvpc.doesText.promoter":"Site, newsletter, social media — only after your “yes” to publish","mvpc.engine.gemini":"Gemini (free key)","mvpc.engine.claude":"Claude (subscription, through the worker)","mvpc.engine.content_factory":"Content Factory","mvpc.did":"What it did","mvpc.noEvents":"Nothing recorded for this agent yet.","mvpc.links":"Evidence","mvpc.connect":"What to connect","mvpc.noNeeds":"Nothing to connect.","mvpc.need.gemini":"Gemini (free key)","mvpc.need.github":"GitHub (read access)","mvpc.need.claude_worker":"Claude worker on EC2","mvpc.need.render":"Render (preview)","mvpc.need.channels":"Project channels: site, email, YouTube, Telegram, TikTok…","mvpc.hint.gemini":"Gemini key on Render","mvpc.hint.github":"token on Render","mvpc.hint.claude_worker":"worker offline","mvpc.hint.render":"preview is not set up yet","mvpc.hint.channels":"connecting channels is the next step","mvpc.chat":"Chat with {agent}","mvpc.chatEmpty":"No messages yet. Write the first one below.","mvpc.author.owner":"You","mvpc.author.agent":"Agent","mvpc.author.system":"System","mvpc.waiting":"Waiting for a reply… (checking every 3 seconds for up to a minute)","mvpc.readOnly":"View only: viewers cannot send messages or stop the project.","mvpc.chatLabel":"Message to {agent}","mvpc.chatPh":"Ask a question or give an instruction… (Ctrl+Enter sends)","mvpc.send":"Send","mvpc.sending":"Sending…","mvpc.sentGemini":"Sent. Gemini usually answers in a few seconds.","mvpc.sentClaude":"Sent. Claude answers later through the worker; the reply will appear in this chat.","mvpc.stop":"⏸ Stop project","mvpc.resume":"▶ Resume","mvpc.redo":"↻ Redo","mvpc.redoPrefix":"Redo: ","mvpc.stopReason":"Why are you stopping the project?","mvpc.stopReasonPh":"Short reason, e.g. waiting for a decision","mvpc.stopConfirm":"Stop","mvpc.stopped":"Project stopped. The reason is recorded in its history.","mvpc.resumed":"Project resumed.","mvpc.blockedBanner":"Project is stopped: {reason}","mvpc.note":"Stages move only through recorded events with evidence; this panel never advances a stage or starts a build by itself."});
+Object.assign(I18N.uk,{"mvpc.open":"Агенти","mvpc.panel":"Цикл проєкту та агенти","mvpc.loading":"Завантаження циклу проєкту…","mvpc.retry":"Спробувати ще раз","mvpc.err.auth":"Увійдіть, щоб побачити цикл проєкту.","mvpc.err.gone":"Цього проєкту вже немає в реєстрі. Оновіть сторінку.","mvpc.err.failed":"Не вдалося завантажити цикл проєкту. Перевірте зв’язок і спробуйте ще раз.","mvpc.err.network":"Немає зв’язку. Перевірте мережу і спробуйте ще раз.","mvpc.err.http":"Сервер відхилив запит (помилка {code}). Нічого не змінено.","mvpc.err.empty_message":"Спочатку напишіть повідомлення.","mvpc.err.unknown_agent":"Цього агента немає в проєкті.","mvpc.err.reason_required":"Напишіть коротко, чому зупиняєте проєкт.","mvpc.err.forbidden":"У вас немає прав на цю дію.","mvpc.err.owner_only":"Це може зробити тільки власник.","mvpc.err.not_blocked":"Проєкт уже не зупинено. Панель оновлено.","mvpc.err.project_closed":"Проєкт закрито; його вже не можна зупинити чи продовжити.","mvpc.err.project_blocked":"Проєкт зупинено. Спочатку продовжте його.","mvpc.err.unknown_project":"Цього проєкту вже немає в реєстрі. Оновіть сторінку.","mvpc.err.unknown_project_or_agent":"Проєкт або агента не знайдено. Оновіть сторінку.","mvpc.err.idempotency_conflict":"Цю дію вже надіслано з іншими даними. Оновіть сторінку і спробуйте ще раз.","mvpc.err.registry_unreadable":"Реєстр проєктів зараз не читається. Нічого не змінено.","mvpc.err.bad_kind":"Сервер не прийняв цю дію. Оновіть сторінку.","mvpc.cycle":"Цикл","mvpc.agents":"Агенти","mvpc.pickAgent":"Натисніть на агента, щоб побачити, що він робить, що зробив, і поговорити з ним.","mvpc.phase.battle":"Battle","mvpc.phase.build":"Build","mvpc.phase.promote":"Promote","mvpc.phase.learn":"Learn","mvpc.phaseNow":"зараз","mvpc.phaseDone":"готово","mvpc.phaseLater":"далі","mvpc.st.waiting":"чекає","mvpc.st.working":"працює","mvpc.st.done":"готово","mvpc.st.blocked":"заблоковано","mvpc.st.stopped":"зупинено","mvpc.does":"Що робить","mvpc.engine":"Хто виконує","mvpc.doesText.researcher":"Аудиторія, конкуренти, проблема, ідеї для Battle","mvpc.doesText.spec":"Технічне завдання з критеріями «готово, коли»","mvpc.doesText.builder":"Код в окремій гілці, PR, CI","mvpc.doesText.qa":"Тести, секрети, доступи, прев’ю на Render","mvpc.doesText.promoter":"Сайт, розсилка, соцмережі — тільки з вашим «так» на публікацію","mvpc.engine.gemini":"Gemini (безкоштовний ключ)","mvpc.engine.claude":"Claude (підписка, через воркер)","mvpc.engine.content_factory":"Content Factory","mvpc.did":"Що зробив","mvpc.noEvents":"Для цього агента ще нічого не записано.","mvpc.links":"Докази","mvpc.connect":"Що підключити","mvpc.noNeeds":"Нічого підключати не треба.","mvpc.need.gemini":"Gemini (безкоштовний ключ)","mvpc.need.github":"GitHub (читання)","mvpc.need.claude_worker":"Claude-воркер на EC2","mvpc.need.render":"Render (прев’ю)","mvpc.need.channels":"Канали проєкту: сайт, пошта, YouTube, Telegram, TikTok…","mvpc.hint.gemini":"ключ Gemini на Render","mvpc.hint.github":"токен на Render","mvpc.hint.claude_worker":"воркер офлайн","mvpc.hint.render":"прев’ю ще не налаштоване","mvpc.hint.channels":"підключення каналів — наступний крок","mvpc.chat":"Чат з {agent}","mvpc.chatEmpty":"Повідомлень ще немає. Напишіть перше нижче.","mvpc.author.owner":"Ви","mvpc.author.agent":"Агент","mvpc.author.system":"Система","mvpc.waiting":"Чекаємо на відповідь… (перевіряємо кожні 3 секунди до хвилини)","mvpc.readOnly":"Лише перегляд: глядачі не можуть надсилати повідомлення чи зупиняти проєкт.","mvpc.chatLabel":"Повідомлення для {agent}","mvpc.chatPh":"Поставте запитання або дайте вказівку… (Ctrl+Enter — надіслати)","mvpc.send":"Надіслати","mvpc.sending":"Надсилання…","mvpc.sentGemini":"Надіслано. Gemini зазвичай відповідає за кілька секунд.","mvpc.sentClaude":"Надіслано. Claude відповість пізніше через воркер; відповідь з’явиться в цьому чаті.","mvpc.stop":"⏸ Зупинити проєкт","mvpc.resume":"▶ Продовжити","mvpc.redo":"↻ Переробити","mvpc.redoPrefix":"Переробити: ","mvpc.stopReason":"Чому зупиняєте проєкт?","mvpc.stopReasonPh":"Коротка причина, напр. чекаю на рішення","mvpc.stopConfirm":"Зупинити","mvpc.stopped":"Проєкт зупинено. Причину записано в історію.","mvpc.resumed":"Проєкт продовжено.","mvpc.blockedBanner":"Проєкт зупинено: {reason}","mvpc.note":"Етапи рухаються тільки через записані події з доказами; панель нічого не запускає сама."});
+Object.assign(I18N.ru,{"mvpc.open":"Агенты","mvpc.panel":"Цикл проекта и агенты","mvpc.loading":"Загрузка цикла проекта…","mvpc.retry":"Попробовать ещё раз","mvpc.err.auth":"Войдите, чтобы увидеть цикл проекта.","mvpc.err.gone":"Этого проекта уже нет в реестре. Обновите страницу.","mvpc.err.failed":"Не удалось загрузить цикл проекта. Проверьте связь и попробуйте ещё раз.","mvpc.err.network":"Нет связи. Проверьте сеть и попробуйте ещё раз.","mvpc.err.http":"Сервер отклонил запрос (ошибка {code}). Ничего не изменено.","mvpc.err.empty_message":"Сначала напишите сообщение.","mvpc.err.unknown_agent":"Этого агента нет в проекте.","mvpc.err.reason_required":"Напишите коротко, почему останавливаете проект.","mvpc.err.forbidden":"У вас нет прав на это действие.","mvpc.err.owner_only":"Это может сделать только владелец.","mvpc.err.not_blocked":"Проект уже не остановлен. Панель обновлена.","mvpc.err.project_closed":"Проект закрыт; его больше нельзя остановить или продолжить.","mvpc.err.project_blocked":"Проект остановлен. Сначала продолжите его.","mvpc.err.unknown_project":"Этого проекта уже нет в реестре. Обновите страницу.","mvpc.err.unknown_project_or_agent":"Проект или агент не найден. Обновите страницу.","mvpc.err.idempotency_conflict":"Это действие уже отправлено с другими данными. Обновите страницу и попробуйте ещё раз.","mvpc.err.registry_unreadable":"Реестр проектов сейчас не читается. Ничего не изменено.","mvpc.err.bad_kind":"Сервер не принял это действие. Обновите страницу.","mvpc.cycle":"Цикл","mvpc.agents":"Агенты","mvpc.pickAgent":"Нажмите на агента, чтобы увидеть, что он делает, что сделал, и поговорить с ним.","mvpc.phase.battle":"Battle","mvpc.phase.build":"Build","mvpc.phase.promote":"Promote","mvpc.phase.learn":"Learn","mvpc.phaseNow":"сейчас","mvpc.phaseDone":"готово","mvpc.phaseLater":"дальше","mvpc.st.waiting":"ждёт","mvpc.st.working":"работает","mvpc.st.done":"готово","mvpc.st.blocked":"заблокирован","mvpc.st.stopped":"остановлен","mvpc.does":"Что делает","mvpc.engine":"Кто выполняет","mvpc.doesText.researcher":"Аудитория, конкуренты, проблема, идеи для Battle","mvpc.doesText.spec":"Техническое задание с критериями «готово, когда»","mvpc.doesText.builder":"Код в отдельной ветке, PR, CI","mvpc.doesText.qa":"Тесты, секреты, доступы, превью на Render","mvpc.doesText.promoter":"Сайт, рассылка, соцсети — только с вашим «да» на публикацию","mvpc.engine.gemini":"Gemini (бесплатный ключ)","mvpc.engine.claude":"Claude (подписка, через воркер)","mvpc.engine.content_factory":"Content Factory","mvpc.did":"Что сделал","mvpc.noEvents":"Для этого агента пока ничего не записано.","mvpc.links":"Доказательства","mvpc.connect":"Что подключить","mvpc.noNeeds":"Ничего подключать не нужно.","mvpc.need.gemini":"Gemini (бесплатный ключ)","mvpc.need.github":"GitHub (чтение)","mvpc.need.claude_worker":"Claude-воркер на EC2","mvpc.need.render":"Render (превью)","mvpc.need.channels":"Каналы проекта: сайт, почта, YouTube, Telegram, TikTok…","mvpc.hint.gemini":"ключ Gemini на Render","mvpc.hint.github":"токен на Render","mvpc.hint.claude_worker":"воркер офлайн","mvpc.hint.render":"превью ещё не настроено","mvpc.hint.channels":"подключение каналов — следующий шаг","mvpc.chat":"Чат с {agent}","mvpc.chatEmpty":"Сообщений пока нет. Напишите первое ниже.","mvpc.author.owner":"Вы","mvpc.author.agent":"Агент","mvpc.author.system":"Система","mvpc.waiting":"Ждём ответ… (проверяем каждые 3 секунды до минуты)","mvpc.readOnly":"Только просмотр: зрители не могут отправлять сообщения или останавливать проект.","mvpc.chatLabel":"Сообщение для {agent}","mvpc.chatPh":"Задайте вопрос или дайте указание… (Ctrl+Enter — отправить)","mvpc.send":"Отправить","mvpc.sending":"Отправка…","mvpc.sentGemini":"Отправлено. Gemini обычно отвечает за несколько секунд.","mvpc.sentClaude":"Отправлено. Claude ответит позже через воркер; ответ появится в этом чате.","mvpc.stop":"⏸ Остановить проект","mvpc.resume":"▶ Продолжить","mvpc.redo":"↻ Переделать","mvpc.redoPrefix":"Переделать: ","mvpc.stopReason":"Почему останавливаете проект?","mvpc.stopReasonPh":"Короткая причина, напр. жду решения","mvpc.stopConfirm":"Остановить","mvpc.stopped":"Проект остановлен. Причина записана в историю.","mvpc.resumed":"Проект продолжен.","mvpc.blockedBanner":"Проект остановлен: {reason}","mvpc.note":"Этапы двигаются только через записанные события с доказательствами; панель ничего не запускает сама."});
 function applyLanguage(){
  document.documentElement.lang=LANG;
  localStorage.setItem('factoryos_lang',LANG);
@@ -2782,6 +2836,7 @@ let buildPollTimer=null;
 // --- mvp-builder:begin — owner 2026-11-11: MVP projects under Current Jobs. Read-only view + "New Project" (POST /api/mvp-factory/projects).
 // Nothing here starts a worker or moves a stage: stages change only through recorded events with evidence (full page).
 let MVP=null,mvpErr='',mvpFetchedAt=0,mvpLoading=false;
+let mvpOpen='',mvpAgent='',mvpRowsHtml='',mvpCyc={},mvpCycErr={},mvpPoll=null,mvpPollUntil=0,mvpAskStop=false,mvpLine={text:'',err:false},mvpBusy=false;
 const MVP_PAGE='/static/mvp-factory/index.html';
 function openMvpFactory(){if(typeof closeMobileNav==='function')closeMobileNav();const el=$('#mvpProjects');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});loadMvpProjects(true)}
 async function loadMvpProjects(force){
@@ -2789,7 +2844,7 @@ async function loadMvpProjects(force){
  try{const r=await fetch('/api/mvp-factory',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}}),type=r.headers.get('content-type')||'';
   if(r.status===401||r.status===403||!type.includes('json')){mvpErr='auth'}else if(!r.ok){mvpErr='failed'}else{MVP=await r.json();mvpErr=''}
  }catch(e){mvpErr='failed'}finally{mvpLoading=false}
- mvpProjects()
+ mvpProjects();if(mvpOpen&&!mvpErr)loadMvpCycle(mvpOpen)
 }
 function mvpStage(s){const k='mvpb.stage.'+s;const v=tr(k);return v===k?String(s||''):v}
 function mvpThumb(p){
@@ -2807,23 +2862,31 @@ function mvpNextText(p){
 }
 function mvpProjects(){
  const list=$('#mvpList'),sum=$('#mvpSummary');if(!list)return;
- if(mvpErr){if(sum)sum.textContent='';list.innerHTML='<div class="sub" style="padding:18px">'+esc(tr(mvpErr==='auth'?'mvpb.auth':'mvpb.failed'))+'</div>';return}
+ if(mvpErr){if(sum)sum.textContent='';mvpRowsHtml='';list.innerHTML='<div class="sub" style="padding:18px">'+esc(tr(mvpErr==='auth'?'mvpb.auth':'mvpb.failed'))+'</div>';return}
  if(!MVP){return}
  const a=MVP.projects||[],active=a.filter(p=>!p.blocked&&!['idea','validated','rejected'].includes(p.stage)).length;
  if(sum)sum.textContent=tr('mvpb.summary',{n:a.length,active});
- if(!a.length){list.innerHTML='<div class="sub" style="padding:18px">'+esc(tr('mvpb.none'))+'</div>';return}
- list.innerHTML=a.map(p=>{
+ if(!a.length){mvpCloseAll();mvpRowsHtml='';list.innerHTML='<div class="sub" style="padding:18px">'+esc(tr('mvpb.none'))+'</div>';return}
+ if(mvpOpen&&!a.some(p=>p.id===mvpOpen))mvpCloseAll();
+ const html=a.map(p=>{
   const id=esc(p.id),pct=Math.max(0,Math.min(100,Number(p.progress||0))),nx=mvpNextText(p),r=p.recommendation||{};
   const st=p.blocked?'blocked':p.stage==='validated'?'done':(r.decision==='owner'?'waiting_approval':'running');
   const chips='<span class="mvpChipNow">'+esc(mvpStage(p.stage))+'</span>'+(p.blocked?'<span class="mvpChipBlocked">'+esc(tr('mvpb.blocked'))+'</span>':'')+(Number(p.issue)>0?'<span>#'+Number(p.issue)+'</span>':'');
-  return '<div class="job mvpRow st-'+st+'" data-mvp-id="'+id+'" onclick="openMvpProject(\''+id+'\')">'
+  const open=p.id===mvpOpen;
+  return '<div class="job mvpRow st-'+st+(open?' mvpOpen':'')+'" data-mvp-id="'+id+'" aria-expanded="'+open+'" onclick="toggleMvpPanel(\''+id+'\')">'
    +mvpThumb(p)
    +'<div class="jobInfo"><h4>'+esc(p.title)+'</h4><div class="chips">'+chips+'</div></div>'
    +'<div class="jobProg"><div class="jobProgTop"><span>'+esc(tr('mvpb.progress'))+'</span><b>'+pct+'%</b></div><div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+pct+'"><i style="width:'+pct+'%"></i></div></div>'
    +'<div class="mvpNext"><small>'+esc(nx[0])+'</small><b title="'+esc(nx[1])+'">'+esc(nx[1])+'</b></div>'
    +'<span class="jobAgo">'+esc(timeAgo(p.updated_at||p.created_at))+'</span>'
-   +'<button class="btn primary" onclick="event.stopPropagation();openMvpProject(\''+id+'\')">'+esc(tr('mvpb.details'))+' →</button></div>'
- }).join('')
+   +'<div class="mvpRowActions"><button type="button" class="btn mvpToggle" aria-expanded="'+open+'" aria-controls="mvpPanel" data-fk="row-'+id+'" onclick="event.stopPropagation();toggleMvpPanel(\''+id+'\')">'+esc(tr('mvpc.open'))+' <span class="mvpChev" aria-hidden="true">▾</span></button>'
+   +'<button type="button" class="btn primary" onclick="event.stopPropagation();openMvpProject(\''+id+'\')">'+esc(tr('mvpb.details'))+' →</button></div></div>'
+ }).join('');
+ if(html===mvpRowsHtml&&list.querySelector('.mvpRow'))return;
+ // Keep the open panel's DOM (typed chat text, focus) across row re-renders: detach it, re-render rows, put it back.
+ const panel=$('#mvpPanel');if(panel)panel.remove();
+ list.innerHTML=html;mvpRowsHtml=html;
+ if(mvpOpen){mvpPlacePanel(panel);if(panel)mvpRenderPanel()}
 }
 function mvpEvidence(u){u=String(u||'');return /^(https:\/\/github\.com\/|\/static\/)/.test(u)?'<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(u.replace(/^https:\/\/github\.com\/[^/]+\/[^/]+\//,'gh:'))+'</a>':esc(u)}
 function openMvpProject(id){
@@ -2858,6 +2921,131 @@ async function createMvpProject(){
   closeMvpNew();$('#mvpTitle').value='';$('#mvpBrief').value='';$('#mvpIssue').value='';toast(tr('mvpb.created'));
   await loadMvpProjects(true);const row=document.querySelector('[data-mvp-id="'+(window.CSS&&CSS.escape?CSS.escape(String(d.id||'')):String(d.id||''))+'"]');if(row)row.scrollIntoView({block:'nearest'});
  }catch(e){msg.textContent=tr('mvpb.err.network')}finally{btn.disabled=false}
+}
+// mvp-cycle (owner 2026-11-11): click a project row → the panel opens under it (one at a time). Cycle strip, five agent
+// tiles, one agent card at a time with what it does / did / needs and a chat. Stop/Resume record block/unblock events;
+// nothing here advances a stage or starts a build.
+const MVPC_ICON={researcher:'🔎',spec:'📝',builder:'🛠️',qa:'🛡️',promoter:'📣'};
+function mvpReadOnly(){return !!(S&&S.auth&&S.auth.readOnly)}
+function mvpTrOr(k,fb){const v=tr(k);return v===k?String(fb||''):v}
+function mvpCloseAll(){mvpOpen='';mvpAgent='';mvpAskStop=false;mvpLine={text:'',err:false};mvpStopPoll();const p=$('#mvpPanel');if(p)p.remove()}
+function mvpStopPoll(){clearInterval(mvpPoll);mvpPoll=null;mvpPollUntil=0}
+function mvpRowEl(id){return document.querySelector('#mvpList [data-mvp-id="'+(window.CSS&&CSS.escape?CSS.escape(id):id)+'"]')}
+function mvpPlacePanel(panel){
+ const row=mvpRowEl(mvpOpen);if(!row){mvpCloseAll();return}
+ if(!panel){panel=document.createElement('div');panel.id='mvpPanel';panel.className='mvpPanel';panel.setAttribute('role','region')}
+ panel.setAttribute('aria-label',tr('mvpc.panel'));
+ row.after(panel);if(!panel.firstChild)mvpRenderPanel()
+}
+function toggleMvpPanel(id){
+ if(mvpOpen===id){mvpCloseAll();mvpRowsHtml='';mvpProjects();const t=document.querySelector('[data-fk="row-'+(window.CSS&&CSS.escape?CSS.escape(id):id)+'"]');if(t)t.focus();return}
+ mvpCloseAll();mvpOpen=id;mvpRowsHtml='';mvpProjects();loadMvpCycle(id)
+}
+async function loadMvpCycle(id){
+ try{const r=await fetch('/api/mvp-factory/'+encodeURIComponent(id)+'/cycle',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}}),type=r.headers.get('content-type')||'';
+  if(r.status===401||r.status===403||!type.includes('json'))mvpCycErr[id]='auth';else if(r.status===404)mvpCycErr[id]='gone';else if(!r.ok)mvpCycErr[id]='failed';else{mvpCyc[id]=await r.json();mvpCycErr[id]=''}
+ }catch(e){mvpCycErr[id]='failed'}
+ if(mvpOpen===id)mvpRenderPanel();
+ return mvpCyc[id]
+}
+function mvpRetryCycle(){if(!mvpOpen)return;mvpCycErr[mvpOpen]='';delete mvpCyc[mvpOpen];mvpRenderPanel();loadMvpCycle(mvpOpen)}
+function mvpWhen(at){return esc(String(at||'').replace('T',' ').replace('Z','').slice(0,16))}
+function mvpAgentCard(c,a){
+ const ro=mvpReadOnly(),name=esc(a.label||a.id),does=mvpTrOr('mvpc.doesText.'+a.id,a.does),eng=mvpTrOr('mvpc.engine.'+a.engine,a.engine);
+ const ev=a.events||[],links=(a.links||[]).filter(Boolean),needs=a.needs||[],chat=a.chat||[];
+ const did=(ev.length?'<ol class="mvpEvents">'+ev.slice().reverse().map(e=>'<li><small>'+mvpWhen(e.at)+' · '+esc(mvpStage(e.to_stage))+'</small>'+esc(mvpTrOr('mvpb.kind.'+e.kind,e.kind))+(e.note?' — '+esc(e.note):'')+'</li>').join('')+'</ol>':'<div class="sub">'+esc(tr('mvpc.noEvents'))+'</div>')
+  +(links.length?'<div class="mvpLinks"><span class="sub">'+esc(tr('mvpc.links'))+':</span> '+links.map(mvpEvidence).join(' ')+'</div>':'');
+ const need=needs.length?'<ul class="mvpNeeds">'+needs.map(n=>'<li>'+(n.ok?'✅':'⚠️')+' '+esc(mvpTrOr('mvpc.need.'+n.id,n.label))+(n.ok?'':'<small>— '+esc(mvpTrOr('mvpc.hint.'+n.id,''))+'</small>')+'</li>').join('')+'</ul>':'<div class="sub">'+esc(tr('mvpc.noNeeds'))+'</div>';
+ const msgs=chat.length?chat.map(m=>{const au=['owner','agent','system'].includes(m.author)?m.author:'system';return '<div class="mvpMsg a-'+au+'"><small>'+esc(au==='agent'?name:tr('mvpc.author.'+au))+' · '+mvpWhen(m.at)+'</small>'+esc(m.text)+'</div>'}).join(''):'<div class="sub">'+esc(tr('mvpc.chatEmpty'))+'</div>';
+ const waiting=mvpPoll?'<div class="sub">'+esc(tr('mvpc.waiting'))+'</div>':'';
+ const compose=ro?'<div class="sub">'+esc(tr('mvpc.readOnly'))+'</div>'
+  :'<div class="mvpCompose"><label class="sub" for="mvpChatInput">'+esc(tr('mvpc.chatLabel',{agent:a.label||a.id}))+'</label><textarea id="mvpChatInput" data-fk="chat" maxlength="1500" rows="3" placeholder="'+esc(tr('mvpc.chatPh'))+'" onkeydown="if(event.key===\'Enter\'&&(event.ctrlKey||event.metaKey)){event.preventDefault();mvpSend()}"></textarea>'
+  +'<div class="mvpActions"><button type="button" class="btn primary" data-fk="send" onclick="mvpSend()"'+(mvpBusy?' disabled':'')+'>'+esc(tr('mvpc.send'))+'</button></div></div>';
+ const blocked=!!c.blocked,closed=c.stage==='validated'||c.stage==='rejected';
+ let actions='';
+ if(!ro){
+  actions='<div class="mvpActions">'
+   +(blocked?'<button type="button" class="btn" data-fk="resume" onclick="mvpEvent(\'unblock\')"'+(mvpBusy?' disabled':'')+'>'+esc(tr('mvpc.resume'))+'</button>'
+    :(closed?'':'<button type="button" class="btn" data-fk="stop" aria-expanded="'+mvpAskStop+'" onclick="mvpAskStopToggle()"'+(mvpBusy?' disabled':'')+'>'+esc(tr('mvpc.stop'))+'</button>'))
+   +'<button type="button" class="btn" data-fk="redo" onclick="mvpRedo()">'+esc(tr('mvpc.redo'))+'</button>'
+   +(mvpAskStop&&!blocked?'<div class="mvpStopAsk"><label class="sub" for="mvpStopReason">'+esc(tr('mvpc.stopReason'))+'</label><input id="mvpStopReason" data-fk="reason" maxlength="200" placeholder="'+esc(tr('mvpc.stopReasonPh'))+'" onkeydown="if(event.key===\'Enter\'){event.preventDefault();mvpEvent(\'block\')}else if(event.key===\'Escape\'){mvpAskStopToggle()}"><button type="button" class="btn primary" data-fk="stopGo" onclick="mvpEvent(\'block\')"'+(mvpBusy?' disabled':'')+'>'+esc(tr('mvpc.stopConfirm'))+'</button><button type="button" class="btn" data-fk="stopCancel" onclick="mvpAskStopToggle()">'+esc(tr('action.cancel'))+'</button></div>':'')
+   +'</div>';
+ }
+ return '<section class="mvpAgentCard" id="mvpAgentCard" aria-label="'+name+'">'
+  +'<div class="mvpCardHead"><b>'+(MVPC_ICON[a.id]||'◆')+' '+name+'</b><span class="mvpBadge s-'+esc(a.status)+'">'+esc(mvpTrOr('mvpc.st.'+a.status,a.status))+'</span></div>'
+  +'<dl class="mvpKv"><dt>'+esc(tr('mvpc.does'))+'</dt><dd>'+esc(does)+'</dd><dt>'+esc(tr('mvpc.engine'))+'</dt><dd>'+esc(eng)+'</dd></dl>'
+  +'<div class="mvpCardGrid"><div><h5>'+esc(tr('mvpc.did'))+'</h5>'+did+'</div><div><h5>'+esc(tr('mvpc.connect'))+'</h5>'+need+'</div></div>'
+  +'<div><h5>'+esc(tr('mvpc.chat',{agent:a.label||a.id}))+'</h5><div class="mvpChat" id="mvpChatLog" role="log" aria-live="polite">'+msgs+'</div>'+waiting+'</div>'
+  +compose+actions
+  +'<div class="mvpMsgLine'+(mvpLine.err?' err':'')+'" role="status" aria-live="polite">'+esc(mvpLine.text)+'</div>'
+  +'<div class="mvpNote">'+esc(LANG==='uk'&&c.note?c.note:tr('mvpc.note'))+'</div>'
+  +'</section>'
+}
+function mvpRenderPanel(){
+ const panel=$('#mvpPanel');if(!panel||!mvpOpen)return;
+ // Save what the owner is typing and where focus is; the panel is re-rendered from the latest cycle facts.
+ const ci=$('#mvpChatInput'),ri=$('#mvpStopReason'),ae=document.activeElement,fk=ae&&panel.contains(ae)&&ae.dataset?ae.dataset.fk:'';
+ const keep={chat:ci?ci.value:null,reason:ri?ri.value:null,sel:ae&&(ae===ci||ae===ri)?[ae.selectionStart,ae.selectionEnd]:null};
+ const chatEl=$('#mvpChatLog'),atBottom=!chatEl||chatEl.scrollHeight-chatEl.scrollTop-chatEl.clientHeight<24;
+ const c=mvpCyc[mvpOpen],err=mvpCycErr[mvpOpen];
+ if(err&&!c){panel.innerHTML='<div class="sub">'+esc(tr('mvpc.err.'+err))+'</div>'+(err==='failed'?'<div><button type="button" class="btn" data-fk="retry" onclick="mvpRetryCycle()">'+esc(tr('mvpc.retry'))+'</button></div>':'');return}
+ if(!c){panel.innerHTML='<div class="sub" role="status">'+esc(tr('mvpc.loading'))+'</div>';return}
+ const agents=c.agents||[],phases=c.phases||[];
+ if(mvpAgent&&!agents.some(a=>a.id===mvpAgent))mvpAgent='';
+ const strip='<ol class="mvpCycle" aria-label="'+esc(tr('mvpc.cycle'))+'">'+phases.map((ph,i)=>(i?'<li class="mvpCycleArrow" aria-hidden="true">→</li>':'')+'<li class="'+(ph.current?'cur':ph.done?'done':'')+'"'+(ph.current?' aria-current="step"':'')+'><span aria-hidden="true">'+esc(ph.icon||'')+'</span> '+esc(mvpTrOr('mvpc.phase.'+ph.id,ph.id))+' <small>'+esc(tr(ph.current?'mvpc.phaseNow':ph.done?'mvpc.phaseDone':'mvpc.phaseLater'))+(ph.done?' ✓':'')+'</small></li>').join('')+'</ol>';
+ const tiles='<div class="mvpAgents" role="group" aria-label="'+esc(tr('mvpc.agents'))+'">'+agents.map((a,i)=>(i?'<span class="mvpArrow" aria-hidden="true"></span>':'')
+  +'<button type="button" class="mvpTile s-'+esc(a.status)+'" data-fk="tile-'+esc(a.id)+'" aria-expanded="'+(a.id===mvpAgent)+'" aria-controls="mvpAgentCard" onclick="mvpToggleAgent(\''+esc(a.id)+'\')"><b><span aria-hidden="true">'+(MVPC_ICON[a.id]||'◆')+'</span> '+esc(a.label||a.id)+'</b><span class="mvpBadge s-'+esc(a.status)+'">'+esc(mvpTrOr('mvpc.st.'+a.status,a.status))+'</span></button>').join('')+'</div>';
+ const cur=agents.find(a=>a.id===mvpAgent);
+ const stale=err?'<div class="sub">'+esc(tr('mvpc.err.'+err))+'</div>':'';
+ panel.innerHTML=(c.blocked?'<div class="mvpBanner">⏸ '+esc(tr('mvpc.blockedBanner',{reason:(c.blocked&&c.blocked.reason)||'—'}))+'</div>':'')
+  +stale+'<div><h5>'+esc(tr('mvpc.cycle'))+'</h5>'+strip+'</div>'
+  +'<div><h5>'+esc(tr('mvpc.agents'))+'</h5>'+tiles+(cur?'':'<div class="sub" style="margin-top:6px">'+esc(tr('mvpc.pickAgent'))+'</div>')+'</div>'
+  +(cur?mvpAgentCard(c,cur):'');
+ const ci2=$('#mvpChatInput'),ri2=$('#mvpStopReason');
+ if(ci2&&keep.chat!==null)ci2.value=keep.chat;if(ri2&&keep.reason!==null)ri2.value=keep.reason;
+ const log=$('#mvpChatLog');if(log&&atBottom)log.scrollTop=log.scrollHeight;
+ if(fk){const el=panel.querySelector('[data-fk="'+fk+'"]');if(el){el.focus({preventScroll:true});if(keep.sel&&el.setSelectionRange)try{el.setSelectionRange(keep.sel[0],keep.sel[1])}catch(e){}}}
+}
+function mvpToggleAgent(id){mvpAgent=mvpAgent===id?'':id;mvpAskStop=false;mvpLine={text:'',err:false};mvpRenderPanel();if(mvpAgent){const c=$('#mvpAgentCard');if(c)c.scrollIntoView({block:'nearest',behavior:'smooth'})}}
+function mvpAskStopToggle(){mvpAskStop=!mvpAskStop;mvpLine={text:'',err:false};mvpRenderPanel();const el=$(mvpAskStop?'#mvpStopReason':'[data-fk="stop"]');if(el)el.focus()}
+function mvpRedo(){const t=$('#mvpChatInput');if(!t)return;t.value=tr('mvpc.redoPrefix');t.focus();t.setSelectionRange(t.value.length,t.value.length)}
+function mvpcErr(code,status){if(code==='network')return tr('mvpc.err.network');for(const k of ['mvpc.err.'+code,'mvpb.err.'+code])if(code&&tr(k)!==k)return tr(k);return tr('mvpc.err.http',{code:status||code||'?'})}
+async function mvpPost(url,body){
+ try{const r=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)return {ok:false,error:mvpcErr(typeof d.detail==='string'?d.detail:(r.status===401?'auth':''),r.status)};
+  return {ok:true,data:d}
+ }catch(e){return {ok:false,error:mvpcErr('network')}}
+}
+async function mvpSend(){
+ const pid=mvpOpen,aid=mvpAgent,t=$('#mvpChatInput');if(!pid||!aid||!t||mvpBusy||mvpReadOnly())return;
+ const text=t.value.trim();if(!text){mvpLine={text:tr('mvpc.err.empty_message'),err:true};mvpRenderPanel();return}
+ mvpBusy=true;mvpLine={text:tr('mvpc.sending'),err:false};mvpRenderPanel();
+ const res=await mvpPost('/api/mvp-factory/'+encodeURIComponent(pid)+'/agents/'+encodeURIComponent(aid)+'/message',{text:text.slice(0,1500)});
+ mvpBusy=false;if(mvpOpen!==pid)return;
+ if(!res.ok){mvpLine={text:res.error,err:true};mvpRenderPanel();return}
+ const t2=$('#mvpChatInput');if(t2)t2.value='';
+ mvpLine={text:tr(res.data&&res.data.routed==='claude_worker'?'mvpc.sentClaude':'mvpc.sentGemini'),err:false};
+ mvpStartPoll(pid,aid);await loadMvpCycle(pid)
+}
+function mvpStartPoll(pid,aid){
+ mvpStopPoll();mvpPollUntil=Date.now()+60000;
+ mvpPoll=setInterval(async()=>{
+  if(mvpOpen!==pid||Date.now()>mvpPollUntil){mvpStopPoll();if(mvpOpen===pid)mvpRenderPanel();return}
+  const c=await loadMvpCycle(pid),a=c&&(c.agents||[]).find(x=>x.id===aid),last=a&&(a.chat||[]).slice(-1)[0];
+  if(last&&last.author==='agent'){mvpStopPoll();if(mvpOpen===pid)mvpRenderPanel()}
+ },3000)
+}
+async function mvpEvent(kind){
+ const pid=mvpOpen;if(!pid||mvpBusy||mvpReadOnly())return;
+ const body={kind,idempotency_key:'dash-'+kind+'-'+pid+'-'+Date.now()};
+ if(kind==='block'){const r=$('#mvpStopReason'),reason=r?r.value.trim():'';if(!reason){mvpLine={text:tr('mvpc.err.reason_required'),err:true};mvpRenderPanel();const r2=$('#mvpStopReason');if(r2)r2.focus();return}body.reason=reason.slice(0,200)}
+ mvpBusy=true;mvpRenderPanel();
+ const res=await mvpPost('/api/mvp-factory/'+encodeURIComponent(pid)+'/events',body);
+ mvpBusy=false;if(mvpOpen!==pid)return;
+ if(!res.ok){mvpLine={text:res.error,err:true};mvpRenderPanel();return}
+ mvpAskStop=false;mvpLine={text:tr(kind==='block'?'mvpc.stopped':'mvpc.resumed'),err:false};
+ await loadMvpCycle(pid);loadMvpProjects(true);const f=$(kind==='block'?'[data-fk="resume"]':'[data-fk="stop"]');if(f)f.focus()
 }
 // --- mvp-builder:end
 function openMyCastConfigurator(){if(typeof closeMobileNav==='function')closeMobileNav();window.open('/static/mycast-configurator/index.html','_blank','noopener')}
