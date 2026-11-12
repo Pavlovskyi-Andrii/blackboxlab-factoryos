@@ -978,3 +978,13 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Build hand-off: one Relay ticket for the Claude worker per approved spec version, code confined to `mvps/<project-id>/` of this repository (reversible default; separate repositories need the owner's GitHub action). Ticket PR → building; ticket closed on evidence (merged PR + CI, not an owner override) → qa_review. QA, preview and the verdict stay manual for now.
 - Failure handling: malformed agent output, no key or a Gemini error records the reason in the agent's chat and waits 30 minutes; no retry loop burning the free quota. One Gemini call per stage per project.
 - Dashboard panel: "Передача між агентами" block with the autopilot state/button, current variant and build ticket, last error, document links, and the spec approval gate (approve / variant select / feedback / redo).
+
+## 2026-11-13 — #317 (P0): website listeners' MyCast was never sent — there was no sender
+
+Trace: the owner's website podcast was saved, approved and "delivery on" on 2026-11-11, but nothing read that flag. The owner's own daily episode (`autopilot/mycast_daily.py`) is a different, owner-only pipeline. So the gates were login → pairing → approval → opt-in → **(no scheduler)** → never sent.
+
+- Server (`mycast_listener_delivery.py`): `delivery_gate` gives one state per listener (`no_podcast`, `telegram_not_linked`, `not_approved`, `delivery_off`, `bad_profile`, `not_today`, `waiting`, `in_progress`, `failed_today`, `delivered`, `due`), computed from the saved share code (decoded in Python from `static/mycast-configurator/topics.json`, generated from configurator.js and checked against it by a test). The worker lists due listeners without chat ids. On hand-in the server re-checks the gates, claims (listener, local date) once, voices with the listener's own Gemini voices and sends only to the listener's own chat. Audio QC as for the owner's episode.
+- Bounds: one episode per listener per local day, 3 failed attempts per day, 10 listener episodes per UTC day overall (Gemini budget). An edit unapproves the profile and pauses delivery, as before.
+- Worker (`autopilot/mycast_listeners.py`): after the owner's episode, one listener per pass; Claude (subscription, WebSearch/WebFetch only) writes the script from the listener's topics, language, length and host mode; attempts spaced 30 minutes.
+- Telegram "verified" is not required (consent + linked chat is); a refused send (bot never started) is recorded as a failure with its reason and shown in the cabinet.
+- Cabinet: the honest "not generated yet" note is replaced by the real state of today's episode and the last result.

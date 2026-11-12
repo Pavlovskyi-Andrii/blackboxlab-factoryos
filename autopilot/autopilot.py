@@ -13,7 +13,7 @@ try:
     from . import control
     from . import relay_tasks
     from . import owner_questions
-    from . import mycast_daily
+    from . import mycast_daily, mycast_listeners
 except ImportError:
     from delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
@@ -22,6 +22,7 @@ except ImportError:
     import relay_tasks
     import owner_questions
     import mycast_daily
+    import mycast_listeners
 
 def _default_repo() -> pathlib.Path:
     """AUTOPILOT_REPO wins; otherwise the container path; otherwise this checkout (EC2/phone runs)."""
@@ -507,6 +508,15 @@ def main() -> int:
         # T-603: the owner's morning MyCast episode, once a day, between tasks.
         if MYCAST_ENABLED:
             cast = mycast_daily.run_daily(ANSWERS.with_name("mycast.json"), repo=REPO)
+            if cast == "limit":
+                notice = hold_for_limit("")
+                write_runtime_status("idle", summary=notice)
+                send(notice)
+                continue
+            if cast != "idle":
+                continue
+            # #317: website listeners' episodes, one per pass, only after the owner's own episode is settled.
+            cast = mycast_listeners.run_listeners(ANSWERS.with_name("mycast_listeners.json"))
             if cast == "limit":
                 notice = hold_for_limit("")
                 write_runtime_status("idle", summary=notice)
