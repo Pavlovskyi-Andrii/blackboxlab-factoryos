@@ -48,7 +48,7 @@ from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_
 import evidence as _evidence
 from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
-from morning_brief import MorningBrief, compose_brief, plan_ids as brief_plan_ids
+from morning_brief import MorningBrief, compose_brief, plan_ids as brief_plan_ids, github_brief_snapshot
 from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_route, install_voice_history_routes,
                             install_voice_settings_routes)
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
@@ -9408,20 +9408,18 @@ def relay_pr_reconcile_once(fetch=None):
         print(json.dumps({"event":"RELAY_PR_RECONCILE","source":source,"notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
     return {"ok":True,"snapshot":snapshot_state,"source":source,"notices":len(notices)}
 
-def _morning_brief_github():
-    """Render's own read when the read-only token exists (2026-11-11: the EC2 snapshot was stale, so the brief said
-    'GitHub unavailable'); the snapshot otherwise."""
-    if GITHUB_READ_TOKEN:
-        own=read_github(github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN))
-        if own.get("available"):
-            return own
-    ec2,_state=_intake_issues_from_ec2_snapshot()
-    return ec2["github"] if ec2 else None
+def _morning_brief_github(now=None):
+    """Fresh main commit facts with an honest, logged fallback on GitHub read failure."""
+    return github_brief_snapshot(
+        token=GITHUB_READ_TOKEN, repo=GITHUB_REPO, now=time.time() if now is None else now,
+        fetcher=github_fetcher, read_snapshot=read_github,
+        fallback=_intake_issues_from_ec2_snapshot,
+        log_error=lambda event: print(json.dumps(event), flush=True))
 
 
 def _morning_brief_compose(date,now,yesterday_plan=None):
     tickets=RELAY_STORE.list(limit=500)
-    return compose_brief(date,now,github=_morning_brief_github(),tickets=tickets,
+    return compose_brief(date,now,github=_morning_brief_github(now),tickets=tickets,
                          questions_open=int(OWNER_QUESTIONS.queue_stats().get("open") or 0),
                          evidence_metrics=_evidence.metrics(tickets,now),yesterday_plan=yesterday_plan)
 
