@@ -264,8 +264,21 @@ def public_view(rec: dict) -> dict:
             "telegram_linked": bool(rec.get("chat_id")), "telegram_verified": bool(rec.get("telegram_verified_at")),
             "approved": bool(rec.get("code")) and rec.get("approved_code") == rec.get("code"),
             "delivery": {"active": bool(d.get("active")), "since": d.get("since"), "paused_reason": d.get("paused_reason", "")},
+            "status": _delivery_status(rec),
             "audit": (rec.get("audit") or [])[-10:], "referrals": int(rec.get("referrals", 0)),
             "gifted": bool(rec.get("referred_by")), "free_days": free_days(rec)}
+
+
+def _delivery_status(rec: dict) -> dict:
+    """#317: the one honest state of the listener's daily episode for the cabinet (no profile, no chat id)."""
+    from mycast_listener_delivery import delivery_gate
+    try:
+        gate = delivery_gate(rec, time.time())
+    except Exception:
+        return {"state": "unknown", "detail": "", "last": None}
+    last = sorted((rec.get("deliveries") or {}).items())[-1:] or None
+    return {"state": gate["state"], "detail": gate.get("detail", ""), "local_date": gate.get("local_date", ""),
+            "last": {"date": last[0][0], "status": last[0][1].get("status"), "reason": last[0][1].get("reason", "")} if last else None}
 
 
 def free_days(rec: dict) -> int:
