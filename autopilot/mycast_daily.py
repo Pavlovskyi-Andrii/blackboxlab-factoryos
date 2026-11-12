@@ -244,35 +244,64 @@ def _plain(title: str) -> str:
     return re.sub(r"\s{2,}", " ", text)[:110]
 
 
-def factory_status(repo: pathlib.Path | None, *, runner=subprocess.run) -> str:
-    """Owner-facing FactoryOS facts: what each builder merged yesterday, what is open now, what is next. Fail-soft."""
+def factory_status(repo: pathlib.Path | None, *, runner=subprocess.run, now: datetime | None = None) -> str:
+    """Verified merged-main PR facts for the spoken MyCast episode; never infer zero from an unavailable read.
+
+    GitHub PR metadata is authoritative here: 'git log --merges' misses squash/rebase merges,
+    and a worker's origin/main may be stale or shallow.
+    """
     if repo is None:
         return "- немає даних із репозиторію сьогодні; про FactoryOS скажи лише це"
     facts: list[str] = []
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
 
-    def run(cmd: list[str]) -> str:
+    def run(cmd: list[str]) -> tuple[int, str]:
         try:
-            return runner(cmd, text=True, capture_output=True, timeout=30, check=False).stdout or ""
+            result = runner(cmd, text=True, capture_output=True, timeout=30, check=False)
+            return result.returncode, result.stdout or ""
         except (OSError, subprocess.TimeoutExpired):
-            return ""
+            return 1, ""
 
-    done = []
-    for row in run(["git", "-C", str(repo), "log", "--merges", "--since=30 hours ago", "--format=%s\x1f%b\x1e", "-n", "12",
-                    "origin/main"]).split("\x1e"):
-        if "\x1f" not in row:
-            continue
-        subject, body = row.split("\x1f", 1)
-        m = re.search(r"from [^/\s]+/(\S+)", subject)
-        title = _plain((body.strip().splitlines() or [""])[0])
-        if title:
-            done.append(f"- вчора зробив(ла) {_lane(m.group(1) if m else '')}: {title}")
-    facts += done[:8] or ["- за останню добу нових злиттів у main не було"]
+    code, output = run(["gh", "pr", "list", "-R", REPO_SLUG,
+                        "--state", "merged", "--base", "main", "--limit", "100",
+                        "--json", "title,headRefName,baseRefName,mergedAt"])
     try:
-        prs = json.loads(run(["gh", "pr", "list", "-R", REPO_SLUG, "--state", "open", "--limit", "20",
-                              "--json", "title,headRefName,isDraft"]) or "[]")
+        merged_prs = json.loads(output) if code == 0 else None
+    except ValueError:
+        merged_prs = None
+
+    if not isinstance(merged_prs, list):
+        facts.append("- дані GitHub про злиття у main недоступні; результат невідомий")
+    else:
+        recent = []
+        for pr in merged_prs:
+            if not isinstance(pr, dict) or pr.get("baseRefName") != "main":
+                continue
+            try:
+                merged_at = datetime.fromisoformat(str(pr.get("mergedAt") or "").replace("Z", "+00:00"))
+                if merged_at.tzinfo is None:
+                    continue
+                merged_at = merged_at.astimezone(timezone.utc)
+            except ValueError:
+                continue
+            if now - timedelta(hours=30) <= merged_at <= now:
+                title = _plain(str(pr.get("title") or ""))
+                if title:
+                    recent.append(f"- вчора злили у main ({_lane(str(pr.get('headRefName') or ''))}): {title}")
+        if recent:
+            facts += recent[:8]
+        elif len(merged_prs) >= 100:
+            facts.append("- список GitHub обмежений 100 PR; відсутність злиттів у main не підтверджена")
+        else:
+            facts.append("- за останні 30 годин GitHub не показує злитих PR у main")
+
+    code, output = run(["gh", "pr", "list", "-R", REPO_SLUG, "--state", "open", "--limit", "20",
+                        "--json", "title,headRefName,isDraft"])
+    try:
+        prs = json.loads(output) if code == 0 else []
     except ValueError:
         prs = []
-    active = [p for p in prs if isinstance(p, dict) and not p.get("isDraft")][:4]
+    active = [p for p in prs if isinstance(p, dict) and not p.get("isDraft")][:4] if isinstance(prs, list) else []
     facts += [f"- зараз на перевірці у {_lane(str(p.get('headRefName', '')))}: {_plain(str(p.get('title', '')))}" for p in active]
     try:
         roadmap = (repo / "ROADMAP.md").read_text(encoding="utf-8")
