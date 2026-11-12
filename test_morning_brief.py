@@ -9,12 +9,87 @@ from unittest.mock import patch
 
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-brief-"))
 
-from morning_brief import KYIV, MorningBrief, compose_brief  # noqa: E402
+from morning_brief import KYIV, MorningBrief, compose_brief, github_brief_snapshot, verified_main_commits  # noqa: E402
 from voice_settings import BriefError  # noqa: E402
 
 
 def kyiv(h, m=0, day=10):
     return datetime(2026, 11, day, h, m, tzinfo=KYIV).timestamp()
+
+
+class GithubSourceTest(unittest.TestCase):
+    def setUp(self):
+        self.now = kyiv(8, day=12)
+        self.error_logs = []
+        self.fallback_calls = []
+        self.last_path = []
+        self.rows = [{"sha": "a" * 40}, {"sha": "b" * 40}]
+
+    def fetcher(self, repo, token):
+        self.assertEqual((repo, token), ("owner/repo", "read-only-token"))
+        def read(path):
+            self.last_path.append(path)
+            return self.rows
+        return read
+
+    def snapshot(self, reader):
+        self.assertTrue(callable(reader))
+        return {"available": True, "pulls": [], "ci": {}}
+
+    def fallback(self):
+        self.fallback_calls.append(True)
+        return {"github": {"available": True, "pulls": [{"title": "EC2"}], "ci": {}}}, "fresh"
+
+    def subject(self, token="read-only-token", source=None):
+        return github_brief_snapshot(
+            token=token, repo="owner/repo", now=self.now, fetcher=self.fetcher,
+            read_snapshot=source or self.snapshot, fallback=self.fallback,
+            log_error=self.error_logs.append)
+
+    def test_fresh_main_commits_query_and_complete_page(self):
+        result = self.subject()
+        self.assertEqual(result["main_commits"], self.rows)
+        self.assertTrue(result["main_commits_complete"])
+        self.assertEqual(self.last_path, [
+            "/commits?sha=main&since=2026-11-11T06:00:00Z&until=2026-11-12T06:00:00Z&per_page=100"])
+        self.assertEqual(self.error_logs, [])
+        self.assertEqual(self.fallback_calls, [])
+        self.rows = [{"sha": "a" * 40}] * 100
+        result = self.subject()
+        self.assertFalse(result["main_commits_complete"])
+        self.assertEqual(len(result["main_commits"]), 100)
+        self.rows = [{"sha": "b" * 40}] * 99
+        self.assertTrue(self.subject()["main_commits_complete"])
+
+    def test_failed_or_nonlist_read_does_not_mean_no_commits(self):
+        for invalid, error_name in [({"message": "unavailable"}, "ValueError"),
+                                    (RuntimeError("GitHub offline"), "RuntimeError")]:
+            self.last_path.clear()
+            self.error_logs.clear()
+            def fetcher(repo, token):
+                def reader(path):
+                    self.last_path.append(path)
+                    if isinstance(invalid, Exception):
+                        raise invalid
+                    return invalid
+                return reader
+            result = github_brief_snapshot(
+                token="read-only-token", repo="owner/repo", now=self.now,
+                fetcher=fetcher, read_snapshot=self.snapshot, fallback=self.fallback,
+                log_error=self.error_logs.append)
+            self.assertTrue(result["available"])
+            self.assertNotIn("main_commits", result)
+            self.assertNotIn("main_commits_complete", result)
+            self.assertEqual(self.error_logs, [{"event": "MORNING_BRIEF_MAIN_COMMITS_FAILED", "error": error_name}])
+            self.assertEqual(self.fallback_calls, [])
+
+    def test_unavailable_primary_uses_ec2_fallback(self):
+        result = self.subject(source=lambda r: {"available": False})
+        self.assertEqual(result["pulls"][0]["title"], "EC2")
+        self.assertEqual(len(self.fallback_calls), 1)
+        result = self.subject(token="")
+        self.assertEqual(result["pulls"][0]["title"], "EC2")
+        self.assertEqual(len(self.fallback_calls), 2)
 
 
 class ComposeTest(unittest.TestCase):
@@ -53,9 +128,9 @@ class ComposeTest(unittest.TestCase):
             "pulls": [], "ci": {}, "main_commits": [{"sha": "a" * 40}, {"sha": "b" * 40}],
             "main_commits_complete": True,
         }, tickets=[], questions_open=0)
-        self.assertIn("За добу в main: 2 комітів", result)
+        self.assertIn("За добу в main: 2 коміти", result)
         self.assertNotIn("За добу влито PR: 0", result)
-        self.assertIn("За добу в main: 2 комітів", __import__("morning_brief").voice_text(result))
+        self.assertIn("За добу в main: 2 коміти", __import__("morning_brief").voice_text(result))
 
     def test_only_main_target_prs_counted(self):
         result = compose_brief("2026-11-12", kyiv(8, day=12), github={
