@@ -42,6 +42,40 @@ class ComposeTest(unittest.TestCase):
         self.assertIn("🙋 Чекають на тебе: 1.", text)
         self.assertIn("Відкритих питань до команди: 2.", text)
 
+    def test_incomplete_pr_snapshot_never_claims_zero_main_work(self):
+        result = compose_brief("2026-11-12", kyiv(8, day=12),
+                               github={"pulls": [], "ci": {}}, tickets=[], questions_open=0)
+        self.assertIn("це НЕ означає, що змін не було", result)
+        self.assertNotIn("За добу влито PR: 0", result)
+
+    def test_main_commits_not_hidden_by_empty_pr_list(self):
+        result = compose_brief("2026-11-12", kyiv(8, day=12), github={
+            "pulls": [], "ci": {}, "main_commits": [{"sha": "a" * 40}, {"sha": "b" * 40}],
+            "main_commits_complete": True,
+        }, tickets=[], questions_open=0)
+        self.assertIn("За добу в main: 2 комітів", result)
+        self.assertNotIn("За добу влито PR: 0", result)
+        self.assertIn("За добу в main: 2 комітів", __import__("morning_brief").voice_text(result))
+
+    def test_only_main_target_prs_counted(self):
+        result = compose_brief("2026-11-12", kyiv(8, day=12), github={
+            "pulls": [
+                {"title": "autopilot worker sync", "state": "closed",
+                 "merged_at": "2026-11-11T15:02:55Z", "base": {"ref": "autopilot/aws-worker"}},
+                {"title": "MVP builder", "state": "closed",
+                 "merged_at": "2026-11-11T18:29:44Z", "base": {"ref": "main"}},
+            ], "ci": {},
+        }, tickets=[], questions_open=0)
+        self.assertIn("За добу влито PR: 1.", result)
+        self.assertIn("MVP builder", result)
+        self.assertNotIn("autopilot worker sync", result)
+
+    def test_verified_empty_main_history_is_explicit(self):
+        result = compose_brief("2026-11-12", kyiv(8, day=12), github={
+            "pulls": [], "ci": {}, "main_commits": [], "main_commits_complete": True,
+        }, tickets=[], questions_open=0)
+        self.assertIn("комітів у main не було (перевірено через GitHub)", result)
+
     def test_plan_vs_fact(self):
         tickets = [{"id": "R-1", "title": "A", "status": "done"}, {"id": "R-2", "title": "B", "status": "in_progress"},
                    {"id": "R-3", "title": "C", "status": "done"}, {"id": "R-4", "title": "D", "status": "inbox"}]

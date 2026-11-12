@@ -401,6 +401,7 @@ def compact_github(github: dict) -> dict:
               for i in github.get("issues") or [] if isinstance(i, dict)]
     pulls = [{"number": p.get("number"), "title": str(p.get("title") or "")[:200], "body": refs(p.get("body")),
               "draft": bool(p.get("draft")), "state": p.get("state"), "merged_at": p.get("merged_at"),
+              "base": {"ref": str((p.get("base") or {}).get("ref") or "")[:120]},
               "head": {"ref": str((p.get("head") or {}).get("ref") or "")[:120], "sha": str((p.get("head") or {}).get("sha") or "")[:64]},
               "html_url": p.get("html_url"), "updated_at": p.get("updated_at"), "created_at": p.get("created_at")}
              for p in github.get("pulls") or [] if isinstance(p, dict)]

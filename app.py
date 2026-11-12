@@ -9408,12 +9408,26 @@ def relay_pr_reconcile_once(fetch=None):
         print(json.dumps({"event":"RELAY_PR_RECONCILE","source":source,"notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
     return {"ok":True,"snapshot":snapshot_state,"source":source,"notices":len(notices)}
 
-def _morning_brief_github():
-    """Render's own read when the read-only token exists (2026-11-11: the EC2 snapshot was stale, so the brief said
-    'GitHub unavailable'); the snapshot otherwise."""
+def _morning_brief_github(now=None):
+    """Read a fresh GitHub main history separately from the PR snapshot.
+
+    An incomplete PR list must never be narrated as zero work in main.
+    """
+    now=time.time() if now is None else now
     if GITHUB_READ_TOKEN:
-        own=read_github(github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN))
+        reader=github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN)
+        own=read_github(reader)
         if own.get("available"):
+            try:
+                since=datetime.fromtimestamp(now-86400,timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                until=datetime.fromtimestamp(now,timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                rows=reader(f"/commits?sha=main&since={since}&until={until}&per_page=100")
+                if isinstance(rows,list):
+                    own["main_commits"]=[{"sha":str(c.get("sha") or "")[:40]} for c in rows if isinstance(c,dict)]
+                    own["main_commits_complete"]=len(rows)<100
+            except Exception:
+                # Unavailable cannot be interpreted as zero commits.
+                pass
             return own
     ec2,_state=_intake_issues_from_ec2_snapshot()
     return ec2["github"] if ec2 else None
@@ -9421,7 +9435,7 @@ def _morning_brief_github():
 
 def _morning_brief_compose(date,now,yesterday_plan=None):
     tickets=RELAY_STORE.list(limit=500)
-    return compose_brief(date,now,github=_morning_brief_github(),tickets=tickets,
+    return compose_brief(date,now,github=_morning_brief_github(now),tickets=tickets,
                          questions_open=int(OWNER_QUESTIONS.queue_stats().get("open") or 0),
                          evidence_metrics=_evidence.metrics(tickets,now),yesterday_plan=yesterday_plan)
 

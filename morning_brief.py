@@ -79,9 +79,23 @@ def compose_brief(date: str, now: float, *, github: Optional[dict], tickets: lis
         lines.append("🔗 GitHub зараз недоступний, тому про PR сьогодні без цифр.")
     else:
         pulls = [p for p in github.get("pulls") or [] if isinstance(p, dict)]
-        merged = [p for p in pulls if (_ts(p.get("merged_at")) or 0) >= now - 86400]
-        lines.append(f"🔀 За добу влито PR: {len(merged)}.")
-        lines += ["  • " + t for t in (_clean_title(p.get("title")) for p in merged[:5]) if t]
+        # Count only known main-target PRs; older snapshots without base metadata
+        # remain unscoped. Never equate a filtered PR list with all work in main.
+        merged = [p for p in pulls
+                  if now - 86400 <= (_ts(p.get("merged_at")) or 0) <= now
+                  and ((p.get("base") or {}).get("ref") in (None, "", "main"))]
+        main_commits = github.get("main_commits")
+        complete = github.get("main_commits_complete") is True
+        if merged:
+            lines.append(f"🔀 За добу влито PR: {len(merged)}.")
+            lines += ["  • " + t for t in (_clean_title(p.get("title")) for p in merged[:5]) if t]
+        elif complete and isinstance(main_commits, list) and not main_commits:
+            lines.append("🔀 За добу комітів у main не було (перевірено через GitHub).")
+        else:
+            lines.append("🔀 Список PR не підтвердив злиттів у main; це НЕ означає, що змін не було.")
+        if isinstance(main_commits, list) and main_commits:
+            label = "щонайменше " if not complete else ""
+            lines.append(f"🧾 За добу в main: {label}{len(main_commits)} комітів (GitHub).")
         ci = github.get("ci") if isinstance(github.get("ci"), dict) else {}
         open_prs = [p for p in pulls if p.get("state") == "open" and not p.get("draft")]
         red = [p for p in open_prs if (ci.get(str((p.get("head") or {}).get("sha") or "")) or {}).get("state") == "failed"]
@@ -130,7 +144,7 @@ def voice_text(full: str, limit: int = 1400) -> str:
     for line in full.split("\n"):
         if line.startswith("  "):
             continue
-        clean = line.lstrip("☀️📊🔗🔀🔴🟢🎯📋🙋❓🔎🗞 ").strip()
+        clean = line.lstrip("☀️📊🔗🔀🧾🔴🟢🎯📋🙋❓🔎🗞 ").strip()
         if used + len(clean) + 1 > limit:
             break
         out.append(clean)
