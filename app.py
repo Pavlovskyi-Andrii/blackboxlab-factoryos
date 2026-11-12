@@ -40,10 +40,11 @@ from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
-from mycast import (DeliveryLog, check_mp3, gemini_tts_pcm, install_mycast_routes, install_mycast_voice_routes, pcm_to_mp3,
+from mycast import (DeliveryLog, check_mp3, check_pcm as mycast_check_pcm, gemini_tts_pcm, install_mycast_routes, install_mycast_voice_routes, pcm_to_mp3,
                     telegram_send_audio)
 from mycast_demo import DemoService, install_mycast_demo_routes, _client_id as _mycast_client_id
 from mycast_subtopics import SubtopicService
+from mycast_listener_delivery import ListenerDelivery, install_listener_delivery_routes
 from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
 import evidence as _evidence
@@ -836,7 +837,8 @@ def _mycast_bot_username() -> str:
         _MYCAST_BOT_NAME.update(name=str((_telegram_api("getMe").get("result") or {}).get("username") or ""), at=time.time())
     return _MYCAST_BOT_NAME["name"]
 # MyCast listener accounts (owner 2026-11-06: open beta, Telegram + Google). Separate cookie; never a staff session.
-install_mycast_account_routes(app, ListenerStore(DATA_DIR / "mycast_listeners.json"), secret=FACTORY_SECRET,
+MYCAST_LISTENERS = ListenerStore(DATA_DIR / "mycast_listeners.json")
+install_mycast_account_routes(app, MYCAST_LISTENERS, secret=FACTORY_SECRET,
                               bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN, bot_username=_mycast_bot_username,
                               google_client_id=lambda: FACTORY_GOOGLE_CLIENT_ID,
                               google_verify=lambda cred: google_id_token.verify_oauth2_token(cred, google_requests.Request(), FACTORY_GOOGLE_CLIENT_ID),
@@ -844,6 +846,14 @@ install_mycast_account_routes(app, ListenerStore(DATA_DIR / "mycast_listeners.js
                               send_message=lambda chat, text: _telegram_api("sendMessage", {"chat_id": chat, "text": text}),
                               send_sample=_mycast_send_listener_sample)
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
+# #317: website listeners' daily episodes. The EC2 worker writes the script; the server re-checks every gate,
+# voices it with the listener's own voices and sends it only to the listener's own chat.
+MYCAST_LISTENER_DELIVERY = ListenerDelivery(MYCAST_LISTENERS)
+install_listener_delivery_routes(
+    app, MYCAST_LISTENER_DELIVERY, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY,
+    tts=gemini_tts_pcm, encode=pcm_to_mp3, check_pcm=mycast_check_pcm,
+    send_audio=lambda chat, audio, filename, title, caption: telegram_send_audio(
+        FACTORY_TELEGRAM_BOT_TOKEN, str(chat), audio, filename=filename, title=title, caption=caption))
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
