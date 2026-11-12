@@ -48,7 +48,7 @@ from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_
 import evidence as _evidence
 from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
-from morning_brief import MorningBrief, compose_brief, plan_ids as brief_plan_ids
+from morning_brief import MorningBrief, compose_brief, plan_ids as brief_plan_ids, github_brief_snapshot
 from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_route, install_voice_history_routes,
                             install_voice_settings_routes)
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
@@ -9409,28 +9409,12 @@ def relay_pr_reconcile_once(fetch=None):
     return {"ok":True,"snapshot":snapshot_state,"source":source,"notices":len(notices)}
 
 def _morning_brief_github(now=None):
-    """Read a fresh GitHub main history separately from the PR snapshot.
-
-    An incomplete PR list must never be narrated as zero work in main.
-    """
-    now=time.time() if now is None else now
-    if GITHUB_READ_TOKEN:
-        reader=github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN)
-        own=read_github(reader)
-        if own.get("available"):
-            try:
-                since=datetime.fromtimestamp(now-86400,timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                until=datetime.fromtimestamp(now,timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                rows=reader(f"/commits?sha=main&since={since}&until={until}&per_page=100")
-                if isinstance(rows,list):
-                    own["main_commits"]=[{"sha":str(c.get("sha") or "")[:40]} for c in rows if isinstance(c,dict)]
-                    own["main_commits_complete"]=len(rows)<100
-            except Exception:
-                # Unavailable cannot be interpreted as zero commits.
-                pass
-            return own
-    ec2,_state=_intake_issues_from_ec2_snapshot()
-    return ec2["github"] if ec2 else None
+    """Fresh main commit facts with an honest, logged fallback on GitHub read failure."""
+    return github_brief_snapshot(
+        token=GITHUB_READ_TOKEN, repo=GITHUB_REPO, now=time.time() if now is None else now,
+        fetcher=github_fetcher, read_snapshot=read_github,
+        fallback=_intake_issues_from_ec2_snapshot,
+        log_error=lambda event: print(json.dumps(event), flush=True))
 
 
 def _morning_brief_compose(date,now,yesterday_plan=None):
