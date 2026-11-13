@@ -1,0 +1,3 @@
+# Append-only logs: the EC2 worker branch and main both add entries; a union merge keeps both instead of
+# stopping the worker sync on a conflict (2026-11-04 and 2026-11-13, see DECISIONS.md).
+DECISIONS.md merge=union
