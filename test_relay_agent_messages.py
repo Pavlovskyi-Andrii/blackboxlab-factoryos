@@ -207,6 +207,17 @@ class ConcurrencyTest(StoreBase):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(len(ids), 31)
 
+    def test_relay_unit_keeps_sudo_usable(self):
+        # systemd sets NoNewPrivileges for a non-root User= when any of these is on, and sudo then refuses (EC2 2026-11-13).
+        unit = Path("deploy/codex-relay/factoryos-codex-relay.service").read_text()
+        options = {l.split("=", 1)[0] for l in unit.splitlines() if "=" in l and not l.startswith("#")}
+        implies_nnp = {"NoNewPrivileges", "ProtectKernelTunables", "ProtectKernelModules", "ProtectKernelLogs", "ProtectClock",
+                       "SystemCallFilter", "SystemCallArchitectures", "RestrictAddressFamilies", "RestrictNamespaces",
+                       "RestrictSUIDSGID", "RestrictRealtime", "LockPersonality", "MemoryDenyWriteExecute",
+                       "PrivateDevices", "DynamicUser"}
+        self.assertEqual(options & implies_nnp, set())
+        self.assertIn("User=factoryos-relay", unit)
+
     def test_app_runs_one_uvicorn_process(self):
         start = next(l for l in Path("render.yaml").read_text().splitlines() if "startCommand" in l)
         self.assertIn("uvicorn app:app", start)
