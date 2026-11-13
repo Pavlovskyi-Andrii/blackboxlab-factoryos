@@ -1031,9 +1031,45 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
                           route_answer=lambda item: _mvp_route_answer(item) or GROUP_BRIDGE.deliver_answer(item,_telegram_send_markup))
 
 
+# MyCast's own domain (owner bought mycast.pro, 2026-11-13). On it, only MyCast is served: the root opens the MyCast
+# page and the FactoryOS dashboard/API stay on the onrender.com address. Comma-separated, lower case.
+MYCAST_HOSTS = {h.strip().lower() for h in os.environ.get("FACTORY_MYCAST_HOSTS", "mycast.pro,www.mycast.pro").split(",") if h.strip()}
+MYCAST_PAGE = "/static/mycast-configurator/index.html"
+MYCAST_HOST_PREFIXES = ("/static/mycast-configurator/", "/static/favicon", "/static/apple-touch-icon", "/api/mycast/",
+                        "/mycast/u/", "/.well-known/")
+MYCAST_HOST_PATHS = {"/privacy", "/terms", "/health", "/favicon.ico", "/mycast"}
+
+
+def _mycast_host_response(request: Request):
+    """None when the request may go on; otherwise a redirect that keeps mycast.pro limited to MyCast."""
+    host = (request.headers.get("host") or "").split(":")[0].strip().lower()
+    if host not in MYCAST_HOSTS:
+        return None
+    path = request.url.path
+    if host.startswith("www."):
+        return RedirectResponse("https://" + host[4:] + (path if path != "/" else MYCAST_PAGE), status_code=301)
+    if path in MYCAST_HOST_PATHS or path.startswith(MYCAST_HOST_PREFIXES):
+        return None
+    query = ("?" + request.url.query) if request.url.query and path == "/" else ""
+    return RedirectResponse(MYCAST_PAGE + query, status_code=302)
+
+
+@app.get("/privacy")
+def mycast_privacy():
+    return FileResponse(BASE/"static"/"mycast-configurator"/"privacy.html")
+
+
+@app.get("/terms")
+def mycast_terms():
+    return FileResponse(BASE/"static"/"mycast-configurator"/"terms.html")
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast",
+    mycast_redirect = _mycast_host_response(request)
+    if mycast_redirect is not None:
+        return mycast_redirect
+    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
