@@ -101,14 +101,13 @@ def _add_faceless_creator(data: dict[str, Any], now: str) -> bool:
     project_id = FACELESS_CREATOR_ID
     if project_id in used_ids:
         # Preserve existing records; stable fallback works across repeated loads.
-        project_id = next(
-            (candidate for candidate in (f"{FACELESS_CREATOR_ID}-313",) +
-             tuple(f"{FACELESS_CREATOR_ID}-313-{n}" for n in range(2, 20))
-             if candidate not in used_ids),
-            None,
-        )
-        if project_id is None:
-            raise MvpError("faceless_creator_id_collision", 503)
+        # The registry may contain arbitrarily many unrelated owner projects.
+        # Search until a free ID is found; never make the entire registry unreadable.
+        project_id = f"{FACELESS_CREATOR_ID}-313"
+        suffix = 2
+        while project_id in used_ids:
+            project_id = f"{FACELESS_CREATOR_ID}-313-{suffix}"
+            suffix += 1
     data["projects"][project_id] = {
         "id": project_id, "title": FACELESS_CREATOR_TITLE,
         "issue": FACELESS_CREATOR_ISSUE, "brief": FACELESS_CREATOR_BRIEF,
@@ -172,6 +171,7 @@ def _seed(now: str) -> dict[str, Any]:
                       "created_at": now, "updated_at": now} for pid, title, issue, stage, proto in pilots}
     data = {"version": 2, "projects": projects, "events": events, "keys": {}}
     _add_faceless_creator(data, now)
+    data["faceless_creator_intake_complete"] = True
     return data
 
 
@@ -193,9 +193,13 @@ class MvpRegistry:
                 if data.get("version", 1) == 1:
                     _add_faceless_creator(data, _iso(self.clock()))
                     data["version"] = 2
+                    data["faceless_creator_intake_complete"] = True
                     self._save(data)
-                elif data.get("version") == 2 and _add_faceless_creator(data, _iso(self.clock())):
-                    # Repair a prior v2 collision, or an existing #313 record missing its brief.
+                elif data.get("version") == 2 and not data.get("faceless_creator_intake_complete"):
+                    # Upgrade older v2 registries exactly once. Once the marker is set,
+                    # intentionally removed projects stay removed on subsequent reads.
+                    _add_faceless_creator(data, _iso(self.clock()))
+                    data["faceless_creator_intake_complete"] = True
                     self._save(data)
                 return data
         except FileNotFoundError:
