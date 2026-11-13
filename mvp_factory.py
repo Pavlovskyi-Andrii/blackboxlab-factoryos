@@ -53,6 +53,55 @@ EVIDENCE_RE = re.compile(r"^(https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 EVIDENCE_CHECK = "link_shape_only"  # the shape of the link is checked; its relevance to the claimed stage is not
 
+# #313: owner-requested concept must be visible in MVP Builder, including existing
+# persistent registries. This is an UNAPPROVED brief, not a build/publish approval.
+FACELESS_CREATOR_ID = "faceless-creator"
+FACELESS_CREATOR_ISSUE = 313
+FACELESS_CREATOR_TITLE = "Faceless Creator SaaS · AI face-avatar editor"
+FACELESS_CREATOR_BRIEF = """ТЕХНІЧНЕ ЗАВДАННЯ — ЧЕРНЕТКА ДЛЯ ОБГОВОРЕННЯ (не погоджене на розробку)
+
+Мета: окремий privacy-first SaaS для повнолітніх верифікованих авторів. Автор надає лише власне відео за явною згодою; у майбутньому інструмент замінює обличчя на синтетичного AI-персонажа, дає перегляд результату, контроль видалення та помітну AI-маркіровку. Не обіцяти повну анонімність: голос, тіло, татуювання, фон і метадані можуть розкривати особу.
+
+Етап 0 — перевірка попиту, без завантаження інтимного контенту:
+1. Неекспліцитний лендинг з чітким описом концепції, обмежень приватності та AI disclosure.
+2. Два короткі неекспліцитні демо по 10–30 секунд лише із синтетичних або власних матеріалів за згодою: «до/після» та «завантаження → обробка → перегляд → видалення» як макет; не видавати макет за працюючий редактор.
+3. Два варіанти CTA (приватний AI-редактор / список раннього доступу), збір email лише за згодою та з повідомленням про приватність.
+4. 10 змістовних інтерв'ю з повнолітніми потенційними авторами; відокремити відвідування, заявки, реальне використання та підтверджену готовність платити.
+5. За підтвердженого інтересу — окреме ТЗ на захищений редактор: шифрування, доступи, короткий TTL, видалення на вимогу й тест фактичного видалення. Жодних реальних чутливих завантажень до перевірки безпеки й права.
+
+Платформи та обмеження:
+- OnlyFans: 12.11.2026 підтримка письмово заборонила істотно змінювати зовнішність автора; повний face-swap не планувати як сумісний із OnlyFans.
+- Fanvue, Fansly, LoyalFans: звернення щодо правил надіслані 13.11.2026; відповіді не рівнозначні дозволу, статус очікування.
+- Власна платформа продажу adult-контенту — окрема бізнес-гіпотеза, НЕ частина цього MVP. Немає схвалення на adult-хостинг, платежі, автопублікацію чи кроспостинг.
+- Жодних облич третіх осіб без документованої згоди, жодних платних GPU/API, нових ресурсів чи публікації без дозволу.
+
+Стек, повна специфікація та початок розробки ще НЕ затверджені; спочатку узгодити з власником і Claude. Джерела: GitHub issue #313 і Notion «Faceless Creator SaaS — дослідження 12–13.11.2026». Наступний відкритий вибір: короткий концепт для обговорення чи окрема повна специфікація.
+"""
+
+
+def _add_faceless_creator(data: dict[str, Any], now: str) -> bool:
+    """Insert this one owner-requested concept without overwriting existing records or duplicating #313."""
+    if any(p.get("id") == FACELESS_CREATOR_ID or p.get("issue") == FACELESS_CREATOR_ISSUE
+           for p in data["projects"].values()):
+        return False
+    data["projects"][FACELESS_CREATOR_ID] = {
+        "id": FACELESS_CREATOR_ID, "title": FACELESS_CREATOR_TITLE,
+        "issue": FACELESS_CREATOR_ISSUE, "brief": FACELESS_CREATOR_BRIEF,
+        "stage": "idea", "blocked": None, "prototype": "", "cost_usd": 0,
+        "approval": {"deploy": False, "outreach": False, "publish": False},
+        "created_at": now, "updated_at": now,
+    }
+    data["events"].append({
+        "id": "intake-faceless-creator-313", "project": FACELESS_CREATOR_ID,
+        "at": now, "actor": "owner-request", "kind": "note",
+        "from_stage": "idea", "to_stage": "idea",
+        "evidence": [f"{REPO}/issues/{FACELESS_CREATOR_ISSUE}"],
+        "evidence_check": EVIDENCE_CHECK,
+        "note": "Concept and unapproved draft brief registered for owner review; no worker started.",
+    })
+    return True
+
+
 
 class MvpError(ValueError):
     """A refused event; `code` is a stable key the UI can translate."""
@@ -96,7 +145,9 @@ def _seed(now: str) -> dict[str, Any]:
     projects = {pid: {"id": pid, "title": title, "issue": issue, "stage": stage, "blocked": None, "prototype": proto,
                       "cost_usd": 0, "approval": {"deploy": False, "outreach": False, "publish": False},
                       "created_at": now, "updated_at": now} for pid, title, issue, stage, proto in pilots}
-    return {"version": 1, "projects": projects, "events": events, "keys": {}}
+    data = {"version": 2, "projects": projects, "events": events, "keys": {}}
+    _add_faceless_creator(data, now)
+    return data
 
 
 class MvpRegistry:
@@ -112,6 +163,12 @@ class MvpRegistry:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(data, dict) and isinstance(data.get("projects"), dict) and isinstance(data.get("events"), list):
                 data.setdefault("keys", {})
+                # One-time, non-destructive v1 -> v2 intake for already-persisted registries.
+                # A prior manually created #313 project is left untouched.
+                if data.get("version", 1) == 1:
+                    _add_faceless_creator(data, _iso(self.clock()))
+                    data["version"] = 2
+                    self._save(data)
                 return data
         except FileNotFoundError:
             data = _seed(_iso(self.clock()))
