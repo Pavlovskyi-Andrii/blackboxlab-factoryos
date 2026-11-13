@@ -254,6 +254,53 @@ class RouteTest(unittest.TestCase):
                                    body=b"{}")[0], 401)
 
 
+class HistoryTest(unittest.TestCase):
+    """#317 history: only Telegram's file id is kept; the listener plays back only their own episodes."""
+
+    def test_file_id_kept_and_only_the_owner_can_play_it(self):
+        from fastapi import FastAPI
+        from mycast_accounts import COOKIE, install_mycast_account_routes, sign
+        with tempfile.TemporaryDirectory() as d:
+            clock = Clock(at("2026-11-13", "08:00"))
+            store = ListenerStore(pathlib.Path(d) / "l.json", clock=clock)
+            s = ready_listener(store)
+            other = ready_listener(store, chat="778")
+            delivery = mld.ListenerDelivery(store, clock=clock)
+            app = FastAPI()
+            mld.install_listener_delivery_routes(
+                app, delivery, authorize_worker=lambda r: True, api_key=lambda: "k",
+                tts=lambda key, ep, voices: (b"\x01\x00" * 2400, 24000), encode=lambda pcm, rate: b"ID3mp3",
+                send_audio=lambda chat, audio, fn, title, cap: "FILE-ID-" + chat)
+            deliver = next(r.endpoint for r in app.routes if getattr(r, "path", "").endswith("/deliver"))
+
+            class Req:
+                def __init__(self, body=None, cookie=""):
+                    self.body, self.cookies = body, {COOKIE: cookie} if cookie else {}
+
+                async def json(self):
+                    return self.body
+            asyncio.run(deliver(s, Req({"episode": {"title": "MyCast · 13 листопада", "lines": [["A", "x"]] * 4},
+                                        "local_date": "2026-11-13"})))
+            entry = store.get(s)["deliveries"]["2026-11-13"]
+            self.assertEqual((entry["file_id"], entry["title"]), ("FILE-ID-777", "MyCast · 13 листопада"))
+            self.assertEqual(set(entry), {"status", "at", "utc_day", "seconds", "file_id", "title"})   # no audio bytes stored
+            fetched = []
+            acc = FastAPI()
+            install_mycast_account_routes(acc, store, secret="s", bot_token=lambda: "1:x", bot_username=lambda: "b",
+                                          google_client_id=lambda: "", google_verify=lambda c: {}, clock=clock,
+                                          fetch_audio=lambda fid: fetched.append(fid) or b"ID3-from-telegram")
+            h = {(next(iter(r.methods)), r.path): r.endpoint for r in acc.routes if hasattr(r, "methods")}
+            mine, theirs = sign("s", s, clock()), sign("s", other, clock())
+            eps = h[("GET", "/api/mycast/account/episodes")](Req(cookie=mine))["episodes"]
+            self.assertEqual(eps, [{"date": "2026-11-13", "title": "MyCast · 13 листопада", "seconds": 0, "audio": True}])
+            audio = h[("GET", "/api/mycast/account/episodes/{day}/audio")]("2026-11-13", Req(cookie=mine))
+            self.assertEqual((audio.body, audio.media_type, fetched), (b"ID3-from-telegram", "audio/mpeg", ["FILE-ID-777"]))
+            self.assertEqual(h[("GET", "/api/mycast/account/episodes")](Req(cookie=theirs))["episodes"], [])
+            self.assertEqual(h[("GET", "/api/mycast/account/episodes/{day}/audio")]("2026-11-13", Req(cookie=theirs)).status_code, 404)
+            self.assertEqual(h[("GET", "/api/mycast/account/episodes/{day}/audio")]("../x", Req(cookie=mine)).status_code, 404)
+            self.assertEqual(h[("GET", "/api/mycast/account/episodes")](Req()).status_code, 401)
+
+
 class WorkerTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

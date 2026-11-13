@@ -831,6 +831,17 @@ def _mycast_send_listener_sample(chat_id: str, job_id: str) -> None:
         pcm, rate = w.readframes(w.getnframes()), w.getframerate()
     telegram_send_audio(FACTORY_TELEGRAM_BOT_TOKEN, str(chat_id), pcm_to_mp3(pcm, rate), filename="mycast-demo.mp3",
                         title="MyCast · демо", caption="Демо MyCast (не справжній випуск). Розсилку можна зупинити на сторінці MyCast.")
+def _telegram_fetch_file(file_id: str, limit: int = 20 * 1024 * 1024) -> bytes:
+    """#317 history: download a file the bot sent earlier (Bot API getFile, max 20 MB). Nothing is cached on disk."""
+    path=str((_telegram_api("getFile",{"file_id":file_id}).get("result") or {}).get("file_path") or "")
+    if not path or ".." in path:
+        raise RuntimeError("Telegram file not available")
+    req=urlrequest.Request(f"https://api.telegram.org/file/bot{FACTORY_TELEGRAM_BOT_TOKEN}/{path}")
+    with urlrequest.urlopen(req,timeout=60) as response:
+        data=response.read(limit+1)
+    if len(data)>limit:
+        raise RuntimeError("Telegram file too large")
+    return data
 _MYCAST_BOT_NAME = {"name": "", "at": 0.0}
 def _mycast_bot_username() -> str:
     # The Login Widget needs the bot's public @username; ask Telegram once an hour, never expose the token.
@@ -845,14 +856,15 @@ install_mycast_account_routes(app, MYCAST_LISTENERS, secret=FACTORY_SECRET,
                               google_verify=lambda cred: google_id_token.verify_oauth2_token(cred, google_requests.Request(), FACTORY_GOOGLE_CLIENT_ID),
                               secure_cookie=FACTORY_PUBLIC_BASE_URL.startswith("https://"),
                               send_message=lambda chat, text: _telegram_api("sendMessage", {"chat_id": chat, "text": text}),
-                              send_sample=_mycast_send_listener_sample)
+                              send_sample=_mycast_send_listener_sample, fetch_audio=_telegram_fetch_file)
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # #317: website listeners' daily episodes. The EC2 worker writes the script; the server re-checks every gate,
 # voices it with the listener's own voices and sends it only to the listener's own chat.
 MYCAST_LISTENER_DELIVERY = ListenerDelivery(MYCAST_LISTENERS)
 install_listener_delivery_routes(
     app, MYCAST_LISTENER_DELIVERY, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY,
-    tts=gemini_tts_pcm, encode=pcm_to_mp3, check_pcm=mycast_check_pcm,
+    tts=gemini_tts_pcm, encode=lambda pcm, rate: pcm_to_mp3(pcm, rate, bitrate=64),  # 30 min ≈ 14 MB < Telegram's 20 MB re-download limit
+    check_pcm=mycast_check_pcm,
     send_audio=lambda chat, audio, filename, title, caption: telegram_send_audio(
         FACTORY_TELEGRAM_BOT_TOKEN, str(chat), audio, filename=filename, title=title, caption=caption))
 
