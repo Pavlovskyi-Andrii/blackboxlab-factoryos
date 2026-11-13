@@ -84,9 +84,63 @@ class MvpRegistryTest(unittest.TestCase):
         original["projects"]["faceless-creator"] = custom
         self.path.write_text(json.dumps(original), encoding="utf-8")
         snap = self.reg.snapshot()
-        self.assertEqual(json.loads(self.path.read_text())["projects"]["faceless-creator"], custom)
-        self.assertIn("owner-custom", {p["id"] for p in snap["projects"]})
-        self.assertEqual(len([p for p in snap["projects"] if p["issue"] == 313]), 0)
+        saved = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["projects"]["faceless-creator"], custom)
+        by_id = {p["id"]: p for p in snap["projects"]}
+        self.assertIn("owner-custom", by_id)
+        self.assertIn("faceless-creator-313", by_id)
+        self.assertEqual(by_id["faceless-creator-313"]["issue"], 313)
+        self.assertIn("ЧЕРНЕТКА", by_id["faceless-creator-313"]["brief"])
+        self.assertEqual(len([p for p in snap["projects"] if p["issue"] == 313]), 1)
+        self.reg.snapshot()
+        self.assertEqual(self.path.read_text(encoding="utf-8"), json.dumps(saved, ensure_ascii=False, indent=1))
+
+    def test_existing_issue_313_custom_brief_survives_v1_and_v2_reads(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        original["version"] = 1
+        original["projects"]["faceless-creator"]["brief"] = "Owner's signed-off text — keep verbatim"
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        for _ in range(3):
+            snap = self.reg.snapshot()
+            concept = next(p for p in snap["projects"] if p["issue"] == 313)
+            self.assertEqual(concept["brief"], "Owner's signed-off text — keep verbatim")
+        self.assertEqual(json.loads(self.path.read_text())["version"], 2)
+        self.assertEqual(len([p for p in snap["projects"] if p["issue"] == 313]), 1)
+
+    def test_v2_registry_key_collision_backfills_missing_concept(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        custom = dict(original["projects"]["faceless-creator"],
+                      id="owner-custom", issue=777, title="Existing custom",
+                      brief="Keep exactly")
+        original["projects"]["faceless-creator"] = custom
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        snap = self.reg.snapshot()
+        by_id = {p["id"]: p for p in snap["projects"]}
+        self.assertEqual(original["projects"]["faceless-creator"], custom)
+        self.assertIn("faceless-creator-313", by_id)
+        self.assertEqual(by_id["owner-custom"]["brief"], "Keep exactly")
+        self.assertEqual(len([p for p in snap["projects"] if p["issue"] == 313]), 1)
+        saved = self.path.read_text(encoding="utf-8")
+        self.reg.snapshot()
+        self.assertEqual(self.path.read_text(encoding="utf-8"), saved)
+
+    def test_fallback_id_collision_uses_next_available_id(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        original["version"] = 1
+        original["projects"]["faceless-creator"]["id"] = "first-existing"
+        original["projects"]["faceless-creator"]["issue"] = 777
+        original["projects"]["faceless-creator-313"] = {
+            **original["projects"]["faceless-creator"], "id": "second-existing", "issue": 778
+        }
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        snap = self.reg.snapshot()
+        by_id = {p["id"]: p for p in snap["projects"]}
+        self.assertIn("faceless-creator-313-2", by_id)
+        self.assertEqual(by_id["faceless-creator-313-2"]["issue"], 313)
+        self.assertEqual(len([p for p in snap["projects"] if p["issue"] == 313]), 1)
 
     def test_existing_issue_313_without_brief_gets_draft_once(self):
         self.reg.snapshot()
