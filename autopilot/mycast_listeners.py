@@ -67,8 +67,8 @@ def build_prompt(item: dict) -> str:
 
 def validate(episode: dict, item: dict) -> list[str]:
     lines = episode.get("lines") if isinstance(episode, dict) else None
-    if not isinstance(lines, list) or not 4 <= len(lines) <= 120:
-        return ["lines: need 4–120 entries"]
+    if not isinstance(lines, list) or not 4 <= len(lines) <= 300:
+        return ["lines: need 4–300 entries"]
     allowed = ("A",) if item["profile"]["mode"] == "narrator" else ("A", "B")
     for line in lines:
         if not (isinstance(line, list) and len(line) == 2 and line[0] in allowed and isinstance(line[1], str)
@@ -78,7 +78,7 @@ def validate(episode: dict, item: dict) -> list[str]:
     target = int(item["profile"]["duration_min"]) * WORDS_PER_MIN
     if not 0.4 * target <= words <= 1.5 * target:
         return [f"length {words} words (target {target})"]
-    if sum(len(t) for _, t in lines) > 16000:
+    if sum(len(t) for _, t in lines) > 40000:
         return ["too long for the server"]
     if not isinstance(episode.get("sources"), list) or not episode["sources"]:
         return ["sources: at least one required"]

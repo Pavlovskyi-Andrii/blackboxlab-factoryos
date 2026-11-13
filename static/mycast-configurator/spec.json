@@ -49,11 +49,7 @@
       "sun"
     ],
     "days_rule": "\"days\" needs at least one weekday; \"daily\" ignores days",
-    "durations_min": [
-      5,
-      10,
-      15
-    ],
+    "durations_min": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
     "voice_languages": [
       "uk",
       "ru",

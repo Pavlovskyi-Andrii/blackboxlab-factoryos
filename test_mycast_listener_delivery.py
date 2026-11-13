@@ -54,6 +54,10 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual(p["topics"], ["Професійний бокс (Україна)", mld.TOPICS[40][1] + " (world)"])
         self.assertEqual((p["timezone"], p["time"], p["frequency"], p["duration_min"]), ("Europe/Kyiv", "07:30", "daily", 5))
         self.assertEqual((p["language"], p["mode"], p["voices"]), ("uk", "two_hosts", ["Charon", "Kore"]))
+        import base64 as b64
+        raw = json.loads(b64.urlsafe_b64decode(CODE + "=="))
+        raw["s"][4] = 25                                          # any whole minute up to 30 (owner 2026-11-13)
+        self.assertEqual(mld.decode_profile(b64.urlsafe_b64encode(json.dumps(raw).encode()).decode().rstrip("="))["duration_min"], 25)
         for bad in ("", "not-base64!!", "eyJ2Ijo5fQ"):
             with self.assertRaises(ValueError):
                 mld.decode_profile(bad)

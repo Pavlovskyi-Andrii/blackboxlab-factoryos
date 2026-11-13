@@ -58,7 +58,7 @@ test('time, timezone, frequency and duration are validated', () => {
   assert.deepStrictEqual(codes({ frequency: 'days', days: ['funday'] }), ['days_required']);
   assert.deepStrictEqual(codes({ frequency: 'days', days: ['mon', 'fri'] }), []);
   assert.deepStrictEqual(M.toJSON(M.update(p, { schedule: { frequency: 'daily', days: ['mon'] } })).schedule.days, []);  // daily ignores days
-  assert.deepStrictEqual(codes({ durationMin: 7 }), ['bad_duration']);
+  assert.deepStrictEqual(codes({ durationMin: 31 }), ['bad_duration']);
 });
 
 test('free text and custom sources are bounded and https-only', () => {

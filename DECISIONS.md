@@ -1000,3 +1000,4 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Worker (`autopilot/mycast_listeners.py`): after the owner's episode, one listener per pass; Claude (subscription, WebSearch/WebFetch only) writes the script from the listener's topics, language, length and host mode; attempts spaced 30 minutes.
 - Telegram "verified" is not required (consent + linked chat is); a refused send (bot never started) is recorded as a failure with its reason and shown in the cabinet.
 - Cabinet: the honest "not generated yet" note is replaced by the real state of today's episode and the last result.
+- 2026-11-13 (owner): episode length is any whole minute from 1 to 30 (was 5/10/15). The server accepts listener scripts up to 300 lines / 40 000 characters (~30 min).
