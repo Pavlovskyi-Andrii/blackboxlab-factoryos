@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from fastapi import Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 COOKIE = "mycast_listener"
 SESSION_SECONDS = 30 * 24 * 3600
@@ -262,7 +262,7 @@ def public_view(rec: dict) -> dict:
     return {"slug": rec["slug"], "name": rec.get("name", ""), "provider": rec.get("provider", ""),
             "has_podcast": bool(rec.get("code")), "page": f"/mycast/u/{rec['slug']}",
             "telegram_linked": bool(rec.get("chat_id")), "telegram_verified": bool(rec.get("telegram_verified_at")),
-            "calendar_linked": bool(rec.get("gcal")),
+            "calendar_linked": bool(rec.get("gcal")), "public_audio": bool(rec.get("public_audio")),
             "approved": bool(rec.get("code")) and rec.get("approved_code") == rec.get("code"),
             "delivery": {"active": bool(d.get("active")), "since": d.get("since"), "paused_reason": d.get("paused_reason", "")},
             "status": _delivery_status(rec),
@@ -507,7 +507,57 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
 
     @app.get("/mycast/u/{slug}", include_in_schema=False)
     def mycast_public_page(slug: str):
+        """Owner 2026-11-13: a shareable podcast page (DNA, optional player, "make one like this"), not the editor."""
+        rec, profile = _public(slug)
+        if not rec:
+            return RedirectResponse(PAGE + "#missing", status_code=307)
+        if profile is None:                                   # an old or damaged code: the editor still opens it
+            return RedirectResponse(f"{PAGE}#p={rec['code']}&from={slug}", status_code=307)
+        import mycast_public
+        return HTMLResponse(mycast_public.render_page(rec, profile, page=PAGE), headers={"Cache-Control": "public, max-age=300"})
+
+    def _public(slug: str):
         rec = store.get(slug) if SLUG_RE.match(slug or "") else None
         if not rec or not rec.get("code"):
-            return RedirectResponse(PAGE + "#missing", status_code=307)
-        return RedirectResponse(f"{PAGE}#p={rec['code']}&from={slug}", status_code=307)
+            return None, None
+        from mycast_listener_delivery import decode_profile
+        try:
+            return rec, decode_profile(rec["code"])
+        except ValueError:
+            return rec, None
+
+    @app.get("/mycast/u/{slug}/card.png", include_in_schema=False)
+    def mycast_public_card(slug: str):
+        rec, profile = _public(slug)
+        if not rec or profile is None:
+            return Response(status_code=404)
+        import mycast_public
+        return Response(mycast_public.card_png(rec, profile), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+    @app.get("/mycast/u/{slug}/latest.mp3", include_in_schema=False)
+    def mycast_public_audio(slug: str):
+        """Only when the listener turned on listening by link; streamed from Telegram, never stored here."""
+        import mycast_public
+        rec, _profile = _public(slug)
+        found = mycast_public.latest_audio(rec) if rec else None
+        if not found or not fetch_audio:
+            return Response(status_code=404)
+        if not mycast_public.allow_play(slug, clock()):
+            return Response(status_code=429)
+        try:
+            audio = fetch_audio(found[1])
+        except Exception:
+            return Response(status_code=502)
+        return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "public, max-age=3600",
+                                                                 "Content-Disposition": f'inline; filename="mycast-{found[0]}.mp3"'})
+
+    @app.post("/api/mycast/account/sharing")
+    async def mycast_account_sharing(request: Request):
+        try:
+            rec = _signed(request)
+            body = await _body(request)
+        except AccountError as exc:
+            return _err(exc)
+        store.mark(rec["slug"], public_audio=body.get("public_audio") is True)
+        return {"listener": public_view(store.get(rec["slug"]))}

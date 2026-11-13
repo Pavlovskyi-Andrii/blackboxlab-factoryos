@@ -1062,3 +1062,15 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   Account) forgets the token. Disconnect and account deletion revoke the token at Google first.
 - Not yet: Google's verification for the sensitive scope (the owner submitted early by accident; until approved, up
   to 100 users see the "unverified app" screen). The demo video comes once this is live.
+
+## 2026-11-13 — MyCast: Telegram-only sign-in, public podcast page and share card
+- Sign in / sign out moved to the header. Telegram is the only sign-in; Google is calendar sync only (the GIS button
+  is gone; the server route stays so existing Google accounts keep working).
+- Duration picker: 8 choices (1, 3, 5, 10, 15, 20, 25, 30). Validation still accepts any minute 1–30, and a saved
+  length outside the list is shown, so no profile is invalidated.
+- `/mycast/u/{slug}` is now a shareable page (first name, topics, geography, follows, schedule, voice, "make one like
+  this" with the referral kept) instead of a redirect into the editor; an undecodable old code still redirects.
+- `/mycast/u/{slug}/card.png`: 1200x630 og:image drawn with Pillow and bundled DejaVu Sans (free licence), cached per
+  podcast version. Added `Pillow` to requirements.
+- Listening by link is **opt-in** (`public_audio`, default off): the episode can read out calendar events and
+  birthdays, so the toggle says so. The latest sent episode streams from Telegram (never stored), 60 plays/hour/page.
