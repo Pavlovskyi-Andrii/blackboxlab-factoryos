@@ -79,10 +79,24 @@ FACELESS_CREATOR_BRIEF = """ТЕХНІЧНЕ ЗАВДАННЯ — ЧЕРНЕТК
 """
 
 
+def _backfill_faceless_creator_brief(data: dict[str, Any]) -> bool:
+    """Add only a missing draft brief to the owner's existing #313 concept."""
+    for project in data["projects"].values():
+        if project.get("issue") == FACELESS_CREATOR_ISSUE:
+            if not str(project.get("brief") or "").strip():
+                project["brief"] = FACELESS_CREATOR_BRIEF
+                return True
+            return False
+    return False
+
+
 def _add_faceless_creator(data: dict[str, Any], now: str) -> bool:
-    """Insert this one owner-requested concept without overwriting existing records or duplicating #313."""
-    if any(p.get("id") == FACELESS_CREATOR_ID or p.get("issue") == FACELESS_CREATOR_ISSUE
-           for p in data["projects"].values()):
+    """Register #313 without overwriting keyed records, or backfill only a missing brief."""
+    if _backfill_faceless_creator_brief(data):
+        return True
+    if (FACELESS_CREATOR_ID in data["projects"] or
+            any(p.get("id") == FACELESS_CREATOR_ID or p.get("issue") == FACELESS_CREATOR_ISSUE
+                for p in data["projects"].values())):
         return False
     data["projects"][FACELESS_CREATOR_ID] = {
         "id": FACELESS_CREATOR_ID, "title": FACELESS_CREATOR_TITLE,
@@ -168,6 +182,9 @@ class MvpRegistry:
                 if data.get("version", 1) == 1:
                     _add_faceless_creator(data, _iso(self.clock()))
                     data["version"] = 2
+                    self._save(data)
+                elif data.get("version") == 2 and _backfill_faceless_creator_brief(data):
+                    # Repair v2 registries where an existing #313 record lacked its brief.
                     self._save(data)
                 return data
         except FileNotFoundError:
