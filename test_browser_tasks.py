@@ -315,14 +315,19 @@ class WorkerTest(unittest.TestCase):
             check = lambda: worker.playwright_available(importer=lambda: None, clock=lambda: t[0])
             self.assertFalse(check())
             state["fail"] = False                     # owner installs Chromium
-            t[0] += 30
-            self.assertFalse(check())                 # still within the retry window: no new launch
+            t[0] = 1000.0 + worker.RETRY_SECONDS - 1
+            self.assertFalse(check())                 # just inside the retry window: no new launch
             self.assertEqual(state["probes"], 1)
-            t[0] += worker.RETRY_SECONDS
-            self.assertTrue(check())
-            t[0] += worker.RETRY_SECONDS * 3
-            self.assertTrue(check())                  # success stays cached
+            t[0] = 1000.0 + worker.RETRY_SECONDS
+            self.assertTrue(check())                  # exactly at RETRY_SECONDS the probe runs again
             self.assertEqual(state["probes"], 2)
+            ok_at = t[0]
+            t[0] = ok_at + worker.READY_CACHE_SECONDS - 1
+            self.assertTrue(check())                  # success stays cached ...
+            self.assertEqual(state["probes"], 2)
+            t[0] = ok_at + worker.READY_CACHE_SECONDS
+            self.assertTrue(check())                  # ... until READY_CACHE_SECONDS
+            self.assertEqual(state["probes"], 3)
 
     def test_private_resolution_is_refused_before_any_browser(self):
         calls = []
