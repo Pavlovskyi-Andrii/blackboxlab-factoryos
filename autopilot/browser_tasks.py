@@ -31,15 +31,28 @@ def log(message: str) -> None:
     print(f"browser-tasks: {message}", file=sys.stderr, flush=True)
 
 
-def playwright_available() -> bool:
+def _chromium_path() -> str:
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        return p.chromium.executable_path
+
+
+def playwright_available(find_browser=None) -> bool:
+    """Package AND browser binary present (Codex review on #334): otherwise tasks stay queued instead of failing."""
     try:
         import playwright.sync_api  # noqa: F401
-        return True
+        path = (find_browser or _chromium_path)()
+        ready, reason = bool(path) and pathlib.Path(path).is_file(), "Chromium is not installed (playwright install chromium)"
     except ImportError:
-        if not _LOGGED["missing"]:
-            _LOGGED["missing"] = True
-            log("Playwright is not installed on this worker; browser tasks wait (see docs/guides/browser-agent.md)")
-        return False
+        ready, reason = False, "Playwright is not installed"
+    except Exception as exc:
+        ready, reason = False, f"Playwright cannot start ({type(exc).__name__})"
+    if not ready and _LOGGED.get("reason") != reason:
+        _LOGGED["reason"] = reason
+        log(reason + " on this worker; browser tasks wait (see docs/guides/browser-agent.md)")
+    if ready:
+        _LOGGED["reason"] = ""
+    return ready
 
 
 def build_plan(task: dict) -> BrowserActionPlan:

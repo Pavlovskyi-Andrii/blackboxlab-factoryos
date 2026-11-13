@@ -235,6 +235,26 @@ class EgressProxyTest(unittest.TestCase):
         echo.close()
         self.assertEqual(proxy.connected, ["shop.example"])
 
+    def test_next_checked_address_is_tried_when_the_first_fails(self):
+        import socket
+        import threading
+        from browser_runner.egress_proxy import PublicOnlyProxy
+        echo = socket.socket()
+        echo.bind(("127.0.0.1", 0))
+        echo.listen(1)
+        port = echo.getsockname()[1]
+
+        def serve():
+            conn, _ = echo.accept()
+            with conn:
+                conn.sendall(conn.recv(16).upper())
+        threading.Thread(target=serve, daemon=True).start()
+        two = lambda host, p, proto=0: [(10, 1, 6, "", ("::1", p, 0, 0)), (2, 1, 6, "", ("127.0.0.1", p))]
+        with PublicOnlyProxy(resolve=two, allow=lambda a: a in ("::1", "127.0.0.1"), allowed_ports=(port,)) as proxy:
+            head, reply = self.connect(proxy, f"dual.example:{port}")
+        echo.close()                                    # nothing listens on ::1 at that port: the 2nd address is used
+        self.assertEqual((head, reply), (b"HTTP/1.1 200 Connection Established", b"PING"))
+
     def test_worker_routes_the_browser_through_the_proxy(self):
         seen = []
 
@@ -260,6 +280,15 @@ class EgressProxyTest(unittest.TestCase):
 
 
 class WorkerTest(unittest.TestCase):
+    def test_package_without_browser_binary_leaves_tasks_queued(self):
+        self.assertFalse(worker.playwright_available(find_browser=lambda: "/nonexistent/chrome"))
+        with tempfile.NamedTemporaryFile() as binary:
+            self.assertTrue(worker.playwright_available(find_browser=lambda: binary.name))
+
+        def broken():
+            raise RuntimeError("missing libnss3")
+        self.assertFalse(worker.playwright_available(find_browser=broken))
+
     def test_private_resolution_is_refused_before_any_browser(self):
         calls = []
         for addr in ("169.254.169.254", "10.1.2.3", "127.0.0.1"):
