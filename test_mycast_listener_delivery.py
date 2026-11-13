@@ -136,6 +136,36 @@ class GateTest(unittest.TestCase):
         self.store.save_code(s3, CODE.replace("Mi", "Mj"))                   # an edit pauses delivery
         self.assertNotEqual(self.state(s3), "due")
 
+    def test_owner_overview_counts_states_without_private_fields(self):
+        s = ready_listener(self.store)
+        self.d.claim(s, "2026-11-13")
+        self.d.finish(s, "2026-11-13", True, seconds=290, file_id="tg-file-1")
+        s2 = ready_listener(self.store, chat="778")
+        self.store.login({"provider": "google", "pid": "g9", "name": "Olena K", "email": "olena@example.com"})
+        view = self.d.overview()
+        self.assertEqual((view["total"], view["sent_today_utc"], view["daily_cap"]), (3, 1, 2))
+        self.assertEqual(view["by_state"], {"delivered": 1, "due": 1, "no_podcast": 1})
+        row = next(r for r in view["listeners"] if r["slug"] == s)
+        self.assertEqual((row["first_name"], row["last_date"], row["last_status"], row["sent_days"]),
+                         ("Андрій", "2026-11-13", "sent", 1))
+        self.assertEqual(view["listeners"][0]["slug"], s2)                     # due first
+        text = json.dumps(view, ensure_ascii=False)
+        for private in ("777", "778", "olena@example.com", "tg-file-1", CODE[:20], "Тест"):
+            self.assertNotIn(private, text)
+
+        class Req:
+            pass
+        app2 = __import__("fastapi").FastAPI()
+        role = {"role": "member"}
+        mld.install_listener_delivery_routes(app2, self.d, authorize_worker=lambda r: False, api_key=lambda: "",
+                                             tts=None, encode=None, send_audio=None, identity=lambda r: role)
+        handler = next(r.endpoint for r in app2.routes if getattr(r, "path", "") == "/api/factory/mycast/listeners")
+        with self.assertRaises(mld.HTTPException) as e:
+            handler(Req())
+        self.assertEqual(e.exception.status_code, 403)
+        role["role"] = "owner"
+        self.assertEqual(handler(Req())["total"], 3)
+
 
 import app as factory  # noqa: E402
 from test_worker_token_binding import asgi_post  # noqa: E402

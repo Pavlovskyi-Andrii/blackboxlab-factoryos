@@ -865,7 +865,7 @@ MYCAST_LISTENER_DELIVERY = ListenerDelivery(MYCAST_LISTENERS)
 install_listener_delivery_routes(
     app, MYCAST_LISTENER_DELIVERY, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY,
     tts=gemini_tts_pcm, encode=lambda pcm, rate: pcm_to_mp3(pcm, rate, bitrate=64),  # 30 min ≈ 14 MB < Telegram's 20 MB re-download limit
-    check_pcm=mycast_check_pcm,
+    check_pcm=mycast_check_pcm, identity=request_identity,
     send_audio=lambda chat, audio, filename, title, caption: telegram_send_audio(
         FACTORY_TELEGRAM_BOT_TOKEN, str(chat), audio, filename=filename, title=title, caption=caption))
 
