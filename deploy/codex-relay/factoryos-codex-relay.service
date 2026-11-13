@@ -14,7 +14,8 @@ ExecStart=/usr/bin/python3 -m autopilot.codex_relay_worker --drain 3
 TimeoutStartSec=900
 UMask=0077
 PrivateTmp=true
-ProtectSystem=strict
+# full, not strict: sudo needs a writable /run and /var (found on EC2 2026-11-13: Codex check failed under strict).
+ProtectSystem=full
 ReadWritePaths=/var/lib/factoryos-codex
 InaccessiblePaths=-/opt/factoryos -/root -/home -/etc/factoryos
 ProtectKernelTunables=true
