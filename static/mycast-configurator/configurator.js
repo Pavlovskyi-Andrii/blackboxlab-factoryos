@@ -104,7 +104,7 @@
   // Owner feedback 2026-11-06: "daily" needs no weekday; otherwise the listener ticks the days (dots).
   const FREQUENCIES = ['daily', 'days'];
   const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-  const DURATIONS = [5, 10, 15];
+  const DURATIONS = Array.from({ length: 30 }, (_, i) => i + 1);   // minutes; owner 2026-11-13: any length up to 30
   const LANGUAGES = ['uk', 'ru', 'en'];
   const VOICES = ['narrator', 'two_hosts'];
   // #281: the 30 prebuilt Gemini TTS voices [name, style, gender by ear]. Must match mycast_voices.VOICES (a test checks).

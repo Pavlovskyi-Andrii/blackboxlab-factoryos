@@ -35,9 +35,10 @@ GROUPS = _SPEC["groups"]
 VOICE_NAMES = {v[0] for v in _SPEC["gemini_voices"]}
 LANG_COL = {"uk": 1, "ru": 2, "en": 3}
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-DURATIONS = (5, 10, 15)
+DURATIONS = tuple(range(1, 31))                 # configurator.js: any whole minute 1..30
 DAILY_CAP = 10                               # listener episodes per UTC day across all listeners (Gemini budget)
 MAX_FAILED_PER_DAY = 3
+MAX_SCRIPT_CHARS = 40000                     # ~30 min at 140 words/min
 SLUG_RE = re.compile(r"^[a-z0-9]{8}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -220,9 +221,9 @@ def install_listener_delivery_routes(app, delivery: ListenerDelivery, *, authori
         episode = body.get("episode") if isinstance(body, dict) else None
         local_date = str((body or {}).get("local_date") or "")
         lines = episode.get("lines") if isinstance(episode, dict) else None
-        if not (DATE_RE.fullmatch(local_date) and isinstance(lines, list) and 4 <= len(lines) <= 120
+        if not (DATE_RE.fullmatch(local_date) and isinstance(lines, list) and 4 <= len(lines) <= 300
                 and all(isinstance(l, list) and len(l) == 2 and l[0] in ("A", "B") and isinstance(l[1], str) and l[1].strip()
-                        for l in lines) and sum(len(l[1]) for l in lines) <= 16000):
+                        for l in lines) and sum(len(l[1]) for l in lines) <= MAX_SCRIPT_CHARS):
             raise HTTPException(400, "bad episode")
         key = api_key()
         if not key:
