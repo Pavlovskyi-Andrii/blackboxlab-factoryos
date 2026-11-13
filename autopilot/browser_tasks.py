@@ -31,15 +31,40 @@ def log(message: str) -> None:
     print(f"browser-tasks: {message}", file=sys.stderr, flush=True)
 
 
-def playwright_available() -> bool:
+def _launch_probe() -> None:
+    """Start and close headless Chromium: proves the binary, its libraries and permissions, not just a path."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        p.chromium.launch(headless=True).close()
+
+
+READY_CACHE_SECONDS = 600
+_READY = {"at": 0.0, "ok": False}
+
+
+def playwright_available(probe=None, *, importer=None, clock=None) -> bool:
+    """Ready only when Chromium really starts (Codex reviews on #334/#335). Tasks stay queued otherwise; the reason is
+    logged once. A probe result is reused for 10 minutes so an idle worker does not launch a browser every pass."""
+    import time as _time
+    now = (clock or _time.monotonic)()
+    if probe is None and _READY["at"] and now - _READY["at"] < READY_CACHE_SECONDS:
+        return _READY["ok"]
     try:
-        import playwright.sync_api  # noqa: F401
-        return True
+        (importer or (lambda: __import__("playwright.sync_api")))()
+        (probe or _launch_probe)()
+        ready, reason = True, ""
     except ImportError:
-        if not _LOGGED["missing"]:
-            _LOGGED["missing"] = True
-            log("Playwright is not installed on this worker; browser tasks wait (see docs/guides/browser-agent.md)")
-        return False
+        ready, reason = False, "Playwright is not installed"
+    except Exception as exc:
+        ready, reason = False, f"Chromium cannot start ({type(exc).__name__}); run: playwright install chromium"
+    if probe is None:
+        _READY.update(at=now, ok=ready)
+    if not ready and _LOGGED.get("reason") != reason:
+        _LOGGED["reason"] = reason
+        log(reason + " on this worker; browser tasks wait (see docs/guides/browser-agent.md)")
+    if ready:
+        _LOGGED["reason"] = ""
+    return ready
 
 
 def build_plan(task: dict) -> BrowserActionPlan:

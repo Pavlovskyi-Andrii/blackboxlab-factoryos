@@ -15,6 +15,7 @@ import threading
 from typing import Callable
 
 MAX_HEADER = 8192
+_connect = socket.create_connection     # seam for tests
 IDLE_SECONDS = 30
 
 
@@ -56,9 +57,14 @@ class _Handler(socketserver.BaseRequestHandler):
             server.refused.append(("address", host))       # one private answer is enough to refuse
             client.sendall(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
             return
-        try:
-            upstream = socket.create_connection((addresses[0], int(port)), timeout=15)
-        except OSError:
+        upstream = None
+        for address in addresses:                  # every one was checked; e.g. IPv6 first on an IPv4-only worker
+            try:
+                upstream = _connect((address, int(port)), timeout=15)
+                break
+            except OSError:
+                continue
+        if upstream is None:
             client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
             return
         server.connected.append(host)
