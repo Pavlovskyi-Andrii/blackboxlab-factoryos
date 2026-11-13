@@ -121,6 +121,11 @@ jobs:
         run: python test_relay_telegram.py
       - name: Relay worker queue / Claude execution unit tests
         run: python test_relay_execution.py
+      - name: Claude <-> Codex agent relay (#94 / PR #314 security review)
+        run: |
+          python -m py_compile agent_secret_scan.py relay_agent_messages.py autopilot/agent_relay_client.py autopilot/codex_relay_worker.py test_relay_agent_messages.py
+          python test_relay_agent_messages.py
+          bash -n deploy/codex-relay/setup.sh
       - name: Relay owner-notice dedupe regression (#241)
         run: python test_relay_notify_dedupe.py
       - name: Evidence Protocol Tier 1 (No Evidence — No Done)

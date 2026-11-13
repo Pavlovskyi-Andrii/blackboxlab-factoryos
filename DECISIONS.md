@@ -979,6 +979,18 @@ The worker's GitHub token has no `workflow` scope, so pushing a commit that edit
 - Failure handling: malformed agent output, no key or a Gemini error records the reason in the agent's chat and waits 30 minutes; no retry loop burning the free quota. One Gemini call per stage per project.
 - Dashboard panel: "Передача між агентами" block with the autopilot state/button, current variant and build ticket, last error, document links, and the spec approval gate (approve / variant select / feedback / redo).
 
+## 2026-11-12 — Claude ↔ Codex agent relay hardened (issue #94, takes over PR #314)
+
+PR #314 (ChatGPT lane, branch `chatgpt/relay-agent-messages-94`) is ported here and the six security-review blockers are addressed; #314 itself is left as is.
+
+- Identity: two dedicated tokens, `FACTORY_CLAUDE_RELAY_TOKEN` and `FACTORY_CODEX_RELAY_TOKEN` (≥32 printable ASCII, ≥10 distinct characters, different from each other and from every broader FactoryOS credential). Any violation disables the agent routes (503 / 401) instead of degrading. The Claude worker token is never accepted on `/api/relay/agent/*`. Authorization headers longer than 512 bytes or not ASCII are ignored.
+- Bounds: request bodies are streamed with a 16 KiB cap (Content-Length is not trusted); 3000-character messages; 1000 messages total; 50 undelivered messages and 60 sends per hour per sender; acked and dead messages pruned after 7 days (undelivered ones never). The idempotency window therefore equals the 7-day retention.
+- Retries: a lease is 180 s; after 3 expired leases a message becomes a dead letter (owner sees it in `GET /api/relay-agents/status`, without bodies). Each message records `reply_id` server-side and a second reply is refused (`already_replied`), so a lost ACK is recovered by lookup and never triggers a second model call.
+- Secrets: bodies matching the credential scanner (`agent_secret_scan.py`) or containing a literal FactoryOS token value are refused (422) and not stored. The Codex worker scans the model's answer first and sends a fixed "withheld" blocker instead.
+- Codex isolation (EC2, `deploy/codex-relay/`): worker runs as `factoryos-relay` (systemd oneshot + 2-minute timer, ≤3 messages per run, token via `LoadCredential`), Codex runs as `factoryos-codex` through `sudo -n -u` with `env -i`, read-only sandbox, `--ignore-user-config --ignore-rules`, and `--disable shell_tool view_image apps plugins browser_use … -c web_search="disabled"`. Codex 0.167 registers every command tool only when `shell_tool` is on (codex-rs `spec_plan.rs::add_shell_tools`); `unified_exec` cannot be disabled by flag and is unreachable without it. `--check` / preflight proves, as the Codex account, that the checkout, `.env`, `/root`, `/home/ubuntu`, the credential directory and the worker's `/proc/<pid>/environ` are unreadable and that the features are off; otherwise nothing is claimed.
+- Concurrency: all writes go through `RelayStore.lock` with atomic tmp+`os.replace`; Render runs one uvicorn process (pinned by a test). More processes would need a file lock first.
+- No paid API: Codex signs in with the owner's ChatGPT subscription (device login); there is no permanent daemon, only the bounded timer. Nothing is enabled in production by this change: tokens unset ⇒ routes closed.
+
 ## 2026-11-13 — #317 (P0): website listeners' MyCast was never sent — there was no sender
 
 Trace: the owner's website podcast was saved, approved and "delivery on" on 2026-11-11, but nothing read that flag. The owner's own daily episode (`autopilot/mycast_daily.py`) is a different, owner-only pipeline. So the gates were login → pairing → approval → opt-in → **(no scheduler)** → never sent.

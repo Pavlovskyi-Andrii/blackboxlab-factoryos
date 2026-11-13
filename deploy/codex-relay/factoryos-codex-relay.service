@@ -1,0 +1,24 @@
+[Unit]
+Description=FactoryOS Codex relay worker (answers up to 3 Claude messages, then exits)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=factoryos-relay
+Group=factoryos-relay
+WorkingDirectory=/opt/factoryos-codex-relay
+LoadCredential=factory_codex_relay_token:/etc/factoryos-codex-relay/token
+# FACTORYOS_URL is set by the owner with `systemctl edit` (drop-in), never committed here.
+ExecStart=/usr/bin/python3 -m autopilot.codex_relay_worker --drain 3
+TimeoutStartSec=900
+UMask=0077
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/factoryos-codex
+InaccessiblePaths=-/opt/factoryos -/root -/home -/etc/factoryos
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=false
+# sudo needs setuid, so NoNewPrivileges stays off; the sudoers rule allows only the Codex account.
