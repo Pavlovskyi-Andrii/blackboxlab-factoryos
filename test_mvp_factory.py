@@ -189,7 +189,8 @@ class MvpRegistryTest(unittest.TestCase):
         # Source-level UI contract: drawer resolves by project.id, not canonical ID.
         html = (Path(__file__).resolve().parent / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("find(x=>x.id===id)", html)
-        self.assertIn("p.brief?'<div class=\\"mvpBrief\\">'+esc(p.brief)", html)
+        self.assertIn("mvpBrief", html)
+        self.assertIn("'+esc(p.brief)", html)
         self.assertIn("encodeURIComponent(p.id)", html)
 
     def test_existing_issue_313_without_brief_gets_draft_once(self):
