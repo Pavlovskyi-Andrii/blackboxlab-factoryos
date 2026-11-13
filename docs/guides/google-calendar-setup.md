@@ -38,7 +38,10 @@ Until then the page honestly shows "не підключено".
    privacy policy `https://mycast.pro/privacy`, terms `https://mycast.pro/terms`, authorized domain `mycast.pro`.
 8. **Verification (with the own domain)** — verify the domain in Google Search Console, then Google Auth Platform →
    Verification Center → submit: a short video showing the consent screen and how calendar data is used, and the
-   reason for `calendar.readonly` ("read today's events and birthdays to read them out in the listener's personal
-   audio episode; nothing is stored or shared").
+   reason for `calendar.readonly`. Describe the real data flow (Codex review on #333): "MyCast reads only today's events
+   and the Birthdays calendar, at the moment the listener's episode is prepared. The titles and times go to Anthropic
+   Claude (writes the episode script) and Google Gemini (voices it); the audio goes to the listener's own Telegram
+   chat. MyCast does not store calendar data, does not use it for anything else, and does not sell or share it with
+   anyone else." This matches https://mycast.pro/privacy.
 
 When steps 1–6 are done, tell Claude "готово": the connect button, OAuth flow and the calendar segment are built next.
