@@ -1074,3 +1074,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   podcast version. Added `Pillow` to requirements.
 - Listening by link is **opt-in** (`public_audio`, default off): the episode can read out calendar events and
   birthdays, so the toggle says so. The latest sent episode streams from Telegram (never stored), 60 plays/hour/page.
+
+## 2026-11-13 — Claude drives the browser agent itself (read-only)
+- Owner: "делай токен для агента … моего подтверждения не нужно, нужен результат". FACTORY_BROWSER_AGENT_TOKEN
+  (≥ 32 chars, never equal to a worker token) opens only `/api/factory/browser/agent/tasks[/{id}[/screenshot]]`.
+- Claude's tasks are tagged `source: claude`, read-only, public https only (same URL rules and egress proxy as the
+  owner's), at most 200 per 24 h, and share the 20-task active queue. Claude can read only its own tasks.
+- The token reaches this cloud session through the environment's credential form (injected by the network proxy);
+  it never appears in chat or in the repository. Logged-in browsing stays out of scope.

@@ -397,6 +397,21 @@ def _claude_worker_authorized(request: Request) -> bool:
                  or bool(FACTORY_CLAUDE_WORKER_TOKEN_EC2 and hmac.compare_digest(supplied,FACTORY_CLAUDE_WORKER_TOKEN_EC2))
                  or valid_pairing(RELAY_WORKER_PAIR_FILE, supplied)))
 
+FACTORY_BROWSER_AGENT_TOKEN = os.environ.get("FACTORY_BROWSER_AGENT_TOKEN", "").strip()
+
+
+def _browser_agent_authorized(request: Request) -> bool:
+    """Owner 2026-11-13: a token that opens only the browser agent's read-task queue for Claude (min 32 chars,
+    never equal to the worker tokens)."""
+    token = FACTORY_BROWSER_AGENT_TOKEN
+    if len(token) < 32 or token in (FACTORY_CLAUDE_WORKER_TOKEN, FACTORY_CLAUDE_WORKER_TOKEN_EC2):
+        return False
+    auth = (request.headers.get("authorization") or "").strip()
+    if not auth.lower().startswith("bearer "):
+        return False
+    return hmac.compare_digest(auth.split(" ", 1)[1].strip(), token)
+
+
 def _operator_worker_authorized(request: Request) -> bool:
     auth=(request.headers.get("authorization") or "").strip()
     if not auth.lower().startswith("bearer "):return False
@@ -1045,7 +1060,8 @@ async def mvp_agent_message(project_id: str, agent: str, request: Request):
     return {"ok":True,"routed":"gemini"}
 # T-560 wiring: owner's read-only browser tasks, run by the EC2 runner (Playwright never runs on Render).
 BROWSER_TASKS = BrowserTaskStore(DATA_DIR)
-install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized)
+install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized,
+                            authorize_agent=_browser_agent_authorized)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
@@ -1130,13 +1146,14 @@ async def auth_middleware(request: Request, call_next):
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
+    browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
     owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/")) and _claude_worker_authorized(request)
     # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
             and not (claude_worker_api or operator_worker_api or local_booster_api)):
         return JSONResponse({"detail":"worker token required"},status_code=401)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or relay_agent_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or relay_agent_api or browser_agent_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
