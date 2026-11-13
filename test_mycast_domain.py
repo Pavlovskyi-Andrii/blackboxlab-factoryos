@@ -52,6 +52,19 @@ class MyCastDomainTest(unittest.TestCase):
         self.assertNotEqual(status, 302)                                   # dashboard (or its login) as before
         self.assertEqual(get("/privacy", host="blackboxlab-factoryos.onrender.com")[0], 200)
 
+    def test_robots_and_sitemap_index_only_mycast(self):
+        status, _, body = get("/robots.txt")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Sitemap: https://mycast.pro/sitemap.xml", body)
+        self.assertIn(b"Disallow: /api/", body)
+        status, _, body = get("/sitemap.xml")
+        self.assertEqual(status, 200)
+        self.assertIn(b"<loc>https://mycast.pro/privacy</loc>", body)
+        self.assertNotIn(b"/mycast/u/", body)                              # listeners' pages are never listed
+        status, _, body = get("/robots.txt", host="blackboxlab-factoryos.onrender.com")
+        self.assertEqual((status, body), (200, b"User-agent: *\nDisallow: /\n"))   # the dashboard stays out of search
+        self.assertEqual(get("/sitemap.xml", host="blackboxlab-factoryos.onrender.com")[0], 404)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
