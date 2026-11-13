@@ -178,10 +178,10 @@ from test_worker_token_binding import asgi_post  # noqa: E402
 WORKER = "worker-token-for-listener-tests"
 
 
-def asgi_get(path, bearer):
+def asgi_get(path, bearer, app=None, query=b""):
     headers = [(b"host", b"testserver"), (b"authorization", ("Bearer " + bearer).encode())]
     scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET", "scheme": "http",
-             "path": path, "raw_path": path.encode(), "query_string": b"", "headers": headers,
+             "path": path, "raw_path": path.encode(), "query_string": query, "headers": headers,
              "server": ("testserver", 80), "client": ("127.0.0.1", 50000), "root_path": ""}
     sent = []
 
@@ -190,7 +190,7 @@ def asgi_get(path, bearer):
 
     async def send(m):
         sent.append(m)
-    asyncio.run(factory.app(scope, receive, send))
+    asyncio.run((app or factory.app)(scope, receive, send))
     return next(m for m in sent if m["type"] == "http.response.start")["status"], b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
 
 
@@ -280,6 +280,30 @@ class RouteTest(unittest.TestCase):
         last = public_view(self.store.get(s))["status"]["last"]
         self.assertEqual((last["status"], last["reason"]), ("failed", "RuntimeError:"))
         self.assertEqual(self.store.get(s)["audit"][-1]["action"], "episode_failed")
+
+    def test_listener_overview_pages_over_http(self):
+        # Codex review on #337: > 200 listeners, query parsing, clamping and out-of-range offsets through HTTP.
+        d = mld.ListenerDelivery(self.store, clock=self.clock)
+        with self.store._lock:
+            data = self.store._load()
+            for i in range(205):
+                data["listeners"][f"l{i:03d}"] = {"slug": f"l{i:03d}", "name": f"N{i}"}
+            self.store._save(data)
+        app2 = __import__("fastapi").FastAPI()
+        mld.install_listener_delivery_routes(app2, d, authorize_worker=lambda r: False, api_key=lambda: "", tts=None,
+                                             encode=None, send_audio=None, identity=lambda r: {"role": "owner"})
+        get = lambda q: json.loads(asgi_get("/api/factory/mycast/listeners", "x", app=app2, query=q)[1])
+        first = get(b"")
+        self.assertEqual((first["total"], len(first["listeners"]), first["next_offset"]), (205, 200, 200))
+        second = get(b"offset=200")
+        self.assertEqual((len(second["listeners"]), second["next_offset"]), (5, None))
+        self.assertEqual(len({r["slug"] for r in first["listeners"] + second["listeners"]}), 205)
+        self.assertEqual(len(get(b"limit=5000")["listeners"]), 200)              # clamped
+        self.assertEqual(get(b"limit=0")["limit"], 1)
+        self.assertEqual(get(b"offset=-3")["offset"], 0)
+        past = get(b"offset=999")
+        self.assertEqual((past["listeners"], past["next_offset"]), ([], None))
+        self.assertEqual(asgi_get("/api/factory/mycast/listeners", "x", app=app2, query=b"offset=abc")[0], 422)
 
     def test_bad_requests(self):
         s = ready_listener(self.store)
