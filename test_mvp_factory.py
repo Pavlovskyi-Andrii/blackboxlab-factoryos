@@ -111,6 +111,8 @@ class MvpRegistryTest(unittest.TestCase):
     def test_v2_registry_key_collision_backfills_missing_concept(self):
         self.reg.snapshot()
         original = json.loads(self.path.read_text(encoding="utf-8"))
+        # Simulate a legacy v2 registry that has not yet completed #313 intake.
+        original.pop("faceless_creator_intake_complete")
         custom = dict(original["projects"]["faceless-creator"],
                       id="owner-custom", issue=777, title="Existing custom",
                       brief="Keep exactly")
@@ -192,6 +194,18 @@ class MvpRegistryTest(unittest.TestCase):
         self.assertIn("mvpBrief", html)
         self.assertIn("'+esc(p.brief)", html)
         self.assertIn("encodeURIComponent(p.id)", html)
+
+    def test_owner_cleared_brief_is_not_repopulated_on_v2_reads(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertTrue(original["faceless_creator_intake_complete"])
+        original["projects"]["faceless-creator"]["brief"] = ""
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        saved = self.path.read_text(encoding="utf-8")
+        for _ in range(3):
+            concept = next(p for p in self.reg.snapshot()["projects"] if p["issue"] == 313)
+            self.assertEqual(concept["brief"], "")
+        self.assertEqual(self.path.read_text(encoding="utf-8"), saved)
 
     def test_existing_issue_313_without_brief_gets_draft_once(self):
         self.reg.snapshot()
