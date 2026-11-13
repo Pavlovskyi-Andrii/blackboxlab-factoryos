@@ -167,6 +167,122 @@ Avoid inventing events not actually implemented; unsupported stages explicitly s
 
 Track cost per activated user and TTS/LLM cost before claiming $1/month viable. Product-quality guardrails: broken login, privacy incident, misleading medical/financial claim, high unsubscribe, time-to-first-audio, content source quality. Any safety/privacy breach -> pause.
 
+## 7A. Owner clarification 2026-11-13 — visible A/B branch graph with independent Content Factory promotion
+
+**Owner-requested visual outcome:** the MVP Builder must display a real fork, with **A as the upper horizontal lane and B as the lower horizontal lane** on desktop, after shared Idea → Debate → Research. Every lane tracks its own concept revision, build/landing, Content Factory job, per-platform promotion tasks, consent/owner approvals, traffic source and conversion events. The two lanes converge only at evidence-based **Compare → Decision**. This is a **UI AND workflow requirement**, not a purely decorative split or a single undifferentiated "Promotion" box.
+
+Proposed topology:
+
+~~~text
+[MVP Project / idea] → [AI Debate & market research] → [Experiment definition]
+                                           │
+             ┌─────────────────────────────┴──────────────────────────────────┐
+             │                                                                │
+  A  [Concept A] → [Build A] → [Site A] → [Content Factory A] → [Promo A] → [Funnel A]
+             │                                         ├ Facebook A               │
+             │                                         ├ TikTok A                 │
+             │                                         └ other approved A         │
+             │                                                                │
+  B  [Concept B] → [Build B] → [Site B] → [Content Factory B] → [Promo B] → [Funnel B]
+                                                       ├ Facebook B               │
+                                                       ├ TikTok B                 │
+                                                       └ other approved B         │
+             └─────────────────────────────┬──────────────────────────────────┘
+                                           ↓
+                              [Compare / Owner decision]
+                    → continue A | continue B | keep both | iterate | pivot | stop
+~~~
+
+**Implementation interpretation:** Debate can create two *conceptual candidate offers*, not necessarily two codebases. A shared product core and UI template with isolated revisioned content/routes is preferred. Only build two different applications if the experimental hypothesis truly requires different functionality and the owner explicitly approves the cost/scope. For first MyCast pilot A and B are different audience/positioning paths of the **same MyCast product**, not two independent subscriptions or fully separate backends.
+
+### 7A.1 Distinct branch lifecycles and artifacts
+
+Each branch is a scoped unit with explicit owner, timestamps, events, source links and honest statuses:
+
+1. `concept_proposed` → `concept_reviewed` (debate rationale, objections, hypotheses)
+2. `build_queued` → `build_running` → `landing_preview_ready` (commit/PR/preview/CI evidence; no fake worker)
+3. `content_brief_ready` → `content_drafting` → `creatives_ready` (separate Content Factory brief, at least two text/visual creative alternatives *for this branch*, optional video if authorized and feasible)
+4. `promo_planned` → `awaiting_publication_approval` → `promo_active` (only with verifiable owner action AND confirmed real publishing; never advance on draft, queued task or hypothetical plan)
+5. `metrics_collecting` → `analysis_ready` → `decision_recorded` (real denominators; both branches may finish at different times)
+6. `blocked/failed/paused` are applicable per branch; one branch's error must not turn the other into "done" or "failed".
+
+Branch-specific artifact list (each with URL, revision and status): concept brief, debate result, chosen offer, landing source, preview URL, build PR/CI, Content Factory handoff ID, social platform creative assets/copy, optional approved campaign ID/link, exposure/events report, owner review and final decision. Preserve source/cost/status provenance.
+
+### 7A.2 Data contracts — shared experiment and isolated lane records
+
+Proposed addition to existing schema; **Claude must choose compatible extension or projection** after audit rather than silently create another registry:
+
+~~~json
+{
+  "experiment_id": "MC-EXP-FOCUS-001",
+  "project_id": "mycast",
+  "comparison_type": "SEGMENT_COMPARISON",
+  "shared_hypothesis": "Which positioning reveals stronger user demand?",
+  "branches": [
+    {
+      "branch_id": "A", "position": "top",
+      "concept_id": "MC-FOCUS-001-A", "persona": "entrepreneurs",
+      "build_ref": null, "landing_preview_ref": null,
+      "content_factory_handoff_id": null,
+      "promotion": [
+        {"channel": "facebook", "creative_refs": [], "campaign_ref": null, "state": "draft"},
+        {"channel": "tiktok", "creative_refs": [], "campaign_ref": null, "state": "draft"}
+      ],
+      "measurement": {"eligible_views": null, "signups": null, "activated_users": null, "repeat_users": null, "cost": null},
+      "stage": "concept_proposed", "owner_approval": {"preview": false, "publish": false, "budget": false}
+    },
+    {
+      "branch_id": "B", "position": "bottom",
+      "concept_id": "MC-FOCUS-001-B", "persona": "personal_goals",
+      "build_ref": null, "landing_preview_ref": null,
+      "content_factory_handoff_id": null,
+      "promotion": [
+        {"channel": "facebook", "creative_refs": [], "campaign_ref": null, "state": "draft"},
+        {"channel": "tiktok", "creative_refs": [], "campaign_ref": null, "state": "draft"}
+      ],
+      "measurement": {"eligible_views": null, "signups": null, "activated_users": null, "repeat_users": null, "cost": null},
+      "stage": "concept_proposed", "owner_approval": {"preview": false, "publish": false, "budget": false}
+    }
+  ],
+  "analysis": {"state": "pending", "selected_branch": null, "evidence": [], "owner_decision": null}
+}
+~~~
+
+**Isolation invariants:** `experiment_id` ties branches together; `branch_id` distinguishes lanes; every content handoff, landing CTA and promotional campaign must resolve to exactly one `experiment_id + branch_id + campaign_id + channel + creative_revision`, with dedupe and privacy-safe attribution. A Facebook A campaign must NEVER report under B by URL/query-tag mixing. For externally hosted link URLs use safe explicit UTM/campaign tags plus server-side source truth where available; do not trust user-modifiable tags for billing or entitlements. Do not tag sensitive user goal details.
+
+### 7A.3 UI behavior and mobile presentation
+
+- **Shared header**: project title, concept/date, debated hypotheses, experiment mode `SEGMENT_COMPARISON` or `CONTROLLED_AB`, approval status, start/pause/stop *only where backed by real authorized actions*.
+- **Desktop**: one horizontal process, explicit fork into two **stacked** branch lanes. A on top; B below. Each lane flows left→right: Concept → Build → Site preview → Content Factory → Facebook/TikTok/etc channel cards → Metrics. **Never collapse their independent promotions into one node.** Allow clickable stage details showing only factual claims and evidence.
+- **Mobile**: shared root then sequential full-width expandable lanes A and B (no tiny text, clipped wide connectors or horizontal-only controls), then comparison. Preserve semantic reading order and keyboard access.
+- **Per-channel cards**: creative format, target persona, landing/CTA, moderation/review state, planned vs actually published, optional platform post/ad link, cost/traffic/activation when measured, disabled launch when no owner approval. Facebook and TikTok are **channel examples**; the system must not claim working ad connectors before audited integration.
+- **Cross-lane visual comparison**: aligned metrics by stage, same time window and metric definitions; source/platform breakout per branch. Unknown displayed as `— / not instrumented`, never fake zero. Optional independent timelines per lane and transparent common compare step.
+- **Controls in prototype** may switch/expand lane previews but must be labelled demo. Live buttons cannot schedule worker, post or charge unless the verified backend action/permission exists.
+
+### 7A.4 Independent Content Factory promotion packs
+
+For EACH lane create a separate handoff record to the existing Content Factory, not a shared generic prompt:
+
+`{experiment_id, branch_id, segment_id, concept_revision, landing_revision, CTA, claim_constraints, platform:["facebook","tiktok"], requested_assets:[short_post, long_post, vertical_video_brief, thumbnail_concept], legal_checks, owner_approval:false, budget:null, originating_mvp_task_id}`.
+
+- Content Factory creates independently tailored scripts, short social posts, optional video storyboards and creative variants for each audience.
+- Each output is attributed back to its branch and campaign, with draft/QA/approved/published **distinct states**.
+- Content Factory returns artifact links and verified run events to MVP Manager / A/B Tester through the existing Relay/task infrastructure.
+- The user authorizes **drafting and building the workflow**, not actual account connection, posting, buying ads, bulk outreach or paid generative production. Such actions are separate, explicit, revocable approvals with budget/platform/revision limits and must fail closed where no verified capability.
+- Branch A and B may have different approved platforms and budgets after authorization, but then the report is **cross-segment observational comparison** unless proper experimental controls exist. Do not call such a result causal A/B.
+
+### 7A.5 Acceptance tests specific to the branch graph
+
+1. Real supported experiment record renders **A above B**, with exact independent stages and source links.
+2. Both lanes support separate landing previews, separate Content Factory handoffs, two channel drafts, and distinct status/errors/owners; one can be blocked while other advances truthfully.
+3. End-to-end fixture: create debate outcome → two conceptual lanes → build A/B preview links (may share codebase) → generate Content Factory A/B draft handoffs → QA → explicit owner gate → synthetic preview only; no auto publication.
+4. Events from Facebook A or TikTok A (when integrations truly exist) cannot increment B. Duplicate events are idempotent; uncertain attribution is unassigned, not guessed.
+5. Default UI shows **not published, no measured traffic, no spend** until verified live action. Unit tests verify that a draft does not transition to published.
+6. Mobile viewport 375 px, desktop and keyboard accessibility work without horizontal clipping; EN/UK/RU labels parity.
+7. Compare view always distinguishes SEGMENT_COMPARISON from CONTROLLED_AB and refuses a significance-based winner if different audiences/targeting, no randomization or insufficient sample.
+8. One existing Relay owner/task per code scope; no duplicate schedules/systems. Missing authenticated worker claim displays blocked/queued, never `running`.
+9. Failure/partial CI, unavailable TikTok/Facebook connector and owner approval withheld are explicit honest conditions, not false-green completion.
+
 ## 8. UI in MVP Factory (not a new top-level product)
 
 - Add product card's **Concepts** and **Experiments** drill-downs inside the existing MVP Factory/Builder panel. Do not rebuild the global navigation.
