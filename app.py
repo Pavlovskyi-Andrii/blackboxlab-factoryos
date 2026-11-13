@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
+from relay_agent_messages import agent_identity, install_agent_message_routes
 from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues, relay_github_owner_issues, _telegram_attachment
 from voice_transcribe import VoiceTranscriber
 from telegram_group import GroupBridge, GROUP_TYPES as TELEGRAM_GROUP_TYPES
@@ -36,16 +37,21 @@ from worker_observability import build_worker_overview, sanitize_supervisor, san
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
+from open_questions import install_open_questions_routes
+from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
+from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
-from mycast import (DeliveryLog, check_mp3, gemini_tts_pcm, install_mycast_routes, install_mycast_voice_routes, pcm_to_mp3,
+from mycast import (DeliveryLog, check_mp3, check_pcm as mycast_check_pcm, gemini_tts_pcm, install_mycast_routes, install_mycast_voice_routes, pcm_to_mp3,
                     telegram_send_audio)
-from mycast_demo import DemoService, install_mycast_demo_routes
+from mycast_demo import DemoService, install_mycast_demo_routes, _client_id as _mycast_client_id
+from mycast_subtopics import SubtopicService
+from mycast_listener_delivery import ListenerDelivery, install_listener_delivery_routes
 from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
 import evidence as _evidence
-from gemini_proxy import _call as _gemini_raw_call
+from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
-from morning_brief import MorningBrief, compose_brief
+from morning_brief import MorningBrief, compose_brief, plan_ids as brief_plan_ids, github_brief_snapshot
 from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_route, install_voice_history_routes,
                             install_voice_settings_routes)
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
@@ -689,6 +695,13 @@ class TelegramBridgeNotify(BaseModel):
 
 install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send)
 
+def _agent_relay_forbidden_tokens():
+    """PR #314 review B4: the agent relay tokens must not reuse any broader FactoryOS credential."""
+    return (FACTORY_CLAUDE_WORKER_TOKEN, FACTORY_CLAUDE_WORKER_TOKEN_EC2, FACTORY_OPERATOR_WORKER_TOKEN, FACTORY_PASSWORD,
+            os.environ.get("FACTORY_TELEGRAM_BRIDGE_TOKEN", ""), FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN, FACTORY_MCP_TOKEN)
+
+AGENT_MESSAGES = install_agent_message_routes(app, RELAY_STORE, _agent_relay_forbidden_tokens)
+
 def _owner_desk_status():
     """Live facts for the owner runbooks; never calls a provider. Lines are keys localized by owner_desk_i18n."""
     out={}
@@ -723,7 +736,35 @@ def _mycast_send_audio(audio, filename, title, caption):
                         filename=filename, title=title, caption=caption)
 
 MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
-GROUP_BRIDGE = GroupBridge(DATA_DIR, ask=lambda text, source_key="", meta=None: OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",text,source_key=source_key,meta=meta))
+GROUP_GEMINI_PROMPT=("Ты Gemini — участник рабочего чата FactoryOS Team вместе с владельцем и Claude. "
+                    "Отвечай по-русски, по делу, до 1200 символов, без воды. Если не знаешь фактов о проекте — так и скажи, "
+                    "не выдумывай статусы, цифры и результаты. Claude ответит отдельно, не повторяй его.\n\n")
+
+
+def _group_gemini(prompt):
+    """Owner 2026-11-11: Gemini joins /discuss on the owner's free key (stable Flash, picked per key)."""
+    return _gemini_text(GROUP_GEMINI_PROMPT+str(prompt)[:6000])
+
+
+def _gemini_text(full_prompt):
+    """One free-key Gemini text answer: (text, "") or (None, reason in Russian). Never raises."""
+    if not FACTORY_GEMINI_API_KEY:
+        return None,"ключ Gemini не задан"
+    try:
+        model=resolve_flash_model(FACTORY_GEMINI_API_KEY)
+        data=_gemini_raw_call(FACTORY_GEMINI_API_KEY,"POST",f"models/{model}:generateContent",
+                              {"contents":[{"parts":[{"text":str(full_prompt)[:8000]}]}],
+                               "generationConfig":{"maxOutputTokens":1024,"temperature":0.4}},None,60)
+    except Exception as exc:
+        status=getattr(exc,"detail",{}) if isinstance(getattr(exc,"detail",None),dict) else {}
+        return None,{429:"перегружен, попробуй позже",404:"модель недоступна"}.get(status.get("upstream_status"),"недоступен")
+    parts=((((data or {}).get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+    text="".join(str(p.get("text") or "") for p in parts).strip()
+    return (text[:6000],"") if text else (None,"пустой ответ")
+
+
+GROUP_BRIDGE = GroupBridge(DATA_DIR, ask=lambda text, source_key="", meta=None: OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",text,source_key=source_key,meta=meta),
+                           gemini=_group_gemini)
 VOICE_TRANSCRIBER = VoiceTranscriber(DATA_DIR, api_key=lambda: FACTORY_GEMINI_API_KEY, bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN)
 VOICE_REASONS = {"not_configured":"ключ Gemini не задан","daily_limit":"дневной лимит 30 голосовых исчерпан","too_long":"слишком длинное, больше ~3 минут","rate_limited":"Gemini перегружен, попробуй позже","invalid_key":"ключ Gemini не принят","telegram_file_unavailable":"Telegram не отдал файл","empty_transcript":"пустой результат","model_not_found":"модель Gemini недоступна"}
 VOICE_SETTINGS = VoiceSettingsStore(DATA_DIR)
@@ -751,6 +792,27 @@ BRIEF_DELIVER = install_brief_route(app, VOICE_HISTORY, MYCAST_DELIVERIES, VOICE
 # Gemini coder loop on EC2 calls Google through this proxy, so the key never leaves Render.
 install_gemini_worker_routes(app, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # MyCast public demo (owner 2026-11-06): Gemini voices, at most 30 new per UTC day, cached, one at a time.
+def _subtopics_generate(key,prompt):
+    try:
+        model=resolve_flash_model(key)
+        data=_gemini_raw_call(key,"POST",f"models/{model}:generateContent",
+                              {"contents":[{"parts":[{"text":prompt}]}],
+                               "generationConfig":{"responseMimeType":"application/json","maxOutputTokens":512,"temperature":0.5}},None,20)
+    except Exception:
+        return None
+    parts=((((data or {}).get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+    return "".join(str(p.get("text") or "") for p in parts) or None
+
+
+MYCAST_SUBTOPICS=SubtopicService(DATA_DIR/"mycast_subtopics",api_key=lambda: FACTORY_GEMINI_API_KEY,generate=_subtopics_generate)
+
+
+@app.get("/api/mycast/subtopics")
+def mycast_subtopics(request: Request, q: str = "", lang: str = "en"):
+    """Public beta: AI subtopic suggestions on the free Gemini key; capped, cached, never an error page."""
+    return MYCAST_SUBTOPICS.suggest(q,lang,_mycast_client_id(request))
+
+
 MYCAST_DEMO = DemoService(DATA_DIR / "mycast_demo", api_key=lambda: FACTORY_GEMINI_API_KEY, tts=gemini_tts_pcm,
                           tts_single=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice))
 install_mycast_demo_routes(app, MYCAST_DEMO)
@@ -776,7 +838,8 @@ def _mycast_bot_username() -> str:
         _MYCAST_BOT_NAME.update(name=str((_telegram_api("getMe").get("result") or {}).get("username") or ""), at=time.time())
     return _MYCAST_BOT_NAME["name"]
 # MyCast listener accounts (owner 2026-11-06: open beta, Telegram + Google). Separate cookie; never a staff session.
-install_mycast_account_routes(app, ListenerStore(DATA_DIR / "mycast_listeners.json"), secret=FACTORY_SECRET,
+MYCAST_LISTENERS = ListenerStore(DATA_DIR / "mycast_listeners.json")
+install_mycast_account_routes(app, MYCAST_LISTENERS, secret=FACTORY_SECRET,
                               bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN, bot_username=_mycast_bot_username,
                               google_client_id=lambda: FACTORY_GOOGLE_CLIENT_ID,
                               google_verify=lambda cred: google_id_token.verify_oauth2_token(cred, google_requests.Request(), FACTORY_GOOGLE_CLIENT_ID),
@@ -784,21 +847,182 @@ install_mycast_account_routes(app, ListenerStore(DATA_DIR / "mycast_listeners.js
                               send_message=lambda chat, text: _telegram_api("sendMessage", {"chat_id": chat, "text": text}),
                               send_sample=_mycast_send_listener_sample)
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
+# #317: website listeners' daily episodes. The EC2 worker writes the script; the server re-checks every gate,
+# voices it with the listener's own voices and sends it only to the listener's own chat.
+MYCAST_LISTENER_DELIVERY = ListenerDelivery(MYCAST_LISTENERS)
+install_listener_delivery_routes(
+    app, MYCAST_LISTENER_DELIVERY, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY,
+    tts=gemini_tts_pcm, encode=pcm_to_mp3, check_pcm=mycast_check_pcm,
+    send_audio=lambda chat, audio, filename, title, caption: telegram_send_audio(
+        FACTORY_TELEGRAM_BOT_TOKEN, str(chat), audio, filename=filename, title=title, caption=caption))
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
+MVP_CHAT = AgentChat(DATA_DIR)
+
+
+def _mvp_project(project_id):
+    return next((p for p in MVP_REGISTRY.snapshot()["projects"] if p.get("id")==project_id),None)
+
+
+def _mvp_connections():
+    return {"gemini":bool(FACTORY_GEMINI_API_KEY),"github":bool(GITHUB_READ_TOKEN),"claude_worker":_claude_worker_online(),
+            "render":BUILD_SHA!="local","channels":False}
+
+
+def _mvp_route_answer(item):
+    """Claude worker answers for MVP agents go back into the agent's chat (2026-11-11)."""
+    meta=item.get("meta") if isinstance(item.get("meta"),dict) else {}
+    pid,agent=meta.get("mvp_project"),meta.get("mvp_agent")
+    if not pid or agent not in MVP_AGENT_IDS:
+        return False
+    try:MVP_CHAT.add(pid,agent,"agent",str(item.get("answer") or "")[:1500] or "(порожня відповідь)",ref=str(item.get("id") or ""))
+    except ValueError:pass
+    return True
+
+
+MVP_ARTIFACTS=MvpArtifacts(DATA_DIR)
+
+
+def _mvp_ticket_done(ticket):
+    """Build hand-off needs real evidence: the Relay ticket closed on merged PR + CI, not by an owner override."""
+    ver=ticket.get("verification") or {}
+    return ticket.get("status")=="done" and not ver.get("override") and _evidence.level(ticket) in ("checked","accepted")
+
+
+MVP_PIPELINE=MvpPipeline(DATA_DIR,registry=MVP_REGISTRY,chat=MVP_CHAT,artifacts=MVP_ARTIFACTS,gemini=lambda prompt:_gemini_text(prompt),
+    create_ticket=lambda title,body,key,pid:RELAY_STORE.create(title,body,source={"channel":"mvp","source_key":key,"url":""},
+                                                               created_by="mvp-pipeline",owner="claude")[0],
+    get_ticket=lambda tid:RELAY_STORE.get(tid) if tid else None,ticket_done=_mvp_ticket_done)
+
+
+def _mvp_owner(request,members=False):
+    role=(request_identity(request) or {}).get("role")
+    if role!="owner" and not (members and role=="member"):
+        raise HTTPException(403,"owner_only")
+
+
+@app.get("/api/mvp-factory/{project_id}/artifacts/{name}")
+def mvp_artifact(project_id: str, name: str, request: Request):
+    if not request_identity(request):
+        raise HTTPException(401,"login required")
+    text=MVP_ARTIFACTS.read(project_id,name)
+    if text is None:
+        raise HTTPException(404,"unknown_artifact")
+    media="application/json" if name.endswith(".json") else "text/markdown"
+    return Response(text,media_type=media+"; charset=utf-8")
+
+
+@app.post("/api/mvp-factory/{project_id}/autopilot")
+async def mvp_autopilot(project_id: str, request: Request):
+    """Owner starts or stops the agents' hand-off for one project (free Gemini key; build still needs the owner)."""
+    _mvp_owner(request)
+    if not _mvp_project(project_id):
+        raise HTTPException(404,"unknown_project")
+    try:body=await request.json()
+    except ValueError:body={}
+    on=bool((body or {}).get("on")) if isinstance(body,dict) else False
+    return MVP_PIPELINE.set_autopilot(project_id,on)
+
+
+@app.post("/api/mvp-factory/{project_id}/spec/approve")
+def mvp_spec_approve(project_id: str, request: Request):
+    """The owner's "так" on the spec: spec_review → build_queued with the spec as evidence. Agents can't do this."""
+    _mvp_owner(request)
+    project=_mvp_project(project_id)
+    if not project or project.get("stage")!="spec_review":
+        raise HTTPException(409,"not_in_spec_review")
+    version=int(MVP_PIPELINE.state(project_id).get("spec_version") or 0)
+    if not version:
+        raise HTTPException(409,"no_spec")
+    out=MVP_REGISTRY.record(project_id,"advance",actor_role="owner",actor=(request_identity(request) or {}).get("email") or "owner",
+                            evidence=[f"/api/mvp-factory/{project_id}/artifacts/spec-v{version}.md"],
+                            note=f"owner approved spec v{version}",idempotency_key=f"mvp:{project_id}:approve:{version}")
+    MVP_CHAT.add(project_id,"spec","system",f"✅ Власник затвердив ТЗ v{version}. Передаю Builder'у.")
+    return out
+
+
+@app.post("/api/mvp-factory/{project_id}/spec/redo")
+async def mvp_spec_redo(project_id: str, request: Request):
+    """Battle: redo the spec on another variant and/or with the owner's feedback (before approval)."""
+    _mvp_owner(request,members=True)
+    project=_mvp_project(project_id)
+    if not project or project.get("stage") not in ("spec_draft","spec_review"):
+        raise HTTPException(409,"not_in_spec_stage")
+    try:body=await request.json()
+    except ValueError:body={}
+    body=body if isinstance(body,dict) else {}
+    variant=str(body.get("variant") or "").strip().upper()[:2]
+    if variant:
+        MVP_PIPELINE._update(project_id,variant=variant)
+    feedback=str(body.get("feedback") or "")[:1500]
+    threading.Thread(target=lambda:MVP_PIPELINE.run_spec(project,feedback),daemon=True).start()
+    return {"ok":True,"variant":variant or MVP_PIPELINE.state(project_id).get("variant")}
+
+
+@app.get("/api/mvp-factory/{project_id}/cycle")
+def mvp_project_cycle(project_id: str, request: Request):
+    """MVP Builder panel: phase, five agents, what they produced, what to connect, their chats. Read-only facts."""
+    if not request_identity(request):
+        raise HTTPException(401,"login required")
+    project=_mvp_project(project_id)
+    if not project:
+        raise HTTPException(404,"unknown_project")
+    view=mvp_cycle_view(project,_mvp_connections(),MVP_CHAT.thread(project_id))
+    st=MVP_PIPELINE.state(project_id)
+    view["pipeline"]={"autopilot":bool(st.get("autopilot")),"variant":st.get("variant"),"spec_version":st.get("spec_version"),
+                      "build_ticket":st.get("build_ticket"),"last_error":st.get("last_error"),
+                      "artifacts":[f"/api/mvp-factory/{project_id}/artifacts/{n}" for n in MVP_ARTIFACTS.names(project_id)]}
+    return view
+
+
+@app.post("/api/mvp-factory/{project_id}/agents/{agent}/message")
+async def mvp_agent_message(project_id: str, agent: str, request: Request):
+    """Owner → agent. Gemini roles answer at once (free key); Claude roles go through the worker question queue."""
+    if (request_identity(request) or {}).get("role") not in ("owner","member"):
+        raise HTTPException(403,"forbidden")
+    project=_mvp_project(project_id)
+    spec=next((a for a in MVP_AGENTS if a["id"]==agent),None)
+    if not project or not spec:
+        raise HTTPException(404,"unknown_project_or_agent")
+    try:body=await request.json()
+    except ValueError:body={}
+    text=str((body or {}).get("text") or "") if isinstance(body,dict) else ""
+    try:msg=MVP_CHAT.add(project_id,agent,"owner",text)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+    chat=(MVP_CHAT.thread(project_id).get(agent) or [])
+    if spec["engine"]=="claude":
+        question=(f"MVP Builder · проєкт «{project.get('title')}» ({project.get('stage')}) · агент {spec['label']} "
+                  f"({spec['does']}).\nТЗ (початок): {str(project.get('brief') or '—')[:500]}\n\nВласник: {msg['text'][:700]}")
+        try:
+            item=OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",question,source_key=f"mvp:{project_id}:{agent}:{msg['at']}",
+                                        meta={"mvp_project":project_id,"mvp_agent":agent})
+            MVP_CHAT.add(project_id,agent,"system",f"📨 Передано Claude-воркеру ({item.get('id')}). Відповідь з'явиться тут.")
+        except Exception:
+            MVP_CHAT.add(project_id,agent,"system","⚠️ Черга Claude зараз недоступна, повідомлення збережено.")
+        return {"ok":True,"routed":"claude_worker"}
+    prompt=mvp_agent_prompt(project,spec,msg["text"],chat)
+
+    def work():
+        text_out,reason=_gemini_text(prompt)
+        MVP_CHAT.add(project_id,agent,"agent" if text_out else "system",
+                     text_out or f"⚠️ Gemini не відповів ({reason}). Повідомлення збережено.")
+    threading.Thread(target=work,daemon=True).start()
+    return {"ok":True,"routed":"gemini"}
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
+install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
                           redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
                           notify_owner=_telegram_send,
-                          route_answer=lambda item: GROUP_BRIDGE.deliver_answer(item,_telegram_send_markup))
+                          route_answer=lambda item: _mvp_route_answer(item) or GROUP_BRIDGE.deliver_answer(item,_telegram_send_markup))
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast",
-                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices"}
+                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
@@ -810,12 +1034,13 @@ async def auth_middleware(request: Request, call_next):
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
+    relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
     owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/")) and _claude_worker_authorized(request)
     # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
             and not (claude_worker_api or operator_worker_api or local_booster_api)):
         return JSONResponse({"detail":"worker token required"},status_code=401)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or relay_agent_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
@@ -1077,7 +1302,11 @@ async def telegram_webhook(request: Request):
             voice_msg["text"]=transcript
             _telegram_send_to(chat,"🎙 Распознал голосовое (Gemini):\n«"+transcript[:3500]+"»")
         else:
-            _telegram_send_to(chat,"🎙 Не удалось распознать голосовое ("+VOICE_REASONS.get(reason,reason)+"). Создаю тикет без текста; можно продублировать текстом.")
+            # 2026-11-11 (R-0065): an empty voice ticket only made Claude run and answer "BLOCKED, no text".
+            # No ticket without text: the owner resends it as text.
+            _telegram_send_to(chat,"🎙 Не удалось распознать голосовое ("+VOICE_REASONS.get(reason,reason)+").\n"
+                              "Задачу не создаю: без текста исполнителю нечего делать. Отправь её текстом или голосом ещё раз.")
+            return {"ok":True,"action":"voice_not_transcribed","reason":reason}
     relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,_github_read_token()),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
@@ -7439,6 +7668,7 @@ async def start_factory_cycle_reconciler():
     if FACTORY_PUBLISHER_SCHEDULER_ENABLED:
         asyncio.create_task(publisher_scheduler_loop())
     asyncio.create_task(morning_brief_loop())
+    asyncio.create_task(mvp_pipeline_loop())
     asyncio.create_task(run_real_world_pilot_once())
     asyncio.create_task(run_media_finisher_pilot_once())
 
@@ -9147,7 +9377,8 @@ def relay_peer_review_once(pulls,ci,reader,gemini_call=None,limit=2):
         if not isinstance(files,list):
             RELAY_QUEUE.record_review(c["ticket"],c["head"],None,time.time())
             continue
-        verdict=gemini_review(FACTORY_GEMINI_API_KEY,build_prompt(c["title"],c["body"],files),gemini_call or _gemini_raw_call)
+        verdict=gemini_review(FACTORY_GEMINI_API_KEY,build_prompt(c["title"],c["body"],files),gemini_call or _gemini_raw_call,
+                              None if gemini_call else resolve_flash_model)
         RELAY_QUEUE.record_review(c["ticket"],c["head"],verdict,time.time())
         print(json.dumps({"event":"PEER_REVIEW","ticket":c["ticket"],"status":"unavailable" if verdict is None else verdict["verdict"],
                           "blockers":0 if verdict is None else verdict["blockers"]}),flush=True)
@@ -9198,16 +9429,36 @@ def relay_pr_reconcile_once(fetch=None):
         print(json.dumps({"event":"RELAY_PR_RECONCILE","source":source,"notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
     return {"ok":True,"snapshot":snapshot_state,"source":source,"notices":len(notices)}
 
-def _morning_brief_compose(date,now):
-    ec2,_state=_intake_issues_from_ec2_snapshot()
+def _morning_brief_github(now=None):
+    """Fresh main commit facts with an honest, logged fallback on GitHub read failure."""
+    return github_brief_snapshot(
+        token=GITHUB_READ_TOKEN, repo=GITHUB_REPO, now=time.time() if now is None else now,
+        fetcher=github_fetcher, read_snapshot=read_github,
+        fallback=_intake_issues_from_ec2_snapshot,
+        log_error=lambda event: print(json.dumps(event), flush=True))
+
+
+def _morning_brief_compose(date,now,yesterday_plan=None):
     tickets=RELAY_STORE.list(limit=500)
-    return compose_brief(date,now,github=ec2["github"] if ec2 else None,tickets=tickets,
+    return compose_brief(date,now,github=_morning_brief_github(now),tickets=tickets,
                          questions_open=int(OWNER_QUESTIONS.queue_stats().get("open") or 0),
-                         evidence_metrics=_evidence.metrics(tickets,now))
+                         evidence_metrics=_evidence.metrics(tickets,now),yesterday_plan=yesterday_plan)
 
 
 MORNING_BRIEF=MorningBrief(DATA_DIR,deliver=lambda date,text:BRIEF_DELIVER(date,text),send_text=_telegram_send,
-                           compose=_morning_brief_compose)
+                           compose=_morning_brief_compose,plan_source=lambda:brief_plan_ids(RELAY_STORE.list(limit=500)))
+
+
+async def mvp_pipeline_loop():
+    """MVP Builder step 2: move autopilot projects one hand-off per minute (see mvp_pipeline.py)."""
+    await asyncio.sleep(45)
+    while True:
+        try:
+            moved=await asyncio.to_thread(MVP_PIPELINE.tick)
+            if moved:print(json.dumps({"event":"MVP_PIPELINE","moved":moved}),flush=True)
+        except Exception as exc:
+            print(json.dumps({"event":"MVP_PIPELINE_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
 
 
 async def morning_brief_loop():

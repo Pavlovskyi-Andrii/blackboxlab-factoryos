@@ -173,7 +173,8 @@ def build_prompt(ticket: dict, branch: str) -> str:
         "Используй текущую подписку Claude Code. Не показывай секреты. "
         "Если для задачи нужны оплата, логин/2FA, публикация, другие необратимые действия или интерактивные разрешения, "
         "верни BLOCKED и чётко укажи действие владельца. Не выдавай имитацию за результат.\n"
-        "Сформулируй в конце факт выполненного, проверку и следующие шаги.\n\n"
+        "Итоговый ответ пиши ПО-РУССКИ, до 500 символов, тремя пунктами: "
+        "1) что сделано (файлы), 2) как проверено, 3) что дальше. Без английских фраз.\n\n"
         f"ЗАДАЧА: {title}\n\n{body}\n"
     )
 
@@ -189,7 +190,7 @@ def summarize_result(output: str, code: int, timed_out: bool) -> str:
     except (TypeError, json.JSONDecodeError):
         msg = (output or "").strip()
     # Never publish unbounded raw process output into Telegram/Relay.
-    msg = " ".join(msg.split())[:440]
+    msg = " ".join(msg.split())[:600]
     msg = re.sub(r"(?:sk-ant-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{12,}|github_pat_[A-Za-z0-9_]{12,})",
                  "[REDACTED]", msg)
     return msg or ("Claude failed with exit " + str(code))

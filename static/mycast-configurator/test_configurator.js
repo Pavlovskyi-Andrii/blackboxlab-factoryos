@@ -58,7 +58,7 @@ test('time, timezone, frequency and duration are validated', () => {
   assert.deepStrictEqual(codes({ frequency: 'days', days: ['funday'] }), ['days_required']);
   assert.deepStrictEqual(codes({ frequency: 'days', days: ['mon', 'fri'] }), []);
   assert.deepStrictEqual(M.toJSON(M.update(p, { schedule: { frequency: 'daily', days: ['mon'] } })).schedule.days, []);  // daily ignores days
-  assert.deepStrictEqual(codes({ durationMin: 7 }), ['bad_duration']);
+  assert.deepStrictEqual(codes({ durationMin: 31 }), ['bad_duration']);
 });
 
 test('free text and custom sources are bounded and https-only', () => {
@@ -256,6 +256,144 @@ test('calendar wishes (birthdays, events) are stored, shared and never claimed a
   assert.deepStrictEqual(M.migrate({ version: 1 }).calendar, { birthdays: false, events: false });   // old drafts
   assert.deepStrictEqual(M.migrate({ version: 1, calendar: { birthdays: 'yes' } }).calendar.birthdays, false);
   assert.throws(() => M.setCalendar(p, 'emails', true));
+});
+
+
+/* Owner request 2026-11-11: the episode timeline. */
+const NEWS = 'news.headlines.international';
+function planned() {
+  let p = M.setTopic(M.newProfile(), BOX, true);
+  p = M.setTopic(p, AI, true);
+  return p;
+}
+const ids = p => M.planFromProfile(p).map(i => i.id);
+
+test('timeline: derived from picks, greeting locked first, calendar at the end, new segments before it', () => {
+  assert.ok(M.INDEX[NEWS], 'news topic exists');
+  let p = planned();
+  assert.deepStrictEqual(ids(p), ['greet', 'interests']);
+  p = M.setTopic(p, NEWS, true);
+  p = M.addFollow(p, 'telegram', '@channel');
+  p = M.setCalendar(p, 'birthdays', true);
+  assert.deepStrictEqual(ids(p), ['greet', 'news', 'interests', 'f:telegram:@channel', 'cal']);
+  const plan = M.planFromProfile(p);
+  assert.deepStrictEqual(plan.map(i => i.sec), [20, 120, 120, 120, 30]);
+  assert.strictEqual(M.planTotal(plan), 410);
+  assert.strictEqual(M.planLimitSec(p), 600);
+  assert.ok(plan[0].locked && !plan[1].locked);
+  assert.strictEqual(M.planLabel(plan[3], 'uk'), 'Telegram @channel');
+  assert.strictEqual(M.planLabel(plan[4], 'uk'), 'Google Календар');
+  assert.strictEqual(M.planLabel(plan[1], 'ru'), 'Новости');
+  // an edited plan keeps its order; a new follow goes in before the trailing calendar
+  p = M.movePlanItem(p, 'interests', 1);
+  p = M.addFollow(p, 'youtube', '@veritasium');
+  assert.deepStrictEqual(ids(p), ['greet', 'interests', 'news', 'f:telegram:@channel', 'f:youtube:@veritasium', 'cal']);
+  // events alone also make a calendar block; no calendar wish, no block
+  assert.ok(ids(M.setCalendar(planned(), 'events', true)).includes('cal'));
+  assert.ok(!ids(M.setCalendar(p, 'birthdays', false)).includes('cal'));
+  // the free-text topic alone is a personal interest
+  assert.deepStrictEqual(ids(M.update(M.newProfile(), { freeText: 'chess' })), ['greet', 'interests']);
+});
+
+test('timeline: the greeting cannot move or be removed; moves are clamped after it', () => {
+  let p = M.setCalendar(M.addFollow(M.setTopic(planned(), NEWS, true), 'x', '@elonmusk'), 'events', true);
+  assert.strictEqual(M.movePlanItem(p, 'greet', 3), p);
+  assert.strictEqual(M.removePlanItem(p, 'greet'), p);
+  p = M.movePlanItem(p, 'cal', 0);                                     // index 0 is the greeting's: lands at 1
+  assert.deepStrictEqual(ids(p), ['greet', 'cal', 'news', 'interests', 'f:x:@elonmusk']);
+  p = M.movePlanItem(p, 'cal', 99);
+  assert.deepStrictEqual(ids(p), ['greet', 'news', 'interests', 'f:x:@elonmusk', 'cal']);
+  p = M.movePlanItem(p, 'f:x:@elonmusk', 1);
+  assert.deepStrictEqual(ids(p), ['greet', 'f:x:@elonmusk', 'news', 'interests', 'cal']);
+  assert.strictEqual(M.movePlanItem(p, 'nope', 2), p);
+  assert.strictEqual(M.movePlanItem(p, 'news', 2), p);                 // already there: unchanged
+});
+
+test('timeline: durations stay within 15 s and 5 min', () => {
+  let p = planned();
+  p = M.setPlanDuration(p, 'interests', 135);
+  assert.strictEqual(M.planFromProfile(p)[1].sec, 135);
+  assert.strictEqual(M.planFromProfile(M.setPlanDuration(p, 'interests', 1)).find(i => i.id === 'interests').sec, M.PLAN_MIN_SEC);
+  assert.strictEqual(M.planFromProfile(M.setPlanDuration(p, 'interests', 9999)).find(i => i.id === 'interests').sec, M.PLAN_MAX_SEC);
+  assert.strictEqual(M.setPlanDuration(p, 'interests', 'abc'), p);
+  assert.strictEqual(M.setPlanDuration(p, 'missing', 60), p);
+  assert.strictEqual(M.planFromProfile(M.setPlanDuration(p, 'greet', 45))[0].sec, 45);   // greeting: length only
+  assert.deepStrictEqual([M.PLAN_MIN_SEC, M.PLAN_MAX_SEC, M.PLAN_STEP_SEC], [15, 300, 15]);
+});
+
+test('timeline: remove and restore a block; deselected sources drop out; edits reset approval', () => {
+  let p = M.setCalendar(M.addFollow(M.setTopic(planned(), NEWS, true), 'telegram', '@a'), 'birthdays', true);
+  p = M.removePlanItem(p, 'news');
+  assert.deepStrictEqual(ids(p), ['greet', 'interests', 'f:telegram:@a', 'cal']);
+  assert.deepStrictEqual(M.planRemoved(p).map(i => i.id), ['news']);
+  assert.strictEqual(M.removePlanItem(p, 'news'), p);
+  assert.strictEqual(M.planTotal(M.planFromProfile(p)), 20 + 120 + 120 + 30);
+  p = M.restorePlanItem(p, 'news');
+  assert.deepStrictEqual(ids(p), ['greet', 'news', 'interests', 'f:telegram:@a', 'cal']);   // back where it was
+  assert.strictEqual(M.restorePlanItem(p, 'news'), p);
+  p = M.removeFollow(p, 0);
+  assert.deepStrictEqual(ids(p), ['greet', 'news', 'interests', 'cal']);
+  p = M.setTopic(p, NEWS, false);
+  assert.deepStrictEqual(ids(p), ['greet', 'interests', 'cal']);
+  const approved = M.approve(M.markReviewed(M.makePreview(p, { speechSynthesis: true }).profile), true, 't');
+  for (const edit of [x => M.movePlanItem(x, 'cal', 1), x => M.setPlanDuration(x, 'cal', 60), x => M.removePlanItem(x, 'cal')]) {
+    assert.strictEqual(edit(approved).state, 'draft');
+  }
+});
+
+test('timeline: drafts without a plan migrate; bad saved plans are cleaned', () => {
+  const old = { version: 1, topics: { [BOX]: { scope: { kind: 'world' } }, [AI]: {} }, calendar: { birthdays: true } };
+  const p = M.migrate(old);
+  assert.strictEqual(p.plan, null);
+  assert.deepStrictEqual(ids(p), ['greet', 'interests', 'cal']);
+  const q = M.migrate({ ...old, plan: [{ id: 'cal', sec: 9999 }, { id: 'greet', off: true }, null, { id: 'interests', sec: 'x', off: true }, { id: 'cal', sec: 20 }, { id: 'ghost', sec: 60 }] });
+  assert.deepStrictEqual(q.plan, [{ id: 'cal', sec: 300 }, { id: 'greet' }, { id: 'interests', off: true }, { id: 'ghost', sec: 60 }]);
+  assert.deepStrictEqual(ids(q), ['greet', 'cal']);                    // unknown "ghost" is ignored, interests stays removed
+  assert.deepStrictEqual(M.planRemoved(q).map(i => [i.id, i.sec]), [['interests', 120]]);
+  assert.deepStrictEqual(M.validate(q), []);
+  assert.strictEqual(M.migrate({ version: 1, plan: 'junk' }).plan, null);
+});
+
+test('timeline: share link and JSON carry the plan; links without a plan still decode', () => {
+  let p = M.setCalendar(M.addFollow(M.setTopic(planned(), NEWS, true), 'youtube', 'https://www.youtube.com/@veritasium'), 'birthdays', true);
+  const plainCode = M.encodeShare(p);                                  // no edits yet: no "pl" key, same as before
+  assert.ok(!JSON.parse(Buffer.from(plainCode.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')).pl);
+  assert.strictEqual(M.decodeShare(plainCode).plan, null);
+  p = M.movePlanItem(p, 'cal', 1);
+  p = M.setPlanDuration(p, 'f:youtube:https://youtube.com/@veritasium', 75);
+  p = M.removePlanItem(p, 'news');
+  const back = M.decodeShare(M.encodeShare(p));
+  assert.deepStrictEqual(M.planFromProfile(back), M.planFromProfile(p));
+  assert.deepStrictEqual(M.planRemoved(back).map(i => i.id), ['news']);
+  const a = M.toJSON(p), b = M.toJSON(back);
+  for (const k of ['topics', 'custom', 'follows', 'schedule', 'voice', 'free_text', 'calendar', 'plan', 'plan_removed', 'plan_total_sec']) assert.deepStrictEqual(b[k], a[k], k);
+  assert.deepStrictEqual(a.plan.map(i => i.id), ['greet', 'cal', 'interests', 'f:youtube:https://youtube.com/@veritasium']);
+  assert.strictEqual(a.plan_total_sec, 20 + 30 + 120 + 75);
+  // garbage in "pl" is ignored, never fatal
+  const raw = JSON.parse(Buffer.from(M.encodeShare(p).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+  raw.pl = [['f9', 60, 0], 'x', [5], ['cal', -3, 0]];
+  const odd = M.decodeShare(Buffer.from(JSON.stringify(raw), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''));
+  assert.deepStrictEqual(ids(odd), ['greet', 'news', 'interests', 'f:youtube:https://youtube.com/@veritasium', 'cal']);
+  assert.strictEqual(M.planFromProfile(odd).find(i => i.id === 'cal').sec, 30);   // a bad length falls back to the default
+});
+
+test('timeline: the demo names news and interests in plan order', () => {
+  let p = M.setTopic(planned(), NEWS, true);
+  p = M.update(p, { voice: { language: 'en', mode: 'narrator' } });
+  const first = () => M.demoLines(p)[0].text.split('Today we have: ')[1];
+  assert.ok(first().startsWith(M.topicLabel(NEWS, 'en')));
+  p = M.movePlanItem(p, 'interests', 1);
+  assert.ok(!first().startsWith(M.topicLabel(NEWS, 'en')) && first().includes(M.topicLabel(NEWS, 'en')));
+  p = M.removePlanItem(p, 'news');
+  assert.ok(!first().includes(M.topicLabel(NEWS, 'en')));
+  p = M.removePlanItem(p, 'interests');                                // nothing left: fall back to every pick
+  assert.ok(first().includes(M.topicLabel(NEWS, 'en')));
+});
+
+test('server sub-topics are cleaned: strings only, no markup, no duplicates, at most 10', () => {
+  assert.deepStrictEqual(M.cleanSubtopics(['AI agents', 'ai agents', '<b>Tools</b>', 7, null, 'x', 'A'.repeat(80)]), ['AI agents', 'bTools/b', 'A'.repeat(40)]);
+  assert.deepStrictEqual(M.cleanSubtopics('nope'), []);
+  assert.strictEqual(M.cleanSubtopics(Array.from({ length: 30 }, (_, i) => 'topic ' + i)).length, 10);
 });
 
 console.log(`MyCast configurator tests passed: ${passed}`);

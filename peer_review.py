@@ -100,12 +100,13 @@ def parse_verdict(text: str) -> Optional[dict]:
             "findings": findings}
 
 
-def gemini_review(api_key: str, prompt: str, call: Callable) -> Optional[dict]:
+def gemini_review(api_key: str, prompt: str, call: Callable, resolve: Optional[Callable] = None) -> Optional[dict]:
     """One generateContent call on the stable Flash model. Errors → None (never a pass)."""
     payload = {"contents": [{"parts": [{"text": prompt}]}],
                "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": 4096, "temperature": 0.1}}
     try:
-        data = call(api_key, "POST", f"models/{MODEL}:generateContent", payload, None, 120)
+        model = resolve(api_key, MODEL) if resolve else MODEL
+        data = call(api_key, "POST", f"models/{model}:generateContent", payload, None, 120)
     except Exception:
         return None
     parts = ((((data or {}).get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])

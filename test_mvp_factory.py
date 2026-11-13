@@ -136,6 +136,24 @@ class MvpRegistryTest(unittest.TestCase):
         self.assertEqual(self.code(lambda: self.reg.record("nope", "advance", actor_role="owner", evidence=[ISSUE])), "unknown_project")
         self.assertEqual(self.code(lambda: self.reg.record("ai-hangout", "launch", actor_role="owner")), "bad_kind")
 
+    def test_new_project_from_a_brief_without_issue(self):
+        """Owner 2026-11-11: "New Project" in the dashboard carries the technical brief; a GitHub issue is optional."""
+        p = self.reg.add_project("", "Telegram CRM для салону", actor_role="owner",
+                                 brief="Мета: запис клієнтів через бота.\nГотово, коли: бот приймає запис і нагадує.")
+        self.assertTrue(p["id"].startswith("telegram-crm"))
+        self.assertEqual((p["issue"], p["stage"]), (0, "idea"))
+        self.assertIn("нагадує", p["brief"])
+        again = self.reg.add_project("", "Telegram CRM для салону", actor_role="owner", brief="x")
+        self.assertNotEqual(again["id"], p["id"])                                  # unique id, no overwrite
+        self.assertEqual(self.code(lambda: self.reg.add_project("", "No brief, no issue", actor_role="owner")), "bad_project")
+        snap = {x["id"]: x for x in self.reg.snapshot()["projects"]}
+        self.assertEqual(snap[p["id"]]["progress"], 0)
+
+    def test_progress_follows_the_recorded_stage(self):
+        from mvp_factory import progress
+        self.assertEqual([progress({"stage": s}) for s in ("idea", "building", "owner_review", "validated", "rejected")],
+                         [0, 56, 89, 100, 0])
+
     def test_recommend_never_dispatches(self):
         self.assertEqual(recommend({"stage": "build_queued"})["role"], "Claude Builder")
         self.assertEqual(recommend({"stage": "rejected"})["decision"], "hold")
@@ -182,6 +200,70 @@ class MvpRoutesTest(unittest.TestCase):
             out = get(_Req())
             self.assertEqual((out.status_code, json.loads(out.body)), (503, {"detail": "registry_unreadable"}))
             self.assertEqual((Path(d) / "m.json").read_text(), "{broken")
+
+
+
+class OpenQuestionsProjectionTest(unittest.TestCase):
+    """#321: read-only projection includes all structured open items and nothing answered."""
+
+    def test_all_unresolved_sources_and_gates(self):
+        from open_questions import collect_open_questions
+        class StubQuestions:
+            def list(self, limit):
+                self.limit = limit
+                return [
+                    {"id": "Q-1", "status": "pending", "task_id": "T-506", "question": "Waiting for Claude?", "created_at": "2026-11-13T08:00:00+00:00"},
+                    {"id": "Q-2", "status": "answering", "task_id": "T-502", "question": "In progress", "created_at": "2026-11-13T08:01:00+00:00"},
+                    {"id": "Q-3", "status": "answered", "task_id": "T-500", "question": "Already answered", "created_at": "2026-11-13T08:02:00+00:00"},
+                    {"id": "Q-4", "status": "failed", "task_id": "T-500", "question": "Needs follow-up", "created_at": "2026-11-13T08:03:00+00:00"},
+                ]
+        with tempfile.TemporaryDirectory() as d:
+            reg = MvpRegistry(Path(d) / "mvp_factory.json")
+            reg.record("release-guardian", "block", actor_role="owner", reason="Waiting for owner input")
+            reg.record("decision-memory", "advance", actor_role="owner", evidence=[ISSUE])
+            stub = StubQuestions()
+            result = collect_open_questions(reg, stub)
+            items = result["items"]
+            ids = {item["id"] for item in items}
+            self.assertEqual(ids, {"Q-1", "Q-2", "Q-4", "mvp-block:release-guardian", "mvp-review:mycast"})
+            self.assertEqual(result["total"], 5)
+            self.assertFalse(result["sources"]["notion"])
+            self.assertTrue(result["read_only"])
+            self.assertIn("Notion", result["coverage"])
+            self.assertEqual(stub.limit, 200)
+            self.assertEqual({item["status"] for item in items}, {"pending", "answering", "failed", "blocked", "needs_review"})
+            self.assertEqual(next(x for x in items if x["id"] == "mvp-block:release-guardian")["title"], "Waiting for owner input")
+            self.assertFalse(any("Already answered" in x["title"] for x in items))
+            # Closing a review gate removes it, without requiring a separate questions table.
+            reg.record("mycast", "advance", actor_role="owner", evidence=[ISSUE])
+            reg.record("mycast", "advance", actor_role="owner", evidence=[ISSUE])
+            self.assertNotIn("mvp-review:mycast", {x["id"] for x in collect_open_questions(reg, stub)["items"]})
+            # A blocked project that the owner rejects is closed: it must not stay "blocked" on the dashboard forever.
+            reg.record("release-guardian", "reject", actor_role="owner", reason="Not pursuing")
+            self.assertNotIn("mvp-block:release-guardian", {x["id"] for x in collect_open_questions(reg, stub)["items"]})
+
+    def test_route_owner_only_and_unreadable_store(self):
+        from fastapi import FastAPI, HTTPException
+        from open_questions import install_open_questions_routes
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "mvp_factory.json"
+            reg = MvpRegistry(path)
+            class StubQuestions:
+                def list(self, limit):
+                    return []
+            role = {"value": "viewer"}
+            app = FastAPI()
+            install_open_questions_routes(app, reg, StubQuestions(), lambda req: {"role": role["value"]})
+            handler = next(r.endpoint for r in app.routes if getattr(r, "path", "") == "/api/factory/open-questions")
+            with self.assertRaises(HTTPException) as denied:
+                handler(object())
+            self.assertEqual(denied.exception.status_code, 403)
+            role["value"] = "owner"
+            self.assertTrue(handler(object())["read_only"])
+            path.write_text("{broken")
+            res = handler(object())
+            self.assertEqual(res.status_code, 503)
+            self.assertEqual(path.read_text(), "{broken")
 
 
 if __name__ == "__main__":

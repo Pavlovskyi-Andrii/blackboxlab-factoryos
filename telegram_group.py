@@ -30,6 +30,11 @@ CODE_TTL = 600
 MAX_TEXT = 1500
 GROUP_TYPES = ("group", "supergroup")
 UNAVAILABLE = "ChatGPT и Gemini: нет Relay-runner — в этой группе отвечает только Claude (не имитируем)."
+# Owner 2026-11-11: add the other models. Gemini answers on the owner's free key; ChatGPT has no programmatic
+# access through a ChatGPT subscription (only the paid per-token OpenAI API), so it stays honestly not connected.
+WITH_GEMINI = ("Отвечают: Claude (по подписке, через воркер — до нескольких минут) и Gemini (бесплатный ключ, сразу). "
+               "ChatGPT не подключён: для него нужен платный API-ключ OpenAI.")
+GEMINI_DAILY_CAP = 40
 
 
 def _cmd(text: str) -> tuple[str, str]:
@@ -42,11 +47,51 @@ def _cmd(text: str) -> tuple[str, str]:
 
 
 class GroupBridge:
-    def __init__(self, data_dir: Path, *, ask: Callable[..., dict], clock: Callable[[], float] = time.time):
+    def __init__(self, data_dir: Path, *, ask: Callable[..., dict], clock: Callable[[], float] = time.time,
+                 gemini: Optional[Callable[[str], tuple]] = None, run_async: Optional[Callable] = None):
         self.path = Path(data_dir) / "telegram-group.json"
         self.ask = ask          # ask(question_text, source_key=..., meta=...) -> question item
         self.clock = clock
+        self.gemini = gemini    # gemini(prompt) -> (text, "") or (None, reason); blocking, so run off the webhook
+        self.run_async = run_async or (lambda fn: threading.Thread(target=fn, daemon=True).start())
         self._lock = threading.Lock()
+
+    def _note(self) -> str:
+        return WITH_GEMINI if self.gemini else UNAVAILABLE
+
+    def _gemini_turn(self, chat_id: str, tid: str, prompt: str, send) -> None:
+        """Gemini's answer in the same thread, posted when it arrives; dropped if the thread was stopped."""
+        if not self.gemini:
+            return
+        day = time.strftime("%Y-%m-%d", time.gmtime(self.clock()))
+        with self._lock:
+            d = self._load()
+            used = d.get("gemini_day") == day and int(d.get("gemini_used") or 0) or 0
+            if used >= GEMINI_DAILY_CAP:
+                send(chat_id, f"[Gemini] {tid}: дневной лимит {GEMINI_DAILY_CAP} ответов исчерпан, завтра снова.", None)
+                return
+            d["gemini_day"], d["gemini_used"] = day, used + 1
+            self._save(d)
+
+        def work():
+            try:
+                text, reason = self.gemini(prompt)
+            except Exception:
+                text, reason = None, "error"
+            with self._lock:
+                d = self._load()
+                t = next((x for x in d.get("threads", []) if x.get("id") == tid), None)
+                if not t or t.get("status") != "open":
+                    return
+                if text:
+                    t["last_gemini"] = text[:2000]
+                    self._save(d)
+            if not text:
+                send(chat_id, f"[Gemini] {tid}: не ответил ({reason or 'недоступен'}). Claude ответит сам.", None)
+                return
+            for n, part in enumerate([text[i:i + 3500] for i in range(0, min(len(text), 7000), 3500)], 1):
+                send(chat_id, f"[Gemini] {tid}" + (f" ({n})" if len(text) > 3500 else "") + f"\n{part}", None)
+        self.run_async(work)
 
     # --- storage ---
     def _load(self) -> dict:
@@ -149,7 +194,7 @@ class GroupBridge:
             d["group_id"] = chat_id
             d["paired_at"] = int(self.clock())
             self._save(d)
-        send(chat_id, "✅ Группа привязана. /discuss тема — начать обсуждение с Claude.\n" + UNAVAILABLE, None)
+        send(chat_id, "✅ Группа привязана. /discuss тема — начать обсуждение.\n" + self._note(), None)
         return {"handled": True, "action": "paired"}
 
     def _open_thread(self, d: dict) -> Optional[dict]:
@@ -172,7 +217,8 @@ class GroupBridge:
         item = self.ask("Обсуждение в группе FactoryOS Team (" + tid + "). Тема: " + topic,
                         source_key="tg-group:" + (update_id or tid), meta={"group_thread": tid})
         self._link(tid, item)
-        send(chat_id, f"🧵 {tid}: {topic}\n[Claude] вопрос принят ({item.get('id')}) — ответ появится здесь, когда воркер его заберёт.\n" + UNAVAILABLE, None)
+        send(chat_id, f"🧵 {tid}: {topic}\n[Claude] вопрос принят ({item.get('id')}) — ответ появится здесь, когда воркер его заберёт.\n" + self._note(), None)
+        self._gemini_turn(chat_id, tid, "Тема обсуждения: " + topic, send)
         return {"handled": True, "action": "discuss", "thread": tid, "question": item.get("id")}
 
     def _follow_up(self, chat_id: str, text: str, update_id: str, send) -> dict:
@@ -187,6 +233,8 @@ class GroupBridge:
                         source_key="tg-group:" + (update_id or t["id"] + str(self.clock())), meta={"group_thread": t["id"]})
         self._link(t["id"], item)
         send(chat_id, f"[Claude] принял продолжение {t['id']} ({item.get('id')}).", None)
+        g_context = "Тема: " + t["topic"] + ("\nТвой предыдущий ответ: " + t["last_gemini"][:800] if t.get("last_gemini") else "")
+        self._gemini_turn(chat_id, t["id"], g_context + "\nВладелец: " + text.strip()[:MAX_TEXT], send)
         return {"handled": True, "action": "follow_up", "thread": t["id"]}
 
     def _link(self, tid: str, item: dict) -> None:

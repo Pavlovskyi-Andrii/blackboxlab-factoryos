@@ -9,12 +9,87 @@ from unittest.mock import patch
 
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-brief-"))
 
-from morning_brief import KYIV, MorningBrief, compose_brief  # noqa: E402
+from morning_brief import KYIV, MorningBrief, compose_brief, github_brief_snapshot, verified_main_commits  # noqa: E402
 from voice_settings import BriefError  # noqa: E402
 
 
 def kyiv(h, m=0, day=10):
     return datetime(2026, 11, day, h, m, tzinfo=KYIV).timestamp()
+
+
+class GithubSourceTest(unittest.TestCase):
+    def setUp(self):
+        self.now = kyiv(8, day=12)
+        self.error_logs = []
+        self.fallback_calls = []
+        self.last_path = []
+        self.rows = [{"sha": "a" * 40}, {"sha": "b" * 40}]
+
+    def fetcher(self, repo, token):
+        self.assertEqual((repo, token), ("owner/repo", "read-only-token"))
+        def read(path):
+            self.last_path.append(path)
+            return self.rows
+        return read
+
+    def snapshot(self, reader):
+        self.assertTrue(callable(reader))
+        return {"available": True, "pulls": [], "ci": {}}
+
+    def fallback(self):
+        self.fallback_calls.append(True)
+        return {"github": {"available": True, "pulls": [{"title": "EC2"}], "ci": {}}}, "fresh"
+
+    def subject(self, token="read-only-token", source=None):
+        return github_brief_snapshot(
+            token=token, repo="owner/repo", now=self.now, fetcher=self.fetcher,
+            read_snapshot=source or self.snapshot, fallback=self.fallback,
+            log_error=self.error_logs.append)
+
+    def test_fresh_main_commits_query_and_complete_page(self):
+        result = self.subject()
+        self.assertEqual(result["main_commits"], self.rows)
+        self.assertTrue(result["main_commits_complete"])
+        self.assertEqual(self.last_path, [
+            "/commits?sha=main&since=2026-11-11T06:00:00Z&until=2026-11-12T06:00:00Z&per_page=100"])
+        self.assertEqual(self.error_logs, [])
+        self.assertEqual(self.fallback_calls, [])
+        self.rows = [{"sha": "a" * 40}] * 100
+        result = self.subject()
+        self.assertFalse(result["main_commits_complete"])
+        self.assertEqual(len(result["main_commits"]), 100)
+        self.rows = [{"sha": "b" * 40}] * 99
+        self.assertTrue(self.subject()["main_commits_complete"])
+
+    def test_failed_or_nonlist_read_does_not_mean_no_commits(self):
+        for invalid, error_name in [({"message": "unavailable"}, "ValueError"),
+                                    (RuntimeError("GitHub offline"), "RuntimeError")]:
+            self.last_path.clear()
+            self.error_logs.clear()
+            def fetcher(repo, token):
+                def reader(path):
+                    self.last_path.append(path)
+                    if isinstance(invalid, Exception):
+                        raise invalid
+                    return invalid
+                return reader
+            result = github_brief_snapshot(
+                token="read-only-token", repo="owner/repo", now=self.now,
+                fetcher=fetcher, read_snapshot=self.snapshot, fallback=self.fallback,
+                log_error=self.error_logs.append)
+            self.assertTrue(result["available"])
+            self.assertNotIn("main_commits", result)
+            self.assertNotIn("main_commits_complete", result)
+            self.assertEqual(self.error_logs, [{"event": "MORNING_BRIEF_MAIN_COMMITS_FAILED", "error": error_name}])
+            self.assertEqual(self.fallback_calls, [])
+
+    def test_unavailable_primary_uses_ec2_fallback(self):
+        result = self.subject(source=lambda r: {"available": False})
+        self.assertEqual(result["pulls"][0]["title"], "EC2")
+        self.assertEqual(len(self.fallback_calls), 1)
+        result = self.subject(token="")
+        self.assertEqual(result["pulls"][0]["title"], "EC2")
+        self.assertEqual(len(self.fallback_calls), 2)
 
 
 class ComposeTest(unittest.TestCase):
@@ -27,20 +102,79 @@ class ComposeTest(unittest.TestCase):
             {"title": "Open red", "state": "open", "head": {"sha": "b"}},
             {"title": "Draft", "state": "open", "draft": True, "head": {"sha": "c"}}],
             "ci": {"a": {"state": "passed"}, "b": {"state": "failed"}}}
-        tickets = [{"status": "need_you"}, {"status": "in_progress"}, {"status": "done"}]
+        tickets = [{"id": "R-1", "title": "Waits", "status": "need_you"},
+                   {"id": "R-2", "title": "Running", "status": "in_progress", "execution": {"owner": "claude"}},
+                   {"id": "R-3", "title": "Closed yesterday", "status": "done",
+                    "history": [{"to_status": "done", "at": "2026-11-09T18:00:00+00:00"}]}]
         text = compose_brief("2026-11-10", now, github=github, tickets=tickets, questions_open=2)
-        self.assertIn("За добу влито змін: 1. Серед них: Relay round trip.", text)
+        self.assertIn("🔀 За добу влито PR: 1.\n  • Relay round trip", text)
         self.assertNotIn("#289", text)
         self.assertNotIn("P1", text)
-        self.assertIn("Відкритих PR: 2, з червоним CI: 1.", text)
-        self.assertIn("активних задач: 2, чекають на тебе: 1.", text)
+        self.assertIn("🔴 Червоний CI у відкритих PR: 1.", text)
+        self.assertIn("📊 Вчора закрито задач: 1.\n  ✅ R-3 Closed yesterday", text)
+        self.assertIn("📋 Сьогодні в плані агентів: 1.", text)
+        self.assertIn("🤖 Claude: у роботі 1, у черзі 0", text)
+        self.assertIn("🙋 Чекають на тебе: 1.", text)
         self.assertIn("Відкритих питань до команди: 2.", text)
-        self.assertLessEqual(len(text), 1400)
+
+    def test_incomplete_pr_snapshot_never_claims_zero_main_work(self):
+        result = compose_brief("2026-11-12", kyiv(8, day=12),
+                               github={"pulls": [], "ci": {}}, tickets=[], questions_open=0)
+        self.assertIn("це НЕ означає, що змін не було", result)
+        self.assertNotIn("За добу влито PR: 0", result)
+
+    def test_main_commits_not_hidden_by_empty_pr_list(self):
+        result = compose_brief("2026-11-12", kyiv(8, day=12), github={
+            "pulls": [], "ci": {}, "main_commits": [{"sha": "a" * 40}, {"sha": "b" * 40}],
+            "main_commits_complete": True,
+        }, tickets=[], questions_open=0)
+        self.assertIn("За добу в main: 2 коміти", result)
+        self.assertNotIn("За добу влито PR: 0", result)
+        self.assertIn("За добу в main: 2 коміти", __import__("morning_brief").voice_text(result))
+
+    def test_only_main_target_prs_counted(self):
+        result = compose_brief("2026-11-12", kyiv(8, day=12), github={
+            "pulls": [
+                {"title": "autopilot worker sync", "state": "closed",
+                 "merged_at": "2026-11-11T15:02:55Z", "base": {"ref": "autopilot/aws-worker"}},
+                {"title": "MVP builder", "state": "closed",
+                 "merged_at": "2026-11-11T18:29:44Z", "base": {"ref": "main"}},
+            ], "ci": {},
+        }, tickets=[], questions_open=0)
+        self.assertIn("За добу влито PR: 1.", result)
+        self.assertIn("MVP builder", result)
+        self.assertNotIn("autopilot worker sync", result)
+
+    def test_verified_empty_main_history_is_explicit(self):
+        result = compose_brief("2026-11-12", kyiv(8, day=12), github={
+            "pulls": [], "ci": {}, "main_commits": [], "main_commits_complete": True,
+        }, tickets=[], questions_open=0)
+        self.assertIn("комітів у main не було (перевірено через GitHub)", result)
+
+    def test_plan_vs_fact(self):
+        tickets = [{"id": "R-1", "title": "A", "status": "done"}, {"id": "R-2", "title": "B", "status": "in_progress"},
+                   {"id": "R-3", "title": "C", "status": "done"}, {"id": "R-4", "title": "D", "status": "inbox"}]
+        text = compose_brief("2026-11-11", kyiv(8, day=11), github=None, tickets=tickets, questions_open=0,
+                             yesterday_plan={"date": "2026-11-10", "ids": ["R-1", "R-2", "R-3", "R-4"]})
+        self.assertIn("у плані було 4, виконано 2 — ККД 50%", text)
+        self.assertIn("⏳ не встигли: R-2 B", text)
+        first = compose_brief("2026-11-11", kyiv(8, day=11), github=None, tickets=tickets, questions_open=0)
+        self.assertIn("План/факт з'явиться завтра", first)
 
     def test_unknown_github_is_said_not_guessed(self):
         text = compose_brief("2026-11-10", kyiv(8), github=None, tickets=[], questions_open=0)
-        self.assertIn("Дані GitHub зараз недоступні", text)
+        self.assertIn("GitHub зараз недоступний", text)
         self.assertNotIn("влито", text)
+
+    def test_voice_reads_headlines_only(self):
+        from morning_brief import voice_text
+        full = compose_brief("2026-11-10", kyiv(8), github=None, questions_open=0,
+                             tickets=[{"id": f"R-{i}", "title": "Task %d" % i, "status": "need_you"} for i in range(30)])
+        spoken = voice_text(full)
+        self.assertNotIn("R-1 Task", spoken)
+        self.assertIn("Чекають на тебе: 30.", spoken)
+        self.assertLessEqual(len(spoken), 1400)
+        self.assertFalse(spoken.startswith("☀"))
 
 
 class ScheduleTest(unittest.TestCase):
@@ -135,9 +269,26 @@ class WebhookTest(unittest.TestCase):
 
     def test_server_compose_uses_real_stores(self):
         from test_worker_token_binding import factory
-        with patch.object(factory, "_intake_issues_from_ec2_snapshot", return_value=(None, "missing")):
+        with patch.object(factory, "_intake_issues_from_ec2_snapshot", return_value=(None, "missing")), \
+             patch.object(factory, "GITHUB_READ_TOKEN", ""):
             text = factory._morning_brief_compose("2026-11-10", kyiv(8))
-        self.assertIn("Дані GitHub зараз недоступні", text)
+        self.assertIn("GitHub зараз недоступний", text)
+
+    def test_plan_is_stored_and_used_next_day(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t, seen, plan = [kyiv(8)], [], [["R-1", "R-2"]]
+            b = MorningBrief(Path(tmp), deliver=lambda d, x: {"sent": True}, send_text=lambda x: None,
+                             compose=lambda date, now, prev: seen.append(prev) or "x", clock=lambda: t[0],
+                             plan_source=lambda: plan[0])
+            b.handle_private("/brief on")
+            b.tick()
+            self.assertEqual(seen, [None])
+            plan[0] = ["R-9"]
+            t[0] = kyiv(8, day=11)
+            b.tick()
+            self.assertEqual(seen[-1], {"date": "2026-11-10", "ids": ["R-1", "R-2"]})
+            b.handle_private("/brief test")                                     # a test does not record a plan
+            self.assertEqual(seen[-1], {"date": "2026-11-10", "ids": ["R-1", "R-2"]})
 
 
 if __name__ == "__main__":

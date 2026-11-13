@@ -281,6 +281,56 @@ footer{color:var(--dim);font-size:13px;text-align:center}
 .mbar .sum span{display:block;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (min-width:960px){.mbar{display:none}}
 
+/* Episode timeline ("полоса", owner request 2026-11-11): blocks sized by duration; drag to reorder, drag out to remove. */
+.planHead{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:baseline;justify-content:space-between}
+.planSum{font:700 15px var(--mono);color:var(--ink)}.planSum small{color:var(--mute);font-weight:600}
+.planSum.over{color:var(--warn)}
+.planWarn{margin:0;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,210,122,.45);background:rgba(60,44,10,.5);color:var(--warn);font-size:14px;font-weight:600}
+.stripWrap{position:relative;min-width:0;border-radius:16px;border:1px solid var(--edge2);background:rgba(6,9,22,.7);padding:10px 0 0}
+.strip{position:relative;display:flex;gap:6px;overflow-x:auto;overflow-y:visible;padding:4px 10px 20px;scroll-behavior:smooth;overscroll-behavior-x:contain;scrollbar-width:thin}
+.strip .track{position:relative;display:flex;gap:6px;min-width:100%;flex:none}
+.seg{--c:var(--violet);position:relative;flex:none;display:grid;align-content:space-between;gap:2px;min-width:64px;height:74px;padding:8px 9px;border-radius:12px;
+  border:1px solid color-mix(in srgb,var(--c) 60%,transparent);background:linear-gradient(160deg,color-mix(in srgb,var(--c) 32%,rgba(20,27,54,.9)),rgba(12,16,36,.92));
+  color:var(--ink);cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none;transition:box-shadow .2s,border-color .2s,opacity .2s;overflow:hidden}
+.seg b{font:700 12px/1.2 var(--body);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;hyphens:auto;-webkit-hyphens:auto}
+.seg span{white-space:nowrap;font:700 12px var(--mono);color:color-mix(in srgb,var(--c) 70%,#fff)}
+.seg.sel{box-shadow:0 0 0 2px var(--cyan),0 10px 24px -12px rgba(79,227,255,.7)}
+.seg.locked{cursor:default;border-style:dashed}
+.seg.locked span::after{content:" 🔒";font-size:10px}
+.seg.past{background:repeating-linear-gradient(135deg,rgba(255,210,122,.16) 0 6px,transparent 6px 12px),linear-gradient(160deg,color-mix(in srgb,var(--c) 32%,rgba(20,27,54,.9)),rgba(12,16,36,.92))}
+.seg.drag{cursor:grabbing;z-index:20;box-shadow:0 18px 40px -10px rgba(0,0,0,.9),0 0 0 2px var(--cyan);transition:none;opacity:.95}
+.seg.out{box-shadow:0 0 0 2px var(--bad),0 18px 40px -10px rgba(255,90,80,.6);opacity:.75}
+.seg.poof{animation:poof .48s cubic-bezier(.2,.7,.3,1) forwards;pointer-events:none}
+@keyframes poof{0%{transform:scale(1);filter:blur(0);opacity:1}35%{transform:scale(1.14);filter:blur(1px);opacity:.95}100%{transform:scale(1.45);filter:blur(12px);opacity:0}}
+.spark{position:fixed;z-index:60;width:7px;height:7px;margin:-3px 0 0 -3px;border-radius:50%;background:var(--c);box-shadow:0 0 10px var(--c);pointer-events:none;animation:spark .55s ease-out forwards}
+@keyframes spark{to{transform:translate(var(--dx),var(--dy)) scale(.2);opacity:0}}
+.dropMark{position:absolute;top:2px;bottom:8px;width:3px;margin-left:-4.5px;border-radius:3px;background:var(--cyan);box-shadow:0 0 12px var(--cyan);pointer-events:none}
+.limitMark{position:absolute;top:0;bottom:-6px;width:0;border-left:2px dashed var(--warn);pointer-events:none}
+.limitMark i{position:absolute;bottom:-9px;right:5px;font:700 10px var(--mono);color:var(--warn);white-space:nowrap;font-style:normal}
+.stripHint{margin:0;font-size:12.5px;color:var(--dim)}
+.stripWrap.dropping{border-color:var(--bad);background:rgba(40,10,14,.55)}
+.planEdit{display:grid;gap:10px;padding:12px 14px;border-radius:14px;border:1px solid var(--edge2);background:rgba(20,27,54,.6)}
+.planEdit .peTop{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.planEdit .peTop b{font:700 16px var(--body);min-width:0;overflow-wrap:anywhere}
+.planEdit .peTop .t{font:700 15px var(--mono);color:var(--cyan)}
+.planEdit .btns .btn{padding:8px 12px;min-width:44px}
+.planEdit .peCal{margin:0;font:700 clamp(16px,4vw,19px)/1.35 var(--body);color:var(--ink)}
+.planEdit .peCal .gcal{width:22px;height:22px;vertical-align:-4px;margin-right:8px}
+.removedRow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.removedRow .lab{font-size:12.5px;color:var(--dim)}
+.restore{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:999px;border:1px dashed var(--edge2);background:rgba(20,27,54,.6);color:var(--mute);font:600 13px var(--body);cursor:pointer;max-width:100%}
+.restore:hover{color:var(--ink);border-color:var(--cyan)}
+.calInvite{margin:0;font:700 clamp(17px,4.2vw,20px)/1.35 var(--body);color:var(--ink)}
+.calInvite .gcal{width:22px;height:22px;vertical-align:-4px;margin-right:8px}
+.calMeta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--mute)}
+/* Signed in: the intro about the project gives way to the listener's own avatar. */
+.meHero{display:flex;align-items:center;gap:16px;padding:18px 20px;border-radius:22px;border:1px solid var(--edge2);background:linear-gradient(135deg,rgba(91,67,255,.22),rgba(0,200,255,.08)),var(--glass);min-width:0}
+.meHero .av{flex:none;width:68px;height:68px;border-radius:50%;display:grid;place-items:center;font:800 24px var(--mono);color:#0b1024;background:linear-gradient(135deg,var(--cyan),var(--violet));box-shadow:0 10px 30px -10px rgba(79,227,255,.7)}
+.meHero b{display:block;font:700 clamp(20px,5vw,26px)/1.2 var(--display);overflow-wrap:anywhere}
+.meHero span{color:var(--mute);font-size:14px}
+.narrow .ai{font:700 10px var(--mono);color:var(--cyan);margin-left:4px;letter-spacing:.04em}
+.calm .seg.poof{animation-duration:.01s}.calm .spark{display:none}
+
 :focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
 /* Calm mode: reduced motion or a low-power device. Everything still works; nothing drifts or pulses. */
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
@@ -307,7 +357,9 @@ footer{color:var(--dim);font-size:13px;text-align:center}
     </div>
   </header>
 
-  <section class="hero" aria-labelledby="heroTitle">
+  <section class="meHero" id="meHero" hidden aria-live="polite"><span class="av" id="meAv" aria-hidden="true"></span><div><b id="meName"></b><span data-t="me_sub"></span></div></section>
+
+  <section class="hero" id="hero" aria-labelledby="heroTitle">
     <div>
       <div class="eyebrow" data-t="eyebrow"></div>
       <h1 id="heroTitle"><span data-t="title_a"></span> <em data-t="title_b"></em></h1>
@@ -416,6 +468,8 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         <div id="taxonomy" class="scopes"></div>
         <div class="cal" id="calBox">
           <h4 data-t="cal_h"></h4>
+          <p class="calInvite" id="calInvite"></p>
+          <div class="calMeta"><span class="tag no" data-t="cal_status"></span><span data-t="cal_end"></span></div>
           <label class="confirm"><input type="checkbox" id="calBirthdays"> <span data-t="cal_birthdays"></span></label>
           <label class="confirm"><input type="checkbox" id="calEvents"> <span data-t="cal_events"></span></label>
           <p class="note" data-t="cal_note"></p>
@@ -522,6 +576,17 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         </div>
         <details class="jsonBox"><summary data-t="json_h"></summary><p class="hint" data-t="json_hint"></p><pre id="json" tabindex="0"></pre></details>
       </section>
+
+      <section class="step" id="stepPlan" aria-labelledby="h9s">
+        <h2 id="h9s"><small>09</small><span data-t="plan_h"></span></h2>
+        <div class="planHead"><p class="hint" data-t="plan_hint"></p><span class="planSum" id="planSum" role="status" aria-live="polite"></span></div>
+        <p class="planWarn" id="planWarn" hidden role="alert"></p>
+        <div class="stripWrap" id="stripWrap"><div class="strip" id="strip"><div class="track" id="track" role="list" aria-labelledby="h9s"></div></div></div>
+        <p class="stripHint" data-t="plan_keys"></p>
+        <div class="planEdit" id="planEdit" hidden></div>
+        <div class="removedRow" id="planRemoved" hidden></div>
+        <div class="msg" id="planMsg" role="status" aria-live="polite"></div>
+      </section>
     </div>
 
     <aside class="dna" aria-labelledby="dnaTitle">
@@ -586,7 +651,7 @@ const T = {
   ch:{telegram:'Telegram',download:'Завантаження файлу',viber:'Viber',whatsapp:'WhatsApp',email:'Email'},
   chw:{telegram:'Основний. Доставка запрацює після підключення бота, згоди і тесту.',download:'Лише коли існує справжній аудіофайл.',viber:'Заплановано, ще не підключено.',whatsapp:'Заплановано, ще не підключено.',email:'Заплановано, ще не підключено.'},
   chs:{not_connected:'не підключено',no_local_file:'немає файлу',planned:'заплановано',ready:'готово'},primary:'основний',
-  prev_h:'Прослухати',voice_pick_h:{narrator:'Голос ведучого (чоловічий)',a:'Ведучий 1 · чоловічий голос',b:'Ведучий 2 · жіночий голос'},voice_pick_sub:'Натисніть ▶, щоб почути справжній зразок Gemini. Стать — за звучанням (неофіційно).',voice_left:'Нових зразків сьогодні: ',voice_site_only:'Зразки голосів доступні на сайті MyCast.',voice_gen:'Gemini озвучує зразок «{name}»…',voice_unavail:'Зразок «{name}» зараз недоступний ({reason}).',voice_limit:'Ліміт нових зразків на сьогодні вичерпано — вже готові можна слухати.',voice_play:'Прослухати зразок',tg_h:'Telegram і розсилка',tg_cta:'Підключити до мого Telegram',tg_need_site:'Підключення Telegram працює на сайті MyCast.',tg_linked_unverified:'Telegram прив’язано — перевірте зв’язок:',tg_test:'Надіслати тестове повідомлення',tg_verified:'✓ Telegram підключено й перевірено',tg_test_sent:'Готово: перевірте Telegram — ми надіслали одне повідомлення.',dl_h:'Розсилка цього подкасту',dl_need:{approved:'Профіль затверджено (крок 06)',verified:'Telegram перевірено',consent:'Ваша згода нижче'},dl_consent:'Я хочу отримувати цей подкаст у свій Telegram ({when}). Можу зупинити будь-коли.',dl_on:'Увімкнути розсилку',dl_off:'Зупинити розсилку',dl_active:'Розсилку ввімкнено з {date}.',dl_paused:'Розсилку призупинено: профіль змінено — затвердіть його знову.',dl_sample:'Надіслати демо в Telegram',dl_sample_need:'Спершу прослухайте демо Gemini (крок 05).',dl_sample_sent:'Демо надіслано у ваш Telegram.',dl_note:'Чесно: регулярні персональні випуски для слухачів ще не генеруються автоматично. Розсилка запам’ятовує вашу згоду й розклад; випуски прийдуть, щойно запрацює генерація.',tg_err:{send_limit:'Забагато повідомлень сьогодні — спробуйте завтра.',telegram_send_failed:'Telegram не прийняв повідомлення. Спершу напишіть боту /start і спробуйте ще раз.',telegram_not_configured:'Бот Telegram не налаштовано.',profile_not_approved:'Спершу затвердіть профіль (крок 06).',telegram_not_linked:'Спершу підключіть Telegram.',consent_required:'Поставте галочку згоди.',delivery_off:'Спершу увімкніть розсилку.',demo_not_ready:'Демо ще не готове.',signed_out:'Увійдіть знову.'},acc_h:'Увійти та зберегти свій подкаст',acc_hint:'Увійдіть через Google або Telegram: ваш подкаст збережеться, а у вас з’явиться особиста сторінка, якою можна поділитися.',acc_privacy:'Зберігаємо лише ім’я, спосіб входу, ваші налаштування і (для Telegram) чат для майбутньої розсилки. Без email і фото. Видалити все — одна кнопка.',acc_save:'Зберегти мій подкаст',acc_page:'Скопіювати мою сторінку',acc_logout:'Вийти',acc_delete:'Видалити мої дані',acc_via:{telegram:'через Telegram',google:'через Google'},acc_saved:'Збережено. Ваша сторінка: ',acc_copied:'Посилання на вашу сторінку скопійовано.',acc_need_save:'Спершу збережіть подкаст.',acc_deleted:'Ваші дані видалено.',acc_confirm_delete:'Видалити акаунт MyCast і збережений подкаст? Це не можна скасувати.',acc_fail:'Не вдалося увійти. Спробуйте ще раз.',acc_missing:'Цей подкаст не знайдено або його ще не збережено.',tg_linked:'Telegram прив’язано ✓ — розсилка в кроці 07',tg_login:'Увійти через Telegram',gm:{queued:'Готуємо сценарій',voicing:'Gemini озвучує двома голосами',ready:'Готово — грає демо Gemini',approx:'≈'},gm_fail:{daily_limit:'Ліміт демо Gemini на сьогодні вичерпано — граю голосом браузера.',client_limit:'Ви вже прослухали кілька демо сьогодні — граю голосом браузера.',not_configured:'Голос Gemini не налаштовано — граю голосом браузера.',offline:'Сервер демо недоступний — граю голосом браузера.',failed:'Gemini не зміг озвучити — граю голосом браузера.'},gm_playing:'Звучить демо, озвучене Gemini (це демо, а не справжній випуск).',preview:'Прослухати демо',stop:'Зупинити',download:'Завантажити аудіо',
+  prev_h:'Прослухати',voice_pick_h:{narrator:'Голос ведучого (чоловічий)',a:'Ведучий 1 · чоловічий голос',b:'Ведучий 2 · жіночий голос'},voice_pick_sub:'Натисніть ▶, щоб почути справжній зразок Gemini. Стать — за звучанням (неофіційно).',voice_left:'Нових зразків сьогодні: ',voice_site_only:'Зразки голосів доступні на сайті MyCast.',voice_gen:'Gemini озвучує зразок «{name}»…',voice_unavail:'Зразок «{name}» зараз недоступний ({reason}).',voice_limit:'Ліміт нових зразків на сьогодні вичерпано — вже готові можна слухати.',voice_play:'Прослухати зразок',tg_h:'Telegram і розсилка',tg_cta:'Підключити до мого Telegram',tg_need_site:'Підключення Telegram працює на сайті MyCast.',tg_linked_unverified:'Telegram прив’язано — перевірте зв’язок:',tg_test:'Надіслати тестове повідомлення',tg_verified:'✓ Telegram підключено й перевірено',tg_test_sent:'Готово: перевірте Telegram — ми надіслали одне повідомлення.',dl_h:'Розсилка цього подкасту',dl_need:{approved:'Профіль затверджено (крок 06)',verified:'Telegram перевірено',consent:'Ваша згода нижче'},dl_consent:'Я хочу отримувати цей подкаст у свій Telegram ({when}). Можу зупинити будь-коли.',dl_on:'Увімкнути розсилку',dl_off:'Зупинити розсилку',dl_active:'Розсилку ввімкнено з {date}.',dl_paused:'Розсилку призупинено: профіль змінено — затвердіть його знову.',dl_sample:'Надіслати демо в Telegram',dl_sample_need:'Спершу прослухайте демо Gemini (крок 05).',dl_sample_sent:'Демо надіслано у ваш Telegram.',dl_note:'Щодня у ваш час сервер збирає випуск за вашими темами (свіжі новини з джерелами) і надсилає його лише у ваш Telegram. Зупинити можна будь-коли.',dl_state:{due:'Сьогоднішній випуск у черзі на підготовку.',in_progress:'Готуємо сьогоднішній випуск…',waiting:'Наступний випуск — сьогодні о {d}.',delivered:'✓ Сьогоднішній випуск надіслано.',not_today:'Сьогодні за вашим розкладом випуску немає.',failed_today:'Сьогоднішній випуск не вдалося зробити ({d}). Спробуємо завтра.',bad_profile:'Не вдалося прочитати профіль — збережіть і затвердіть його знову.'},dl_last:{sent:'Останній випуск: {date} — надіслано.',failed:'Останній випуск: {date} — не вдалося ({r}).'},tg_err:{send_limit:'Забагато повідомлень сьогодні — спробуйте завтра.',telegram_send_failed:'Telegram не прийняв повідомлення. Спершу напишіть боту /start і спробуйте ще раз.',telegram_not_configured:'Бот Telegram не налаштовано.',profile_not_approved:'Спершу затвердіть профіль (крок 06).',telegram_not_linked:'Спершу підключіть Telegram.',consent_required:'Поставте галочку згоди.',delivery_off:'Спершу увімкніть розсилку.',demo_not_ready:'Демо ще не готове.',signed_out:'Увійдіть знову.'},acc_h:'Увійти та зберегти свій подкаст',acc_hint:'Увійдіть через Google або Telegram: ваш подкаст збережеться, а у вас з’явиться особиста сторінка, якою можна поділитися.',acc_privacy:'Зберігаємо лише ім’я, спосіб входу, ваші налаштування і (для Telegram) чат для майбутньої розсилки. Без email і фото. Видалити все — одна кнопка.',acc_save:'Зберегти мій подкаст',acc_page:'Скопіювати мою сторінку',acc_logout:'Вийти',acc_delete:'Видалити мої дані',acc_via:{telegram:'через Telegram',google:'через Google'},acc_saved:'Збережено. Ваша сторінка: ',acc_copied:'Посилання на вашу сторінку скопійовано.',acc_need_save:'Спершу збережіть подкаст.',acc_deleted:'Ваші дані видалено.',acc_confirm_delete:'Видалити акаунт MyCast і збережений подкаст? Це не можна скасувати.',acc_fail:'Не вдалося увійти. Спробуйте ще раз.',acc_missing:'Цей подкаст не знайдено або його ще не збережено.',tg_linked:'Telegram прив’язано ✓ — розсилка в кроці 07',tg_login:'Увійти через Telegram',gm:{queued:'Готуємо сценарій',voicing:'Gemini озвучує двома голосами',ready:'Готово — грає демо Gemini',approx:'≈'},gm_fail:{daily_limit:'Ліміт демо Gemini на сьогодні вичерпано — граю голосом браузера.',client_limit:'Ви вже прослухали кілька демо сьогодні — граю голосом браузера.',not_configured:'Голос Gemini не налаштовано — граю голосом браузера.',offline:'Сервер демо недоступний — граю голосом браузера.',failed:'Gemini не зміг озвучити — граю голосом браузера.'},gm_playing:'Звучить демо, озвучене Gemini (це демо, а не справжній випуск).',preview:'Прослухати демо',stop:'Зупинити',download:'Завантажити аудіо',
   appr_h:'Затвердження',review:'Я прослухав — позначити як переглянуто',confirm:'Я затверджую цей профіль (це не вмикає розсилку)',approve:'Затвердити',
   json_h:'Профіль JSON',json_hint:'Саме це отримав би бекенд. active завжди false, доки немає справжнього планувальника.',
   dna_h:'ДНК вашого подкасту',dna_topics:'тем обрано',dna_geo:'Географія',dna_watch:'Стежу',dna_when:'Коли',dna_voice:'Голос',dna_ch:'Канал',dna_none:'—',
@@ -624,7 +689,7 @@ const T = {
   ch:{telegram:'Telegram',download:'Скачивание файла',viber:'Viber',whatsapp:'WhatsApp',email:'Email'},
   chw:{telegram:'Основной. Доставка заработает после подключения бота, согласия и теста.',download:'Только когда существует настоящий аудиофайл.',viber:'Запланировано, ещё не подключено.',whatsapp:'Запланировано, ещё не подключено.',email:'Запланировано, ещё не подключено.'},
   chs:{not_connected:'не подключено',no_local_file:'нет файла',planned:'запланировано',ready:'готово'},primary:'основной',
-  prev_h:'Прослушать',voice_pick_h:{narrator:'Голос ведущего (мужской)',a:'Ведущий 1 · мужской голос',b:'Ведущий 2 · женский голос'},voice_pick_sub:'Нажмите ▶, чтобы услышать настоящий образец Gemini. Пол — на слух (неофициально).',voice_left:'Новых образцов сегодня: ',voice_site_only:'Образцы голосов доступны на сайте MyCast.',voice_gen:'Gemini озвучивает образец «{name}»…',voice_unavail:'Образец «{name}» сейчас недоступен ({reason}).',voice_limit:'Лимит новых образцов на сегодня исчерпан — готовые можно слушать.',voice_play:'Прослушать образец',tg_h:'Telegram и рассылка',tg_cta:'Подключить к моему Telegram',tg_need_site:'Подключение Telegram работает на сайте MyCast.',tg_linked_unverified:'Telegram привязан — проверьте связь:',tg_test:'Отправить тестовое сообщение',tg_verified:'✓ Telegram подключён и проверен',tg_test_sent:'Готово: проверьте Telegram — мы отправили одно сообщение.',dl_h:'Рассылка этого подкаста',dl_need:{approved:'Профиль утверждён (шаг 06)',verified:'Telegram проверен',consent:'Ваше согласие ниже'},dl_consent:'Я хочу получать этот подкаст в свой Telegram ({when}). Могу остановить в любой момент.',dl_on:'Включить рассылку',dl_off:'Остановить рассылку',dl_active:'Рассылка включена с {date}.',dl_paused:'Рассылка приостановлена: профиль изменён — утвердите его снова.',dl_sample:'Отправить демо в Telegram',dl_sample_need:'Сначала прослушайте демо Gemini (шаг 05).',dl_sample_sent:'Демо отправлено в ваш Telegram.',dl_note:'Честно: регулярные персональные выпуски для слушателей пока не генерируются автоматически. Рассылка запоминает ваше согласие и расписание; выпуски придут, как только заработает генерация.',tg_err:{send_limit:'Слишком много сообщений сегодня — попробуйте завтра.',telegram_send_failed:'Telegram не принял сообщение. Сначала напишите боту /start и попробуйте снова.',telegram_not_configured:'Бот Telegram не настроен.',profile_not_approved:'Сначала утвердите профиль (шаг 06).',telegram_not_linked:'Сначала подключите Telegram.',consent_required:'Поставьте галочку согласия.',delivery_off:'Сначала включите рассылку.',demo_not_ready:'Демо ещё не готово.',signed_out:'Войдите снова.'},acc_h:'Войти и сохранить свой подкаст',acc_hint:'Войдите через Google или Telegram: ваш подкаст сохранится, а у вас появится личная страница, которой можно поделиться.',acc_privacy:'Храним только имя, способ входа, ваши настройки и (для Telegram) чат для будущей рассылки. Без email и фото. Удалить всё — одна кнопка.',acc_save:'Сохранить мой подкаст',acc_page:'Скопировать мою страницу',acc_logout:'Выйти',acc_delete:'Удалить мои данные',acc_via:{telegram:'через Telegram',google:'через Google'},acc_saved:'Сохранено. Ваша страница: ',acc_copied:'Ссылка на вашу страницу скопирована.',acc_need_save:'Сначала сохраните подкаст.',acc_deleted:'Ваши данные удалены.',acc_confirm_delete:'Удалить аккаунт MyCast и сохранённый подкаст? Это нельзя отменить.',acc_fail:'Не удалось войти. Попробуйте ещё раз.',acc_missing:'Этот подкаст не найден или ещё не сохранён.',tg_linked:'Telegram привязан ✓ — рассылка в шаге 07',tg_login:'Войти через Telegram',gm:{queued:'Готовим сценарий',voicing:'Gemini озвучивает двумя голосами',ready:'Готово — играет демо Gemini',approx:'≈'},gm_fail:{daily_limit:'Лимит демо Gemini на сегодня исчерпан — играю голосом браузера.',client_limit:'Вы уже прослушали несколько демо сегодня — играю голосом браузера.',not_configured:'Голос Gemini не настроен — играю голосом браузера.',offline:'Сервер демо недоступен — играю голосом браузера.',failed:'Gemini не смог озвучить — играю голосом браузера.'},gm_playing:'Звучит демо, озвученное Gemini (это демо, а не настоящий выпуск).',preview:'Прослушать демо',stop:'Остановить',download:'Скачать аудио',
+  prev_h:'Прослушать',voice_pick_h:{narrator:'Голос ведущего (мужской)',a:'Ведущий 1 · мужской голос',b:'Ведущий 2 · женский голос'},voice_pick_sub:'Нажмите ▶, чтобы услышать настоящий образец Gemini. Пол — на слух (неофициально).',voice_left:'Новых образцов сегодня: ',voice_site_only:'Образцы голосов доступны на сайте MyCast.',voice_gen:'Gemini озвучивает образец «{name}»…',voice_unavail:'Образец «{name}» сейчас недоступен ({reason}).',voice_limit:'Лимит новых образцов на сегодня исчерпан — готовые можно слушать.',voice_play:'Прослушать образец',tg_h:'Telegram и рассылка',tg_cta:'Подключить к моему Telegram',tg_need_site:'Подключение Telegram работает на сайте MyCast.',tg_linked_unverified:'Telegram привязан — проверьте связь:',tg_test:'Отправить тестовое сообщение',tg_verified:'✓ Telegram подключён и проверен',tg_test_sent:'Готово: проверьте Telegram — мы отправили одно сообщение.',dl_h:'Рассылка этого подкаста',dl_need:{approved:'Профиль утверждён (шаг 06)',verified:'Telegram проверен',consent:'Ваше согласие ниже'},dl_consent:'Я хочу получать этот подкаст в свой Telegram ({when}). Могу остановить в любой момент.',dl_on:'Включить рассылку',dl_off:'Остановить рассылку',dl_active:'Рассылка включена с {date}.',dl_paused:'Рассылка приостановлена: профиль изменён — утвердите его снова.',dl_sample:'Отправить демо в Telegram',dl_sample_need:'Сначала прослушайте демо Gemini (шаг 05).',dl_sample_sent:'Демо отправлено в ваш Telegram.',dl_note:'Каждый день в ваше время сервер собирает выпуск по вашим темам (свежие новости с источниками) и отправляет его только в ваш Telegram. Остановить можно в любой момент.',dl_state:{due:'Сегодняшний выпуск в очереди на подготовку.',in_progress:'Готовим сегодняшний выпуск…',waiting:'Следующий выпуск — сегодня в {d}.',delivered:'✓ Сегодняшний выпуск отправлен.',not_today:'Сегодня по вашему расписанию выпуска нет.',failed_today:'Сегодняшний выпуск не удалось сделать ({d}). Попробуем завтра.',bad_profile:'Не удалось прочитать профиль — сохраните и утвердите его снова.'},dl_last:{sent:'Последний выпуск: {date} — отправлен.',failed:'Последний выпуск: {date} — не удалось ({r}).'},tg_err:{send_limit:'Слишком много сообщений сегодня — попробуйте завтра.',telegram_send_failed:'Telegram не принял сообщение. Сначала напишите боту /start и попробуйте снова.',telegram_not_configured:'Бот Telegram не настроен.',profile_not_approved:'Сначала утвердите профиль (шаг 06).',telegram_not_linked:'Сначала подключите Telegram.',consent_required:'Поставьте галочку согласия.',delivery_off:'Сначала включите рассылку.',demo_not_ready:'Демо ещё не готово.',signed_out:'Войдите снова.'},acc_h:'Войти и сохранить свой подкаст',acc_hint:'Войдите через Google или Telegram: ваш подкаст сохранится, а у вас появится личная страница, которой можно поделиться.',acc_privacy:'Храним только имя, способ входа, ваши настройки и (для Telegram) чат для будущей рассылки. Без email и фото. Удалить всё — одна кнопка.',acc_save:'Сохранить мой подкаст',acc_page:'Скопировать мою страницу',acc_logout:'Выйти',acc_delete:'Удалить мои данные',acc_via:{telegram:'через Telegram',google:'через Google'},acc_saved:'Сохранено. Ваша страница: ',acc_copied:'Ссылка на вашу страницу скопирована.',acc_need_save:'Сначала сохраните подкаст.',acc_deleted:'Ваши данные удалены.',acc_confirm_delete:'Удалить аккаунт MyCast и сохранённый подкаст? Это нельзя отменить.',acc_fail:'Не удалось войти. Попробуйте ещё раз.',acc_missing:'Этот подкаст не найден или ещё не сохранён.',tg_linked:'Telegram привязан ✓ — рассылка в шаге 07',tg_login:'Войти через Telegram',gm:{queued:'Готовим сценарий',voicing:'Gemini озвучивает двумя голосами',ready:'Готово — играет демо Gemini',approx:'≈'},gm_fail:{daily_limit:'Лимит демо Gemini на сегодня исчерпан — играю голосом браузера.',client_limit:'Вы уже прослушали несколько демо сегодня — играю голосом браузера.',not_configured:'Голос Gemini не настроен — играю голосом браузера.',offline:'Сервер демо недоступен — играю голосом браузера.',failed:'Gemini не смог озвучить — играю голосом браузера.'},gm_playing:'Звучит демо, озвученное Gemini (это демо, а не настоящий выпуск).',preview:'Прослушать демо',stop:'Остановить',download:'Скачать аудио',
   appr_h:'Утверждение',review:'Я прослушал — отметить как просмотрено',confirm:'Я утверждаю этот профиль (это не включает рассылку)',approve:'Утвердить',
   json_h:'Профиль JSON',json_hint:'Именно это получил бы бэкенд. active всегда false, пока нет настоящего планировщика.',
   dna_h:'ДНК вашего подкаста',dna_topics:'тем выбрано',dna_geo:'География',dna_watch:'Слежу',dna_when:'Когда',dna_voice:'Голос',dna_ch:'Канал',dna_none:'—',
@@ -662,7 +727,7 @@ const T = {
   ch:{telegram:'Telegram',download:'File download',viber:'Viber',whatsapp:'WhatsApp',email:'Email'},
   chw:{telegram:'Main channel. Delivery starts after the bot is connected, you consent and a test passes.',download:'Only when a real audio file exists.',viber:'Planned, not connected yet.',whatsapp:'Planned, not connected yet.',email:'Planned, not connected yet.'},
   chs:{not_connected:'not connected',no_local_file:'no file',planned:'planned',ready:'ready'},primary:'main',
-  prev_h:'Listen',voice_pick_h:{narrator:'Host voice (male)',a:'Host 1 · male voice',b:'Host 2 · female voice'},voice_pick_sub:'Press ▶ to hear a real Gemini sample. Gender is by ear (unofficial).',voice_left:'New samples left today: ',voice_site_only:'Voice samples are available on the MyCast site.',voice_gen:'Gemini is voicing the "{name}" sample…',voice_unavail:'The "{name}" sample is unavailable right now ({reason}).',voice_limit:'Today\'s limit for new samples is used up; ready ones still play.',voice_play:'Play sample',tg_h:'Telegram and delivery',tg_cta:'Connect to my Telegram',tg_need_site:'Telegram connection works on the MyCast site.',tg_linked_unverified:'Telegram is linked. Check the connection:',tg_test:'Send a test message',tg_verified:'✓ Telegram connected and verified',tg_test_sent:'Done: check Telegram, we sent one message.',dl_h:'Delivery of this podcast',dl_need:{approved:'Profile approved (step 06)',verified:'Telegram verified',consent:'Your consent below'},dl_consent:'I want to get this podcast in my Telegram ({when}). I can stop it at any time.',dl_on:'Turn on delivery',dl_off:'Stop delivery',dl_active:'Delivery is on since {date}.',dl_paused:'Delivery paused: the profile changed, approve it again.',dl_sample:'Send the demo to Telegram',dl_sample_need:'Play the Gemini demo first (step 05).',dl_sample_sent:'Demo sent to your Telegram.',dl_note:'To be honest: regular personal episodes for listeners are not generated automatically yet. Delivery stores your consent and schedule; episodes arrive as soon as generation runs.',tg_err:{send_limit:'Too many messages today; try tomorrow.',telegram_send_failed:'Telegram refused the message. Send /start to the bot first, then try again.',telegram_not_configured:'The Telegram bot is not set up.',profile_not_approved:'Approve the profile first (step 06).',telegram_not_linked:'Connect Telegram first.',consent_required:'Tick the consent box.',delivery_off:'Turn on delivery first.',demo_not_ready:'The demo is not ready yet.',signed_out:'Sign in again.'},acc_h:'Sign in and keep your podcast',acc_hint:'Sign in with Google or Telegram: your podcast is saved and you get a personal page you can share.',acc_privacy:'We keep only your name, how you signed in, your settings and (for Telegram) the chat for future delivery. No email, no photo. One button deletes it all.',acc_save:'Save my podcast',acc_page:'Copy my page link',acc_logout:'Sign out',acc_delete:'Delete my data',acc_via:{telegram:'via Telegram',google:'via Google'},acc_saved:'Saved. Your page: ',acc_copied:'Your page link is copied.',acc_need_save:'Save your podcast first.',acc_deleted:'Your data is deleted.',acc_confirm_delete:'Delete your MyCast account and saved podcast? This cannot be undone.',acc_fail:'Sign-in failed. Please try again.',acc_missing:'This podcast was not found or is not saved yet.',tg_linked:'Telegram linked ✓, delivery is in step 07',tg_login:'Sign in with Telegram',gm:{queued:'Preparing the script',voicing:'Gemini is voicing two hosts',ready:'Ready: playing the Gemini demo',approx:'≈'},gm_fail:{daily_limit:'Today\'s Gemini demo limit is used up; playing the browser voice.',client_limit:'You have heard a few demos today; playing the browser voice.',not_configured:'The Gemini voice is not set up; playing the browser voice.',offline:'The demo server is unreachable; playing the browser voice.',failed:'Gemini could not voice it; playing the browser voice.'},gm_playing:'Playing a demo voiced by Gemini (a demo, not a real episode).',preview:'Play demo',stop:'Stop',download:'Download audio',
+  prev_h:'Listen',voice_pick_h:{narrator:'Host voice (male)',a:'Host 1 · male voice',b:'Host 2 · female voice'},voice_pick_sub:'Press ▶ to hear a real Gemini sample. Gender is by ear (unofficial).',voice_left:'New samples left today: ',voice_site_only:'Voice samples are available on the MyCast site.',voice_gen:'Gemini is voicing the "{name}" sample…',voice_unavail:'The "{name}" sample is unavailable right now ({reason}).',voice_limit:'Today\'s limit for new samples is used up; ready ones still play.',voice_play:'Play sample',tg_h:'Telegram and delivery',tg_cta:'Connect to my Telegram',tg_need_site:'Telegram connection works on the MyCast site.',tg_linked_unverified:'Telegram is linked. Check the connection:',tg_test:'Send a test message',tg_verified:'✓ Telegram connected and verified',tg_test_sent:'Done: check Telegram, we sent one message.',dl_h:'Delivery of this podcast',dl_need:{approved:'Profile approved (step 06)',verified:'Telegram verified',consent:'Your consent below'},dl_consent:'I want to get this podcast in my Telegram ({when}). I can stop it at any time.',dl_on:'Turn on delivery',dl_off:'Stop delivery',dl_active:'Delivery is on since {date}.',dl_paused:'Delivery paused: the profile changed, approve it again.',dl_sample:'Send the demo to Telegram',dl_sample_need:'Play the Gemini demo first (step 05).',dl_sample_sent:'Demo sent to your Telegram.',dl_note:'Every day at your time the server builds an episode on your topics (fresh news with sources) and sends it only to your Telegram. You can stop it at any time.',dl_state:{due:'Today\'s episode is queued for preparation.',in_progress:'Preparing today\'s episode…',waiting:'Next episode: today at {d}.',delivered:'✓ Today\'s episode was sent.',not_today:'No episode today on your schedule.',failed_today:'Today\'s episode could not be made ({d}). We will try tomorrow.',bad_profile:'The profile could not be read; save and approve it again.'},dl_last:{sent:'Last episode: {date}, sent.',failed:'Last episode: {date}, failed ({r}).'},tg_err:{send_limit:'Too many messages today; try tomorrow.',telegram_send_failed:'Telegram refused the message. Send /start to the bot first, then try again.',telegram_not_configured:'The Telegram bot is not set up.',profile_not_approved:'Approve the profile first (step 06).',telegram_not_linked:'Connect Telegram first.',consent_required:'Tick the consent box.',delivery_off:'Turn on delivery first.',demo_not_ready:'The demo is not ready yet.',signed_out:'Sign in again.'},acc_h:'Sign in and keep your podcast',acc_hint:'Sign in with Google or Telegram: your podcast is saved and you get a personal page you can share.',acc_privacy:'We keep only your name, how you signed in, your settings and (for Telegram) the chat for future delivery. No email, no photo. One button deletes it all.',acc_save:'Save my podcast',acc_page:'Copy my page link',acc_logout:'Sign out',acc_delete:'Delete my data',acc_via:{telegram:'via Telegram',google:'via Google'},acc_saved:'Saved. Your page: ',acc_copied:'Your page link is copied.',acc_need_save:'Save your podcast first.',acc_deleted:'Your data is deleted.',acc_confirm_delete:'Delete your MyCast account and saved podcast? This cannot be undone.',acc_fail:'Sign-in failed. Please try again.',acc_missing:'This podcast was not found or is not saved yet.',tg_linked:'Telegram linked ✓, delivery is in step 07',tg_login:'Sign in with Telegram',gm:{queued:'Preparing the script',voicing:'Gemini is voicing two hosts',ready:'Ready: playing the Gemini demo',approx:'≈'},gm_fail:{daily_limit:'Today\'s Gemini demo limit is used up; playing the browser voice.',client_limit:'You have heard a few demos today; playing the browser voice.',not_configured:'The Gemini voice is not set up; playing the browser voice.',offline:'The demo server is unreachable; playing the browser voice.',failed:'Gemini could not voice it; playing the browser voice.'},gm_playing:'Playing a demo voiced by Gemini (a demo, not a real episode).',preview:'Play demo',stop:'Stop',download:'Download audio',
   appr_h:'Approval',review:'I listened: mark as reviewed',confirm:'I approve this profile (this does not turn on delivery)',approve:'Approve',
   json_h:'Profile JSON',json_hint:'Exactly what a backend would receive. active stays false until a real scheduler exists.',
   dna_h:'Your podcast DNA',dna_topics:'topics picked',dna_geo:'Geography',dna_watch:'Following',dna_when:'When',dna_voice:'Voice',dna_ch:'Channel',dna_none:'—',
@@ -713,6 +778,33 @@ const GROW = {
    ['Gift a podcast: set one up for your mum or a friend and send it as a present',0],['A podcast for two: a joint episode with a friend about the topics you share',0],['A weekly "Wrapped": your topics of the week as a card worth sharing',0],
    ['Listening streak: 7 days in a row earns +1 free day',0],['Group podcasts for Telegram chats: a club, a team, a family',0],['Ambassador badges and an invite leaderboard',0],['Google Calendar in the episode: friends\' birthdays and your meetings of the day',0]],ideas_on:'live',ideas_off:'plan'}};
 for (const l of Object.keys(GROW)) Object.assign(T[l], GROW[l]);
+/* Owner request 2026-11-11: episode timeline, Google Calendar invitation, signed-in header. */
+const PLAN_T = {
+ uk:{plan_h:'Ваш випуск по хвилинах',plan_hint:'Перетягуйте блоки, щоб змінити порядок. Торкніться блоку — і змініть тривалість. Витягніть блок за межі смуги, щоб прибрати його.',
+  plan_keys:'Клавіатура: фокус на блоці, Alt+← / Alt+→ — перемістити, + / − — тривалість, Delete — прибрати.',plan_total:'Разом {t} з {l}',plan_free:'вільно {d}',
+  plan_over:'Випуск довший за обраний на {d}. Скоротіть або приберіть блоки чи оберіть довший випуск у кроці 03.',plan_over_max:'Випуск довший за обраний на {d}. Скоротіть або приберіть блоки.',
+  plan_limit:'ліміт',plan_minus:'−15 с',plan_plus:'+15 с',plan_earlier:'← Раніше',plan_later:'Пізніше →',plan_remove:'✕ Прибрати',plan_restore:'Відновити',plan_removed_h:'Прибрані:',
+  plan_locked:'Привітання завжди звучить першим: його можна лише скоротити чи подовжити.',plan_gone:'Блок «{n}» прибрано — його можна відновити нижче.',plan_back:'Блок «{n}» повернуто.',plan_moved:'«{n}» — тепер на місці {i}.',plan_len:'«{n}»: {t}.',
+  plan_seg:'{n}, {t}. Alt і стрілки — перемістити, плюс і мінус — тривалість, Delete — прибрати.',plan_seg_lock:'{n}, {t}. Завжди перше.',
+  cal_invite:'Додайте свій Google Календар, щоб не пропустити важливі зустрічі й дні народження друзів',cal_status:'не підключено',cal_end:'Календар звучить наприкінці випуску.',
+  me_sub:'Ваш персональний подкаст MyCast',ai_mark:'Підказка від AI'},
+ ru:{plan_h:'Ваш выпуск по минутам',plan_hint:'Перетаскивайте блоки, чтобы изменить порядок. Коснитесь блока — и измените длительность. Вытащите блок за пределы полосы, чтобы убрать его.',
+  plan_keys:'Клавиатура: фокус на блоке, Alt+← / Alt+→ — переместить, + / − — длительность, Delete — убрать.',plan_total:'Всего {t} из {l}',plan_free:'свободно {d}',
+  plan_over:'Выпуск длиннее выбранного на {d}. Сократите или уберите блоки либо выберите более длинный выпуск в шаге 03.',plan_over_max:'Выпуск длиннее выбранного на {d}. Сократите или уберите блоки.',
+  plan_limit:'лимит',plan_minus:'−15 с',plan_plus:'+15 с',plan_earlier:'← Раньше',plan_later:'Позже →',plan_remove:'✕ Убрать',plan_restore:'Вернуть',plan_removed_h:'Убранные:',
+  plan_locked:'Приветствие всегда звучит первым: его можно только сократить или удлинить.',plan_gone:'Блок «{n}» убран — его можно вернуть ниже.',plan_back:'Блок «{n}» возвращён.',plan_moved:'«{n}» — теперь на месте {i}.',plan_len:'«{n}»: {t}.',
+  plan_seg:'{n}, {t}. Alt и стрелки — переместить, плюс и минус — длительность, Delete — убрать.',plan_seg_lock:'{n}, {t}. Всегда первое.',
+  cal_invite:'Добавьте свой Google Календарь, чтобы не пропустить важные встречи и дни рождения друзей',cal_status:'не подключено',cal_end:'Календарь звучит в конце выпуска.',
+  me_sub:'Ваш персональный подкаст MyCast',ai_mark:'Подсказка от AI'},
+ en:{plan_h:'Your episode, minute by minute',plan_hint:'Drag the blocks to change the order. Tap a block to change its length. Drag a block out of the strip to remove it.',
+  plan_keys:'Keyboard: focus a block, Alt+← / Alt+→ to move, + / − for length, Delete to remove.',plan_total:'Total {t} of {l}',plan_free:'{d} free',
+  plan_over:'The episode is {d} longer than you chose. Shorten or remove blocks, or pick a longer episode in step 03.',plan_over_max:'The episode is {d} longer than you chose. Shorten or remove blocks.',
+  plan_limit:'limit',plan_minus:'−15 s',plan_plus:'+15 s',plan_earlier:'← Earlier',plan_later:'Later →',plan_remove:'✕ Remove',plan_restore:'Restore',plan_removed_h:'Removed:',
+  plan_locked:'The greeting always comes first: you can only make it shorter or longer.',plan_gone:'"{n}" removed. You can restore it below.',plan_back:'"{n}" is back.',plan_moved:'"{n}" is now at position {i}.',plan_len:'"{n}": {t}.',
+  plan_seg:'{n}, {t}. Alt and arrows to move, plus and minus for length, Delete to remove.',plan_seg_lock:'{n}, {t}. Always first.',
+  cal_invite:'Add your Google Calendar so you never miss important meetings and friends\' birthdays',cal_status:'not connected',cal_end:'The calendar is read out at the end of the episode.',
+  me_sub:'Your personal MyCast podcast',ai_mark:'AI suggestion'}};
+for (const l of Object.keys(PLAN_T)) Object.assign(T[l], PLAN_T[l]);
 
 const COLORS = { sports:'#ff7a6b', tech:'#4fe3ff', news:'#a78bfa', business:'#fbbf24', health:'#34d399', culture:'#f472b6', travel:'#60a5fa', science:'#818cf8', auto:'#fb923c', hobbies:'#a3e635' };
 const $ = s => document.querySelector(s);
@@ -892,8 +984,8 @@ function render() {
       (ch === 'telegram' ? `<span class="tag pri">${esc(x.primary)}</span>` : '') + `<span class="tag ${tag}">${esc(x.chs[st.reason || 'ready'])}</span></span><span class="why">${esc(x.chw[ch])}</span></label>`; }).join('') +
     `<button type="button" class="btn" id="tgDeliver" ${listener && listener.telegram_linked ? 'disabled' : ''}>${ICONS.telegram.replace('<svg ', '<svg width="16" height="16" style="vertical-align:-3px;margin-right:6px" ')}${esc(listener && listener.telegram_linked ? x.tg_linked : (account.telegram_bot ? x.tg_login : x.tg_soon))}</button>`;
   $('#importBanner').hidden = !sharedProfile;
-  renderAccount(); renderVoices(); renderTelegram(); renderGrowth();
-  const gcal = '<svg class="gcal" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3" fill="#fff"/><path d="M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v2H3z" fill="#4285f4"/><rect x="7" y="2" width="2" height="4" rx="1" fill="#1a73e8"/><rect x="15" y="2" width="2" height="4" rx="1" fill="#1a73e8"/><rect x="6" y="12" width="3" height="3" fill="#ea4335"/><rect x="10.5" y="12" width="3" height="3" fill="#fbbc04"/><rect x="15" y="12" width="3" height="3" fill="#34a853"/><rect x="6" y="16.5" width="3" height="3" fill="#4285f4"/></svg>';
+  renderAccount(); renderVoices(); renderTelegram(); renderGrowth(); renderMe(); renderPlan();
+  const gcal = GCAL;
   $('#episodeParts').innerHTML = x.parts.map(([n, h, sub, cal]) => `<li>${cal ? gcal : `<b>${esc(n)}</b>`}<span>${esc(h)}${sub ? ` <small>· ${esc(sub)}</small>` : ''}</span></li>`).join('');
   $('#calBirthdays').checked = !!(profile.calendar || {}).birthdays; $('#calEvents').checked = !!(profile.calendar || {}).events;
   $('#shareNative').hidden = !navigator.share;
@@ -995,17 +1087,45 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('focusout', e => { const el = e.target; if (el.dataset && el.dataset.own && el.value.trim()) addOwn(el); });
 document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.cat && !$('#search').value.trim()) { d.open ? openCats.add(d.dataset.cat) : openCats.delete(d.dataset.cat); } }, true);
-$('#search').addEventListener('input', renderTaxonomy);
+$('#search').addEventListener('input', () => { renderTaxonomy(); requestSubtopics(); });
 $('#search').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); renderTaxonomy(); const b = document.querySelector('#narrow button'); if (b) b.focus(); } });
 let narrowMsg = '';
+/* Owner request 2026-11-11: narrower sub-topics may come from GET /api/mycast/subtopics (Gemini, a cache or server
+   templates). Typing is never blocked: local templates show at once; server suggestions replace them if they arrive.
+   A 404, 429, 5xx or an offline page is silent and simply keeps the local list. One request per query and language. */
+const subCache = new Map();
+let subTimer = 0;
+const subKey = q => lang + '|' + String(q || '').trim().toLowerCase();
+function requestSubtopics() {
+  clearTimeout(subTimer);
+  const q = $('#search').value.trim(), key = subKey(q), l = lang;
+  if (q.length < 2 || !/^https?:$/.test(location.protocol) || subCache.has(key)) return;
+  subTimer = setTimeout(async () => {
+    subCache.set(key, null);
+    try {
+      const r = await fetch('/api/mycast/subtopics?q=' + encodeURIComponent(q) + '&lang=' + encodeURIComponent(l), { headers: { Accept: 'application/json' } });
+      if (!r.ok) return;
+      const d = await r.json();
+      const topics = MyCast.cleanSubtopics(d && d.topics);
+      if (!topics.length) return;
+      subCache.set(key, { topics, ai: d.source === 'gemini' || d.source === 'cache' });
+      if (subKey($('#search').value) === key) renderTaxonomy();
+    } catch (e) { /* not deployed yet or offline: the local templates stay */ }
+  }, 500);
+}
 function renderNarrow(q, hitCount) {
-  const box = $('#narrow'), x = t(), list = MyCast.suggestSubtopics(q, lang);
+  const box = $('#narrow'), x = t(), srv = subCache.get(subKey(q)), ai = new Set();
+  let list = MyCast.suggestSubtopics(q, lang);
+  if (srv && list.length) {
+    list = [list[0], ...srv.topics.filter(v => v.toLowerCase() !== list[0].toLowerCase())];
+    if (srv.ai) srv.topics.forEach(v => ai.add(v));
+  }
   box.hidden = !list.length;
   if (!list.length) { narrowMsg = ''; return; }
   const gk = MyCast.guessGroup(q, lang), own = (profile.custom || {})[gk] || [], full = own.length >= MyCast.MAX_CUSTOM_PER_GROUP;
   const head = (hitCount ? x.narrow_h : x.narrow_none).replace('{q}', q.trim());
   box.innerHTML = `<p>${esc(head)}</p><div class="chips">` + list.map(v => { const on = own.some(o => o.toLowerCase() === v.toLowerCase());
-    return `<button type="button" data-narrow="${esc(v)}" aria-pressed="${on}" ${!on && full ? 'disabled' : ''}>${on ? '✓ ' : '+ '}${esc(v)}</button>`; }).join('') +
+    return `<button type="button" data-narrow="${esc(v)}" aria-pressed="${on}" ${!on && full ? 'disabled' : ''}>${on ? '✓ ' : '+ '}${esc(v)}${ai.has(v) ? `<span class="ai" title="${esc(x.ai_mark)}">✨ AI</span>` : ''}</button>`; }).join('') +
     `</div>` + (narrowMsg ? `<p class="msg ok" role="status">${esc(narrowMsg)}</p>` : '');
 }
 $('#narrow').addEventListener('click', e => {
@@ -1052,7 +1172,10 @@ function fromJSON(j) {
   for (const c of j.custom || []) if (MyCast.GROUPS[c.group]) for (const v of c.items || []) p = MyCast.addCustom(p, c.group, v);
   for (const f of j.follows || []) { try { p = MyCast.addFollow(p, f.platform, f.value); } catch (e) {} }
   const code = MyCast.encodeShare({ ...p, schedule: { ...p.schedule, ...(j.schedule || {}) }, voice: { ...p.voice, ...(j.voice || {}) },
-    delivery: (j.delivery || {}).channel || 'telegram', freeText: j.free_text || '' });
+    delivery: (j.delivery || {}).channel || 'telegram', freeText: j.free_text || '',
+    calendar: { birthdays: !!(j.calendar || {}).birthdays, events: !!(j.calendar || {}).events },
+    // the episode timeline: active blocks in order, then the removed ones (the share code re-validates both)
+    plan: Array.isArray(j.plan) ? [...j.plan.map(i => ({ id: i && i.id, sec: i && i.sec })), ...(Array.isArray(j.plan_removed) ? j.plan_removed : []).map(id => ({ id, off: true }))] : null });
   return MyCast.decodeShare(code);   // decode re-validates schedule, voice and channel
 }
 $('#impUse').addEventListener('click', () => { const next = sharedProfile; sharedProfile = null; history.replaceState(null, '', location.pathname); change(next); });
@@ -1141,7 +1264,7 @@ function renderAccount() {
   box.hidden = !(account.telegram_bot || account.google_client_id || on);
   $('#accOut').hidden = on; $('#accIn').hidden = !on;
   if (on) {
-    $('#accName').textContent = listener.name; $('#accAv').textContent = (listener.name || '?').slice(0, 1).toUpperCase();
+    $('#accName').textContent = listener.name; $('#accAv').textContent = initials(listener.name);
     $('#accVia').textContent = x.acc_via[listener.provider] || '';
   }
 }
@@ -1281,6 +1404,9 @@ function renderTelegram() {
     html += `<p class="status ok">${esc(x.dl_active.replace('{date}', new Date((d.since || 0) * 1000).toLocaleDateString(lang)))}</p>` +
       `<div class="btns"><button type="button" class="btn" id="dlOff">${esc(x.dl_off)}</button>` +
       `<button type="button" class="btn" id="dlSample" ${lastDemoJob ? '' : 'disabled'} title="${esc(lastDemoJob ? '' : x.dl_sample_need)}">${esc(x.dl_sample)}</button></div>`;
+    const st = L.status || {}, last = st.last;  // #317: the server's real state of today's episode
+    if (x.dl_state[st.state]) html += `<p class="status ${st.state === 'failed_today' || st.state === 'bad_profile' ? 'bad' : 'ok'}">${esc(x.dl_state[st.state].replace('{d}', st.detail || ''))}</p>`;
+    if (last && x.dl_last[last.status]) html += `<p class="hint">${esc(x.dl_last[last.status].replace('{date}', last.date).replace('{r}', last.reason || ''))}</p>`;
   } else {
     if (d.paused_reason === 'profile_changed') html += `<p class="status bad">${esc(x.dl_paused)}</p>`;
     html += `<ul class="tgList"><li class="${approved ? 'ok' : ''}">${approved ? '✓' : '○'} ${esc(x.dl_need.approved)}</li>` +
@@ -1361,6 +1487,179 @@ $('#inviteBtn').addEventListener('click', async () => {
   if (navigator.share) { try { await navigator.share({ title: 'MyCast', text: x.inv_text, url: link }); return; } catch (e) {} }
   const ok = await copyText(text); accMsg(ok ? x.inv_copied + link : link, ok);
 });
+
+/* Episode timeline (owner request 2026-11-11). Pure plan logic lives in configurator.js; this is only the strip.
+   Pointer Events cover mouse, touch and pen: a short move starts a drag, a drop outside the strip removes the block
+   (with a small evaporate animation), a tap selects it for the −15 s / +15 s controls. Keyboard: Alt+arrows, +/−, Delete. */
+const GCAL = '<svg class="gcal" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3" fill="#fff"/><path d="M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v2H3z" fill="#4285f4"/><rect x="7" y="2" width="2" height="4" rx="1" fill="#1a73e8"/><rect x="15" y="2" width="2" height="4" rx="1" fill="#1a73e8"/><rect x="6" y="12" width="3" height="3" fill="#ea4335"/><rect x="10.5" y="12" width="3" height="3" fill="#fbbc04"/><rect x="15" y="12" width="3" height="3" fill="#34a853"/><rect x="6" y="16.5" width="3" height="3" fill="#4285f4"/></svg>';
+const SEG_COLORS = { greet: '#8b7bff', news: '#a78bfa', interests: '#4fe3ff', cal: '#4285f4' };
+const FOLLOW_COLORS = { youtube: '#ff3b30', x: '#a3abc9', telegram: '#29a9eb', instagram: '#e1306c', tiktok: '#25f4ee', facebook: '#1877f2', web: '#3ee6c1' };
+let planSel = '', drag = null;
+function initials(name) { const w = String(name || '').trim().split(/\s+/).filter(Boolean); return w.length ? (w[0][0] + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase() : '?'; }
+function renderMe() {
+  const on = !!listener;
+  $('#hero').hidden = on; $('#meHero').hidden = !on;          // signed in: the project intro gives way to the listener
+  if (on) { $('#meAv').textContent = initials(listener.name); $('#meName').textContent = listener.name || ''; }
+}
+function fmtSec(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function segName(item) { return MyCast.planLabel(item, lang); }
+function fill(tpl, o) { return tpl.replace(/\{(\w+)\}/g, (m, k) => (k in o ? o[k] : m)); }
+function renderPlan() {
+  const x = t(), items = MyCast.planFromProfile(profile), removed = MyCast.planRemoved(profile);
+  const total = MyCast.planTotal(items), limit = MyCast.planLimitSec(profile), span = Math.max(total, limit, 1);
+  const strip = $('#strip'), track = $('#track'), gap = 6;
+  // Width follows length. On a narrow phone a floor of 0.75 px per second keeps lengths readable; the strip then scrolls.
+  const MINW = 64, avail = Math.max(240, strip.clientWidth - 20 - gap * Math.max(0, items.length - 1));
+  let pps = avail / span;
+  const small = items.filter(i => i.sec * pps < MINW);                 // short blocks take their minimum; the rest share what is left
+  if (small.length) pps = Math.max(0.1, (avail - MINW * small.length) / Math.max(1, span - MyCast.planTotal(small)));
+  pps = Math.max(pps, 0.75);
+  $('#calInvite').innerHTML = GCAL + esc(x.cal_invite);
+  if (planSel && !items.some(i => i.id === planSel)) planSel = '';
+  let cum = 0;
+  track.innerHTML = items.map(it => {
+    const w = Math.max(MINW, Math.round(it.sec * pps)), past = cum + it.sec > limit, name = segName(it);
+    cum += it.sec;
+    const col = it.kind === 'follow' ? (FOLLOW_COLORS[it.platform] || '#3ee6c1') : SEG_COLORS[it.kind];
+    const aria = fill(it.locked ? x.plan_seg_lock : x.plan_seg, { n: name, t: fmtSec(it.sec) }) + (it.kind === 'cal' ? ' ' + x.cal_invite : '');
+    return `<div class="seg${it.locked ? ' locked' : ''}${planSel === it.id ? ' sel' : ''}${past ? ' past' : ''}" role="listitem" tabindex="0" data-seg="${esc(it.id)}" data-kind="${it.kind}"` +
+      ` style="--c:${col};width:${w}px" aria-label="${esc(aria)}" title="${esc(it.kind === 'cal' ? x.cal_invite : name)}"><b>${esc(name)}</b><span>${fmtSec(it.sec)}</span></div>`;
+  }).join('');
+  // Where the chosen episode length ends: inside the block that crosses it, or in the free space after the last block.
+  const segs = [...track.querySelectorAll('.seg')];
+  let pos = null, c = 0;
+  for (let i = 0; i < items.length; i++) {
+    if (c + items[i].sec >= limit && total > limit) { pos = segs[i].offsetLeft + (limit - c) / items[i].sec * segs[i].offsetWidth; break; }
+    c += items[i].sec;
+  }
+  if (pos === null && segs.length) { const last = segs[segs.length - 1]; pos = Math.min(track.scrollWidth - 2, last.offsetLeft + last.offsetWidth + gap + (limit - total) * pps); }
+  if (pos !== null) track.insertAdjacentHTML('beforeend', `<span class="limitMark" style="left:${pos.toFixed(0)}px" aria-hidden="true"><i>${esc(x.plan_limit)} ${fmtSec(limit)}</i></span>`);
+  const over = total - limit, sum = $('#planSum');
+  sum.className = 'planSum' + (over > 0 ? ' over' : '');
+  sum.innerHTML = esc(fill(x.plan_total, { t: fmtSec(total), l: fmtSec(limit) })) + (over > 0 ? '' : ` <small>· ${esc(fill(x.plan_free, { d: fmtSec(-over) }))}</small>`);
+  const warn = $('#planWarn'); warn.hidden = over <= 0;
+  if (over > 0) warn.textContent = '⚠ ' + fill(profile.schedule.durationMin < Math.max(...MyCast.DURATIONS) ? x.plan_over : x.plan_over_max, { d: fmtSec(over) });
+  // The selected block's controls.
+  const ed = $('#planEdit'), i = items.findIndex(it => it.id === planSel), it = items[i];
+  ed.hidden = !it;
+  if (it) {
+    const name = segName(it);
+    ed.innerHTML = `<div class="peTop"><b>${esc(name)}</b><span class="t">${fmtSec(it.sec)}</span></div>` +
+      (it.kind === 'cal' ? `<p class="peCal">${GCAL}${esc(x.cal_invite)}</p><p class="hint small">${esc(x.cal_end)} · <span class="tag no">${esc(x.cal_status)}</span></p>` : '') +
+      `<div class="btns"><button class="btn" type="button" data-pe="minus" aria-label="${esc(x.plan_minus + ': ' + name)}" ${it.sec <= MyCast.PLAN_MIN_SEC ? 'disabled' : ''}>${esc(x.plan_minus)}</button>` +
+      `<button class="btn" type="button" data-pe="plus" aria-label="${esc(x.plan_plus + ': ' + name)}" ${it.sec >= MyCast.PLAN_MAX_SEC ? 'disabled' : ''}>${esc(x.plan_plus)}</button>` +
+      (it.locked ? '' : `<button class="btn" type="button" data-pe="left" ${i <= 1 ? 'disabled' : ''}>${esc(x.plan_earlier)}</button><button class="btn" type="button" data-pe="right" ${i >= items.length - 1 ? 'disabled' : ''}>${esc(x.plan_later)}</button>` +
+        `<button class="btn" type="button" data-pe="remove" aria-label="${esc(x.plan_remove + ': ' + name)}">${esc(x.plan_remove)}</button>`) + '</div>' +
+      (it.locked ? `<p class="hint small">${esc(x.plan_locked)}</p>` : '');
+  }
+  const rm = $('#planRemoved'); rm.hidden = !removed.length;
+  rm.innerHTML = removed.length ? `<span class="lab">${esc(x.plan_removed_h)}</span>` + removed.map(r => `<button type="button" class="restore" data-restore="${esc(r.id)}" aria-label="${esc(x.plan_restore + ': ' + segName(r))}">↺ ${esc(segName(r))} · ${fmtSec(r.sec)}</button>`).join('') : '';
+}
+function segEl(id) { return [...$('#track').querySelectorAll('.seg')].find(s => s.dataset.seg === id) || null; }
+function planChange(next, msg, focusId) {
+  if (next === profile) return false;
+  change(next);
+  const m = $('#planMsg'); m.className = 'msg ok'; m.textContent = msg || '';
+  const el = focusId && segEl(focusId);
+  if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+  return true;
+}
+function selectSeg(id) { planSel = planSel === id ? '' : id; renderPlan(); const el = segEl(id); if (el) el.focus({ preventScroll: true }); }
+function evaporate(el, done) {
+  let fired = false; const fin = () => { if (!fired) { fired = true; done(); } };
+  if (calm || !el) { fin(); return; }
+  const r = el.getBoundingClientRect(), col = getComputedStyle(el).getPropertyValue('--c').trim() || '#8b7bff';
+  el.classList.remove('drag', 'out'); el.classList.add('poof');
+  for (let i = 0; i < 10; i++) {
+    const s = document.createElement('i'), a = i / 10 * Math.PI * 2 + Math.random() * 0.5, d = 28 + Math.random() * 42;
+    s.className = 'spark'; s.setAttribute('aria-hidden', 'true');
+    s.style.cssText = `left:${(r.left + r.width / 2).toFixed(0)}px;top:${(r.top + r.height / 2).toFixed(0)}px;--c:${col};--dx:${(Math.cos(a) * d).toFixed(0)}px;--dy:${(Math.sin(a) * d).toFixed(0)}px`;
+    document.body.appendChild(s); setTimeout(() => s.remove(), 700);
+  }
+  el.addEventListener('animationend', fin, { once: true }); setTimeout(fin, 650);
+}
+function removeSeg(id) {
+  const it = MyCast.planFromProfile(profile).find(x => x.id === id);
+  if (!it) return;
+  if (it.locked) { const m = $('#planMsg'); m.className = 'msg'; m.textContent = t().plan_locked; return; }
+  const items = MyCast.planFromProfile(profile), i = items.findIndex(x => x.id === id), after = (items[i + 1] || items[i - 1] || {}).id;
+  evaporate(segEl(id), () => { if (planSel === id) planSel = ''; planChange(MyCast.removePlanItem(profile, id), fill(t().plan_gone, { n: segName(it) }), after); });
+}
+function moveSeg(id, to) {
+  const next = MyCast.movePlanItem(profile, id, to), it = MyCast.planFromProfile(profile).find(x => x.id === id);
+  const at = MyCast.planFromProfile(next).findIndex(x => x.id === id) + 1;
+  return planChange(next, it ? fill(t().plan_moved, { n: segName(it), i: at }) : '', id);
+}
+function resizeSeg(id, delta) {
+  const it = MyCast.planFromProfile(profile).find(x => x.id === id); if (!it) return;
+  const next = MyCast.setPlanDuration(profile, id, it.sec + delta);
+  planChange(next, fill(t().plan_len, { n: segName(it), t: fmtSec(Math.min(MyCast.PLAN_MAX_SEC, Math.max(MyCast.PLAN_MIN_SEC, it.sec + delta))) }), id);
+}
+(() => {
+  const track = $('#track'), strip = $('#strip'), wrap = $('#stripWrap');
+  const clearDrag = d => { wrap.classList.remove('dropping'); const mk = track.querySelector('.dropMark'); if (mk) mk.remove(); if (d && d.el) { d.el.classList.remove('drag', 'out'); d.el.style.translate = ''; } };
+  track.addEventListener('pointerdown', e => {
+    const el = e.target.closest('.seg'); if (!el || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    drag = { id: el.dataset.seg, el, x0: e.clientX, y0: e.clientY, pid: e.pointerId, moved: false, locked: el.classList.contains('locked'), to: -1, out: false, sl0: strip.scrollLeft };
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  track.addEventListener('pointermove', e => {
+    const d = drag; if (!d || e.pointerId !== d.pid) return;
+    const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+    if (!d.moved) { if (d.locked || Math.hypot(dx, dy) < 6) return; d.moved = true; d.el.classList.add('drag'); }
+    e.preventDefault();
+    const r = wrap.getBoundingClientRect(), pad = 28;
+    if (e.clientX > r.right - 32) strip.scrollLeft += 14; else if (e.clientX < r.left + 32) strip.scrollLeft -= 14;   // reach far blocks
+    d.el.style.translate = `${(dx + strip.scrollLeft - d.sl0).toFixed(0)}px ${dy.toFixed(0)}px`;
+    d.out = e.clientY < r.top - pad || e.clientY > r.bottom + pad || e.clientX < r.left - pad || e.clientX > r.right + pad;
+    d.el.classList.toggle('out', d.out); wrap.classList.toggle('dropping', d.out);
+    const others = [...track.querySelectorAll('.seg')].filter(s => s !== d.el);
+    let to = 0; for (const s of others) { const b = s.getBoundingClientRect(); if (e.clientX > b.left + b.width / 2) to++; }
+    d.to = Math.max(1, to);
+    let mk = track.querySelector('.dropMark');
+    if (d.out) { if (mk) mk.remove(); return; }
+    if (!mk) { mk = document.createElement('span'); mk.className = 'dropMark'; mk.setAttribute('aria-hidden', 'true'); track.appendChild(mk); }
+    const ref = others[d.to], last = others[others.length - 1];
+    mk.style.left = (ref ? ref.offsetLeft : last ? last.offsetLeft + last.offsetWidth + 6 : 0) + 'px';
+  });
+  const end = (e, cancel) => {
+    const d = drag; if (!d || e.pointerId !== d.pid) return;
+    drag = null;
+    if (!d.moved) { clearDrag(null); if (!cancel) selectSeg(d.id); return; }
+    if (cancel) { clearDrag(d); return; }
+    if (d.out) { wrap.classList.remove('dropping'); const mk = track.querySelector('.dropMark'); if (mk) mk.remove(); removeSeg(d.id); return; }
+    clearDrag(d);
+    moveSeg(d.id, d.to);
+  };
+  track.addEventListener('pointerup', e => end(e, false));
+  track.addEventListener('pointercancel', e => end(e, true));
+  track.addEventListener('keydown', e => {
+    const el = e.target.closest('.seg'); if (!el) return;
+    const id = el.dataset.seg, items = MyCast.planFromProfile(profile), i = items.findIndex(x => x.id === id), it = items[i];
+    if (!it) return;
+    const arrow = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+    if (arrow && e.altKey) { e.preventDefault(); if (it.locked) { removeSeg(id); return; } moveSeg(id, i + arrow); }
+    else if (arrow) { e.preventDefault(); const sib = items[i + arrow]; if (sib) segEl(sib.id).focus(); }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeSeg(id); }
+    else if (e.key === '+' || e.key === '=' || e.key === '-' || e.key === '_') { e.preventDefault(); resizeSeg(id, (e.key === '+' || e.key === '=' ? 1 : -1) * MyCast.PLAN_STEP_SEC); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectSeg(id); }
+  });
+  $('#planEdit').addEventListener('click', e => {
+    const b = e.target.closest('[data-pe]'); if (!b || b.disabled || !planSel) return;
+    const id = planSel, i = MyCast.planFromProfile(profile).findIndex(x => x.id === id);
+    if (b.dataset.pe === 'minus' || b.dataset.pe === 'plus') resizeSeg(id, (b.dataset.pe === 'plus' ? 1 : -1) * MyCast.PLAN_STEP_SEC);
+    else if (b.dataset.pe === 'left' || b.dataset.pe === 'right') moveSeg(id, i + (b.dataset.pe === 'left' ? -1 : 1));
+    else if (b.dataset.pe === 'remove') removeSeg(id);
+    const again = document.querySelector(`#planEdit [data-pe="${b.dataset.pe}"]`); if (again && !again.disabled && b.dataset.pe !== 'remove') again.focus();
+  });
+  $('#planRemoved').addEventListener('click', e => {
+    const b = e.target.closest('[data-restore]'); if (!b) return;
+    const r = MyCast.planRemoved(profile).find(x => x.id === b.dataset.restore); if (!r) return;
+    planChange(MyCast.restorePlanItem(profile, r.id), fill(t().plan_back, { n: segName(r) }), r.id);
+  });
+  let rz = 0;
+  window.addEventListener('resize', () => { if (!rz) rz = requestAnimationFrame(() => { rz = 0; if (!drag) renderPlan(); }); });
+})();
 
 /* Gentle pointer parallax on the aurora (fine pointers only, never in calm mode). */
 if (!calm && mq('(pointer: fine)')) {

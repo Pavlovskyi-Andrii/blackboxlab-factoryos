@@ -114,6 +114,9 @@ def check_routes_and_groups(items):
     return [attr(b[1], "data-nav-id") for b in buttons]
 
 
+PRODUCT_NAMES = {"navGroup.mvp"}
+
+
 def check_locales(tables, nav_ids):
     keys = [f"navGroup.{g}" for g in GROUPS] + ["navGroup.aria"] + [f"navHint.{n}" for n in nav_ids]
     keys += ["navMenu.open", "navMenu.close", "navCrumb.aria", "navCrumb.home"]
@@ -123,7 +126,8 @@ def check_locales(tables, nav_ids):
         for lang in ("uk", "ru"):
             value = tables[lang].get(key)
             require(value, f"{lang} missing {key}")
-            require(value != en, f"{lang} {key} is untranslated EN copy")
+            # Product names stay in English on purpose (owner 2026-11-11: "MVP Builder" in every language).
+            require(value != en or key in PRODUCT_NAMES, f"{lang} {key} is untranslated EN copy")
             require(not FOREIGN_LETTERS[lang].search(value), f"{lang} {key} uses letters from the other language: {value}")
     require(tables["uk"]["navGroup.create"] != tables["ru"]["navGroup.create"], "UK and RU section labels must be distinct copy")
 

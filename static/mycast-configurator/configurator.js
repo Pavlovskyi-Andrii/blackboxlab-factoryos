@@ -104,7 +104,7 @@
   // Owner feedback 2026-11-06: "daily" needs no weekday; otherwise the listener ticks the days (dots).
   const FREQUENCIES = ['daily', 'days'];
   const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-  const DURATIONS = [5, 10, 15];
+  const DURATIONS = Array.from({ length: 30 }, (_, i) => i + 1);   // minutes; owner 2026-11-13: any length up to 30
   const LANGUAGES = ['uk', 'ru', 'en'];
   const VOICES = ['narrator', 'two_hosts'];
   // #281: the 30 prebuilt Gemini TTS voices [name, style, gender by ear]. Must match mycast_voices.VOICES (a test checks).
@@ -231,7 +231,7 @@
     return { version: 1, topics: {}, custom: {}, freeText: '', customSources: [], follows: [],
       schedule: { timezone: 'Europe/Kyiv', time: '07:30', frequency: 'daily', days: [], durationMin: 10 },
       voice: { mode: 'two_hosts', language: 'uk', voices: DEFAULT_VOICES.two_hosts.slice() }, delivery: 'telegram', state: 'draft', preview: null, approvedAt: null,
-      calendar: { birthdays: false, events: false } };
+      calendar: { birthdays: false, events: false }, plan: null };
   }
 
   /* Bring an older saved draft up to date: watch list -> follows (keywords), weekly/manual -> chosen days. */
@@ -252,6 +252,7 @@
     s.days = (Array.isArray(s.days) ? s.days : []).filter(d => WEEKDAYS.includes(d));
     if (!(p.delivery in CHANNELS) || CHANNELS[p.delivery] === 'planned') p.delivery = 'telegram';
     if (!validVoices(p.voice.mode, p.voice.voices)) p.voice = { ...p.voice, voices: (DEFAULT_VOICES[p.voice.mode] || DEFAULT_VOICES.two_hosts).slice() };
+    p.plan = sanitizePlan(saved.plan);   // drafts saved before the timeline have no plan: it is derived from the picks
     return { ...p, state: 'draft', preview: null, approvedAt: null };
   }
 
@@ -353,6 +354,120 @@
     return { ...next, calendar: { ...(next.calendar || { birthdays: false, events: false }), [part]: !!on } };
   }
 
+  /* Owner request 2026-11-11: the episode timeline ("полоса"). The episode is a row of segments derived from the
+     picks: a locked greeting first, one news block (topics and own entries under "News"), one personal-interests block
+     (every other category plus the free-text topic), one block per followed channel, and the Google Calendar block
+     (birthdays or meetings) at the end. profile.plan stores only the listener's edits as [{ id, sec, off }]:
+     order, durations and removed blocks. Segments whose source is deselected are dropped when the plan is read;
+     new segments are added before a trailing calendar block. Nothing here generates or schedules an episode. */
+  const PLAN_MIN_SEC = 15, PLAN_MAX_SEC = 300, PLAN_STEP_SEC = 15, MAX_PLAN_ITEMS = 40;
+  const PLAN_DEFAULT_SEC = { greet: 20, news: 120, interests: 120, follow: 120, cal: 30 };
+  const PLAN_LABELS = { greet: L('Greeting', 'Привітання', 'Приветствие'), news: L('News', 'Новини', 'Новости'),
+    interests: L('My interests', 'Мої інтереси', 'Мои интересы'), cal: L('Google Calendar', 'Google Календар', 'Google Календарь') };
+  const PLATFORM_NAMES = { youtube: L('YouTube', 'YouTube', 'YouTube'), x: L('X', 'X', 'X'), telegram: L('Telegram', 'Telegram', 'Telegram'),
+    instagram: L('Instagram', 'Instagram', 'Instagram'), tiktok: L('TikTok', 'TikTok', 'TikTok'), facebook: L('Facebook', 'Facebook', 'Facebook'), web: L('Web', 'Сайт', 'Сайт') };
+
+  function followSegId(f) { return 'f:' + f.platform + ':' + String(f.value || '').toLowerCase(); }
+  function clampSec(sec) { const n = Math.round(Number(sec)); return Number.isFinite(n) && n > 0 ? Math.min(PLAN_MAX_SEC, Math.max(PLAN_MIN_SEC, n)) : null; }
+  function sanitizePlan(raw) {
+    if (!Array.isArray(raw)) return null;
+    const seen = new Set(), out = [];
+    for (const r of raw) {
+      if (out.length >= MAX_PLAN_ITEMS) break;
+      if (!r || typeof r.id !== 'string' || !r.id || r.id.length > 200 || seen.has(r.id)) continue;
+      seen.add(r.id);
+      const item = { id: r.id }, sec = clampSec(r.sec);
+      if (sec !== null) item.sec = sec;
+      if (r.off === true && r.id !== 'greet') item.off = true;
+      out.push(item);
+    }
+    return out;
+  }
+  function planSources(profile) {
+    const out = [{ id: 'greet', kind: 'greet' }];
+    const isNews = k => k.split('.')[0] === 'news';
+    const topics = Object.keys(profile.topics || {}), groups = Object.keys(profile.custom || {}).filter(g => (profile.custom[g] || []).length);
+    if (topics.some(isNews) || groups.some(isNews)) out.push({ id: 'news', kind: 'news' });
+    if (topics.some(k => !isNews(k)) || groups.some(g => !isNews(g)) || clean(profile.freeText, MAX_FREE_TEXT)) out.push({ id: 'interests', kind: 'interests' });
+    for (const f of profile.follows || []) {
+      if (!f || !f.value) continue;
+      const id = followSegId(f);
+      if (!out.some(s => s.id === id)) out.push({ id, kind: 'follow', platform: f.platform, value: f.value });
+    }
+    const cal = profile.calendar || {};
+    if (cal.birthdays || cal.events) out.push({ id: 'cal', kind: 'cal' });
+    return out;
+  }
+  // Every segment in plan order, removed ones included (off: true) so a restore puts a block back where it was.
+  function fullPlan(profile) {
+    const sources = planSources(profile), byId = new Map(sources.map(s => [s.id, s]));
+    const saved = sanitizePlan(profile.plan) || [];
+    const make = (s, r) => ({ ...s, sec: (r && r.sec) || PLAN_DEFAULT_SEC[s.kind], off: s.kind !== 'greet' && !!(r && r.off), locked: s.kind === 'greet' });
+    const list = saved.filter(r => r.id !== 'greet' && byId.has(r.id)).map(r => make(byId.get(r.id), r));
+    for (const s of sources) {
+      if (s.kind === 'greet' || list.some(x => x.id === s.id)) continue;
+      const item = make(s, null), last = list[list.length - 1];
+      if (s.kind !== 'cal' && last && last.id === 'cal') list.splice(list.length - 1, 0, item); else list.push(item);
+    }
+    return [make(byId.get('greet'), saved.find(r => r.id === 'greet')), ...list];
+  }
+  function planFromProfile(profile) { return fullPlan(profile).filter(x => !x.off); }
+  function planRemoved(profile) { return fullPlan(profile).filter(x => x.off); }
+  function planTotal(items) { return (items || []).reduce((n, i) => n + (i.off ? 0 : Number(i.sec) || 0), 0); }
+  function planLimitSec(profile) { return Number((profile.schedule || {}).durationMin || 10) * 60; }
+  function planLabel(item, lang) {
+    if (item.kind === 'follow') {
+      const name = PLATFORM_NAMES[item.platform] ? (PLATFORM_NAMES[item.platform][lang] || PLATFORM_NAMES[item.platform].en) : '';
+      const v = String(item.value || '').replace(/^https:\/\/[^/]+\/?/, '');
+      return (name ? name + ' ' : '') + (v || item.value || '');
+    }
+    const l = PLAN_LABELS[item.kind];
+    return l ? (l[lang] || l.en) : item.id;
+  }
+  function withPlan(profile, full) {
+    const next = invalidate(profile);
+    return { ...next, plan: full.map(x => (x.off ? { id: x.id, sec: x.sec, off: true } : { id: x.id, sec: x.sec })) };
+  }
+  /** Move a segment to position toIndex among the active segments. The greeting stays first. */
+  function movePlanItem(profile, id, toIndex) {
+    const full = fullPlan(profile), item = full.find(x => x.id === id);
+    if (!item || item.locked || item.off) return profile;
+    const rest = full.filter(x => x.id !== id), active = rest.filter(x => !x.off);
+    const to = Math.max(1, Math.min(active.length, Math.round(Number(toIndex)) || 0));
+    rest.splice(to < active.length ? rest.indexOf(active[to]) : rest.length, 0, item);
+    if (rest.every((x, i) => x.id === full[i].id)) return profile;
+    return withPlan(profile, rest);
+  }
+  /** Set a segment's length in seconds, kept within 15 s … 5 min. */
+  function setPlanDuration(profile, id, sec) {
+    const full = fullPlan(profile), item = full.find(x => x.id === id), next = clampSec(sec);
+    if (!item || next === null || next === item.sec) return profile;
+    return withPlan(profile, full.map(x => (x.id === id ? { ...x, sec: next } : x)));
+  }
+  function removePlanItem(profile, id) {
+    const full = fullPlan(profile), item = full.find(x => x.id === id);
+    if (!item || item.locked || item.off) return profile;
+    return withPlan(profile, full.map(x => (x.id === id ? { ...x, off: true } : x)));
+  }
+  function restorePlanItem(profile, id) {
+    const full = fullPlan(profile), item = full.find(x => x.id === id);
+    if (!item || !item.off) return profile;
+    return withPlan(profile, full.map(x => (x.id === id ? { ...x, off: false } : x)));
+  }
+
+  /* Owner request 2026-11-11: sub-topics may also come from GET /api/mycast/subtopics. The answer is untrusted: keep
+     plain strings only, cleaned like an own entry, without duplicates, at most 10. */
+  function cleanSubtopics(list) {
+    const out = [];
+    for (const v of Array.isArray(list) ? list : []) {
+      if (typeof v !== 'string') continue;
+      const text = clean(v, MAX_CUSTOM_LEN);
+      if (text.length >= 2 && !out.some(o => o.toLowerCase() === text.toLowerCase())) out.push(text);
+      if (out.length >= 10) break;
+    }
+    return out;
+  }
+
   /* #281: pick the Gemini voice for one slot (0 = host A / narrator, 1 = host B). Invalid picks are refused. */
   function setVoice(profile, slot, name) {
     const voices = (profile.voice.voices || []).slice();
@@ -443,8 +558,7 @@
   /* A short demo, about 15 s: host A greets and names the first picks; with two hosts, host B names the rest. */
   function demoLines(profile) {
     const lang = profile.voice.language;
-    const names = Object.keys(profile.topics).map(id => topicLabel(id, lang));
-    for (const list of Object.values(profile.custom || {})) names.push(...list);
+    const names = demoNames(profile, lang);
     const T = {
       uk: { hi: 'Це демо MyCast, а не справжній випуск. Привіт! Це новини, які ти замовив.', a: 'Сьогодні в нас:', b: 'А ще:', bye: 'До зустрічі завтра!' },
       ru: { hi: 'Это демо MyCast, а не настоящий выпуск. Привет! Это новости, которые ты заказал.', a: 'Сегодня у нас:', b: 'А ещё:', bye: 'До встречи завтра!' },
@@ -455,6 +569,19 @@
     const half = Math.ceil(Math.min(names.length, 6) / 2);
     return [{ host: 'A', text: `${T.hi} ${T.a} ${names.slice(0, half).join(', ')}.` },
             { host: 'B', text: `${T.b} ${names.slice(half, 6).join(', ')}. ${T.bye}` }];
+  }
+  /* The picks in episode order: news and personal interests follow their blocks in the timeline. A removed block's
+     picks are left out, unless that would leave the demo with nothing to say. */
+  function demoNames(profile, lang) {
+    const news = [], other = [];
+    for (const id of Object.keys(profile.topics || {})) (id.split('.')[0] === 'news' ? news : other).push(topicLabel(id, lang));
+    for (const [g, list] of Object.entries(profile.custom || {})) (g.split('.')[0] === 'news' ? news : other).push(...list);
+    const out = [];
+    for (const item of planFromProfile(profile)) {
+      if (item.kind === 'news') out.push(...news);
+      if (item.kind === 'interests') out.push(...other);
+    }
+    return out.length ? out : [...news, ...other];
   }
   function demoScript(profile) { return demoLines(profile).map(l => l.text).join(' '); }
 
@@ -482,7 +609,9 @@
       voice: { ...profile.voice },
       delivery: { channel: profile.delivery, status: channelStatus(profile.delivery, profile.preview).reason || 'ready' },
       preview: profile.preview ? { kind: profile.preview.kind } : null,
-      calendar: { birthdays: !!(profile.calendar || {}).birthdays, events: !!(profile.calendar || {}).events, source: 'google_calendar', status: 'not_connected' } };
+      calendar: { birthdays: !!(profile.calendar || {}).birthdays, events: !!(profile.calendar || {}).events, source: 'google_calendar', status: 'not_connected' },
+      plan: planFromProfile(profile).map(i => ({ id: i.id, kind: i.kind, sec: i.sec })), plan_removed: planRemoved(profile).map(i => i.id),
+      plan_total_sec: planTotal(planFromProfile(profile)) };
   }
 
   /* Share link: the listener's settings (never state, preview or approval) packed into a URL-safe string.
@@ -511,6 +640,16 @@
       s: [s.timezone, s.time, s.frequency, s.frequency === 'days' ? s.days : [], Number(s.durationMin)],
       o: [profile.voice.mode, profile.voice.language, profile.voice.voices], d: profile.delivery, x: clean(profile.freeText, MAX_FREE_TEXT),
       k: [(profile.calendar || {}).birthdays ? 1 : 0, (profile.calendar || {}).events ? 1 : 0] };
+    // Timeline (2026-11-11): optional key "pl", only once the listener has edited the plan. Links made before it have
+    // no "pl" and decode to the default plan; older pages ignore the key. Follow segments are stored by their position
+    // in "f" so a long channel link is not repeated.
+    if (Array.isArray(profile.plan)) {
+      const fid = (profile.follows || []).map(followSegId);
+      data.pl = sanitizePlan(profile.plan).map(r => {
+        const id = r.id.startsWith('f:') ? (fid.indexOf(r.id) >= 0 ? 'f' + fid.indexOf(r.id) : null) : r.id;
+        return id === null ? null : [id, r.sec || 0, r.off ? 1 : 0];
+      }).filter(Boolean);
+    }
     return b64urlEncode(JSON.stringify(data));
   }
   function decodeShare(code) {
@@ -537,6 +676,16 @@
       delivery: CHANNELS[data.d] && CHANNELS[data.d] !== 'planned' ? data.d : 'telegram', freeText: clean(data.x, MAX_FREE_TEXT) });
     const k = Array.isArray(data.k) ? data.k : [];
     p = { ...p, calendar: { birthdays: k[0] === 1, events: k[1] === 1 } };
+    if (Array.isArray(data.pl)) {
+      const rawF = Array.isArray(data.f) ? data.f : [];
+      p.plan = sanitizePlan(data.pl.map(row => {
+        if (!Array.isArray(row) || typeof row[0] !== 'string') return null;
+        let id = row[0];
+        const m = /^f(\d+)$/.exec(id);
+        if (m) { const f = rawF[Number(m[1])], n = Array.isArray(f) ? normalizeFollow(f[0], f[1]) : null; if (!n) return null; id = followSegId(n); }
+        return { id, sec: row[1], off: row[2] === 1 };
+      }));
+    }
     return { ...p, state: 'draft', preview: null, approvedAt: null };
   }
 
@@ -546,5 +695,7 @@
     CALENDAR_PARTS, setCalendar,
     topicLabel, search, guessGroup, suggestSubtopics, newProfile, migrate, setTopic, setScope, addCustom, removeCustom, normalizeFollow, addFollow, removeFollow,
     toggleDay, update, validate, selectionCount, channelStatus, makePreview, markReviewed, approve, toJSON, demoLines, demoScript,
-    encodeShare, decodeShare };
+    encodeShare, decodeShare,
+    PLAN_MIN_SEC, PLAN_MAX_SEC, PLAN_STEP_SEC, PLAN_DEFAULT_SEC, planFromProfile, planRemoved, planTotal, planLimitSec, planLabel,
+    movePlanItem, setPlanDuration, removePlanItem, restorePlanItem, cleanSubtopics };
 });

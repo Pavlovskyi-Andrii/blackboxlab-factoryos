@@ -3,7 +3,7 @@ No real Claude, GitHub or Telegram calls."""
 import json
 import subprocess
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from autopilot import mycast_daily as md
@@ -187,24 +187,56 @@ def test_publish_and_wait():
 def test_factory_status():
     repo = Path(tempfile.mkdtemp())
     (repo / "ROADMAP.md").write_text("- [x] T-1 a\n- [ ] [HUMAN] T-2 pair the bot\n- [ ] T-3 Telegram live acceptance\n", encoding="utf-8")
-    log = ("Merge pull request #211 from owner/claude/worker-sync\x1fWorker sync: never rebase (#211)\x1e"
-           "Merge pull request #197 from owner/gemini/issue-175\x1fGemini: Gemini · P3 · Battle Runs: invalid input\x1e")
-    prs = json.dumps([{"title": "#216 AI Hangout concept A", "headRefName": "ccr-abc", "isDraft": False},
-                      {"title": "Draft thing", "headRefName": "chatgpt/x", "isDraft": True}])
+    now = datetime(2026, 11, 12, 8, 0, tzinfo=timezone.utc)
+    merged = json.dumps([
+        {"title": "Worker sync: never rebase (#211)", "headRefName": "claude/worker-sync",
+         "baseRefName": "main", "mergedAt": "2026-11-11T13:00:00Z"},
+        {"title": "Gemini · P3 · Battle Runs: invalid input (#197)", "headRefName": "gemini/issue-175",
+         "baseRefName": "main", "mergedAt": "2026-11-11T14:00:00Z"},
+        {"title": "Wrong-branch PR", "headRefName": "gemini/x",
+         "baseRefName": "autopilot/aws-worker", "mergedAt": "2026-11-11T14:00:00Z"},
+        {"title": "Old PR", "headRefName": "claude/old",
+         "baseRefName": "main", "mergedAt": "2026-11-08T09:00:00Z"},
+    ])
+    open_prs = json.dumps([{"title": "#216 AI Hangout concept A", "headRefName": "ccr-abc", "isDraft": False},
+                          {"title": "Draft thing", "headRefName": "chatgpt/x", "isDraft": True}])
 
     def run(cmd, **kw):
-        return subprocess.CompletedProcess(cmd, 0, stdout=log if cmd[0] == "git" else prs, stderr="")
-    text = md.factory_status(repo, runner=run)
-    assert "вчора зробив(ла) Claude: Worker sync: never rebase" in text
-    assert "вчора зробив(ла) Gemini: Battle Runs: invalid input" in text
+        # No git log should be consulted: squash PRs have no merge commit.
+        assert cmd[0] == "gh"
+        assert "-R" in cmd
+        if cmd[cmd.index("--state") + 1] == "merged":
+            assert cmd[cmd.index("--base") + 1] == "main"
+            return subprocess.CompletedProcess(cmd, 0, stdout=merged, stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=open_prs, stderr="")
+
+    text = md.factory_status(repo, runner=run, now=now)
+    assert "злили у main (Claude): Worker sync: never rebase" in text
+    assert "злили у main (Gemini): Battle Runs: invalid input" in text
+    assert "Wrong-branch" not in text and "Old PR" not in text
     assert "зараз на перевірці у Claude: AI Hangout concept A" in text and "Draft thing" not in text
-    assert "у плані на сьогодні: Telegram live acceptance" in text and "pair the bot" not in text  # HUMAN skipped
+    assert "у плані на сьогодні: Telegram live acceptance" in text and "pair the bot" not in text
     for code in ("#211", "#216", "T-3", "P3", "#197"):
-        assert code not in text, code  # hosts never read out task/PR numbers
+        assert code not in text, code
     assert "немає даних" in md.factory_status(None)
-    broken = lambda cmd, **kw: (_ for _ in ()).throw(OSError("no git"))
-    fallback = md.factory_status(repo, runner=broken)  # fail-soft: roadmap plan still there
-    assert "нових злиттів" in fallback and "у плані на сьогодні" in fallback
+
+    def bad_api(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="unavailable")
+    fallback = md.factory_status(repo, runner=bad_api, now=now)
+    assert "результат невідомий" in fallback and "злиттів у main не було" not in fallback
+    assert "у плані на сьогодні" in fallback
+
+    def empty_api(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+    verified_empty = md.factory_status(repo, runner=empty_api, now=now)
+    assert "GitHub не показує злитих PR у main" in verified_empty
+
+    full_page = json.dumps([{"title": "Old PR", "headRefName": "claude/old",
+                             "baseRefName": "main", "mergedAt": "2026-11-01T12:00:00Z"}] * 100)
+    def limited_api(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 0, stdout=full_page if "merged" in cmd else "[]", stderr="")
+    truncated = md.factory_status(repo, runner=limited_api, now=now)
+    assert "відсутність злиттів у main не підтверджена" in truncated
 
 
 def test_transcript_messages():
