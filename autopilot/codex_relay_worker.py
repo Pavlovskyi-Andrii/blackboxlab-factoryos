@@ -69,6 +69,13 @@ def forbidden_paths() -> list[str]:
     return list(DEFAULT_FORBIDDEN) + extra + ([cred] if cred else []) + [f"/proc/{os.getpid()}/environ"]
 
 
+def _last_line(result) -> str:
+    """Last stderr line of a failed check, short and with anything credential-shaped removed."""
+    lines = [l.strip() for l in str(getattr(result, "stderr", "") or "").splitlines() if l.strip()]
+    text = lines[-1][:160] if lines else "no output"
+    return "[redacted]" if contains_secret(text) else text
+
+
 def preflight(runner=subprocess.run, exists=os.path.exists, geteuid=os.geteuid) -> list[str]:
     """Problems that make running Codex unsafe; [] means isolated. Fails closed on anything unexpected."""
     problems = []
@@ -85,15 +92,18 @@ def preflight(runner=subprocess.run, exists=os.path.exists, geteuid=os.geteuid) 
     for path in forbidden_paths():
         if not exists(path):
             continue
-        r = runner(as_codex(["test", "-r", path]), capture_output=True, text=True, timeout=10, check=False)
-        if r.returncode == 0:
+        # A failing sudo also exits non-zero, so only an explicit answer from the Codex account counts (fail closed).
+        r = runner(as_codex(["sh", "-c", 'if test -r "$1"; then echo READABLE; else echo DENIED; fi', "sh", path]),
+                   capture_output=True, text=True, timeout=10, check=False)
+        answer = (r.stdout or "").strip()
+        if answer == "READABLE":
             problems.append(f"{RUN_AS} can read {path}")
-        elif r.returncode != 1:
-            problems.append(f"cannot verify {path} as {RUN_AS} (sudo rc={r.returncode})")
+        elif answer != "DENIED":
+            problems.append(f"cannot verify {path} as {RUN_AS} (rc={r.returncode}: {_last_line(r)})")
     r = runner(as_codex([CODEX_BIN, "features", "list", *disable_flags()]), capture_output=True, text=True,
                timeout=30, check=False)
     if r.returncode != 0:
-        return problems + ["codex features list failed (rc=%s)" % r.returncode]
+        return problems + ["codex features list failed (rc=%s: %s)" % (r.returncode, _last_line(r))]
     state = {}
     for line in (r.stdout or "").splitlines():
         parts = line.split()

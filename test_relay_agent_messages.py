@@ -411,12 +411,12 @@ class WorkerTest(StoreBase):
         ok_features = "\n".join(f"{n}  stable  false" for n in worker.DISABLED_FEATURES)
 
         def runner(argv, **kw):
-            if argv[-2:] == ["-r", "/readable"]:
-                return type("R", (), {"returncode": 0, "stdout": ""})()
             if "features" in argv:
-                return type("R", (), {"returncode": 0, "stdout": runner.features})()
-            return type("R", (), {"returncode": 1, "stdout": ""})()
-        runner.features = ok_features
+                return type("R", (), {"returncode": 0, "stdout": runner.features, "stderr": ""})()
+            if runner.sudo_broken:
+                return type("R", (), {"returncode": 1, "stdout": "", "stderr": "sudo: a password is required"})()
+            return type("R", (), {"returncode": 0, "stdout": "READABLE\n" if argv[-1] == "/readable" else "DENIED\n", "stderr": ""})()
+        runner.features, runner.sudo_broken = ok_features, False
         with patch.object(worker, "RUN_AS", "nobody"), patch.object(worker, "DEFAULT_FORBIDDEN", ("/opt/x",)):
             self.assertEqual(worker.preflight(runner, exists=lambda p: True, geteuid=lambda: 4242), [])
             self.assertIn("worker runs as root", worker.preflight(runner, exists=lambda p: True, geteuid=lambda: 0))
@@ -424,6 +424,10 @@ class WorkerTest(StoreBase):
                 self.assertIn("nobody can read /readable", worker.preflight(runner, exists=lambda p: True, geteuid=lambda: 4242))
             runner.features = ok_features.replace("shell_tool  stable  false", "shell_tool  stable  true")
             self.assertTrue(any("shell_tool" in p for p in worker.preflight(runner, exists=lambda p: True, geteuid=lambda: 4242)))
+            runner.sudo_broken = True                                              # sudo failing is not "denied"
+            self.assertTrue(any("cannot verify /opt/x" in p and "password" in p
+                                for p in worker.preflight(runner, exists=lambda p: True, geteuid=lambda: 4242)))
+            runner.sudo_broken = False
             runner.features = ok_features.replace("view_image  stable  false\n", "")
             self.assertTrue(any("view_image" in p for p in worker.preflight(runner, exists=lambda p: True, geteuid=lambda: 4242)))
         with patch.object(worker, "RUN_AS", "no-such-account-xyz"):
