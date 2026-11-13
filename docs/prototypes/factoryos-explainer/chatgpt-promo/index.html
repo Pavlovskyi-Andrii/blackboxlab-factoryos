@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="theme-color" content="#080c18"/>
+<meta name="description" content="FactoryOS — наглядная карта от идеи и AI-дебатов до MVP, промо и проверяемых решений."/>
+<title>FactoryOS — от идеи до проверяемого результата · Concept Promo</title>
+<style>
+:root{color-scheme:dark;--bg:#080c18;--panel:#111a2c;--panel2:#17243b;--line:#293950;--ink:#f2f5ff;--muted:#a2b1cb;--aqua:#76e5de;--blue:#6d9aff;--violet:#b5a1ff;--orange:#ffc48b;--red:#fb9c98;--shadow:0 30px 80px #0006;--font:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;overflow-x:clip}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--font);overflow-x:hidden}
+body:before{content:"";position:absolute;z-index:-1;inset:0 0 auto;height:1100px;background:radial-gradient(ellipse 44% 43% at 13% 10%,#4b2a8b50,transparent),radial-gradient(ellipse 39% 38% at 92% 18%,#006f8760,transparent),linear-gradient(180deg,#0c1024 0%,#080c18 95%);pointer-events:none}
+a{color:inherit;text-decoration:none}
+button{font:inherit;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:3px solid var(--aqua);outline-offset:3px}
+.wrap{max-width:1220px;padding:0 28px;margin:auto}
+nav{height:70px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid #fff1}
+.brand{display:flex;align-items:center;gap:10px;font-weight:760;letter-spacing:-.04em;font-size:19px}.brandMark{width:28px;height:28px;border:1px solid #66f0e0;border-radius:9px;display:grid;place-items:center;color:#8cffed;transform:rotate(-8deg);box-shadow:0 0 18px #4de9dd45}
+.links{display:flex;align-items:center;gap:24px;color:#c4d3e9;font-size:13px}.links a:hover{color:#fff}
+.tiny{font:700 10px/1.3 ui-monospace,Menlo,monospace;letter-spacing:.13em;text-transform:uppercase;color:var(--aqua)}
+.pill{display:inline-flex;padding:6px 10px;border:1px solid #ffffff2f;border-radius:100px;background:#ffffff09;color:#d2def0;font-size:12px;gap:7px;align-items:center}
+.hero{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(350px,.95fr);gap:32px;min-height:610px;align-items:center;padding:86px 0 72px}
+h1{font-size:clamp(40px,5.5vw,76px);font-weight:780;line-height:1.045;letter-spacing:-.068em;margin:17px 0 25px}
+.grad{background:linear-gradient(103deg,#d8d0ff 0%,#8acfff 48%,#81eddd 90%);background-clip:text;-webkit-background-clip:text;color:transparent}
+.hero p{font-size:18px;color:#bfcde1;max-width:620px;line-height:1.55}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:29px}
+.btn{display:inline-flex;justify-content:center;align-items:center;gap:9px;border-radius:13px;border:1px solid #5b739b;padding:12px 17px;color:var(--ink);background:#17243ad9;font-weight:650;font-size:14px;box-shadow:0 7px 18px #0002;transition:transform .2s,background .2s}
+.btn:hover{transform:translateY(-2px);background:#233756}
+.btn.primary{background:linear-gradient(115deg,#91ece3,#87b9ff);color:#061726;border:0}
+.btn.primary:hover{background:linear-gradient(115deg,#b6fff4,#afd4ff)}
+.micro{color:#879bb7;font-size:12px;margin-top:17px}
+.heroVis{aspect-ratio:1.06;min-height:360px;position:relative;isolation:isolate;display:grid;place-items:center}
+.heroVis:before{content:"";position:absolute;inset:11%;background:radial-gradient(circle,#628fff20,transparent 65%);filter:blur(20px)}
+.orbit{position:absolute;border:1px solid #c8d4ff28;border-radius:50%;inset:6%;transform:rotate(-20deg)}
+.orbit:nth-child(2){inset:20%;border-color:#d9c5ff2f;transform:rotate(16deg)}
+.orbit:after{content:"";position:absolute;inset:-2px;border-radius:50%;border-top:2px solid #95fff0;border-right:2px solid transparent;animation:rotate 18s linear infinite}
+.orbit:nth-child(2):after{border-top-color:#bfabff;animation-duration:12s;animation-direction:reverse}
+.core{height:175px;width:175px;border-radius:36px;display:grid;place-items:center;background:linear-gradient(150deg,#20345c,#12253d);border:1px solid #80e9ff59;box-shadow:0 0 0 16px #ffffff04,0 0 75px #4cbde73a,0 35px 60px #0007;z-index:2;transform:rotate(-7deg);position:relative}
+.core:before{content:"";position:absolute;inset:14px;border:1px solid #ffffff24;border-radius:23px}
+.core strong{font-size:24px;line-height:1.1;letter-spacing:-.065em;transform:rotate(7deg);text-align:center}
+.core small{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#87eadd}
+.satellite{position:absolute;min-width:126px;max-width:156px;padding:10px 12px;border-radius:14px;background:#142138ec;border:1px solid #506781aa;z-index:4;box-shadow:0 20px 35px #0007;animation:float 6s ease-in-out infinite}
+.satellite b{font-size:12px;display:block}.satellite small{color:#9eafc7;font-size:10px;display:block}
+.s1{left:0;top:12%;animation-delay:-2s}.s2{right:-3%;top:21%;animation-delay:-4s}.s3{left:3%;bottom:16%;animation-delay:-1s}.s4{right:0;bottom:9%;animation-delay:-3s}
+.satellite i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--aqua);margin-right:5px}
+section{padding:56px 0;scroll-margin-top:20px}
+.sectionHead{display:flex;align-items:end;justify-content:space-between;gap:24px;margin-bottom:25px}
+h2{font-size:clamp(26px,3vw,41px);line-height:1.15;letter-spacing:-.045em;margin:8px 0 10px}
+.sectionSub{max-width:720px;color:var(--muted);font-size:15px;margin:0}
+.surface{background:linear-gradient(145deg,#111a2def,#111b2fc7);border:1px solid #35445db5;border-radius:23px;box-shadow:var(--shadow)}
+.tour{display:grid;grid-template-columns:1.15fr .85fr;overflow:hidden;min-height:400px}
+.tourArt{padding:33px;min-height:390px;position:relative;background:radial-gradient(circle at 50% 40%,#28478c55,transparent 54%),linear-gradient(130deg,#111c3a,#0b1427);display:flex;flex-direction:column;justify-content:space-between}
+.tourArt:after{content:"";position:absolute;inset:0;background-image:linear-gradient(#bce2ff08 1px,transparent 1px),linear-gradient(90deg,#bce2ff08 1px,transparent 1px);background-size:27px 27px;mask-image:linear-gradient(0deg,transparent,#000);pointer-events:none}
+.tourHeader{position:relative;z-index:1;display:flex;justify-content:space-between;gap:12px}.tourHeader span{color:#b9cce6;font-size:12px}
+.diagram{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;min-height:245px}
+.sceneIcon{font-size:70px;line-height:1;filter:drop-shadow(0 15px 27px #43c7de4a);animation:appear 1.1s ease both}
+.sceneTitle{font-size:clamp(22px,3vw,32px);letter-spacing:-.04em;font-weight:750;text-align:center}
+.sceneSub{max-width:430px;text-align:center;font-size:14px;color:#c2d1e6;line-height:1.6}
+.scenePills{display:flex;align-items:center;flex-wrap:wrap;justify-content:center;gap:6px}
+.scenePills span{border:1px solid #6f86a8;border-radius:6px;padding:5px 8px;color:#d6e7f5;background:#ffffff0d;font:600 11px/1.2 ui-monospace,monospace}
+.tourMeta{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.progress{height:5px;border-radius:20px;background:#ffffff25;flex:1;overflow:hidden}.progress>div{height:100%;background:linear-gradient(90deg,#81c5ff,#6df5db);width:0;transition:width .35s}
+.tourInfo{padding:30px;display:flex;flex-direction:column;gap:17px}
+.sceneCount{color:#85ece3;font:700 12px ui-monospace,monospace;letter-spacing:.1em}
+.tourInfo h3{font-size:25px;line-height:1.2;letter-spacing:-.035em;margin:0}.tourInfo p{color:var(--muted);margin:0;font-size:15px}
+.sceneActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+.sceneActions button{padding:9px 13px;border-radius:10px;background:#273953;border:1px solid #4c617c;color:#fff}
+.sceneActions button:hover{background:#365072}
+.sceneActions .go{background:#a1e8de;color:#0b2431;font-weight:700;border:0}
+.stepTabs{display:flex;gap:8px;flex-wrap:wrap}
+.stepTabs button{padding:7px 9px;font-size:11px;color:#c0cce1;border:1px solid #ffffff22;background:transparent;border-radius:8px}
+.stepTabs button[aria-current="step"]{background:#203d50;color:#a8ffea;border-color:#5be8d0}
+.flowMap{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.stage{position:relative;display:flex;flex-direction:column;min-height:195px;background:#141f34;border:1px solid #31435c;border-radius:16px;padding:16px 12px}
+.stage:after{content:"→";position:absolute;right:-12px;top:36%;color:#86c9ee;font-size:24px;z-index:2}
+.stage:last-child:after{content:none}
+.stage .e{font-size:25px;margin-bottom:13px}.stage b{line-height:1.25;font-size:14px}.stage p{font-size:12px;color:var(--muted);margin:7px 0 0;line-height:1.4}.stage small{font:600 10px/1.3 ui-monospace,monospace;color:#72ddd1;margin-top:auto;padding-top:12px}
+.timeline{display:flex;gap:9px;align-items:start;color:var(--muted);margin:19px 0 0;font-size:13px}
+.timeline .line{width:3px;background:linear-gradient(#76d6eb,#9d7cff);border-radius:10px;align-self:stretch;min-height:35px}
+.double{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.branch{padding:22px;border-radius:19px;border:1px solid #415578;background:linear-gradient(135deg,#171f39,#101b2d)}
+.branch.b{border-color:#3c7575;background:linear-gradient(135deg,#112b35,#121f2d)}
+.branchHead{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}
+.letter{display:inline-grid;place-items:center;width:29px;height:29px;border-radius:8px;background:#8170d4;color:#fff;font:750 16px ui-monospace,monospace;margin-right:9px}.b .letter{background:#408f8d}
+.branchLine{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.branchLine>div{background:#ffffff07;border:1px solid #ffffff24;border-radius:9px;padding:12px 7px;text-align:center;min-height:78px}
+.branchLine b{display:block;font-size:12px}.branchLine small{display:block;color:#a7bdd1;font-size:10px;margin-top:5px;line-height:1.25}
+.channels{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}.channels span{border:1px solid #ffffff30;border-radius:8px;padding:5px 7px;color:#d0e1f3;font-size:11px}
+.compare{margin:18px auto 0;max-width:720px;text-align:center;padding:17px;border:1px solid #497780;border-radius:14px;background:#17283e;color:#eaf7ff}
+.compare p{margin:5px 0 0;color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{border:1px solid #33455e;border-radius:16px;background:#121d30;padding:20px}
+.card .emoji{font-size:26px}.card h3{font-size:16px;margin:12px 0 7px}.card p{font-size:13px;color:var(--muted);margin:0}.card .tag{display:inline-block;font-size:10px;margin-top:14px;border:1px solid #ffffff27;border-radius:100px;padding:4px 8px;color:#c5cfe0}
+.verify{display:flex;align-items:start;gap:14px;border-left:3px solid var(--aqua);background:#13313a4d;border-radius:8px;padding:18px}
+.video{display:grid;grid-template-columns:1fr .9fr;gap:22px;align-items:stretch}
+.videoFrame{aspect-ratio:16/9;background:radial-gradient(ellipse at center,#1f4d5c,#0c1528 66%);border:1px dashed #6b90a6;border-radius:17px;display:grid;place-items:center;text-align:center;padding:25px;overflow:hidden;position:relative}
+.videoFrame:after{content:"";position:absolute;inset:8%;border:1px solid #7ea4aa45;border-radius:12px;pointer-events:none}
+.videoFrame .play{display:grid;place-items:center;font-size:29px;background:#d1fff4;color:#0a2632;width:61px;height:61px;border-radius:50%;margin:0 auto 17px}
+.videoFrame strong{display:block;font-size:17px}.videoFrame small{color:#9fc0c9}
+.videoText{display:flex;flex-direction:column;justify-content:center;gap:11px}.videoText p{color:var(--muted);margin:0}.videoText .pill{align-self:flex-start}
+footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;border-top:1px solid #ffffff1d;padding:28px 0 45px;font-size:12px;color:#99abc2}
+@keyframes rotate{to{transform:rotate(360deg)}}@keyframes float{50%{transform:translateY(-10px)}}@keyframes appear{0%{opacity:0;transform:scale(.82) translateY(12px)}100%{opacity:1;transform:none}}
+@media(max-width:960px){.hero{grid-template-columns:1fr;min-height:unset;padding:63px 0}.heroVis{max-width:600px;width:100%;margin:auto}.flowMap{grid-template-columns:repeat(3,1fr)}.stage:nth-child(3):after{content:none}.stage{min-height:168px}.cards{grid-template-columns:repeat(2,1fr)}.branchLine{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:680px){.wrap{padding:0 17px}.links{gap:12px}.links a:not(.kept){display:none}nav{height:58px}.hero{padding:44px 0 18px;gap:4px}.hero p{font-size:16px}.heroVis{min-height:320px}.core{height:145px;width:145px}.core strong{font-size:20px}.satellite{min-width:108px;max-width:120px;padding:7px 9px}.s1{left:0;top:11%}.s2{right:0;top:18%}.s3{left:0;bottom:12%}.s4{right:0;bottom:8%}section{padding:38px 0}.tour{grid-template-columns:1fr}.tourArt{padding:22px;min-height:345px}.tourInfo{padding:23px}.flowMap{grid-template-columns:repeat(2,1fr)}.stage:nth-child(3):after{content:"→"}.stage:nth-child(2n):after{content:none}.double,.video,.cards{grid-template-columns:1fr}.branch{padding:15px}.branchLine{grid-template-columns:repeat(2,1fr)}.sectionHead{display:block}h1{font-size:48px}.heroVis{transform:scale(.96)}.stage{min-height:152px}.satellite b{font-size:10px}}
+@media(max-width:360px){.satellite{position:relative;max-width:none}.heroVis{display:none}.flowMap{grid-template-columns:1fr}.stage:after{content:none!important}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav aria-label="Навигация по проекту"><div class="brand"><span class="brandMark">F</span> FACTORY<span style="color:#79ece1">OS</span></div><div class="links"><a href="#map">Архитектура</a><a href="#ab">A/B ветки</a><a href="#story" class="kept">Как это работает</a><a href="#video" class="kept">Видео</a></div></nav>
+<header class="hero">
+<div><span class="tiny">Blackbox Lab / Interactive system story</span><h1>От идеи<br/>к продукту.<br/><span class="grad">В одной системе.</span></h1><p>FactoryOS связывает работу AI-агентов, создание MVP, контент, эксперименты и проверяемые результаты. Вместо хаоса инструментов — понятный маршрут каждой задачи.</p><div class="actions"><a href="#story" class="btn primary">▶ Смотреть интерактивную историю</a><a href="#map" class="btn">Изучить систему ↘</a></div><div class="micro">Концептуальная промо-демонстрация · реальные и проектируемые возможности разделены ниже</div></div>
+<div class="heroVis" role="img" aria-label="Визуальная модель FactoryOS: вокруг управляющего ядра — Agent Office, MVP Builder, Content Factory и Relay"><div class="orbit"></div><div class="orbit"></div><div class="core"><strong>FACTORY<br/>OS<small>Agent Operating System</small></strong></div><div class="satellite s1"><b><i></i>Agent Office</b><small>Контроль и роли</small></div><div class="satellite s2"><b><i></i>MVP Builder</b><small>Идея → продукт</small></div><div class="satellite s3"><b><i></i>Content Factory</b><small>Медиа и продвижение</small></div><div class="satellite s4"><b><i></i>Relay</b><small>Передача задач</small></div></div>
+</header>
+<section id="story" aria-labelledby="story-h"><div class="sectionHead"><div><div class="tiny">01 / Guided story</div><h2 id="story-h">Одна идея. Вся фабрика.</h2><p class="sectionSub">Нажми «Запустить историю» или переключай этапы вручную. Это интерактивное объяснение процесса, а не запись реально выполненного запуска.</p></div><span class="pill">8 сцен · ~48 секунд</span></div>
+<div class="tour surface"><div class="tourArt"><div class="tourHeader"><span>● FACTORYOS / STORY MODE</span><span id="frameLabel">СЦЕНА 01 / 08</span></div><div class="diagram" aria-live="polite"><div class="sceneIcon" id="sceneIcon">💡</div><div class="sceneTitle" id="visualTitle">У тебя есть идея</div><div class="sceneSub" id="visualText">«А что, если персональный подкаст будет помогать людям держать фокус?»</div><div class="scenePills" id="visualPills"><span>Idea</span><span>Concept</span></div></div><div class="tourMeta"><span class="small" id="elapsed">00:00 / 00:48</span><div class="progress" aria-label="Прогресс истории"><div id="fill"></div></div><span class="small">DEMO</span></div></div>
+<div class="tourInfo"><div class="sceneCount" id="sceneCount">01 / 08 · ИДЕЯ</div><h3 id="sceneHeading">Всё начинается с вопроса.</h3><p id="sceneBody">Ты формулируешь проблему и желаемый результат. MVP Builder получает исходную гипотезу — без обещаний, что продукт уже нужен рынку.</p><div class="stepTabs" id="stepTabs" aria-label="Этапы истории"></div><div class="sceneActions"><button class="go" id="play" type="button">▶ Запустить историю</button><button id="prev" type="button">← Назад</button><button id="next" type="button">Дальше →</button><button id="reset" type="button">↺ Сначала</button></div></div></div>
+</section>
+<section id="map" aria-labelledby="map-h"><div class="sectionHead"><div><div class="tiny">02 / System map</div><h2 id="map-h">Кто за что отвечает?</h2><p class="sectionSub">Шесть этапов — простой путь, по которому идея движется внутри FactoryOS.</p></div></div>
+<div class="flowMap" aria-label="Схема FactoryOS"><div class="stage"><span class="e">🧠</span><b>01 · Debate / Research</b><p>Исследование потребностей, споры агентов, сравнение подходов.</p><small>ГИПОТЕЗА</small></div><div class="stage"><span class="e">📐</span><b>02 · MVP Builder</b><p>ТЗ, приоритет, план эксперимента, задачи и критерии успеха.</p><small>ПРОДУКТ</small></div><div class="stage"><span class="e">🛠️</span><b>03 · Build & QA</b><p>Код, ветка GitHub, PR, тесты, независимая проверка.</p><small>ДОКАЗАТЕЛЬСТВА</small></div><div class="stage"><span class="e">🎬</span><b>04 · Content Factory</b><p>Черновики роликов, текстов, визуалов и креативов.</p><small>КОНТЕНТ</small></div><div class="stage"><span class="e">📣</span><b>05 · Promotion</b><p>Отдельные кампании и каналы — только после согласования.</p><small>УТВЕРЖДЕНИЕ</small></div><div class="stage"><span class="e">📊</span><b>06 · Learn & Iterate</b><p>Аналитика, обратная связь, следующее продуктовое решение.</p><small>ЭКСПЕРИМЕНТ</small></div></div>
+<div class="timeline"><span class="line"></span><span>Над процессом: <b style="color:#e0f7ff">Agent Office</b> показывает состояние агентов и задач; <b style="color:#e0f7ff">Relay</b> передаёт задачи и статусы; <b style="color:#e0f7ff">GitHub</b> хранит код и проверки; <b style="color:#e0f7ff">Notion</b> сохраняет идеи, решения и исследования.</span></div>
+</section>
+<section id="ab" aria-labelledby="ab-h"><div class="sectionHead"><div><div class="tiny">03 / Experiment branches</div><h2 id="ab-h">Одна гипотеза — две дороги.</h2><p class="sectionSub">MVP Builder планирует ветки A и B. У каждой — отдельный лендинг и свой контент-пакет, но общий процесс принятия решения.</p></div><span class="pill">MyCast · Example</span></div>
+<div class="double"><article class="branch"><div class="branchHead"><div><span class="letter">A</span><b>Business Focus</b></div><small>Предприниматели</small></div><div class="branchLine"><div><b>Концепт A</b><small>Бизнес-цели</small></div><div><b>Landing A</b><small>Своя страница</small></div><div><b>Content A</b><small>Видео / посты</small></div><div><b>Метрики A</b><small>Без выдумок</small></div></div><div class="channels"><span>Facebook A</span><span>TikTok A</span><span>Instagram A</span></div></article><article class="branch b"><div class="branchHead"><div><span class="letter">B</span><b>Personal Goals</b></div><small>Личные цели</small></div><div class="branchLine"><div><b>Концепт B</b><small>Цели и привычки</small></div><div><b>Landing B</b><small>Своя страница</small></div><div><b>Content B</b><small>Видео / посты</small></div><div><b>Метрики B</b><small>Без выдумок</small></div></div><div class="channels"><span>Facebook B</span><span>TikTok B</span><span>Instagram B</span></div></article></div>
+<div class="compare"><b>⚖ A/B Tester → Compare → Owner decision</b><p>Выбираем, какую гипотезу проверять дальше, на основе наблюдений, а не вкусов команды. Разные аудитории — это сравнение сегментов, не рандомизированный A/B.</p></div>
+</section>
+<section id="roles"><div class="sectionHead"><div><div class="tiny">04 / Departments</div><h2>Не один огромный бот.<br/>Команда специалистов.</h2><p class="sectionSub">Каждая роль делает свою часть работы и передаёт проверяемый результат следующей.</p></div></div><div class="cards"><article class="card"><span class="emoji">🧭</span><h3>Agent Office</h3><p>Панель управления исполнителями, задачами, состояниями и доказательствами.</p><span class="tag">Управление</span></article><article class="card"><span class="emoji">🚀</span><h3>MVP Manager</h3><p>Объединяет исследования, спецификации, сборку и проверки в единый процесс.</p><span class="tag">Оркестрация</span></article><article class="card"><span class="emoji">🧑‍💻</span><h3>Builders / Claude</h3><p>Пишут код, открывают PR и фиксируют результат тестов и ревью.</p><span class="tag">Разработка</span></article><article class="card"><span class="emoji">📡</span><h3>Relay</h3><p>Очередь поручений и журнал фактических событий между ролями.</p><span class="tag">Передача работы</span></article><article class="card"><span class="emoji">🎬</span><h3>Content Factory</h3><p>Производство текстов, сценариев, медиа и черновиков промоматериалов.</p><span class="tag">Креатив</span></article><article class="card"><span class="emoji">🗂️</span><h3>GitHub + Notion</h3><p>GitHub — код и CI. Notion — концепции, исследование, причины решений.</p><span class="tag">Память и доказательства</span></article></div></section>
+<section id="video"><div class="sectionHead"><div><div class="tiny">05 / Next chapter</div><h2>Теперь оживим эту историю.</h2><p class="sectionSub">Здесь будет полноценный motion-graphics ролик: камера летит через фабрику, идеи превращаются в задачи, а те — в прототипы и креативы.</p></div></div><div class="video"><div class="videoFrame" aria-label="Место для будущего видео FactoryOS"><div><span class="play" aria-hidden="true">▷</span><strong>FactoryOS · Motion explainer</strong><small>Видео ещё не создано · Placeholder</small></div></div><div class="videoText"><span class="pill">Проектируемая сцена · 60–75 секунд</span><h2 style="margin:0">От одного окна —<br/>до всей системы.</h2><p>Покажем один понятный кейс: Idea → AI Debate → MVP Builder → PR/CI → два лендинга → два набора промо → измерение → новое решение.</p><p>В конце камера отъезжает: вся цепочка оказывается одной картой FactoryOS. Там, где ещё нет рабочей интеграции, оставляем «Concept / Demo», а не симулируем успех.</p><a href="#story" class="btn" style="align-self:flex-start">Посмотреть интерактивный раскадровочный тур ↑</a></div></div></section>
+<section style="padding-top:20px"><div class="verify"><span style="font-size:24px">✓</span><div><b>Принцип FactoryOS: показываем результат, а не обещаем процесс.</b><div class="small" style="margin-top:6px">Реальные статусы подтверждаются задачами, PR, CI и артефактами. Здесь показана концептуальная схема с частично реализованными компонентами; автономные рекламные кампании, видео и полный end-to-end запуск не выдаются за готовые функции.</div></div></div></section>
+<footer><div><b>FactoryOS · Blackbox Lab</b><div>Concept explainer v2 / local HTML preview</div></div><div>Никакой рекламы, публикаций, платных API или сбора данных. Все визуальные сцены — демонстрационные.</div></footer>
+</div>
+<script>
+(()=>{
+ const scenes=[
+ {name:'ИДЕЯ',icon:'💡',visual:'У тебя есть идея',quote:'«Можно ли каждый день помогать людям держать фокус?»',pills:['User need','Hypothesis'],title:'Всё начинается с вопроса.',body:'Ты описываешь проблему и предполагаемую ценность. Это пока гипотеза — её нужно проверить на реальных людях.'},
+ {name:'ДЕБАТЫ',icon:'🧠',visual:'Агенты спорят и исследуют',quote:'«Какую проблему мы решаем? Какие есть альтернативы?»',pills:['Debate','Research','Evidence'],title:'Не строим вслепую.',body:'Research Worker и критики сопоставляют варианты, риски и факты. MVP Manager получает причины решения, а не просто красивую идею.'},
+ {name:'ПРОДУКТ',icon:'📐',visual:'MVP Builder собирает план',quote:'Гипотезы → пользовательский сценарий → ТЗ → критерии проверки.',pills:['Concept','Spec','Acceptance'],title:'Идея становится заданием.',body:'Создаём ограниченный план продукта: кому нужен, что строим первым и по каким наблюдениям решим, двигаться ли дальше.'},
+ {name:'РАЗРАБОТКА',icon:'🛠️',visual:'Build → PR → CI → Review',quote:'Проверяемый код вместо заявления «готово».',pills:['GitHub','PR','Tests'],title:'Билдер оставляет след.',body:'Код пишется в отдельной ветке, проверяется тестами, проходит ревью. PR не равен опубликованному продукту.'},
+ {name:'КООРДИНАЦИЯ',icon:'📡',visual:'Relay связывает исполнителей',quote:'Задача → claim → события → артефакт → handoff.',pills:['Agent Office','Relay','Status'],title:'Все видят реальное состояние.',body:'Agent Office показывает задачи и статусы. Relay связывает исполнителей, а журнал событий помогает отличить назначенную работу от реально выполненной.'},
+ {name:'ЭКСПЕРИМЕНТ',icon:'⑂',visual:'Появляются ветки A и B',quote:'Один MyCast → Business Focus и Personal Goals.',pills:['Landing A','Landing B','AB Tester'],title:'Две гипотезы — два пути.',body:'У двух аудиторий независимые лендинги, креативы и воронки. A/B Tester не смешивает сравнение сегментов с контролируемым экспериментом.'},
+ {name:'КОНТЕНТ',icon:'🎬',visual:'Content Factory создаёт промо',quote:'Для A и B — разные сценарии, ролики и посты.',pills:['Creative A','Creative B','Owner gate'],title:'Контент — под каждую аудиторию.',body:'Контентные агенты готовят отдельные материалы. Реальная публикация и рекламный бюджет возможны только после отдельного одобрения владельца.'},
+ {name:'РЕШЕНИЕ',icon:'📊',visual:'Из наблюдений — следующий шаг',quote:'Использование, качество, обратная связь, стоимость.',pills:['Metrics','Learning','Decision'],title:'Цикл возвращается к продукту.',body:'MVP Manager сравнивает проверяемые результаты и предлагает: продолжать, улучшать, менять гипотезу или остановить тест. Решение и причины сохраняются.'},
+ ];
+ let current=0,playing=false,timer=null;
+ const el=id=>document.getElementById(id), sec=6, full=scenes.length*sec;
+ const tabs=el('stepTabs');
+ scenes.forEach((x,i)=>{const b=document.createElement('button');b.textContent=String(i+1).padStart(2,'0')+' '+x.name;b.type='button';b.setAttribute('aria-label',x.name);b.addEventListener('click',()=>{pause();render(i)});tabs.appendChild(b)});
+ function render(i){current=(i+scenes.length)%scenes.length;const s=scenes[current];el('sceneIcon').textContent=s.icon;el('visualTitle').textContent=s.visual;el('visualText').textContent=s.quote;el('sceneCount').textContent=String(current+1).padStart(2,'0')+' / 08 · '+s.name;el('frameLabel').textContent='СЦЕНА '+String(current+1).padStart(2,'0')+' / 08';el('sceneHeading').textContent=s.title;el('sceneBody').textContent=s.body;el('visualPills').replaceChildren(...s.pills.map(p=>{const z=document.createElement('span');z.textContent=p;return z}));el('fill').style.width=((current+1)/scenes.length*100)+'%';const t=current*sec;el('elapsed').textContent='00:'+String(t).padStart(2,'0')+' / 00:'+full;[...tabs.children].forEach((b,j)=>b.setAttribute('aria-current',j===current?'step':'false'))}
+ function pause(){if(timer){clearInterval(timer);timer=null}playing=false;el('play').textContent='▶ Запустить историю'}
+ function start(){if(playing){pause();return}playing=true;el('play').textContent='Ⅱ Пауза';timer=setInterval(()=>{if(current===scenes.length-1){pause();return}render(current+1)},sec*1000)}
+ el('play').addEventListener('click',start);el('prev').addEventListener('click',()=>{pause();render(current-1)});el('next').addEventListener('click',()=>{pause();render(current+1)});el('reset').addEventListener('click',()=>{pause();render(0)});document.addEventListener('visibilitychange',()=>{if(document.hidden)pause()});render(0);
+})();
+</script>
+</body></html>
