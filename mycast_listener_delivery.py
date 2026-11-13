@@ -151,6 +151,31 @@ class ListenerDelivery:
                             "local_date": gate["local_date"], "profile": gate["profile"]})
         return out
 
+    def overview(self) -> dict:
+        """Owner dashboard view: delivery state per listener. First name and slug only — no email, chat id or code."""
+        now = self.clock()
+        with self.store._lock:
+            data = self.store._load()
+            listeners = list(data["listeners"].values())
+            sent_today = self._sent_today_utc(data)
+        rows = []
+        for rec in listeners:
+            gate = delivery_gate(rec, now)
+            log = rec.get("deliveries") or {}
+            last_day = max(log, default="")
+            last = log.get(last_day) or {}
+            rows.append({"slug": rec.get("slug", ""), "first_name": str(rec.get("name") or "").split(" ")[0][:40],
+                         "state": gate["state"], "detail": str(gate.get("detail") or "")[:80],
+                         "last_date": last_day, "last_status": str(last.get("status") or ""),
+                         "last_reason": str(last.get("reason") or "")[:80],
+                         "sent_days": sum(1 for e in log.values() if e.get("status") == "sent")})
+        rows.sort(key=lambda r: (r["state"] != "failed_today", r["state"] != "due", r["slug"]))
+        counts = {}
+        for r in rows:
+            counts[r["state"]] = counts.get(r["state"], 0) + 1
+        return {"total": len(rows), "by_state": counts, "sent_today_utc": sent_today, "daily_cap": self.daily_cap,
+                "listeners": rows[:200]}
+
     def _sent_today_utc(self, data: dict) -> int:
         day = time.strftime("%Y-%m-%d", time.gmtime(self.clock()))
         return sum(1 for r in data["listeners"].values() for e in (r.get("deliveries") or {}).values()
@@ -204,7 +229,15 @@ class ListenerDelivery:
 def install_listener_delivery_routes(app, delivery: ListenerDelivery, *, authorize_worker: Callable[[Request], bool],
                                      api_key: Callable[[], str], tts: Callable, encode: Callable,
                                      send_audio: Callable[[str, bytes, str, str, str], None],
-                                     check_pcm: Optional[Callable] = None) -> None:
+                                     check_pcm: Optional[Callable] = None,
+                                     identity: Optional[Callable] = None) -> None:
+    if identity is not None:
+        @app.get("/api/factory/mycast/listeners")
+        def mycast_listeners_overview(request: Request):
+            if (identity(request) or {}).get("role") != "owner":
+                raise HTTPException(403, "Owner access required")
+            return delivery.overview()
+
     @app.get("/api/factory/mycast/worker/listeners/due")
     def mycast_listeners_due(request: Request):
         if not authorize_worker(request):

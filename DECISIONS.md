@@ -1030,3 +1030,14 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Executor: two opt-in policy flags, used only by this read path: `allow_offsite_subresource_reads` (real pages load CDN assets; off-origin navigation and every non-GET stay blocked) and `return_extracted_text` (redacted, 6 000 chars). Defaults keep the previous behaviour for all other callers.
 - Codex review on #334 (3 blocking findings, all fixed): every Chromium connection goes through `browser_runner/egress_proxy.py`, a local CONNECT-only proxy that resolves the host itself, refuses unless all addresses are public and connects to the address it checked (no DNS rebinding, no private sub-resources or redirects; `<-loopback>` removes Chromium's loopback bypass; https port only). The queue never evicts queued/running tasks; at 20 active tasks new ones get 429.
 - Registration, logins and purchases come next and stay behind the existing approval gate; the trusted approval verifier for submit is still not wired, so the executor refuses submit unconditionally.
+
+## 2026-11-13 — Every background module gets a dashboard view (owner: "чтобы весь функционал совпадал с UI")
+- The browser agent card was invisible in practice: its class `brCard` collided with the existing browser-run card CSS
+  (`flex:0 0 220px; font-size:7px`) inside the flex column. Renamed to `brAgentCard`.
+- Audit of `/api/*` routes against `static/index.html`: five owner-facing modules had an API but no view — Telegram
+  relay tickets, the Claude ↔ Codex relay, MyCast website listeners, voice briefs, battle runs. They are now tabs of one
+  read-only "Пульт власника" card; each tab reads one existing owner endpoint. Worker-only routes are not UI material.
+- New owner-only `GET /api/factory/mycast/listeners`: delivery state per listener with first name and slug only (no email,
+  chat id, share code or Telegram file id), so the dashboard shows who is due, delivered or failing today.
+- Sidebar: "Браузерний агент" (Автоматизація) and "Пульт власника" (Система) scroll to the cards; the navigation test's
+  before/after map and DOM stubs were extended for the two new destinations, not loosened.
