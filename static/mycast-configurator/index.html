@@ -321,7 +321,7 @@ footer{color:var(--dim);font-size:13px;text-align:center}
 .restore{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:999px;border:1px dashed var(--edge2);background:rgba(20,27,54,.6);color:var(--mute);font:600 13px var(--body);cursor:pointer;max-width:100%}
 .restore:hover{color:var(--ink);border-color:var(--cyan)}
 .calInvite{margin:0;font:700 clamp(17px,4.2vw,20px)/1.35 var(--body);color:var(--ink)}
-.calInvite .gcal{width:22px;height:22px;vertical-align:-4px;margin-right:8px}
+.calInvite .gcal{width:22px;height:22px;vertical-align:-4px;margin-right:8px}.calConnect{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}.calConnect a.btn{text-decoration:none}.calConnect .gcal{width:18px;height:18px;vertical-align:-4px;margin-right:6px}
 .calMeta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--mute)}
 /* Signed in: the intro about the project gives way to the listener's own avatar. */
 .meHero{display:flex;align-items:center;gap:16px;padding:18px 20px;border-radius:22px;border:1px solid var(--edge2);background:linear-gradient(135deg,rgba(91,67,255,.22),rgba(0,200,255,.08)),var(--glass);min-width:0}
@@ -469,10 +469,12 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         <div class="cal" id="calBox">
           <h4 data-t="cal_h"></h4>
           <p class="calInvite" id="calInvite"></p>
-          <div class="calMeta"><span class="tag no" data-t="cal_status"></span><span data-t="cal_end"></span></div>
+          <div class="calMeta"><span class="tag no" id="calStatusTag" data-t="cal_status"></span><span data-t="cal_end"></span></div>
           <label class="confirm"><input type="checkbox" id="calBirthdays"> <span data-t="cal_birthdays"></span></label>
           <label class="confirm"><input type="checkbox" id="calEvents"> <span data-t="cal_events"></span></label>
           <p class="note" data-t="cal_note"></p>
+          <div class="calConnect" id="calConnect"></div>
+          <p class="msg" id="calMsg" role="status" aria-live="polite"></p>
         </div>
       </section>
 
@@ -747,7 +749,7 @@ const T = {
 /* Owner, 2026-11-07: 7 free days to start, +7 days for each invited friend (and the friend starts with 14),
    three entry points on the first screen, and the growth ideas kept on the page as theses to edit later. */
 const GROW = {
- uk:{parts:[['1','Новини світу','те, що ви обрали'],['2','Персональні інтереси','стартапи, IT, growth hacks…'],['3','Дні народження друзів','інтеграція з Google Календарем',1],['4','Позначки календаря','зустрічі й справи дня · Google Календар',1]],cal_h:'Ваш день у випуску',cal_birthdays:'Дні народження друзів (Google Календар)',cal_events:'Мої зустрічі й позначки на сьогодні (Google Календар)',cal_note:'Підключення Google Календаря — скоро, лише читання і лише з вашого дозволу. Зараз ми запам’ятовуємо побажання, календар не читається.',narrow_h:'Звузьте «{q}» — додайте вузьку тему як свою:',narrow_none:'Готових тем за «{q}» немає. Оберіть вузький варіант — він стане вашою темою.',narrow_added:'Додано у «{g}».',narrow_full:'У «{g}» вже 5 своїх тем — приберіть одну, щоб додати ще.',offer:'7 днів персональних подкастів — безкоштовно',offer_sub:'Приведи друга — отримай ще +7 днів за кожного. Друг стартує з 14 днями.',
+ uk:{parts:[['1','Новини світу','те, що ви обрали'],['2','Персональні інтереси','стартапи, IT, growth hacks…'],['3','Дні народження друзів','інтеграція з Google Календарем',1],['4','Позначки календаря','зустрічі й справи дня · Google Календар',1]],cal_h:'Ваш день у випуску',cal_birthdays:'Дні народження друзів (Google Календар)',cal_events:'Мої зустрічі й позначки на сьогодні (Google Календар)',cal_note:'Лише читання і лише з вашого дозволу: під час підготовки випуску ми читаємо назви сьогоднішніх подій і дні народження та нічого з календаря не зберігаємо. Відключити можна будь-коли.',cal_connect:'Підключити Google Календар',cal_connected:'Google Календар підключено',cal_linked_tag:'підключено',cal_disconnect:'Відключити',cal_signin:'Щоб підключити календар, спершу увійдіть (через Google або Telegram) вище.',cal_ret:{connected:'✓ Google Календар підключено. Позначте нижче, що озвучувати: дні народження та/або події.',denied:'Ви не дали доступ до календаря — нічого не змінилося.',scope:'Google не надав доступ до календаря: поставте галочку «календар» на екрані Google і спробуйте ще раз.',failed:'Не вдалося підключити календар. Спробуйте ще раз трохи пізніше.',signin:'Спершу увійдіть, а потім підключайте календар.',unavailable:'Підключення календаря ще не налаштоване.'},cal_off_done:'Календар відключено, доступ відкликано.',narrow_h:'Звузьте «{q}» — додайте вузьку тему як свою:',narrow_none:'Готових тем за «{q}» немає. Оберіть вузький варіант — він стане вашою темою.',narrow_added:'Додано у «{g}».',narrow_full:'У «{g}» вже 5 своїх тем — приберіть одну, щоб додати ще.',offer:'7 днів персональних подкастів — безкоштовно',offer_sub:'Приведи друга — отримай ще +7 днів за кожного. Друг стартує з 14 днями.',
   gift:'🎁 Вам подарували 7 днів: 14 днів персональних подкастів безкоштовно',gift_sub:'7 днів старту + 7 днів від друга. Увійдіть, щоб подарунок зарахувався.',
   beta:'Відкрита бета: зараз усе безкоштовно, дні почнуть рахуватися з запуском регулярних випусків.',
   tr1:'Створи свій персональний подкаст',tr1s:'Теми, голос і розклад — за 2 хвилини.',tr2:'Слухай подкасти друзів і відомих людей',tr2s:'Відкрий посилання друга або додай Зеленського, Маска, Гейтса…',tr3:'Ділись і отримуй дні',tr3s:'Посилання або QR: другу +7 днів, тобі +7 днів.',
@@ -757,7 +759,7 @@ const GROW = {
    ['Підпис наприкінці кожного випуску: «Цей подкаст зібрав для себе Андрій. Створи свій — 7 днів у подарунок»',0],['Картка ДНК подкасту для сторіс Instagram і Telegram, з QR',0],['Подкасти відомих людей і друзів як готові «станції»: підписатися в один дотик',0],
    ['Подарувати подкаст: налаштувати для мами чи друга і надіслати як подарунок',0],['Подкаст на двох: спільний випуск із другом про ваші спільні теми',0],['Тижневий «Wrapped»: ваші теми тижня — картка, якою хочеться поділитися',0],
    ['Серія прослуховувань: 7 днів поспіль — +1 день у подарунок',0],['Групові подкасти для Telegram-чатів: клуб, команда, сім’я',0],['Бейджі амбасадорів і таблиця запрошень',0],['Google Календар у випуску: дні народження друзів і ваші зустрічі дня',0]],ideas_on:'є',ideas_off:'план'},
- ru:{parts:[['1','Новости мира','то, что вы выбрали'],['2','Личные интересы','стартапы, IT, growth hacks…'],['3','Дни рождения друзей','интеграция с Google Календарём',1],['4','Пометки календаря','встречи и дела дня · Google Календарь',1]],cal_h:'Ваш день в выпуске',cal_birthdays:'Дни рождения друзей (Google Календарь)',cal_events:'Мои встречи и пометки на сегодня (Google Календарь)',cal_note:'Подключение Google Календаря — скоро, только чтение и только с вашего разрешения. Сейчас мы запоминаем пожелание, календарь не читается.',narrow_h:'Сузьте «{q}» — добавьте узкую тему как свою:',narrow_none:'Готовых тем по «{q}» нет. Выберите узкий вариант — он станет вашей темой.',narrow_added:'Добавлено в «{g}».',narrow_full:'В «{g}» уже 5 своих тем — уберите одну, чтобы добавить ещё.',offer:'7 дней персональных подкастов — бесплатно',offer_sub:'Приведи друга — получи ещё +7 дней за каждого. Друг стартует с 14 днями.',
+ ru:{parts:[['1','Новости мира','то, что вы выбрали'],['2','Личные интересы','стартапы, IT, growth hacks…'],['3','Дни рождения друзей','интеграция с Google Календарём',1],['4','Пометки календаря','встречи и дела дня · Google Календарь',1]],cal_h:'Ваш день в выпуске',cal_birthdays:'Дни рождения друзей (Google Календарь)',cal_events:'Мои встречи и пометки на сегодня (Google Календарь)',cal_note:'Только чтение и только с вашего разрешения: при подготовке выпуска мы читаем названия сегодняшних событий и дни рождения и ничего из календаря не храним. Отключить можно в любой момент.',cal_connect:'Подключить Google Календарь',cal_connected:'Google Календарь подключён',cal_linked_tag:'подключено',cal_disconnect:'Отключить',cal_signin:'Чтобы подключить календарь, сначала войдите (через Google или Telegram) выше.',cal_ret:{connected:'✓ Google Календарь подключён. Отметьте ниже, что озвучивать: дни рождения и/или события.',denied:'Вы не дали доступ к календарю — ничего не изменилось.',scope:'Google не выдал доступ к календарю: поставьте галочку «календарь» на экране Google и попробуйте ещё раз.',failed:'Не удалось подключить календарь. Попробуйте ещё раз чуть позже.',signin:'Сначала войдите, а потом подключайте календарь.',unavailable:'Подключение календаря ещё не настроено.'},cal_off_done:'Календарь отключён, доступ отозван.',narrow_h:'Сузьте «{q}» — добавьте узкую тему как свою:',narrow_none:'Готовых тем по «{q}» нет. Выберите узкий вариант — он станет вашей темой.',narrow_added:'Добавлено в «{g}».',narrow_full:'В «{g}» уже 5 своих тем — уберите одну, чтобы добавить ещё.',offer:'7 дней персональных подкастов — бесплатно',offer_sub:'Приведи друга — получи ещё +7 дней за каждого. Друг стартует с 14 днями.',
   gift:'🎁 Вам подарили 7 дней: 14 дней персональных подкастов бесплатно',gift_sub:'7 дней старта + 7 дней от друга. Войдите, чтобы подарок засчитался.',
   beta:'Открытая бета: сейчас всё бесплатно, дни начнут считаться с запуском регулярных выпусков.',
   tr1:'Создай свой персональный подкаст',tr1s:'Темы, голос и расписание — за 2 минуты.',tr2:'Слушай подкасты друзей и известных людей',tr2s:'Открой ссылку друга или добавь Зеленского, Маска, Гейтса…',tr3:'Делись и получай дни',tr3s:'Ссылка или QR: другу +7 дней, тебе +7 дней.',
@@ -767,7 +769,7 @@ const GROW = {
    ['Подпись в конце каждого выпуска: «Этот подкаст собрал для себя Андрей. Создай свой — 7 дней в подарок»',0],['Карточка ДНК подкаста для сторис Instagram и Telegram, с QR',0],['Подкасты известных людей и друзей как готовые «станции»: подписаться в одно касание',0],
    ['Подарить подкаст: настроить для мамы или друга и отправить как подарок',0],['Подкаст на двоих: совместный выпуск с другом про ваши общие темы',0],['Недельный «Wrapped»: ваши темы недели — карточка, которой хочется поделиться',0],
    ['Серия прослушиваний: 7 дней подряд — +1 день в подарок',0],['Групповые подкасты для Telegram-чатов: клуб, команда, семья',0],['Бейджи амбассадоров и таблица приглашений',0],['Google Календарь в выпуске: дни рождения друзей и ваши встречи дня',0]],ideas_on:'есть',ideas_off:'план'},
- en:{parts:[['1','World news','what you picked'],['2','Personal interests','startups, IT, growth hacks…'],['3','Friends\' birthdays','Google Calendar integration',1],['4','Calendar notes','meetings and tasks of the day · Google Calendar',1]],cal_h:'Your day in the episode',cal_birthdays:'Friends\' birthdays (Google Calendar)',cal_events:'My meetings and notes for today (Google Calendar)',cal_note:'Google Calendar connection is coming: read-only and only with your permission. For now we store the wish; no calendar is read.',narrow_h:'Narrow down "{q}": add a narrower topic as your own:',narrow_none:'No ready-made topics for "{q}". Pick a narrower option and it becomes your own topic.',narrow_added:'Added to "{g}".',narrow_full:'"{g}" already has 5 own topics; remove one to add more.',offer:'7 days of personal podcasts, free',offer_sub:'Bring a friend and get +7 more days for each one. Your friend starts with 14 days.',
+ en:{parts:[['1','World news','what you picked'],['2','Personal interests','startups, IT, growth hacks…'],['3','Friends\' birthdays','Google Calendar integration',1],['4','Calendar notes','meetings and tasks of the day · Google Calendar',1]],cal_h:'Your day in the episode',cal_birthdays:'Friends\' birthdays (Google Calendar)',cal_events:'My meetings and notes for today (Google Calendar)',cal_note:'Read-only and only with your permission: when your episode is prepared we read the titles of today\'s events and birthdays, and store nothing from your calendar. Disconnect any time.',cal_connect:'Connect Google Calendar',cal_connected:'Google Calendar connected',cal_linked_tag:'connected',cal_disconnect:'Disconnect',cal_signin:'To connect your calendar, sign in first (Google or Telegram) above.',cal_ret:{connected:'✓ Google Calendar connected. Tick below what to read out: birthdays and/or events.',denied:'You did not grant calendar access — nothing changed.',scope:'Google did not grant calendar access: tick “calendar” on Google\'s screen and try again.',failed:'Could not connect the calendar. Please try again a bit later.',signin:'Sign in first, then connect the calendar.',unavailable:'Calendar connection is not set up yet.'},cal_off_done:'Calendar disconnected, access revoked.',narrow_h:'Narrow down "{q}": add a narrower topic as your own:',narrow_none:'No ready-made topics for "{q}". Pick a narrower option and it becomes your own topic.',narrow_added:'Added to "{g}".',narrow_full:'"{g}" already has 5 own topics; remove one to add more.',offer:'7 days of personal podcasts, free',offer_sub:'Bring a friend and get +7 more days for each one. Your friend starts with 14 days.',
   gift:'🎁 You were gifted 7 days: 14 days of personal podcasts, free',gift_sub:'7 starter days + 7 days from your friend. Sign in so the gift counts.',
   beta:'Open beta: everything is free right now; days start counting when regular episodes launch.',
   tr1:'Create your own personal podcast',tr1s:'Topics, voice and schedule in 2 minutes.',tr2:'Listen to friends\' and famous people\'s podcasts',tr2s:'Open a friend\'s link or add Zelensky, Musk, Gates…',tr3:'Share and earn days',tr3s:'Link or QR: +7 days for your friend, +7 for you.',
@@ -986,7 +988,7 @@ function render() {
       (ch === 'telegram' ? `<button type="button" class="btn get" id="tgDeliver" ${listener && listener.telegram_linked ? 'disabled' : ''}>${ICONS.telegram.replace('<svg ', '<svg width="16" height="16" style="vertical-align:-3px;margin-right:6px" ')}${esc(listener && listener.telegram_linked ? x.tg_linked : (account.telegram_bot ? x.get : x.tg_soon))}</button>`
         : st.reason === 'planned' ? `<button type="button" class="btn get" disabled>${esc(x.soon)}</button>` : '') + `</label>`; }).join('');
   $('#importBanner').hidden = !sharedProfile;
-  renderAccount(); renderVoices(); renderTelegram(); renderGrowth(); renderMe(); renderPlan();
+  renderAccount(); renderVoices(); renderTelegram(); renderGrowth(); renderMe(); renderPlan(); renderCalendar();
   const gcal = GCAL;
   $('#episodeParts').innerHTML = x.parts.map(([n, h, sub, cal]) => `<li>${cal ? gcal : `<b>${esc(n)}</b>`}<span>${esc(h)}${sub ? ` <small>· ${esc(sub)}</small>` : ''}</span></li>`).join('');
   $('#calBirthdays').checked = !!(profile.calendar || {}).birthdays; $('#calEvents').checked = !!(profile.calendar || {}).events;
@@ -1289,6 +1291,33 @@ async function savePodcast(quiet, approved) {
   if (r.ok) { listener = d.listener; renderTelegram(); if (!quiet) accMsg(t().acc_saved + myPage(), true); }
   else if (!quiet) accMsg(t().acc_fail, false);
 }
+/* Owner 2026-11-13: Google Calendar (read-only). The server does the OAuth; the page only links to it. */
+function renderCalendar() {
+  const x = t(), box = $('#calConnect'), tag = $('#calStatusTag'), linked = !!(listener && listener.calendar_linked);
+  if (tag) { tag.className = 'tag ' + (linked ? 'yes' : 'no'); tag.textContent = linked ? x.cal_linked_tag : x.cal_status; }
+  if (!box) return;
+  if (!account.calendar_available) { box.innerHTML = ''; return; }
+  if (!listener) { box.innerHTML = `<p class="hint small">${esc(x.cal_signin)}</p>`; return; }
+  box.innerHTML = linked
+    ? `<span class="tag yes">✓ ${esc(x.cal_connected)}</span><button type="button" class="btn" id="calDisconnect">${esc(x.cal_disconnect)}</button>`
+    : `<a class="btn primary" id="calConnectBtn" href="/api/mycast/calendar/connect">${GCAL}${esc(x.cal_connect)}</a>`;
+}
+function calMsg(text, ok) { const m = $('#calMsg'); if (m) { m.className = 'msg' + (ok ? ' ok' : ''); m.textContent = text || ''; } }
+function calendarReturn() {
+  const q = new URLSearchParams(location.search), state = q.get('calendar');
+  if (!state) return;
+  const msgs = t().cal_ret || {};
+  calMsg(msgs[state] || msgs.failed, state === 'connected');
+  q.delete('calendar');
+  history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash);
+  const box = $('#calBox'); if (box) box.scrollIntoView({ block: 'center' });
+}
+document.addEventListener('click', async e => {
+  if (!e.target.closest('#calDisconnect')) return;
+  const r = await fetch('/api/mycast/calendar/disconnect', { method: 'POST' }).catch(() => null);
+  if (r && r.ok) { if (listener) listener.calendar_linked = false; calMsg(t().cal_off_done, true); renderCalendar(); }
+  else calMsg(t().cal_ret.failed, false);
+});
 async function initAccounts() {
   if (!/^https?:$/.test(location.protocol)) return;               // local file or preview: no accounts
   if (/[#&]missing/.test(location.hash)) accMsg(t().acc_missing, false);
@@ -1297,6 +1326,7 @@ async function initAccounts() {
   loadVoices();
   await telegramReturn();
   render();
+  calendarReturn();
   if (listener) { if (account.telegram_bot_id && !(listener.telegram_linked)) loadScript('https://telegram.org/js/telegram-widget.js?22'); return; }
   if (account.google_client_id) {
     loadScript('https://accounts.google.com/gsi/client').onload = () => {

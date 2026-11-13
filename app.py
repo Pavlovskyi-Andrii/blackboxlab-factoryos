@@ -48,6 +48,8 @@ from mycast_demo import DemoService, install_mycast_demo_routes, _client_id as _
 from mycast_subtopics import SubtopicService
 from mycast_listener_delivery import ListenerDelivery, install_listener_delivery_routes
 from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
+from mycast_accounts import COOKIE as MYCAST_COOKIE, unsign as mycast_unsign
+from mycast_calendar import ListenerCalendar, install_calendar_routes
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
 import evidence as _evidence
 from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
@@ -230,6 +232,9 @@ CLAUDE_WORKER_RESULTS_FILE = DATA_DIR / "claude_worker_results.json"
 CLAUDE_WORKER_HEARTBEAT_FILE = DATA_DIR / "claude_worker_heartbeat.json"
 _claude_worker_results_lock=threading.Lock()
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
+FACTORY_GOOGLE_CLIENT_SECRET = os.environ.get("FACTORY_GOOGLE_CLIENT_SECRET","").strip()   # MyCast calendar OAuth only
+FACTORY_MYCAST_CALENDAR_REDIRECT = os.environ.get("FACTORY_MYCAST_CALENDAR_REDIRECT",
+                                                  "https://mycast.pro/api/mycast/calendar/callback").strip()
 FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS","").split(",") if x.strip()}
 FACTORY_GOOGLE_VIEWER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_VIEWER_EMAILS","").split(",") if x.strip()}
 FACTORY_GOOGLE_ALLOWED_EMAILS = ({x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_EMAILS","").split(",") if x.strip()} | FACTORY_GOOGLE_OWNER_EMAILS | FACTORY_GOOGLE_VIEWER_EMAILS)
@@ -851,17 +856,32 @@ def _mycast_bot_username() -> str:
     return _MYCAST_BOT_NAME["name"]
 # MyCast listener accounts (owner 2026-11-06: open beta, Telegram + Google). Separate cookie; never a staff session.
 MYCAST_LISTENERS = ListenerStore(DATA_DIR / "mycast_listeners.json")
+
+
+def _mycast_keyring():
+    from browser_runner.vault import Keyring
+    return Keyring.from_env()
+
+
+# Owner 2026-11-13: "Підключити Google Календар" — read-only, refresh token encrypted with FACTORY_VAULT_KEY.
+MYCAST_CALENDAR = ListenerCalendar(MYCAST_LISTENERS, keyring=_mycast_keyring, client_id=lambda: FACTORY_GOOGLE_CLIENT_ID,
+                                   client_secret=lambda: FACTORY_GOOGLE_CLIENT_SECRET, secret=FACTORY_SECRET,
+                                   redirect_uri=FACTORY_MYCAST_CALENDAR_REDIRECT)
+install_calendar_routes(app, MYCAST_CALENDAR, current_slug=lambda request: mycast_unsign(
+    FACTORY_SECRET, request.cookies.get(MYCAST_COOKIE, ""), time.time()))
 install_mycast_account_routes(app, MYCAST_LISTENERS, secret=FACTORY_SECRET,
                               bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN, bot_username=_mycast_bot_username,
                               google_client_id=lambda: FACTORY_GOOGLE_CLIENT_ID,
                               google_verify=lambda cred: google_id_token.verify_oauth2_token(cred, google_requests.Request(), FACTORY_GOOGLE_CLIENT_ID),
                               secure_cookie=FACTORY_PUBLIC_BASE_URL.startswith("https://"),
                               send_message=lambda chat, text: _telegram_api("sendMessage", {"chat_id": chat, "text": text}),
-                              send_sample=_mycast_send_listener_sample, fetch_audio=_telegram_fetch_file)
+                              send_sample=_mycast_send_listener_sample, fetch_audio=_telegram_fetch_file,
+                              calendar_available=MYCAST_CALENDAR.available,
+                              on_delete=MYCAST_CALENDAR.disconnect)
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # #317: website listeners' daily episodes. The EC2 worker writes the script; the server re-checks every gate,
 # voices it with the listener's own voices and sends it only to the listener's own chat.
-MYCAST_LISTENER_DELIVERY = ListenerDelivery(MYCAST_LISTENERS)
+MYCAST_LISTENER_DELIVERY = ListenerDelivery(MYCAST_LISTENERS, calendar=MYCAST_CALENDAR.today)
 install_listener_delivery_routes(
     app, MYCAST_LISTENER_DELIVERY, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY,
     tts=gemini_tts_pcm, encode=lambda pcm, rate: pcm_to_mp3(pcm, rate, bitrate=64),  # 30 min ≈ 14 MB < Telegram's 20 MB re-download limit
@@ -1076,7 +1096,7 @@ async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/")  # MyCast public beta: capped demo, listener accounts
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/api/mycast/calendar/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
     media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)
