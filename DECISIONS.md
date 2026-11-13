@@ -1082,3 +1082,15 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   owner's), at most 200 per 24 h, and share the 20-task active queue. Claude can read only its own tasks.
 - The token reaches this cloud session through the environment's credential form (injected by the network proxy);
   it never appears in chat or in the repository. Logged-in browsing stays out of scope.
+
+## 2026-11-13 — Browser agent: read with a saved session (owner: "делай режим с сохранённой сессией")
+- A read task may name a vault session (`session: {provider, account}`). The page must be on one of that session's
+  cookie domains (exact host or subdomain), so the cookies are never sent to another site.
+- The decrypted storage_state goes only to the worker in the claim response, lives in memory for that one run and is
+  dropped afterwards; it is never in the task file, the task API, logs or the repository.
+- Logged-in apps (Search Console) load data by same-origin XHR POST, so session reads allow non-navigation POSTs to
+  the task's own origin only. Plans still have no click/fill/submit steps; owner was advised to use a separate empty
+  Google account with restricted (read-only) Search Console access.
+- Google blocks sign-in inside Playwright's browser, so the vault also accepts a Cookie-Editor JSON export from the
+  owner's everyday Chrome and converts it to a storage_state. Optional `wait_for` selector for single-page apps.
+- Without a stored session the task is blocked as `session_unavailable`; it never falls back to anonymous.

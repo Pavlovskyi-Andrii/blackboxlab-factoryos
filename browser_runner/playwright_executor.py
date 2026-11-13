@@ -79,6 +79,9 @@ class BrowserRuntimePolicy:
     allow_offsite_subresource_reads: bool = False
     # Return the extracted text (redacted, capped) for read tasks; otherwise only its length and hash are recorded.
     return_extracted_text: bool = False
+    # Owner 2026-11-13: logged-in read tasks (a saved session) — the page's own same-origin XHR/fetch may use POST
+    # (apps like Search Console load data that way). Navigations, forms and every other origin stay GET-only.
+    allow_same_origin_xhr: bool = False
     # Every browser connection goes through this proxy (browser_runner.egress_proxy.PublicOnlyProxy), which checks the
     # address at connection time; "<-loopback>" removes Chromium's implicit loopback bypass.
     proxy_server: str | None = None
@@ -312,7 +315,9 @@ def run_playwright(
                 if not (policy.allow_offsite_subresource_reads and plan.action_class == "read" and not is_navigation
                         and request.method.upper() in ("GET", "HEAD")):
                     raise PolicyError("off_allowlist_network_request")
-            if request.method.upper() not in _SAFE_METHODS:
+            if request.method.upper() not in _SAFE_METHODS and not (
+                    policy.allow_same_origin_xhr and plan.action_class == "read" and actual_origin in origins
+                    and not bool(getattr(request, "is_navigation_request", lambda: True)())):
                 raise PolicyError("browser_write_request_blocked")
             if _UNSAFE_WORDS.search(urlsplit(request.url).path):
                 raise PolicyError("irreversible_network_path_disallowed")

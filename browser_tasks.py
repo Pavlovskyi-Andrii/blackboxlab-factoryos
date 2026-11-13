@@ -30,6 +30,9 @@ MAX_TEXT = 6000
 AGENT_DAILY_CAP = 200                # read tasks Claude may queue per 24 h with the browser-agent token (owner 2026-11-13)
 ID_RE = re.compile(r"^bt_[0-9a-f]{16}$")
 SELECTOR_RE = re.compile(r"^[^\x00-\x1f<>{};]{1,200}$")
+SESSION_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,39}$")
+SESSION_ACCOUNT_RE = re.compile(r"^[\w.@+ -]{1,80}$")
+MAX_WAIT_SELECTOR = 200
 STATUSES = ("queued", "running", "done", "blocked", "failed", "waiting_human")
 
 
@@ -74,14 +77,27 @@ class BrowserTaskStore:
         tmp.write_text(json.dumps(keep, ensure_ascii=False, indent=1), encoding="utf-8")
         tmp.replace(self.path)
 
-    def create(self, url: str, selectors: list, note: str = "", source: str = "owner") -> dict:
+    def create(self, url: str, selectors: list, note: str = "", source: str = "owner", session: Optional[dict] = None,
+               wait_for: str = "") -> dict:
         url = check_url(url)
+        if session is not None:
+            provider, account = str(session.get("provider") or ""), str(session.get("account") or "")
+            if not SESSION_SLUG_RE.fullmatch(provider) or not SESSION_ACCOUNT_RE.fullmatch(account):
+                raise HTTPException(400, "bad session binding")
+            session = {"provider": provider, "account": account}
+        wait_for = str(wait_for or "").strip()
+        if wait_for and not SELECTOR_RE.fullmatch(wait_for):
+            raise HTTPException(400, "Некоректний CSS-селектор")
         sel = [str(s).strip() for s in (selectors or []) if str(s).strip()][:MAX_SELECTORS] or ["body"]
         if not all(SELECTOR_RE.fullmatch(s) for s in sel):
             raise HTTPException(400, "Некоректний CSS-селектор")
         task = {"id": "bt_" + secrets.token_hex(8), "url": url, "selectors": sel, "note": str(note or "")[:300],
                 "action": "read", "status": "queued", "created": int(self.clock()), "lease_until": 0,
                 "result": None, "source": source}
+        if session:
+            task["session"] = session          # provider/account only; the cookies stay in the vault
+        if wait_for:
+            task["wait_for"] = wait_for
         with self.lock:
             items = self._load()
             if sum(t["status"] in ("queued", "running") for t in items) >= MAX_ACTIVE:
@@ -105,7 +121,7 @@ class BrowserTaskStore:
                 if t["status"] == "queued" or (t["status"] == "running" and t.get("lease_until", 0) < now):
                     t.update(status="running", lease_until=int(now + LEASE_SECONDS), claimed=int(now))
                     self._save(items)
-                    return {k: t[k] for k in ("id", "url", "selectors", "action")}
+                    return {k: t[k] for k in ("id", "url", "selectors", "action", "session", "wait_for") if k in t}
         return None
 
     def finish(self, task_id: str, body: dict) -> dict:
@@ -150,7 +166,25 @@ class BrowserTaskStore:
 
 
 def install_browser_task_routes(app, store: BrowserTaskStore, *, identity: Callable, authorize_worker: Callable,
-                                authorize_agent: Optional[Callable] = None) -> None:
+                                authorize_agent: Optional[Callable] = None,
+                                session_domains: Optional[Callable[[str, str], list]] = None,
+                                session_state: Optional[Callable[[str, str], Optional[dict]]] = None) -> None:
+    """session_domains(provider, account) -> cookie domains of a saved vault session ([] when none);
+    session_state(provider, account) -> the decrypted Playwright storage_state, handed only to the worker."""
+
+    def checked_session(body: dict, url: str) -> Optional[dict]:
+        raw = body.get("session")
+        if not raw:
+            return None
+        if not isinstance(raw, dict) or session_domains is None:
+            raise HTTPException(400, "sessions are not available")
+        domains = session_domains(str(raw.get("provider") or ""), str(raw.get("account") or ""))
+        if not domains:
+            raise HTTPException(404, "no saved browser session for this site/account")
+        host = (urlsplit(check_url(url)).hostname or "").lower()
+        if not any(host == d or host.endswith("." + d) for d in domains):
+            raise HTTPException(400, "the page is not on a domain of this session")   # cookies never go elsewhere
+        return raw
     def owner(request: Request):
         if (identity(request) or {}).get("role") != "owner":
             raise HTTPException(403, "Owner access required")
@@ -169,7 +203,8 @@ def install_browser_task_routes(app, store: BrowserTaskStore, *, identity: Calla
             raise HTTPException(400, "json body required")
         if not isinstance(body, dict):
             raise HTTPException(400, "json object required")
-        return {"task": store.create(body.get("url", ""), body.get("selectors") or [], body.get("note", ""))}
+        return {"task": store.create(body.get("url", ""), body.get("selectors") or [], body.get("note", ""),
+                                     session=checked_session(body, body.get("url", "")), wait_for=body.get("wait_for", ""))}
 
     @app.get("/api/factory/browser/tasks/{task_id}/screenshot")
     def browser_task_screenshot(task_id: str, request: Request):
@@ -191,7 +226,8 @@ def install_browser_task_routes(app, store: BrowserTaskStore, *, identity: Calla
             raise HTTPException(400, "json body required")
         if not isinstance(body, dict):
             raise HTTPException(400, "json object required")
-        task = store.create(body.get("url", ""), body.get("selectors") or [], body.get("note", ""), source="claude")
+        task = store.create(body.get("url", ""), body.get("selectors") or [], body.get("note", ""), source="claude",
+                            session=checked_session(body, body.get("url", "")), wait_for=body.get("wait_for", ""))
         return {"task": task}
 
     @app.get("/api/factory/browser/agent/tasks/{task_id}")
@@ -214,7 +250,14 @@ def install_browser_task_routes(app, store: BrowserTaskStore, *, identity: Calla
     def browser_worker_claim(request: Request):
         if not authorize_worker(request):
             raise HTTPException(401, "Worker token required")
-        return {"task": store.claim()}
+        task = store.claim()
+        if task and task.get("session"):
+            try:
+                state = session_state(task["session"]["provider"], task["session"]["account"]) if session_state else None
+            except Exception:
+                state = None
+            task["storage_state"] = state      # None → the worker reports session_unavailable; never logged or stored
+        return {"task": task}
 
     @app.post("/api/factory/browser/worker/{task_id}/result")
     async def browser_worker_result(task_id: str, request: Request):

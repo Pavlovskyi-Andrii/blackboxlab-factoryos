@@ -176,6 +176,67 @@ class RoutesTest(unittest.TestCase):
                 self.assertEqual(e.exception.status_code, 429)
 
 
+    def test_saved_session_only_on_its_own_domains_and_only_to_the_worker(self):
+        from fastapi import FastAPI
+        state = {"cookies": [{"name": "SID", "value": "secret-cookie", "domain": ".google.com", "path": "/"}], "origins": []}
+        with tempfile.TemporaryDirectory() as d:
+            store = bt.BrowserTaskStore(pathlib.Path(d))
+            app = FastAPI()
+            bt.install_browser_task_routes(
+                app, store, identity=lambda r: {"role": "owner"}, authorize_worker=lambda r: getattr(r, "worker", False),
+                authorize_agent=lambda r: True,
+                session_domains=lambda p, a: ["google.com"] if (p, a) == ("google.com", "main") else [],
+                session_state=lambda p, a: state)
+            h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+
+            class Req:
+                def __init__(self, body=None, worker=False):
+                    self.body, self.worker = body, worker
+
+                async def json(self):
+                    return self.body
+            create = h[("POST", "/api/factory/browser/agent/tasks")]
+            sess = {"provider": "google.com", "account": "main"}
+            for url, code in (("https://evil.example/", 400), ("https://google.com.evil.example/", 400)):
+                with self.assertRaises(HTTPException) as e:                       # cookies never go to another site
+                    asyncio.run(create(Req({"url": url, "session": sess})))
+                self.assertEqual(e.exception.status_code, code)
+            with self.assertRaises(HTTPException) as e:
+                asyncio.run(create(Req({"url": "https://search.google.com/", "session": {"provider": "google.com", "account": "x"}})))
+            self.assertEqual(e.exception.status_code, 404)
+            task = asyncio.run(create(Req({"url": "https://search.google.com/search-console", "session": sess,
+                                           "wait_for": "main"})))["task"]
+            self.assertEqual((task["session"], task["wait_for"]), (sess, "main"))
+            self.assertNotIn("secret-cookie", json.dumps(store.list()))                       # never in the task file
+            self.assertNotIn("secret-cookie", json.dumps(h[("GET", "/api/factory/browser/agent/tasks/{task_id}")](task["id"], Req())))
+            claimed = h[("POST", "/api/factory/browser/worker/claim")](Req(worker=True))["task"]
+            self.assertEqual(claimed["storage_state"], state)                                  # only the worker gets it
+            plan = worker.build_plan(claimed)
+            self.assertEqual((plan.provider, plan.account_binding_id, plan.steps[1]),
+                             ("google.com", "main", {"type": "wait_for", "selector": "main"}))
+
+    def test_worker_without_the_session_reports_it_and_never_runs_anonymous(self):
+        calls = []
+        out = worker.execute({"id": "bt_0123456789abcdef", "url": "https://search.google.com/", "selectors": [],
+                              "session": {"provider": "google.com", "account": "main"}, "storage_state": None},
+                             runner=lambda *a, **k: calls.append(1), artifact_root=pathlib.Path("/tmp/x"),
+                             resolve=lambda host, port, proto=0: [(2, 1, 6, "", ("142.250.1.1", port))])
+        self.assertEqual((out["status"], out["blocker"], calls), ("blocked", "session_unavailable", []))
+
+    def test_cookie_editor_export_converts_to_storage_state(self):
+        from browser_runner.vault import from_cookie_export
+        from browser_runner.sessions import VaultError
+        st = from_cookie_export([{"name": "SID", "value": "v", "domain": ".google.com", "path": "/", "expirationDate": 1893456000.5,
+                                  "httpOnly": True, "secure": True, "sameSite": "no_restriction", "session": False},
+                                 {"name": "NID", "value": "w", "domain": ".google.com", "session": True, "sameSite": "lax"}])
+        self.assertEqual(st["cookies"][0]["sameSite"], "None")
+        self.assertEqual(st["cookies"][1]["expires"], -1)
+        self.assertEqual(st["origins"], [])
+        for bad in ([], [{"value": "x"}], {"cookies": []}):
+            with self.assertRaises(VaultError):
+                from_cookie_export(bad)
+
+
 class AgentTokenTest(unittest.TestCase):
     def test_token_rules_and_middleware_scope(self):
         import app as factory
@@ -257,6 +318,14 @@ class ExecutorFlagsTest(unittest.TestCase):
             self.assertEqual(self.run_with([one]).status, "blocked", one)
             self.assertTrue(self.routes[0].aborted)
         self.assertEqual(self.run_with(cdn, action_class="draft", allow_offsite_subresource_reads=True).status, "blocked")
+        # Saved-session reads: the page's own same-origin XHR may POST; navigation POSTs and other origins never.
+        xhr = [("https://shop.example/_/data/batchexecute", "POST", False)]
+        self.assertEqual(self.run_with(xhr, allow_offsite_subresource_reads=True, allow_same_origin_xhr=True).status, "done")
+        self.assertFalse(self.routes[0].aborted)
+        res = self.run_with(xhr + [("https://other.example/x", "POST", False)], allow_same_origin_xhr=True)
+        self.assertEqual(res.blocker_reason, "off_allowlist_network_request")
+        self.assertEqual(self.run_with([("https://shop.example/save", "POST", True)], allow_same_origin_xhr=True).status, "blocked")
+        self.assertEqual(self.run_with(xhr).blocker_reason, "browser_write_request_blocked")       # off by default
         plain = self.run_with([], allow_offsite_subresource_reads=True)
         self.assertNotIn("text", [k for r in plain.action_log for k in r])                           # text only when asked
 
