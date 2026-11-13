@@ -19,7 +19,9 @@ ProtectSystem=full
 ReadWritePaths=/var/lib/factoryos-codex
 InaccessiblePaths=-/opt/factoryos -/root -/home -/etc/factoryos
 ProtectKernelTunables=true
-ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=false
 # sudo needs setuid, so NoNewPrivileges stays off; the sudoers rule allows only the Codex account.
+# Do not add ProtectKernelModules/ProtectKernelLogs/ProtectClock/SystemCallFilter/RestrictNamespaces/LockPersonality/
+# MemoryDenyWriteExecute/PrivateDevices here: systemd turns each of them into NoNewPrivileges=yes for a non-root
+# User=, which breaks sudo (EC2 2026-11-13: "codex features list failed (rc=1)").
