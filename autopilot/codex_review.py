@@ -30,7 +30,9 @@ from agent_secret_scan import SECRET_SCAN  # noqa: E402
 
 REPO_SLUG = os.environ.get("AUTOPILOT_REVIEW_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 ENABLED = os.environ.get("AUTOPILOT_CODEX_REVIEW", "1").strip().lower() in {"1", "true", "yes", "on"}
-TOKEN_FILE = os.environ.get("FACTORY_CLAUDE_RELAY_TOKEN_FILE", "/root/claude-relay.token")
+# The worker service runs as ec2-user (EC2 2026-11-13), so the token must be readable by that account.
+TOKEN_FILES = [p for p in (os.environ.get("FACTORY_CLAUDE_RELAY_TOKEN_FILE", ""),
+                           os.path.expanduser("~/.factoryos/claude-relay.token"), "/root/claude-relay.token") if p]
 MAX_DIFF = 20000
 MAX_PER_DAY = 12
 MIN_GAP_SECONDS = 1800
@@ -49,17 +51,27 @@ def gh(*args: str, input_text: str | None = None, runner=subprocess.run) -> tupl
 
 def claude_token() -> str:
     token = read_token("FACTORY_CLAUDE_RELAY_TOKEN")
-    if not token:
+    for path in TOKEN_FILES if not token else ():
         try:
-            token = pathlib.Path(TOKEN_FILE).read_text(encoding="utf-8").strip()
+            token = pathlib.Path(path).read_text(encoding="utf-8").strip()
         except OSError:
-            token = ""
+            continue
+        if token:
+            break
     return token
+
+
+_OFF_LOGGED = {"reason": ""}
 
 
 def default_client():
     url, token = os.environ.get("FACTORYOS_URL", "").rstrip("/"), claude_token()
-    return AgentRelayClient(url, token) if url and token else None
+    reason = "" if url and token else ("FACTORYOS_URL is not set" if not url else
+                                      "no Claude relay token readable (env or " + ", ".join(TOKEN_FILES) + ")")
+    if reason and _OFF_LOGGED["reason"] != reason:      # say once why reviews are off, instead of staying silent
+        _OFF_LOGGED["reason"] = reason
+        log("off: " + reason)
+    return AgentRelayClient(url, token) if not reason else None
 
 
 def _load(path: pathlib.Path) -> dict:

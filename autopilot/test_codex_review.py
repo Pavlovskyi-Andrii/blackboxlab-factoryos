@@ -115,6 +115,24 @@ class ReviewTest(unittest.TestCase):
         self.c.claim = boom
         self.assertEqual(self.run_once(gh, 3), "idle")
 
+    def test_token_from_the_worker_home_and_off_reason_logged(self):
+        token_file = pathlib.Path(self.tmp.name) / "claude-relay.token"
+        token_file.write_text("tok-" + "x" * 40 + "\n")
+        with patch.object(cr, "TOKEN_FILES", ["/root/unreadable", str(token_file)]), patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("FACTORY_CLAUDE_RELAY_TOKEN", None)
+            self.assertEqual(cr.claude_token(), "tok-" + "x" * 40)
+        logged = []
+        with patch.object(cr, "TOKEN_FILES", ["/nope"]), patch.object(cr, "log", logged.append), \
+                patch.dict("os.environ", {"FACTORYOS_URL": "https://f"}):
+            import os
+            os.environ.pop("FACTORY_CLAUDE_RELAY_TOKEN", None)
+            cr._OFF_LOGGED["reason"] = ""
+            self.assertIsNone(cr.default_client())
+            self.assertIsNone(cr.default_client())
+        self.assertEqual(len(logged), 1)
+        self.assertIn("no Claude relay token readable", logged[0])
+
     def test_off_without_token(self):
         with patch.object(cr, "default_client", return_value=None):
             self.assertEqual(cr.run_once(self.state, gh_fn=FakeGh([PR])), "off")
