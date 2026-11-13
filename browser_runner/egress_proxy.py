@@ -15,6 +15,7 @@ import threading
 from typing import Callable
 
 MAX_HEADER = 8192
+_connect = socket.create_connection     # seam for tests
 IDLE_SECONDS = 30
 
 
@@ -59,7 +60,7 @@ class _Handler(socketserver.BaseRequestHandler):
         upstream = None
         for address in addresses:                  # every one was checked; e.g. IPv6 first on an IPv4-only worker
             try:
-                upstream = socket.create_connection((address, int(port)), timeout=15)
+                upstream = _connect((address, int(port)), timeout=15)
                 break
             except OSError:
                 continue
