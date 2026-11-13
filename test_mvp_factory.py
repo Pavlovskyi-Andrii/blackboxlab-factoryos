@@ -142,6 +142,56 @@ class MvpRegistryTest(unittest.TestCase):
         self.assertEqual(by_id["faceless-creator-313-2"]["issue"], 313)
         self.assertEqual(len([p for p in snap["projects"] if p["issue"] == 313]), 1)
 
+    def test_intentional_removal_does_not_recreate_issue_313(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertTrue(original["faceless_creator_intake_complete"])
+        original["projects"].pop("faceless-creator")
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        for _ in range(3):
+            snap = self.reg.snapshot()
+            self.assertFalse(any(p["issue"] == 313 for p in snap["projects"]))
+        self.assertEqual(json.loads(self.path.read_text())["projects"].get("faceless-creator"), None)
+
+    def test_legacy_v2_intake_runs_once_then_respects_removal(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        original.pop("faceless_creator_intake_complete")
+        original["projects"].pop("faceless-creator")
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        self.assertEqual(len([p for p in self.reg.snapshot()["projects"] if p["issue"] == 313]), 1)
+        updated = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertTrue(updated["faceless_creator_intake_complete"])
+        updated["projects"].pop("faceless-creator")
+        self.path.write_text(json.dumps(updated), encoding="utf-8")
+        self.assertEqual(len([p for p in self.reg.snapshot()["projects"] if p["issue"] == 313]), 0)
+
+    def test_many_fallback_id_collisions_do_not_break_registry(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        original["version"] = 1
+        original["projects"]["faceless-creator"]["issue"] = 777
+        original["projects"]["faceless-creator"]["id"] = "owner-original"
+        for n in range(1, 31):
+            key = "faceless-creator-313" + (f"-{n}" if n > 1 else "")
+            original["projects"][key] = {
+                **original["projects"]["faceless-creator"],
+                "id": f"owner-{n}", "issue": 800 + n,
+            }
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        snap = self.reg.snapshot()
+        by_id = {p["id"]: p for p in snap["projects"]}
+        self.assertIn("faceless-creator-313-31", by_id)
+        self.assertEqual(by_id["faceless-creator-313-31"]["issue"], 313)
+        self.assertEqual(len([p for p in snap["projects"] if p["issue"] == 313]), 1)
+
+    def test_mvp_builder_drawer_renders_escaped_draft_for_fallback_id(self):
+        # Source-level UI contract: drawer resolves by project.id, not canonical ID.
+        html = (Path(__file__).resolve().parent / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("find(x=>x.id===id)", html)
+        self.assertIn("p.brief?'<div class=\\"mvpBrief\\">'+esc(p.brief)", html)
+        self.assertIn("encodeURIComponent(p.id)", html)
+
     def test_existing_issue_313_without_brief_gets_draft_once(self):
         self.reg.snapshot()
         original = json.loads(self.path.read_text(encoding="utf-8"))
