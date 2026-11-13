@@ -1060,8 +1060,28 @@ async def mvp_agent_message(project_id: str, agent: str, request: Request):
     return {"ok":True,"routed":"gemini"}
 # T-560 wiring: owner's read-only browser tasks, run by the EC2 runner (Playwright never runs on Render).
 BROWSER_TASKS = BrowserTaskStore(DATA_DIR)
+def _browser_session_domains(provider: str, account: str) -> list:
+    parts = _vault_parts(required=False)
+    if not parts or not _VAULT_SLUG.match(provider or "") or not _VAULT_ACCOUNT.match(account or ""):
+        return []
+    info = parts[1].check(workspace_id=tenancy.binding_workspace(), provider=provider, account_binding_id=account)
+    return [d.lower() for d in info.get("domains") or []] if info.get("ok") else []
+
+
+def _browser_session_state(provider: str, account: str):
+    parts = _vault_parts(required=False)
+    if not parts:
+        return None
+    sessions, workspace = parts[1], tenancy.binding_workspace()
+    ref = sessions._registry.resolve(workspace, provider, account)
+    if not ref:
+        return None
+    return sessions.load(ref, workspace_id=workspace, provider=provider, account_binding_id=account).reveal()
+
+
 install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized,
-                            authorize_agent=_browser_agent_authorized)
+                            authorize_agent=_browser_agent_authorized,
+                            session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
@@ -10360,6 +10380,10 @@ async def factory_vault_save_session(request: Request):
     if isinstance(state,str):
         try:state=json.loads(state)
         except ValueError:raise HTTPException(400,"storage_state_not_json")
+    if isinstance(state,list):   # a Cookie-Editor / EditThisCookie export from the owner's own Chrome
+        from browser_runner.vault import from_cookie_export
+        try:state=from_cookie_export(state)
+        except Exception as e:raise HTTPException(400,str(e)[:120])
     _,sessions=_vault_parts()
     try:
         sessions.capture(workspace_id=workspace,provider=provider,account_binding_id=account,storage_state=state)

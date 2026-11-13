@@ -331,6 +331,28 @@ class SecretState:
         raise TypeError("SecretState cannot be serialized")
 
 
+_SAME_SITE = {"no_restriction": "None", "none": "None", "lax": "Lax", "strict": "Strict", "unspecified": "Lax"}
+
+
+def from_cookie_export(cookies: Any) -> Dict[str, Any]:
+    """Owner 2026-11-13: Google refuses sign-in inside Playwright's browser, so a session can also come from the
+    owner's everyday Chrome via a cookie-export extension (Cookie-Editor / EditThisCookie JSON list). Converted to a
+    Playwright storage_state; values are kept as they are and only ever stored encrypted."""
+    if not isinstance(cookies, list) or not cookies:
+        raise VaultError("cookie export must be a non-empty list")
+    out = []
+    for c in cookies[:500]:
+        if not isinstance(c, Mapping) or not c.get("name") or not c.get("domain"):
+            raise VaultError("cookie export entries need name and domain")
+        expires = c.get("expirationDate", c.get("expires", -1))
+        out.append({"name": str(c["name"]), "value": str(c.get("value") or ""), "domain": str(c["domain"]),
+                    "path": str(c.get("path") or "/"),
+                    "expires": float(expires) if isinstance(expires, (int, float)) and not c.get("session") else -1,
+                    "httpOnly": bool(c.get("httpOnly")), "secure": bool(c.get("secure")),
+                    "sameSite": _SAME_SITE.get(str(c.get("sameSite") or "unspecified").lower(), "Lax")})
+    return {"cookies": out, "origins": []}
+
+
 def _validate_storage_state(state: Any) -> bytes:
     if not isinstance(state, Mapping):
         raise VaultError("storage_state must be an object")

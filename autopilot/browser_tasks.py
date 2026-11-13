@@ -69,11 +69,31 @@ def playwright_available(probe=None, *, importer=None, clock=None) -> bool:
     return ready
 
 
+class _OneSession:
+    """Hands the executor the storage_state the server sent with this task; nothing is written to disk."""
+
+    def __init__(self, state: dict):
+        self._state = state
+
+    def load(self, *_a, **_k):
+        state = self._state
+
+        class _Revealed:
+            def reveal(self):
+                return state
+        return _Revealed()
+
+
 def build_plan(task: dict) -> BrowserActionPlan:
     steps = [{"type": "navigate", "url": task["url"]}]
+    if task.get("wait_for"):
+        steps.append({"type": "wait_for", "selector": task["wait_for"]})
     steps += [{"type": "extract", "selector": s} for s in task.get("selectors") or ["body"]]
     steps.append({"type": "screenshot"})
-    return BrowserActionPlan(plan_id=task["id"], workspace_id="owner", provider="web", account_binding_id="anonymous", session_ref="session://owner/anonymous",  # no store: never restored
+    session = task.get("session") or {}
+    return BrowserActionPlan(plan_id=task["id"], workspace_id="owner", provider=session.get("provider") or "web",
+                             account_binding_id=session.get("account") or "anonymous",
+                             session_ref=f"session://owner/{task['id']}" if session else "session://owner/anonymous",
                              action_class="read", steps=tuple(steps), timeout_seconds=90, max_steps=10)
 
 
@@ -93,11 +113,17 @@ def execute(task: dict, *, runner=run_playwright, artifact_root: pathlib.Path, r
         return {"status": "blocked", "blocker": "host_not_public", "texts": [], "steps": 0}
     # Codex review on #334: Chromium resolves names again, and sub-resources can name any host, so every connection
     # goes through a proxy that checks the address it actually connects to.
+    session_store = None
+    if task.get("session"):
+        if not isinstance(task.get("storage_state"), dict):
+            return {"status": "blocked", "blocker": "session_unavailable", "texts": [], "steps": 0}
+        session_store = _OneSession(task["storage_state"])
     with (proxy_factory or (lambda: PublicOnlyProxy(resolve=resolve)))() as proxy:
         policy = BrowserRuntimePolicy(allowed_origins=(f"{parts.scheme}://{parts.netloc}",), artifact_root=artifact_root,
                                       allow_offsite_subresource_reads=True, return_extracted_text=True,
-                                      proxy_server=proxy.url)
-        result = runner(build_plan(task), policy=policy)
+                                      proxy_server=proxy.url, allow_same_origin_xhr=bool(session_store))
+        result = runner(build_plan(task), policy=policy, **({"session_store": session_store} if session_store else {}))
+    task.pop("storage_state", None)                       # cookies leave memory with the task
     selectors = task.get("selectors") or ["body"]
     extracts = [row for row in result.action_log if row.get("type") == "extract"]
     texts = [{"selector": selectors[i], "text": row.get("text", "")} for i, row in enumerate(extracts[:len(selectors)])]
@@ -126,7 +152,7 @@ def run_one(*, http=None, runner=run_playwright, available=playwright_available,
         return "idle"
     if not task:
         return "idle"
-    log(f"running {task['id']} on {urlsplit(task['url']).netloc}")
+    log(f"running {task['id']} on {urlsplit(task['url']).netloc}" + (" (saved session)" if task.get("session") else ""))
     with tempfile.TemporaryDirectory(prefix="factoryos-browser-") as tmp:
         try:
             body = execute(task, runner=runner, artifact_root=pathlib.Path(tmp) / "shots", resolve=resolve)
