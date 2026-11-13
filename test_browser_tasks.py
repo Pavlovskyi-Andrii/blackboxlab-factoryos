@@ -139,6 +139,64 @@ class RoutesTest(unittest.TestCase):
             self.assertEqual(res["task"]["status"], "blocked")
 
 
+    def test_claude_agent_token_queues_and_reads_only_its_own_read_tasks(self):
+        from fastapi import FastAPI
+        with tempfile.TemporaryDirectory() as d:
+            store = bt.BrowserTaskStore(pathlib.Path(d))
+            app = FastAPI()
+            bt.install_browser_task_routes(app, store, identity=lambda r: {"role": "owner"},
+                                           authorize_worker=lambda r: False,
+                                           authorize_agent=lambda r: getattr(r, "agent", False))
+            h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+
+            class Req:
+                def __init__(self, body=None, agent=False):
+                    self.body, self.agent = body, agent
+
+                async def json(self):
+                    return self.body
+            create = h[("POST", "/api/factory/browser/agent/tasks")]
+            with self.assertRaises(HTTPException) as e:
+                asyncio.run(create(Req({"url": "https://mycast.pro/"})))
+            self.assertEqual(e.exception.status_code, 401)
+            for bad in ("http://mycast.pro/", "https://127.0.0.1/", "https://user:pw@mycast.pro/"):
+                with self.assertRaises(HTTPException):
+                    asyncio.run(create(Req({"url": bad}, agent=True)))
+            task = asyncio.run(create(Req({"url": "https://mycast.pro/sitemap.xml", "selectors": ["loc"]}, agent=True)))["task"]
+            self.assertEqual((task["source"], task["action"]), ("claude", "read"))
+            read = h[("GET", "/api/factory/browser/agent/tasks/{task_id}")]
+            self.assertEqual(read(task["id"], Req(agent=True))["task"]["status"], "queued")
+            owner_task = store.create("https://example.com/", [])                # the owner's own tasks stay private
+            with self.assertRaises(HTTPException) as e:
+                read(owner_task["id"], Req(agent=True))
+            self.assertEqual(e.exception.status_code, 404)
+            with patch.object(bt, "AGENT_DAILY_CAP", 1):
+                with self.assertRaises(HTTPException) as e:
+                    asyncio.run(create(Req({"url": "https://mycast.pro/"}, agent=True)))
+                self.assertEqual(e.exception.status_code, 429)
+
+
+class AgentTokenTest(unittest.TestCase):
+    def test_token_rules_and_middleware_scope(self):
+        import app as factory
+        long = "a" * 40
+
+        class R:
+            def __init__(self, auth):
+                self.headers = {"authorization": auth}
+        with patch.object(factory, "FACTORY_BROWSER_AGENT_TOKEN", long), patch.object(factory, "FACTORY_CLAUDE_WORKER_TOKEN", "w" * 40):
+            self.assertTrue(factory._browser_agent_authorized(R("Bearer " + long)))
+            self.assertFalse(factory._browser_agent_authorized(R("Bearer " + "b" * 40)))
+            self.assertFalse(factory._browser_agent_authorized(R("")))
+        with patch.object(factory, "FACTORY_BROWSER_AGENT_TOKEN", "short"):
+            self.assertFalse(factory._browser_agent_authorized(R("Bearer short")))      # too short: off
+        with patch.object(factory, "FACTORY_BROWSER_AGENT_TOKEN", long), patch.object(factory, "FACTORY_CLAUDE_WORKER_TOKEN", long):
+            self.assertFalse(factory._browser_agent_authorized(R("Bearer " + long)))    # must not reuse the worker token
+        self.assertEqual({r.path for r in factory.app.routes if "/browser/agent/" in getattr(r, "path", "")},
+                         {"/api/factory/browser/agent/tasks", "/api/factory/browser/agent/tasks/{task_id}",
+                          "/api/factory/browser/agent/tasks/{task_id}/screenshot"})
+
+
 class _Frame:
     def __init__(self, parent=None):
         self.parent_frame = parent

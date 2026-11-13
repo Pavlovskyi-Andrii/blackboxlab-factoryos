@@ -27,6 +27,7 @@ LEASE_SECONDS = 600
 MAX_SELECTORS = 5
 MAX_SHOT_BYTES = 2 * 1024 * 1024
 MAX_TEXT = 6000
+AGENT_DAILY_CAP = 200                # read tasks Claude may queue per 24 h with the browser-agent token (owner 2026-11-13)
 ID_RE = re.compile(r"^bt_[0-9a-f]{16}$")
 SELECTOR_RE = re.compile(r"^[^\x00-\x1f<>{};]{1,200}$")
 STATUSES = ("queued", "running", "done", "blocked", "failed", "waiting_human")
@@ -73,18 +74,21 @@ class BrowserTaskStore:
         tmp.write_text(json.dumps(keep, ensure_ascii=False, indent=1), encoding="utf-8")
         tmp.replace(self.path)
 
-    def create(self, url: str, selectors: list, note: str = "") -> dict:
+    def create(self, url: str, selectors: list, note: str = "", source: str = "owner") -> dict:
         url = check_url(url)
         sel = [str(s).strip() for s in (selectors or []) if str(s).strip()][:MAX_SELECTORS] or ["body"]
         if not all(SELECTOR_RE.fullmatch(s) for s in sel):
             raise HTTPException(400, "Некоректний CSS-селектор")
         task = {"id": "bt_" + secrets.token_hex(8), "url": url, "selectors": sel, "note": str(note or "")[:300],
                 "action": "read", "status": "queued", "created": int(self.clock()), "lease_until": 0,
-                "result": None}
+                "result": None, "source": source}
         with self.lock:
             items = self._load()
             if sum(t["status"] in ("queued", "running") for t in items) >= MAX_ACTIVE:
                 raise HTTPException(429, "Забагато завдань у черзі — дочекайтеся виконання")
+            if source != "owner" and sum(t.get("source") == source and t.get("created", 0) > self.clock() - 86400
+                                         for t in items) >= AGENT_DAILY_CAP:
+                raise HTTPException(429, "daily cap for agent tasks reached")
             items.append(task)
             self._save(items)
         return task
@@ -134,6 +138,10 @@ class BrowserTaskStore:
             self._save(items)
             return task
 
+    def get(self, task_id: str) -> Optional[dict]:
+        with self.lock:
+            return next((t for t in self._load() if t["id"] == task_id), None)
+
     def screenshot(self, task_id: str) -> Path:
         path = self.shots / f"{task_id}.png"
         if not ID_RE.fullmatch(task_id) or not path.is_file():
@@ -141,7 +149,8 @@ class BrowserTaskStore:
         return path
 
 
-def install_browser_task_routes(app, store: BrowserTaskStore, *, identity: Callable, authorize_worker: Callable) -> None:
+def install_browser_task_routes(app, store: BrowserTaskStore, *, identity: Callable, authorize_worker: Callable,
+                                authorize_agent: Optional[Callable] = None) -> None:
     def owner(request: Request):
         if (identity(request) or {}).get("role") != "owner":
             raise HTTPException(403, "Owner access required")
@@ -165,6 +174,40 @@ def install_browser_task_routes(app, store: BrowserTaskStore, *, identity: Calla
     @app.get("/api/factory/browser/tasks/{task_id}/screenshot")
     def browser_task_screenshot(task_id: str, request: Request):
         owner(request)
+        return FileResponse(store.screenshot(task_id), media_type="image/png", headers={"Cache-Control": "private"})
+
+    # Owner 2026-11-13: Claude queues read tasks itself and reads the results ("моего подтверждения не нужно").
+    # The token (FACTORY_BROWSER_AGENT_TOKEN) opens only these three routes; tasks stay read-only and public-https-only.
+    def agent(request: Request):
+        if authorize_agent is None or not authorize_agent(request):
+            raise HTTPException(401, "Browser agent token required")
+
+    @app.post("/api/factory/browser/agent/tasks")
+    async def browser_agent_create(request: Request):
+        agent(request)
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, "json body required")
+        if not isinstance(body, dict):
+            raise HTTPException(400, "json object required")
+        task = store.create(body.get("url", ""), body.get("selectors") or [], body.get("note", ""), source="claude")
+        return {"task": task}
+
+    @app.get("/api/factory/browser/agent/tasks/{task_id}")
+    def browser_agent_task(task_id: str, request: Request):
+        agent(request)
+        task = store.get(task_id) if ID_RE.fullmatch(task_id) else None
+        if not task or task.get("source") != "claude":
+            raise HTTPException(404, "unknown task")
+        return {"task": task}
+
+    @app.get("/api/factory/browser/agent/tasks/{task_id}/screenshot")
+    def browser_agent_screenshot(task_id: str, request: Request):
+        agent(request)
+        task = store.get(task_id) if ID_RE.fullmatch(task_id) else None
+        if not task or task.get("source") != "claude":
+            raise HTTPException(404, "unknown task")
         return FileResponse(store.screenshot(task_id), media_type="image/png", headers={"Cache-Control": "private"})
 
     @app.post("/api/factory/browser/worker/claim")
