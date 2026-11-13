@@ -1066,7 +1066,7 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 ## 2026-11-13 — MyCast: Telegram-only sign-in, public podcast page and share card
 - Sign in / sign out moved to the header. Telegram is the only sign-in; Google is calendar sync only (the GIS button
   is gone; the server route stays so existing Google accounts keep working).
-- Duration picker: 8 choices (1, 3, 5, 10, 15, 20, 25, 30). Validation still accepts any minute 1–30, and a saved
+- Duration picker: 7 choices (5, 7, 10, 15, 20, 25, 30; owner: 1 and 3 min are too short). Validation still accepts any minute 1–30, and a saved
   length outside the list is shown, so no profile is invalidated.
 - `/mycast/u/{slug}` is now a shareable page (first name, topics, geography, follows, schedule, voice, "make one like
   this" with the referral kept) instead of a redirect into the editor; an undecodable old code still redirects.
