@@ -1016,3 +1016,9 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - "Your episodes" on the MyCast page streams an episode back through `GET /api/mycast/account/episodes/{date}/audio`: the server calls Bot API `getFile` and passes the bytes through (bot token stays server-side, nothing cached on disk). Only the signed-in listener's own episodes; another listener's cookie gets 404.
 - Listener episodes are encoded at 64 kbps mono (was 96): 30 minutes ≈ 14 MB, under the Bot API's 20 MB re-download limit; voice quality is unchanged in practice.
 - The public demo cache keeps at most 120 short WAV files (was 300), ≤ ~85 MB of the 1 GB Render disk.
+
+## 2026-11-13 — mycast.pro (owner bought the domain)
+
+- The same Render service answers on `mycast.pro`; on that host only MyCast is served: `/` and any non-MyCast path redirect to the MyCast page, `www.` redirects to the apex, `/privacy` and `/terms` (bilingual, needed for Google verification) are public. The FactoryOS dashboard and API stay on `blackboxlab-factoryos.onrender.com`. Hosts are configurable with `FACTORY_MYCAST_HOSTS`.
+- Telegram login works per bot domain (BotFather `/setdomain`), so the login widget moves to `mycast.pro`; Google sign-in needs `https://mycast.pro` as an authorized JavaScript origin.
+- The Google Calendar guide now separates publishing status from verification, notes the 7-day refresh-token expiry in Testing, and warns not to switch a production sign-in project to Testing (Codex review on #332).
