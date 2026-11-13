@@ -1041,3 +1041,10 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   chat id, share code or Telegram file id), so the dashboard shows who is due, delivered or failing today.
 - Sidebar: "Браузерний агент" (Автоматизація) and "Пульт власника" (Система) scroll to the cards; the navigation test's
   before/after map and DOM stubs were extended for the two new destinations, not loosened.
+
+## 2026-11-13 — Read tasks survive analytics beacons and third-party iframes (first real EC2 run)
+- example.com read fine on EC2; prom.ua came back `blocked: off_allowlist_network_request`. Real shops send analytics
+  POSTs and load third-party iframes, and any aborted request used to fail the whole read.
+- Now, only for `read` tasks with `allow_offsite_subresource_reads`: such requests are still aborted (never sent),
+  but the read continues. A main-frame navigation away from the allowed origin still fails the task, and every other
+  action class keeps the old fail-closed behaviour. Unknown frame info counts as main frame.
