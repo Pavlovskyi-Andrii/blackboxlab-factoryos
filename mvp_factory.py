@@ -91,22 +91,33 @@ def _backfill_faceless_creator_brief(data: dict[str, Any]) -> bool:
 
 
 def _add_faceless_creator(data: dict[str, Any], now: str) -> bool:
-    """Register #313 without overwriting keyed records, or backfill only a missing brief."""
+    """Register #313 under a free ID; never overwrite a keyed project or an owner's brief."""
     if _backfill_faceless_creator_brief(data):
         return True
-    if (FACELESS_CREATOR_ID in data["projects"] or
-            any(p.get("id") == FACELESS_CREATOR_ID or p.get("issue") == FACELESS_CREATOR_ISSUE
-                for p in data["projects"].values())):
+    if any(p.get("issue") == FACELESS_CREATOR_ISSUE for p in data["projects"].values()):
         return False
-    data["projects"][FACELESS_CREATOR_ID] = {
-        "id": FACELESS_CREATOR_ID, "title": FACELESS_CREATOR_TITLE,
+    used_ids = set(data["projects"])
+    used_ids.update(str(p.get("id")) for p in data["projects"].values())
+    project_id = FACELESS_CREATOR_ID
+    if project_id in used_ids:
+        # Preserve existing records; stable fallback works across repeated loads.
+        project_id = next(
+            (candidate for candidate in (f"{FACELESS_CREATOR_ID}-313",) +
+             tuple(f"{FACELESS_CREATOR_ID}-313-{n}" for n in range(2, 20))
+             if candidate not in used_ids),
+            None,
+        )
+        if project_id is None:
+            raise MvpError("faceless_creator_id_collision", 503)
+    data["projects"][project_id] = {
+        "id": project_id, "title": FACELESS_CREATOR_TITLE,
         "issue": FACELESS_CREATOR_ISSUE, "brief": FACELESS_CREATOR_BRIEF,
         "stage": "idea", "blocked": None, "prototype": "", "cost_usd": 0,
         "approval": {"deploy": False, "outreach": False, "publish": False},
         "created_at": now, "updated_at": now,
     }
     data["events"].append({
-        "id": "intake-faceless-creator-313", "project": FACELESS_CREATOR_ID,
+        "id": "intake-faceless-creator-313", "project": project_id,
         "at": now, "actor": "owner-request", "kind": "note",
         "from_stage": "idea", "to_stage": "idea",
         "evidence": [f"{REPO}/issues/{FACELESS_CREATOR_ISSUE}"],
@@ -183,8 +194,8 @@ class MvpRegistry:
                     _add_faceless_creator(data, _iso(self.clock()))
                     data["version"] = 2
                     self._save(data)
-                elif data.get("version") == 2 and _backfill_faceless_creator_brief(data):
-                    # Repair v2 registries where an existing #313 record lacked its brief.
+                elif data.get("version") == 2 and _add_faceless_creator(data, _iso(self.clock())):
+                    # Repair a prior v2 collision, or an existing #313 record missing its brief.
                     self._save(data)
                 return data
         except FileNotFoundError:
