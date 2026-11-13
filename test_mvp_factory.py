@@ -27,7 +27,10 @@ class MvpRegistryTest(unittest.TestCase):
     def test_seed_is_evidence_backed_and_written_once(self):
         snap = self.reg.snapshot()
         ids = {p["id"]: p for p in snap["projects"]}
-        self.assertEqual(set(ids), {"mycast", "decision-memory", "mybrief-pro", "release-guardian"})
+        self.assertEqual(set(ids), {"mycast", "decision-memory", "mybrief-pro", "release-guardian", "faceless-creator"})
+        self.assertEqual((ids["faceless-creator"]["issue"], ids["faceless-creator"]["stage"]), (313, "idea"))
+        self.assertIn("ЧЕРНЕТКА", ids["faceless-creator"]["brief"])
+        self.assertFalse(any(ids["faceless-creator"]["approval"].values()))
         self.assertEqual(ids["mycast"]["stage"], "preview_ready")
         self.assertEqual(ids["decision-memory"]["stage"], "idea")
         for e in snap["events"]:
@@ -35,7 +38,41 @@ class MvpRegistryTest(unittest.TestCase):
         self.assertEqual(ids["mycast"]["recommendation"]["decision"], "owner")
         self.assertTrue(all(p["approval"] == {"deploy": False, "outreach": False, "publish": False} for p in snap["projects"]))
         self.path.write_text(json.dumps({"version": 1, "projects": {}, "events": []}))
-        self.assertEqual(self.reg.snapshot()["projects"], [])          # existing file is never re-seeded
+        self.assertEqual([p["id"] for p in self.reg.snapshot()["projects"]], ["faceless-creator"])  # only the one-time owner-requested concept migration; do not reseed old pilots
+
+    def test_migrate_existing_registry_once_without_overwriting_owner_data(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        original["version"] = 1
+        original["projects"].pop("faceless-creator")
+        original["events"] = [e for e in original["events"] if e["project"] != "faceless-creator"]
+        original["projects"]["mycast"]["brief"] = "Owner's existing project brief"
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        snap = self.reg.snapshot()
+        by_id = {p["id"]: p for p in snap["projects"]}
+        self.assertEqual(by_id["mycast"]["brief"], "Owner's existing project brief")
+        self.assertEqual(by_id["faceless-creator"]["issue"], 313)
+        self.assertEqual(by_id["faceless-creator"]["stage"], "idea")
+        self.assertEqual(len([e for e in snap["events"] if e["project"] == "faceless-creator"]), 1)
+        self.assertEqual(json.loads(self.path.read_text())["version"], 2)
+        self.reg.snapshot()
+        self.assertEqual(len([e for e in self.reg.snapshot()["events"] if e["project"] == "faceless-creator"]), 1)
+
+    def test_migration_does_not_duplicate_existing_issue_313(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        original["version"] = 1
+        concept = original["projects"].pop("faceless-creator")
+        concept["id"] = "faceless-existing"
+        concept["title"] = "Owner's existing concept title"
+        original["projects"]["faceless-existing"] = concept
+        original["events"] = [e for e in original["events"] if e["project"] != "faceless-creator"]
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        snap = self.reg.snapshot()
+        ids = {p["id"] for p in snap["projects"]}
+        self.assertIn("faceless-existing", ids)
+        self.assertNotIn("faceless-creator", ids)
+        self.assertEqual(len([p for p in snap["projects"] if p["issue"] == 313]), 1)
 
     def test_damaged_registry_is_refused_not_replaced(self):
         self.path.write_text("{not json")
