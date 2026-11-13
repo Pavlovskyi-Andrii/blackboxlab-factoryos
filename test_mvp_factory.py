@@ -74,6 +74,52 @@ class MvpRegistryTest(unittest.TestCase):
         self.assertNotIn("faceless-creator", ids)
         self.assertEqual(len([p for p in snap["projects"] if p["issue"] == 313]), 1)
 
+    def test_migration_preserves_colliding_project_dictionary_key(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        original["version"] = 1
+        custom = dict(original["projects"]["faceless-creator"],
+                      id="owner-custom", issue=777, title="Owner's custom keyed project",
+                      brief="Owner's original brief")
+        original["projects"]["faceless-creator"] = custom
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        snap = self.reg.snapshot()
+        self.assertEqual(json.loads(self.path.read_text())["projects"]["faceless-creator"], custom)
+        self.assertIn("owner-custom", {p["id"] for p in snap["projects"]})
+        self.assertEqual(len([p for p in snap["projects"] if p["issue"] == 313]), 0)
+
+    def test_existing_issue_313_without_brief_gets_draft_once(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        original["version"] = 1
+        concept = original["projects"].pop("faceless-creator")
+        concept["id"] = "faceless-existing"
+        concept["title"] = "Owner's concept title"
+        concept.pop("brief")
+        original["projects"]["faceless-existing"] = concept
+        original["events"] = [e for e in original["events"] if e["project"] != "faceless-creator"]
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        first = self.reg.snapshot()
+        by_id = {p["id"]: p for p in first["projects"]}
+        self.assertNotIn("faceless-creator", by_id)
+        self.assertIn("ЧЕРНЕТКА", by_id["faceless-existing"]["brief"])
+        self.assertEqual(by_id["faceless-existing"]["title"], "Owner's concept title")
+        self.assertEqual(len([p for p in first["projects"] if p["issue"] == 313]), 1)
+        saved = self.path.read_text(encoding="utf-8")
+        self.reg.snapshot()
+        self.assertEqual(self.path.read_text(encoding="utf-8"), saved)
+
+    def test_existing_v2_issue_313_missing_brief_is_repaired(self):
+        self.reg.snapshot()
+        original = json.loads(self.path.read_text(encoding="utf-8"))
+        original["projects"]["faceless-creator"].pop("brief")
+        self.path.write_text(json.dumps(original), encoding="utf-8")
+        snap = self.reg.snapshot()
+        by_id = {p["id"]: p for p in snap["projects"]}
+        self.assertIn("ЧЕРНЕТКА", by_id["faceless-creator"]["brief"])
+        self.assertEqual(json.loads(self.path.read_text())["version"], 2)
+        self.assertEqual(len([e for e in snap["events"] if e["project"] == "faceless-creator"]), 1)
+
     def test_damaged_registry_is_refused_not_replaced(self):
         self.path.write_text("{not json")
         self.assertEqual(self.code(self.reg.snapshot), "registry_unreadable")
