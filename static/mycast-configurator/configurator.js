@@ -105,6 +105,12 @@
   const FREQUENCIES = ['daily', 'days'];
   const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   const DURATIONS = Array.from({ length: 30 }, (_, i) => i + 1);   // minutes; owner 2026-11-13: any length up to 30
+  // Owner 2026-11-13 (later): the picker shows a short list; a saved length outside it stays valid and is shown too.
+  const DURATION_CHOICES = [1, 3, 5, 10, 15, 20, 25, 30];
+  function durationChoices(current) {
+    const n = Number(current);
+    return DURATIONS.includes(n) && !DURATION_CHOICES.includes(n) ? [...DURATION_CHOICES, n].sort((a, b) => a - b) : DURATION_CHOICES.slice();
+  }
   const LANGUAGES = ['uk', 'ru', 'en'];
   const VOICES = ['narrator', 'two_hosts'];
   // #281: the 30 prebuilt Gemini TTS voices [name, style, gender by ear]. Must match mycast_voices.VOICES (a test checks).
@@ -690,7 +696,7 @@
   }
 
   return { GEMINI_VOICES, VOICE_GENDER, DEFAULT_VOICES, validVoices, setVoice,
-    TAXONOMY, INDEX, GROUPS, TOPIC_IDS, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, LANGUAGES, VOICES, CHANNELS, PLATFORMS,
+    TAXONOMY, INDEX, GROUPS, TOPIC_IDS, SCOPES, FREQUENCIES, WEEKDAYS, DURATIONS, DURATION_CHOICES, durationChoices, LANGUAGES, VOICES, CHANNELS, PLATFORMS,
     SUGGESTED_FOLLOWS, MIN_TOPICS, MAX_FREE_TEXT, MAX_CUSTOM_PER_GROUP, MAX_FOLLOWS,
     CALENDAR_PARTS, setCalendar,
     topicLabel, search, guessGroup, suggestSubtopics, newProfile, migrate, setTopic, setScope, addCustom, removeCustom, normalizeFollow, addFollow, removeFollow,
