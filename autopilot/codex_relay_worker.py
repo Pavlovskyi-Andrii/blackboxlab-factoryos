@@ -143,7 +143,9 @@ def answer_with_codex(message: dict, *, runner=subprocess.run) -> str:
                       check=False)
         if proc.returncode != 0:
             raise RuntimeError("Codex execution failed (rc=%s)" % proc.returncode)   # stderr is never persisted
-        result = answer_path.read_text(encoding="utf-8").strip() if answer_path.exists() else ""
+        # The file belongs to the Codex account and sudo keeps the service's 0077 umask, so read it as that account.
+        read = runner(as_codex(["cat", str(answer_path)]), text=True, capture_output=True, timeout=10, check=False)
+        result = str(read.stdout or "").strip() if read.returncode == 0 else ""
     if not result:
         raise RuntimeError("Codex produced no answer")
     if contains_secret(result):
