@@ -302,6 +302,28 @@ class WorkerTest(unittest.TestCase):
         self.assertFalse(worker.playwright_available(ok, importer=missing_package))
         self.assertFalse(worker.playwright_available(launch_fails, importer=ok))       # binary present, cannot launch
 
+    def test_failed_probe_is_retried_after_a_minute_success_is_cached(self):
+        # Codex review on #336: installing Chromium must not leave tasks queued for the 10-minute cache.
+        state = {"fail": True, "probes": 0}
+
+        def probe():
+            state["probes"] += 1
+            if state["fail"]:
+                raise RuntimeError("no chromium")
+        t = [1000.0]
+        with patch.object(worker, "_launch_probe", probe), patch.dict(worker._READY, {"at": 0.0, "ok": False}):
+            check = lambda: worker.playwright_available(importer=lambda: None, clock=lambda: t[0])
+            self.assertFalse(check())
+            state["fail"] = False                     # owner installs Chromium
+            t[0] += 30
+            self.assertFalse(check())                 # still within the retry window: no new launch
+            self.assertEqual(state["probes"], 1)
+            t[0] += worker.RETRY_SECONDS
+            self.assertTrue(check())
+            t[0] += worker.RETRY_SECONDS * 3
+            self.assertTrue(check())                  # success stays cached
+            self.assertEqual(state["probes"], 2)
+
     def test_private_resolution_is_refused_before_any_browser(self):
         calls = []
         for addr in ("169.254.169.254", "10.1.2.3", "127.0.0.1"):

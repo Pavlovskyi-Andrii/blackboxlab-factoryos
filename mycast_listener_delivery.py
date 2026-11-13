@@ -151,7 +151,7 @@ class ListenerDelivery:
                             "local_date": gate["local_date"], "profile": gate["profile"]})
         return out
 
-    def overview(self) -> dict:
+    def overview(self, offset: int = 0, limit: int = 200) -> dict:
         """Owner dashboard view: delivery state per listener. First name and slug only — no email, chat id or code."""
         now = self.clock()
         with self.store._lock:
@@ -173,8 +173,11 @@ class ListenerDelivery:
         counts = {}
         for r in rows:
             counts[r["state"]] = counts.get(r["state"], 0) + 1
+        offset, limit = max(0, int(offset)), max(1, min(200, int(limit)))
+        page = rows[offset:offset + limit]
         return {"total": len(rows), "by_state": counts, "sent_today_utc": sent_today, "daily_cap": self.daily_cap,
-                "listeners": rows[:200]}
+                "offset": offset, "limit": limit, "next_offset": offset + len(page) if offset + len(page) < len(rows) else None,
+                "listeners": page}
 
     def _sent_today_utc(self, data: dict) -> int:
         day = time.strftime("%Y-%m-%d", time.gmtime(self.clock()))
@@ -233,10 +236,10 @@ def install_listener_delivery_routes(app, delivery: ListenerDelivery, *, authori
                                      identity: Optional[Callable] = None) -> None:
     if identity is not None:
         @app.get("/api/factory/mycast/listeners")
-        def mycast_listeners_overview(request: Request):
+        def mycast_listeners_overview(request: Request, offset: int = 0, limit: int = 200):
             if (identity(request) or {}).get("role") != "owner":
                 raise HTTPException(403, "Owner access required")
-            return delivery.overview()
+            return delivery.overview(offset, limit)
 
     @app.get("/api/factory/mycast/worker/listeners/due")
     def mycast_listeners_due(request: Request):

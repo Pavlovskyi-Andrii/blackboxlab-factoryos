@@ -39,6 +39,7 @@ def _launch_probe() -> None:
 
 
 READY_CACHE_SECONDS = 600
+RETRY_SECONDS = 60          # a failed probe is retried after a minute, so a fresh install is picked up (Codex on #336)
 _READY = {"at": 0.0, "ok": False}
 
 
@@ -47,7 +48,8 @@ def playwright_available(probe=None, *, importer=None, clock=None) -> bool:
     logged once. A probe result is reused for 10 minutes so an idle worker does not launch a browser every pass."""
     import time as _time
     now = (clock or _time.monotonic)()
-    if probe is None and _READY["at"] and now - _READY["at"] < READY_CACHE_SECONDS:
+    ttl = READY_CACHE_SECONDS if _READY["ok"] else RETRY_SECONDS
+    if probe is None and _READY["at"] and now - _READY["at"] < ttl:
         return _READY["ok"]
     try:
         (importer or (lambda: __import__("playwright.sync_api")))()
