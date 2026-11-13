@@ -363,14 +363,16 @@ class AppTest(unittest.TestCase):
         self.assertNotIn("hi", body.decode())
 
     def test_request_limits(self):
-        big = json.dumps({"to_agent": "codex", "body": "x" * 20000, "idempotency_key": "big"}).encode()
+        big = json.dumps({"to_agent": "codex", "body": "x" * 70000, "idempotency_key": "big"}).encode()
         self.assertEqual(asgi("POST", "/api/relay/agent/send", bearer=CLAUDE, body=big)[0], 413)
-        lying = asgi("POST", "/api/relay/agent/send", bearer=CLAUDE, chunks=[big[:8000], big[8000:]],
+        lying = asgi("POST", "/api/relay/agent/send", bearer=CLAUDE, chunks=[big[:40000], big[40000:]],
                      extra_headers=[(b"content-length", b"10")])
         self.assertEqual(lying[0], 413)                                              # streamed past the cap
         self.assertEqual(asgi("POST", "/api/relay/agent/send", bearer=CLAUDE, body=b"\xff\xfe")[0], 400)
         self.assertEqual(asgi("POST", "/api/relay/agent/send", bearer=CLAUDE, body=b"[1]")[0], 400)
         self.assertEqual(self.send(CLAUDE, to_agent="codex", body="x" * 3001)[0], 400)
+        self.assertEqual(self.send(CLAUDE, to_agent="codex", kind="review", body="d" * 20000)[0], 200)   # a PR diff fits
+        self.assertEqual(self.send(CLAUDE, to_agent="codex", kind="review", body="d" * 24001)[0], 400)
         self.assertEqual(self.send(CLAUDE, to_agent="codex", body="ghp_abcdefghijklmnopqrstu")[0], 422)
         self.assertEqual(self.send(CLAUDE, to_agent="codex", body=CODEX)[0], 422)  # the other agent's token
         self.assertEqual(self.send(CLAUDE, to_agent="codex", body="ok", task_id="bad id!")[0], 400)

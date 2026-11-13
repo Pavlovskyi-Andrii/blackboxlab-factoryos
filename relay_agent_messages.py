@@ -37,7 +37,8 @@ ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,120}$")
 MIN_TOKEN = 32
 MAX_HEADER = 512
 MAX_BODY_CHARS = 3000
-MAX_REQUEST_BYTES = 16 * 1024
+MAX_REVIEW_CHARS = 24000          # a review request carries a (truncated) PR diff
+MAX_REQUEST_BYTES = 64 * 1024
 LEASE_SECONDS = 180
 MAX_ATTEMPTS = 3
 RETENTION = timedelta(days=7)
@@ -160,8 +161,9 @@ class RelayAgentMessages:
         if kind not in KINDS:
             raise AgentRelayError("bad_kind", "Invalid message kind", 400)
         body = str(body or "").replace("\x00", "").strip()
-        if not body or len(body) > MAX_BODY_CHARS:
-            raise AgentRelayError("bad_body", f"Message must be 1..{MAX_BODY_CHARS} characters", 400)
+        limit = MAX_REVIEW_CHARS if kind == "review" else MAX_BODY_CHARS
+        if not body or len(body) > limit:
+            raise AgentRelayError("bad_body", f"Message must be 1..{limit} characters", 400)
         for value in (thread_id, task_id, reply_to, idempotency_key):
             if value and not ID_RE.fullmatch(value):
                 raise AgentRelayError("bad_id", "Invalid message identifier", 400)
@@ -349,7 +351,7 @@ def install_agent_message_routes(app, relay_store, forbidden_tokens=lambda: ()):
         sender = guard(request)
         p = await read_json_capped(request)
         try:
-            item, created = messages.send(sender, text(p, "to_agent", 20), text(p, "body", MAX_BODY_CHARS * 2),
+            item, created = messages.send(sender, text(p, "to_agent", 20), text(p, "body", MAX_REVIEW_CHARS * 2),
                                           kind=text(p, "kind", 20) or "question", thread_id=text(p, "thread_id"),
                                           task_id=text(p, "task_id"), reply_to=text(p, "reply_to"),
                                           idempotency_key=text(p, "idempotency_key"))

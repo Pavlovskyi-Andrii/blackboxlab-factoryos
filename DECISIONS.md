@@ -1001,3 +1001,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Telegram "verified" is not required (consent + linked chat is); a refused send (bot never started) is recorded as a failure with its reason and shown in the cabinet.
 - Cabinet: the honest "not generated yet" note is replaced by the real state of today's episode and the last result.
 - 2026-11-13 (owner): episode length is any whole minute from 1 to 30 (was 5/10/15). The server accepts listener scripts up to 300 lines / 40 000 characters (~30 min).
+
+## 2026-11-13 — automatic Codex review of every open PR (owner: "делай ревью PR через Codex автоматически")
+
+- `autopilot/codex_review.py` runs in the EC2 worker loop as the Claude side of the agent relay (`FACTORY_CLAUDE_RELAY_TOKEN`, from the environment or `/root/claude-relay.token`). No model runs in the worker: it only sends a review request and posts the answer.
+- Scope: every open, non-draft PR in the repository, once per head commit; a re-push within 30 minutes waits; at most 12 requests per UTC day; one new request per worker pass.
+- The request carries title, description (1 500 chars) and the diff truncated to 20 000 characters, with credential-shaped text redacted. The relay accepts `review` messages up to 24 000 characters (other kinds stay at 3 000); the request cap is 64 KiB.
+- Codex answers inside the isolated relay service (`--disable shell_tool`, separate OS user) with BLOCKING/MINOR findings; the worker posts it as a PR comment marked "advisory only, not an approval". It never approves, merges or changes code; merging stays with CI and the owner/Claude review rules.
+- Kill switch: `AUTOPILOT_CODEX_REVIEW=0` in the worker environment.
