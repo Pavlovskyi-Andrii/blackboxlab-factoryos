@@ -139,10 +139,17 @@ class RoutesTest(unittest.TestCase):
             self.assertEqual(res["task"]["status"], "blocked")
 
 
+class _Frame:
+    def __init__(self, parent=None):
+        self.parent_frame = parent
+
+
 class NavRequest(fx.FakeRequest):
     def __init__(self, url, method, navigation):
         super().__init__(url, method)
-        self.navigation = navigation
+        self.navigation = bool(navigation)
+        if navigation == "subframe":
+            self.frame = _Frame(parent=_Frame())
 
     def is_navigation_request(self):
         return self.navigation
@@ -157,6 +164,7 @@ class ExecutorFlagsTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_with(self, extra_requests, action_class="read", **flags):
+        self.routes = []
         original = fx.FakePage.goto
 
         def goto(page, url, *, wait_until, timeout):
@@ -164,6 +172,7 @@ class ExecutorFlagsTest(unittest.TestCase):
             for url2, method, nav in extra_requests:
                 route = fx.FakeRoute(NavRequest(url2, method, nav))
                 page.context.route_handler(route)
+                self.routes.append(route)
         policy = BrowserRuntimePolicy(allowed_origins=("https://shop.example",), artifact_root=self.root, **flags)
         plan = worker.build_plan({"id": "bt_0123456789abcdef", "url": "https://shop.example/item", "selectors": ["h1"]})
         if action_class != "read":
@@ -177,8 +186,18 @@ class ExecutorFlagsTest(unittest.TestCase):
         ok = self.run_with(cdn, allow_offsite_subresource_reads=True, return_extracted_text=True)
         self.assertEqual(ok.status, "done")
         self.assertEqual([r.get("text") for r in ok.action_log if r.get("type") == "extract"], ["Synthetic fixture heading"])
-        for bad in ([("https://evil.example/", "GET", True)], [("https://cdn.example/collect", "POST", False)]):
-            self.assertEqual(self.run_with(bad, allow_offsite_subresource_reads=True).status, "blocked", bad)
+        # Main-frame navigation away from the site still fails the read.
+        self.assertEqual(self.run_with([("https://evil.example/", "GET", True)], allow_offsite_subresource_reads=True).status, "blocked")
+        # prom.ua (owner 2026-11-13): analytics POSTs, same-site writes and third-party iframes are aborted, never sent,
+        # but no longer fail a read; without the read flag they still fail the task.
+        noise = [("https://cdn.example/collect", "POST", False), ("https://shop.example/api/track", "POST", False),
+                 ("https://ads.example/frame", "GET", "subframe"), ("https://shop.example/checkout/pay", "GET", False)]
+        res = self.run_with(noise, allow_offsite_subresource_reads=True, return_extracted_text=True)
+        self.assertEqual(res.status, "done")
+        self.assertTrue(all(r.aborted for r in self.routes))
+        for one in noise:
+            self.assertEqual(self.run_with([one]).status, "blocked", one)
+            self.assertTrue(self.routes[0].aborted)
         self.assertEqual(self.run_with(cdn, action_class="draft", allow_offsite_subresource_reads=True).status, "blocked")
         plain = self.run_with([], allow_offsite_subresource_reads=True)
         self.assertNotIn("text", [k for r in plain.action_log for k in r])                           # text only when asked

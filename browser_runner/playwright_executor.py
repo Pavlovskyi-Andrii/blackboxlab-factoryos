@@ -84,6 +84,17 @@ class BrowserRuntimePolicy:
     proxy_server: str | None = None
 
 
+def _main_frame_navigation(request: Any) -> bool:
+    """True unless the request is clearly a sub-resource or a sub-frame navigation (unknown counts as main frame)."""
+    try:
+        if not bool(getattr(request, "is_navigation_request", lambda: True)()):
+            return False
+        frame = getattr(request, "frame", None)
+        return frame is None or getattr(frame, "parent_frame", None) is None
+    except Exception:
+        return True
+
+
 def _origin(url: str, *, allow_loopback_fixture: bool) -> str:
     if not isinstance(url, str) or "\\" in url or any(ord(c) < 32 for c in url):
         raise PolicyError("invalid_browser_url")
@@ -278,6 +289,7 @@ def run_playwright(
     log: list[dict[str, Any]] = []
     artifacts: list[str] = []
     blocked_requests: list[str] = []
+    quietly_aborted: list[str] = []
     completed = 0
     final_url = ""
     status = "done"
@@ -305,8 +317,13 @@ def run_playwright(
             if _UNSAFE_WORDS.search(urlsplit(request.url).path):
                 raise PolicyError("irreversible_network_path_disallowed")
         except PolicyError as exc:
+            route.abort()                      # the request never leaves the browser, in every mode
+            # Read tasks on real sites (owner 2026-11-13, prom.ua): analytics POSTs and third-party iframes are
+            # aborted as before, but only a main-frame navigation away from the allowed origin fails the read.
+            if policy.allow_offsite_subresource_reads and plan.action_class == "read" and not _main_frame_navigation(request):
+                quietly_aborted.append(str(exc))
+                return
             blocked_requests.append(str(exc))
-            route.abort()
             return
         route.continue_()
 
