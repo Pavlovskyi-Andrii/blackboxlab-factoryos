@@ -226,7 +226,7 @@ class MvpRoutesTest(unittest.TestCase):
                 out = asyncio.run(post("mycast", _Req(body, raw)))
                 return (out.status_code, json.loads(out.body)) if hasattr(out, "status_code") else (200, out)
 
-            self.assertEqual(len(get(_Req())["projects"]), 4)
+            self.assertEqual(len(get(_Req())["projects"]), 5)  # #313 Faceless Creator is registered
             status, out = call({"kind": "advance", "evidence": ["/static/mycast-configurator/index.html"]})
             self.assertEqual((status, out["event"]["to_stage"]), (200, "owner_review"))
             self.assertEqual(call({"kind": "advance", "evidence": [ISSUE]}), (403, {"detail": "owner_only"}))
