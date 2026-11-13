@@ -32,7 +32,7 @@ PER_CLIENT_CAP = int(os.environ.get("MYCAST_DEMO_PER_CLIENT_CAP", "5") or 5)
 MAX_LINES = 2
 MAX_CHARS = 420
 TYPICAL_SECONDS = 14.0
-MAX_CACHE_FILES = 300
+MAX_CACHE_FILES = 120   # ~15 s WAV ≈ 0.7 MB each: ≤ ~85 MB of the 1 GB Render disk (2026-11-13)
 INTROS = ("Це демо MyCast, а не справжній випуск.", "Это демо MyCast, а не настоящий выпуск.",
           "This is a MyCast demo, not a real episode.")
 LANGUAGES = ("uk", "ru", "en")

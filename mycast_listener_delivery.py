@@ -178,7 +178,8 @@ class ListenerDelivery:
             self.store._save(data)
             return {"duplicate": False, "chat_id": rec["chat_id"], "profile": gate["profile"]}
 
-    def finish(self, slug: str, local_date: str, ok: bool, reason: str = "", seconds: int = 0) -> None:
+    def finish(self, slug: str, local_date: str, ok: bool, reason: str = "", seconds: int = 0, file_id: str = "",
+               title: str = "") -> None:
         now = self.clock()
         with self.store._lock:
             data = self.store._load()
@@ -188,7 +189,9 @@ class ListenerDelivery:
             entry = (rec.get("deliveries") or {}).get(local_date) or {}
             if ok:
                 entry = {"status": "sent", "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
-                         "utc_day": time.strftime("%Y-%m-%d", time.gmtime(now)), "seconds": seconds}
+                         "utc_day": time.strftime("%Y-%m-%d", time.gmtime(now)), "seconds": seconds,
+                         # Only Telegram's file id is kept: the audio itself stays on Telegram, never on our disk.
+                         "file_id": str(file_id or "")[:200], "title": str(title or "")[:64]}
                 action = "episode_sent"
             else:
                 entry = {**entry, "status": "failed", "failures": int(entry.get("failures", 0)) + 1, "reason": reason[:80]}
@@ -244,15 +247,16 @@ def install_listener_delivery_routes(app, delivery: ListenerDelivery, *, authori
                 check_pcm(pcm, rate, lines)
             audio = encode(pcm, rate)
             minutes = max(1, round(len(pcm) / 2 / rate / 60))
-            send_audio(claim["chat_id"], audio, f"mycast-{local_date}.mp3", title,
-                       f"🎧 {title} · ~{minutes} хв\nВаш MyCast. Зупинити розсилку можна на сторінці MyCast.")
-            return round(len(pcm) / 2 / rate), len(audio)
+            file_id = send_audio(claim["chat_id"], audio, f"mycast-{local_date}.mp3", title,
+                                 f"🎧 {title} · ~{minutes} хв\nВаш MyCast. Зупинити розсилку можна на сторінці MyCast.")
+            return round(len(pcm) / 2 / rate), len(audio), file_id
 
         try:
-            seconds, size = await asyncio.to_thread(produce)
+            seconds, size, file_id = await asyncio.to_thread(produce)
         except Exception as exc:
             reason = type(exc).__name__ + (":" + str(getattr(exc, "category", "") or getattr(exc, "reason", "")))
             delivery.finish(slug, local_date, False, reason)
             raise HTTPException(502, "listener delivery failed: " + reason[:60])
-        delivery.finish(slug, local_date, True, seconds=seconds)
+        delivery.finish(slug, local_date, True, seconds=seconds, file_id=file_id if isinstance(file_id, str) else "",
+                        title=title)
         return {"sent": True, "duplicate": False, "seconds": seconds, "bytes": size}
