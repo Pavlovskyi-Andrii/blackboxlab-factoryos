@@ -32,7 +32,10 @@ from .core import (
     IRREVERSIBLE_ACTIONS, BrowserActionPlan, BrowserActionResult, PolicyError,
     approval_matches, canonical_payload_hash, validate_plan,
 )
+from .core import redact
 from .sessions import challenge_checkpoint
+
+EXTRACT_TEXT_LIMIT = 6000
 
 
 _SAFE_CLASSES = frozenset({"read", "draft", "upload"})
@@ -70,6 +73,12 @@ class BrowserRuntimePolicy:
     upload_root: Path | None = None
     browser_executable_path: str | None = None
     allow_loopback_fixture: bool = False
+    # Read tasks on real sites (2026-11-13): pages pull CSS/JS/images from CDNs. When set, an off-allowlist GET that is
+    # not a navigation is loaded instead of failing the run. Navigations off the allowlist and every non-GET request
+    # stay blocked, and only the "read" action class may use it.
+    allow_offsite_subresource_reads: bool = False
+    # Return the extracted text (redacted, capped) for read tasks; otherwise only its length and hash are recorded.
+    return_extracted_text: bool = False
 
 
 def _origin(url: str, *, allow_loopback_fixture: bool) -> str:
@@ -284,7 +293,10 @@ def run_playwright(
                 request.url, allow_loopback_fixture=policy.allow_loopback_fixture
             )
             if actual_origin not in origins:
-                raise PolicyError("off_allowlist_network_request")
+                is_navigation = bool(getattr(request, "is_navigation_request", lambda: True)())
+                if not (policy.allow_offsite_subresource_reads and plan.action_class == "read" and not is_navigation
+                        and request.method.upper() in ("GET", "HEAD")):
+                    raise PolicyError("off_allowlist_network_request")
             if request.method.upper() not in _SAFE_METHODS:
                 raise PolicyError("browser_write_request_blocked")
             if _UNSAFE_WORDS.search(urlsplit(request.url).path):
@@ -373,6 +385,8 @@ def run_playwright(
                         if kind == "extract":
                             record["text_chars"] = len(text)
                             record["text_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+                            if policy.return_extracted_text and plan.action_class == "read":
+                                record["text"] = str(redact(text))[:EXTRACT_TEXT_LIMIT]
                         if kind == "screenshot":
                             record["artifact_ref"] = artifacts[-1]
                         log.append(record)
