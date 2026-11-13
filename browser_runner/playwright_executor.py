@@ -79,6 +79,9 @@ class BrowserRuntimePolicy:
     allow_offsite_subresource_reads: bool = False
     # Return the extracted text (redacted, capped) for read tasks; otherwise only its length and hash are recorded.
     return_extracted_text: bool = False
+    # Every browser connection goes through this proxy (browser_runner.egress_proxy.PublicOnlyProxy), which checks the
+    # address at connection time; "<-loopback>" removes Chromium's implicit loopback bypass.
+    proxy_server: str | None = None
 
 
 def _origin(url: str, *, allow_loopback_fixture: bool) -> str:
@@ -312,6 +315,8 @@ def run_playwright(
             args = {} if policy.browser_executable_path is None else {
                 "executable_path": policy.browser_executable_path
             }
+            if policy.proxy_server:
+                args["proxy"] = {"server": policy.proxy_server, "bypass": "<-loopback>"}
             browser = playwright.chromium.launch(headless=True, **args)
             try:
                 context = browser.new_context(

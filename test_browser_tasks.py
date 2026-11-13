@@ -71,14 +71,42 @@ class StoreTest(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 self.s.finish(t2["id"], bad)
 
-    def test_bounded_and_old_screenshots_removed(self):
-        first = self.s.create("https://shop.example/0", [])
+    def finish(self, url, shot=False):
+        task = self.s.create(url, [])
         self.s.claim()
-        self.s.finish(first["id"], {"status": "done", "screenshot_png_b64": base64.b64encode(PNG).decode()})
+        body = {"status": "done"}
+        if shot:
+            body["screenshot_png_b64"] = base64.b64encode(PNG).decode()
+        self.s.finish(task["id"], body)
+        return task
+
+    def test_only_finished_tasks_are_evicted_with_their_screenshots(self):
+        first = self.finish("https://shop.example/0", shot=True)
+        running = self.s.create("https://shop.example/running", [])
+        self.assertEqual(self.s.claim()["id"], running["id"])               # leased: the loop below cannot take it
         for i in range(bt.MAX_TASKS):
-            self.s.create(f"https://shop.example/{i + 1}", [])
-        self.assertEqual(len(self.s.list()), bt.MAX_TASKS)
+            self.finish(f"https://shop.example/{i + 1}")
+        ids = {t["id"] for t in self.s.list()}
+        self.assertNotIn(first["id"], ids)
         self.assertFalse((self.s.shots / f"{first['id']}.png").exists())
+        self.assertIn(running["id"], ids)                                   # its result can still arrive
+        self.assertEqual(self.s.finish(running["id"], {"status": "done"})["status"], "done")
+        # a queued task older than every finished one is kept as well
+        items = self.s._load()
+        items.insert(0, {**items[0], "id": "bt_" + "f" * 16, "status": "queued", "result": None})
+        items += [{**items[-1], "id": "bt_%016x" % n} for n in range(5)]
+        self.s._save(items)
+        self.assertIn("bt_" + "f" * 16, {t["id"] for t in self.s.list()})
+
+    def test_full_active_queue_refuses_new_tasks(self):
+        for i in range(bt.MAX_ACTIVE):
+            self.s.create(f"https://shop.example/{i}", [])
+        with self.assertRaises(HTTPException) as e:
+            self.s.create("https://shop.example/one-more", [])
+        self.assertEqual(e.exception.status_code, 429)
+        self.s.claim()
+        self.s.finish(self.s.list()[-1]["id"], {"status": "failed"})
+        self.s.create("https://shop.example/now-fits", [])
 
 
 class RoutesTest(unittest.TestCase):
@@ -154,6 +182,81 @@ class ExecutorFlagsTest(unittest.TestCase):
         self.assertEqual(self.run_with(cdn, action_class="draft", allow_offsite_subresource_reads=True).status, "blocked")
         plain = self.run_with([], allow_offsite_subresource_reads=True)
         self.assertNotIn("text", [k for r in plain.action_log for k in r])                           # text only when asked
+
+
+class EgressProxyTest(unittest.TestCase):
+    """Codex review on #334: the address is checked when the browser connects, for every host."""
+
+    def connect(self, proxy, target):
+        import socket
+        with socket.create_connection(("127.0.0.1", int(proxy.url.rsplit(":", 1)[1])), timeout=5) as s:
+            s.sendall(f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n".encode())
+            head = s.recv(1024).split(b"\r\n", 1)[0]
+            if head.endswith(b"200 Connection Established"):
+                s.sendall(b"ping")
+                return head, s.recv(16)
+            return head, b""
+
+    def test_rebinding_and_private_subresources_are_refused_at_connect_time(self):
+        from browser_runner.egress_proxy import PublicOnlyProxy
+        answers = iter(["93.184.216.34", "169.254.169.254"])     # check sees public, the connection would see private
+        rebinding = lambda host, port, proto=0: [(2, 1, 6, "", (next(answers), port))]
+        self.assertTrue(worker.public_host("rebind.example", rebinding))   # the pre-launch check alone is fooled...
+        with PublicOnlyProxy(resolve=rebinding) as proxy:
+            head, _ = self.connect(proxy, "rebind.example:443")
+        self.assertIn(b"403", head)                                          # ...the proxy is not
+        mixed = lambda host, port, proto=0: [(2, 1, 6, "", ("93.184.216.34", port)), (2, 1, 6, "", ("10.0.0.7", port))]
+        with PublicOnlyProxy(resolve=mixed) as proxy:
+            self.assertIn(b"403", self.connect(proxy, "cdn.internal-ish.example:443")[0])
+            self.assertIn(b"403", self.connect(proxy, "93.184.216.34:22")[0])   # only https port
+            self.assertEqual([r[0] for r in proxy.refused], ["address", "port"])
+
+    def test_plain_http_refused_and_public_connect_tunnels(self):
+        import socket
+        import threading
+        from browser_runner.egress_proxy import PublicOnlyProxy
+        echo = socket.socket()
+        echo.bind(("127.0.0.1", 0))
+        echo.listen(1)
+
+        def serve():
+            conn, _ = echo.accept()
+            with conn:
+                conn.sendall(conn.recv(16).upper())
+        threading.Thread(target=serve, daemon=True).start()
+        port = echo.getsockname()[1]
+        local = lambda host, p, proto=0: [(2, 1, 6, "", ("127.0.0.1", p))]
+        with PublicOnlyProxy(resolve=local, allow=lambda a: a == "127.0.0.1", allowed_ports=(port,)) as proxy:
+            head, reply = self.connect(proxy, f"shop.example:{port}")
+            self.assertEqual((head, reply), (b"HTTP/1.1 200 Connection Established", b"PING"))
+            with socket.create_connection(("127.0.0.1", int(proxy.url.rsplit(":", 1)[1])), timeout=5) as s:
+                s.sendall(b"GET http://shop.example/ HTTP/1.1\r\nHost: shop.example\r\n\r\n")
+                self.assertIn(b"403", s.recv(1024))
+        echo.close()
+        self.assertEqual(proxy.connected, ["shop.example"])
+
+    def test_worker_routes_the_browser_through_the_proxy(self):
+        seen = []
+
+        def runner(plan, *, policy):
+            seen.append(policy.proxy_server)
+            return run_playwright(plan, policy=policy, playwright_factory=fx.FakePlaywright)
+        public = lambda host, port, proto=0: [(2, 1, 6, "", ("93.184.216.34", port))]
+        worker.execute({"id": "bt_0123456789abcdef", "url": "https://shop.example/", "selectors": []},
+                       runner=runner, artifact_root=pathlib.Path(tempfile.mkdtemp()), resolve=public)
+        self.assertTrue(seen[0].startswith("http://127.0.0.1:"))
+        launched = {}
+        original = fx.FakeChromium.launch
+
+        def launch(chromium, **kwargs):
+            launched.update(kwargs)
+            return original(chromium, **kwargs)
+        policy = BrowserRuntimePolicy(allowed_origins=("https://shop.example",), artifact_root=pathlib.Path(tempfile.mkdtemp()),
+                                      proxy_server="http://127.0.0.1:1")
+        with patch.object(fx.FakeChromium, "launch", launch):
+            run_playwright(worker.build_plan({"id": "bt_0123456789abcdef", "url": "https://shop.example/", "selectors": []}),
+                           policy=policy, playwright_factory=fx.FakePlaywright)
+        self.assertEqual(launched["proxy"], {"server": "http://127.0.0.1:1", "bypass": "<-loopback>"})
 
 
 class WorkerTest(unittest.TestCase):

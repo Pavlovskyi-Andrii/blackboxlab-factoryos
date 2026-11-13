@@ -15,7 +15,8 @@ Check: `journalctl -u factoryos-claude-worker --since "10 min ago" --no-pager | 
 Playwright the worker logs once "Playwright is not installed on this worker" and leaves tasks queued.
 
 ## Safety
-- Only public https hosts; the worker re-resolves the host and refuses private addresses (EC2 metadata included).
+- Only public https hosts. Every browser connection (page, sub-resource, redirect) goes through a local proxy that checks
+  the resolved address at connection time and refuses private ones (EC2 metadata included, DNS rebinding included).
 - Navigation stays on the task's origin; other sites may only serve page resources (GET); any POST/PUT is blocked.
 - CAPTCHA / 2FA / security pages stop the run as "Потрібні ви" (waiting_human); nothing is bypassed.
 - Screenshots live on the Render disk (≤ 2 MB each, last 50 tasks), owner-only.

@@ -21,6 +21,7 @@ except ImportError:
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from browser_runner.core import BrowserActionPlan  # noqa: E402
+from browser_runner.egress_proxy import PublicOnlyProxy  # noqa: E402
 from browser_runner.playwright_executor import BrowserRuntimePolicy, run_playwright  # noqa: E402
 
 _LOGGED = {"missing": False}
@@ -58,13 +59,18 @@ def public_host(host: str, resolve=socket.getaddrinfo) -> bool:
     return bool(addresses) and all(ipaddress.ip_address(a.split("%")[0]).is_global for a in addresses)
 
 
-def execute(task: dict, *, runner=run_playwright, artifact_root: pathlib.Path, resolve=socket.getaddrinfo) -> dict:
+def execute(task: dict, *, runner=run_playwright, artifact_root: pathlib.Path, resolve=socket.getaddrinfo,
+            proxy_factory=None) -> dict:
     parts = urlsplit(task["url"])
-    if parts.scheme != "https" or not public_host(parts.hostname or "", resolve):
+    if parts.scheme != "https" or not public_host(parts.hostname or "", resolve):   # fast fail; the proxy is the guard
         return {"status": "blocked", "blocker": "host_not_public", "texts": [], "steps": 0}
-    policy = BrowserRuntimePolicy(allowed_origins=(f"{parts.scheme}://{parts.netloc}",), artifact_root=artifact_root,
-                                  allow_offsite_subresource_reads=True, return_extracted_text=True)
-    result = runner(build_plan(task), policy=policy)
+    # Codex review on #334: Chromium resolves names again, and sub-resources can name any host, so every connection
+    # goes through a proxy that checks the address it actually connects to.
+    with (proxy_factory or (lambda: PublicOnlyProxy(resolve=resolve)))() as proxy:
+        policy = BrowserRuntimePolicy(allowed_origins=(f"{parts.scheme}://{parts.netloc}",), artifact_root=artifact_root,
+                                      allow_offsite_subresource_reads=True, return_extracted_text=True,
+                                      proxy_server=proxy.url)
+        result = runner(build_plan(task), policy=policy)
     selectors = task.get("selectors") or ["body"]
     extracts = [row for row in result.action_log if row.get("type") == "extract"]
     texts = [{"selector": selectors[i], "text": row.get("text", "")} for i, row in enumerate(extracts[:len(selectors)])]

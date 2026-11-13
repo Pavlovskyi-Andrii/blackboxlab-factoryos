@@ -21,7 +21,8 @@ from urllib.parse import urlsplit
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
 
-MAX_TASKS = 50
+MAX_TASKS = 50                       # finished tasks kept
+MAX_ACTIVE = 20                      # queued + running; new tasks are refused beyond this (Codex review on #334)
 LEASE_SECONDS = 600
 MAX_SELECTORS = 5
 MAX_SHOT_BYTES = 2 * 1024 * 1024
@@ -63,11 +64,11 @@ class BrowserTaskStore:
 
     def _save(self, items: list) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        keep = items[-MAX_TASKS:]
-        kept_ids = {t["id"] for t in keep}
-        for t in items[:-MAX_TASKS]:                         # old screenshots go with their task
-            if t["id"] not in kept_ids:
-                (self.shots / f"{t['id']}.png").unlink(missing_ok=True)
+        finished = [t for t in items if t["status"] not in ("queued", "running")]
+        drop = {t["id"] for t in finished[:-MAX_TASKS]} if len(finished) > MAX_TASKS else set()
+        keep = [t for t in items if t["id"] not in drop]       # queued/running tasks are never evicted
+        for task_id in drop:                                   # old screenshots go with their task
+            (self.shots / f"{task_id}.png").unlink(missing_ok=True)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(keep, ensure_ascii=False, indent=1), encoding="utf-8")
         tmp.replace(self.path)
@@ -82,6 +83,8 @@ class BrowserTaskStore:
                 "result": None}
         with self.lock:
             items = self._load()
+            if sum(t["status"] in ("queued", "running") for t in items) >= MAX_ACTIVE:
+                raise HTTPException(429, "Забагато завдань у черзі — дочекайтеся виконання")
             items.append(task)
             self._save(items)
         return task
