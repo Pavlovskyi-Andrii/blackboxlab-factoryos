@@ -370,6 +370,18 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
         except AccountError as exc:
             return _err(exc)
 
+    @app.get("/api/mycast/account/podcast")
+    def mycast_account_podcast_get(request: Request):
+        """The signed-in listener's own saved podcast, so signing in on another browser restores it."""
+        try:
+            rec = _current(request)
+        except AccountError as exc:
+            return _err(exc)
+        if not rec:
+            return JSONResponse({"detail": "signed_out"}, status_code=401)
+        code = rec.get("code") or ""
+        return {"code": code or None, "approved": bool(code) and rec.get("approved_code") == code}
+
     @app.post("/api/mycast/account/podcast")
     async def mycast_account_podcast(request: Request):
         try:
