@@ -84,9 +84,11 @@ def decode_profile(code: str) -> dict:
     duration = s[4] if len(s) > 4 and s[4] in DURATIONS else 10
     if not topics and not custom and not follows:
         raise ValueError("no topics")
+    k = data.get("k") if isinstance(data.get("k"), list) else []
+    calendar = {"birthdays": bool(k[0]) if k else False, "events": bool(k[1]) if len(k) > 1 else False}
     return {"topics": topics, "custom": custom, "follows": follows, "free_text": str(data.get("x") or "")[:120],
             "timezone": tz, "time": at, "frequency": freq, "days": days, "duration_min": duration,
-            "language": lang, "mode": mode, "voices": voices}
+            "language": lang, "mode": mode, "voices": voices, "calendar": calendar}
 
 
 def _local(profile: dict, now: float) -> datetime:
@@ -136,8 +138,10 @@ def delivery_gate(rec: dict, now: float) -> dict:
 class ListenerDelivery:
     """Delivery bookkeeping inside the listener record (same file and lock as ListenerStore)."""
 
-    def __init__(self, store, *, clock: Callable[[], float] = time.time, daily_cap: int = DAILY_CAP):
+    def __init__(self, store, *, clock: Callable[[], float] = time.time, daily_cap: int = DAILY_CAP,
+                 calendar: Optional[Callable[[dict, dict, str], dict]] = None):
         self.store, self.clock, self.daily_cap = store, clock, daily_cap
+        self.calendar = calendar           # mycast_calendar.ListenerCalendar.today; {} = nothing to add
 
     def due(self) -> list[dict]:
         now = self.clock()
@@ -147,8 +151,16 @@ class ListenerDelivery:
         for rec in listeners:
             gate = delivery_gate(rec, now)
             if gate["state"] == "due":
-                out.append({"slug": rec["slug"], "first_name": str(rec.get("name") or "").split(" ")[0][:40],
-                            "local_date": gate["local_date"], "profile": gate["profile"]})
+                item = {"slug": rec["slug"], "first_name": str(rec.get("name") or "").split(" ")[0][:40],
+                        "local_date": gate["local_date"], "profile": gate["profile"]}
+                if self.calendar is not None and rec.get("gcal"):
+                    try:
+                        cal = self.calendar(rec, gate["profile"], gate["local_date"])
+                    except Exception:
+                        cal = {}            # a calendar problem never costs the listener their episode
+                    if cal:
+                        item["calendar"] = cal
+                out.append(item)
         return out
 
     def overview(self, offset: int = 0, limit: int = 200) -> dict:

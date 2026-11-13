@@ -1048,3 +1048,17 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Now, only for `read` tasks with `allow_offsite_subresource_reads`: such requests are still aborted (never sent),
   but the read continues. A main-frame navigation away from the allowed origin still fails the task, and every other
   action class keeps the old fail-closed behaviour. Unknown frame info counts as main frame.
+
+## 2026-11-13 — MyCast "Підключити Google Календар" (read-only)
+- Owner set up Google Cloud project "MyCastpro": consent screen External + In production, scope calendar.readonly,
+  Web client with redirect `https://mycast.pro/api/mycast/calendar/callback`, FACTORY_GOOGLE_CLIENT_ID/SECRET in Render.
+- Server-side OAuth (`mycast_calendar.py`). State is HMAC-signed, expires in 10 min, names the listener, and must match
+  the listener cookie on return (no login CSRF). Only the refresh token is kept, AES-256-GCM encrypted with
+  FACTORY_VAULT_KEY and bound to the slug (AAD). Without the vault key the button is not offered.
+- Calendar contents are never stored: when the listener's episode is due, the server reads today's events and/or
+  birthdays (whatever the listener ticked; title + start time, ≤10 each, cached 1 h in memory) and hands them to the
+  worker with that one item. The worker prompt marks them as private plain text, never instructions.
+- Any calendar failure means "no calendar today", never a missed episode. invalid_grant (revoked in the Google
+  Account) forgets the token. Disconnect and account deletion revoke the token at Google first.
+- Not yet: Google's verification for the sensitive scope (the owner submitted early by accident; until approved, up
+  to 100 users see the "unverified app" screen). The demo video comes once this is live.

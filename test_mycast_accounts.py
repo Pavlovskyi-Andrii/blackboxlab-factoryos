@@ -184,6 +184,10 @@ class RoutesTest(unittest.TestCase):
             self.assertEqual(h[("GET", "/api/mycast/account/me")](Req()).status_code, 401)
             saved = run(h[("POST", "/api/mycast/account/podcast")](Req({"code": "eyJ2IjoxfQ"}, cookie)))
             self.assertTrue(saved["listener"]["has_podcast"])
+            # owner 2026-11-13: signing in again restores the saved podcast; only for the listener themselves
+            own = h[("GET", "/api/mycast/account/podcast")](Req(cookie=cookie))
+            self.assertEqual((own["code"], own["approved"]), ("eyJ2IjoxfQ", False))
+            self.assertEqual(h[("GET", "/api/mycast/account/podcast")](Req()).status_code, 401)
             page = h[("GET", "/mycast/u/{slug}")](listener["slug"])
             self.assertEqual(page.headers["location"], f"/static/mycast-configurator/index.html#p=eyJ2IjoxfQ&from={listener['slug']}")
             self.assertTrue(h[("GET", "/mycast/u/{slug}")]("../etc").headers["location"].endswith("#missing"))

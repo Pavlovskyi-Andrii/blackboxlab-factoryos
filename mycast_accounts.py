@@ -262,6 +262,7 @@ def public_view(rec: dict) -> dict:
     return {"slug": rec["slug"], "name": rec.get("name", ""), "provider": rec.get("provider", ""),
             "has_podcast": bool(rec.get("code")), "page": f"/mycast/u/{rec['slug']}",
             "telegram_linked": bool(rec.get("chat_id")), "telegram_verified": bool(rec.get("telegram_verified_at")),
+            "calendar_linked": bool(rec.get("gcal")),
             "approved": bool(rec.get("code")) and rec.get("approved_code") == rec.get("code"),
             "delivery": {"active": bool(d.get("active")), "since": d.get("since"), "paused_reason": d.get("paused_reason", "")},
             "status": _delivery_status(rec),
@@ -292,7 +293,9 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
                                   clock: Callable[[], float] = time.time,
                                   send_message: Optional[Callable[[str, str], None]] = None,
                                   send_sample: Optional[Callable[[str, str], None]] = None,
-                                  fetch_audio: Optional[Callable[[str], bytes]] = None) -> None:
+                                  fetch_audio: Optional[Callable[[str], bytes]] = None,
+                                  calendar_available: Optional[Callable[[], bool]] = None,
+                                  on_delete: Optional[Callable[[str], None]] = None) -> None:
     def _err(exc: AccountError):
         return JSONResponse({"detail": exc.code}, status_code=exc.status)
 
@@ -325,7 +328,8 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
         token = bot_token() or ""
         bot_id = token.split(":", 1)[0] if re.fullmatch(r"\d{5,}:.+", token) else ""   # the public numeric part only
         return {"telegram_bot": name or None, "telegram_bot_id": bot_id or None, "google_client_id": google_client_id() or None,
-                "consent_version": CONSENT_VERSION}
+                "consent_version": CONSENT_VERSION,
+                "calendar_available": bool(calendar_available and calendar_available())}
 
     @app.get("/api/mycast/account/me")
     def mycast_account_me(request: Request):
@@ -365,6 +369,18 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
                                           str(body.get("ref") or "")))
         except AccountError as exc:
             return _err(exc)
+
+    @app.get("/api/mycast/account/podcast")
+    def mycast_account_podcast_get(request: Request):
+        """The signed-in listener's own saved podcast, so signing in on another browser restores it."""
+        try:
+            rec = _current(request)
+        except AccountError as exc:
+            return _err(exc)
+        if not rec:
+            return JSONResponse({"detail": "signed_out"}, status_code=401)
+        code = rec.get("code") or ""
+        return {"code": code or None, "approved": bool(code) and rec.get("approved_code") == code}
 
     @app.post("/api/mycast/account/podcast")
     async def mycast_account_podcast(request: Request):
@@ -477,6 +493,11 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             rec = _current(request)
             if not rec:
                 raise AccountError("signed_out", 401)
+            if on_delete is not None:
+                try:
+                    on_delete(rec["slug"])          # e.g. revoke the Google Calendar token at Google first
+                except Exception:
+                    pass
             store.delete(rec["slug"])
         except AccountError as exc:
             return _err(exc)
