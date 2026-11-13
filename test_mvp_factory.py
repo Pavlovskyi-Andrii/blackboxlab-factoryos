@@ -238,6 +238,9 @@ class OpenQuestionsProjectionTest(unittest.TestCase):
             reg.record("mycast", "advance", actor_role="owner", evidence=[ISSUE])
             reg.record("mycast", "advance", actor_role="owner", evidence=[ISSUE])
             self.assertNotIn("mvp-review:mycast", {x["id"] for x in collect_open_questions(reg, stub)["items"]})
+            # A blocked project that the owner rejects is closed: it must not stay "blocked" on the dashboard forever.
+            reg.record("release-guardian", "reject", actor_role="owner", reason="Not pursuing")
+            self.assertNotIn("mvp-block:release-guardian", {x["id"] for x in collect_open_questions(reg, stub)["items"]})
 
     def test_route_owner_only_and_unreadable_store(self):
         from fastapi import FastAPI, HTTPException

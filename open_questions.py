@@ -10,7 +10,7 @@ from typing import Any, Callable
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from mvp_factory import MvpError
+from mvp_factory import TERMINAL, MvpError
 from owner_desk import MAX_KEPT_QUESTIONS
 
 
@@ -24,6 +24,8 @@ def collect_open_questions(registry: Any, questions: Any) -> dict[str, Any]:
         pid = str(project.get("id") or "")
         title = str(project.get("title") or pid)
         stage = str(project.get("stage") or "")
+        if stage in TERMINAL:
+            continue  # validated/rejected: nothing left to decide, even if a block was never lifted
         blocked = project.get("blocked")
         if blocked:
             items.append({
