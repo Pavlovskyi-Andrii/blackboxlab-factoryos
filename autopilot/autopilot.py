@@ -13,7 +13,7 @@ try:
     from . import control
     from . import relay_tasks
     from . import owner_questions
-    from . import mycast_daily, mycast_listeners
+    from . import codex_review, mycast_daily, mycast_listeners
 except ImportError:
     from delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
@@ -21,6 +21,7 @@ except ImportError:
     import control
     import relay_tasks
     import owner_questions
+    import codex_review
     import mycast_daily
     import mycast_listeners
 
@@ -524,6 +525,10 @@ def main() -> int:
                 continue
             if cast != "idle":
                 continue
+
+        # Owner 2026-11-13: every open PR gets an automatic Codex review (advisory comment). Cheap: no model runs here,
+        # Codex answers in its own isolated service; at most one new request per pass.
+        codex_review.run_once(ANSWERS.with_name("codex_review.json"))
 
         # Relay owner tickets have priority over ordinary roadmap work. This is
         # an actual claim + bounded Claude CLI invocation, not a UI status flip.

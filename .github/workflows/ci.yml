@@ -126,6 +126,8 @@ jobs:
           python -m py_compile agent_secret_scan.py relay_agent_messages.py autopilot/agent_relay_client.py autopilot/codex_relay_worker.py test_relay_agent_messages.py
           python test_relay_agent_messages.py
           bash -n deploy/codex-relay/setup.sh
+          python -m py_compile autopilot/codex_review.py autopilot/test_codex_review.py
+          python -m autopilot.test_codex_review
       - name: Relay owner-notice dedupe regression (#241)
         run: python test_relay_notify_dedupe.py
       - name: Evidence Protocol Tier 1 (No Evidence — No Done)
