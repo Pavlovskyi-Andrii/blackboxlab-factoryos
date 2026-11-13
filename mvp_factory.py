@@ -201,6 +201,10 @@ class MvpRegistry:
                     _add_faceless_creator(data, _iso(self.clock()))
                     data["faceless_creator_intake_complete"] = True
                     self._save(data)
+                elif data.get("version") == 2 and _backfill_faceless_creator_brief(data):
+                    # Preserve existing #313 text, but repair a missing draft.
+                    # Do not recreate a project deliberately removed by the owner.
+                    self._save(data)
                 return data
         except FileNotFoundError:
             data = _seed(_iso(self.clock()))
