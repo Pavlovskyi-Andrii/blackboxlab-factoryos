@@ -12,10 +12,13 @@ def get(path, host="mycast.pro", query=""):
     scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET", "scheme": "https",
              "path": path, "raw_path": path.encode(), "query_string": query.encode(),
              "headers": [(b"host", host.encode())], "server": (host, 443), "client": ("127.0.0.1", 50000), "root_path": ""}
-    sent = []
+    sent, delivered = [], []
 
-    async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+    async def receive():                      # the body once, then wait (newer Starlette rejects a repeated request)
+        if not delivered:
+            delivered.append(True)
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await asyncio.Event().wait()
 
     async def send(message):
         sent.append(message)
