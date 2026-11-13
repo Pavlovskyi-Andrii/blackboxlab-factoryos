@@ -235,6 +235,36 @@ class EgressProxyTest(unittest.TestCase):
         echo.close()
         self.assertEqual(proxy.connected, ["shop.example"])
 
+    def test_next_checked_address_is_tried_when_the_first_fails(self):
+        import socket
+        import threading
+        from browser_runner import egress_proxy
+        echo = socket.socket()
+        echo.bind(("127.0.0.1", 0))
+        echo.listen(1)
+        port = echo.getsockname()[1]
+
+        def serve():
+            conn, _ = echo.accept()
+            with conn:
+                conn.sendall(conn.recv(16).upper())
+        threading.Thread(target=serve, daemon=True).start()
+        tried, real = [], socket.create_connection
+
+        def connect(addr, timeout=None):
+            tried.append(addr[0])
+            if addr[0] == "2001:db8::1":                     # e.g. IPv6 first on an IPv4-only worker
+                raise OSError("network unreachable")
+            return real(addr, timeout=timeout)
+        two = lambda host, p, proto=0: [(10, 1, 6, "", ("2001:db8::1", p, 0, 0)), (2, 1, 6, "", ("127.0.0.1", p))]
+        with patch.object(egress_proxy, "_connect", connect), \
+                egress_proxy.PublicOnlyProxy(resolve=two, allow=lambda a: a in ("2001:db8::1", "127.0.0.1"),
+                                             allowed_ports=(port,)) as proxy:
+            head, reply = self.connect(proxy, f"dual.example:{port}")
+        echo.close()
+        self.assertEqual(tried, ["2001:db8::1", "127.0.0.1"])
+        self.assertEqual((head, reply), (b"HTTP/1.1 200 Connection Established", b"PING"))
+
     def test_worker_routes_the_browser_through_the_proxy(self):
         seen = []
 
@@ -260,6 +290,18 @@ class EgressProxyTest(unittest.TestCase):
 
 
 class WorkerTest(unittest.TestCase):
+    def test_ready_only_when_chromium_really_starts(self):
+        ok = lambda: None
+
+        def missing_package():
+            raise ImportError("no playwright")
+
+        def launch_fails():
+            raise RuntimeError("error while loading shared libraries: libnss3.so")
+        self.assertTrue(worker.playwright_available(ok, importer=ok))
+        self.assertFalse(worker.playwright_available(ok, importer=missing_package))
+        self.assertFalse(worker.playwright_available(launch_fails, importer=ok))       # binary present, cannot launch
+
     def test_private_resolution_is_refused_before_any_browser(self):
         calls = []
         for addr in ("169.254.169.254", "10.1.2.3", "127.0.0.1"):
