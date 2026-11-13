@@ -1061,7 +1061,7 @@ MYCAST_HOSTS = {h.strip().lower() for h in os.environ.get("FACTORY_MYCAST_HOSTS"
 MYCAST_PAGE = "/static/mycast-configurator/index.html"
 MYCAST_HOST_PREFIXES = ("/static/mycast-configurator/", "/static/favicon", "/static/apple-touch-icon", "/api/mycast/",
                         "/mycast/u/", "/.well-known/")
-MYCAST_HOST_PATHS = {"/privacy", "/terms", "/health", "/favicon.ico", "/mycast"}
+MYCAST_HOST_PATHS = {"/privacy", "/terms", "/health", "/favicon.ico", "/mycast", "/robots.txt", "/sitemap.xml"}
 
 
 def _mycast_host_response(request: Request):
@@ -1088,12 +1088,36 @@ def mycast_terms():
     return FileResponse(BASE/"static"/"mycast-configurator"/"terms.html")
 
 
+# Search Console (owner 2026-11-13): mycast.pro is indexable; the FactoryOS dashboard host is not.
+MYCAST_SITEMAP_PATHS = ("/static/mycast-configurator/index.html", "/privacy", "/terms")
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots_txt(request: Request):
+    host = (request.headers.get("host") or "").split(":")[0].strip().lower()
+    if host in MYCAST_HOSTS:
+        body = "User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: https://" + host + "/sitemap.xml\n"
+    else:
+        body = "User-agent: *\nDisallow: /\n"
+    return Response(body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap_xml(request: Request):
+    host = (request.headers.get("host") or "").split(":")[0].strip().lower()
+    if host not in MYCAST_HOSTS:
+        return Response(status_code=404)
+    urls = "".join(f"<url><loc>https://{host}{p}</loc></url>" for p in MYCAST_SITEMAP_PATHS)
+    return Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+                    + urls + "</urlset>", media_type="application/xml")
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     mycast_redirect = _mycast_host_response(request)
     if mycast_redirect is not None:
         return mycast_redirect
-    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms",
+    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/api/mycast/calendar/")  # MyCast public beta: capped demo, listener accounts
