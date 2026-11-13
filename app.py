@@ -38,6 +38,7 @@ from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from open_questions import install_open_questions_routes
+from browser_tasks import BrowserTaskStore, install_browser_task_routes
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
@@ -1022,6 +1023,9 @@ async def mvp_agent_message(project_id: str, agent: str, request: Request):
                      text_out or f"⚠️ Gemini не відповів ({reason}). Повідомлення збережено.")
     threading.Thread(target=work,daemon=True).start()
     return {"ok":True,"routed":"gemini"}
+# T-560 wiring: owner's read-only browser tasks, run by the EC2 runner (Playwright never runs on Render).
+BROWSER_TASKS = BrowserTaskStore(DATA_DIR)
+install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
@@ -1083,7 +1087,7 @@ async def auth_middleware(request: Request, call_next):
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
-    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/")) and _claude_worker_authorized(request)
+    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/")) and _claude_worker_authorized(request)
     # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
             and not (claude_worker_api or operator_worker_api or local_booster_api)):
