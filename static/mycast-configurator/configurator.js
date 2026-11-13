@@ -106,7 +106,7 @@
   const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   const DURATIONS = Array.from({ length: 30 }, (_, i) => i + 1);   // minutes; owner 2026-11-13: any length up to 30
   // Owner 2026-11-13 (later): the picker shows a short list; a saved length outside it stays valid and is shown too.
-  const DURATION_CHOICES = [1, 3, 5, 10, 15, 20, 25, 30];
+  const DURATION_CHOICES = [5, 7, 10, 15, 20, 25, 30];   // owner: 1 and 3 min are too short
   function durationChoices(current) {
     const n = Number(current);
     return DURATIONS.includes(n) && !DURATION_CHOICES.includes(n) ? [...DURATION_CHOICES, n].sort((a, b) => a - b) : DURATION_CHOICES.slice();
