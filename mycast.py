@@ -24,8 +24,9 @@ EPISODE_ID_RE = re.compile(r"^mycast-[a-z0-9-]{4,60}$")
 
 
 def telegram_send_audio(bot_token: str, chat_id: str, audio: bytes, *, filename: str, title: str, caption: str,
-                        opener: Callable = urlrequest.urlopen) -> None:
-    """Telegram sendAudio as multipart/form-data, standard library only."""
+                        opener: Callable = urlrequest.urlopen) -> str:
+    """Telegram sendAudio as multipart/form-data, standard library only. Returns Telegram's file_id ("" if absent):
+    the audio then lives on Telegram's servers and can be fetched again later without storing it here (#317 history)."""
     boundary = "mycast" + secrets.token_hex(12)
     parts = []
     for name, value in (("chat_id", chat_id), ("title", title[:64]), ("performer", "MyCast"), ("caption", caption[:1000])):
@@ -42,6 +43,8 @@ def telegram_send_audio(bot_token: str, chat_id: str, audio: bytes, *, filename:
         raise RuntimeError("Telegram sendAudio failed") from exc
     if not isinstance(result, dict) or not result.get("ok"):
         raise RuntimeError("Telegram sendAudio returned not-ok")
+    message = result.get("result") if isinstance(result.get("result"), dict) else {}
+    return str((message.get("audio") or message.get("document") or {}).get("file_id") or "")
 
 
 class DeliveryLog:
@@ -301,11 +304,11 @@ def gemini_tts_pcm(api_key: str, episode: dict, *, model: str = "", voices: tupl
     return pcm, rate
 
 
-def pcm_to_mp3(pcm: bytes, rate: int) -> bytes:
+def pcm_to_mp3(pcm: bytes, rate: int, bitrate: int = 96) -> bytes:
     import lameenc
 
     encoder = lameenc.Encoder()
-    encoder.set_bit_rate(96)
+    encoder.set_bit_rate(bitrate)
     encoder.set_in_sample_rate(rate)
     encoder.set_channels(1)
     encoder.set_quality(2)

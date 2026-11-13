@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from fastapi import Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 COOKIE = "mycast_listener"
 SESSION_SECONDS = 30 * 24 * 3600
@@ -291,7 +291,8 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
                                   google_verify: Callable[[str], dict], secure_cookie: bool = True,
                                   clock: Callable[[], float] = time.time,
                                   send_message: Optional[Callable[[str, str], None]] = None,
-                                  send_sample: Optional[Callable[[str, str], None]] = None) -> None:
+                                  send_sample: Optional[Callable[[str, str], None]] = None,
+                                  fetch_audio: Optional[Callable[[str], bytes]] = None) -> None:
     def _err(exc: AccountError):
         return JSONResponse({"detail": exc.code}, status_code=exc.status)
 
@@ -429,6 +430,38 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             except Exception:
                 raise AccountError("telegram_send_failed", 502)
             return {"listener": public_view(store.get(rec["slug"])), "sent": True}
+        except AccountError as exc:
+            return _err(exc)
+
+    @app.get("/api/mycast/account/episodes")
+    def mycast_account_episodes(request: Request):
+        """#317 history: the signed-in listener's own sent episodes (last 14 days). Audio stays on Telegram."""
+        try:
+            rec = _signed(request)
+            rows = [{"date": day, "title": e.get("title") or f"MyCast · {day}", "seconds": int(e.get("seconds") or 0),
+                     "audio": bool(e.get("file_id"))}
+                    for day, e in sorted((rec.get("deliveries") or {}).items(), reverse=True) if e.get("status") == "sent"]
+            return {"episodes": rows}
+        except AccountError as exc:
+            return _err(exc)
+
+    @app.get("/api/mycast/account/episodes/{day}/audio")
+    def mycast_account_episode_audio(day: str, request: Request):
+        """Streams one of the listener's own episodes back from Telegram (bot token stays on the server)."""
+        try:
+            rec = _signed(request)
+            entry = (rec.get("deliveries") or {}).get(day) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day or "") else None
+            if not entry or entry.get("status") != "sent" or not entry.get("file_id"):
+                raise AccountError("episode_not_found", 404)
+            if not fetch_audio:
+                raise AccountError("telegram_not_configured", 503)
+            try:
+                audio = fetch_audio(entry["file_id"])
+            except Exception:
+                raise AccountError("episode_unavailable", 502)
+            return Response(audio, media_type="audio/mpeg",
+                            headers={"Cache-Control": "private, max-age=3600",
+                                     "Content-Disposition": f'inline; filename="mycast-{day}.mp3"'})
         except AccountError as exc:
             return _err(exc)
 

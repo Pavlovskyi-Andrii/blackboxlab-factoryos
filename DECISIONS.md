@@ -1009,3 +1009,10 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - The request carries title, description (1 500 chars) and the diff truncated to 20 000 characters, with credential-shaped text redacted. The relay accepts `review` messages up to 24 000 characters (other kinds stay at 3 000); the request cap is 64 KiB.
 - Codex answers inside the isolated relay service (`--disable shell_tool`, separate OS user) with BLOCKING/MINOR findings; the worker posts it as a PR comment marked "advisory only, not an approval". It never approves, merges or changes code; merging stays with CI and the owner/Claude review rules.
 - Kill switch: `AUTOPILOT_CODEX_REVIEW=0` in the worker environment.
+
+## 2026-11-13 — MyCast audio is not stored on our server; history plays back from Telegram (owner question)
+
+- A listener episode is generated in memory, sent with Telegram `sendAudio` and dropped; the script is not kept either. Only Telegram's `file_id`, title, length and date stay in the listener record (a few hundred bytes per day, last 14 days).
+- "Your episodes" on the MyCast page streams an episode back through `GET /api/mycast/account/episodes/{date}/audio`: the server calls Bot API `getFile` and passes the bytes through (bot token stays server-side, nothing cached on disk). Only the signed-in listener's own episodes; another listener's cookie gets 404.
+- Listener episodes are encoded at 64 kbps mono (was 96): 30 minutes ≈ 14 MB, under the Bot API's 20 MB re-download limit; voice quality is unchanged in practice.
+- The public demo cache keeps at most 120 short WAV files (was 300), ≤ ~85 MB of the 1 GB Render disk.

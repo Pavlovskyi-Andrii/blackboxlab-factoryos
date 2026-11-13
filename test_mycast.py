@@ -52,9 +52,10 @@ def test_send_audio_multipart():
 
     def opener(req, timeout):
         seen["url"], seen["body"], seen["ctype"] = req.full_url, req.data, req.headers.get("Content-type")
-        return _Resp(b'{"ok": true}')
-    mycast.telegram_send_audio("123:TOKEN", "4242", b"ID3-audio-bytes", filename="mycast-2026-11-03.mp3",
-                               title="MyCast · 3 листопада", caption="🎧 test", opener=opener)
+        return _Resp(b'{"ok": true, "result": {"audio": {"file_id": "AUDIO-1"}}}')
+    file_id = mycast.telegram_send_audio("123:TOKEN", "4242", b"ID3-audio-bytes", filename="mycast-2026-11-03.mp3",
+                                         title="MyCast · 3 листопада", caption="🎧 test", opener=opener)
+    assert file_id == "AUDIO-1"                       # #317 history: kept instead of the audio itself
     assert seen["url"].endswith("/bot123:TOKEN/sendAudio")
     assert seen["ctype"].startswith("multipart/form-data; boundary=")
     body = seen["body"]
