@@ -22,6 +22,14 @@ test('taxonomy ids are unique, labelled in three languages, and cover the owner 
   assert.ok(ids.length >= 80, 'broad taxonomy: ' + ids.length);
 });
 
+test('duration picker is a short list; a saved minute outside it stays valid and visible', () => {
+  assert.ok(M.DURATION_CHOICES.length >= 7 && M.DURATION_CHOICES.length <= 10);
+  assert.deepStrictEqual(M.durationChoices(10), M.DURATION_CHOICES);
+  assert.ok(M.durationChoices(24).includes(24));
+  assert.ok(M.DURATIONS.includes(24));
+  assert.ok(!M.durationChoices(99).includes(99));
+});
+
 test('topic selection needs at least two subtopics, across categories', () => {
   let p = M.setTopic(M.newProfile(), BOX, true);
   assert.deepStrictEqual(M.validate(p).map(e => e.code), ['min_topics']);

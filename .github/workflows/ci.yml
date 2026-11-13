@@ -225,6 +225,8 @@ jobs:
           python test_mycast_listener_delivery.py
           python -m py_compile mycast_calendar.py test_mycast_calendar.py
           python test_mycast_calendar.py
+          python -m py_compile mycast_public.py test_mycast_public.py
+          python test_mycast_public.py
           python -m py_compile test_mycast_domain.py
           python test_mycast_domain.py
           python -m py_compile browser_tasks.py autopilot/browser_tasks.py browser_runner/egress_proxy.py test_browser_tasks.py
