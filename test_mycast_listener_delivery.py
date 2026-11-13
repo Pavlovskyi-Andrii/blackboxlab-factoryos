@@ -165,6 +165,11 @@ class GateTest(unittest.TestCase):
         self.assertEqual(e.exception.status_code, 403)
         role["role"] = "owner"
         self.assertEqual(handler(Req())["total"], 3)
+        page = handler(Req(), offset=0, limit=2)                               # Codex review on #336: paging
+        self.assertEqual((len(page["listeners"]), page["next_offset"]), (2, 2))
+        rest = handler(Req(), offset=2, limit=2)
+        self.assertEqual((len(rest["listeners"]), rest["next_offset"]), (1, None))
+        self.assertEqual({r["slug"] for r in page["listeners"] + rest["listeners"]}, {r["slug"] for r in view["listeners"]})
 
 
 import app as factory  # noqa: E402
