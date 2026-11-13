@@ -83,7 +83,9 @@ def _backfill_faceless_creator_brief(data: dict[str, Any]) -> bool:
     """Add only a missing draft brief to the owner's existing #313 concept."""
     for project in data["projects"].values():
         if project.get("issue") == FACELESS_CREATOR_ISSUE:
-            if not str(project.get("brief") or "").strip():
+            # A missing field is a legacy migration gap; an explicit empty value
+            # is an owner's choice and must survive subsequent registry reads.
+            if "brief" not in project:
                 project["brief"] = FACELESS_CREATOR_BRIEF
                 return True
             return False
