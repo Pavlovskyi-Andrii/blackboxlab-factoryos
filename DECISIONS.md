@@ -1192,3 +1192,19 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   approved by an old click. Decision fields are whitelisted (`choice`, `note`) — no winner/lift can be stored.
 - Members are denied MVP routes by the existing workspace tenancy middleware, same as all other MVP routes; the
   module itself still distinguishes owner/member for when that changes.
+
+## 2026-11-14 — T-609 A/B Tester S2: branch lanes in the MVP panel
+
+- The experiment section renders inside the existing project panel (`mvpRenderPanel`, after the agent hand-off block)
+  from `GET /api/mvp-factory/{pid}/experiments`, loaded when the panel opens and on each MVP refresh. No change to
+  `static/mvp-factory/index.html`.
+- No "create experiment" button: the S0 review lists only save draft, approve preview (owner) and record decision
+  (owner) as S2 buttons. Experiments are still created through the S1 API; the empty state says so. Add a create
+  form later only as its own task.
+- A-above-B is enforced by sorting branches by id in the renderer, not by trusting the data order.
+- Draft editing is a native `<details>` form per lane. Bullets are one per line; posts are separated by a blank line.
+  Typed text and open editors survive the panel's periodic re-render (`data-mvpx-keep`), and are dropped after a
+  successful save so the form shows the saved copy.
+- Recording a decision asks for a browser `confirm()`, because it closes the experiment.
+- The 375 px / 1440 px layout is covered only by CSS source assertions (vertical lanes, full width, wrapping chips,
+  no fixed pixel widths). No browser runs on the worker, so the real layout check is reported as NOT VERIFIED.

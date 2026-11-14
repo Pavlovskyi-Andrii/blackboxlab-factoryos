@@ -414,6 +414,12 @@ jobs:
         run: |
           python -m py_compile mvp_experiments.py test_mvp_experiments.py
           python test_mvp_experiments.py
+      - name: A/B Tester S2 (T-609) branch lanes in the MVP panel
+        env:
+          FACTORYOS_REQUIRE_NODE: "1"
+        run: |
+          python -m py_compile test_mvp_experiments_ui.py
+          python test_mvp_experiments_ui.py
       - name: Learning section (/learn) catalog, sandbox and login
         run: |
           python -m py_compile learn_center.py test_learn_center.py
