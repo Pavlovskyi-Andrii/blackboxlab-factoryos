@@ -5,6 +5,7 @@ publishing, payments, creator verification claims, or third-party API calls.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
@@ -42,6 +43,45 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _valid_stored_crm(data: Any) -> bool:
+    """Reject malformed nested records rather than returning an unhandled 500."""
+    if not (isinstance(data, dict) and type(data.get("version")) is int
+            and data["version"] == 1 and isinstance(data.get("models"), dict)
+            and isinstance(data.get("events"), list)):
+        return False
+    if len(data["models"]) > MAX_MODELS:
+        return False
+    for key, model in data["models"].items():
+        if not isinstance(key, str) or not isinstance(model, dict):
+            return False
+        fields = ("id", "alias", "niche", "channel", "stage", "notes",
+                  "created_at", "updated_at")
+        if any(not isinstance(model.get(field), str) for field in fields):
+            return False
+        if model["id"] != key or model["stage"] not in STAGES or model["channel"] not in CHANNELS:
+            return False
+        tasks = model.get("tasks")
+        if not isinstance(tasks, list) or len(tasks) > MAX_TASKS:
+            return False
+        task_ids = set()
+        for task in tasks:
+            if not isinstance(task, dict):
+                return False
+            if any(not isinstance(task.get(field), str)
+                   for field in ("id", "title", "created_at")):
+                return False
+            if type(task.get("done")) is not bool or task["id"] in task_ids:
+                return False
+            task_ids.add(task["id"])
+    for event in data["events"]:
+        if not isinstance(event, dict):
+            return False
+        if any(not isinstance(event.get(field), str)
+               for field in ("id", "model_id", "action", "detail", "at")):
+            return False
+    return True
+
+
 class FacelessCrm:
     """Single-process JSON store, atomically saved on a persistent DATA_DIR volume."""
 
@@ -56,23 +96,31 @@ class FacelessCrm:
             return {"version": 1, "models": {}, "events": []}
         except (OSError, ValueError) as exc:
             raise CrmError("crm_unreadable", 503) from exc
-        if not (isinstance(content, dict) and content.get("version") == 1
-                and isinstance(content.get("models"), dict)
-                and isinstance(content.get("events"), list)):
+        if not _valid_stored_crm(content):
             raise CrmError("crm_unreadable", 503)
         return content
 
     def _write(self, content: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        content["events"] = content["events"][-MAX_EVENTS:]
+        """Commit bytes before atomic replacement, then persist the directory entry."""
         name = ""
         try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            content["events"] = content["events"][-MAX_EVENTS:]
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent,
                                              prefix=".faceless-crm-", suffix=".tmp",
                                              delete=False) as file:
                 name = file.name
                 json.dump(content, file, ensure_ascii=False, indent=2)
+                file.flush()
+                os.fsync(file.fileno())
             os.replace(name, self.path)
+            directory_fd = os.open(self.path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError as exc:
+            raise CrmError("crm_write_failed", 503) from exc
         finally:
             if name and os.path.exists(name):
                 os.unlink(name)
@@ -91,6 +139,8 @@ class FacelessCrm:
                     "note": "Internal tracker only. No automated contact, publishing or real-content processing."}
 
     def create(self, body: dict) -> dict:
+        if set(body) - {"alias", "niche", "channel"}:
+            raise CrmError("bad_fields")
         alias = _text(body.get("alias", ""), 70)
         if len(alias) < 2:
             raise CrmError("alias_required")
@@ -270,25 +320,48 @@ No worker is started by registering this project.
 
 
 def register_crm_mvp_project_once(registry, marker_path: Path) -> bool:
-    """One-time non-destructive project intake. A deliberate later removal stays removed."""
+    """Serialize first-time intake across concurrent startup workers on the same volume."""
     marker = Path(marker_path)
-    if marker.exists():
-        return False
-    existing = registry.snapshot()["projects"]
-    created = False
-    # A manually created #359 project wins, regardless of its internal ID.
-    if not any(p.get("issue") == CRM_MVP_ISSUE for p in existing):
-        used = {str(p.get("id", "")) for p in existing}
-        project_id = CRM_MVP_ID
-        n = 2
-        while project_id in used:
-            project_id = CRM_MVP_ID + "-" + str(n)
-            n += 1
-        registry.add_project(project_id, "Faceless Models CRM · creator operations", CRM_MVP_ISSUE,
-                             actor_role="owner", brief=CRM_MVP_BRIEF)
-        created = True
     marker.parent.mkdir(parents=True, exist_ok=True)
-    tmp = marker.with_suffix(".tmp")
-    tmp.write_text("Faceless Models CRM project #359 was considered for initial intake.\n", encoding="utf-8")
-    os.replace(tmp, marker)
-    return created
+    # A separate, persistent lockfile avoids races on a shared temporary marker.
+    lock_path = marker.with_name(marker.name + ".lock")
+    with lock_path.open("a+", encoding="utf-8") as lockfile:
+        fcntl.flock(lockfile.fileno(), fcntl.LOCK_EX)
+        try:
+            if marker.exists():
+                return False
+            existing = registry.snapshot()["projects"]
+            created = False
+            if not any(p.get("issue") == CRM_MVP_ISSUE for p in existing):
+                used = {str(p.get("id", "")) for p in existing}
+                project_id = CRM_MVP_ID
+                n = 2
+                while project_id in used:
+                    project_id = CRM_MVP_ID + "-" + str(n)
+                    n += 1
+                registry.add_project(
+                    project_id, "Faceless Models CRM · creator operations", CRM_MVP_ISSUE,
+                    actor_role="owner", brief=CRM_MVP_BRIEF)
+                created = True
+            tmp = ""
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", dir=marker.parent,
+                    prefix=".crm-intake-", suffix=".tmp", delete=False
+                ) as file:
+                    tmp = file.name
+                    file.write("Faceless Models CRM #359 intake checked.\n")
+                    file.flush()
+                    os.fsync(file.fileno())
+                os.replace(tmp, marker)
+                directory_fd = os.open(marker.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            finally:
+                if tmp and os.path.exists(tmp):
+                    os.unlink(tmp)
+            return created
+        finally:
+            fcntl.flock(lockfile.fileno(), fcntl.LOCK_UN)
