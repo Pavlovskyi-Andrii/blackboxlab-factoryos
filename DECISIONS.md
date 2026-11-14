@@ -1179,3 +1179,16 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   so the shelf can show them now; when those PRs merge, git sees identical additions (no conflict).
 - Explainer: cards widened, packet docks beside cards with its label above/below, promo shot pans A → B, and more
   on-screen explanation (roles in debate, MVP Manager/spec, three build agents, "2 hypotheses → 2 tests").
+
+## 2026-11-14 — T-608 A/B Tester S1: experiments inside the MVP registry
+
+- Separate module `mvp_experiments.py` operating on `MvpRegistry` (its lock, `_load/_save`, `keys` idempotency table
+  and event log) rather than growing `mvp_factory.py`; `experiments` key appears only on first write, so existing
+  registries load byte-identical.
+- Deviation from the S0 review: branch draft copy is stored **inline** in the branch (size-capped: headline/subhead/
+  CTA, ≤5 bullets, ≤2 short + ≤2 medium posts) instead of an ArtifactStore file. One atomic write per draft keeps the
+  revision, the copy and the approval check consistent; the size is bounded (≤20 experiments per project).
+- Preview approval is `{"rev": n}`; `preview_approved` is derived (rev == current revision), so a new draft is never
+  approved by an old click. Decision fields are whitelisted (`choice`, `note`) — no winner/lift can be stored.
+- Members are denied MVP routes by the existing workspace tenancy middleware, same as all other MVP routes; the
+  module itself still distinguishes owner/member for when that changes.

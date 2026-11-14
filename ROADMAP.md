@@ -531,6 +531,30 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: one interactive root-only command on the existing EC2 reads the internal FactoryOS worker token without terminal echo, atomically edits root-owned config with restrictive permissions, refuses paid API override, and requests ONLY a Supervisor preflight, never a direct unguarded Claude start.
   DONE: `python -m autopilot.test_pair_worker` passes, CI green, host CLI verified and documented; no secret is printed/logged or stored in git.
 
+## A/B Tester for MVP Builder (owner 2026-11-14, issue #348, spec PR #347)
+
+- [x] T-608 A/B Tester S1 — experiment model and API inside the MVP registry
+  Owner: claude
+  Priority: P2 (owner said "бери A/B Tester, начни с S1" 2026-11-14)
+  Depends: T-186 registry (#186), #330 merged
+  Spec: docs/reviews/MVP_AB_TESTER_S0_REVIEW.md §2.8, §4 corrections 1–13, §6.1–6.2
+  Goal: `projects[pid].experiments[exp]` with exactly two branches a/b; SEGMENT_COMPARISON (never a winner) or CONTROLLED_AB (draft only); per-branch, per-revision owner preview approval; owner decision closes; no metrics/publish/spend/outreach writes; copy deny-list; project stage untouched.
+  DONE: `python test_mvp_experiments.py` and the MVP suites pass; default verification passes.
+
+- [ ] T-609 A/B Tester S2 — dashboard branch lanes (A on top, B below) in the MVP panel
+  Owner: claude
+  Priority: P2
+  Depends: T-608
+  Goal: `static/index.html` only: experiment section with mode badge, lane A above lane B, per-branch draft/preview state, compare card "segment comparison: no winner", EN/UK/RU, no horizontal overflow at 375 px.
+  DONE: dashboard JS `node --check`, locale parity, UI test, S1 tests.
+
+- [ ] T-610 A/B Tester S3 — one Content Factory draft job per branch
+  Owner: claude
+  Priority: P2
+  Depends: T-609
+  Goal: owner-only route creates one inbox job per branch via `create_job` (atomic claim); draft only, no publishing queue row, no provider call; publish approval stays `/api/jobs/{id}/approve` + `_publish_approval_gate`.
+  DONE: tests prove one job per branch under concurrent clicks, no publish row, no provider call.
+
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
 - [ ] T-607 Gemini Worker — third authenticated engineering operator via existing Relay
