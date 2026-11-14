@@ -356,5 +356,14 @@ class StrategyTest(unittest.TestCase):
         self.assertIn("aaaa1111-0000-4000-8000-000000000001", self.store.get("mycast")["linked_jobs"])
 
 
+    def test_total_cap_holds_and_the_tasks_cta_survives_huge_inputs(self):
+        self.store.update("mycast", lambda q: (q.update(name="N" * 5000), [q["steps"][n].update(text="Z" * 9000) for n in "1234567"]))
+        item = {"pillar": "P" * 5000, "funnel": "BOFU", "format": "F" * 5000, "platform": "X" * 5000, "cta": "Войди через Telegram"}
+        for agent in ("Scriptwriter", "Publisher", "QA Agent"):
+            text = bs.agent_context(self.store.get("mycast"), agent, item)
+            self.assertLessEqual(len(text), bs.AGENT_BRIEF_LIMIT)
+            self.assertIn("CTA: Войди через Telegram", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

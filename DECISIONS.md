@@ -1129,3 +1129,12 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - The job's own row (pillar, funnel stage, format, platform, CTA) is stated first. Approved steps go in as they are;
   drafts are included but labelled "черновик — ориентир" (pilot: nothing is approved yet). Capped at 6 000 chars.
 - Jobs not linked to a brand, and Content Brain (no job), are unchanged. A failure to read the brief never blocks a run.
+
+## 2026-11-14 — GitHub Actions spend ($5 in two days)
+- Owner raised the budget and asked to spend less. Measured (runs since 2026-11-12): FactoryOS CI 276 min over 76
+  runs (56 PR + 20 main), Factory Builder 22 dispatch runs (each billed ≥1 min) that all failed in ~20 s.
+- Builder: `resume_stale_started_tasks` re-dispatched every in-progress task whose preflight had already *finished or
+  failed* on each Render restart, i.e. every deploy. It now recovers only a dispatch GitHub never saw (no status, no run).
+- CI: the 4-minute Playwright screenshot job no longer runs on PR pushes — only on main (Render still deploys after it)
+  and manual runs; Claude runs Playwright locally before pushing. PR CI stays the fast syntax/smoke job.
+- Process: run the full test list locally before every push and batch review fixes into one push per round.

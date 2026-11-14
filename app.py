@@ -2983,7 +2983,10 @@ async def resume_stale_started_tasks():
                                           ORDER BY requested_at""").fetchall()]
     con.close()
     for task in rows:
-        if (task.get("workflow_status") or "") in live_states:
+        # Owner 2026-11-14 (Actions budget): recover only a dispatch that was lost before GitHub saw it. A preflight that
+        # already ran and failed or finished is left for a manual Start build; re-dispatching it on every Render restart
+        # (= every deploy) burned 22 runs in two days.
+        if (task.get("workflow_status") or "") or task.get("workflow_run_id"):
             continue
         try:
             await dispatch_builder_workflow(task)

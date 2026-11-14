@@ -374,17 +374,19 @@ def agent_context(p: dict, agent: str, item: Optional[dict] = None) -> str:
         parts.append(f"### {STEPS[n - 1]['title']['ru']}{mark}\n{st['text'].strip()}")
     if not parts:
         return ""
-    head = [f"## Master Brief бренда {p.get('name') or p['brand']} — обязательный контекст"]
+    head = [f"## Master Brief бренда {_clean(p.get('name') or p['brand'], 80)} — обязательный контекст"]
     # Codex review on #361: share the size budget across sections so tone and CTA are never cut away entirely.
     if item:
-        head.append(f"Эта задача: столп {item.get('pillar') or '—'}, этап воронки {item.get('funnel')}, формат "
-                    f"{item.get('format') or '—'}, площадка {item.get('platform') or '—'}, CTA: {item.get('cta') or '—'}.")
+        # The task's own CTA is stated here, so it survives even if the CTA map below is shortened (Codex on #361).
+        head.append(f"Эта задача: столп {_clean(item.get('pillar'), 80) or '—'}, этап воронки {_clean(item.get('funnel'), 8)}, "
+                    f"формат {_clean(item.get('format'), 40) or '—'}, площадка {_clean(item.get('platform'), 40) or '—'}, "
+                    f"CTA: {_clean(item.get('cta'), 300) or '—'}.")
     if AGENT_RULES.get(agent):
         head.append(AGENT_RULES[agent])
     head_text = "\n".join(head)
     share = max(300, (AGENT_BRIEF_LIMIT - len(head_text) - 2 * len(parts)) // len(parts))
     parts = [x if len(x) <= share else x[:share - 1].rstrip() + "…" for x in parts]
-    return head_text + "\n\n" + "\n\n".join(parts)
+    return (head_text + "\n\n" + "\n\n".join(parts))[:AGENT_BRIEF_LIMIT]          # hard total cap
 
 
 def brand_for_job(store: "StrategyStore", job_id: str) -> tuple:
