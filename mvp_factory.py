@@ -53,6 +53,81 @@ EVIDENCE_RE = re.compile(r"^(https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 EVIDENCE_CHECK = "link_shape_only"  # the shape of the link is checked; its relevance to the claimed stage is not
 
+# #313: owner-requested concept must be visible in MVP Builder, including existing
+# persistent registries. This is an UNAPPROVED brief, not a build/publish approval.
+FACELESS_CREATOR_ID = "faceless-creator"
+FACELESS_CREATOR_ISSUE = 313
+FACELESS_CREATOR_TITLE = "Faceless Creator SaaS · AI face-avatar editor"
+FACELESS_CREATOR_BRIEF = """ТЕХНІЧНЕ ЗАВДАННЯ — ЧЕРНЕТКА ДЛЯ ОБГОВОРЕННЯ (не погоджене на розробку)
+
+Мета: окремий privacy-first SaaS для повнолітніх верифікованих авторів. Автор надає лише власне відео за явною згодою; у майбутньому інструмент замінює обличчя на синтетичного AI-персонажа, дає перегляд результату, контроль видалення та помітну AI-маркіровку. Не обіцяти повну анонімність: голос, тіло, татуювання, фон і метадані можуть розкривати особу.
+
+Етап 0 — перевірка попиту, без завантаження інтимного контенту:
+1. Неекспліцитний лендинг з чітким описом концепції, обмежень приватності та AI disclosure.
+2. Два короткі неекспліцитні демо по 10–30 секунд лише із синтетичних або власних матеріалів за згодою: «до/після» та «завантаження → обробка → перегляд → видалення» як макет; не видавати макет за працюючий редактор.
+3. Два варіанти CTA (приватний AI-редактор / список раннього доступу), збір email лише за згодою та з повідомленням про приватність.
+4. 10 змістовних інтерв'ю з повнолітніми потенційними авторами; відокремити відвідування, заявки, реальне використання та підтверджену готовність платити.
+5. За підтвердженого інтересу — окреме ТЗ на захищений редактор: шифрування, доступи, короткий TTL, видалення на вимогу й тест фактичного видалення. Жодних реальних чутливих завантажень до перевірки безпеки й права.
+
+Платформи та обмеження:
+- OnlyFans: 12.11.2026 підтримка письмово заборонила істотно змінювати зовнішність автора; повний face-swap не планувати як сумісний із OnlyFans.
+- Fanvue, Fansly, LoyalFans: звернення щодо правил надіслані 13.11.2026; відповіді не рівнозначні дозволу, статус очікування.
+- Власна платформа продажу adult-контенту — окрема бізнес-гіпотеза, НЕ частина цього MVP. Немає схвалення на adult-хостинг, платежі, автопублікацію чи кроспостинг.
+- Жодних облич третіх осіб без документованої згоди, жодних платних GPU/API, нових ресурсів чи публікації без дозволу.
+
+Стек, повна специфікація та початок розробки ще НЕ затверджені; спочатку узгодити з власником і Claude. Джерела: GitHub issue #313 і Notion «Faceless Creator SaaS — дослідження 12–13.11.2026». Наступний відкритий вибір: короткий концепт для обговорення чи окрема повна специфікація.
+"""
+
+
+def _backfill_faceless_creator_brief(data: dict[str, Any]) -> bool:
+    """Add only a missing draft brief to the owner's existing #313 concept."""
+    for project in data["projects"].values():
+        if project.get("issue") == FACELESS_CREATOR_ISSUE:
+            # A missing field is a legacy migration gap; an explicit empty value
+            # is an owner's choice and must survive subsequent registry reads.
+            if "brief" not in project:
+                project["brief"] = FACELESS_CREATOR_BRIEF
+                return True
+            return False
+    return False
+
+
+def _add_faceless_creator(data: dict[str, Any], now: str) -> bool:
+    """Register #313 under a free ID; never overwrite a keyed project or an owner's brief."""
+    if _backfill_faceless_creator_brief(data):
+        return True
+    if any(p.get("issue") == FACELESS_CREATOR_ISSUE for p in data["projects"].values()):
+        return False
+    used_ids = set(data["projects"])
+    used_ids.update(str(p.get("id")) for p in data["projects"].values())
+    project_id = FACELESS_CREATOR_ID
+    if project_id in used_ids:
+        # Preserve existing records; stable fallback works across repeated loads.
+        # The registry may contain arbitrarily many unrelated owner projects.
+        # Search until a free ID is found; never make the entire registry unreadable.
+        project_id = f"{FACELESS_CREATOR_ID}-313"
+        suffix = 2
+        while project_id in used_ids:
+            project_id = f"{FACELESS_CREATOR_ID}-313-{suffix}"
+            suffix += 1
+    data["projects"][project_id] = {
+        "id": project_id, "title": FACELESS_CREATOR_TITLE,
+        "issue": FACELESS_CREATOR_ISSUE, "brief": FACELESS_CREATOR_BRIEF,
+        "stage": "idea", "blocked": None, "prototype": "", "cost_usd": 0,
+        "approval": {"deploy": False, "outreach": False, "publish": False},
+        "created_at": now, "updated_at": now,
+    }
+    data["events"].append({
+        "id": "intake-faceless-creator-313", "project": project_id,
+        "at": now, "actor": "owner-request", "kind": "note",
+        "from_stage": "idea", "to_stage": "idea",
+        "evidence": [f"{REPO}/issues/{FACELESS_CREATOR_ISSUE}"],
+        "evidence_check": EVIDENCE_CHECK,
+        "note": "Concept and unapproved draft brief registered for owner review; no worker started.",
+    })
+    return True
+
+
 
 class MvpError(ValueError):
     """A refused event; `code` is a stable key the UI can translate."""
@@ -96,7 +171,10 @@ def _seed(now: str) -> dict[str, Any]:
     projects = {pid: {"id": pid, "title": title, "issue": issue, "stage": stage, "blocked": None, "prototype": proto,
                       "cost_usd": 0, "approval": {"deploy": False, "outreach": False, "publish": False},
                       "created_at": now, "updated_at": now} for pid, title, issue, stage, proto in pilots}
-    return {"version": 1, "projects": projects, "events": events, "keys": {}}
+    data = {"version": 2, "projects": projects, "events": events, "keys": {}}
+    _add_faceless_creator(data, now)
+    data["faceless_creator_intake_complete"] = True
+    return data
 
 
 class MvpRegistry:
@@ -112,6 +190,23 @@ class MvpRegistry:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(data, dict) and isinstance(data.get("projects"), dict) and isinstance(data.get("events"), list):
                 data.setdefault("keys", {})
+                # One-time, non-destructive v1 -> v2 intake for already-persisted registries.
+                # A prior manually created #313 project is left untouched.
+                if data.get("version", 1) == 1:
+                    _add_faceless_creator(data, _iso(self.clock()))
+                    data["version"] = 2
+                    data["faceless_creator_intake_complete"] = True
+                    self._save(data)
+                elif data.get("version") == 2 and not data.get("faceless_creator_intake_complete"):
+                    # Upgrade older v2 registries exactly once. Once the marker is set,
+                    # intentionally removed projects stay removed on subsequent reads.
+                    _add_faceless_creator(data, _iso(self.clock()))
+                    data["faceless_creator_intake_complete"] = True
+                    self._save(data)
+                elif data.get("version") == 2 and _backfill_faceless_creator_brief(data):
+                    # Preserve existing #313 text, but repair a missing draft.
+                    # Do not recreate a project deliberately removed by the owner.
+                    self._save(data)
                 return data
         except FileNotFoundError:
             data = _seed(_iso(self.clock()))
