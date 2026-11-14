@@ -1094,3 +1094,15 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Google blocks sign-in inside Playwright's browser, so the vault also accepts a Cookie-Editor JSON export from the
   owner's everyday Chrome and converts it to a storage_state. Optional `wait_for` selector for single-page apps.
 - Without a stored session the task is blocked as `session_unavailable`; it never falls back to anonymous.
+
+## 2026-11-14 — Brand strategy passport → Master Brief (stage 1, pilot MyCast)
+- Owner: "запускай этап 1, паспорт для MyCast". Source: Vladimir Bez's 7-prompt content-plan carousel, adapted for
+  FactoryOS with Grok (machine-readable, structured outputs); FactoryOS prompts are in Russian like the source.
+- A per-brand passport with 7 steps (goal & KPI, unpacking, audience, ToV, pillars, funnel, offer & CTA). Each step's
+  prompt carries the brand inputs plus earlier steps (drafts are labelled as not approved). Step 2 is answered as a
+  7-question form instead of a live one-question-at-a-time chat (simpler; same output).
+- "Generate draft" = one owner-clicked LLM call ("Angle Strategist" = the factory's strategist), inside the daily budget
+  guard and recorded as an agent run; never automatic. Every step also exposes its prompt for copy-paste (cheat sheet).
+- Only approved steps enter `brief.md` (Master Brief); missing steps are listed. MyCast starts from Claude's draft of
+  all 7 steps (marked "draft by Claude", hypotheses labelled), so the owner edits and approves rather than starts blank.
+- Stage 2 (content matrix + monthly plan → jobs) and stage 3 (agents read the Master Brief) come next.
