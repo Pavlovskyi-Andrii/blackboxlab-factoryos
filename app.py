@@ -1129,6 +1129,8 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
+from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
+install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity)  # T-608 A/B Tester S1: drafts only, owner-gated
 install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
 from learn_center import install_learn_routes  # noqa: E402
 import brand_strategy as _brand_strategy_mod  # noqa: E402
