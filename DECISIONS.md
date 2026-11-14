@@ -1146,3 +1146,13 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Defaults are now 60 turns (cap 150) and 30 min (cap 60) — `RELAY_CLAUDE_MAX_TURNS` / `RELAY_CLAUDE_TIMEOUT_SECONDS`
   still override; the whole result is kept for parsing; a max-turns stop is reported in plain words with what to do.
 - Runs on the owner's Claude subscription on EC2, not paid API; the reported total_cost_usd is the CLI's estimate.
+
+## 2026-11-14 — #305 referral credit waits for the friend's first real episode
+
+- The invited friend still gets +7 days at sign-up (they need the trial to reach a first episode).
+- The inviter's +7 is credited only when `ListenerDelivery.finish(ok=True)` records the friend's first *sent*
+  episode (`ListenerStore.credit_referral`, under the store lock, once per friend via `referral_credited`).
+  Failed sends never credit. This closes the "farm free days with throwaway accounts" finding (D-7).
+- `invited` counts pending + credited friends and is what `MAX_REFERRALS` (50) caps; legacy records fall back
+  to `referrals`. Already-credited legacy referrals are kept as they are (no retroactive removal).
+- The cabinet shows credited and pending friends (`referrals_pending`).
