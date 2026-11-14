@@ -1,6 +1,10 @@
 """Faceless Models CRM (#359): offline state, validation, owner-only access."""
 import asyncio
 import json
+import os
+import stat
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 import tempfile
 import unittest
 from pathlib import Path
@@ -58,6 +62,68 @@ class FacelessCrmTests(unittest.TestCase):
         self.assertEqual(exc.exception.status, 503)
         self.assertEqual(self.path.read_text(encoding="utf-8"), "not json")
 
+    def test_invalid_nested_records_are_rejected_without_mutation(self):
+        item = self.store.create({"alias": "Synthetic Demo"})
+        good = json.loads(self.path.read_text(encoding="utf-8"))
+        malformed = []
+        bad = json.loads(json.dumps(good))
+        bad["models"][item["id"]] = {}
+        malformed.append(bad)
+        bad = json.loads(json.dumps(good))
+        bad["models"][item["id"]]["tasks"] = [{"id": "t1", "done": "yes"}]
+        malformed.append(bad)
+        bad = json.loads(json.dumps(good))
+        bad["models"][item["id"]]["tasks"] = {}
+        malformed.append(bad)
+        bad = json.loads(json.dumps(good))
+        bad["events"] = [{"action": "created"}]
+        malformed.append(bad)
+        for invalid in malformed:
+            text = json.dumps(invalid, ensure_ascii=False)
+            self.path.write_text(text, encoding="utf-8")
+            for check in (self.store.snapshot,
+                          lambda: self.store.set_task(item["id"], "x", True)):
+                with self.assertRaises(CrmError) as exc:
+                    check()
+                self.assertEqual(exc.exception.code, "crm_unreadable")
+                self.assertEqual(exc.exception.status, 503)
+            self.assertEqual(text, self.path.read_text(encoding="utf-8"))
+
+    def test_save_sync_order_and_failed_write_does_not_replace_data(self):
+        actual_fsync = os.fsync
+        actual_replace = os.replace
+        calls = []
+
+        def observe_sync(fd):
+            calls.append("sync_dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "sync_file")
+            actual_fsync(fd)
+
+        def observe_replace(src, dst):
+            calls.append("replace")
+            actual_replace(src, dst)
+
+        with patch("faceless_crm.os.fsync", side_effect=observe_sync), \\
+             patch("faceless_crm.os.replace", side_effect=observe_replace):
+            model = self.store.create({"alias": "Stable Test"})
+        self.assertEqual(calls, ["sync_file", "replace", "sync_dir"])
+        saved = self.path.read_bytes()
+        with patch("faceless_crm.os.replace", side_effect=OSError("simulated rename failure")):
+            with self.assertRaises(CrmError) as exc:
+                self.store.update(model["id"], {"stage": "research"})
+        self.assertEqual(exc.exception.code, "crm_write_failed")
+        self.assertEqual(self.path.read_bytes(), saved)
+        with patch("faceless_crm.os.fsync", side_effect=OSError("simulated sync failure")):
+            with self.assertRaises(CrmError) as exc:
+                self.store.update(model["id"], {"stage": "research"})
+        self.assertEqual(exc.exception.code, "crm_write_failed")
+        self.assertEqual(self.path.read_bytes(), saved)
+
+    def test_create_rejects_silently_dropped_fields(self):
+        with self.assertRaises(CrmError) as exc:
+            self.store.create({"alias": "Demo", "notes": "not accepted during creation"})
+        self.assertEqual(exc.exception.code, "bad_fields")
+        self.assertEqual(self.store.snapshot()["models"], [])
+
     def test_owner_auth_gate_on_all_endpoints(self):
         app = FastAPI()
         role = {"current": None}
@@ -108,6 +174,19 @@ class FacelessCrmTests(unittest.TestCase):
         self.assertNotEqual(crm[0]["id"], "faceless-models-crm")
         self.assertEqual(crm[0]["stage"], "idea")
         self.assertFalse(crm[0]["approval"]["publish"])
+
+    def test_concurrent_intake_creates_one_project_and_one_marker(self):
+        from mvp_factory import MvpRegistry
+        from faceless_crm import register_crm_mvp_project_once
+        registry = MvpRegistry(Path(self.tmp.name) / "parallel.json")
+        marker = Path(self.tmp.name) / "parallel.marker"
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: register_crm_mvp_project_once(registry, marker),
+                                    range(8)))
+        self.assertEqual(sum(results), 1)
+        self.assertTrue(marker.exists())
+        self.assertEqual(len([p for p in registry.snapshot()["projects"]
+                              if p.get("issue") == 359]), 1)
 
 if __name__ == "__main__":
     unittest.main()
