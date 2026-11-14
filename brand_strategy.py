@@ -93,6 +93,19 @@ STEPS = (
 )
 STATES = ("empty", "draft", "approved")
 
+# --- Stage 2 (owner 2026-11-14, "делай этап 2"): monthly plan + content matrix (pillar × funnel) → factory jobs.
+FUNNEL = ("TOFU", "MOFU", "BOFU")
+MAX_PLAN_ITEMS = 60
+PLAN_FIELDS = ("title", "pillar", "funnel", "format", "platform", "hook", "cta")
+PLAN_PROMPT = """Составь контент-план на {days} дней: ровно {count} публикаций (≈{per_week} в неделю).
+Строго соблюдай столпы и их проценты (шаг 5), соотношение воронки TOFU/MOFU/BOFU (шаг 6), Tone of Voice (шаг 4) и карту CTA (шаг 7).
+Площадки: {platforms}.
+
+Ответь ТОЛЬКО JSON-массивом без пояснений, каждый элемент:
+{{"day": 1-{days}, "title": "тема публикации", "pillar": "название столпа из шага 5", "funnel": "TOFU|MOFU|BOFU",
+ "format": "Reels|Shorts|карусель|пост|длинное видео|Stories|подкаст", "platform": "одна площадка",
+ "hook": "первая фраза/кадр", "cta": "точный CTA из карты CTA"}}"""
+
 
 def _now() -> int:
     return int(time.time())
@@ -141,17 +154,19 @@ class StrategyStore:
                 "version": 0, "approved_at": 0}
 
     def _passport(self, data: dict, brand: str) -> dict:
+        seed = self.seeds.get(brand)
         if brand not in data:
-            seed = self.seeds.get(brand)
             data[brand] = json.loads(json.dumps(seed)) if seed else self.blank(brand)
+        elif seed and "plan" not in data[brand] and seed.get("plan"):
+            data[brand]["plan"] = json.loads(json.dumps(seed["plan"]))   # stage 2 seed for passports saved before it
         return data[brand]
 
     def get(self, brand: str) -> dict:
         with self.lock():
             data = self._load()
-            fresh = brand not in data
+            fresh = brand not in data or ("plan" not in data[brand] and bool((self.seeds.get(brand) or {}).get("plan")))
             p = self._passport(data, brand)
-            if fresh:
+            if _ensure_ids(p) or fresh:
                 self._save(data)
             return p
 
@@ -167,6 +182,7 @@ class StrategyStore:
         with self.lock():
             data = self._load()
             p = self._passport(data, brand)
+            _ensure_ids(p)
             if fn(p) is False:                    # the change was refused (e.g. stale draft): write nothing
                 return p
             self._save(data)
@@ -198,6 +214,95 @@ def prompt_for(p: dict, n: int) -> tuple:
     return ROLE, f"{context_for(p, n)}\n\n## Задание (шаг {n} из 7)\n{step['prompt']}"
 
 
+def plan_prompt(p: dict, settings: dict) -> tuple:
+    count = settings["per_week"] * settings["weeks"]
+    task = PLAN_PROMPT.format(days=settings["weeks"] * 7, count=count, per_week=settings["per_week"],
+                              platforms=settings["platforms"] or (p.get("inputs") or {}).get("platforms") or "—")
+    return ROLE, f"{master_brief(p, approved_only=False)}\n\n## Задание: контент-план\n{task}"
+
+
+def _clean(v, n=300) -> str:
+    return " ".join(str(v or "").split())[:n]
+
+
+def parse_plan(text: str, settings: dict) -> list:
+    """The LLM's JSON array → validated rows (unknown funnel → TOFU, day clamped, at most MAX_PLAN_ITEMS)."""
+    raw = str(text or "")
+    a, b = raw.find("["), raw.rfind("]")
+    try:
+        rows = json.loads(raw[a:b + 1]) if a >= 0 and b > a else []
+    except ValueError:
+        rows = []
+    days, out = settings["weeks"] * 7, []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict) or not _clean(r.get("title")):
+            continue
+        try:
+            day = min(days, max(1, int(r.get("day") or 1)))
+        except (TypeError, ValueError):
+            day = 1
+        item = {k: _clean(r.get(k), 300 if k in ("title", "hook", "cta") else 80) for k in PLAN_FIELDS}
+        item["funnel"] = item["funnel"].upper() if item["funnel"].upper() in FUNNEL else "TOFU"
+        item["day"] = day
+        item["id"] = "pi_" + secrets.token_hex(5)
+        out.append(item)
+        if len(out) >= MAX_PLAN_ITEMS:
+            break
+    return sorted(out, key=lambda x: x["day"])
+
+
+def _ensure_ids(p: dict) -> bool:
+    """Every plan row gets a durable id (Codex review on #358: never address rows by array index)."""
+    changed = False
+    for it in (p.get("plan") or {}).get("items") or []:
+        if not it.get("id"):
+            it["id"] = "pi_" + secrets.token_hex(5)
+            changed = True
+    return changed
+
+
+def plan_view(plan: dict) -> dict:
+    """Dates from the start day plus the content matrix: counts per pillar × funnel stage."""
+    import datetime as _dt
+    items = plan.get("items") or []
+    try:
+        start = _dt.date.fromisoformat((plan.get("settings") or {}).get("start") or "")
+    except ValueError:
+        start = None
+    rows = [{**it, "date": (start + _dt.timedelta(days=it["day"] - 1)).isoformat() if start else ""} for it in items]
+    pillars = sorted({it.get("pillar") or "—" for it in items})
+    matrix = {pl: {f: sum(1 for it in items if (it.get("pillar") or "—") == pl and it["funnel"] == f) for f in FUNNEL}
+              for pl in pillars}
+    total = max(1, len(items))
+    funnel_share = {f: round(100 * sum(1 for it in items if it["funnel"] == f) / total) for f in FUNNEL}
+    return {**plan, "items": rows, "matrix": matrix, "funnel_share": funnel_share}
+
+
+def plan_settings(body: dict) -> dict:
+    import datetime as _dt
+    start = str(body.get("start") or "")
+    try:
+        _dt.date.fromisoformat(start)
+    except ValueError:
+        start = (_dt.date.today() + _dt.timedelta(days=(7 - _dt.date.today().weekday()) % 7 or 7)).isoformat()  # next Monday
+    try:
+        per_week = min(14, max(1, int(body.get("per_week") or 5)))
+        weeks = min(6, max(1, int(body.get("weeks") or 4)))
+    except (TypeError, ValueError):
+        per_week, weeks = 5, 4
+    weeks = min(weeks, max(1, MAX_PLAN_ITEMS // per_week))      # never ask for more rows than are kept (≤ 60)
+    return {"start": start, "per_week": per_week, "weeks": weeks, "platforms": _clean(body.get("platforms"), 200)}
+
+
+def job_brief(p: dict, it: dict) -> str:
+    tone = (p["steps"]["4"]["text"] or "").strip()
+    return "\n".join([
+        f"Бренд: {p.get('name') or p['brand']}",
+        f"Столп: {it.get('pillar')} · этап воронки: {it['funnel']} · формат: {it.get('format')} · площадка: {it.get('platform')}",
+        f"Хук: {it.get('hook')}", f"CTA: {it.get('cta')}",
+        "", "Tone of Voice (из паспорта бренда):", tone[:1500] or "—"])
+
+
 def master_brief(p: dict, *, approved_only: bool = True) -> str:
     lines = [f"# Master Brief — {p.get('name') or p['brand']}",
              f"_FactoryOS · версия {p.get('version', 0)} · {time.strftime('%Y-%m-%d', time.gmtime(p.get('approved_at') or _now()))}_", ""]
@@ -216,7 +321,8 @@ def master_brief(p: dict, *, approved_only: bool = True) -> str:
 
 
 def install_strategy_routes(app, store: StrategyStore, *, identity: Callable,
-                            draft: Callable[[str, str, str], Awaitable[dict]]) -> None:
+                            draft: Callable[[str, str, str], Awaitable[dict]],
+                            create_job: Optional[Callable[[str, str, str], Awaitable[str]]] = None) -> None:
     """draft(agent, system, user) → {"content": ..., "cost_usd": ...}; raises RuntimeError with a readable reason."""
 
     def owner(request: Request):
@@ -248,7 +354,7 @@ def install_strategy_routes(app, store: StrategyStore, *, identity: Callable,
         return JSONResponse({"detail": str(exc)}, status_code=503)
 
     def view(p: dict) -> dict:
-        return {**p, "questions": list(UNPACK_QUESTIONS),
+        return {**p, "plan": plan_view(p.get("plan") or {}), "questions": list(UNPACK_QUESTIONS),
                 "step_meta": [{"n": s["n"], "key": s["key"], "title": s["title"], "prompt": prompt_for(p, s["n"])[1]} for s in STEPS],
                 "role": ROLE}
 
@@ -319,6 +425,95 @@ def install_strategy_routes(app, store: StrategyStore, *, identity: Callable,
         if stale:
             raise HTTPException(409, "the step changed while the draft was being written; nothing was overwritten")
         return {"passport": view(q), "cost_usd": out.get("cost_usd", 0)}
+
+    @app.post("/api/factory/strategy/{brand}/plan/generate")
+    async def strategy_plan_generate(brand: str, request: Request):
+        """One owner-clicked LLM call: a dated monthly plan built on the Master Brief (drafts labelled)."""
+        owner(request)
+        settings = plan_settings(await body(request))
+        p = store.get(brand_ok(brand))
+        base_rev = int((p.get("plan") or {}).get("rev", 0))
+        system, user = plan_prompt(p, settings)
+        try:
+            out = await draft("Angle Strategist", system, user)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)[:300])
+        items = parse_plan(out.get("content"), settings)
+        if not items:
+            raise HTTPException(502, "the model did not return a usable plan; nothing was changed")
+
+        stale = {}
+
+        def apply(q):
+            cur = q.get("plan") or {}
+            if int(cur.get("rev", 0)) != base_rev or any(it.get("job_claim") for it in cur.get("items") or []):
+                stale["yes"] = True                # rows changed or a job is being created meanwhile: keep them
+                return False
+            q["plan"] = {"settings": settings, "items": items, "updated": _now(), "by": "llm", "rev": base_rev + 1}
+        q = store.update(brand, apply)
+        if stale:
+            raise HTTPException(409, "the plan changed while the new one was being written; nothing was replaced")
+        return {"passport": view(q), "cost_usd": out.get("cost_usd", 0)}
+
+    ITEM_RE = re.compile(r"^pi_[0-9a-f]{10}$")
+
+    def find(q: dict, item_id: str) -> Optional[dict]:
+        return next((it for it in (q.get("plan") or {}).get("items") or [] if it.get("id") == item_id), None)
+
+    @app.post("/api/factory/strategy/{brand}/plan/items/{item_id}/delete")
+    def strategy_plan_delete(brand: str, item_id: str, request: Request):
+        owner(request)
+
+        def apply(q):
+            it = find(q, item_id) if ITEM_RE.fullmatch(item_id or "") else None
+            if not it:
+                raise HTTPException(404, "unknown plan item")
+            if it.get("job_claim"):
+                raise HTTPException(409, "a job is being created for this row")
+            q["plan"]["items"].remove(it)
+            q["plan"]["rev"] = int(q["plan"].get("rev", 0)) + 1
+        return {"passport": view(store.update(brand_ok(brand), apply))}
+
+    @app.post("/api/factory/strategy/{brand}/plan/items/{item_id}/job")
+    async def strategy_plan_job(brand: str, item_id: str, request: Request):
+        """A plan row becomes a factory job (inbox) whose brief carries pillar, funnel stage, hook, CTA and tone.
+        Codex review on #358: the row is claimed atomically under the store lock before the job exists, so two clicks
+        make one job, and the job is attached to the row by its durable id, never by position."""
+        owner(request)
+        if create_job is None:
+            raise HTTPException(503, "job creation is not available")
+        if not ITEM_RE.fullmatch(item_id or ""):
+            raise HTTPException(404, "unknown plan item")
+        token, claimed = secrets.token_hex(6), {}
+
+        def claim(q):
+            it = find(q, item_id)
+            if not it:
+                raise HTTPException(404, "unknown plan item")
+            if it.get("job_id"):
+                claimed["existing"] = it["job_id"]
+                return False
+            c = it.get("job_claim") or {}
+            if c and _now() - int(c.get("at", 0)) < 120:
+                raise HTTPException(409, "a job for this row is already being created")
+            it["job_claim"] = {"token": token, "at": _now()}
+            claimed["row"], claimed["brief"] = dict(it), job_brief(q, it)
+        p = store.update(brand_ok(brand), claim)
+        if "existing" in claimed:
+            return {"passport": view(p), "job_id": claimed["existing"], "existing": True}
+        row = claimed["row"]
+        try:
+            job_id = await create_job(row["title"], claimed["brief"], row.get("format") or "")
+        except Exception:
+            store.update(brand, lambda q: (find(q, item_id) or {}).pop("job_claim", None))
+            raise
+
+        def attach(q):
+            it = find(q, item_id)
+            if it and (it.get("job_claim") or {}).get("token") == token:
+                it.pop("job_claim", None)
+                it["job_id"] = job_id
+        return {"passport": view(store.update(brand, attach)), "job_id": job_id, "existing": False}
 
     @app.get("/api/factory/strategy/{brand}/brief.md")
     def strategy_brief(brand: str, request: Request, drafts: int = 0):
