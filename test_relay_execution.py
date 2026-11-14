@@ -23,6 +23,8 @@ from test_worker_observability import TestTelegramMatchesWeb as TestWorkerTelegr
 from test_worker_observability import TestWebRenderer as TestWorkerWebRenderer  # noqa: F401
 from test_t599_acceptance import (TestA_NormalTask, TestB_Conflict, TestC_Restart, TestD_Blocked,  # noqa: F401  (T-599)
                                   TestE_Freshness, TestF_NoFabricatedActivity, TestRealRoadmap)
+from test_paperclip_bridge import (TestIdempotency, TestPaperclipFailure, TestRejections,  # noqa: F401  (#368, no workflow edit)
+                                   TestSecureDefaults, TestValidMapping)
 
 
 

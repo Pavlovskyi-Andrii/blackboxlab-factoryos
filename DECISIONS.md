@@ -1179,3 +1179,17 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   so the shelf can show them now; when those PRs merge, git sees identical additions (no conflict).
 - Explainer: cards widened, packet docks beside cards with its label above/below, promo shot pans A → B, and more
   on-screen explanation (roles in debate, MVP Manager/spec, three build agents, "2 hypotheses → 2 tests").
+
+## 2026-11-14 — Paperclip × FactoryOS audit + offline bridge POC (#368, R-0078)
+
+- Memo: `docs/research/PAPERCLIP_FACTORYOS_AUDIT.md`. Recommendation: patterns only now; bridge stays disabled;
+  no install on the production EC2 (measured ~286 MiB RAM available, swap already in use).
+- Upstream Paperclip docs/releases could not be read from this worker (WebFetch/`gh api` denied), so no version is
+  pinned and upstream facts are marked "prior knowledge, re-verify". Nothing was claimed as verified.
+- The bridge lives in `integrations/paperclip/` and is not mounted in `app.py`. Relay remains the only claimer: the
+  bridge reads tickets via `RelayStore.get` and writes only its own mapping file.
+- The webhook signature (`X-Paperclip-Signature: sha256=HMAC(secret, "<ts>.<body>")` + `X-Paperclip-Timestamp`) is
+  our own contract. If the Paperclip HTTP adapter cannot sign, S1 needs a local signing shim or the adapter is
+  rejected.
+- The outbound URL must be the literal `http://127.0.0.1:<port>` (no `localhost`) to rule out DNS rebinding.
+- The tests are imported from `test_relay_execution.py` so CI runs them without a workflow edit.
