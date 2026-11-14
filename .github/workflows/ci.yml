@@ -410,6 +410,10 @@ jobs:
           python test_operator_lanes.py
       - name: Motion explainer (#353) offline + RU/UK/EN completeness
         run: python test_explainer_motion.py
+      - name: Learning section (/learn) catalog, sandbox and login
+        run: |
+          python -m py_compile learn_center.py test_learn_center.py
+          python test_learn_center.py
   ui-screenshots:
     # Evidence for UI tasks (T-594..T-597): EN/UK/RU × desktop/tablet/mobile screenshots of a local,
     # password-less, key-less FactoryOS (zero spend). Findings are reported in the job summary, not enforced.
