@@ -107,6 +107,31 @@ class GateTest(unittest.TestCase):
         p.update(frequency="days", days=["sat"])
         self.assertTrue(mld.scheduled_on(p, datetime(2026, 11, 14, 9, tzinfo=KYIV)))
 
+    def test_referral_credited_only_after_friends_first_real_episode(self):
+        """#305 E2E: invite link -> friend signs up -> nothing for the inviter -> failed send still nothing ->
+        first sent episode credits +7 once -> later episodes never credit again."""
+        inviter = ready_listener(self.store, chat="900")
+        friend = self.store.login({"provider": "telegram", "pid": "901", "name": "F", "chat_id": "901"}, ref=inviter)["slug"]
+        self.store.save_code(friend, CODE, approved=True)
+        self.store.set_delivery(friend, True, True)
+        view = lambda: public_view(self.store.get(inviter))
+        self.assertEqual((view()["free_days"], view()["referrals_pending"]), (7, 1))
+        self.assertEqual(public_view(self.store.get(friend))["free_days"], 14)     # the friend's gift is immediate
+        self.d.claim(friend, "2026-11-13")
+        self.d.finish(friend, "2026-11-13", False, "TelegramError")
+        self.assertEqual(view()["referrals"], 0)                                   # a failed send is not an episode
+        self.d.claim(friend, "2026-11-13")
+        self.d.finish(friend, "2026-11-13", True, seconds=290)
+        self.assertEqual((view()["free_days"], view()["referrals"], view()["referrals_pending"]), (14, 1, 0))
+        self.assertIn("friend_first_episode", [e["action"] for e in view()["audit"]])
+        self.clock.t = at("2026-11-14", "07:31")
+        self.d.claim(friend, "2026-11-14")
+        self.d.finish(friend, "2026-11-14", True, seconds=290)
+        self.assertEqual(view()["referrals"], 1)                                   # credited once, never again
+        self.d.claim(inviter, "2026-11-14")
+        self.d.finish(inviter, "2026-11-14", True)                                 # no inviter of its own: no-op
+        self.assertEqual(view()["referrals"], 1)
+
     def test_claim_once_failures_cap_and_stop(self):
         s = ready_listener(self.store)
         c = self.d.claim(s, "2026-11-13")

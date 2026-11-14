@@ -120,9 +120,11 @@ class ListenerStore:
                 rec = {"slug": slug, "provider": who["provider"], "key": key, "created": now, "code": ""}
                 data["index"][key] = slug
                 inviter = data["listeners"].get(ref) if isinstance(ref, str) and SLUG_RE.fullmatch(ref or "") else None
-                if inviter and int(inviter.get("referrals", 0)) < MAX_REFERRALS:
-                    rec["referred_by"] = ref                                     # the friend gets +7 days...
-                    inviter["referrals"] = int(inviter.get("referrals", 0)) + 1  # ...and so does the inviter
+                if inviter and int(inviter.get("invited", inviter.get("referrals", 0))) < MAX_REFERRALS:
+                    rec["referred_by"] = ref                                     # the friend gets +7 days now...
+                    # #305: ...the inviter only after the friend's first real episode (credit_referral), so
+                    # throwaway sign-ups cannot farm free days. "invited" caps pending + credited friends.
+                    inviter["invited"] = int(inviter.get("invited", inviter.get("referrals", 0))) + 1
                     self._audit(inviter, now, "friend_joined")
             rec.update({"name": who["name"], "seen": now})
             if who.get("chat_id"):
@@ -149,6 +151,20 @@ class ListenerStore:
             rec["seen"] = now
             self._save(data)
             return dict(rec)
+
+    @classmethod
+    def credit_referral(cls, data: dict, rec: dict, now: int) -> bool:
+        """#305: called under the store lock when an episode really reached the listener. Credits the inviter once."""
+        ref = rec.get("referred_by")
+        if not ref or rec.get("referral_credited"):
+            return False
+        rec["referral_credited"] = now
+        inviter = data["listeners"].get(ref)
+        if not inviter or int(inviter.get("referrals", 0)) >= MAX_REFERRALS:
+            return False
+        inviter["referrals"] = int(inviter.get("referrals", 0)) + 1
+        cls._audit(inviter, now, "friend_first_episode")
+        return True
 
     def get(self, slug: str) -> Optional[dict]:
         with self._lock:
@@ -267,6 +283,7 @@ def public_view(rec: dict) -> dict:
             "delivery": {"active": bool(d.get("active")), "since": d.get("since"), "paused_reason": d.get("paused_reason", "")},
             "status": _delivery_status(rec),
             "audit": (rec.get("audit") or [])[-10:], "referrals": int(rec.get("referrals", 0)),
+            "referrals_pending": max(0, int(rec.get("invited", 0)) - int(rec.get("referrals", 0))),
             "gifted": bool(rec.get("referred_by")), "free_days": free_days(rec)}
 
 
@@ -283,7 +300,8 @@ def _delivery_status(rec: dict) -> dict:
 
 
 def free_days(rec: dict) -> int:
-    """Owner offer 2026-11-07: 7 days to start, +7 for a friend's invite link, +7 for each friend who joins."""
+    """Owner offer 2026-11-07: 7 days to start, +7 for a friend's invite link, +7 for each invited friend
+    who has received a first real episode (#305)."""
     return FREE_DAYS + (FRIEND_DAYS if rec.get("referred_by") else 0) + FRIEND_DAYS * int(rec.get("referrals", 0))
 
 
