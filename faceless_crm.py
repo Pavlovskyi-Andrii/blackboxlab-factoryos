@@ -251,3 +251,44 @@ def install_faceless_crm_routes(app, store: FacelessCrm, identity_fn: Callable) 
             return store.set_task(model_id, task_id, body["done"])
         except CrmError as exc:
             return JSONResponse({"detail": exc.code}, status_code=exc.status)
+
+
+# Registry intake is deliberately independent of Faceless Creator's #313 migration:
+# the models CRM is a separate MVP concept requested on 2026-11-14 (#359).
+CRM_MVP_ID = "faceless-models-crm"
+CRM_MVP_ISSUE = 359
+CRM_MVP_BRIEF = """DRAFT — Faceless Models CRM, internal zero-spend MVP (#359).
+Goal: manage draft synthetic faceless model personas as business entities, with alias,
+niche, channel, workflow status, non-sensitive notes, checklists and activity history.
+Internal authenticated implementation: /static/mvp-factory/faceless-crm.html.
+Separate from Faceless Creator SaaS (#313) face-avatar editing concept.
+Not approved: collection of real creators' identities, content uploads, external
+accounts, adult-content hosting, payments, publishing or automated outreach.
+PR #360 is code under review, not evidence of deployment or validated demand.
+No worker is started by registering this project.
+"""
+
+
+def register_crm_mvp_project_once(registry, marker_path: Path) -> bool:
+    """One-time non-destructive project intake. A deliberate later removal stays removed."""
+    marker = Path(marker_path)
+    if marker.exists():
+        return False
+    existing = registry.snapshot()["projects"]
+    created = False
+    # A manually created #359 project wins, regardless of its internal ID.
+    if not any(p.get("issue") == CRM_MVP_ISSUE for p in existing):
+        used = {str(p.get("id", "")) for p in existing}
+        project_id = CRM_MVP_ID
+        n = 2
+        while project_id in used:
+            project_id = CRM_MVP_ID + "-" + str(n)
+            n += 1
+        registry.add_project(project_id, "Faceless Models CRM · creator operations", CRM_MVP_ISSUE,
+                             actor_role="owner", brief=CRM_MVP_BRIEF)
+        created = True
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    tmp = marker.with_suffix(".tmp")
+    tmp.write_text("Faceless Models CRM project #359 was considered for initial intake.\n", encoding="utf-8")
+    os.replace(tmp, marker)
+    return created
