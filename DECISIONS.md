@@ -1138,3 +1138,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - CI: the 4-minute Playwright screenshot job no longer runs on PR pushes — only on main (Render still deploys after it)
   and manual runs; Claude runs Playwright locally before pushing. PR CI stays the fast syntax/smoke job.
 - Process: run the full test list locally before every push and batch review fixes into one push per round.
+
+## 2026-11-14 — R-0074: Relay runs stopped at 25 turns and reported a cut JSON tail
+- Owner's Telegram task R-0074 (browser agent "to a working result") failed with "Claude Code не завершил задачу" and a
+  raw JSON fragment. Cause: the Relay worker ran `claude -p` with `--max-turns 25`; the CLI stopped mid-work
+  (`stop_reason: tool_use`), and only the last 8 000 chars of stdout were parsed, so the JSON could not be read.
+- Defaults are now 60 turns (cap 150) and 30 min (cap 60) — `RELAY_CLAUDE_MAX_TURNS` / `RELAY_CLAUDE_TIMEOUT_SECONDS`
+  still override; the whole result is kept for parsing; a max-turns stop is reported in plain words with what to do.
+- Runs on the owner's Claude subscription on EC2, not paid API; the reported total_cost_usd is the CLI's estimate.

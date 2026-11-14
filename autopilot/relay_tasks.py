@@ -182,12 +182,21 @@ def build_prompt(ticket: dict, branch: str) -> str:
 def summarize_result(output: str, code: int, timed_out: bool) -> str:
     if timed_out:
         return "Claude exceeded the bounded execution time; manual Retry required."
-    try:
-        obj = json.loads(output or "{}")
-        msg = str(obj.get("result") or "")
-        if not msg:
-            msg = "Claude returned no result"
-    except (TypeError, json.JSONDecodeError):
+    obj = None
+    for candidate in ((output or "").strip(), ((output or "").strip().splitlines() or [""])[-1]):
+        try:
+            obj = json.loads(candidate or "{}")
+            break
+        except (TypeError, json.JSONDecodeError):
+            obj = None
+    if isinstance(obj, dict):
+        # R-0074 (owner 2026-11-14): the CLI stops at --max-turns with subtype error_max_turns / stop_reason tool_use;
+        # say so plainly instead of dumping a cut JSON tail into Telegram.
+        if obj.get("subtype") == "error_max_turns" or (obj.get("is_error") and obj.get("stop_reason") == "tool_use"):
+            return (f"Claude исчерпал лимит ходов ({obj.get('num_turns') or '?'}) и не закончил задачу. "
+                    "Задача слишком большая для одного прохода: разбейте её на шаги или нажмите Retry.")
+        msg = str(obj.get("result") or "") or "Claude returned no result"
+    else:
         msg = (output or "").strip()
     # Never publish unbounded raw process output into Telegram/Relay.
     msg = " ".join(msg.split())[:600]
@@ -226,8 +235,8 @@ def execute(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=None,
         return {"status": "failed", "id": ticket_id}
 
     prompt = build_prompt(ticket, branch)
-    turns = max(4, min(50, int(os.environ.get("RELAY_CLAUDE_MAX_TURNS", "25"))))
-    timeout = max(60, min(1800, int(os.environ.get("RELAY_CLAUDE_TIMEOUT_SECONDS", "900"))))
+    turns = max(4, min(150, int(os.environ.get("RELAY_CLAUDE_MAX_TURNS", "60"))))
+    timeout = max(60, min(3600, int(os.environ.get("RELAY_CLAUDE_TIMEOUT_SECONDS", "1800"))))
     cmd = ["claude", "-p", prompt, "--output-format", "json", "--max-turns", str(turns),
            "--disallowedTools", *DISALLOWED_TOOLS]
     reporter_stop = threading.Event()
@@ -253,7 +262,7 @@ def execute(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=None,
                                                   text=True, capture_output=True,
                                                   timeout=timeout, check=False)
             code = int(result.returncode)
-            output = str(result.stdout or "")[-8000:]
+            output = str(result.stdout or "")[-400000:]
         except subprocess.TimeoutExpired:
             timed_out = True
         except OSError:
@@ -372,8 +381,8 @@ def execute_isolated(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=
 
         hb = threading.Thread(target=heartbeat, daemon=True)
         hb.start()
-        turns = max(4, min(50, int(os.environ.get("RELAY_CLAUDE_MAX_TURNS", "25"))))
-        timeout = max(60, min(1800, int(os.environ.get("RELAY_CLAUDE_TIMEOUT_SECONDS", "900"))))
+        turns = max(4, min(150, int(os.environ.get("RELAY_CLAUDE_MAX_TURNS", "60"))))
+        timeout = max(60, min(3600, int(os.environ.get("RELAY_CLAUDE_TIMEOUT_SECONDS", "1800"))))
         cmd = ["claude", "-p", build_prompt(ticket, branch), "--output-format", "json", "--max-turns", str(turns),
                "--disallowedTools", *DISALLOWED_TOOLS]
         code, output, timed_out = -1, "", False
@@ -381,7 +390,7 @@ def execute_isolated(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=
             try:
                 result = (run_cli or subprocess.run)(cmd, cwd=workdir, env=delegated_env(), text=True,
                                                       capture_output=True, timeout=timeout, check=False)
-                code, output = int(result.returncode), str(result.stdout or "")[-8000:]
+                code, output = int(result.returncode), str(result.stdout or "")[-400000:]
             except subprocess.TimeoutExpired:
                 timed_out = True
             except OSError:
