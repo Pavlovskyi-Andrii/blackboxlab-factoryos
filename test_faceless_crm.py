@@ -102,9 +102,9 @@ class FacelessCrmTests(unittest.TestCase):
             calls.append("replace")
             actual_replace(src, dst)
 
-        with patch("faceless_crm.os.fsync", side_effect=observe_sync), \\
-             patch("faceless_crm.os.replace", side_effect=observe_replace):
-            model = self.store.create({"alias": "Stable Test"})
+        with patch("faceless_crm.os.fsync", side_effect=observe_sync):
+            with patch("faceless_crm.os.replace", side_effect=observe_replace):
+                model = self.store.create({"alias": "Stable Test"})
         self.assertEqual(calls, ["sync_file", "replace", "sync_dir"])
         saved = self.path.read_bytes()
         with patch("faceless_crm.os.replace", side_effect=OSError("simulated rename failure")):
