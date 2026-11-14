@@ -1118,3 +1118,14 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   format, platform, hook, CTA and the step-4 tone of voice. One job per row (idempotent).
 - MyCast gets Claude's 4-week, 20-post starting plan (TOFU 50 / MOFU 30 / BOFU 20), also back-filled into passports
   saved before stage 2.
+
+## 2026-11-14 — Brand strategy stage 3: agents work from the Master Brief
+- Owner: "сливай #358 и делай этап 3". The single hook is `_apply_workflow_prompt(agent, system, job_id)`, which every
+  job-run agent goes through. A job made from a brand plan (or linked to a brand via
+  `POST /api/factory/strategy/{brand}/jobs/{job_id}/link`) gets that brand's brief appended.
+- Each agent gets only the steps it needs (`AGENT_STEPS`): researchers — positioning, audience, pillars; scriptwriter —
+  positioning, audience, tone, funnel, CTA; editor — tone, CTA; QA — tone, funnel, CTA plus a compliance rule;
+  publisher — funnel and CTA map plus "use the mapped CTA"; analyst — goal/KPI, pillars, funnel. Render agent: none.
+- The job's own row (pillar, funnel stage, format, platform, CTA) is stated first. Approved steps go in as they are;
+  drafts are included but labelled "черновик — ориентир" (pilot: nothing is approved yet). Capped at 6 000 chars.
+- Jobs not linked to a brand, and Content Brain (no job), are unchanged. A failure to read the brief never blocks a run.

@@ -7982,6 +7982,14 @@ def _apply_workflow_prompt(agent,system,job_id=None):
     additions=[]
     if extra:additions.append("Approved workflow instruction: "+extra)
     if hook_pattern:additions.append("Approved hook pattern to test: "+hook_pattern)
+    # Stage 3 (owner 2026-11-14): jobs from a brand plan (or linked to a brand) carry that brand's Master Brief.
+    try:
+        from brand_strategy import agent_context, brand_for_job
+        passport,item=brand_for_job(STRATEGY,job_id)
+        brief=agent_context(passport,agent,item) if passport else ""
+        if brief:additions.append(brief)
+    except Exception as exc:
+        print(f"brand brief not added for {agent}: {type(exc).__name__}",file=__import__("sys").stderr)
     return system + (("\n" + "\n".join(additions)) if additions else "")
 
 def build_improvement_action(title,rationale,evidence=None,change=None,hypothesis=None):

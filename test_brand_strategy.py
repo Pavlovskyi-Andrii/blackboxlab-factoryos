@@ -269,5 +269,44 @@ class StrategyTest(unittest.TestCase):
         self.assertEqual((st["per_week"], st["weeks"]), (14, 4))
 
 
+    # --- stage 3: agents work from the Master Brief
+    def test_each_agent_gets_its_part_and_drafts_are_labelled(self):
+        p = self.store.get("mycast")
+        self.store.update("mycast", lambda q: q["steps"]["4"].update(state="approved"))
+        p = self.store.get("mycast")
+        script = bs.agent_context(p, "Scriptwriter")
+        self.assertIn("### Tone of Voice и правила\n", script)                 # approved: no draft label
+        self.assertIn("### Оффер и CTA (черновик, ещё не утверждён — ориентир)", script)
+        self.assertNotIn("### Цель и KPI", script)                               # not this agent's business
+        self.assertIn("### Цель и KPI", bs.agent_context(p, "Analyst"))
+        self.assertIn("CTA соответствует этапу воронки", bs.agent_context(p, "QA Agent"))
+        self.assertEqual(bs.agent_context(p, "Render Agent"), "")               # no brief for pure rendering
+        item = {"pillar": "P", "funnel": "BOFU", "format": "Reels", "platform": "Instagram", "cta": "Войди через Telegram"}
+        self.assertIn("этап воронки BOFU", bs.agent_context(p, "Publisher", item))
+        self.assertLessEqual(len(bs.agent_context(p, "Scriptwriter")), bs.AGENT_BRIEF_LIMIT)
+
+    def test_job_to_brand_via_plan_or_link_and_into_the_real_agent_prompt(self):
+        import app as factory
+        from unittest.mock import patch
+        it = self.store.get("mycast")["plan"]["items"][2]
+        self.store.update("mycast", lambda q: next(r for r in q["plan"]["items"] if r["id"] == it["id"]).update(job_id="job-1"))
+        p, row = bs.brand_for_job(self.store, "job-1")
+        self.assertEqual((p["brand"], row["id"]), ("mycast", it["id"]))
+        self.assertEqual(bs.brand_for_job(self.store, "nope"), (None, None))
+        self.assertEqual(bs.brand_for_job(self.store, ""), (None, None))
+        link = self.h[("POST", "/api/factory/strategy/{brand}/jobs/{job_id}/link")]
+        link("mycast", "0123abcd-0000-4000-8000-000000000000", Req())
+        self.assertEqual(bs.brand_for_job(self.store, "0123abcd-0000-4000-8000-000000000000")[0]["brand"], "mycast")
+        with self.assertRaises(HTTPException):
+            link("mycast", "../x", Req())
+        with patch.object(factory, "STRATEGY", self.store):
+            prompt = factory._apply_workflow_prompt("Scriptwriter", "BASE", "job-1")
+            self.assertTrue(prompt.startswith("BASE\n"))
+            self.assertIn("Master Brief бренда MyCast", prompt)
+            self.assertIn(f"этап воронки {it['funnel']}", prompt)
+            self.assertEqual(factory._apply_workflow_prompt("Scriptwriter", "BASE", "other-job"), "BASE")
+            self.assertEqual(factory._apply_workflow_prompt("Scriptwriter", "BASE", None), "BASE")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
