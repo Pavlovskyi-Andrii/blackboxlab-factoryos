@@ -354,3 +354,5 @@ Content comes only from data FactoryOS already holds: PRs merged in the last 24 
 ## Deployment
 
 Render auto-deploys the `main` branch after the configured GitHub checks pass.
+
+Relay E2E check 2026-11-14
