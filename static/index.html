@@ -3039,7 +3039,7 @@ function mvpProjects(){
    +'<div class="mvpNext"><small>'+esc(nx[0])+'</small><b title="'+esc(nx[1])+'">'+esc(nx[1])+'</b></div>'
    +'<span class="jobAgo">'+esc(timeAgo(p.updated_at||p.created_at))+'</span>'
    +'<div class="mvpRowActions"><button type="button" class="btn mvpToggle" aria-expanded="'+open+'" aria-controls="mvpPanel" data-fk="row-'+id+'" onclick="event.stopPropagation();toggleMvpPanel(\''+id+'\')">'+esc(tr('mvpc.open'))+' <span class="mvpChev" aria-hidden="true">▾</span></button>'
-   +'<button type="button" class="btn primary" onclick="event.stopPropagation();openMvpProject(\''+id+'\')">'+esc(tr('mvpb.details'))+' →</button>'+(Number(p.issue)===313?'<a class="btn" href="/static/mvp-factory/faceless-crm.html" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+esc(tr('mvpb.crm'))+' ↗</a>':'')+'</div></div>'
+   +'<button type="button" class="btn primary" onclick="event.stopPropagation();openMvpProject(\''+id+'\')">'+esc(tr('mvpb.details'))+' →</button>'+([313,359].includes(Number(p.issue))?'<a class="btn" href="/static/mvp-factory/faceless-crm.html" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+esc(tr('mvpb.crm'))+' ↗</a>':'')+'</div></div>'
  }).join('');
  if(html===mvpRowsHtml&&list.querySelector('.mvpRow'))return;
  // Keep the open panel's DOM (typed chat text, focus) across row re-renders: detach it, re-render rows, put it back.
