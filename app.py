@@ -904,6 +904,30 @@ install_listener_delivery_routes(
     send_audio=lambda chat, audio, filename, title, caption: telegram_send_audio(
         FACTORY_TELEGRAM_BOT_TOKEN, str(chat), audio, filename=filename, title=title, caption=caption))
 
+# Owner 2026-11-14: brand strategy passport (7-step chain) -> Master Brief; MyCast starts from Claude's draft.
+from brand_strategy import StrategyStore, install_strategy_routes
+from brand_strategy_seeds import SEEDS as STRATEGY_SEEDS
+STRATEGY = StrategyStore(DATA_DIR / "brand_strategy.json", seeds=STRATEGY_SEEDS)
+
+
+async def _strategy_draft(agent, system, user):
+    """One owner-clicked LLM call, inside the daily budget guard and recorded as an agent run."""
+    _content_brain_budget_guard(1800)
+    model = _workflow_model(None)
+    run_id = start_agent_run(agent, None, "brand_strategy", model=model)
+    try:
+        result = await asyncio.wait_for(asyncio.to_thread(_content_brain_llm, agent, system, user, 1800, model),
+                                        timeout=AGENT_TIMEOUT_SECONDS)
+    except Exception as exc:
+        finish_agent_run(run_id, status="failed", error=str(exc), meta={"brand_strategy": True})
+        raise RuntimeError(str(exc)) from exc
+    finish_agent_run(run_id, status="completed", input_tokens=result["input_tokens"], output_tokens=result["output_tokens"],
+                     cost_usd=result["cost_usd"], meta={"brand_strategy": True})
+    return result
+
+
+install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft)
+
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
 MVP_CHAT = AgentChat(DATA_DIR)
