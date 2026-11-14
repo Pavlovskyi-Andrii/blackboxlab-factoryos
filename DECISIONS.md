@@ -1106,3 +1106,76 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Only approved steps enter `brief.md` (Master Brief); missing steps are listed. MyCast starts from Claude's draft of
   all 7 steps (marked "draft by Claude", hypotheses labelled), so the owner edits and approves rather than starts blank.
 - Stage 2 (content matrix + monthly plan → jobs) and stage 3 (agents read the Master Brief) come next.
+
+## 2026-11-14 — Brand strategy stage 2: monthly plan, content matrix, plan row → job
+- Owner: "сливай #357 и делай этап 2". The plan lives in the passport (`plan.settings` + `plan.items`). Settings:
+  start date (default next Monday), posts/week 1–14, weeks 1–6, platforms.
+- "Generate plan" = one owner-clicked LLM call with the Master Brief (drafts labelled) as context; the answer must be a
+  JSON array, parsed defensively (≤ 60 rows, unknown funnel → TOFU, day clamped). An unusable answer changes nothing.
+- The content matrix is derived from the plan (pillar × TOFU/MOFU/BOFU counts) plus the actual funnel share, so the
+  owner sees drift from the step-6 target without a second LLM call.
+- "→ Job" creates an ordinary inbox job through the normal job route; its brief carries brand, pillar, funnel stage,
+  format, platform, hook, CTA and the step-4 tone of voice. One job per row (idempotent).
+- MyCast gets Claude's 4-week, 20-post starting plan (TOFU 50 / MOFU 30 / BOFU 20), also back-filled into passports
+  saved before stage 2.
+
+## 2026-11-14 — Brand strategy stage 3: agents work from the Master Brief
+- Owner: "сливай #358 и делай этап 3". The single hook is `_apply_workflow_prompt(agent, system, job_id)`, which every
+  job-run agent goes through. A job made from a brand plan (or linked to a brand via
+  `POST /api/factory/strategy/{brand}/jobs/{job_id}/link`) gets that brand's brief appended.
+- Each agent gets only the steps it needs (`AGENT_STEPS`): researchers — positioning, audience, pillars; scriptwriter —
+  positioning, audience, tone, funnel, CTA; editor — tone, CTA; QA — tone, funnel, CTA plus a compliance rule;
+  publisher — funnel and CTA map plus "use the mapped CTA"; analyst — goal/KPI, pillars, funnel. Render agent: none.
+- The job's own row (pillar, funnel stage, format, platform, CTA) is stated first. Approved steps go in as they are;
+  drafts are included but labelled "черновик — ориентир" (pilot: nothing is approved yet). Capped at 6 000 chars.
+- Jobs not linked to a brand, and Content Brain (no job), are unchanged. A failure to read the brief never blocks a run.
+
+## 2026-11-14 — GitHub Actions spend ($5 in two days)
+- Owner raised the budget and asked to spend less. Measured (runs since 2026-11-12): FactoryOS CI 276 min over 76
+  runs (56 PR + 20 main), Factory Builder 22 dispatch runs (each billed ≥1 min) that all failed in ~20 s.
+- Builder: `resume_stale_started_tasks` re-dispatched every in-progress task whose preflight had already *finished or
+  failed* on each Render restart, i.e. every deploy. It now recovers only a dispatch GitHub never saw (no status, no run).
+- CI: the 4-minute Playwright screenshot job no longer runs on PR pushes — only on main (Render still deploys after it)
+  and manual runs; Claude runs Playwright locally before pushing. PR CI stays the fast syntax/smoke job.
+- Process: run the full test list locally before every push and batch review fixes into one push per round.
+
+## 2026-11-14 — R-0074: Relay runs stopped at 25 turns and reported a cut JSON tail
+- Owner's Telegram task R-0074 (browser agent "to a working result") failed with "Claude Code не завершил задачу" and a
+  raw JSON fragment. Cause: the Relay worker ran `claude -p` with `--max-turns 25`; the CLI stopped mid-work
+  (`stop_reason: tool_use`), and only the last 8 000 chars of stdout were parsed, so the JSON could not be read.
+- Defaults are now 60 turns (cap 150) and 30 min (cap 60) — `RELAY_CLAUDE_MAX_TURNS` / `RELAY_CLAUDE_TIMEOUT_SECONDS`
+  still override; the whole result is kept for parsing; a max-turns stop is reported in plain words with what to do.
+- Runs on the owner's Claude subscription on EC2, not paid API; the reported total_cost_usd is the CLI's estimate.
+
+## 2026-11-14 — #305 referral credit waits for the friend's first real episode
+
+- The invited friend still gets +7 days at sign-up (they need the trial to reach a first episode).
+- The inviter's +7 is credited only when `ListenerDelivery.finish(ok=True)` records the friend's first *sent*
+  episode (`ListenerStore.credit_referral`, under the store lock, once per friend via `referral_credited`).
+  Failed sends never credit. This closes the "farm free days with throwaway accounts" finding (D-7).
+- `invited` counts pending + credited friends and is what `MAX_REFERRALS` (50) caps; legacy records fall back
+  to `referrals`. Already-credited legacy referrals are kept as they are (no retroactive removal).
+- The cabinet shows credited and pending friends (`referrals_pending`).
+
+## 2026-11-14 — #353 motion explainer: one world map + time-pure renderer
+
+- One SVG world holds every department; the "camera" is the viewBox, keyframed and zoomed in log space. Every frame
+  is a pure function of `t`, so pause/seek/scene jumps are exact and reduced-motion mode is a different sampling of
+  the same timeline (cuts instead of fly-throughs).
+- Lives only in `docs/prototypes/factoryos-explainer/claude-motion/**` (+ one tiny CI test). Pushed from the session
+  branch `ccr-5612b330-fr6sm2` because this session may push only there; the issue's "claude/ branch" wish is noted
+  in the PR. Not self-merged (issue rule). No MP4 rendered; export path documented, not claimed.
+
+## 2026-11-14 — Learning section (/learn) + explainer readability pass
+
+- Owner asked for one place for "my learning, system explainers and how it works". `learn_center.py` serves
+  `/learn` (behind the normal dashboard login — not under `/static/`), `/api/learn` and `/learn/view/{id}` from a fixed
+  catalog of files already in the repo (no uploads, no path parameters to the filesystem). Three shelves: mine,
+  explainers, guide. The 7-step brand method renders from `brand_strategy.STEPS` so it never drifts.
+- HTML prototypes are served with `Content-Security-Policy: sandbox allow-scripts; default-src 'none' …` and shown in a
+  sandboxed iframe without `allow-same-origin`: they animate but cannot read FactoryOS cookies or call its API.
+  Markdown is rendered escape-first (only `code`, **bold**, http(s) links) — no document HTML reaches the browser.
+- Yesterday's ChatGPT HTMLs (PR #352 explainer, PR #347 A/B preview) are copied **byte-identical at the same paths**
+  so the shelf can show them now; when those PRs merge, git sees identical additions (no conflict).
+- Explainer: cards widened, packet docks beside cards with its label above/below, promo shot pans A → B, and more
+  on-screen explanation (roles in debate, MVP Manager/spec, three build agents, "2 hypotheses → 2 tests").

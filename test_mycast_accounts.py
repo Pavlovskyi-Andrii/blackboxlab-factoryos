@@ -80,8 +80,9 @@ class StoreAndCookieTest(unittest.TestCase):
         self.store.login({"provider": "google", "pid": "2", "name": "F"}, ref=a["slug"])         # same friend again: no double count
         self.store.login({"provider": "google", "pid": "1", "name": "A"}, ref=a["slug"])         # cannot invite yourself
         self.store.login({"provider": "telegram", "pid": "3", "name": "G", "chat_id": "3"}, ref="../etc")
-        self.assertEqual(public_view(self.store.get(a["slug"]))["free_days"], 14)                 # 7 + 7 for one friend
-        self.assertEqual(public_view(self.store.get(a["slug"]))["referrals"], 1)
+        v = public_view(self.store.get(a["slug"]))
+        # #305: the inviter's +7 waits for the friend's first real episode (see test_mycast_listener_delivery)
+        self.assertEqual((v["free_days"], v["referrals"], v["referrals_pending"]), (7, 0, 1))
 
     def test_damaged_store_is_refused(self):
         self.path.write_text("{oops")

@@ -233,6 +233,8 @@ class ListenerDelivery:
                          # Only Telegram's file id is kept: the audio itself stays on Telegram, never on our disk.
                          "file_id": str(file_id or "")[:200], "title": str(title or "")[:64]}
                 action = "episode_sent"
+                from mycast_accounts import ListenerStore
+                ListenerStore.credit_referral(data, rec, int(now))
             else:
                 entry = {**entry, "status": "failed", "failures": int(entry.get("failures", 0)) + 1, "reason": reason[:80]}
                 action = "episode_failed"

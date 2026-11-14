@@ -229,6 +229,8 @@ jobs:
           python test_mycast_public.py
           python -m py_compile brand_strategy.py brand_strategy_seeds.py test_brand_strategy.py
           python test_brand_strategy.py
+          python -m py_compile test_builder_recovery.py
+          python test_builder_recovery.py
           python -m py_compile test_mycast_domain.py
           python test_mycast_domain.py
           python -m py_compile browser_tasks.py autopilot/browser_tasks.py browser_runner/egress_proxy.py test_browser_tasks.py
@@ -406,12 +408,20 @@ jobs:
         run: |
           python -m py_compile operator_lanes.py test_operator_lanes.py
           python test_operator_lanes.py
+      - name: Motion explainer (#353) offline + RU/UK/EN completeness
+        run: python test_explainer_motion.py
+      - name: Learning section (/learn) catalog, sandbox and login
+        run: |
+          python -m py_compile learn_center.py test_learn_center.py
+          python test_learn_center.py
   ui-screenshots:
     # Evidence for UI tasks (T-594..T-597): EN/UK/RU × desktop/tablet/mobile screenshots of a local,
     # password-less, key-less FactoryOS (zero spend). Findings are reported in the job summary, not enforced.
     # Runs only when page files changed and the smoke job passed (budget, 2026-11-08).
     needs: syntax-and-smoke
-    if: needs.syntax-and-smoke.outputs.ui == 'true'
+    # Owner 2026-11-14 (Actions budget, $5 in two days): the 4-minute screenshot job runs on main (Render deploys only after
+    # it) and on manual runs, not on every PR push; PR authors run Playwright locally before pushing.
+    if: needs.syntax-and-smoke.outputs.ui == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04   # 26.04 has no Playwright browser deps (apt failed 2026-11-11); same pin as syntax-and-smoke
     timeout-minutes: 20
     steps:

@@ -927,7 +927,22 @@ async def _strategy_draft(agent, system, user):
     return result
 
 
-install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft)
+async def _strategy_job(title, brief, fmt):
+    """Stage 2: a plan row becomes an ordinary inbox job through the normal job route."""
+    out = await create_job(JobCreate(title=title[:200], brief=brief, format=(fmt or "Long + Shorts")[:80], language="Russian"))
+    return out["id"]
+
+
+def _strategy_job_exists(job_id):
+    con = db()
+    try:
+        return con.execute("SELECT 1 FROM jobs WHERE id=?", (job_id,)).fetchone() is not None
+    finally:
+        con.close()
+
+
+install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft, create_job=_strategy_job,
+                        job_exists=_strategy_job_exists)
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
@@ -1115,6 +1130,9 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
+from learn_center import install_learn_routes  # noqa: E402
+import brand_strategy as _brand_strategy_mod  # noqa: E402
+install_learn_routes(app, base=BASE, steps_source=lambda: _brand_strategy_mod.STEPS)  # owner 2026-11-14: one Learning section
 install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
@@ -2976,7 +2994,10 @@ async def resume_stale_started_tasks():
                                           ORDER BY requested_at""").fetchall()]
     con.close()
     for task in rows:
-        if (task.get("workflow_status") or "") in live_states:
+        # Owner 2026-11-14 (Actions budget): recover only a dispatch that was lost before GitHub saw it. A preflight that
+        # already ran and failed or finished is left for a manual Start build; re-dispatching it on every Render restart
+        # (= every deploy) burned 22 runs in two days.
+        if (task.get("workflow_status") or "") or task.get("workflow_run_id"):
             continue
         try:
             await dispatch_builder_workflow(task)
@@ -7984,6 +8005,14 @@ def _apply_workflow_prompt(agent,system,job_id=None):
     additions=[]
     if extra:additions.append("Approved workflow instruction: "+extra)
     if hook_pattern:additions.append("Approved hook pattern to test: "+hook_pattern)
+    # Stage 3 (owner 2026-11-14): jobs from a brand plan (or linked to a brand) carry that brand's Master Brief.
+    try:
+        from brand_strategy import agent_context, brand_for_job
+        passport,item=brand_for_job(STRATEGY,job_id)
+        brief=agent_context(passport,agent,item) if passport else ""
+        if brief:additions.append(brief)
+    except Exception as exc:
+        print(f"brand brief not added for {agent}: {type(exc).__name__}",file=__import__("sys").stderr)
     return system + (("\n" + "\n".join(additions)) if additions else "")
 
 def build_improvement_action(title,rationale,evidence=None,change=None,hypothesis=None):

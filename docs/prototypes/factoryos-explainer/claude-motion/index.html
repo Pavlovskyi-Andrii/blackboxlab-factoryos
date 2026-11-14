@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FactoryOS Motion Explainer</title>
+<meta name="description" content="75-секундный концепт-ролик: как задача проходит через FactoryOS — от идеи до проверяемого результата. DEMO, без реальных данных.">
+<style>
+:root{color-scheme:dark;--bg:#04070f;--bg2:#08101f;--panel:#0d1729;--line:#22314a;--ink:#eef3ff;--muted:#9fb0cc;
+  --cyan:#5ee7ff;--teal:#3fe0c0;--violet:#a98bff;--amber:#ffc46b;--red:#ff8a8a;--green:#7cf0a4;
+  --font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--font);overflow-x:hidden}
+button,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
+.app{max-width:1600px;margin:0 auto;padding:12px 16px 20px}
+.stage{position:relative;width:100%;aspect-ratio:16/9;max-height:calc(100vh - 150px);margin:0 auto;border-radius:14px;overflow:hidden;
+  background:radial-gradient(ellipse 70% 60% at 50% 40%,#0b1a33 0%,var(--bg) 70%);border:1px solid #1b2840;isolation:isolate}
+svg.world{position:absolute;inset:0;width:100%;height:100%;display:block}
+.brandTag{position:absolute;left:14px;top:12px;z-index:5;display:flex;gap:8px;align-items:center;font:700 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
+.brandTag .demo{color:#081018;background:var(--amber);padding:4px 7px;border-radius:5px;letter-spacing:.08em}
+.sceneTag{position:absolute;right:14px;top:12px;z-index:5;font:600 12px/1 var(--mono);color:var(--muted);background:#04070fb0;padding:6px 9px;border-radius:7px;border:1px solid #ffffff14}
+/* Hook: the physical monitor the camera pushes through */
+.hook{position:absolute;inset:0;z-index:3;display:grid;place-items:center;pointer-events:none;transform-origin:50% 46%;will-change:transform,opacity}
+.desk{position:absolute;left:-10%;right:-10%;bottom:-6%;height:30%;background:linear-gradient(180deg,#0c1424,#03060c);transform:perspective(600px) rotateX(55deg);border-top:1px solid #1d2b45}
+.monitor{position:relative;width:min(46%,700px);aspect-ratio:16/10;border-radius:16px;background:#0a0f1a;border:2px solid #24324d;padding:2.2%;box-shadow:0 40px 120px #000c,0 0 80px #1aa6ff22;margin-top:4%}
+.monitor:after{content:"";position:absolute;left:44%;right:44%;bottom:-14%;height:14%;background:linear-gradient(#18233a,#0b111d);clip-path:polygon(20% 0,80% 0,100% 100%,0 100%)}
+.screen{position:relative;width:100%;height:100%;border-radius:8px;overflow:hidden;background:radial-gradient(ellipse at 50% 55%,#0f2a4a,#050b16 70%);
+  background-image:linear-gradient(#5ee7ff10 1px,transparent 1px),linear-gradient(90deg,#5ee7ff10 1px,transparent 1px),radial-gradient(ellipse at 50% 55%,#0f2a4a,#050b16 70%);background-size:28px 28px,28px 28px,auto}
+.screen .os{position:absolute;left:5%;top:7%;font:700 clamp(10px,1.3vw,18px)/1 var(--mono);letter-spacing:.16em;color:var(--cyan)}
+.screen .idea{position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);text-align:center;width:86%}
+.screen .idea b{display:block;font-size:clamp(12px,1.9vw,30px);font-weight:700;letter-spacing:-.02em}
+.screen .idea small{display:block;margin-top:.6em;color:var(--muted);font-size:clamp(9px,1vw,15px)}
+.screen .dot{width:clamp(14px,2vw,30px);aspect-ratio:1;border-radius:50%;margin:0 auto .8em;background:#fff;box-shadow:0 0 12px #fff,0 0 34px var(--cyan),0 0 70px var(--cyan)}
+/* Captions */
+.caps{position:absolute;left:0;right:0;bottom:0;z-index:6;padding:42px 22px 16px;background:linear-gradient(transparent,#02050bee 55%);pointer-events:none}
+.caps .msg{font-size:clamp(20px,2.6vw,40px);font-weight:760;letter-spacing:-.03em;line-height:1.1;min-height:1.1em}
+.caps .msg span{display:inline-block;opacity:0;transform:translateY(12px)}
+.caps .vo{margin-top:8px;max-width:1050px;color:#c9d5ea;font-size:clamp(13px,1.15vw,17px);min-height:2.6em}
+.tagline{position:absolute;left:0;right:0;top:5%;z-index:6;text-align:center;padding:0 16px;pointer-events:none}
+.tagline b{display:block;font-size:clamp(17px,2vw,32px);max-width:1100px;margin:0 auto;letter-spacing:-.03em}
+.tagline small{color:var(--muted);font-size:clamp(12px,1.1vw,16px)}
+.endmark{position:absolute;inset:0;z-index:7;display:grid;place-items:end center;padding-bottom:3%;pointer-events:none;opacity:0}
+.endmark div{text-align:center;padding:12px 24px;border-radius:18px;background:#02050bb0;border:1px solid #5ee7ff44;box-shadow:0 0 80px #5ee7ff22}
+.endmark b{display:block;font-size:clamp(28px,4vw,60px);letter-spacing:-.05em;background:linear-gradient(100deg,#d9ceff,#7fd8ff 50%,#6ff3d6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.endmark span{display:block;font-size:clamp(14px,1.6vw,22px);color:#dbe6f8}
+.endmark small{display:block;margin-top:8px;color:var(--muted);font-size:clamp(11px,.95vw,14px)}
+/* Controls */
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px auto 0;max-width:100%}
+.btn{border:1px solid #33476b;background:#0f1a2e;border-radius:10px;padding:8px 12px;cursor:pointer;min-height:40px;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:#18284a}
+.btn.primary{background:linear-gradient(115deg,#5ee7ff,#a98bff);color:#04111c;border:0;font-weight:700;min-width:96px;justify-content:center}
+.time{font:600 13px/1 var(--mono);color:var(--muted);min-width:92px;text-align:center}
+.scrub{flex:1 1 220px;accent-color:var(--cyan);min-width:160px}
+.opts{display:flex;gap:10px;align-items:center;margin-left:auto;color:var(--muted);font-size:13px}
+.opts select{background:#0f1a2e;border:1px solid #33476b;border-radius:8px;padding:6px}
+.nav{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:6px;margin-top:10px}
+.nav button{border:1px solid #22314a;background:#0a1222;border-radius:9px;padding:7px 6px;text-align:left;cursor:pointer;min-height:44px;font-size:12px;line-height:1.2;color:var(--muted);overflow:hidden}
+.nav button b{display:block;font:700 10px/1.2 var(--mono);color:#6f86ad}
+.nav button[aria-current="true"]{border-color:var(--cyan);color:var(--ink);background:#0f2440}
+.nav button[aria-current="true"] b{color:var(--cyan)}
+.note{margin-top:10px;color:#7f92b3;font-size:12px}
+@media (max-aspect-ratio:4/5),(max-width:700px){
+  .stage{aspect-ratio:auto;height:66vh;max-height:none}
+  .caps{padding:36px 14px 12px}
+  .caps .msg{font-size:21px}
+  .caps .vo{min-height:0;font-size:13px}
+  .sceneTag{top:40px;left:14px;right:auto}
+  .tagline{top:4%}
+  .monitor{width:86%;margin-top:18%}
+  .nav{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .opts{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){.caps .msg span{transition:none}}
+/* SVG */
+.lbl{font-family:var(--font);fill:var(--ink)}
+.mono{font-family:var(--mono)}
+</style>
+</head>
+<body>
+<main class="app">
+  <div class="stage" id="stage" aria-label="Анимация FactoryOS" role="img">
+    <svg class="world" id="svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <defs>
+        <filter id="glow" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="14"/></filter>
+        <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+        <pattern id="hatch" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="14" height="14" fill="#0d1729"/><line x1="0" y1="0" x2="0" y2="14" stroke="#3b4d6e" stroke-width="5"/></pattern>
+        <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse"><path d="M80 0H0V80" fill="none" stroke="#5ee7ff0d" stroke-width="2"/></pattern>
+        <radialGradient id="vign" cx="50%" cy="50%" r="60%"><stop offset="0" stop-color="#0b1a33"/><stop offset="1" stop-color="#04070f"/></radialGradient>
+      </defs>
+      <g id="world"></g>
+    </svg>
+    <div class="hook" id="hook" aria-hidden="true"><div class="desk"></div>
+      <div class="monitor"><div class="screen"><div class="os">FACTORYOS · CONSOLE</div>
+        <div class="idea"><div class="dot"></div><b data-t="hook_idea"></b><small data-t="hook_idea_sub"></small></div></div></div></div>
+    <div class="tagline" id="tagline"><b data-t="tagline"></b><small data-t="tagline_sub"></small></div>
+    <div class="endmark" id="endmark"><div><b>FactoryOS</b><span data-t="end_line"></span><small data-t="end_note"></small></div></div>
+    <div class="brandTag"><span>FactoryOS</span><span class="demo">DEMO</span></div>
+    <div class="sceneTag" id="sceneTag"></div>
+    <div class="caps" id="caps" aria-live="polite"><div class="msg" id="msg"></div><div class="vo" id="vo"></div></div>
+  </div>
+
+  <div class="controls" role="group" aria-label="Playback">
+    <button class="btn" id="prev" type="button" aria-label="Previous scene">⏮ <span data-t="prev"></span></button>
+    <button class="btn primary" id="play" type="button"></button>
+    <button class="btn" id="next" type="button" aria-label="Next scene"><span data-t="next"></span> ⏭</button>
+    <button class="btn" id="restart" type="button">↺ <span data-t="restart"></span></button>
+    <input class="scrub" id="scrub" type="range" min="0" max="75" step="0.1" value="0" aria-label="Timeline">
+    <span class="time" id="time">0:00 / 1:15</span>
+    <div class="opts">
+      <label><input type="checkbox" id="rm"> <span data-t="reduced"></span></label>
+      <select id="lang" aria-label="Language"><option value="ru">RU</option><option value="uk">UK</option><option value="en">EN</option></select>
+    </div>
+  </div>
+  <nav class="nav" id="nav" aria-label="Scenes"></nav>
+  <p class="note" data-t="footnote"></p>
+</main>
+
+<script>
+(() => {
+'use strict';
+const T = 75;
+const SCENES = [
+  {id: 'hook', t0: 0, t1: 5}, {id: 'debate', t0: 5, t1: 13}, {id: 'product', t0: 13, t1: 21},
+  {id: 'build', t0: 21, t1: 31}, {id: 'relay', t0: 31, t1: 39}, {id: 'split', t0: 39, t1: 49},
+  {id: 'promo', t0: 49, t1: 59}, {id: 'learn', t0: 59, t1: 68}, {id: 'reveal', t0: 68, t1: 75}];
+
+/* ---------- Text (RU primary; UK/EN source strings) ---------- */
+const L = {
+ru: {
+  tagline: 'FactoryOS — команда AI-агентов, которая превращает идею в проверяемый результат',
+  tagline_sub: 'Следим за одной задачей от вопроса до решения · 75 секунд · концепт, DEMO',
+  hook_idea: '«Нужен ли людям такой сервис?»', hook_idea_sub: 'идея владельца → задача',
+  prev: 'Назад', next: 'Далее', restart: 'Сначала', play: '▶ Смотреть', pause: '❚❚ Пауза', replay: '↺ Ещё раз', reduced: 'Меньше движения',
+  end_line: 'От идеи — к проверяемому результату.', end_note: 'Концепт-ролик: часть звеньев ещё в работе. Публикации и расходы — только с одобрения владельца.',
+  footnote: 'Все данные в ролике — DEMO или NO DATA. Нет реальных пользователей, денег или кампаний. A/B Tester — предложенная роль, ещё не работающий агент.',
+  scenes: ['Идея', 'Дебаты', 'Продукт', 'Сборка и QA', 'Relay', 'Развилка A/B', 'Промо', 'Обучение', 'Вся система'],
+  msg: ['Идея — начало. Дальше нужна система.', 'Проверяем проблему и альтернативы.', 'Из гипотезы — в проверяемое ТЗ.',
+        'Код плюс доказательства, а не «сделано» на словах.', 'Назначение ≠ выполнение.', 'Две гипотезы — два независимых пути.',
+        'Свой контент и своя кампания для каждой аудитории.', 'Решаем по действиям людей, а не по кликам.', 'FactoryOS. От идеи — к проверяемому результату.'],
+  vo: ['Идея — только начало. Как понять, что людям это действительно нужно?',
+       'Вы пишете идею. 2–3 AI-агента спорят о ней: исследователь ищет факты, критик — слабые места, стратег собирает концепцию. Слабые гипотезы отсеиваются.',
+       'MVP Manager превращает концепцию в ТЗ: что строим, для кого и как проверим результат.',
+       'MVP Builder собирает продукт по частям: один агент верстает HTML-страницу, другой пишет код и логику, третий гоняет тесты. Всё — в отдельной ветке и PR. PR — ещё не запущенный продукт.',
+       'Relay фиксирует каждую передачу работы, Agent Office показывает, кто чем занят, и по стратегии готовит проверку: две гипотезы — два теста. Назначить — ещё не значит выполнить.',
+       'Две версии идеи — два теста параллельно: у каждой аудитории свой лендинг и свои черновики от Content Factory.',
+       'У каждой аудитории — своё промо. Перед реальным запуском владелец утверждает публикации и расходы.',
+       'Аналитика возвращает наблюдения: визит, регистрация, первое полезное действие, возврат. Решение уходит в новый цикл.',
+       'FactoryOS — от идеи к проверяемому результату.'],
+  k: {drafts2: 'только черновики', both_tests: 'оба теста идут параллельно', office_plan: 'по стратегии: 2 гипотезы → 2 теста', ag_qa_s: 'гоняет тесты', ag_qa: 'Агент-QA', ag_back_s: 'пишет код и логику', ag_back: 'Агент-бэкенд', ag_front_s: 'верстает HTML-страницу', ag_front: 'Агент-фронтенд', pv_data: 'данные', pv_api: 'код / API', pv_logic: 'логика', pv_html: 'HTML-страница', product_note: 'ТЗ: что строим, для кого и как проверим результат', mvpm_s: 'превращает концепцию в ТЗ', strategist_s: 'собирает концепцию', critic_s: 'ищет слабые места', researcher_s: 'ищет факты и источники', debate_note: '2–3 AI-агента спорят об идее → находят концепцию', idea: 'Идея', owner_idea: 'у вас есть идея — вы её пишете', researcher: 'Исследователь', critic: 'Критик', strategist: 'Стратег',
+      say_r: 'Вот 3 источника', say_c: 'А где доказательства?', say_s: 'Берём H1',
+      h1: 'H1: боль подтверждена', h2: 'H2: нет спроса', h3: 'H3: дорого', dropped: 'отсеяна', ev: 'факт',
+      notes: 'Заметки исследования', spec: 'Спецификация', check: 'Критерии приёмки', c1: 'проблема', c2: 'метрика успеха', c3: 'границы MVP',
+      mvpm: 'MVP Manager', to_build: 'передаёт в сборку →',
+      preview: 'MVP Builder собирает продукт по частям', branch: 'ветка', pr: 'PR', ci: 'CI', review: 'ревью', sample: 'sample', pr_note: 'PR ≠ задеплоенное приложение',
+      office: 'Agent Office — пульт состояния', queued: 'queued', claimed: 'claimed', running: 'running', inrev: 'review', done: 'done',
+      assigned: 'назначено ≠ выполняется', journal: 'Журнал Relay', j1: 'claim · builder взял задачу', j2: 'event · PR открыт', j3: 'handoff · → MVP Manager',
+      fork: 'Развилка', abt: 'A/B Tester — предложенная роль, ещё не работает',
+      audA: 'Аудитория A', audB: 'Аудитория B', audA_s: 'напр. фаундеры', audB_s: 'напр. маркетологи',
+      landA: 'Лендинг A', landB: 'Лендинг B', cfA: 'Content Factory A', cfB: 'Content Factory B', drafts: 'пост · картинка · сценарий',
+      gate: 'Одобрение владельца', waiting: 'ждёт решения', approved: 'одобрено владельцем',
+      fbA: 'Facebook A', ttA: 'TikTok A', fbB: 'Facebook B', ttB: 'TikTok B', packA: 'креатив A · CTA A · URL A', packB: 'креатив B · CTA B · URL B',
+      visit: 'визит', signup: 'регистрация', action: 'полезное действие', repeat: 'возврат', nodata: 'NO DATA',
+      compare: 'Сравнение доказательств', notrct: 'не рандомизированный тест', decision: 'Решение', feedback: 'обратная связь → новый цикл',
+      owner: 'Владелец', owner_s: 'цели · приоритеты · одобрения',
+      d1: '1 Идея', d2: '2 Дебаты', d3: '3 Продукт', d4: '4 Сборка', d5: '5 Relay', d6: '6 A/B', d7: '7 Промо', d8: '8 Обучение',
+      gh: 'GitHub — код, PR, CI', notion: 'Notion — память и решения', relay: 'Relay — передачи и события', ao: 'Agent Office — состояние',
+      s_question: 'вопрос', s_evidence: 'доказательства', s_spec: 'ТЗ', s_pr: 'PR', s_task: 'задача', s_pages: 'страницы', s_promo: 'промо-черновики', s_obs: 'наблюдения', s_decision: 'решение'}
+},
+uk: {
+  tagline: 'FactoryOS — команда AI-агентів, що перетворює ідею на перевірний результат',
+  tagline_sub: 'Стежимо за однією задачею від питання до рішення · 75 секунд · концепт, DEMO',
+  hook_idea: '«Чи потрібен людям такий сервіс?»', hook_idea_sub: 'ідея власника → задача',
+  prev: 'Назад', next: 'Далі', restart: 'Спочатку', play: '▶ Дивитися', pause: '❚❚ Пауза', replay: '↺ Ще раз', reduced: 'Менше руху',
+  end_line: 'Від ідеї — до перевірного результату.', end_note: 'Концепт-ролик: частина ланок ще в роботі. Публікації та витрати — лише зі схвалення власника.',
+  footnote: 'Усі дані в ролику — DEMO або NO DATA. Немає реальних користувачів, грошей чи кампаній. A/B Tester — запропонована роль, ще не працюючий агент.',
+  scenes: ['Ідея', 'Дебати', 'Продукт', 'Збірка і QA', 'Relay', 'Розвилка A/B', 'Промо', 'Навчання', 'Уся система'],
+  msg: ['Ідея — початок. Далі потрібна система.', 'Перевіряємо проблему й альтернативи.', 'З гіпотези — у перевірне ТЗ.',
+        'Код плюс докази, а не «зроблено» на словах.', 'Призначення ≠ виконання.', 'Дві гіпотези — два незалежні шляхи.',
+        'Свій контент і своя кампанія для кожної аудиторії.', 'Вирішуємо за діями людей, а не за кліками.', 'FactoryOS. Від ідеї — до перевірного результату.'],
+  vo: ['Ідея — лише початок. Як зрозуміти, що людям це справді потрібно?',
+       'Ви пишете ідею. 2–3 AI-агенти сперечаються про неї: дослідник шукає факти, критик — слабкі місця, стратег збирає концепцію. Слабкі гіпотези відсіюються.',
+       'MVP Manager перетворює концепцію на ТЗ: що будуємо, для кого і як перевіримо результат.',
+       'MVP Builder збирає продукт частинами: один агент верстає HTML-сторінку, інший пише код і логіку, третій запускає тести. Усе — в окремій гілці й PR. PR — ще не запущений продукт.',
+       'Relay фіксує кожну передачу роботи, Agent Office показує, хто чим зайнятий, і за стратегією готує перевірку: дві гіпотези — два тести. Призначити — ще не означає виконати.',
+       'Дві версії ідеї — два тести паралельно: кожна аудиторія має свій лендинг і свої чернетки від Content Factory.',
+       'Кожна аудиторія має своє промо. Перед реальним запуском власник затверджує публікації й витрати.',
+       'Аналітика повертає спостереження: візит, реєстрація, перша корисна дія, повернення. Рішення йде в новий цикл.',
+       'FactoryOS — від ідеї до перевірного результату.'],
+  k: {drafts2: 'лише чернетки', both_tests: 'обидва тести йдуть паралельно', office_plan: 'за стратегією: 2 гіпотези → 2 тести', ag_qa_s: 'запускає тести', ag_qa: 'Агент-QA', ag_back_s: 'пише код і логіку', ag_back: 'Агент-бекенд', ag_front_s: 'верстає HTML-сторінку', ag_front: 'Агент-фронтенд', pv_data: 'дані', pv_api: 'код / API', pv_logic: 'логіка', pv_html: 'HTML-сторінка', product_note: 'ТЗ: що будуємо, для кого і як перевіримо результат', mvpm_s: 'перетворює концепцію на ТЗ', strategist_s: 'збирає концепцію', critic_s: 'шукає слабкі місця', researcher_s: 'шукає факти й джерела', debate_note: '2–3 AI-агенти сперечаються про ідею → знаходять концепцію', idea: 'Ідея', owner_idea: 'у вас є ідея — ви її пишете', researcher: 'Дослідник', critic: 'Критик', strategist: 'Стратег',
+      say_r: 'Ось 3 джерела', say_c: 'А де докази?', say_s: 'Беремо H1',
+      h1: 'H1: біль підтверджено', h2: 'H2: немає попиту', h3: 'H3: дорого', dropped: 'відсіяна', ev: 'факт',
+      notes: 'Нотатки дослідження', spec: 'Специфікація', check: 'Критерії приймання', c1: 'проблема', c2: 'метрика успіху', c3: 'межі MVP',
+      mvpm: 'MVP Manager', to_build: 'передає в збірку →',
+      preview: 'MVP Builder збирає продукт частинами', branch: 'гілка', pr: 'PR', ci: 'CI', review: 'рев’ю', sample: 'sample', pr_note: 'PR ≠ задеплоєний застосунок',
+      office: 'Agent Office — пульт стану', queued: 'queued', claimed: 'claimed', running: 'running', inrev: 'review', done: 'done',
+      assigned: 'призначено ≠ виконується', journal: 'Журнал Relay', j1: 'claim · builder узяв задачу', j2: 'event · PR відкрито', j3: 'handoff · → MVP Manager',
+      fork: 'Розвилка', abt: 'A/B Tester — запропонована роль, ще не працює',
+      audA: 'Аудиторія A', audB: 'Аудиторія B', audA_s: 'напр. фаундери', audB_s: 'напр. маркетологи',
+      landA: 'Лендинг A', landB: 'Лендинг B', cfA: 'Content Factory A', cfB: 'Content Factory B', drafts: 'пост · картинка · сценарій',
+      gate: 'Схвалення власника', waiting: 'чекає рішення', approved: 'схвалено власником',
+      fbA: 'Facebook A', ttA: 'TikTok A', fbB: 'Facebook B', ttB: 'TikTok B', packA: 'креатив A · CTA A · URL A', packB: 'креатив B · CTA B · URL B',
+      visit: 'візит', signup: 'реєстрація', action: 'корисна дія', repeat: 'повернення', nodata: 'NO DATA',
+      compare: 'Порівняння доказів', notrct: 'не рандомізований тест', decision: 'Рішення', feedback: 'зворотний зв’язок → новий цикл',
+      owner: 'Власник', owner_s: 'цілі · пріоритети · схвалення',
+      d1: '1 Ідея', d2: '2 Дебати', d3: '3 Продукт', d4: '4 Збірка', d5: '5 Relay', d6: '6 A/B', d7: '7 Промо', d8: '8 Навчання',
+      gh: 'GitHub — код, PR, CI', notion: 'Notion — пам’ять і рішення', relay: 'Relay — передачі й події', ao: 'Agent Office — стан',
+      s_question: 'питання', s_evidence: 'докази', s_spec: 'ТЗ', s_pr: 'PR', s_task: 'задача', s_pages: 'сторінки', s_promo: 'промо-чернетки', s_obs: 'спостереження', s_decision: 'рішення'}
+},
+en: {
+  tagline: 'FactoryOS — a team of AI agents that turns an idea into a verifiable result',
+  tagline_sub: 'Follow one task from question to decision · 75 seconds · concept, DEMO',
+  hook_idea: '“Do people actually need this?”', hook_idea_sub: 'owner’s idea → task',
+  prev: 'Back', next: 'Next', restart: 'Restart', play: '▶ Play', pause: '❚❚ Pause', replay: '↺ Replay', reduced: 'Reduce motion',
+  end_line: 'From idea to verifiable result.', end_note: 'Concept film: some links are still being built. Publishing and spend need the owner’s approval.',
+  footnote: 'All data here is DEMO or NO DATA. No real users, money or campaigns. A/B Tester is a proposed role, not a running agent yet.',
+  scenes: ['Idea', 'Debate', 'Product', 'Build & QA', 'Relay', 'A/B split', 'Promotion', 'Learn', 'Whole system'],
+  msg: ['An idea is the start. Then you need a system.', 'Test the problem and the alternatives.', 'From hypothesis to a testable spec.',
+        'Code plus evidence — not “done” in words.', 'Assigned ≠ done.', 'Two hypotheses — two independent paths.',
+        'Own content and own campaign for each audience.', 'Decide by what people do, not by clicks.', 'FactoryOS. From idea to verifiable result.'],
+  vo: ['An idea is only the start. How do you know people really need it?',
+       'You write the idea down. 2–3 AI agents debate it: a researcher finds facts, a critic looks for weak spots, a strategist shapes the concept. Weak hypotheses drop out.',
+       'The MVP Manager turns the concept into a spec: what we build, for whom, and how we check the result.',
+       'MVP Builder assembles the product piece by piece: one agent builds the HTML page, another writes code and logic, a third runs the tests — all on its own branch and PR. A PR is not a launched product.',
+       'Relay records every handoff; Agent Office shows who is doing what and, per strategy, prepares the check: two hypotheses, two tests. Assigning work is not the same as doing it.',
+       'Two versions of the idea, two tests in parallel: each audience gets its own landing page and its own Content Factory drafts.',
+       'Each audience gets its own promotion. Before anything goes live, the owner approves publishing and spend.',
+       'Analytics returns observations: visit, signup, first useful action, return. The decision feeds the next cycle.',
+       'FactoryOS — from idea to verifiable result.'],
+  k: {drafts2: 'drafts only', both_tests: 'both tests run in parallel', office_plan: 'per strategy: 2 hypotheses → 2 tests', ag_qa_s: 'runs the tests', ag_qa: 'QA agent', ag_back_s: 'writes code & logic', ag_back: 'Backend agent', ag_front_s: 'builds the HTML page', ag_front: 'Frontend agent', pv_data: 'data', pv_api: 'code / API', pv_logic: 'logic', pv_html: 'HTML page', product_note: 'Spec: what we build, for whom, how we check it', mvpm_s: 'turns the concept into a spec', strategist_s: 'shapes the concept', critic_s: 'looks for weak spots', researcher_s: 'finds facts & sources', debate_note: '2–3 AI agents debate the idea → find a concept', idea: 'Idea', owner_idea: 'you have an idea — you write it down', researcher: 'Researcher', critic: 'Critic', strategist: 'Strategist',
+      say_r: 'Here are 3 sources', say_c: 'Where is the evidence?', say_s: 'Go with H1',
+      h1: 'H1: pain confirmed', h2: 'H2: no demand', h3: 'H3: too costly', dropped: 'dropped', ev: 'fact',
+      notes: 'Research notes', spec: 'Spec', check: 'Acceptance criteria', c1: 'problem', c2: 'success metric', c3: 'MVP scope',
+      mvpm: 'MVP Manager', to_build: 'routes to build →',
+      preview: 'MVP Builder assembles the product piece by piece', branch: 'branch', pr: 'PR', ci: 'CI', review: 'review', sample: 'sample', pr_note: 'PR ≠ deployed app',
+      office: 'Agent Office — state console', queued: 'queued', claimed: 'claimed', running: 'running', inrev: 'review', done: 'done',
+      assigned: 'assigned ≠ running', journal: 'Relay journal', j1: 'claim · builder took the task', j2: 'event · PR opened', j3: 'handoff · → MVP Manager',
+      fork: 'Fork', abt: 'A/B Tester — proposed role, not live yet',
+      audA: 'Audience A', audB: 'Audience B', audA_s: 'e.g. founders', audB_s: 'e.g. marketers',
+      landA: 'Landing A', landB: 'Landing B', cfA: 'Content Factory A', cfB: 'Content Factory B', drafts: 'post · image · script',
+      gate: 'Owner approval', waiting: 'awaiting decision', approved: 'approved by owner',
+      fbA: 'Facebook A', ttA: 'TikTok A', fbB: 'Facebook B', ttB: 'TikTok B', packA: 'creative A · CTA A · URL A', packB: 'creative B · CTA B · URL B',
+      visit: 'visit', signup: 'signup', action: 'useful action', repeat: 'return', nodata: 'NO DATA',
+      compare: 'Evidence comparison', notrct: 'not a randomized test', decision: 'Decision', feedback: 'feedback → next cycle',
+      owner: 'Owner', owner_s: 'goals · priorities · approvals',
+      d1: '1 Idea', d2: '2 Debate', d3: '3 Product', d4: '4 Build', d5: '5 Relay', d6: '6 A/B', d7: '7 Promo', d8: '8 Learn',
+      gh: 'GitHub — code, PR, CI', notion: 'Notion — memory & decisions', relay: 'Relay — handoffs & events', ao: 'Agent Office — state',
+      s_question: 'question', s_evidence: 'evidence', s_spec: 'spec', s_pr: 'PR', s_task: 'task', s_pages: 'pages', s_promo: 'promo drafts', s_obs: 'observations', s_decision: 'decision'}
+}};
+let lang = 'ru';
+const tr = key => L[lang].k[key] ?? key;
+
+/* ---------- World construction (SVG, world units) ---------- */
+const NS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('svg'), world = document.getElementById('world');
+const timed = [];      // elements whose opacity follows the timeline
+const draws = [];      // links drawn on over time
+function el(tag, attrs, parent = world) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent.appendChild(e); return e;
+}
+function show(node, tin, tout) { node.style.opacity = 0; timed.push({node, tin, tout}); return node; }
+function text(parent, x, y, key, o = {}) {
+  const t = el('text', {x, y, 'text-anchor': o.anchor || 'middle', 'font-size': o.size || 30, 'font-weight': o.weight || 600,
+    fill: o.fill || '#eef3ff', class: 'lbl' + (o.mono ? ' mono' : '')}, parent);
+  if (o.raw) t.textContent = key; else { t.dataset.k = key; t.textContent = tr(key); }
+  return t;
+}
+const TONE = {cyan: '#5ee7ff', violet: '#a98bff', teal: '#3fe0c0', amber: '#ffc46b', red: '#ff8a8a', green: '#7cf0a4', mute: '#5d7196'};
+function card(x, y, w, h, key, o = {}) {
+  const g = el('g', {}, o.parent || world), c = TONE[o.tone || 'cyan'];
+  el('rect', {x: x - w / 2, y: y - h / 2, width: w, height: h, rx: o.rx ?? 22, fill: o.fill || '#0d1729', stroke: c, 'stroke-width': 3, 'stroke-opacity': .8}, g);
+  if (key) text(g, x, y + (o.sub ? -6 : 11), key, {size: o.size || 32, weight: 700});
+  if (o.sub) text(g, x, y + 32, o.sub, {size: o.subSize || 22, weight: 500, fill: '#9fb0cc'});
+  if (o.tag) { const tg = el('g', {}, g);
+    el('rect', {x: x + w / 2 - 112, y: y - h / 2 - 16, width: 104, height: 30, rx: 8, fill: o.tagFill || '#ffc46b'}, tg);
+    text(tg, x + w / 2 - 60, y - h / 2 + 7, o.tag, {size: 18, weight: 800, fill: '#081018', mono: true, raw: o.tagRaw !== false}); }
+  if (o.tin !== undefined) show(g, o.tin, o.tout);
+  return g;
+}
+function link(d, tin, o = {}) {
+  const p = el('path', {d, fill: 'none', stroke: TONE[o.tone || 'mute'], 'stroke-width': o.w || 4, 'stroke-linecap': 'round', pathLength: 1,
+    'stroke-dasharray': '1 1', 'stroke-dashoffset': 1, opacity: o.op ?? .75}, o.parent || world);
+  draws.push({p, tin, dur: o.dur || .9, tout: o.tout});
+  return p;
+}
+const H = (x1, y1, x2, y2) => `M${x1} ${y1} C${(x1 + x2) / 2} ${y1} ${(x1 + x2) / 2} ${y2} ${x2} ${y2}`;
+
+// backdrop
+el('rect', {x: -2000, y: -1600, width: 11000, height: 5600, fill: 'url(#grid)'});
+// big department titles (read best in the final pull-back)
+[['d1', 200], ['d2', 900], ['d3', 1850], ['d4', 2650], ['d5', 3450], ['d6', 4300], ['d7', 5250], ['d8', 5900]].forEach(([k, x], i) => {
+  const g = el('g', {}); text(g, x, 360, k, {size: 64, weight: 800, fill: '#5ee7ff'}).setAttribute('opacity', .55); show(g, [0, 5, 13, 21, 31, 39, 49, 59][i] + .3);
+});
+
+// 1 Idea
+card(200, 1000, 400, 130, 'idea', {tone: 'amber', sub: 'owner_idea', subSize: 21, tin: 3.2});
+
+// 2 Debate: 2–3 AI roles argue, evidence converges, one hypothesis survives
+const R = {r: [750, 790], c: [1060, 790], s: [900, 1250]};
+const dn = el('g', {}); text(dn, 940, 560, 'debate_note', {size: 28, weight: 700, fill: '#5ee7ff'}); show(dn, 5.4);
+[['researcher', R.r, 'cyan', 5.6, 'researcher_s'], ['critic', R.c, 'red', 6.2, 'critic_s'], ['strategist', R.s, 'violet', 6.8, 'strategist_s']].forEach(([k, [x, y], tone, t, sub]) => {
+  const g = el('g', {});
+  el('circle', {cx: x, cy: y, r: 70, fill: '#0d1729', stroke: TONE[tone], 'stroke-width': 4}, g);
+  el('circle', {cx: x, cy: y - 14, r: 20, fill: TONE[tone], opacity: .85}, g);
+  el('path', {d: `M${x - 34} ${y + 38} Q${x} ${y - 4} ${x + 34} ${y + 38}`, fill: TONE[tone], opacity: .85}, g);
+  text(g, x, y + 110, k, {size: 30, weight: 700});
+  if (k === 'strategist') text(g, x, y + 142, sub, {size: 20, fill: '#9fb0cc', weight: 500});
+  else text(g, x, y - 88, sub, {size: 20, fill: '#9fb0cc', weight: 500});
+  show(g, t);
+});
+const ev = [[680, 1000], [800, 940], [980, 960], [1075, 1060], [760, 1110]];
+ev.forEach(([x, y], i) => {
+  link(`M${R.r[0]} ${R.r[1]} L${x} ${y}`, 7 + i * .35, {tone: 'cyan', w: 2.5});
+  const g = el('g', {}); el('circle', {cx: x, cy: y, r: 13, fill: '#5ee7ff'}, g); text(g, x, y + 40, 'ev', {size: 18, fill: '#9fb0cc'}); show(g, 7.2 + i * .35);
+});
+link(`M${R.c[0]} ${R.c[1]} L980 960`, 8.4, {tone: 'red', w: 2.5}); link(`M${R.c[0]} ${R.c[1]} L1075 1060`, 8.7, {tone: 'red', w: 2.5});
+[['say_r', 470, 650, 'cyan', 6.4], ['say_c', 1310, 650, 'red', 8.2], ['say_s', 1160, 1250, 'violet', 10.8]].forEach(([k, x, y, tone, t]) => {
+  const g = el('g', {}); el('rect', {x: x - 160, y: y - 32, width: 320, height: 54, rx: 27, fill: '#08101f', stroke: TONE[tone], 'stroke-width': 2}, g);
+  text(g, x, y + 4, k, {size: 24, fill: TONE[tone]}); show(g, t, t + 3.2);
+});
+card(1290, 900, 300, 70, 'h1', {tone: 'green', size: 23, rx: 14, tin: 9.2});
+card(1290, 990, 300, 70, 'h2', {tone: 'mute', size: 23, rx: 14, tin: 9.4});
+card(1290, 1080, 300, 70, 'h3', {tone: 'mute', size: 23, rx: 14, tin: 9.6});
+[[990, 10.6], [1080, 10.9]].forEach(([y, t]) => { const g = el('g', {});
+  el('line', {x1: 1160, y1: y, x2: 1420, y2: y, stroke: '#ff8a8a', 'stroke-width': 4}, g);
+  el('rect', {x: 1330, y: y - 50, width: 104, height: 26, rx: 8, fill: '#ff8a8a'}, g);
+  text(g, 1382, y - 31, 'dropped', {size: 16, weight: 800, fill: '#081018'}); show(g, t); });
+
+// 3 Product: the MVP Manager turns the concept into a testable spec
+card(1910, 640, 380, 100, 'mvpm', {tone: 'violet', sub: 'mvpm_s', size: 30, subSize: 20, tin: 13.6});
+[['notes', 1640, 14.2, 'cyan'], ['spec', 1910, 15.6, 'cyan'], ['check', 2180, 17, 'green']].forEach(([k, x, t, tone]) => {
+  card(x, 1010, 250, 260, '', {tone, tin: t});
+  const g = el('g', {}); text(g, x, 920, k, {size: 20, weight: 700});
+  for (let i = 0; i < 4; i++) el('rect', {x: x - 90, y: 950 + i * 34, width: 180 - (i % 2) * 50, height: 12, rx: 6, fill: '#22314a'}, g);
+  show(g, t + .2);
+});
+[['c1', 18], ['c2', 18.6], ['c3', 19.2]].forEach(([k, t], i) => { const g = el('g', {});
+  text(g, 2075, 1176 + i * 32, '✓', {size: 22, fill: '#7cf0a4', raw: true, anchor: 'start'});
+  text(g, 2103, 1176 + i * 32, k, {size: 19, anchor: 'start', fill: '#cfe0f5'}); show(g, t); });
+const pn = el('g', {}); text(pn, 1780, 1190, 'product_note', {size: 21, fill: '#c9b8ff'}); show(pn, 16.4);
+link('M2100 640 C2330 640 2330 700 2330 900 L2330 1000 L2355 1000', 19.6, {tone: 'violet', w: 4});
+const tb = el('g', {}); text(tb, 2112, 618, 'to_build', {size: 21, fill: '#a98bff', anchor: 'start'}); show(tb, 19.8, 31);
+
+// 4 Build / QA: agents assemble the product piece by piece, then branch → PR → CI → review
+const pv = el('g', {}); show(pv, 21.4);
+el('rect', {x: 2380, y: 600, width: 560, height: 260, rx: 18, fill: '#08101f', stroke: '#3fe0c0', 'stroke-width': 3}, pv);
+text(pv, 2400, 638, 'preview', {size: 21, anchor: 'start', fill: '#3fe0c0'});
+[[2400, 655, 520, 44, 22, 'pv_html'], [2400, 712, 250, 128, 22.6, 'pv_logic'], [2665, 712, 255, 58, 23.2, 'pv_api'], [2665, 782, 255, 58, 23.8, 'pv_data']].forEach(([x, y, w, h, t, k]) => {
+  const g = el('g', {});
+  el('rect', {x, y, width: w, height: h, rx: 8, fill: '#3fe0c022', stroke: '#3fe0c0', 'stroke-opacity': .5}, g);
+  text(g, x + w / 2, y + Math.min(h, 60) / 2 + 7, k, {size: 19, fill: '#bff7ea', weight: 600});
+  show(g, t); });
+[['ag_front', 'ag_front_s', 2420, 'cyan', 21.8], ['ag_back', 'ag_back_s', 2660, 'violet', 22.4], ['ag_qa', 'ag_qa_s', 2900, 'green', 23]].forEach(([k, sub, x, tone, t]) => {
+  const g = el('g', {}), y = 1250;
+  el('circle', {cx: x, cy: y, r: 44, fill: '#0d1729', stroke: TONE[tone], 'stroke-width': 3}, g);
+  el('circle', {cx: x, cy: y - 9, r: 12, fill: TONE[tone], opacity: .85}, g);
+  el('path', {d: `M${x - 22} ${y + 24} Q${x} ${y - 2} ${x + 22} ${y + 24}`, fill: TONE[tone], opacity: .85}, g);
+  text(g, x, y + 78, k, {size: 21, weight: 700}); text(g, x, y + 104, sub, {size: 18, fill: '#9fb0cc', weight: 500});
+  show(g, t);
+});
+const chain = [['branch', 2420, 24.2], ['pr', 2580, 25.6], ['ci', 2740, 27], ['review', 2900, 28.4]];
+chain.forEach(([k, x, t], i) => {
+  card(x, 1000, 130, 90, k, {tone: i > 1 ? 'green' : 'cyan', size: 26, rx: 16, tin: t});
+  if (i) link(`M${chain[i - 1][1] + 65} 1000 L${x - 65} 1000`, t - .3, {tone: 'cyan', w: 4, dur: .4});
+  if (i > 1) { const g = el('g', {}); el('rect', {x: x - 52, y: 925, width: 104, height: 30, rx: 8, fill: '#7cf0a4'}, g);
+    text(g, x, 947, '✓ ' + 'sample', {size: 18, weight: 800, fill: '#081018', raw: true, mono: true}); show(g, t + .8); }
+});
+const prn = el('g', {}); text(prn, 2660, 1420, 'pr_note', {size: 24, fill: '#ffc46b'}); show(prn, 29.2);
+
+// 5 Agent Office & Relay
+const office = el('g', {}); show(office, 31.4);
+el('rect', {x: 3060, y: 640, width: 800, height: 520, rx: 22, fill: '#070e1c', stroke: '#22314a', 'stroke-width': 3}, office);
+text(office, 3460, 690, 'office', {size: 26, fill: '#9fb0cc'});
+const COLS = ['queued', 'claimed', 'running', 'inrev', 'done'];
+COLS.forEach((k, i) => { const x = 3140 + i * 160;
+  el('rect', {x: x - 70, y: 715, width: 140, height: 330, rx: 12, fill: '#0d1729'}, office);
+  text(office, x, 748, k, {size: 20, mono: true, fill: ['#9fb0cc', '#ffc46b', '#5ee7ff', '#a98bff', '#7cf0a4'][i]}); });
+[[3140, 800], [3140, 960], [3460, 960], [3780, 800], [3780, 960]].forEach(([x, y]) => {
+  el('rect', {x: x - 58, y: y - 22, width: 116, height: 44, rx: 8, fill: '#16223a', stroke: '#2b3d5e'}, office); });
+const asg = el('g', {}); el('rect', {x: 3150, y: 1060, width: 300, height: 40, rx: 10, fill: '#ffc46b22', stroke: '#ffc46b'}, asg);
+text(asg, 3300, 1088, 'assigned', {size: 22, fill: '#ffc46b'}); show(asg, 33.4, 36);
+const op = el('g', {}); el('rect', {x: 3150, y: 1060, width: 620, height: 40, rx: 10, fill: '#5ee7ff1a', stroke: '#5ee7ff'}, op);
+text(op, 3460, 1088, 'office_plan', {size: 22, fill: '#5ee7ff'}); show(op, 36.3);
+const jr = el('g', {}); show(jr, 32);
+el('rect', {x: 3060, y: 1200, width: 800, height: 200, rx: 18, fill: '#070e1c', stroke: '#22314a', 'stroke-width': 2}, jr);
+text(jr, 3090, 1240, 'journal', {size: 22, anchor: 'start', fill: '#9fb0cc'});
+[['j1', 33], ['j2', 35], ['j3', 37]].forEach(([k, t], i) => { const g = el('g', {});
+  text(g, 3090, 1285 + i * 38, `DEMO-${i + 1} `, {size: 20, anchor: 'start', fill: '#5d7196', mono: true, raw: true});
+  text(g, 3200, 1285 + i * 38, k, {size: 20, anchor: 'start', fill: '#cfe0f5', mono: true}); show(g, t); });
+link(H(2965, 1000, 3070, 900), 30.5, {tone: 'cyan'});
+
+// 6 Split A/B  (A on TOP, B BELOW); packets ride beside the cards, never on top of their text
+const FX = 3950;
+const fk = el('g', {}); show(fk, 39.6);
+el('circle', {cx: FX, cy: 1000, r: 46, fill: '#0d1729', stroke: '#eef3ff', 'stroke-width': 3}, fk);
+text(fk, FX, 1010, 'A/B', {size: 26, weight: 800, raw: true});
+link(H(3860, 900, FX - 46, 1000), 39.3, {tone: 'cyan'});
+const abt = el('g', {}); text(abt, 4500, 1060, 'abt', {size: 20, fill: '#ffc46b'}); show(abt, 41);
+const bt = el('g', {}); text(bt, 4500, 1010, 'both_tests', {size: 26, weight: 700, fill: '#eef3ff'}); show(bt, 44);
+[['A', 600, 'cyan', 'audA', 'audA_s', 'landA', 'cfA'], ['B', 1400, 'violet', 'audB', 'audB_s', 'landB', 'cfB']].forEach(([n, y, tone, aud, auds, land, cf], j) => {
+  link(H(FX + 46, 1000, 4070, y), 40.2 + j * .3, {tone, w: 5});
+  card(4180, y, 220, 110, aud, {tone, sub: auds, size: 27, subSize: 20, tin: 40.8 + j * .4});
+  link(`M4290 ${y} L4370 ${y}`, 42.6 + j * .3, {tone, dur: .4});
+  const lp = card(4480, y, 220, 150, '', {tone, tin: 43 + j * .4});
+  text(lp, 4480, y - 40, land, {size: 26, weight: 700});
+  el('rect', {x: 4400, y: y - 20, width: 160, height: 22, rx: 6, fill: TONE[tone], opacity: .35}, lp);
+  el('rect', {x: 4400, y: y + 12, width: 110, height: 14, rx: 6, fill: '#22314a'}, lp);
+  el('rect', {x: 4400, y: y + 38, width: 90, height: 26, rx: 13, fill: TONE[tone]}, lp);
+  link(`M4590 ${y} L4620 ${y}`, 45 + j * .3, {tone, dur: .3});
+  const cfc = card(4760, y, 280, 150, '', {tone, tin: 45.6 + j * .4, tag: 'DEMO'});
+  text(cfc, 4760, y - 18, cf, {size: 25, weight: 700});
+  text(cfc, 4760, y + 20, 'drafts', {size: 18, fill: '#9fb0cc', weight: 500});
+  text(cfc, 4760, y + 48, 'drafts2', {size: 18, fill: '#ffc46b', weight: 600});
+});
+
+// 7 Independent promotion behind the owner's gate (camera visits A, then B)
+card(4700, 340, 380, 110, 'owner', {tone: 'amber', sub: 'owner_s', size: 34, tin: 50});
+const PD = [0, 3.6];   // branch B's promotion beats run after A's, while the camera is on B
+[['A', 600, 'cyan', 'fbA', 'ttA', 'packA'], ['B', 1400, 'violet', 'fbB', 'ttB', 'packB']].forEach(([n, y, tone, fb, tt, pack], j) => {
+  const d = PD[j];
+  link(`M4900 ${y} L4955 ${y}`, 49.6 + j * .3, {tone, dur: .3});
+  const gate = el('g', {}); show(gate, 50 + j * .3);
+  el('rect', {x: 4955, y: y - 60, width: 130, height: 120, rx: 18, fill: '#120d04', stroke: '#ffc46b', 'stroke-width': 3}, gate);
+  const lockClosed = el('g', {}, gate), lockOpen = el('g', {}, gate);
+  el('rect', {x: 4997, y: y - 6, width: 46, height: 38, rx: 6, fill: '#ffc46b'}, lockClosed);
+  el('path', {d: `M5006 ${y - 6} v-14 a14 14 0 0 1 28 0 v14`, fill: 'none', stroke: '#ffc46b', 'stroke-width': 6}, lockClosed);
+  el('rect', {x: 4997, y: y - 6, width: 46, height: 38, rx: 6, fill: '#7cf0a4'}, lockOpen);
+  el('path', {d: `M5006 ${y - 6} v-14 a14 14 0 0 1 28 0`, fill: 'none', stroke: '#7cf0a4', 'stroke-width': 6}, lockOpen);
+  show(lockClosed, 0, 53.4 + d); show(lockOpen, 53.4 + d);
+  const ly = j ? y - 100 : y + 92;  // status text away from the packet's lane
+  const st1 = el('g', {}); text(st1, 5020, ly, 'waiting', {size: 20, fill: '#ffc46b'}); show(st1, 50.6, 53.4 + d);
+  const st2 = el('g', {}); text(st2, 5020, ly, 'approved', {size: 20, fill: '#7cf0a4'}); text(st2, 5020, ly + 24, '(DEMO)', {size: 17, fill: '#7cf0a4', raw: true, mono: true}); show(st2, 53.6 + d);
+  link(j ? `M4890 380 L4912 380 L4912 ${y - 40} Q4912 ${y - 80} 4975 ${y - 62}` : `M4890 340 Q5020 340 5020 ${y - 62}`, 50.6 + j * .3, {tone: 'amber', w: 3, op: .6});
+  [[fb, y - 75, 54.4 + d], [tt, y + 75, 55 + d]].forEach(([k, yy, t]) => {
+    link(H(5085, y, 5160, yy), t - .3, {tone, dur: .4});
+    card(5290, yy, 260, 120, k, {tone, sub: pack, size: 26, subSize: 15, tin: t, tag: 'DEMO'});
+  });
+});
+
+// 8 Learn: separate funnels, NO DATA, converge into one evidence comparison
+const STEPS = ['visit', 'signup', 'action', 'repeat'];
+[['A', 600, 'cyan'], ['B', 1400, 'violet']].forEach(([n, y, tone], j) => {
+  link(H(5420, y, 5570, y), 59.4 + j * .3, {tone, dur: .4});
+  STEPS.forEach((k, i) => { const g = el('g', {}); const w = 360 - i * 60, x = 5750;
+    el('rect', {x: x - w / 2, y: y - 150 + i * 75, width: w, height: 60, rx: 10, fill: 'url(#hatch)', stroke: TONE[tone], 'stroke-opacity': .7, 'stroke-width': 2}, g);
+    text(g, x, y - 112 + i * 75, k, {size: 22, weight: 700});
+    show(g, 60 + i * .5 + j * .3); });
+  const nd = el('g', {}); el('rect', {x: 5690, y: y - 196, width: 120, height: 34, rx: 8, fill: '#5d7196'}, nd);
+  text(nd, 5750, y - 172, 'nodata', {size: 18, weight: 800, fill: '#04070f', mono: true}); show(nd, 62.4);
+  link(H(5930, y, 6110, 1000), 63.4 + j * .3, {tone, w: 5});
+});
+card(6300, 1000, 380, 130, 'compare', {tone: 'green', sub: 'notrct', size: 26, subSize: 18, tin: 64});
+card(6300, 1240, 240, 80, 'decision', {tone: 'amber', size: 28, tin: 65.6});
+link('M6300 1065 L6300 1200', 65.2, {tone: 'green', dur: .4});
+// feedback loop back to the MVP Manager and the idea
+link('M6300 1280 C6300 1820 5200 1840 3300 1840 C1400 1840 200 1800 200 1065', 66.4, {tone: 'amber', w: 5, dur: 2.2, op: .85});
+const fbk = el('g', {}); text(fbk, 3300, 1810, 'feedback', {size: 34, fill: '#ffc46b'}); show(fbk, 67);
+
+// 9 Supporting layer for the grand reveal
+link('M4510 340 C3600 180 1200 160 200 935', 68.4, {tone: 'amber', w: 3, op: .5, dur: 1.4});
+[['gh', 1300, 'teal'], ['notion', 2700, 'violet'], ['relay', 4100, 'cyan'], ['ao', 5500, 'green']].forEach(([k, x, tone], i) => {
+  card(x, 2020, 900, 110, k, {tone, size: 40, rx: 55, tin: 68.6 + i * .25});
+});
+
+/* ---------- Camera: keyframes of (t, cx, cy, view width) ---------- */
+const CAM = [
+  [0, 200, 1000, 760], [5, 200, 1000, 1000],
+  [6.2, 950, 972, 2050], [13, 970, 975, 1990],
+  [14.2, 1920, 885, 1760], [21, 1930, 885, 1700],
+  [22.2, 2670, 986, 2100], [31, 2690, 990, 2080],
+  [32.2, 3460, 1020, 1900], [39, 3470, 1020, 1840],
+  [40.4, 4400, 960, 3250], [49, 4430, 960, 3200],
+  [50.2, 5000, 790, 2450], [54.6, 5020, 790, 2400],      // branch A + the owner
+  [56, 5040, 1500, 2450], [59, 5050, 1500, 2400],        // branch B
+  [60.2, 5900, 925, 3050], [68, 5910, 930, 3000],
+  [72.5, 3300, 1250, 7600], [75, 3300, 1250, 7800]];
+const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+function camAt(t, reduced) {
+  if (reduced) { // jump straight to the settled framing of the current scene, no fly-through
+    const s = sceneIndex(t), end = SCENES[s].t1 - .001;
+    let k = CAM.length - 1; while (k > 0 && CAM[k][0] > end) k--; return CAM[k].slice(1);
+  }
+  if (t <= CAM[0][0]) return CAM[0].slice(1);
+  for (let i = 1; i < CAM.length; i++) if (t <= CAM[i][0]) {
+    const a = CAM[i - 1], b = CAM[i], u = ease((t - a[0]) / (b[0] - a[0]));
+    // zoom in log space so pull-backs feel like a camera, not a slide
+    return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, Math.exp(Math.log(a[3]) + (Math.log(b[3]) - Math.log(a[3])) * u)];
+  }
+  return CAM[CAM.length - 1].slice(1);
+}
+
+/* ---------- The luminous concept packet ---------- */
+// t, x, y, state key, label side ('a' above / 'b' below): the packet docks beside cards, never over their text
+const MAIN = [
+  [0, 200, 1000, 's_question', 'b'], [5, 200, 1000, 's_question', 'b'], [6.4, 900, 1000, 's_question', 'b'],
+  [7.4, 800, 940, 's_evidence', 'b'], [8.6, 980, 960, 's_evidence', 'b'], [9.6, 900, 1060, 's_evidence', 'b'], [11.6, 1290, 790, 's_evidence', 'a'],
+  [13, 1290, 790, 's_evidence', 'a'], [14.4, 1640, 820, 's_evidence', 'a'], [16, 1910, 820, 's_spec', 'a'], [17.6, 2180, 820, 's_spec', 'a'],
+  [19.6, 2180, 820, 's_spec', 'a'], [21, 2330, 1090, 's_spec', 'b'], [24.4, 2420, 1090, 's_pr', 'b'], [25.8, 2580, 1090, 's_pr', 'b'],
+  [27.2, 2740, 1090, 's_pr', 'b'], [28.6, 2900, 1090, 's_pr', 'b'], [31, 2900, 1090, 's_pr', 'b'],
+  [32.2, 3140, 880, 's_task', 'b'], [33.4, 3300, 820, 's_task', 'b'], [35, 3460, 820, 's_task', 'b'], [36.4, 3620, 820, 's_task', 'b'],
+  [37.8, 3780, 880, 's_task', 'b'], [39.6, FX, 1000, 's_task', 'b']];
+const BR = (j) => { // one branch after the fork; A rides above its lane, B below
+  const y = j ? 1400 : 600, s = j ? 'b' : 'a', o = j ? 140 : -140, d = PD[j];
+  return [[39.6, FX, 1000, 's_task', s], [41, 4180, y + o, 's_pages', s], [43.4, 4480, y + o, 's_pages', s], [46, 4760, y + o, 's_promo', s],
+    [49, 4760, y + o, 's_promo', s], [50.6 + d, 5020, y + o, 's_promo', s], [53.4 + d, 5020, y + o, 's_promo', s],
+    [55.4 + d, 5290, y + (j ? 210 : -210), 's_promo', s], [Math.max(59, 55.6 + d), 5290, y + (j ? 210 : -210), 's_promo', s],
+    [60.4, 5520, y + o, 's_obs', s], [62.6, 6000, j ? 1300 : 700, 's_obs', s], [64.4, 6040, 1000, 's_obs', 'b']];
+};
+const DEC = [[64.4, 6040, 1000, 's_obs', 'b'], [66, 6040, 1240, 's_decision', 'b'], [67, 6300, 1420, 's_decision', 'b'], [68.8, 5600, 1840, 's_decision', 'b'],
+  [71, 3300, 1840, 's_decision', 'b'], [73, 1000, 1840, 's_decision', 'b'], [74.4, 200, 1180, 's_question', 'b'], [75, 200, 1160, 's_question', 'b']];
+function along(path, t, reduced) {
+  if (t <= path[0][0]) return path[0];
+  for (let i = 1; i < path.length; i++) if (t <= path[i][0]) {
+    const a = path[i - 1], b = path[i];
+    if (reduced) return a;
+    const u = ease((t - a[0]) / (b[0] - a[0]));
+    return [t, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, u > .5 ? b[3] : a[3], u > .5 ? b[4] : a[4]];
+  }
+  return path[path.length - 1];
+}
+function packet(color) {
+  const g = el('g', {});
+  el('circle', {r: 46, fill: color, opacity: .55, filter: 'url(#glow)'}, g);
+  el('circle', {r: 17, fill: '#fff'}, g);
+  const ring = el('circle', {r: 30, fill: 'none', stroke: color, 'stroke-width': 3, opacity: .9}, g);
+  const lab = el('g', {}, g);
+  const bg = el('rect', {x: -90, y: 44, width: 180, height: 36, rx: 18, fill: '#04070fe6', stroke: color, 'stroke-width': 2}, lab);
+  const tx = el('text', {x: 0, y: 70, 'text-anchor': 'middle', 'font-size': 22, 'font-weight': 700, fill: '#eef3ff', class: 'lbl'}, lab);
+  return {g, ring, tx, bg, lab};
+}
+const P = {main: packet('#5ee7ff'), a: packet('#5ee7ff'), b: packet('#a98bff')};
+
+/* ---------- Render: everything is a pure function of t ---------- */
+const $ = id => document.getElementById(id);
+const stage = $('stage'), hook = $('hook'), tagline = $('tagline'), endmark = $('endmark');
+let t = 0, playing = false, last = 0, reduced = matchMedia('(prefers-reduced-motion: reduce)').matches, lastScene = -1, lastMsgT = -1;
+function sceneIndex(x) { for (let i = SCENES.length - 1; i >= 0; i--) if (x >= SCENES[i].t0) return i; return 0; }
+const fade = (x, tin, tout, d = .45) => clamp((x - tin) / d) * (tout === undefined ? 1 : clamp((tout - x) / d));
+
+function setPacket(p, state, x, y, op, ts, side) {
+  p.g.setAttribute('transform', `translate(${x} ${y})`);
+  p.lab.setAttribute('transform', side === 'a' ? 'translate(0 -124)' : '');
+  p.g.style.opacity = op;
+  p.ring.setAttribute('r', 30 + (reduced ? 0 : 6 * Math.sin(ts * 5)));
+  const s = tr(state); if (p.tx.textContent !== s) { p.tx.textContent = s; const w = Math.max(120, s.length * 13 + 40); p.bg.setAttribute('x', -w / 2); p.bg.setAttribute('width', w); }
+}
+function render() {
+  const s = sceneIndex(t);
+  // camera; portrait screens frame tighter so labels stay legible
+  const [cx, cy, w0] = camAt(t, reduced);
+  const r = stage.getBoundingClientRect(), aspect = r.height / Math.max(1, r.width);
+  const w = aspect > 1 ? w0 * (.62 + .38 * clamp((w0 - 3500) / 3000)) : w0, h = w * aspect;
+  // captions overlay the bottom of the frame, so the subject sits above them
+  const cyv = cy + (aspect > 1 ? .14 : .12) * h;
+  svg.setAttribute('viewBox', `${(cx - w / 2).toFixed(1)} ${(cyv - h / 2).toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}`);
+  // hook: push through the physical monitor
+  const push = reduced ? 0 : ease(clamp((t - 2.6) / 2.4));
+  if (!push) { // zoom into the glowing dot itself, wherever the layout put it
+    const dr = hook.querySelector('.dot').getBoundingClientRect(), hr = hook.getBoundingClientRect();
+    if (hr.width) hook.style.transformOrigin = `${dr.left + dr.width / 2 - hr.left}px ${dr.top + dr.height / 2 - hr.top}px`;
+  }
+  hook.style.transform = `scale(${1 + push * 7})`;
+  hook.style.opacity = reduced ? (t < 4.4 ? 1 : 0) : 1 - clamp((t - 4.1) / .9);
+  hook.style.visibility = t > 5.05 ? 'hidden' : 'visible';
+  tagline.style.opacity = fade(t, .05, 3.6, .35);
+  svg.style.opacity = clamp((t - 3.4) / 1.4);
+  const endOp = fade(t, 72.6, undefined, .8);
+  endmark.style.opacity = endOp; $('caps').style.opacity = 1 - endOp;   // the end mark takes over the caption band
+  for (const e of timed) e.node.style.opacity = fade(t, e.tin, e.tout);
+  for (const d of draws) {
+    const u = reduced ? (t >= d.tin ? 1 : 0) : clamp((t - d.tin) / d.dur);
+    d.p.setAttribute('stroke-dashoffset', 1 - u);
+    d.p.style.visibility = (u > 0 && (d.tout === undefined || t < d.tout)) ? 'visible' : 'hidden';
+  }
+  // packets: one until the fork, two independent ones for A/B, one again for the decision
+  const m = along(MAIN, t, reduced), a = along(BR(0), t, reduced), b = along(BR(1), t, reduced), d = along(DEC, t, reduced);
+  if (t < 39.6) setPacket(P.main, m[3], m[1], m[2], 1, t, m[4]);
+  else if (t >= 64.4) setPacket(P.main, d[3], d[1], d[2], 1, t, d[4]);
+  else setPacket(P.main, m[3], m[1], m[2], 0, t, m[4]);
+  const split = t >= 39.6 && t < 64.4 ? 1 : 0;
+  setPacket(P.a, a[3], a[1], a[2], split, t, a[4]); setPacket(P.b, b[3], b[1], b[2], split, t, b[4]);
+  // captions: kinetic per scene
+  if (s !== lastScene) { buildCaption(s); lastScene = s; }
+  const local = t - SCENES[s].t0;
+  document.querySelectorAll('#msg span').forEach((sp, i) => {
+    const u = reduced ? 1 : clamp((local - .25 - i * .09) / .35);
+    sp.style.opacity = u; sp.style.transform = `translateY(${(1 - u) * 12}px)`;
+  });
+  $('vo').style.opacity = reduced ? 1 : clamp((local - .6) / .5);
+  // chrome
+  $('sceneTag').textContent = `${s + 1}/9 · ${L[lang].scenes[s]}`;
+  $('scrub').value = t.toFixed(1);
+  $('time').textContent = `${fmt(t)} / ${fmt(T)}`;
+  document.querySelectorAll('#nav button').forEach((bt, i) => bt.setAttribute('aria-current', String(i === s)));
+  $('play').textContent = playing ? L[lang].pause : (t >= T ? L[lang].replay : L[lang].play);
+}
+function buildCaption(s) {
+  const msg = $('msg'); msg.textContent = '';
+  L[lang].msg[s].split(' ').forEach((wd, i, arr) => { const sp = document.createElement('span'); sp.textContent = wd + (i < arr.length - 1 ? ' ' : ''); msg.appendChild(sp); });
+  $('vo').textContent = L[lang].vo[s];
+  stage.setAttribute('aria-label', `${L[lang].scenes[s]}: ${L[lang].msg[s]} ${L[lang].vo[s]}`);
+}
+const fmt = x => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`;
+
+/* ---------- Playback ---------- */
+function frame(now) {
+  if (playing) {
+    const dt = Math.min(.1, (now - last) / 1000); last = now;
+    t = Math.min(T, t + dt);
+    if (t >= T) playing = false;
+    render();
+  }
+  requestAnimationFrame(frame);
+}
+function play() { if (t >= T) t = 0; playing = true; last = performance.now(); render(); }
+function pause() { playing = false; render(); }
+function seek(x) { t = clamp(x, 0, T); render(); }
+function goScene(i) { i = clamp(i, 0, SCENES.length - 1); seek(SCENES[i].t0 + (i ? .001 : 0)); }
+$('play').onclick = () => playing ? pause() : play();
+$('restart').onclick = () => { seek(0); play(); };
+$('prev').onclick = () => { const s = sceneIndex(t); goScene(t - SCENES[s].t0 > 1.5 ? s : s - 1); };
+$('next').onclick = () => goScene(sceneIndex(t) + 1);
+$('scrub').oninput = e => seek(parseFloat(e.target.value));
+$('rm').checked = reduced;
+$('rm').onchange = e => { reduced = e.target.checked; render(); };
+$('lang').onchange = e => setLang(e.target.value);
+document.addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('input,select')) return;
+  if (e.key === ' ' || e.key === 'k') { e.preventDefault(); playing ? pause() : play(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); $('next').click(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); $('prev').click(); }
+  else if (e.key === 'Home') { e.preventDefault(); seek(0); }
+});
+const nav = $('nav');
+SCENES.forEach((sc, i) => { const b = document.createElement('button'); b.type = 'button'; b.onclick = () => goScene(i); nav.appendChild(b); });
+function setLang(l) {
+  lang = L[l] ? l : 'ru'; document.documentElement.lang = lang; $('lang').value = lang;
+  document.querySelectorAll('[data-t]').forEach(n => { n.textContent = L[lang][n.dataset.t]; });
+  document.querySelectorAll('#world [data-k]').forEach(n => { n.textContent = tr(n.dataset.k); });
+  nav.querySelectorAll('button').forEach((b, i) => { b.innerHTML = ''; const k = document.createElement('b');
+    k.textContent = `${fmt(SCENES[i].t0)}`; b.appendChild(k); b.appendChild(document.createTextNode(L[lang].scenes[i])); });
+  lastScene = -1; render();
+}
+addEventListener('resize', render);
+// test / review hooks: ?t=42&lang=en&paused=1
+const q = new URLSearchParams(location.search);
+window.explainer = {seek, play, pause, goScene, state: () => ({t, playing, scene: SCENES[sceneIndex(t)].id, lang, reduced}), duration: T, scenes: SCENES};
+setLang(q.get('lang') || 'ru');
+if (q.get('reduced') === '1') { reduced = true; $('rm').checked = true; }
+seek(parseFloat(q.get('t')) || 0);
+if (q.get('paused') !== '1' && !q.get('t')) play();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
