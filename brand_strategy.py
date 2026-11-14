@@ -178,6 +178,27 @@ class StrategyStore:
             return [{"brand": b, "name": p.get("name", b), "approved": sum(s["state"] == "approved" for s in p["steps"].values()),
                      "version": p.get("version", 0)} for b, p in sorted(data.items())]
 
+    def link_job(self, brand: str, job_id: str) -> dict:
+        """Owner link of a job made outside any plan. Unique: other brands' links to it are removed. A job that
+        already belongs to a brand's plan cannot be relinked (409). Refuses (409) rather than evicting at the cap."""
+        with self.lock():
+            data = self._load()
+            p = self._passport(data, brand)
+            for other in data.values():
+                if any(it.get("job_id") == job_id for it in (other.get("plan") or {}).get("items") or []):
+                    if other is p:
+                        return p
+                    raise HTTPException(409, "this job belongs to another brand's content plan")
+            links = [j for j in p.get("linked_jobs") or [] if j != job_id]
+            if len(links) >= MAX_LINKED_JOBS:
+                raise HTTPException(409, "too many linked jobs for this brand")
+            for other in data.values():
+                if other is not p and job_id in (other.get("linked_jobs") or []):
+                    other["linked_jobs"] = [j for j in other["linked_jobs"] if j != job_id]
+            p["linked_jobs"] = links + [job_id]
+            self._save(data)
+            return p
+
     def update(self, brand: str, fn) -> dict:
         with self.lock():
             data = self._load()
@@ -354,12 +375,16 @@ def agent_context(p: dict, agent: str, item: Optional[dict] = None) -> str:
     if not parts:
         return ""
     head = [f"## Master Brief бренда {p.get('name') or p['brand']} — обязательный контекст"]
+    # Codex review on #361: share the size budget across sections so tone and CTA are never cut away entirely.
     if item:
         head.append(f"Эта задача: столп {item.get('pillar') or '—'}, этап воронки {item.get('funnel')}, формат "
                     f"{item.get('format') or '—'}, площадка {item.get('platform') or '—'}, CTA: {item.get('cta') or '—'}.")
     if AGENT_RULES.get(agent):
         head.append(AGENT_RULES[agent])
-    return ("\n".join(head) + "\n\n" + "\n\n".join(parts))[:AGENT_BRIEF_LIMIT]
+    head_text = "\n".join(head)
+    share = max(300, (AGENT_BRIEF_LIMIT - len(head_text) - 2 * len(parts)) // len(parts))
+    parts = [x if len(x) <= share else x[:share - 1].rstrip() + "…" for x in parts]
+    return head_text + "\n\n" + "\n\n".join(parts)
 
 
 def brand_for_job(store: "StrategyStore", job_id: str) -> tuple:
@@ -371,18 +396,25 @@ def brand_for_job(store: "StrategyStore", job_id: str) -> tuple:
             data = store._load()
         except StoreUnreadable:
             return None, None
+    # Codex review on #361: a plan's own job always belongs to that brand, whatever the store order; a manual link
+    # is unique (linking elsewhere moves it), so at most one brand can claim a linked job.
     for p in data.values():
         for it in (p.get("plan") or {}).get("items") or []:
             if it.get("job_id") == job_id:
                 return p, it
+    for p in data.values():
         if job_id in (p.get("linked_jobs") or []):
             return p, None
     return None, None
 
 
+MAX_LINKED_JOBS = 2000
+
+
 def install_strategy_routes(app, store: StrategyStore, *, identity: Callable,
                             draft: Callable[[str, str, str], Awaitable[dict]],
-                            create_job: Optional[Callable[[str, str, str], Awaitable[str]]] = None) -> None:
+                            create_job: Optional[Callable[[str, str, str], Awaitable[str]]] = None,
+                            job_exists: Optional[Callable[[str], bool]] = None) -> None:
     """draft(agent, system, user) → {"content": ..., "cost_usd": ...}; raises RuntimeError with a readable reason."""
 
     def owner(request: Request):
@@ -579,12 +611,9 @@ def install_strategy_routes(app, store: StrategyStore, *, identity: Callable,
     def strategy_link_job(brand: str, job_id: str, request: Request):
         """Attach an existing job (made outside the plan) to this brand so its agents get the Master Brief."""
         owner(request)
-        if not re.fullmatch(r"[0-9a-f-]{8,64}", job_id or ""):
+        if not re.fullmatch(r"[0-9a-f-]{8,64}", job_id or "") or (job_exists is not None and not job_exists(job_id)):
             raise HTTPException(404, "unknown job")
-
-        def apply(q):
-            q["linked_jobs"] = ([j for j in q.get("linked_jobs") or [] if j != job_id] + [job_id])[-500:]
-        return {"passport": view(store.update(brand_ok(brand), apply))}
+        return {"passport": view(store.link_job(brand_ok(brand), job_id))}
 
     @app.get("/api/factory/strategy/{brand}/brief.md")
     def strategy_brief(brand: str, request: Request, drafts: int = 0):

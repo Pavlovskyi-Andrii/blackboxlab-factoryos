@@ -932,7 +932,16 @@ async def _strategy_job(title, brief, fmt):
     return out["id"]
 
 
-install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft, create_job=_strategy_job)
+def _strategy_job_exists(job_id):
+    con = db()
+    try:
+        return con.execute("SELECT 1 FROM jobs WHERE id=?", (job_id,)).fetchone() is not None
+    finally:
+        con.close()
+
+
+install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft, create_job=_strategy_job,
+                        job_exists=_strategy_job_exists)
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
