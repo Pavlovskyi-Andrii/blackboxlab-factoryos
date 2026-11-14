@@ -192,15 +192,16 @@ class StrategyTest(unittest.TestCase):
         h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
         p = run(h[("POST", "/api/factory/strategy/{brand}/plan/generate")]("mycast", Req({"start": "2026-12-01", "per_week": 3, "weeks": 2})))["passport"]
         self.assertEqual([i["title"] for i in p["plan"]["items"]], ["Пост 1", "Пост 2"])
-        job = h[("POST", "/api/factory/strategy/{brand}/plan/items/{i}/job")]
-        first = run(job("mycast", 0, Req({})))
-        again = run(job("mycast", 0, Req({})))
+        job = h[("POST", "/api/factory/strategy/{brand}/plan/items/{item_id}/job")]
+        ids = [i["id"] for i in p["plan"]["items"]]
+        first = run(job("mycast", ids[0], Req({})))
+        again = run(job("mycast", ids[0], Req({})))
         self.assertEqual((first["job_id"], again["job_id"], again["existing"], len(made)), ("job-1", "job-1", True, 1))
         self.assertIn("CTA: c", made[0][1])
         self.assertIn("Tone of Voice", made[0][1])
         with self.assertRaises(HTTPException):
-            run(job("mycast", 9, Req({})))
-        p = h[("POST", "/api/factory/strategy/{brand}/plan/items/{i}/delete")]("mycast", 1, Req())["passport"]
+            run(job("mycast", "pi_0000000000", Req({})))
+        p = h[("POST", "/api/factory/strategy/{brand}/plan/items/{item_id}/delete")]("mycast", ids[1], Req())["passport"]
         self.assertEqual(len(p["plan"]["items"]), 1)
 
         async def junk(*a):
@@ -212,6 +213,60 @@ class StrategyTest(unittest.TestCase):
             run(h2[("POST", "/api/factory/strategy/{brand}/plan/generate")]("mycast", Req({})))
         self.assertEqual(e.exception.status_code, 502)
         self.assertEqual(len(self.store.get("mycast")["plan"]["items"]), 1)      # unusable answer changes nothing
+
+
+    def test_job_claim_is_atomic_and_follows_the_row_not_its_position(self):
+        # Codex review on #358: two clicks -> one job; deleting other rows meanwhile never misattaches it.
+        store, made = self.store, []
+        ids = [i["id"] for i in store.get("mycast")["plan"]["items"]]
+        self.assertEqual(len(set(ids)), 20)
+        h_holder = {}
+
+        async def create_job(title, brief, fmt):
+            made.append(title)
+            if len(made) == 1:                        # while the first job is being created...
+                with self.assertRaises(HTTPException) as e:          # ...a second click is refused
+                    await h_holder["job"]("mycast", ids[3], Req({}))
+                self.assertEqual(e.exception.status_code, 409)
+                h_holder["del"]("mycast", ids[0], Req())              # ...and an earlier row is deleted
+            return "job-A"
+
+        async def draft(*a):
+            return {"content": "[]"}
+        app = fastapi.FastAPI()
+        bs.install_strategy_routes(app, store, identity=lambda r: {"role": "owner"}, draft=draft, create_job=create_job)
+        h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+        h_holder["job"] = h[("POST", "/api/factory/strategy/{brand}/plan/items/{item_id}/job")]
+        h_holder["del"] = h[("POST", "/api/factory/strategy/{brand}/plan/items/{item_id}/delete")]
+        out = run(h_holder["job"]("mycast", ids[3], Req({})))
+        self.assertEqual((out["job_id"], made), ("job-A", [made[0]]))
+        rows = {i["id"]: i for i in store.get("mycast")["plan"]["items"]}
+        self.assertNotIn(ids[0], rows)
+        self.assertEqual(rows[ids[3]]["job_id"], "job-A")
+        self.assertFalse(any(r.get("job_id") for k, r in rows.items() if k != ids[3]))
+        self.assertFalse(any(r.get("job_claim") for r in rows.values()))
+
+    def test_a_pending_generation_never_replaces_changes_made_meanwhile(self):
+        store = self.store
+        gone = store.get("mycast")["plan"]["items"][0]["id"]
+        holder = {}
+
+        async def draft(*a):
+            holder["del"]("mycast", gone, Req())            # the owner deletes a row while the plan is written
+            return {"content": '[{"day": 1, "title": "new"}]'}
+        app = fastapi.FastAPI()
+        bs.install_strategy_routes(app, store, identity=lambda r: {"role": "owner"}, draft=draft)
+        h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+        holder["del"] = h[("POST", "/api/factory/strategy/{brand}/plan/items/{item_id}/delete")]
+        with self.assertRaises(HTTPException) as e:
+            run(h[("POST", "/api/factory/strategy/{brand}/plan/generate")]("mycast", Req({})))
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertEqual(len(store.get("mycast")["plan"]["items"]), 19)       # the deletion survived
+
+    def test_settings_never_ask_for_more_rows_than_are_kept(self):
+        st = bs.plan_settings({"per_week": 14, "weeks": 6})
+        self.assertLessEqual(st["per_week"] * st["weeks"], bs.MAX_PLAN_ITEMS)
+        self.assertEqual((st["per_week"], st["weeks"]), (14, 4))
 
 
 if __name__ == "__main__":

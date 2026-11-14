@@ -166,7 +166,7 @@ class StrategyStore:
             data = self._load()
             fresh = brand not in data or ("plan" not in data[brand] and bool((self.seeds.get(brand) or {}).get("plan")))
             p = self._passport(data, brand)
-            if fresh:
+            if _ensure_ids(p) or fresh:
                 self._save(data)
             return p
 
@@ -182,6 +182,7 @@ class StrategyStore:
         with self.lock():
             data = self._load()
             p = self._passport(data, brand)
+            _ensure_ids(p)
             if fn(p) is False:                    # the change was refused (e.g. stale draft): write nothing
                 return p
             self._save(data)
@@ -243,10 +244,21 @@ def parse_plan(text: str, settings: dict) -> list:
         item = {k: _clean(r.get(k), 300 if k in ("title", "hook", "cta") else 80) for k in PLAN_FIELDS}
         item["funnel"] = item["funnel"].upper() if item["funnel"].upper() in FUNNEL else "TOFU"
         item["day"] = day
+        item["id"] = "pi_" + secrets.token_hex(5)
         out.append(item)
         if len(out) >= MAX_PLAN_ITEMS:
             break
     return sorted(out, key=lambda x: x["day"])
+
+
+def _ensure_ids(p: dict) -> bool:
+    """Every plan row gets a durable id (Codex review on #358: never address rows by array index)."""
+    changed = False
+    for it in (p.get("plan") or {}).get("items") or []:
+        if not it.get("id"):
+            it["id"] = "pi_" + secrets.token_hex(5)
+            changed = True
+    return changed
 
 
 def plan_view(plan: dict) -> dict:
@@ -278,6 +290,7 @@ def plan_settings(body: dict) -> dict:
         weeks = min(6, max(1, int(body.get("weeks") or 4)))
     except (TypeError, ValueError):
         per_week, weeks = 5, 4
+    weeks = min(weeks, max(1, MAX_PLAN_ITEMS // per_week))      # never ask for more rows than are kept (≤ 60)
     return {"start": start, "per_week": per_week, "weeks": weeks, "platforms": _clean(body.get("platforms"), 200)}
 
 
@@ -419,6 +432,7 @@ def install_strategy_routes(app, store: StrategyStore, *, identity: Callable,
         owner(request)
         settings = plan_settings(await body(request))
         p = store.get(brand_ok(brand))
+        base_rev = int((p.get("plan") or {}).get("rev", 0))
         system, user = plan_prompt(p, settings)
         try:
             out = await draft("Angle Strategist", system, user)
@@ -428,41 +442,78 @@ def install_strategy_routes(app, store: StrategyStore, *, identity: Callable,
         if not items:
             raise HTTPException(502, "the model did not return a usable plan; nothing was changed")
 
-        def apply(q):
-            q["plan"] = {"settings": settings, "items": items, "updated": _now(), "by": "llm"}
-        return {"passport": view(store.update(brand, apply)), "cost_usd": out.get("cost_usd", 0)}
+        stale = {}
 
-    @app.post("/api/factory/strategy/{brand}/plan/items/{i}/delete")
-    def strategy_plan_delete(brand: str, i: int, request: Request):
+        def apply(q):
+            cur = q.get("plan") or {}
+            if int(cur.get("rev", 0)) != base_rev or any(it.get("job_claim") for it in cur.get("items") or []):
+                stale["yes"] = True                # rows changed or a job is being created meanwhile: keep them
+                return False
+            q["plan"] = {"settings": settings, "items": items, "updated": _now(), "by": "llm", "rev": base_rev + 1}
+        q = store.update(brand, apply)
+        if stale:
+            raise HTTPException(409, "the plan changed while the new one was being written; nothing was replaced")
+        return {"passport": view(q), "cost_usd": out.get("cost_usd", 0)}
+
+    ITEM_RE = re.compile(r"^pi_[0-9a-f]{10}$")
+
+    def find(q: dict, item_id: str) -> Optional[dict]:
+        return next((it for it in (q.get("plan") or {}).get("items") or [] if it.get("id") == item_id), None)
+
+    @app.post("/api/factory/strategy/{brand}/plan/items/{item_id}/delete")
+    def strategy_plan_delete(brand: str, item_id: str, request: Request):
         owner(request)
 
         def apply(q):
-            items = (q.get("plan") or {}).get("items") or []
-            if not 0 <= i < len(items):
+            it = find(q, item_id) if ITEM_RE.fullmatch(item_id or "") else None
+            if not it:
                 raise HTTPException(404, "unknown plan item")
-            items.pop(i)
+            if it.get("job_claim"):
+                raise HTTPException(409, "a job is being created for this row")
+            q["plan"]["items"].remove(it)
+            q["plan"]["rev"] = int(q["plan"].get("rev", 0)) + 1
         return {"passport": view(store.update(brand_ok(brand), apply))}
 
-    @app.post("/api/factory/strategy/{brand}/plan/items/{i}/job")
-    async def strategy_plan_job(brand: str, i: int, request: Request):
-        """A plan row becomes a factory job (inbox) whose brief carries pillar, funnel stage, hook, CTA and tone."""
+    @app.post("/api/factory/strategy/{brand}/plan/items/{item_id}/job")
+    async def strategy_plan_job(brand: str, item_id: str, request: Request):
+        """A plan row becomes a factory job (inbox) whose brief carries pillar, funnel stage, hook, CTA and tone.
+        Codex review on #358: the row is claimed atomically under the store lock before the job exists, so two clicks
+        make one job, and the job is attached to the row by its durable id, never by position."""
         owner(request)
         if create_job is None:
             raise HTTPException(503, "job creation is not available")
-        p = store.get(brand_ok(brand))
-        items = (p.get("plan") or {}).get("items") or []
-        if not 0 <= i < len(items):
+        if not ITEM_RE.fullmatch(item_id or ""):
             raise HTTPException(404, "unknown plan item")
-        it = items[i]
-        if it.get("job_id"):
-            return {"passport": view(p), "job_id": it["job_id"], "existing": True}
-        job_id = await create_job(it["title"], job_brief(p, it), it.get("format") or "")
+        token, claimed = secrets.token_hex(6), {}
 
-        def apply(q):
-            row = q["plan"]["items"][i]
-            if row.get("title") == it["title"] and not row.get("job_id"):
-                row["job_id"] = job_id
-        return {"passport": view(store.update(brand, apply)), "job_id": job_id, "existing": False}
+        def claim(q):
+            it = find(q, item_id)
+            if not it:
+                raise HTTPException(404, "unknown plan item")
+            if it.get("job_id"):
+                claimed["existing"] = it["job_id"]
+                return False
+            c = it.get("job_claim") or {}
+            if c and _now() - int(c.get("at", 0)) < 120:
+                raise HTTPException(409, "a job for this row is already being created")
+            it["job_claim"] = {"token": token, "at": _now()}
+            claimed["row"], claimed["brief"] = dict(it), job_brief(q, it)
+        p = store.update(brand_ok(brand), claim)
+        if "existing" in claimed:
+            return {"passport": view(p), "job_id": claimed["existing"], "existing": True}
+        row = claimed["row"]
+        try:
+            job_id = await create_job(row["title"], claimed["brief"], row.get("format") or "")
+        except Exception:
+            store.update(brand, lambda q: (find(q, item_id) or {}).pop("job_claim", None))
+            raise
+
+        def attach(q):
+            it = find(q, item_id)
+            if it and (it.get("job_claim") or {}).get("token") == token:
+                it.pop("job_claim", None)
+                it["job_id"] = job_id
+        return {"passport": view(store.update(brand, attach)), "job_id": job_id, "existing": False}
 
     @app.get("/api/factory/strategy/{brand}/brief.md")
     def strategy_brief(brand: str, request: Request, drafts: int = 0):
