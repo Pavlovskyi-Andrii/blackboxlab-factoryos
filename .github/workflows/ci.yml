@@ -227,6 +227,8 @@ jobs:
           python test_mycast_calendar.py
           python -m py_compile mycast_public.py test_mycast_public.py
           python test_mycast_public.py
+          python -m py_compile brand_strategy.py brand_strategy_seeds.py test_brand_strategy.py
+          python test_brand_strategy.py
           python -m py_compile test_mycast_domain.py
           python test_mycast_domain.py
           python -m py_compile browser_tasks.py autopilot/browser_tasks.py browser_runner/egress_proxy.py test_browser_tasks.py
