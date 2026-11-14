@@ -99,5 +99,57 @@ class StrategyTest(unittest.TestCase):
         self.assertEqual(self.store.get("mycast")["steps"]["4"]["text"], before)
 
 
+    def test_an_edit_or_approval_during_a_pending_draft_always_wins(self):
+        # Codex review on #357: the LLM answer must never overwrite work done while it was being written.
+        store = self.store
+
+        async def slow_draft(agent, system, user):
+            store.update("mycast", lambda p: p["steps"]["6"].update(text="owner wrote this", state="approved", updated=999))
+            return {"content": "late LLM text"}
+        app = fastapi.FastAPI()
+        bs.install_strategy_routes(app, store, identity=lambda r: {"role": "owner"}, draft=slow_draft)
+        h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+        with self.assertRaises(HTTPException) as e:
+            run(h[("POST", "/api/factory/strategy/{brand}/steps/{n}/draft")]("mycast", 6, Req({})))
+        self.assertEqual(e.exception.status_code, 409)
+        step = store.get("mycast")["steps"]["6"]
+        self.assertEqual((step["text"], step["state"]), ("owner wrote this", "approved"))
+
+    def test_unreadable_file_is_never_overwritten(self):
+        path = pathlib.Path(self.tmp.name) / "s.json"
+        self.store.get("mycast")
+        path.write_text("{ not json", encoding="utf-8")
+        for call in (lambda: self.store.get("mycast"), lambda: self.store.update("mycast", lambda p: None),
+                     lambda: self.store.brands()):
+            with self.assertRaises(bs.StoreUnreadable):
+                call()
+        self.assertEqual(path.read_text(encoding="utf-8"), "{ not json")         # untouched, nothing wiped
+
+    def test_two_store_instances_in_parallel_lose_no_update(self):
+        import threading
+        path = pathlib.Path(self.tmp.name) / "s.json"
+        a, b = bs.StrategyStore(path, seeds=SEEDS), bs.StrategyStore(path, seeds=SEEDS)
+
+        def write(store, n):
+            for i in range(15):
+                store.update("mycast", lambda p, i=i: p["inputs"].__setitem__(f"x{n}_{i}", str(i)))
+        threads = [threading.Thread(target=write, args=(st, n)) for n, st in enumerate((a, b, a, b))]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        keys = [k for k in a.get("mycast")["inputs"] if k.startswith("x")]
+        self.assertEqual(len(keys), 60)
+        self.assertEqual([x for x in path.parent.iterdir() if x.name.endswith(".tmp")], [])
+
+    def test_brief_with_drafts_labels_them_and_keeps_the_missing_list(self):
+        self.store.update("mycast", lambda p: p["steps"]["1"].update(state="approved"))
+        brief = bs.master_brief(self.store.get("mycast"), approved_only=False)
+        self.assertIn("## 1. Цель и KPI\n", brief)
+        self.assertIn("## 2. Распаковка и позиционирование — ЧЕРНОВИК, не утверждён", brief)
+        self.assertIn("Ещё не утверждено: Распаковка", brief)
+        self.assertNotIn("Цель и KPI,", brief.split("Ещё не утверждено:")[1])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

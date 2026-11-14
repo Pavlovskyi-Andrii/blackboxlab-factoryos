@@ -8,8 +8,12 @@ The approved steps assemble into one Master Brief that later becomes the shared 
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
+import os
 import re
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -94,22 +98,40 @@ def _now() -> int:
     return int(time.time())
 
 
+class StoreUnreadable(RuntimeError):
+    """The strategy file exists but cannot be read or parsed: refuse to write over it (Codex review on #357)."""
+
+
 class StrategyStore:
     def __init__(self, path: Path, *, seeds: Optional[dict] = None):
-        self.path, self.lock, self.seeds = Path(path), threading.Lock(), seeds or {}
+        self.path, self._thread_lock, self.seeds = Path(path), threading.Lock(), seeds or {}
+
+    @contextlib.contextmanager
+    def lock(self):
+        """Thread lock plus an interprocess flock held from read to replace, so two workers cannot lose updates."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._thread_lock, open(str(self.path) + ".lock", "a+") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
 
     def _load(self) -> dict:
+        if not self.path.exists():
+            return {}
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else {}
-        except (OSError, ValueError):
-            return {}
+        except (OSError, ValueError) as exc:
+            raise StoreUnreadable(f"brand strategy file unreadable: {type(exc).__name__}") from exc
+        if not isinstance(data, dict):
+            raise StoreUnreadable("brand strategy file is not an object")
+        return data
 
     def _save(self, data: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
+        tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(self.path)
+        os.replace(tmp, self.path)
 
     @staticmethod
     def blank(brand: str, name: str = "") -> dict:
@@ -125,7 +147,7 @@ class StrategyStore:
         return data[brand]
 
     def get(self, brand: str) -> dict:
-        with self.lock:
+        with self.lock():
             data = self._load()
             fresh = brand not in data
             p = self._passport(data, brand)
@@ -134,7 +156,7 @@ class StrategyStore:
             return p
 
     def brands(self) -> list:
-        with self.lock:
+        with self.lock():
             data = self._load()
             for b in self.seeds:
                 self._passport(data, b)
@@ -142,10 +164,11 @@ class StrategyStore:
                      "version": p.get("version", 0)} for b, p in sorted(data.items())]
 
     def update(self, brand: str, fn) -> dict:
-        with self.lock:
+        with self.lock():
             data = self._load()
             p = self._passport(data, brand)
-            fn(p)
+            if fn(p) is False:                    # the change was refused (e.g. stale draft): write nothing
+                return p
             self._save(data)
             return p
 
@@ -181,10 +204,12 @@ def master_brief(p: dict, *, approved_only: bool = True) -> str:
     missing = []
     for s in STEPS:
         st = p["steps"][str(s["n"])]
-        if st["state"] == "approved" or (not approved_only and st["text"].strip()):
-            lines += [f"## {s['n']}. {s['title']['ru']}", st["text"].strip(), ""]
-        else:
+        if st["state"] != "approved":
             missing.append(s["title"]["ru"])
+        if st["state"] == "approved":
+            lines += [f"## {s['n']}. {s['title']['ru']}", st["text"].strip(), ""]
+        elif not approved_only and st["text"].strip():
+            lines += [f"## {s['n']}. {s['title']['ru']} — ЧЕРНОВИК, не утверждён", st["text"].strip(), ""]
     if missing:
         lines += ["> Ещё не утверждено: " + ", ".join(missing), ""]
     return "\n".join(lines)
@@ -216,6 +241,11 @@ def install_strategy_routes(app, store: StrategyStore, *, identity: Callable,
         if not isinstance(b, dict):
             raise HTTPException(400, "json object required")
         return b
+
+    @app.exception_handler(StoreUnreadable)
+    async def _unreadable(request, exc):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": str(exc)}, status_code=503)
 
     def view(p: dict) -> dict:
         return {**p, "questions": list(UNPACK_QUESTIONS),
@@ -257,7 +287,7 @@ def install_strategy_routes(app, store: StrategyStore, *, identity: Callable,
 
         def apply(p):
             st = p["steps"][str(n)]
-            st.update(text=text, updated=_now(), by="owner",
+            st.update(text=text, updated=_now(), by="owner", rev=int(st.get("rev", 0)) + 1,
                       state="approved" if approve and text.strip() else ("draft" if text.strip() else "empty"))
             if approve and text.strip():
                 p["version"] = int(p.get("version", 0)) + 1
@@ -269,15 +299,26 @@ def install_strategy_routes(app, store: StrategyStore, *, identity: Callable,
         owner(request)
         n = step_ok(n)
         p = store.get(brand_ok(brand))
+        base = dict(p["steps"][str(n)])           # what the step looked like when the draft was asked for
         system, user = prompt_for(p, n)
         try:
             out = await draft("Angle Strategist", system, user)
         except RuntimeError as exc:
             raise HTTPException(409, str(exc)[:300])
+        stale = {}
 
         def apply(q):
-            q["steps"][str(n)].update(text=str(out.get("content") or "")[:MAX_TEXT], state="draft", updated=_now(), by="llm")
-        return {"passport": view(store.update(brand, apply)), "cost_usd": out.get("cost_usd", 0)}
+            cur = q["steps"][str(n)]
+            # Codex review on #357: an edit, approval or another draft made meanwhile always wins over this one.
+            if (cur.get("updated"), cur.get("text"), cur.get("state")) != (base.get("updated"), base.get("text"), base.get("state")):
+                stale["yes"] = True
+                return False
+            cur.update(text=str(out.get("content") or "")[:MAX_TEXT], state="draft", updated=_now(), by="llm",
+                       rev=int(cur.get("rev", 0)) + 1)
+        q = store.update(brand, apply)
+        if stale:
+            raise HTTPException(409, "the step changed while the draft was being written; nothing was overwritten")
+        return {"passport": view(q), "cost_usd": out.get("cost_usd", 0)}
 
     @app.get("/api/factory/strategy/{brand}/brief.md")
     def strategy_brief(brand: str, request: Request, drafts: int = 0):
