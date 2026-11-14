@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 import fastapi
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
 import brand_strategy
 import learn_center as lc
@@ -17,10 +17,20 @@ class LearnCenterTest(unittest.TestCase):
     def setUpClass(cls):
         app = fastapi.FastAPI()
         lc.install_learn_routes(app, base=BASE, steps_source=lambda: brand_strategy.STEPS)
-        cls.c = TestClient(app)
+        cls.h = {r.path: r.endpoint for r in app.routes if hasattr(r, "endpoint")}   # no httpx needed on CI
+
+    def view(self, item_id):
+        r = self.h["/learn/view/{item_id}"](item_id)
+        text = Path(r.path).read_text(encoding="utf-8") if hasattr(r, "path") else r.body.decode()
+        return r, text
+
+    def missing(self, item_id):
+        with self.assertRaises(HTTPException) as e:
+            self.h["/learn/view/{item_id}"](item_id)
+        return e.exception.status_code
 
     def test_catalog_has_three_shelves_and_every_item_exists(self):
-        d = self.c.get("/api/learn").json()
+        d = self.h["/api/learn"]()
         self.assertEqual(d["sections"], ["mine", "explainers", "guide"])
         for s in d["sections"]:
             self.assertTrue([i for i in d["items"] if i["section"] == s], s)
@@ -32,7 +42,7 @@ class LearnCenterTest(unittest.TestCase):
 
     def test_every_item_opens(self):
         for item in lc.CATALOG:
-            r = self.c.get(f"/learn/view/{item['id']}")
+            r, text = self.view(item["id"])
             self.assertEqual(r.status_code, 200, item["id"])
             csp = r.headers["content-security-policy"]
             if item["kind"] == "html":
@@ -41,10 +51,10 @@ class LearnCenterTest(unittest.TestCase):
                 self.assertIn("default-src 'none'", csp)
             else:
                 self.assertNotIn("script-src", csp)                        # rendered docs run no script at all
-                self.assertNotIn("<script", r.text)
-        self.assertEqual(self.c.get("/learn/view/../../app.py").status_code, 404)
-        self.assertEqual(self.c.get("/learn/view/nope").status_code, 404)
-        self.assertIn("Распаковка", self.c.get("/learn/view/brand-method").text)
+                self.assertNotIn("<script", text)
+        self.assertEqual(self.missing("../../app.py"), 404)
+        self.assertEqual(self.missing("nope"), 404)
+        self.assertIn("Распаковка", self.view("brand-method")[1])
 
     def test_markdown_is_escaped_first(self):
         out = lc.render_markdown("# T <b>\n\n<script>alert(1)</script> **x** `y` [ok](https://a.b/c) [bad](javascript:alert(1))\n\n- a\n- b\n\n| h | i |\n|---|---|\n| 1 | <img> |")
@@ -61,11 +71,12 @@ class LearnCenterTest(unittest.TestCase):
         self.assertIn("install_learn_routes(app, base=BASE", app_src)
         prefixes = re.search(r"public_prefixes = \(([^)]*)\)", app_src).group(1)
         self.assertNotIn("/learn", prefixes)
-        page = self.c.get("/learn")
+        page = self.h["/learn"]()
+        html = Path(page.path).read_text(encoding="utf-8")
         self.assertEqual(page.status_code, 200)
-        self.assertIn("/api/learn", page.text)
-        self.assertIn('sandbox="allow-scripts', page.text)
-        self.assertNotIn("allow-same-origin", page.text)
+        self.assertIn("/api/learn", html)
+        self.assertIn('sandbox="allow-scripts', html)
+        self.assertNotIn("allow-same-origin", html)
         nav = (BASE / "static/index.html").read_text(encoding="utf-8")
         self.assertIn('data-nav-id="learn"', nav)
         self.assertIn("function openLearning(){location.href='/learn'}", nav)
