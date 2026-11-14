@@ -1156,3 +1156,12 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - `invited` counts pending + credited friends and is what `MAX_REFERRALS` (50) caps; legacy records fall back
   to `referrals`. Already-credited legacy referrals are kept as they are (no retroactive removal).
 - The cabinet shows credited and pending friends (`referrals_pending`).
+
+## 2026-11-14 — #353 motion explainer: one world map + time-pure renderer
+
+- One SVG world holds every department; the "camera" is the viewBox, keyframed and zoomed in log space. Every frame
+  is a pure function of `t`, so pause/seek/scene jumps are exact and reduced-motion mode is a different sampling of
+  the same timeline (cuts instead of fly-throughs).
+- Lives only in `docs/prototypes/factoryos-explainer/claude-motion/**` (+ one tiny CI test). Pushed from the session
+  branch `ccr-5612b330-fr6sm2` because this session may push only there; the issue's "claude/ branch" wish is noted
+  in the PR. Not self-merged (issue rule). No MP4 rendered; export path documented, not claimed.
