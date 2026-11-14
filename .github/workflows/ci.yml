@@ -414,6 +414,13 @@ jobs:
         run: |
           python -m py_compile mvp_experiments.py test_mvp_experiments.py
           python test_mvp_experiments.py
+      - name: A/B Tester S3 (T-610) one Content Factory draft job per branch
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile test_mvp_experiment_jobs.py
+          python test_mvp_experiment_jobs.py
       - name: A/B Tester S2 (T-609) branch lanes in the MVP panel
         env:
           FACTORYOS_REQUIRE_NODE: "1"

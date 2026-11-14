@@ -208,5 +208,115 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual(status, 200)
 
 
+class ContentJobTest(unittest.TestCase):
+    """T-610 S3: one Content Factory draft job per branch, claimed atomically in the registry."""
+    PATH = "/api/mvp-factory/{project_id}/experiments/{exp_id}/branches/{branch_id}/content-job"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "mvp_factory.json"
+        self.reg = MvpRegistry(self.path, clock=Clock())
+        self.jobs, self.fail = [], False
+        self.lock = threading.Lock()
+
+        async def create_job(title, brief):
+            await asyncio.sleep(0.05)              # widen the race window between claim and attach
+            if self.fail:
+                raise RuntimeError("db down")
+            with self.lock:
+                self.jobs.append({"id": f"job-{len(self.jobs) + 1}", "title": title, "brief": brief})
+                return self.jobs[-1]["id"]
+        app = fastapi.FastAPI()
+        self.ex = install_mvp_experiment_routes(app, self.reg, lambda r: {"role": r.role, "email": r.role + "@x"},
+                                                create_job=create_job)
+        self.fn = next(r.endpoint for r in app.routes if getattr(r, "path", "") == self.PATH)
+        self.ex.create(PID, spec(), actor_role="owner")
+        for b in ("a", "b"):
+            self.ex.save_draft(PID, "mc-exp-focus-001", b, dict(COPY, headline=f"Headline {b.upper()}"), actor_role="owner")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def click(self, branch, role="owner", exp="mc-exp-focus-001"):
+        out = asyncio.run(self.fn(project_id=PID, exp_id=exp, branch_id=branch, request=Req(role, None)))
+        return (out.status_code, json.loads(out.body)) if hasattr(out, "status_code") else (200, out)
+
+    def branch(self, b):
+        return json.loads(self.path.read_text())["projects"][PID]["experiments"]["mc-exp-focus-001"]["branches"]["ab".index(b)]
+
+    def test_owner_only_and_draft_required(self):
+        self.assertEqual(self.click("a", "member"), (403, {"detail": "owner_only"}))
+        self.assertEqual(self.click("a", "viewer")[0], 403)
+        self.assertEqual(self.click("c")[0], 404)
+        self.assertEqual(self.click("a", exp="nope")[0], 404)
+        self.ex.create(PID, spec(id="mc-exp-empty"), actor_role="owner")
+        self.assertEqual(self.click("a", exp="mc-exp-empty"), (409, {"detail": "draft_required"}))
+        self.assertEqual(self.jobs, [])
+
+    def test_second_click_returns_the_same_job_and_branches_stay_apart(self):
+        status, first = self.click("a")
+        self.assertEqual((status, first["existing"], first["job_id"]), (200, False, "job-1"))
+        self.assertEqual(self.click("a")[1], {"job_id": "job-1", "existing": True, "branch": "a"})
+        status, other = self.click("b")
+        self.assertEqual((status, other["job_id"]), (200, "job-2"))
+        self.assertEqual((self.branch("a")["content_job_id"], self.branch("b")["content_job_id"]), ("job-1", "job-2"))
+        brief_a, brief_b = self.jobs[0]["brief"], self.jobs[1]["brief"]
+        self.assertIn("branch A", brief_a)
+        self.assertIn("Headline A", brief_a)
+        self.assertNotIn("Headline B", brief_a)          # a job for A never carries B's copy
+        self.assertIn("persona entrepreneurs", brief_a)
+        self.assertIn("revision 1", brief_a)
+        self.assertIn("DRAFT ONLY", brief_a)
+        self.assertIn("Headline B", brief_b)
+        self.assertIn("persona personal_goals", brief_b)
+        self.assertEqual(self.branch("a")["content_job"]["rev"], 1)
+        self.assertNotIn("content_job_claim", self.branch("a"))
+        # The MVP preview approval and the job do not grant publishing: approval flags stay false.
+        self.ex.approve_preview(PID, "mc-exp-focus-001", "a", 1, actor_role="owner")
+        self.assertEqual({k: self.branch("a")["approval"][k] for k in ("publish", "spend", "outreach")},
+                         {"publish": False, "spend": False, "outreach": False})
+        ev = json.loads(self.path.read_text())["events"]
+        made = [e for e in ev if "Content Factory job" in e["note"]]
+        self.assertEqual([(e["experiment"], e["branch"]) for e in made], [("mc-exp-focus-001", "a"), ("mc-exp-focus-001", "b")])
+
+    def test_concurrent_clicks_make_one_job_per_branch(self):
+        results = []
+        def go(b):
+            results.append((b, self.click(b)))
+        threads = [threading.Thread(target=go, args=(b,)) for b in "abababab"]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        self.assertEqual(len(self.jobs), 2)
+        for b in "ab":
+            ids = {out["job_id"] for bb, (st, out) in results if bb == b and st == 200}
+            self.assertEqual(ids, {self.branch(b)["content_job_id"]})
+            losers = [out for bb, (st, out) in results if bb == b and st != 200]
+            self.assertTrue(all(o == {"detail": "content_job_in_progress"} for o in losers))
+        self.assertNotEqual(self.branch("a")["content_job_id"], self.branch("b")["content_job_id"])
+        self.assertEqual(self.click("a")[1]["job_id"], self.branch("a")["content_job_id"])
+
+    def test_failed_creation_releases_the_claim(self):
+        self.fail = True
+        self.assertEqual(self.click("a"), (502, {"detail": "job_create_failed"}))
+        self.assertNotIn("content_job_claim", self.branch("a"))
+        self.assertIsNone(self.branch("a")["content_job_id"])
+        self.fail = False
+        self.assertEqual(self.click("a")[1]["job_id"], "job-1")
+
+    def test_closed_experiment_refuses_a_new_job_but_keeps_the_old_one(self):
+        self.click("a")
+        self.ex.decide(PID, "mc-exp-focus-001", {"choice": "stop"}, actor_role="owner")
+        self.assertEqual(self.click("a")[1]["job_id"], "job-1")
+        self.assertEqual(self.click("b"), (409, {"detail": "experiment_closed"}))
+        self.assertEqual(len(self.jobs), 1)
+
+    def test_no_job_route_wired_is_unavailable(self):
+        app = fastapi.FastAPI()
+        install_mvp_experiment_routes(app, self.reg, lambda r: {"role": "owner"})
+        fn = next(r.endpoint for r in app.routes if getattr(r, "path", "") == self.PATH)
+        out = asyncio.run(fn(project_id=PID, exp_id="mc-exp-focus-001", branch_id="a", request=Req("owner", None)))
+        self.assertEqual(out.status_code, 503)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

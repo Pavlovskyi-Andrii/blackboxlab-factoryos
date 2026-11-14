@@ -1130,7 +1130,11 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
-install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity)  # T-608 A/B Tester S1: drafts only, owner-gated
+async def _mvp_experiment_job(title, brief):
+    """T-610 S3: a branch becomes an ordinary inbox job through the normal job route; it is not run or queued."""
+    out = await create_job(JobCreate(title=title[:200], brief=brief, format="Short-form drafts", language="English"))
+    return out["id"]
+install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity, create_job=_mvp_experiment_job)  # T-608/T-610 A/B Tester: drafts only, owner-gated
 install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
 from learn_center import install_learn_routes  # noqa: E402
 import brand_strategy as _brand_strategy_mod  # noqa: E402

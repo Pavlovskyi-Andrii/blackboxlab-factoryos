@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import secrets
 from typing import Any, Callable
 
 from fastapi import Request
@@ -30,6 +31,7 @@ BRANCH_IDS = ("a", "b")
 CHANNELS = ("facebook", "tiktok")
 CHOICES = ("continue_a", "continue_b", "both", "iterate", "pivot", "stop")
 MAX_EXPERIMENTS = 20
+JOB_CLAIM_SECONDS = 120   # a crashed job creation frees the branch claim after this, like strategy_plan_job
 PERSONA_RE = re.compile(r"^[a-z0-9_]{2,40}$")
 METRIC_RE = re.compile(r"^[a-z0-9_]{2,60}$")
 CREATE_FIELDS = {"id", "mode", "concept_id", "hypothesis", "primary_metric", "branches", "idempotency_key"}
@@ -156,6 +158,7 @@ def view(exp: dict) -> dict:
     for b in out["branches"]:
         p = b["approval"]["preview"]
         b["preview_approved"] = bool(p) and p.get("rev") == b["revision"] and b["revision"] > 0
+        b["content_job_pending"] = bool(b.pop("content_job_claim", None)) and not b.get("content_job_id")
     out["comparison"] = comparison(exp)
     out["metric_status"] = "not_instrumented"
     return out
@@ -314,12 +317,89 @@ class Experiments:
             self.r._save(data)
             return {"experiment": view(exp)}
 
+    # -- S3: one Content Factory draft job per branch ---------------------------------------------------------
+    def claim_content_job(self, pid: str, exp_id: str, branch_id: str, token: str, *, actor_role: str) -> dict:
+        """Claim the branch under the registry lock before any job exists (the `strategy_plan_job` pattern), so
+        concurrent clicks make one job. Returns {"existing": job_id} or {"title", "brief"} for the claim holder."""
+        if actor_role != "owner":
+            raise MvpError("owner_only", 403)
+        if branch_id not in BRANCH_IDS:
+            raise MvpError("unknown_branch", 404)
+        with self.r._lock:
+            data = self.r._load()
+            project = self._project(data, pid)
+            exp = self._experiment(project, exp_id, open_only=False)
+            branch = next(b for b in exp["branches"] if b["id"] == branch_id)
+            if branch.get("content_job_id"):
+                return {"existing": branch["content_job_id"]}    # a closed experiment still returns its job
+            if exp["state"] == "closed":
+                raise MvpError("experiment_closed", 409)
+            if not branch["copy"] or branch["revision"] < 1:
+                raise MvpError("draft_required", 409)
+            claim = branch.get("content_job_claim") or {}
+            if claim and self.r.clock() - float(claim.get("at", 0)) < JOB_CLAIM_SECONDS:
+                raise MvpError("content_job_in_progress", 409)
+            branch["content_job_claim"] = {"token": token, "at": self.r.clock(), "rev": branch["revision"]}
+            self.r._save(data)
+            return {"title": f"A/B {exp_id} · branch {branch_id.upper()} · {branch['label']}"[:200],
+                    "brief": job_brief(project, exp, branch)}
+
+    def release_content_job(self, pid: str, exp_id: str, branch_id: str, token: str) -> None:
+        with self.r._lock:
+            data = self.r._load()
+            branch = self._branch_of(data, pid, exp_id, branch_id)
+            if branch and (branch.get("content_job_claim") or {}).get("token") == token:
+                branch.pop("content_job_claim", None)
+                self.r._save(data)
+
+    def attach_content_job(self, pid: str, exp_id: str, branch_id: str, token: str, job_id: str, *, actor: str) -> dict:
+        with self.r._lock:
+            data = self.r._load()
+            project = self._project(data, pid)
+            exp = self._experiment(project, exp_id, open_only=False)
+            branch = next(b for b in exp["branches"] if b["id"] == branch_id)
+            claim = branch.get("content_job_claim") or {}
+            if claim.get("token") != token:
+                raise MvpError("content_job_claim_lost", 409)    # never overwrite another click's job id
+            branch.pop("content_job_claim", None)
+            ev = self._event(data, project, actor, f"Branch {branch_id.upper()} Content Factory job {job_id} created from "
+                             f"revision {claim.get('rev')} (inbox, draft only; not run, not queued for publishing).",
+                             exp_id, branch_id)
+            branch["content_job_id"] = job_id
+            branch["content_job"] = {"rev": claim.get("rev"), "event_id": ev["id"], "at": ev["at"]}
+            exp["updated_at"] = ev["at"]
+            self.r._save(data)
+            return view(exp)["branches"][BRANCH_IDS.index(branch_id)]
+
+    def _branch_of(self, data: dict, pid: str, exp_id: str, branch_id: str) -> dict | None:
+        exp = ((data["projects"].get(pid) or {}).get("experiments") or {}).get(exp_id)
+        return next((b for b in exp["branches"] if b["id"] == branch_id), None) if exp else None
+
+
+def job_brief(project: dict, exp: dict, branch: dict) -> str:
+    """The job brief carries project, experiment, branch, revision, persona and the copy constraints (S0 §S3)."""
+    c = branch["copy"]
+    lines = [f"A/B Tester draft job — project {project['id']}, experiment {exp['id']} ({exp['mode']}), "
+             f"branch {branch['id'].upper()} \"{branch['label']}\", revision {branch['revision']}, persona {branch['persona']}.",
+             f"Hypothesis: {exp['hypothesis']}",
+             f"Headline: {c['headline']}", f"Subhead: {c['subhead']}", f"CTA: {c['cta']}"]
+    lines += [f"- {b}" for b in c["bullets"]]
+    for kind in ("short", "medium"):
+        lines += [f"Post ({kind}): {p}" for p in c["posts"][kind]]
+    lines += ["Constraints: DRAFT ONLY — do not publish, schedule, spend or contact anyone. No health or outcome "
+              "promises, no guarantees, no personal data. Stay on this branch's persona; do not reuse the other branch's copy.",
+              "Publishing needs the normal owner job approval (/api/jobs/{id}/approve) and the publish gate; "
+              "an MVP preview approval is not a publish approval."]
+    return "\n".join(lines)[:6000]
+
 
 def experiments_view(project: dict) -> list[dict]:
     return [view(e) for e in sorted((project.get("experiments") or {}).values(), key=lambda e: e["created_at"])]
 
 
-def install_mvp_experiment_routes(app, registry: MvpRegistry, identity_fn: Callable) -> Experiments:
+def install_mvp_experiment_routes(app, registry: MvpRegistry, identity_fn: Callable,
+                                  create_job: Callable | None = None) -> Experiments:
+    """`create_job(title, brief) -> job_id` is the app's ordinary inbox-job route (S3); it never runs the job."""
     store = Experiments(registry)
 
     def _who(request: Request) -> tuple[str, str]:
@@ -383,5 +463,27 @@ def install_mvp_experiment_routes(app, registry: MvpRegistry, identity_fn: Calla
         if body is None:
             return JSONResponse({"detail": "bad_body"}, status_code=400)
         return _run(lambda: store.decide(project_id, exp_id, body, actor_role=role, actor=email))
+
+    @app.post("/api/mvp-factory/{project_id}/experiments/{exp_id}/branches/{branch_id}/content-job")
+    async def mvp_experiment_content_job(project_id: str, exp_id: str, branch_id: str, request: Request):
+        """T-610 S3: owner-only; one inbox job per branch. No run, no publishing row, no provider call."""
+        role, email = _who(request)
+        if create_job is None:
+            return JSONResponse({"detail": "job_creation_unavailable"}, status_code=503)
+        token = secrets.token_hex(8)
+        try:
+            claimed = store.claim_content_job(project_id, exp_id, branch_id, token, actor_role=role)
+        except MvpError as exc:
+            return JSONResponse({"detail": exc.code}, status_code=exc.status)
+        if "existing" in claimed:
+            return {"job_id": claimed["existing"], "existing": True, "branch": branch_id}
+        try:
+            job_id = await create_job(claimed["title"], claimed["brief"])
+        except Exception:
+            store.release_content_job(project_id, exp_id, branch_id, token)
+            return JSONResponse({"detail": "job_create_failed"}, status_code=502)
+        return _run(lambda: {"job_id": job_id, "existing": False, "branch": branch_id,
+                             "state": store.attach_content_job(project_id, exp_id, branch_id, token, job_id,
+                                                               actor=email or role)})
 
     return store

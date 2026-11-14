@@ -1208,3 +1208,21 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Recording a decision asks for a browser `confirm()`, because it closes the experiment.
 - The 375 px / 1440 px layout is covered only by CSS source assertions (vertical lanes, full width, wrapping chips,
   no fixed pixel widths). No browser runs on the worker, so the real layout check is reported as NOT VERIFIED.
+
+## 2026-11-14 — T-610 A/B Tester S3: one Content Factory draft job per branch
+
+- Route `POST /api/mvp-factory/{pid}/experiments/{exp}/branches/{b}/content-job` lives in `mvp_experiments.py`
+  (installed with a `create_job(title, brief)` callback from `app.py`), not in `mvp_factory.py` as the S0 review
+  suggested: the experiment data and lock helpers are already in that module since S1.
+- Claim pattern copied from `strategy_plan_job`: the branch is claimed under the registry lock with a random token
+  before the job exists; concurrent clicks get `409 content_job_in_progress`; a failed job insert releases the claim
+  (`502 job_create_failed`); a stale claim expires after 120 s. Attach checks the token, so a job id is never
+  overwritten. A second click returns the same job (`existing: true`).
+- One job per branch, not per revision: the job records the revision it was made from (`content_job.rev`). A new
+  revision does not create a second job; the owner edits the existing job's brief if needed.
+- A saved draft (revision ≥ 1) is required; a closed experiment refuses a new job but still returns an existing one.
+  Preview approval is **not** required — the job is a draft in `inbox`; publishing still needs the job's own
+  `/api/jobs/{id}/approve` and `_publish_approval_gate`.
+- Job language is English and format "Short-form drafts"; the optional MyCast brand link
+  (`/api/factory/strategy/{brand}/jobs/{job_id}/link`) is left to the owner, not done automatically.
+- Members are refused (owner-only), matching the roadmap goal; there is still no dashboard button (S2 has none for S3).
