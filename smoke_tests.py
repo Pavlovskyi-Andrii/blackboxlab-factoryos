@@ -1353,3 +1353,10 @@ try:
     require("must-not-survive" not in json.dumps(wo),"worker overview leaked supervisor extras")
 finally:
     app.claude_worker_runtime.clear();app.claude_worker_runtime.update(old_runtime)
+
+# #359: include CRM persistence, owner-only authorization and task regression in the standard CI smoke run.
+import unittest as _faceless_unit
+from test_faceless_crm import FacelessCrmTests as _FacelessCrmTests
+_faceless_result = _faceless_unit.TextTestRunner(verbosity=0).run(
+    _faceless_unit.defaultTestLoader.loadTestsFromTestCase(_FacelessCrmTests))
+require(_faceless_result.wasSuccessful(), 'Faceless Models CRM regression failed')

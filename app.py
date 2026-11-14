@@ -37,6 +37,7 @@ from worker_observability import build_worker_overview, sanitize_supervisor, san
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
+from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_mvp_project_once
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
@@ -945,6 +946,12 @@ install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strateg
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
+FACELESS_CRM = FacelessCrm(DATA_DIR / "faceless_crm.json")  # #359 owner-only internal persona tracker
+try:
+    register_crm_mvp_project_once(MVP_REGISTRY, DATA_DIR / "faceless_crm_project_intake_v1.marker")
+except (OSError, ValueError) as exc:
+    # Never take down FactoryOS because of a draft project intake; leave no success marker on failure.
+    print("Faceless Models CRM MVP intake blocked:", type(exc).__name__)
 MVP_CHAT = AgentChat(DATA_DIR)
 
 
@@ -1122,6 +1129,7 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
+install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
 from learn_center import install_learn_routes  # noqa: E402
 import brand_strategy as _brand_strategy_mod  # noqa: E402
 install_learn_routes(app, base=BASE, steps_source=lambda: _brand_strategy_mod.STEPS)  # owner 2026-11-14: one Learning section
