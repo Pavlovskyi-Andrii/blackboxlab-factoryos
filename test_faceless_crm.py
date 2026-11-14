@@ -84,5 +84,30 @@ class FacelessCrmTests(unittest.TestCase):
         self.assertEqual(asyncio.run(toggle(model["id"], task["id"], Req({"done": "true"}))).status_code, 400)
 
 
+    def test_separate_mvp_concept_intake_is_non_destructive(self):
+        from mvp_factory import MvpRegistry
+        from faceless_crm import register_crm_mvp_project_once
+        reg = MvpRegistry(Path(self.tmp.name) / "mvp.json")
+        marker = Path(self.tmp.name) / "crm-intake.marker"
+        self.assertTrue(register_crm_mvp_project_once(reg, marker))
+        initial = reg.snapshot()["projects"]
+        self.assertEqual(len([p for p in initial if p.get("issue") == 359]), 1)
+        self.assertFalse(register_crm_mvp_project_once(reg, marker))
+        marker.unlink()
+        self.assertFalse(register_crm_mvp_project_once(reg, marker))
+        self.assertEqual(len([p for p in reg.snapshot()["projects"] if p.get("issue") == 359]), 1)
+        # Occupied canonical ID cannot overwrite unrelated owner data.
+        other = MvpRegistry(Path(self.tmp.name) / "collision.json")
+        other.add_project("faceless-models-crm", "Unrelated owner's project", 999, actor_role="owner")
+        alt_marker = Path(self.tmp.name) / "collision.marker"
+        self.assertTrue(register_crm_mvp_project_once(other, alt_marker))
+        projects = other.snapshot()["projects"]
+        self.assertEqual(next(p for p in projects if p["id"] == "faceless-models-crm")["issue"], 999)
+        crm = [p for p in projects if p.get("issue") == 359]
+        self.assertEqual(len(crm), 1)
+        self.assertNotEqual(crm[0]["id"], "faceless-models-crm")
+        self.assertEqual(crm[0]["stage"], "idea")
+        self.assertFalse(crm[0]["approval"]["publish"])
+
 if __name__ == "__main__":
     unittest.main()
