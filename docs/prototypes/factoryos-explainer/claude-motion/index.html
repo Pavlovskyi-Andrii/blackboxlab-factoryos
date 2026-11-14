@@ -464,7 +464,8 @@ link('M4510 340 C3600 180 1200 160 200 935', 68.4, {tone: 'amber', w: 3, op: .5,
   card(x, 2020, 900, 110, k, {tone, size: 40, rx: 55, tin: 68.6 + i * .25});
 });
 
-/* ---------- Camera: keyframes of (t, cx, cy, view width) ---------- */
+/* ---------- Camera: keyframes of (t, cx, cy, view width[, portrait cy, portrait width]) ---------- */
+// optional portrait override: landscape frames one branch at a time, portrait keeps both lanes above the captions
 const CAM = [
   [0, 200, 1000, 760], [5, 200, 1000, 1000],
   [6.2, 950, 972, 2050], [13, 970, 975, 1990],
@@ -472,24 +473,25 @@ const CAM = [
   [22.2, 2670, 986, 2100], [31, 2690, 990, 2080],
   [32.2, 3460, 1020, 1900], [39, 3470, 1020, 1840],
   [40.4, 4400, 960, 3250], [49, 4430, 960, 3200],
-  [50.2, 5000, 790, 2450], [54.6, 5020, 790, 2400],      // branch A + the owner
-  [56, 5040, 1500, 2450], [59, 5050, 1500, 2400],        // branch B
+  [50.2, 5000, 612, 2000, 790, 2450], [54.6, 5020, 612, 1960, 790, 2400],     // branch A + the owner
+  [56, 5040, 1482, 2000, 1500, 2450], [59, 5050, 1482, 1960, 1500, 2400],    // branch B
   [60.2, 5900, 925, 3050], [68, 5910, 930, 3000],
   [72.5, 3300, 1250, 7600], [75, 3300, 1250, 7800]];
 const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
-function camAt(t, reduced) {
+const camKey = (k, portrait) => [k[1], portrait && k[4] !== undefined ? k[4] : k[2], portrait && k[5] !== undefined ? k[5] : k[3]];
+function camAt(t, reduced, portrait) {
   if (reduced) { // jump straight to the settled framing of the current scene, no fly-through
     const s = sceneIndex(t), end = SCENES[s].t1 - .001;
-    let k = CAM.length - 1; while (k > 0 && CAM[k][0] > end) k--; return CAM[k].slice(1);
+    let k = CAM.length - 1; while (k > 0 && CAM[k][0] > end) k--; return camKey(CAM[k], portrait);
   }
-  if (t <= CAM[0][0]) return CAM[0].slice(1);
+  if (t <= CAM[0][0]) return camKey(CAM[0], portrait);
   for (let i = 1; i < CAM.length; i++) if (t <= CAM[i][0]) {
-    const a = CAM[i - 1], b = CAM[i], u = ease((t - a[0]) / (b[0] - a[0]));
+    const a = camKey(CAM[i - 1], portrait), b = camKey(CAM[i], portrait), u = ease((t - CAM[i - 1][0]) / (CAM[i][0] - CAM[i - 1][0]));
     // zoom in log space so pull-backs feel like a camera, not a slide
-    return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, Math.exp(Math.log(a[3]) + (Math.log(b[3]) - Math.log(a[3])) * u)];
+    return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, Math.exp(Math.log(a[2]) + (Math.log(b[2]) - Math.log(a[2])) * u)];
   }
-  return CAM[CAM.length - 1].slice(1);
+  return camKey(CAM[CAM.length - 1], portrait);
 }
 
 /* ---------- The luminous concept packet ---------- */
@@ -550,8 +552,8 @@ function setPacket(p, state, x, y, op, ts, side) {
 function render() {
   const s = sceneIndex(t);
   // camera; portrait screens frame tighter so labels stay legible
-  const [cx, cy, w0] = camAt(t, reduced);
   const r = stage.getBoundingClientRect(), aspect = r.height / Math.max(1, r.width);
+  const [cx, cy, w0] = camAt(t, reduced, aspect > 1);
   const w = aspect > 1 ? w0 * (.62 + .38 * clamp((w0 - 3500) / 3000)) : w0, h = w * aspect;
   // captions overlay the bottom of the frame, so the subject sits above them
   const cyv = cy + (aspect > 1 ? .14 : .12) * h;

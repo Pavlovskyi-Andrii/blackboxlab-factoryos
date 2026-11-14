@@ -31,7 +31,7 @@ The camera keyframes are listed as `(cx, cy, view width)` in world units, in `CA
 | 4 | 21–31 s | Flies to Build. | The product preview assembles block by block. The chain ветка → PR → CI → ревью draws in. CI and review get `✓ sample` chips. Note: **«PR ≠ задеплоенное приложение»**. | Код плюс доказательства, а не «сделано» на словах. |
 | 5 | 31–39 s | Flies to Agent Office and Relay. | A five-column board: `queued / claimed / running / review / done`. The packet card moves column by column. At `claimed` a chip reads **«назначено ≠ выполняется»**. The Relay journal adds `DEMO-1..3` events: claim, PR opened, handoff. | Назначение ≠ выполнение. |
 | 6 | 39–49 s | Widens to the fork. | An A/B node appears with the note «A/B Tester — предложенная роль, ещё не работает». It splits into **A on top / B below**. Each branch gets its own audience, then landing, then Content Factory drafts, each marked DEMO. Two packets travel separately. | Две гипотезы — два независимых пути. |
-| 7 | 49–59 s | Widens further to show both branches and the Owner. | The **Owner** card is linked to two gates. Each gate's lock is amber «ждёт решения» and turns green «одобрено владельцем (DEMO)» at 53.4 s (A) and 53.8 s (B). Behind each gate sit separate Facebook and TikTok packs, each with its own creative, CTA and URL, all DEMO. | Свой контент и своя кампания для каждой аудитории. |
+| 7 | 49–59 s | Landscape: closes in on branch A with the Owner (50.2–54.6 s), then pans down to branch B (56–59 s). Portrait keeps a wider frame with both lanes above the captions. | The **Owner** card is linked to two gates. Each gate's lock is amber «ждёт решения» and turns green «одобрено владельцем (DEMO)» at 53.4 s (A) and 57.0 s (B). Behind each gate sit separate Facebook and TikTok packs, each with its own creative, CTA and URL, all DEMO. | Свой контент и своя кампания для каждой аудитории. |
 | 8 | 59–68 s | Flies to Learn. | Two **separate funnels**: визит → регистрация → полезное действие → возврат. They have hatched bars and a **NO DATA** chip, with no numbers. They converge into «Сравнение доказательств — не рандомизированный тест», then «Решение». The feedback loop draws back along the bottom. | Решаем по действиям людей, а не по кликам. |
 | 9 | 68–75 s | **Large pull-back** over the whole map: view width 1,640 → 7,800. | Department titles 1–8 appear. The supporting band appears: GitHub, Notion, Relay, Agent Office. The Owner is linked back to the idea. The decision packet rides the feedback loop back to «Идея» as a new `вопрос`. The end mark takes over the caption band. | FactoryOS. От идеи — к проверяемому результату. |
 
@@ -86,3 +86,11 @@ The film has no invented users, revenue, testimonials, logos or live connections
   - **Fork.** «оба теста идут параллельно».
 - Narration for shots 2–6 was updated to match, in RU, UK and EN.
 - The film is also listed in the dashboard's new **Обучение** section (`/learn`), under «Обучалки по системе».
+
+## Revision 2026-11-14 (R-0082, promo framing)
+
+- **Problem.** On a 1440×900 screen at 0:53 the Owner card was cut off at the top, and the B lane sat under the caption band.
+- **Fix.** The promo keyframes in `CAM` now take an optional portrait override `(portrait cy, portrait width)`:
+  - landscape frames branch A at `cy 612`, width 2000, and branch B at `cy 1482`, width 2000;
+  - portrait keeps the previous values (`cy 790/1500`, width 2450), so the mobile frames are unchanged.
+- **Not re-shot.** `screenshots/desktop-07*.jpg` still show the earlier framing. No browser was available in this run.

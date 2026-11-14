@@ -38,6 +38,7 @@ Open `index.html` in a browser. It is one self-contained file with no build step
 - **Camera.** Keyframes in `CAM` set the camera position and view width. Zoom is interpolated in log space with cubic easing.
   - The subject is framed above the caption band.
   - Portrait screens get a tighter frame and a 3-column scene navigator.
+  - A keyframe can carry an optional portrait `(cy, width)`. The promo shot uses it: landscape frames one branch at a time, while portrait keeps both lanes in view.
 - **Packet.** Waypoints are listed in `MAIN`, `BR(600)` (A), `BR(1400)` (B) and `DEC`.
 
 ## Browser support and performance
