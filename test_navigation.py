@@ -52,8 +52,9 @@ BEFORE = {
     "nav.browser": "document.querySelector('.brAgentCard').scrollIntoView()",    # owner 2026-11-13: cards had no entry
     "nav.ownerHub": "document.querySelector('.ohCard').scrollIntoView()",
     "nav.strategy": "document.querySelector('.stratCard').scrollIntoView()",   # owner 2026-11-14: brand strategy
+    "nav.learn": "openLearning()",   # owner 2026-11-14: one Learning section (my learning, explainers, guide)
 }
-GROUPS = ("overview", "create", "publish", "grow", "automation", "mvp", "system")
+GROUPS = ("overview", "create", "publish", "grow", "automation", "mvp", "learn", "system")
 # Live counters updated by other renderers must keep their ids inside the sidebar.
 COUNTERS = ("brainNavCount", "discoveryNavCount", "revideoNavCount", "variantNavCount", "packageNavState", "buildNavPct")
 

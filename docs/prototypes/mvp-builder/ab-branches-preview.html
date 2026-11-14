@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MVP Builder — A/B Experiment Branches · Offline preview</title>
+<style>
+:root{color-scheme:dark;--bg:#080b17;--surface:#131b32;--paper:#17203a;--border:#33405e;--ink:#edf3ff;--mute:#a8b8d4;--accent:#63dfff;--gold:#f4bd78;--violet:#b5a4ff}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at 10% 0%,#1c2350,transparent 65%),var(--bg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink)}
+main{max-width:1450px;margin:auto;padding:24px 18px 50px}
+h1{font-size:clamp(25px,4vw,37px);letter-spacing:-.03em;margin:6px 0 6px}h2{font-size:18px;margin:0}p{color:var(--mute)}
+.top{display:flex;gap:20px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
+.kicker{color:var(--accent);font:700 11px/1.5 ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase}
+.pill{display:inline-block;border:1px solid #596580;border-radius:18px;padding:4px 10px;color:var(--gold);font:600 11px ui-monospace,monospace}
+small{color:var(--mute)}
+.section{border:1px solid var(--border);background:#12192dd8;border-radius:20px;padding:17px;margin-top:20px;box-shadow:0 14px 32px #0002}
+.debate{max-width:800px;margin:12px auto 0;text-align:center;border:1px solid #465879;border-radius:14px;padding:15px;background:#1c2743}
+.debate b{display:block;font-size:18px;margin:3px 0}
+.split{height:43px;position:relative}
+.split:before{content:"";position:absolute;top:0;left:50%;height:15px;border-left:2px solid #738cae}
+.split:after{content:"";position:absolute;top:15px;left:20%;width:60%;border-top:2px solid #738cae}
+.track{display:flex;align-items:center;gap:7px;margin-bottom:11px}
+.track strong{font-size:20px}
+.letter{font:800 15px ui-monospace,monospace;background:#3c426e;border-radius:8px;padding:5px 10px}
+.b .letter{background:#38636f}
+.track .sub{color:var(--mute)}
+.lane{margin:0 0 18px;padding:16px;border:1px solid #515d83;border-radius:17px;background:linear-gradient(100deg,#23234e80,#15223a80)}
+.lane.b{background:linear-gradient(100deg,#1744566b,#17273c80);border-color:#376778}
+.lane-grid{display:grid;grid-template-columns:.95fr .85fr .95fr 1.08fr 1.42fr .85fr;gap:15px;align-items:stretch}
+.node{position:relative;width:100%;min-height:93px;padding:13px 10px;border:1px solid #4c5974;border-radius:12px;background:var(--surface);color:var(--ink);text-align:left;cursor:pointer;font:inherit}
+.node h3{font-size:13px;line-height:1.3;margin:0 0 8px}
+.node p{font-size:12px;margin:0;color:var(--mute)}
+.node:focus-visible,.channel:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.node:hover,.channel:hover{border-color:var(--accent);background:#1c2b49}
+.node:after{content:"→";position:absolute;right:-15px;top:40%;color:var(--accent);font-weight:800}
+.lane-grid > :last-child:after{content:none}
+.small{display:inline-block;color:#cdd7ed;font:600 10px ui-monospace,monospace;margin-top:8px}
+.promo{border:1px solid #4c5974;border-radius:12px;background:var(--surface);padding:10px;position:relative}
+.promo:after{content:"→";position:absolute;right:-15px;top:40%;color:var(--accent);font-weight:800}
+.promo h3{margin:0 0 6px;font-size:13px}.channels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+.channel{border:1px solid #4b5c78;border-radius:7px;background:#202c48;color:var(--ink);padding:8px 4px;font:600 11px system-ui;cursor:pointer;text-align:center}
+.channel span{display:block;font-size:10px;color:var(--mute);font-weight:400}
+.metric{font:600 12px ui-monospace,monospace;color:var(--gold)}
+.compare{text-align:center;border:1px solid #53758f;max-width:650px;margin:0 auto;border-radius:14px;background:#1e2d45;padding:16px}
+.compare b{font-size:17px}.compare p{margin:5px 0 0}
+.join{height:32px;border-left:2px solid #738cae;margin:0 auto;width:2px}
+.inspector{padding:14px 16px;border:1px solid var(--border);border-radius:13px;background:#151d35;margin-top:18px}
+.inspector b{color:var(--accent)}.inspector p{margin:4px 0 0;max-width:100ch}
+.note{font-size:12px;margin-top:8px}
+.footer{color:var(--mute);margin-top:16px;font-size:12px}
+@media(max-width:1050px){.lane-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.lane-grid>.node:nth-child(3):after{content:none}}
+@media(max-width:610px){main{padding:15px 10px 30px}.section{padding:12px}.lane{padding:12px}.lane-grid{grid-template-columns:1fr;gap:15px}.node{min-height:68px}.node:after,.promo:after,.lane-grid>.node:nth-child(3):after{content:"↓";position:absolute;right:48%;top:calc(100% + 1px)}.channels{grid-template-columns:1fr 1fr}.track{flex-wrap:wrap}.split:after{left:10%;width:80%}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body><main>
+<div class="top"><div><div class="kicker">FactoryOS / MVP Builder / Experiment Branches</div><h1>Развилка гипотез: A и B</h1><p style="margin:2px 0">От AI-дебатов до независимых лендингов, Content Factory, промокампаний и решений.</p></div><div class="pill">DEMO · не подключено к реальным кампаниям</div></div>
+<section class="section" aria-label="Эксперимент MyCast Focus Engine">
+<div class="kicker">MYCAST · MC-FOCUS-001 · Сравнение аудиторий</div>
+<div class="debate"><small>ОБЩИЙ ЭТАП</small><b>💡 Идея → AI Debate → Market Research</b><small>Гипотеза: персональный подкаст помогает сохранять фокус на важном</small></div>
+<div class="split" aria-hidden="true"></div>
+<section class="lane a" aria-label="Независимая ветка A">
+<div class="track"><span class="letter">A</span><strong>Business Focus</strong><span class="sub">Предприниматели и основатели проектов</span></div>
+<div class="lane-grid">
+<button class="node" data-title="A · Концепция" data-detail="Проверяем боль предпринимателя: слишком много информации, трудно держать в фокусе цели бизнеса. Решение пока гипотеза."><h3>🧠 Концепция A</h3><p>Фокус на бизнесе</p><span class="small">Idea / hypothesis</span></button>
+<button class="node" data-title="A · Build" data-detail="Одна общая платформа MyCast, но независимая версия позиционирования и лендинга A. Требуются ветка, PR, CI и проверенный превью."><h3>🛠️ Build A</h3><p>Проверяемый прототип</p><span class="small">Not built</span></button>
+<button class="node" data-title="A · Лендинг" data-detail="Сайт A: «Начни день с фокуса на своём бизнесе». Отдельный URL/вариант и события активации; не утвержден к публикации."><h3>🌐 Site A</h3><p>Лендинг для бизнеса</p><span class="small">Draft only</span></button>
+<button class="node" data-title="A · Content Factory" data-detail="Отдельный handoff A: аудитория предпринимателей; посты, короткие видео, обложки и сценарии. Draft без автоматической публикации."><h3>🎬 Content Factory A</h3><p>Свои сценарии, ролики, посты</p><span class="small">No active worker</span></button>
+<div class="promo"><h3>📣 Promotion A</h3><div class="channels"><button class="channel" data-title="Facebook · A" data-detail="Отдельный Facebook-креатив, аудитория и кампания для ветки A. Только черновик; платная реклама и публикация требуют разрешения.">Facebook<span>Draft A</span></button><button class="channel" data-title="TikTok · A" data-detail="Отдельное вертикальное видео и сценарий TikTok для ветки A. Реальный запуск не выполнялся.">TikTok<span>Draft A</span></button><button class="channel" data-title="Instagram · A" data-detail="Отдельные Reels/Stories для предпринимателей; только предварительный бриф.">Instagram<span>Draft A</span></button><button class="channel" data-title="Другие каналы · A" data-detail="Дополнительные каналы разрешены только после проверки интеграции и согласования владельцем.">+ каналы<span>Не выбраны</span></button></div></div>
+<button class="node" data-title="A · Воронка" data-detail="Для A нужны фактические просмотры, регистрации, первые прослушивания, возвраты и расходы. Без реальной телеметрии все значения неизвестны."><h3>📊 Метрики A</h3><p class="metric">Нет данных</p><span class="small">Not measured</span></button>
+</div></section>
+<section class="lane b" aria-label="Независимая ветка B">
+<div class="track"><span class="letter">B</span><strong>Personal Goals</strong><span class="sub">Цели, обучение и привычки</span></div>
+<div class="lane-grid">
+<button class="node" data-title="B · Концепция" data-detail="Проверяем потребность в ежедневном возвращении внимания к личной цели; не обещаем медицинских или гарантированных результатов."><h3>🧠 Концепция B</h3><p>Фокус на личной цели</p><span class="small">Idea / hypothesis</span></button>
+<button class="node" data-title="B · Build" data-detail="Ветка B может использовать общий продуктовый движок, но имеет независимую проверяемую страницу и креативы."><h3>🛠️ Build B</h3><p>Проверяемый прототип</p><span class="small">Not built</span></button>
+<button class="node" data-title="B · Лендинг" data-detail="Сайт B: «Каждый день возвращайся к тому, что для тебя важно». Отдельный лендинг и отдельная проверка конверсии."><h3>🌐 Site B</h3><p>Лендинг личных целей</p><span class="small">Draft only</span></button>
+<button class="node" data-title="B · Content Factory" data-detail="Отдельный handoff B: пользователь с личной целью; независимые сценарии видео, постов, креативов, согласование перед публикацией."><h3>🎬 Content Factory B</h3><p>Свои сценарии, ролики, посты</p><span class="small">No active worker</span></button>
+<div class="promo"><h3>📣 Promotion B</h3><div class="channels"><button class="channel" data-title="Facebook · B" data-detail="Отдельный Facebook-креатив для аудитории личных целей, без фактической кампании и трат.">Facebook<span>Draft B</span></button><button class="channel" data-title="TikTok · B" data-detail="Отдельный TikTok-сценарий для B; без запуска и реальных просмотров.">TikTok<span>Draft B</span></button><button class="channel" data-title="Instagram · B" data-detail="Отдельный Reels/Stories-креатив для B; только концепция.">Instagram<span>Draft B</span></button><button class="channel" data-title="Другие каналы · B" data-detail="Дополнительный канал B допустим после проверки и разрешения.">+ каналы<span>Не выбраны</span></button></div></div>
+<button class="node" data-title="B · Воронка" data-detail="Для B нужны отдельные фактические просмотры, регистрации, первые прослушивания, возвраты и расходы. Данных пока нет."><h3>📊 Метрики B</h3><p class="metric">Нет данных</p><span class="small">Not measured</span></button>
+</div></section>
+<div class="join" aria-hidden="true"></div>
+<div class="compare"><small>ОБЩИЙ ЭТАП ПОСЛЕ ДВУХ ВЕТОК</small><b style="display:block">⚖️ A/B Tester → Compare → Решение владельца</b><p>Продолжить A, B, обе ветки, улучшить или закрыть гипотезу</p><small>Это сравнение разных сегментов, а не рандомизированный A/B-тест</small></div>
+<div class="inspector" aria-live="polite" role="status"><b id="dtitle">Выбери любую карточку</b><p id="ddetail">Покажу её роль, независимые материалы и правила запуска. Здесь только UX-прототип — реальные воркеры, рекламные кампании и аналитика не подключены.</p></div>
+<p class="note">Промокампании A и B не смешиваются: свои источники трафика, креативы, идентификаторы и метрики. В рекламные аккаунты ничего не отправляется.</p>
+</section>
+<p class="footer">Design preview for FactoryOS issue #348 / spec PR #347 · Mocked static content only · 2026-11-13</p>
+</main><script>
+document.addEventListener("click",function(e){const el=e.target.closest("[data-title]");if(!el)return;document.getElementById("dtitle").textContent=el.dataset.title;document.getElementById("ddetail").textContent=el.dataset.detail;});
+</script></body></html>
