@@ -269,5 +269,101 @@ class StrategyTest(unittest.TestCase):
         self.assertEqual((st["per_week"], st["weeks"]), (14, 4))
 
 
+    # --- stage 3: agents work from the Master Brief
+    def test_each_agent_gets_its_part_and_drafts_are_labelled(self):
+        p = self.store.get("mycast")
+        self.store.update("mycast", lambda q: q["steps"]["4"].update(state="approved"))
+        p = self.store.get("mycast")
+        script = bs.agent_context(p, "Scriptwriter")
+        self.assertIn("### Tone of Voice и правила\n", script)                 # approved: no draft label
+        self.assertIn("### Оффер и CTA (черновик, ещё не утверждён — ориентир)", script)
+        self.assertNotIn("### Цель и KPI", script)                               # not this agent's business
+        self.assertIn("### Цель и KPI", bs.agent_context(p, "Analyst"))
+        self.assertIn("CTA соответствует этапу воронки", bs.agent_context(p, "QA Agent"))
+        self.assertEqual(bs.agent_context(p, "Render Agent"), "")               # no brief for pure rendering
+        item = {"pillar": "P", "funnel": "BOFU", "format": "Reels", "platform": "Instagram", "cta": "Войди через Telegram"}
+        self.assertIn("этап воронки BOFU", bs.agent_context(p, "Publisher", item))
+        self.assertLessEqual(len(bs.agent_context(p, "Scriptwriter")), bs.AGENT_BRIEF_LIMIT)
+
+    def test_job_to_brand_via_plan_or_link_and_into_the_real_agent_prompt(self):
+        import app as factory
+        from unittest.mock import patch
+        it = self.store.get("mycast")["plan"]["items"][2]
+        self.store.update("mycast", lambda q: next(r for r in q["plan"]["items"] if r["id"] == it["id"]).update(job_id="job-1"))
+        p, row = bs.brand_for_job(self.store, "job-1")
+        self.assertEqual((p["brand"], row["id"]), ("mycast", it["id"]))
+        self.assertEqual(bs.brand_for_job(self.store, "nope"), (None, None))
+        self.assertEqual(bs.brand_for_job(self.store, ""), (None, None))
+        link = self.h[("POST", "/api/factory/strategy/{brand}/jobs/{job_id}/link")]   # no job_exists hook in this app
+        link("mycast", "0123abcd-0000-4000-8000-000000000000", Req())
+        self.assertEqual(bs.brand_for_job(self.store, "0123abcd-0000-4000-8000-000000000000")[0]["brand"], "mycast")
+        with self.assertRaises(HTTPException):
+            link("mycast", "../x", Req())
+        with patch.object(factory, "STRATEGY", self.store):
+            prompt = factory._apply_workflow_prompt("Scriptwriter", "BASE", "job-1")
+            self.assertTrue(prompt.startswith("BASE\n"))
+            self.assertIn("Master Brief бренда MyCast", prompt)
+            self.assertIn(f"этап воронки {it['funnel']}", prompt)
+            self.assertEqual(factory._apply_workflow_prompt("Scriptwriter", "BASE", "other-job"), "BASE")
+            self.assertEqual(factory._apply_workflow_prompt("Scriptwriter", "BASE", None), "BASE")
+
+
+    def test_long_sections_never_push_tone_or_cta_out(self):
+        # Codex review on #361: a huge positioning/audience must not cut the tone, funnel and CTA sections away.
+        self.store.update("mycast", lambda q: [q["steps"][n].update(text="X" * 9000) for n in ("2", "3")])
+        script = bs.agent_context(self.store.get("mycast"), "Scriptwriter")
+        for title in ("Tone of Voice и правила", "Воронка TOFU / MOFU / BOFU", "Оффер и CTA"):
+            self.assertIn(f"### {title}", script)
+        self.assertLessEqual(len(script), bs.AGENT_BRIEF_LIMIT + 200)
+        self.store.update("mycast", lambda q: q["steps"]["6"].update(text="F" * 12000))
+        pub = bs.agent_context(self.store.get("mycast"), "Publisher")
+        self.assertIn("### Оффер и CTA", pub)
+        self.assertIn("Войди через Telegram", pub)               # the CTA map itself survives
+
+    def test_job_belongs_to_exactly_one_brand(self):
+        store = self.store
+        ids = [i["id"] for i in store.get("mycast")["plan"]["items"]]
+        store.update("mycast", lambda q: next(r for r in q["plan"]["items"] if r["id"] == ids[0]).update(job_id="planjob-0001"))
+        store.get("aaa-brand")                                   # sorts before "mycast"
+        with self.assertRaises(HTTPException) as e:              # a plan job cannot be pulled into another brand
+            store.link_job("aaa-brand", "planjob-0001")
+        self.assertEqual(e.exception.status_code, 409)
+        store.update("aaa-brand", lambda q: q.update(linked_jobs=["planjob-0001"]))   # even a stale old link...
+        self.assertEqual(bs.brand_for_job(store, "planjob-0001")[0]["brand"], "mycast")   # ...never beats the plan
+        store.link_job("aaa-brand", "free-job-0001")
+        store.link_job("mycast", "free-job-0001")                # relinking moves it
+        self.assertEqual(bs.brand_for_job(store, "free-job-0001")[0]["brand"], "mycast")
+        self.assertNotIn("free-job-0001", store.get("aaa-brand")["linked_jobs"])
+        from unittest.mock import patch
+        with patch.object(bs, "MAX_LINKED_JOBS", 1):
+            with self.assertRaises(HTTPException) as e:          # refuses instead of silently evicting old links
+                store.link_job("mycast", "free-job-0002")
+            self.assertEqual(e.exception.status_code, 409)
+        self.assertIn("free-job-0001", store.get("mycast")["linked_jobs"])
+
+    def test_link_refuses_jobs_that_do_not_exist(self):
+        async def draft(*a):
+            return {"content": ""}
+        app = fastapi.FastAPI()
+        bs.install_strategy_routes(app, self.store, identity=lambda r: {"role": "owner"}, draft=draft,
+                                   job_exists=lambda j: j == "aaaa1111-0000-4000-8000-000000000001")
+        h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+        link = h[("POST", "/api/factory/strategy/{brand}/jobs/{job_id}/link")]
+        with self.assertRaises(HTTPException) as e:
+            link("mycast", "bbbb2222-0000-4000-8000-000000000002", Req())
+        self.assertEqual(e.exception.status_code, 404)
+        link("mycast", "aaaa1111-0000-4000-8000-000000000001", Req())
+        self.assertIn("aaaa1111-0000-4000-8000-000000000001", self.store.get("mycast")["linked_jobs"])
+
+
+    def test_total_cap_holds_and_the_tasks_cta_survives_huge_inputs(self):
+        self.store.update("mycast", lambda q: (q.update(name="N" * 5000), [q["steps"][n].update(text="Z" * 9000) for n in "1234567"]))
+        item = {"pillar": "P" * 5000, "funnel": "BOFU", "format": "F" * 5000, "platform": "X" * 5000, "cta": "Войди через Telegram"}
+        for agent in ("Scriptwriter", "Publisher", "QA Agent"):
+            text = bs.agent_context(self.store.get("mycast"), agent, item)
+            self.assertLessEqual(len(text), bs.AGENT_BRIEF_LIMIT)
+            self.assertIn("CTA: Войди через Telegram", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

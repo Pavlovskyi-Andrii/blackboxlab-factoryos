@@ -229,6 +229,8 @@ jobs:
           python test_mycast_public.py
           python -m py_compile brand_strategy.py brand_strategy_seeds.py test_brand_strategy.py
           python test_brand_strategy.py
+          python -m py_compile test_builder_recovery.py
+          python test_builder_recovery.py
           python -m py_compile test_mycast_domain.py
           python test_mycast_domain.py
           python -m py_compile browser_tasks.py autopilot/browser_tasks.py browser_runner/egress_proxy.py test_browser_tasks.py
@@ -411,7 +413,9 @@ jobs:
     # password-less, key-less FactoryOS (zero spend). Findings are reported in the job summary, not enforced.
     # Runs only when page files changed and the smoke job passed (budget, 2026-11-08).
     needs: syntax-and-smoke
-    if: needs.syntax-and-smoke.outputs.ui == 'true'
+    # Owner 2026-11-14 (Actions budget, $5 in two days): the 4-minute screenshot job runs on main (Render deploys only after
+    # it) and on manual runs, not on every PR push; PR authors run Playwright locally before pushing.
+    if: needs.syntax-and-smoke.outputs.ui == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04   # 26.04 has no Playwright browser deps (apt failed 2026-11-11); same pin as syntax-and-smoke
     timeout-minutes: 20
     steps:
