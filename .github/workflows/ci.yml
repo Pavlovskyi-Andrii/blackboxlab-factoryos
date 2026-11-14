@@ -408,6 +408,8 @@ jobs:
         run: |
           python -m py_compile operator_lanes.py test_operator_lanes.py
           python test_operator_lanes.py
+      - name: Motion explainer (#353) offline + RU/UK/EN completeness
+        run: python test_explainer_motion.py
   ui-screenshots:
     # Evidence for UI tasks (T-594..T-597): EN/UK/RU × desktop/tablet/mobile screenshots of a local,
     # password-less, key-less FactoryOS (zero spend). Findings are reported in the job summary, not enforced.
