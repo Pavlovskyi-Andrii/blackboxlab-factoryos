@@ -1106,3 +1106,15 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Only approved steps enter `brief.md` (Master Brief); missing steps are listed. MyCast starts from Claude's draft of
   all 7 steps (marked "draft by Claude", hypotheses labelled), so the owner edits and approves rather than starts blank.
 - Stage 2 (content matrix + monthly plan → jobs) and stage 3 (agents read the Master Brief) come next.
+
+## 2026-11-14 — Brand strategy stage 2: monthly plan, content matrix, plan row → job
+- Owner: "сливай #357 и делай этап 2". The plan lives in the passport (`plan.settings` + `plan.items`). Settings:
+  start date (default next Monday), posts/week 1–14, weeks 1–6, platforms.
+- "Generate plan" = one owner-clicked LLM call with the Master Brief (drafts labelled) as context; the answer must be a
+  JSON array, parsed defensively (≤ 60 rows, unknown funnel → TOFU, day clamped). An unusable answer changes nothing.
+- The content matrix is derived from the plan (pillar × TOFU/MOFU/BOFU counts) plus the actual funnel share, so the
+  owner sees drift from the step-6 target without a second LLM call.
+- "→ Job" creates an ordinary inbox job through the normal job route; its brief carries brand, pillar, funnel stage,
+  format, platform, hook, CTA and the step-4 tone of voice. One job per row (idempotent).
+- MyCast gets Claude's 4-week, 20-post starting plan (TOFU 50 / MOFU 30 / BOFU 20), also back-filled into passports
+  saved before stage 2.
