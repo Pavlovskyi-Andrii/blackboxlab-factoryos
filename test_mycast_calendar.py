@@ -103,7 +103,7 @@ class CalendarTest(unittest.TestCase):
         other = ready_listener(self.store, chat="778")
         state = parse_qs(urlsplit(self.connect(s)).query)["state"][0]
         self.assertIn("calendar=failed", self.callback(other, state))        # someone else's browser: refused
-        self.assertIn("calendar=failed", self.callback(s, state[:-1] + "0"))   # forged signature
+        self.assertIn("calendar=failed", self.callback(s, state[:-1] + ("0" if state[-1] != "0" else "1")))   # forged signature
         self.assertIn("calendar=denied", self.callback(s, state, error="access_denied"))
         self.assertFalse(public_view(self.store.get(s))["calendar_linked"])
         self.assertIn("calendar=connected", self.callback(s, state))
