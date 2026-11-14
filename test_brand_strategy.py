@@ -151,5 +151,68 @@ class StrategyTest(unittest.TestCase):
         self.assertNotIn("Цель и KPI,", brief.split("Ещё не утверждено:")[1])
 
 
+    # --- stage 2: plan, matrix, jobs
+    def test_seed_plan_matrix_dates_and_late_seeding(self):
+        p = self.h[("GET", "/api/factory/strategy/{brand}")]("mycast", Req())["passport"]
+        plan = p["plan"]
+        self.assertEqual(len(plan["items"]), 20)
+        self.assertEqual(plan["funnel_share"], {"TOFU": 50, "MOFU": 30, "BOFU": 20})
+        self.assertEqual(plan["items"][0]["date"], "2026-11-16")
+        self.assertEqual(sum(sum(v.values()) for v in plan["matrix"].values()), 20)
+        path = pathlib.Path(self.tmp.name) / "late.json"
+        store = bs.StrategyStore(path, seeds=SEEDS)
+        store.update("mycast", lambda q: q.pop("plan"))                    # a passport saved before stage 2
+        self.assertEqual(len(bs.StrategyStore(path, seeds=SEEDS).get("mycast")["plan"]["items"]), 20)
+
+    def test_parse_plan_is_defensive(self):
+        st = bs.plan_settings({"start": "2026-12-01", "per_week": 3, "weeks": 2})
+        text = 'Вот план:\n[{"day": 3, "title": "A", "funnel": "mofu", "cta": "x"}, {"day": 99, "title": "B", "funnel": "zzz"},' \
+               ' {"title": ""}, "junk", {"day": "x", "title": "C"}] спасибо'
+        rows = bs.parse_plan(text, st)
+        self.assertEqual([(r["title"], r["day"], r["funnel"]) for r in rows], [("C", 1, "TOFU"), ("A", 3, "MOFU"), ("B", 14, "TOFU")])
+        self.assertEqual(bs.parse_plan("no json here", st), [])
+        bad = bs.plan_settings({"start": "nope", "per_week": 99, "weeks": 0})
+        self.assertEqual((bad["per_week"], bad["weeks"]), (14, 4))                 # 0 weeks -> the default 4
+        self.assertRegex(bad["start"], r"^\d{4}-\d{2}-\d{2}$")
+
+    def test_generate_plan_then_one_job_per_row(self):
+        made = []
+
+        async def draft(agent, system, user):
+            self.assertIn("Master Brief", user)
+            self.assertIn("ровно 6 публикаций", user)
+            return {"content": '[{"day": 1, "title": "Пост 1", "pillar": "P", "funnel": "TOFU", "hook": "h", "cta": "c"},'
+                               ' {"day": 2, "title": "Пост 2", "pillar": "P", "funnel": "BOFU"}]'}
+
+        async def create_job(title, brief, fmt):
+            made.append((title, brief))
+            return f"job-{len(made)}"
+        app = fastapi.FastAPI()
+        bs.install_strategy_routes(app, self.store, identity=lambda r: {"role": "owner"}, draft=draft, create_job=create_job)
+        h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+        p = run(h[("POST", "/api/factory/strategy/{brand}/plan/generate")]("mycast", Req({"start": "2026-12-01", "per_week": 3, "weeks": 2})))["passport"]
+        self.assertEqual([i["title"] for i in p["plan"]["items"]], ["Пост 1", "Пост 2"])
+        job = h[("POST", "/api/factory/strategy/{brand}/plan/items/{i}/job")]
+        first = run(job("mycast", 0, Req({})))
+        again = run(job("mycast", 0, Req({})))
+        self.assertEqual((first["job_id"], again["job_id"], again["existing"], len(made)), ("job-1", "job-1", True, 1))
+        self.assertIn("CTA: c", made[0][1])
+        self.assertIn("Tone of Voice", made[0][1])
+        with self.assertRaises(HTTPException):
+            run(job("mycast", 9, Req({})))
+        p = h[("POST", "/api/factory/strategy/{brand}/plan/items/{i}/delete")]("mycast", 1, Req())["passport"]
+        self.assertEqual(len(p["plan"]["items"]), 1)
+
+        async def junk(*a):
+            return {"content": "sorry, no plan"}
+        app2 = fastapi.FastAPI()
+        bs.install_strategy_routes(app2, self.store, identity=lambda r: {"role": "owner"}, draft=junk)
+        h2 = {(next(iter(r.methods)), r.path): r.endpoint for r in app2.routes if hasattr(r, "methods")}
+        with self.assertRaises(HTTPException) as e:
+            run(h2[("POST", "/api/factory/strategy/{brand}/plan/generate")]("mycast", Req({})))
+        self.assertEqual(e.exception.status_code, 502)
+        self.assertEqual(len(self.store.get("mycast")["plan"]["items"]), 1)      # unusable answer changes nothing
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

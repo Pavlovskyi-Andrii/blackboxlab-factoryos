@@ -926,7 +926,13 @@ async def _strategy_draft(agent, system, user):
     return result
 
 
-install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft)
+async def _strategy_job(title, brief, fmt):
+    """Stage 2: a plan row becomes an ordinary inbox job through the normal job route."""
+    out = await create_job(JobCreate(title=title[:200], brief=brief, format=(fmt or "Long + Shorts")[:80], language="Russian"))
+    return out["id"]
+
+
+install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft, create_job=_strategy_job)
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
