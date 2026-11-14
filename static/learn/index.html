@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FactoryOS Learning</title>
+<style>
+:root{color-scheme:dark;--bg:#060a14;--panel:#0d1527;--line:#22314a;--ink:#eef3ff;--muted:#9fb0cc;--cyan:#5ee7ff;--violet:#a98bff;--amber:#ffc46b;--font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--font);overflow-x:hidden}
+button,select,a{font:inherit;color:inherit}:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--line);background:#070c18}
+.top a.back{color:var(--muted);text-decoration:none;border:1px solid var(--line);border-radius:9px;padding:6px 10px}
+.top h1{margin:0;font-size:20px;letter-spacing:-.02em;flex:1 1 auto}
+.top select{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px}
+.tabs{display:flex;gap:8px;padding:14px 18px 0;flex-wrap:wrap}
+.tabs button{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:10px 14px;cursor:pointer;text-align:left;min-height:44px}
+.tabs button small{display:block;color:var(--muted);font-size:12px}
+.tabs button[aria-selected="true"]{border-color:var(--cyan);background:#0f2440}
+.wrap{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:16px;padding:16px 18px 24px;align-items:start}
+.list{display:flex;flex-direction:column;gap:10px}
+.card{border:1px solid var(--line);background:var(--panel);border-radius:14px;padding:12px 14px;cursor:pointer;text-align:left;width:100%}
+.card:hover{background:#121d35}.card[aria-current="true"]{border-color:var(--cyan)}
+.card b{display:block;font-size:15px}.card span{display:block;color:var(--muted);font-size:13px;margin-top:4px}
+.card i{font-style:normal;font:700 10px/1 ui-monospace,monospace;letter-spacing:.08em;color:#081018;background:var(--amber);border-radius:5px;padding:3px 6px;margin-right:6px}
+.card i.md{background:var(--violet)}.card i.steps{background:var(--cyan)}
+.card.off{opacity:.55;cursor:default}
+.viewer{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#04070f;min-height:70vh;display:flex;flex-direction:column}
+.vbar{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);background:#0a1120;font-size:13px;color:var(--muted)}
+.vbar b{color:var(--ink);flex:1 1 auto;font-size:14px}.vbar a{color:var(--cyan)}
+iframe{border:0;width:100%;flex:1 1 auto;min-height:72vh;background:#04070f}
+.empty{padding:40px 20px;color:var(--muted);text-align:center}
+@media (max-width:820px){.wrap{grid-template-columns:1fr}.viewer{min-height:60vh}iframe{min-height:64vh}}
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="/" id="back">← FactoryOS</a>
+  <h1 id="h1"></h1>
+  <select id="lang" aria-label="Language"><option value="ru">RU</option><option value="uk">UK</option><option value="en">EN</option></select>
+</header>
+<nav class="tabs" role="tablist" id="tabs"></nav>
+<div class="wrap">
+  <div class="list" id="list" role="tabpanel"></div>
+  <section class="viewer" aria-live="polite">
+    <div class="vbar"><b id="vtitle"></b><a id="vopen" target="_blank" rel="noopener" hidden></a></div>
+    <iframe id="frame" title="" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>
+    <div class="empty" id="empty"></div>
+  </section>
+</div>
+<script>
+(() => {
+'use strict';
+const T = {
+  ru: {h1: 'Обучение', back: '← FactoryOS', open: 'Открыть в новой вкладке', pick: 'Выберите материал слева.', missing: 'Пока нет в этой версии',
+       err: 'Не удалось загрузить список.',
+       tabs: {mine: ['Моё обучение', 'что вы проходили и настраивали'], explainers: ['Обучалки по системе', 'ролики и интерактивные HTML'], guide: ['Как это работает', 'гайд по проекту FactoryOS']},
+       kind: {html: 'HTML', md: 'ГАЙД', steps: 'МЕТОД'}},
+  uk: {h1: 'Навчання', back: '← FactoryOS', open: 'Відкрити в новій вкладці', pick: 'Оберіть матеріал ліворуч.', missing: 'Поки немає в цій версії',
+       err: 'Не вдалося завантажити список.',
+       tabs: {mine: ['Моє навчання', 'що ви проходили й налаштовували'], explainers: ['Навчалки по системі', 'ролики та інтерактивні HTML'], guide: ['Як це працює', 'гайд по проєкту FactoryOS']},
+       kind: {html: 'HTML', md: 'ГАЙД', steps: 'МЕТОД'}},
+  en: {h1: 'Learning', back: '← FactoryOS', open: 'Open in a new tab', pick: 'Pick an item on the left.', missing: 'Not in this build yet',
+       err: 'Could not load the list.',
+       tabs: {mine: ['My learning', 'what you studied and set up'], explainers: ['System explainers', 'films and interactive HTML'], guide: ['How it works', 'FactoryOS project guide']},
+       kind: {html: 'HTML', md: 'GUIDE', steps: 'METHOD'}}};
+const $ = id => document.getElementById(id);
+let data = null, lang = 'ru', section = 'mine', current = '';
+try { const l = localStorage.getItem('factoryos_lang'); if (T[l]) lang = l; } catch (e) {}
+const q = new URLSearchParams(location.search);
+if (T[q.get('lang')]) lang = q.get('lang');
+if (['mine', 'explainers', 'guide'].includes(q.get('s'))) section = q.get('s');
+current = q.get('id') || '';
+
+function txt(o) { return (o && (o[lang] || o.ru || o.en)) || ''; }
+function render() {
+  const t = T[lang]; document.documentElement.lang = lang; $('lang').value = lang;
+  $('h1').textContent = t.h1; $('back').textContent = t.back; document.title = 'FactoryOS · ' + t.h1;
+  const tabs = $('tabs'); tabs.textContent = '';
+  for (const s of ['mine', 'explainers', 'guide']) {
+    const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(s === section));
+    const n = data ? data.items.filter(i => i.section === s).length : 0;
+    b.innerHTML = ''; const strong = document.createElement('b'); strong.textContent = `${t.tabs[s][0]} · ${n}`;
+    const sm = document.createElement('small'); sm.textContent = t.tabs[s][1]; b.append(strong, sm);
+    b.onclick = () => { section = s; current = ''; sync(); render(); };
+    tabs.appendChild(b);
+  }
+  const list = $('list'); list.textContent = '';
+  if (!data) return;
+  for (const it of data.items.filter(i => i.section === section)) {
+    const c = document.createElement('button'); c.type = 'button'; c.className = 'card' + (it.available ? '' : ' off');
+    c.setAttribute('aria-current', String(it.id === current));
+    const b = document.createElement('b'); const k = document.createElement('i'); k.className = it.kind; k.textContent = t.kind[it.kind] || it.kind;
+    b.append(k, document.createTextNode(txt(it.title)));
+    const d = document.createElement('span'); d.textContent = it.available ? txt(it.desc) : t.missing;
+    c.append(b, d);
+    if (it.available) c.onclick = () => { current = it.id; sync(); render(); };
+    list.appendChild(c);
+  }
+  const item = data.items.find(i => i.id === current && i.section === section && i.available);
+  const frame = $('frame'), open = $('vopen');
+  if (item) {
+    const src = '/learn/view/' + encodeURIComponent(item.id);
+    if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
+    frame.hidden = false; $('empty').hidden = true; frame.title = txt(item.title);
+    $('vtitle').textContent = txt(item.title); open.hidden = false; open.href = src; open.textContent = t.open;
+  } else {
+    frame.removeAttribute('src'); frame.hidden = true; $('empty').hidden = false; $('empty').textContent = t.pick;
+    $('vtitle').textContent = ''; open.hidden = true;
+  }
+}
+function sync() {
+  const p = new URLSearchParams({s: section}); if (current) p.set('id', current); if (lang !== 'ru') p.set('lang', lang);
+  history.replaceState(null, '', '/learn?' + p.toString());
+}
+$('lang').onchange = e => { lang = e.target.value; try { localStorage.setItem('factoryos_lang', lang); } catch (x) {} sync(); render(); };
+render();
+fetch('/api/learn', {credentials: 'same-origin'}).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
+  data = d;
+  if (current) { const it = d.items.find(i => i.id === current); if (it) section = it.section; }
+  render();
+}).catch(() => { $('empty').textContent = T[lang].err; });
+})();
+</script>
+</body>
+</html>

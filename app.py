@@ -1122,6 +1122,9 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
+from learn_center import install_learn_routes  # noqa: E402
+import brand_strategy as _brand_strategy_mod  # noqa: E402
+install_learn_routes(app, base=BASE, steps_source=lambda: _brand_strategy_mod.STEPS)  # owner 2026-11-14: one Learning section
 install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,

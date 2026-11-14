@@ -1165,3 +1165,17 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Lives only in `docs/prototypes/factoryos-explainer/claude-motion/**` (+ one tiny CI test). Pushed from the session
   branch `ccr-5612b330-fr6sm2` because this session may push only there; the issue's "claude/ branch" wish is noted
   in the PR. Not self-merged (issue rule). No MP4 rendered; export path documented, not claimed.
+
+## 2026-11-14 — Learning section (/learn) + explainer readability pass
+
+- Owner asked for one place for "my learning, system explainers and how it works". `learn_center.py` serves
+  `/learn` (behind the normal dashboard login — not under `/static/`), `/api/learn` and `/learn/view/{id}` from a fixed
+  catalog of files already in the repo (no uploads, no path parameters to the filesystem). Three shelves: mine,
+  explainers, guide. The 7-step brand method renders from `brand_strategy.STEPS` so it never drifts.
+- HTML prototypes are served with `Content-Security-Policy: sandbox allow-scripts; default-src 'none' …` and shown in a
+  sandboxed iframe without `allow-same-origin`: they animate but cannot read FactoryOS cookies or call its API.
+  Markdown is rendered escape-first (only `code`, **bold**, http(s) links) — no document HTML reaches the browser.
+- Yesterday's ChatGPT HTMLs (PR #352 explainer, PR #347 A/B preview) are copied **byte-identical at the same paths**
+  so the shelf can show them now; when those PRs merge, git sees identical additions (no conflict).
+- Explainer: cards widened, packet docks beside cards with its label above/below, promo shot pans A → B, and more
+  on-screen explanation (roles in debate, MVP Manager/spec, three build agents, "2 hypotheses → 2 tests").

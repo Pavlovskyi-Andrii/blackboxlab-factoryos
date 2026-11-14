@@ -65,3 +65,24 @@ UK and EN versions of every caption, narration line and on-map label live in the
 | Cross-audience comparison | Not a randomized test | «не рандомизированный тест» |
 
 The film has no invented users, revenue, testimonials, logos or live connections. The Notion storyboard's automatic-publishing scenarios were deliberately **not** used.
+
+## Revision 2026-11-14 (owner feedback)
+
+- **Readability.** Cards are wider, so no label overflows its box. The packet now docks *beside* cards: its label goes above or below, never over card text or arrows. In the A/B and promo shots, packet A rides above its lane and packet B below.
+- **Promo shot.** The camera visits branch A together with the Owner first, then branch B (49–54.6 s on A, 56–59 s on B). This keeps text large. B's approval and its packs come after A's.
+- **More explanation on screen:**
+  - **Idea.** «у вас есть идея — вы её пишете».
+  - **Debate.** Heading «2–3 AI-агента спорят об идее → находят концепцию». Each role is labelled:
+    - исследователь: ищет факты;
+    - критик: ищет слабые места;
+    - стратег: собирает концепцию.
+    Dropped hypotheses get a red «отсеяна» chip.
+  - **Product.** «MVP Manager — превращает концепцию в ТЗ» and «ТЗ: что строим, для кого и как проверим результат».
+  - **Build.** The heading «MVP Builder собирает продукт по частям» sits over the product preview, which is split into HTML-страница / логика / код-API / данные. Three agents are shown:
+    - агент-фронтенд: верстает HTML;
+    - агент-бэкенд: пишет код и логику;
+    - агент-QA: гоняет тесты.
+  - **Agent Office.** «по стратегии: 2 гипотезы → 2 теста».
+  - **Fork.** «оба теста идут параллельно».
+- Narration for shots 2–6 was updated to match, in RU, UK and EN.
+- The film is also listed in the dashboard's new **Обучение** section (`/learn`), under «Обучалки по системе».
