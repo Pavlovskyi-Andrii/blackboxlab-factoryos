@@ -138,7 +138,10 @@ class TestIssueIntake(unittest.TestCase):
         self.assertNotIn(FAKE_TOKEN, log)
         self.assertNotIn("secret", log)
         self.assertEqual(len(sent), 1)  # notify once; the repeat pass is a no-op
-        self.assertGreaterEqual(app.FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC, 300)
+        # Claude notices a new owner-created Issue via the existing Relay intake, not a second worker.
+        self.assertGreaterEqual(app.FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC, 120)
+        if "FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC" not in os.environ:
+            self.assertEqual(app.FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC, 120)
 
 
     def test_403_falls_back_to_fresh_ec2_snapshot_and_defers_blocked(self):
