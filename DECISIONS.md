@@ -1216,3 +1216,8 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   job's own approval and `_publish_approval_gate`.
 - UI: owner-only «В Content Factory» per branch, the job shown in the lane, an «A/B-тестер» tile next to the other MVP
   agents (scrolls to the experiments), open forms closed on project switch, shorter «Обучение» nav label.
+- Codex review on #376 (blocking, fixed): the 120 s reservation alone did not guarantee one job (slow creator, lost
+  reservation, crash between insert and attach). The job id is now `uuid5(project, experiment, branch)` and the A/B
+  creator writes it with `INSERT OR IGNORE` plus its workspace binding in one transaction; attaching is idempotent and
+  no longer depends on the reservation token. The brief puts the draft-only rules first so length capping can never cut
+  them. Verified on a real SQLite DB: 6 concurrent/repeated creates → 1 job row, 1 workspace row, 0 publishing rows.

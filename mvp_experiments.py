@@ -19,6 +19,7 @@ import json
 import re
 import secrets
 import time
+import uuid
 from typing import Any, Awaitable, Callable, Optional
 
 from fastapi import Request
@@ -162,6 +163,13 @@ def view(exp: dict) -> dict:
     out["comparison"] = comparison(exp)
     out["metric_status"] = "not_instrumented"
     return out
+
+
+def content_job_id(pid: str, exp_id: str, branch_id: str) -> str:
+    """Codex review on #376: the job id is derived from (project, experiment, branch), so job creation is idempotent
+    in the database itself. A slow creator, a lost reservation or a crash between creating and attaching can never
+    make a second job for the same branch: every retry targets the same id."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"factoryos:ab-content-job:{pid}:{exp_id}:{branch_id}"))
 
 
 class Experiments:
@@ -344,7 +352,8 @@ class Experiments:
             token = secrets.token_hex(8)
             branch["content_job_claim"] = {"token": token, "at": time.time()}
             self.r._save(data)
-            return {"token": token, "title": f"[A/B {exp_id} · {branch_id.upper()}] {branch['label']}"[:200],
+            return {"token": token, "job_id": content_job_id(pid, exp_id, branch_id),
+                    "title": f"[A/B {exp_id} · {branch_id.upper()}] {branch['label']}"[:200],
                     "brief": content_brief(project, exp, branch)}
 
     def release_content_job(self, pid: str, exp_id: str, branch_id: str, token: str) -> None:
@@ -356,6 +365,10 @@ class Experiments:
                 self.r._save(data)
 
     def attach_content_job(self, pid: str, exp_id: str, branch_id: str, token: str, job_id: str, *, actor: str) -> dict:
+        """Idempotent: the branch can only ever point at its own deterministic job id. A lost or expired reservation
+        does not drop the association; the token only decides whether this request clears its own claim."""
+        if job_id != content_job_id(pid, exp_id, branch_id):
+            raise MvpError("job_id_mismatch", 500)
         with self.r._lock:
             data = self.r._load()
             project = self._project(data, pid)
@@ -363,11 +376,12 @@ class Experiments:
             branch = next(b for b in exp["branches"] if b["id"] == branch_id)
             if (branch.get("content_job_claim") or {}).get("token") == token:
                 branch.pop("content_job_claim", None)
+            if not branch.get("content_job_id"):
                 branch["content_job_id"] = job_id
                 self._event(data, project, actor, f"Branch {branch_id.upper()} handed to Content Factory as a draft job "
                             f"{job_id} (inbox). Nothing is published; publishing needs the job's own approval.", exp_id, branch_id)
                 exp["updated_at"] = _iso(self.r.clock())
-                self.r._save(data)
+            self.r._save(data)
             return view(exp)["branches"][BRANCH_IDS.index(branch_id)]
 
     def _branch_or_none(self, data: dict, pid: str, exp_id: str, branch_id: str):
@@ -376,24 +390,26 @@ class Experiments:
 
 
 def content_brief(project: dict, exp: dict, branch: dict) -> str:
-    """The job brief: everything Content Factory needs, and the limits it must keep (correction 10)."""
+    """The job brief. The rules come first and are never truncated (Codex review on #376); only the copy part is
+    length-capped (its inputs are already bounded by validate_create/validate_copy)."""
     c = branch.get("copy") or {}
-    lines = [f"A/B experiment {exp['id']} · branch {branch['id'].upper()} · revision {branch['revision']}",
-             f"Project: {project.get('title') or project['id']} ({project['id']})",
-             f"Mode: {exp['mode']} — " + ("segment comparison, NOT a randomized A/B test; never claim a winner."
-                                          if exp["mode"] == "SEGMENT_COMPARISON" else "controlled A/B is not instrumented yet."),
-             f"Audience (persona): {branch['persona']} — {branch['label']}",
-             f"Hypothesis: {exp.get('hypothesis', '')}", "",
-             "Owner-approved landing copy for this branch:",
-             f"- Headline: {c.get('headline', '')}", f"- Subheadline: {c.get('subhead', '')}", f"- CTA: {c.get('cta', '')}"]
-    lines += [f"- Bullet: {x}" for x in c.get("bullets") or []]
+    rules = ["RULES — DRAFTS ONLY. Do not publish, schedule, buy ads or contact anyone. Facebook and TikTok are placeholders.",
+             "No health or guaranteed-result claims; no personal data. Keep this branch's audience and CTA; do not mix in the other branch.",
+             "Publishing later needs the owner's approval of this job in Review.",
+             "Mode: " + exp["mode"] + " — " + ("segment comparison, NOT a randomized A/B test; never claim a winner."
+                                                if exp["mode"] == "SEGMENT_COMPARISON" else "controlled A/B is not instrumented yet."), ""]
+    body = [f"A/B experiment {exp['id']} · branch {branch['id'].upper()} · revision {branch['revision']}",
+            f"Project: {project.get('title') or project['id']} ({project['id']})",
+            f"Audience (persona): {branch['persona']} — {branch['label']}",
+            f"Hypothesis: {exp.get('hypothesis', '')}", "",
+            "Owner-approved landing copy for this branch:",
+            f"- Headline: {c.get('headline', '')}", f"- Subheadline: {c.get('subhead', '')}", f"- CTA: {c.get('cta', '')}"]
+    body += [f"- Bullet: {x}" for x in c.get("bullets") or []]
     posts = c.get("posts") or {}
-    lines += [f"- Short post draft: {x}" for x in posts.get("short") or []]
-    lines += [f"- Medium post draft: {x}" for x in posts.get("medium") or []]
-    lines += ["", "Rules: DRAFTS ONLY. Do not publish, schedule, buy ads or contact anyone. Facebook and TikTok are placeholders.",
-              "No health or guaranteed-result claims; no personal data. Keep this branch's audience and CTA; do not mix in the other branch.",
-              "Publishing later needs the owner's approval of this job in Review."]
-    return "\n".join(lines)[:8000]
+    body += [f"- Short post draft: {x}" for x in posts.get("short") or []]
+    body += [f"- Medium post draft: {x}" for x in posts.get("medium") or []]
+    head = "\n".join(rules)
+    return head + "\n" + "\n".join(body)[:max(0, 8000 - len(head) - 1)]
 
 
 def experiments_view(project: dict) -> list[dict]:
@@ -401,7 +417,7 @@ def experiments_view(project: dict) -> list[dict]:
 
 
 def install_mvp_experiment_routes(app, registry: MvpRegistry, identity_fn: Callable,
-                                  create_job: Optional[Callable[[str, str], Awaitable[str]]] = None) -> Experiments:
+                                  create_job: Optional[Callable[[str, str, str], Awaitable[str]]] = None) -> Experiments:
     store = Experiments(registry)
 
     def _who(request: Request) -> tuple[str, str]:
@@ -471,7 +487,7 @@ def install_mvp_experiment_routes(app, registry: MvpRegistry, identity_fn: Calla
         if "existing" in claim:
             return {"job_id": claim["existing"], "existing": True}
         try:
-            job_id = await create_job(claim["title"], claim["brief"])
+            job_id = await create_job(claim["title"], claim["brief"], claim["job_id"])
         except Exception:
             store.release_content_job(project_id, exp_id, branch_id, claim["token"])
             raise
