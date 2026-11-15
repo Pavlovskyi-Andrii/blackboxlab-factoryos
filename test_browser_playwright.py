@@ -29,6 +29,10 @@ def plan(*steps, action_class="draft", **extras):
     )
 
 
+# Same class name as playwright.sync_api.TimeoutError, which is not the builtin TimeoutError.
+PlaywrightTimeoutError = type("TimeoutError", (Exception,), {})
+
+
 class FakeRequest:
     def __init__(self, url, method):
         self.url, self.method = url, method
@@ -75,11 +79,20 @@ class FakeLocator:
     def set_input_files(self, path, timeout):
         self.page.state["uploaded"] = Path(path).name
 
+    @property
+    def first(self):
+        return self
+
     def wait_for(self, *, state, timeout):
-        assert state == "visible"
+        assert state in ("visible", "attached")
+        if self.selector == "#missing":
+            raise PlaywrightTimeoutError("Timeout 8000ms exceeded")
 
     def inner_text(self, timeout):
         return "Synthetic fixture heading"
+
+    def all_inner_texts(self):
+        return ["First result", " ", "Second result"] if self.selector == ".many" else ["Synthetic fixture heading"]
 
 
 class FakePage:
@@ -196,6 +209,25 @@ class SafeBrowserRegression(unittest.TestCase):
         image = self.root / "artifacts" / result.artifacts[0].split("/")[-1]
         self.assertTrue(image.exists())
         self.assertEqual(image.stat().st_mode & 0o777, 0o600)
+
+    def test_read_missing_selector_does_not_fail_the_task(self):
+        """Surfer: example.com has no <h1> any more (2026-11-15); that used to fail the whole task with no screenshot."""
+        p = plan({"type": "navigate", "url": self.origin + "/page"}, {"type": "extract", "selector": "#missing"},
+                 {"type": "extract", "selector": ".many"}, {"type": "screenshot"}, action_class="read")
+        policy = replace(self.policy, return_extracted_text=True)
+        result = run_playwright(p, policy=policy, playwright_factory=FakePlaywright)
+        self.assertEqual(result.status, "done")
+        self.assertEqual(result.completed_steps, 4)
+        extracts = [row for row in result.action_log if row["type"] == "extract"]
+        self.assertEqual(extracts[0], {**extracts[0], "missing": True, "text": "", "text_chars": 0})
+        self.assertEqual(extracts[1]["text"], "First result\nSecond result")
+        self.assertNotIn("missing", extracts[1])
+        self.assertEqual(len(result.artifacts), 1)
+
+    def test_non_read_extract_of_missing_selector_still_fails(self):
+        p = plan({"type": "navigate", "url": self.origin + "/page"}, {"type": "wait_for", "selector": "#missing"})
+        result = self.run_fake(p)
+        self.assertEqual((result.status, result.completed_steps), ("failed", 1))
 
     def test_publication_rejected_even_with_self_claimed_approval(self):
         candidate = plan(

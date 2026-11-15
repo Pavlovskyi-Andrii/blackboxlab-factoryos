@@ -40,6 +40,7 @@ from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_mvp_project_once
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
+import web_surfer
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
@@ -1106,6 +1107,9 @@ async def mvp_agent_message(project_id: str, agent: str, request: Request):
     return {"ok":True,"routed":"gemini"}
 # T-560 wiring: owner's read-only browser tasks, run by the EC2 runner (Playwright never runs on Render).
 BROWSER_TASKS = BrowserTaskStore(DATA_DIR)
+# T-560-H Surfer for every MCP-connected agent; Google search via Gemini only after the owner opts in (may be billed).
+WEB_SEARCH = web_surfer.WebSearch(DATA_DIR, provider=lambda: os.environ.get("FACTORY_WEB_SEARCH_PROVIDER", ""),
+                                  gemini_key=lambda: FACTORY_GEMINI_API_KEY, gemini_model=resolve_flash_model)
 def _browser_session_domains(provider: str, account: str) -> list:
     parts = _vault_parts(required=False)
     if not parts or not _VAULT_SLUG.match(provider or "") or not _VAULT_ACCOUNT.match(account or ""):
@@ -1693,7 +1697,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]
+]+web_surfer.TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -1735,6 +1739,8 @@ async def factory_mcp(request: Request):
                     "status":x["status"],"progress":x.get("execution_progress",0),
                     "priority":x["priority"],"owner":x["owner"]
                 } for x in rows])
+            elif name in web_surfer.TOOL_NAMES:
+                result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})

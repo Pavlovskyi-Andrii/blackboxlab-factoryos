@@ -1192,3 +1192,23 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   approved by an old click. Decision fields are whitelisted (`choice`, `note`) — no winner/lift can be stored.
 - Members are denied MVP routes by the existing workspace tenancy middleware, same as all other MVP routes; the
   module itself still distinguishes owner/member for when that changes.
+
+## 2026-11-15 — T-560-H Surfer for every connected agent
+
+- Diagnosis on production (agent token, 9 read tasks): the EC2 runner is alive (claims within ~1 s, Wikipedia read in
+  4 s with a screenshot). The "broken" runs were selectors that do not exist on the page: example.com no longer has an
+  `<h1>`, and `inner_text` on a missing selector failed the whole task after 20 s as `browser_runtime_TimeoutError` with
+  no text and no screenshot. Several matches (`.result a`) failed too (Playwright strict mode).
+- Read tasks now wait ≤ 8 s per selector, read **every** match (`all_inner_texts`), and report a missing selector as
+  `{"text": "", "missing": true}`; the run continues to the screenshot. Non-read plans keep the strict behaviour.
+- Search engines refuse the EC2 datacenter address as automated traffic (DuckDuckGo, Mojeek, Startpage: block pages;
+  Brave and Bing: empty pages). Bypassing that is a T-560 non-goal, so `web_search` never goes through the browser:
+  it uses official APIs — Wikipedia (MediaWiki API, free, no key; default) and Gemini with Google Search grounding on
+  the key FactoryOS already has. Grounding can be billed beyond the free quota, so it is **off** until the owner sets
+  `FACTORY_WEB_SEARCH_PROVIDER=gemini` (T-560-I), and capped at 100 searches per UTC day in
+  `DATA_DIR/web_search_usage.json`. Failures fall back to Wikipedia and report only the exception type.
+- "Everyone connected" = the `/mcp` endpoint (ChatGPT connectors, Claude connectors, Gemini CLI all speak MCP), so the
+  Surfer is three MCP tools: `web_search`, `web_read` (queues, waits ≤ 40 s, else returns the task id) and `web_task`.
+  MCP tasks are stored with `source: "mcp"`; the 200/day agent cap applies to them as a group; `web_task` shows only
+  MCP tasks, so owner and Claude-token tasks stay private. The MCP token is shared, so `agent` is a self-declared label
+  in the task note, never an identity. Screenshots stay owner-only (dashboard), not returned over MCP.

@@ -126,7 +126,8 @@ def execute(task: dict, *, runner=run_playwright, artifact_root: pathlib.Path, r
     task.pop("storage_state", None)                       # cookies leave memory with the task
     selectors = task.get("selectors") or ["body"]
     extracts = [row for row in result.action_log if row.get("type") == "extract"]
-    texts = [{"selector": selectors[i], "text": row.get("text", "")} for i, row in enumerate(extracts[:len(selectors)])]
+    texts = [dict({"selector": selectors[i], "text": row.get("text", "")}, **({"missing": True} if row.get("missing") else {}))
+             for i, row in enumerate(extracts[:len(selectors)])]
     shot = ""
     for ref in result.artifacts[:1]:
         path = artifact_root / ref.rsplit("/", 1)[-1]
