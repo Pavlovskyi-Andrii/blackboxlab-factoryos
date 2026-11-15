@@ -1236,3 +1236,6 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 
 ## 2026-11-15 — T-590 third re-check (same day)
 - The result is unchanged and T-590 stays unchecked. The run asked for DONE + checkbox, but `git fetch` and `gh` were denied, so ticking it would rest only on repo notes rather than observed evidence. The CLAUDE.md "no fabricated CI/deploy success" invariant wins. The deterministic suites are green. The status is `blocked`, and the exact ask is in `.autopilot/status.json`.
+
+## 2026-11-15 — T-590 fourth re-check (same day)
+- The result is unchanged and T-590 stays unchecked. `gh` and `web_read` were denied, so no live stage was observed. Smoke and the Relay suites were also denied, so only compile and the planner were re-run. Ticking the box would need CI, deploy and Telegram evidence that this run cannot observe (CLAUDE.md: no fabricated CI/deploy success).
