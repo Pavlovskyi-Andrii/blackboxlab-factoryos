@@ -573,6 +573,16 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner-only route creates one inbox job per branch via `create_job` (atomic claim); draft only, no publishing queue row, no provider call; publish approval stays `/api/jobs/{id}/approve` + `_publish_approval_gate`.
   DONE: tests prove one job per branch under concurrent clicks, no publish row, no provider call.
 
+## MVP Factory pilots — first MVP wave (owner 2026-11-15)
+
+- [x] T-616 AI Release Guardian — read-only GitHub PR readiness board (MVP pilot `release-guardian`, Issue #189)
+  Owner: claude (session Release Guardian)
+  Priority: P1
+  Depends: #186 registry
+  Spec: Issue #189; docs/MVP_FACTORY_SPEC.md (pilot backlog); DECISIONS.md «2026-11-15 — T-616»
+  Goal: owner-only `GET /api/release-guardian` + `static/mvp-factory/release-guardian.html` (EN/UK/RU): per PR the author, every check run, Actions workflows that ran no job, commit statuses, reviews and blockers. Readiness green/red/pending/unknown comes from one pure function; only `success` passes; skipped/neutral/stale, missing required checks and job-less workflows are never success; no checks → unknown. GitHub is read with GET only (existing `FACTORY_GITHUB_READ_TOKEN`, else anonymous with a smaller cap), cached with a TTL and a rate-limit guard; nothing is written to GitHub.
+  DONE: `python test_release_guardian.py` passes (fixtures: success, skipped, neutral, stale, cancelled, no checks, no jobs, queued no jobs, required missing/skipped, truncated, re-run, statuses, GitHub down, stale cache, rate-limit guard, owner-only route through the real auth middleware), the page's inline JS passes `node --check`, the MVP suites and the default verification pass.
+
 ## Durable workflows on DBOS (owner 2026-11-15: «Зроби етапи 0 і 1 з плану DBOS»)
 
 Plan: owner's Claude doc «DAG-оркестраторы для AI — исследование для FactoryOS» — stage 0 (engine) and stage 1 (Media Finisher).
