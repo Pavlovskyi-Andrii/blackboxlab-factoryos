@@ -451,8 +451,18 @@ def parking_regression():
     assert "T-030" in ap.idle_notice(path, parked={"T-030"})
 
     answers = path.parent / "answers.md"
+    answers.write_text("## T-001\nold answer\n", encoding="utf-8")
     calls: list[str] = []
     sleeps = {"n": 0}
+
+    def rewriting_sync(_branch):
+        # 2026-11-15 regression: a conflicting merge of main + `git merge --abort` rewrote answers.md on every
+        # pass (same bytes, new mtime) and woke the blocked task each time: ~300 Telegram cards for T-590.
+        data = answers.read_bytes()
+        answers.write_bytes(data)
+        st = answers.stat()
+        ap.os.utime(answers, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000 * (sleeps["n"] + 1)))
+        return "conflict"
 
     def fake_agent(target):
         calls.append(target["id"])
@@ -468,14 +478,14 @@ def parking_regression():
         sleeps["n"] += 1
         if sleeps["n"] == 8:
             # New owner input wakes the blocked task exactly once more.
-            answers.write_text("## T-030\nuse option A\n", encoding="utf-8")
+            answers.write_text(answers.read_text(encoding="utf-8") + "## T-030\nuse option A\n", encoding="utf-8")
         if sleeps["n"] > 12:
             raise _StopLoop
 
     patches = {
         "ROADMAP": path, "ANSWERS": answers, "DAEMON_MODE": True, "ALLOW_UNCLAIMED": True, "OPERATOR": "claude", "RELAY_ONLY": False,
         "assert_safe_branch": lambda: "autopilot/test", "current_branch": lambda: "autopilot/test",
-        "sync_branch": lambda _b: None, "commits_ahead": lambda _b: 0, "push_branch": lambda _b: True,
+        "sync_branch": rewriting_sync, "commits_ahead": lambda _b: 0, "push_branch": lambda _b: True,
         "poll_control": lambda *a, **k: {"paused": False, "retry": "", "acks": []},
         "run_agent": fake_agent, "send": lambda _m: None, "write_runtime_status": lambda *a, **k: None,
         "done_status_is_consistent": lambda status, target, path=None: True,

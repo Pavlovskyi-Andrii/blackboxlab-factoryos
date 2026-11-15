@@ -1355,3 +1355,17 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   `test_mvp_experiment_jobs.py` tested the superseded local T-610 API (its create-job hook no longer exists) and
   was removed with that implementation; main's `test_mvp_experiments.py` (one job per branch under concurrent clicks,
   no publish approval, slow creator) and `test_mvp_experiments_ui.py` cover the same DONE criteria and pass.
+## 2026-11-15 — Blocked tasks wake on answers.md content, not mtime (Telegram loop fix)
+
+- Incident: T-590 (ticket R-0004) was re-run every ~2 minutes and Telegram received ~300 cards
+  ("running" → "blocked" → "взята в работу" …). Cause: `origin/main` no longer merges cleanly into
+  `autopilot/aws-worker` (conflict in `.github/workflows/ci.yml`), so every loop pass ran `git merge origin/main`
+  + `git merge --abort`. Main had changed `.autopilot/answers.md`, so both steps rewrote that file; its mtime
+  moved each pass, `answers_marker()` (mtime-based) reported "new owner input" and the parked task was woken.
+- Choice: `answers_marker()` is now a SHA-256 fingerprint of the file's bytes (kept as an int so existing
+  `parking.json` stays valid). Rewrites, checkouts and touches no longer wake a task; a real new answer still does.
+  A parked task wakes once more after this upgrade (old mtime marker ≠ new hash), then stays parked.
+- Regression: `autopilot/test_autopilot.py::parking_regression` simulates a conflicting sync that rewrites
+  answers.md on every pass; the old code re-ran the blocked task 13 times in that test.
+- Not done here (owner/interactive session): resolve the `autopilot/aws-worker` ↔ `main` conflict; until it is
+  resolved this fix cannot reach the worker through its main sync.
