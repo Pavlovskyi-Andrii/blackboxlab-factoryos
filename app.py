@@ -37,6 +37,7 @@ from worker_observability import build_worker_overview, sanitize_supervisor, san
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
+from mybrief import FeedbackStore as MyBriefFeedback, install_mybrief_routes, load_catalog as mybrief_catalog
 from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_mvp_project_once
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
@@ -1152,6 +1153,7 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
+install_mybrief_routes(app, MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog()), request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
 async def _ab_content_job(title, brief, job_id):
     """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
@@ -1261,7 +1263,7 @@ async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/api/mycast/calendar/")  # MyCast public beta: capped demo, listener accounts
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
     media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)
