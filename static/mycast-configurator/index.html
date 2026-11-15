@@ -227,6 +227,10 @@ details.jsonBox>summary{cursor:pointer;color:var(--mute);font-size:14px;margin-b
 #accIn{display:grid;gap:16px}  /* name row, buttons and the invite box no longer touch */
 .invite{display:grid;gap:8px;padding:16px 18px;border-radius:14px;border:1px dashed var(--edge2)}
 .invite .btns{margin-top:6px}
+/* T-620 (#305): "My podcasts" library in the cabinet */
+.myPods h4{margin:0 0 8px}.podRow{display:grid;gap:8px;padding:12px 0;border-top:1px dashed var(--edge2)}.podRow:first-of-type{border-top:0}
+.podRow .podHead{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}.podRow .podHead b{font-size:15px}
+.podRow audio{width:100%}.podRow .confirm{min-height:44px}.podLink{word-break:break-all}
 .banner{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:16px;border:1px solid rgba(79,227,255,.45);background:rgba(10,30,50,.75)}
 .banner[hidden]{display:none}
 /* Player + waveform: bars move only while the browser is really speaking. */
@@ -441,6 +445,8 @@ footer{color:var(--dim);font-size:13px;text-align:center}
         <button class="btn" type="button" id="accPage" data-t="acc_page"></button>
         <button class="btn" type="button" id="accDelete" data-t="acc_delete"></button>
       </div>
+      <div class="myPods" id="myPods" aria-live="polite"></div>
+      <p class="hint" id="accAccess"></p>
       <div class="invite"><b id="inviteDays"></b><span class="hint" id="inviteSub"></span><div class="btns"><button class="btn primary" type="button" id="inviteBtn" data-t="inv_btn"></button></div></div>
     </div>
     <div class="msg" id="accMsg" role="status" aria-live="polite"></div>
@@ -754,7 +760,7 @@ const GROW = {
   gift:'🎁 Вам подарували 7 днів: 14 днів персональних подкастів безкоштовно',gift_sub:'7 днів старту + 7 днів від друга. Увійдіть, щоб подарунок зарахувався.',
   beta:'Відкрита бета: зараз усе безкоштовно, дні почнуть рахуватися з запуском регулярних випусків.',
   tr1:'Створи свій персональний подкаст',tr1s:'Теми, голос і розклад — за 2 хвилини.',tr2:'Слухай подкасти друзів і відомих людей',tr2s:'Відкрий посилання друга або додай Зеленського, Маска, Гейтса…',tr3:'Ділись і отримуй дні',tr3s:'Посилання або QR: другу +7 днів, тобі +7 днів.',
-  qr_gift:'🎁 Вам подарували 7 днів MyCast',inv_days:'Ваші безкоштовні дні: {n}',inv_sub:'Друзів отримали перший випуск: {k} (ще чекаємо: {p}). Друг отримує +7 днів одразу, ви — коли йому прийде перший подкаст.',inv_btn:'Скопіювати запрошення',inv_copied:'Запрошення скопійовано: ',inv_text:'Мій персональний подкаст MyCast. Тримай 7 днів у подарунок 🎁',
+  qr_gift:'🎁 Вам подарували 7 днів MyCast',inv_days:'Ваші безкоштовні дні: {n}',inv_sub:'Друзів отримали перший випуск: {k} (ще чекаємо: {p}). Ви і друг отримуєте по +7 днів, коли йому прийде перший подкаст.',inv_btn:'Скопіювати запрошення',inv_copied:'Запрошення скопійовано: ',inv_text:'Мій персональний подкаст MyCast. Тримай 7 днів у подарунок 🎁',
   ideas_h:'Ідеї зростання (чернетка)',ideas_hint:'Тезиси, щоб не загубити. «Є» — вже на сторінці, решта — план.',
   ideas:[['Старт 7 днів безкоштовно + 7 днів за кожного друга (як Dropbox): отримують обидва',1],['Підпис під QR і посиланням: «Вам подарували 7 днів»',1],['Три входи на головній: створи свій · слухай друзів і відомих · ділись',1],
    ['Підпис наприкінці кожного випуску: «Цей подкаст зібрав для себе Андрій. Створи свій — 7 днів у подарунок»',0],['Картка ДНК подкасту для сторіс Instagram і Telegram, з QR',0],['Подкасти відомих людей і друзів як готові «станції»: підписатися в один дотик',0],
@@ -764,7 +770,7 @@ const GROW = {
   gift:'🎁 Вам подарили 7 дней: 14 дней персональных подкастов бесплатно',gift_sub:'7 дней старта + 7 дней от друга. Войдите, чтобы подарок засчитался.',
   beta:'Открытая бета: сейчас всё бесплатно, дни начнут считаться с запуском регулярных выпусков.',
   tr1:'Создай свой персональный подкаст',tr1s:'Темы, голос и расписание — за 2 минуты.',tr2:'Слушай подкасты друзей и известных людей',tr2s:'Открой ссылку друга или добавь Зеленского, Маска, Гейтса…',tr3:'Делись и получай дни',tr3s:'Ссылка или QR: другу +7 дней, тебе +7 дней.',
-  qr_gift:'🎁 Вам подарили 7 дней MyCast',inv_days:'Ваши бесплатные дни: {n}',inv_sub:'Друзей получили первый выпуск: {k} (ещё ждём: {p}). Друг получает +7 дней сразу, вы — когда ему придёт первый подкаст.',inv_btn:'Скопировать приглашение',inv_copied:'Приглашение скопировано: ',inv_text:'Мой персональный подкаст MyCast. Держи 7 дней в подарок 🎁',
+  qr_gift:'🎁 Вам подарили 7 дней MyCast',inv_days:'Ваши бесплатные дни: {n}',inv_sub:'Друзей получили первый выпуск: {k} (ещё ждём: {p}). Вы и друг получаете по +7 дней, когда ему придёт первый подкаст.',inv_btn:'Скопировать приглашение',inv_copied:'Приглашение скопировано: ',inv_text:'Мой персональный подкаст MyCast. Держи 7 дней в подарок 🎁',
   ideas_h:'Идеи роста (черновик)',ideas_hint:'Тезисы, чтобы не потерять. «Есть» — уже на странице, остальное — план.',
   ideas:[['Старт 7 дней бесплатно + 7 дней за каждого друга (как Dropbox): получают оба',1],['Подпись под QR и ссылкой: «Вам подарили 7 дней»',1],['Три входа на главной: создай свой · слушай друзей и известных · делись',1],
    ['Подпись в конце каждого выпуска: «Этот подкаст собрал для себя Андрей. Создай свой — 7 дней в подарок»',0],['Карточка ДНК подкаста для сторис Instagram и Telegram, с QR',0],['Подкасты известных людей и друзей как готовые «станции»: подписаться в одно касание',0],
@@ -774,7 +780,7 @@ const GROW = {
   gift:'🎁 You were gifted 7 days: 14 days of personal podcasts, free',gift_sub:'7 starter days + 7 days from your friend. Sign in so the gift counts.',
   beta:'Open beta: everything is free right now; days start counting when regular episodes launch.',
   tr1:'Create your own personal podcast',tr1s:'Topics, voice and schedule in 2 minutes.',tr2:'Listen to friends\' and famous people\'s podcasts',tr2s:'Open a friend\'s link or add Zelensky, Musk, Gates…',tr3:'Share and earn days',tr3s:'Link or QR: +7 days for your friend, +7 for you.',
-  qr_gift:'🎁 You were gifted 7 days of MyCast',inv_days:'Your free days: {n}',inv_sub:'Friends with a first episode: {k} (pending: {p}). Your friend gets +7 days at once; you get +7 when their first podcast arrives.',inv_btn:'Copy invite',inv_copied:'Invite copied: ',inv_text:'My personal MyCast podcast. Here are 7 days as a gift 🎁',
+  qr_gift:'🎁 You were gifted 7 days of MyCast',inv_days:'Your free days: {n}',inv_sub:'Friends with a first episode: {k} (pending: {p}). You and your friend each get +7 days when their first podcast arrives.',inv_btn:'Copy invite',inv_copied:'Invite copied: ',inv_text:'My personal MyCast podcast. Here are 7 days as a gift 🎁',
   ideas_h:'Growth ideas (draft)',ideas_hint:'Theses so nothing gets lost. "Live" is already on this page, the rest is a plan.',
   ideas:[['7 free days to start + 7 days for each friend (the Dropbox way): both sides get them',1],['A line under the QR and the link: "You were gifted 7 days"',1],['Three entry points on the first screen: create yours · listen to friends and famous people · share',1],
    ['A sign-off at the end of every episode: "Andrii built this podcast for himself. Make yours, 7 days on us"',0],['A podcast DNA card for Instagram and Telegram stories, with the QR',0],['Famous people\'s and friends\' podcasts as ready "stations": follow in one tap',0],
@@ -1290,7 +1296,7 @@ async function restoreSaved() {
 async function signedIn(r) {
   const d = await r.json().catch(() => ({}));
   if (!r.ok || !d.listener) { accMsg(t().acc_fail, false); return; }
-  listener = d.listener; accMsg(''); render();
+  listener = d.listener; accMsg(''); render(); loadEpisodes();
   await restoreSaved();
   if (!listener.has_podcast && MyCast.validate(profile).length === 0) await savePodcast(true);
   go('#stepTopics');
@@ -1370,6 +1376,7 @@ async function initAccounts() {
   await restoreSaved();
   await telegramReturn();
   render();
+  loadEpisodes();
   calendarReturn();
   // Telegram's script provides the sign-in pop-up (Telegram.Login.auth); Google is used only to connect the calendar.
   if (account.telegram_bot_id && !(listener && listener.telegram_linked)) loadScript('https://telegram.org/js/telegram-widget.js?22');
@@ -1492,7 +1499,7 @@ function renderTelegram() {
     const st = L.status || {}, last = st.last;  // #317: the server's real state of today's episode
     if (x.dl_state[st.state]) html += `<p class="status ${st.state === 'failed_today' || st.state === 'bad_profile' ? 'bad' : 'ok'}">${esc(x.dl_state[st.state].replace('{d}', st.detail || ''))}</p>`;
     if (last && x.dl_last[last.status]) html += `<p class="hint">${esc(x.dl_last[last.status].replace('{date}', last.date).replace('{r}', last.reason || ''))}</p>`;
-    html += `<div id="dlHistory"></div>`;   // #317 history: audio streams back from Telegram, nothing stored on our disk
+    // #317 history moved to the cabinet's "My podcasts" (T-620): audio still streams back from Telegram only
   } else {
     if (d.paused_reason === 'profile_changed') html += `<p class="status bad">${esc(x.dl_paused)}</p>`;
     html += `<ul class="tgList"><li class="${approved ? 'ok' : ''}">${approved ? '✓' : '○'} ${esc(x.dl_need.approved)}</li>` +
@@ -1503,19 +1510,88 @@ function renderTelegram() {
   }
   html += `<p class="hint">${esc(x.dl_note)}</p>`;
   box.innerHTML = html;
-  if ($('#dlHistory')) loadEpisodes();
 }
+/* T-620 (#305): "My podcasts" — the listener's own library from the server. Private by default; one episode at a
+   time can get a revocable public link. Nothing is posted anywhere: sharing is the listener's own share/copy action. */
+const LIB = {
+  uk:{h:'Мої подкасти',loading:'Завантажуємо ваші випуски…',empty:'Тут з’являться ваші випуски, щойно перший прийде в Telegram.',error:'Не вдалося завантажити випуски. Спробуйте пізніше.',
+    st:{ready:'',no_audio:'Аудіо недоступне',preparing:'Готується…',failed:'Не вдалося створити'},pub:'Публічне посилання',
+    pub_note:'Кожен випуск приватний. Якщо відкрити посилання, його зможе послухати будь-хто, хто його має; пошуковики його не індексують. Вимкніть — і посилання одразу перестане працювати.',
+    share:'Поділитися',copy:'Скопіювати',copied:'Посилання скопійовано',err:{episode_not_ready:'Аудіо ще немає — ділитися нічим.',episode_not_found:'Випуск не знайдено.'},
+    access:'Безкоштовний доступ: {n} днів',access_until:'Безкоштовний доступ: {n} днів, до {d}',access_wait:'Дні почнуть рахуватися з вашого першого випуску.',
+    ref_h:'Запрошення',ref:{credited:'+{n} днів',rejected:'не зараховано'},ref_role:{inviter:'друг отримав перший випуск',friend:'ваш перший випуск за запрошенням'}},
+  ru:{h:'Мои подкасты',loading:'Загружаем ваши выпуски…',empty:'Здесь появятся ваши выпуски, как только первый придёт в Telegram.',error:'Не удалось загрузить выпуски. Попробуйте позже.',
+    st:{ready:'',no_audio:'Аудио недоступно',preparing:'Готовится…',failed:'Не удалось создать'},pub:'Публичная ссылка',
+    pub_note:'Каждый выпуск приватный. Если открыть ссылку, его сможет послушать любой, у кого она есть; поисковики её не индексируют. Выключите — и ссылка сразу перестанет работать.',
+    share:'Поделиться',copy:'Скопировать',copied:'Ссылка скопирована',err:{episode_not_ready:'Аудио ещё нет — делиться нечем.',episode_not_found:'Выпуск не найден.'},
+    access:'Бесплатный доступ: {n} дней',access_until:'Бесплатный доступ: {n} дней, до {d}',access_wait:'Дни начнут считаться с вашего первого выпуска.',
+    ref_h:'Приглашения',ref:{credited:'+{n} дней',rejected:'не засчитано'},ref_role:{inviter:'друг получил первый выпуск',friend:'ваш первый выпуск по приглашению'}},
+  en:{h:'My podcasts',loading:'Loading your episodes…',empty:'Your episodes will appear here as soon as the first one reaches your Telegram.',error:'Could not load your episodes. Please try again later.',
+    st:{ready:'',no_audio:'Audio unavailable',preparing:'Being prepared…',failed:'Could not be made'},pub:'Public link',
+    pub_note:'Every episode is private. If you turn on its link, anyone who has the link can listen; search engines are asked not to index it. Turn it off and the link stops working at once.',
+    share:'Share',copy:'Copy',copied:'Link copied',err:{episode_not_ready:'There is no audio yet, so nothing to share.',episode_not_found:'Episode not found.'},
+    access:'Free access: {n} days',access_until:'Free access: {n} days, until {d}',access_wait:'Your days start counting from your first episode.',
+    ref_h:'Invites',ref:{credited:'+{n} days',rejected:'not counted'},ref_role:{inviter:'a friend got their first episode',friend:'your first episode from an invite'}}};
+function lt() { return LIB[lang] || LIB.en; }
+let libRows = null, libState = 'idle', libMsg = '';
 async function loadEpisodes() {
-  const x = t(), el = $('#dlHistory');
-  let rows = [];
-  try { const r = await fetch('/api/mycast/account/episodes'); if (r.ok) rows = (await r.json()).episodes || []; } catch (e) { rows = []; }
-  if (!el || !rows.length) return;
-  el.innerHTML = `<h4 style="margin:16px 0 8px">${esc(x.dl_hist_h)}</h4>` + rows.filter(e => e.audio).map(e => {
-    const d = new Date(e.date + 'T12:00:00').toLocaleDateString(lang, { day: 'numeric', month: 'long' });
-    return `<div class="histRow" style="margin:6px 0"><div class="hint">${esc(x.dl_hist_item.replace('{date}', d))}${e.seconds ? ' · ' + Math.max(1, Math.round(e.seconds / 60)) + ' ' + esc(x.min) : ''}</div>` +
-      `<audio controls preload="none" style="width:100%" src="/api/mycast/account/episodes/${encodeURIComponent(e.date)}/audio" onerror="this.insertAdjacentHTML('afterend','<p class=&quot;status bad&quot;>${esc(x.dl_hist_fail)}</p>');this.onerror=null"></audio></div>`;
-  }).join('');
+  if (!listener) { libRows = null; libState = 'idle'; renderLibrary(); return; }
+  libState = 'loading'; renderLibrary();
+  try {
+    const r = await fetch('/api/mycast/account/episodes');
+    if (!r.ok) throw new Error(String(r.status));
+    libRows = (await r.json()).episodes || []; libState = 'ok';
+  } catch (e) { libState = 'error'; }
+  renderLibrary();
 }
+function renderLibrary() {
+  const el = $('#myPods'); if (!el) return;
+  const y = lt(), x = t();
+  if (!listener) { el.innerHTML = ''; return; }
+  let html = `<h4>${esc(y.h)}</h4>`;
+  if (libState === 'loading' && !libRows) html += `<p class="hint">${esc(y.loading)}</p>`;
+  else if (libState === 'error') html += `<p class="status bad">${esc(y.error)}</p>`;
+  else if (!libRows || !libRows.length) html += `<p class="hint">${esc(y.empty)}</p>`;
+  else {
+    html += `<p class="hint small">${esc(y.pub_note)}</p>` + libRows.map(e => {
+      const d = new Date(e.date + 'T12:00:00').toLocaleDateString(lang, { day: 'numeric', month: 'long', year: 'numeric' });
+      const len = e.seconds ? ' · ' + Math.max(1, Math.round(e.seconds / 60)) + ' ' + esc(x.min) : '';
+      const st = y.st[e.status] ? ` <span class="tag">${esc(y.st[e.status])}</span>` : '';
+      const id = 'pub-' + e.date;
+      let row = `<div class="podRow"><div class="podHead"><b>${esc(e.title)}</b><span class="hint">${esc(d)}${len}</span>${st}</div>`;
+      if (e.audio) {
+        row += `<audio controls preload="none" src="/api/mycast/account/episodes/${encodeURIComponent(e.date)}/audio" aria-label="${esc(e.title)}"></audio>` +
+          `<label class="confirm" for="${esc(id)}"><input type="checkbox" class="podPub" id="${esc(id)}" data-ep="${esc(e.date)}" ${e.public ? 'checked' : ''}> <span>${esc(y.pub)}</span></label>`;
+        if (e.public && e.public_url) {
+          const url = location.origin + e.public_url;
+          row += `<p class="hint small podLink"><a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a></p>` +
+            `<div class="btns"><button type="button" class="btn podShare" data-url="${esc(url)}" data-title="${esc(e.title)}">${esc(y.share)}</button></div>`;
+        }
+      }
+      return row + '</div>';
+    }).join('');
+  }
+  if (libMsg) html += `<p class="msg" role="status">${esc(libMsg)}</p>`;
+  el.innerHTML = html;
+}
+document.addEventListener('change', async e => {
+  if (!e.target.classList || !e.target.classList.contains('podPub')) return;
+  const day = e.target.dataset.ep, want = e.target.checked, y = lt();
+  e.target.disabled = true; libMsg = '';
+  try {
+    const r = await fetch('/api/mycast/account/episodes/' + encodeURIComponent(day) + '/visibility', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ public: want }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.episode) { libMsg = (y.err[d.detail]) || t().acc_fail; }
+    else libRows = (libRows || []).map(x => x.date === day ? d.episode : x);
+  } catch (err) { libMsg = t().acc_fail; }
+  renderLibrary();
+});
+document.addEventListener('click', async e => {
+  const b = e.target.closest('.podShare'); if (!b) return;
+  const url = b.dataset.url, y = lt();
+  if (navigator.share) { try { await navigator.share({ title: b.dataset.title, url }); return; } catch (err) { /* cancelled: fall back to copy */ } }
+  const ok = await copyText(url); libMsg = ok ? y.copied : url; renderLibrary();
+});
 async function tgPost(path, body) {
   const x = t();
   try {
@@ -1568,10 +1644,22 @@ function renderGrowth() {
   $('#offerTitle').textContent = gifted ? x.gift : x.offer;
   $('#offerSub').textContent = (gifted ? x.gift_sub : x.offer_sub) + ' ' + x.beta;
   $('#ideasList').innerHTML = x.ideas.map(([text, on]) => `<li>${esc(text)}<span class="st${on ? ' on' : ''}">${esc(on ? x.ideas_on : x.ideas_off)}</span></li>`).join('');
+  // T-620 (#305): the invite offer stays hidden until the owner signs off its terms (FACTORY_MYCAST_REFERRALS=1).
+  const promo = account.referrals_enabled === true, y = lt();
+  $('#offer').hidden = !promo;
+  document.querySelectorAll('#accIn .invite, #triggers [data-go="#stepShare"]').forEach(el => { el.hidden = !promo; });
   if (listener) {
+    const a = listener.access || {};
+    // Open beta: the expiry is shown only once it matters (promotion on, or the period enforced) — no false alarm.
+    $('#accAccess').textContent = a.until && (promo || a.enforced)
+      ? y.access_until.replace('{n}', a.free_days).replace('{d}', new Date(a.until * 1000).toLocaleDateString(lang, { day: 'numeric', month: 'long', year: 'numeric' }))
+      : (promo ? y.access.replace('{n}', a.free_days || listener.free_days || 7) + '. ' + y.access_wait : '');
+    const ev = ((listener.referral || {}).events || []);
+    if (promo && ev.length) $('#accAccess').textContent += ' · ' + y.ref_h + ': ' + ev.map(v => `${new Date(v.at * 1000).toLocaleDateString(lang)} ${y.ref_role[v.role] || ''} ${(y.ref[v.status] || '').replace('{n}', v.days)}`).join('; ');
     $('#inviteDays').textContent = x.inv_days.replace('{n}', listener.free_days || 7);
     $('#inviteSub').textContent = x.inv_sub.replace('{k}', listener.referrals || 0).replace('{p}', listener.referrals_pending || 0);
   }
+  renderLibrary();
 }
 $('#triggers').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) go(b.dataset.go); });
 $('#inviteBtn').addEventListener('click', async () => {

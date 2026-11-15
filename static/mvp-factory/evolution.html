@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><meta name="robots" content="noindex"><title>Product Evolution · MVP Builder</title>
+<style>
+:root{color-scheme:dark;--bg:#070f1a;--panel:#0c1929;--panel2:#102239;--edge:#294560;--ink:#e8f1fc;--muted:#9db1c9;--blue:#189eff;--cyan:#69d4f2;--green:#64cf9b;--red:#ff7b72;--amber:#e7b35b;--grey:#9aa7b8;--violet:#b49cff}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 90% 0%,#142b49 0%,transparent 42%),var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+a{color:var(--cyan)}button,input,select,textarea{font:inherit}button{cursor:pointer;border:1px solid var(--edge);border-radius:10px;color:var(--ink);background:var(--panel2);padding:8px 12px}button:hover{border-color:var(--blue)}button:disabled{opacity:.5;cursor:not-allowed}.primary{background:linear-gradient(110deg,#1575ec,#11b4ec);color:#fff;border:0;font-weight:700}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+input,select,textarea{background:#071522;border:1px solid #34506a;color:var(--ink);border-radius:9px;padding:8px 10px;min-width:0;width:100%}textarea{min-height:64px;resize:vertical}label{display:grid;gap:4px;font-size:13px;color:var(--muted)}label.check{display:flex;gap:8px;align-items:flex-start;color:var(--ink)}label.check input{width:auto;margin-top:4px}
+.wrap{max-width:1200px;margin:auto;padding:25px 16px 90px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.langs{display:flex;gap:5px}.langs button{padding:6px 11px}.langs button[aria-pressed=true]{background:#174e86;border-color:var(--blue)}
+h1{font-size:clamp(26px,4vw,40px);line-height:1.15;margin:22px 0 8px}h1 span{color:#63d4ff}h2{font-size:18px;margin:0 0 10px}.lede{max-width:860px;color:var(--muted);margin:0 0 14px}.rule{font-size:13px;padding:12px 15px;border-radius:12px;border:1px solid #2f5d4a;background:#0f2a22;color:#c9f3dd}
+.synth{font-weight:700;padding:12px 15px;border-radius:12px;border:2px dashed var(--violet);background:#1b1534;color:#e2d8ff;margin:12px 0}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:16px 0}.controls select{width:auto;flex:1 1 220px}
+.msg{min-height:22px;color:var(--muted);font-size:13px}.msg.error{color:#ffaaa6}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0}.stat{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:14px}.stat strong{display:block;font-size:26px;line-height:1.2}.stat small{color:var(--muted)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:var(--panel);border:1px solid var(--edge);border-radius:16px;padding:16px;min-width:0}
+.meter{height:10px;border-radius:6px;background:#17283d;overflow:hidden;margin:4px 0 10px}.meter i{display:block;height:100%;background:var(--green)}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:6px 4px;border-bottom:1px solid #1b3247;text-align:left}th{color:var(--muted);font-weight:600}
+.badge{display:inline-block;border-radius:30px;padding:2px 9px;font-size:12px;font-weight:700;border:1px solid;white-space:nowrap}.b-green{color:var(--green);border-color:#2f7a55;background:#0f2a1f}.b-red{color:var(--red);border-color:#8a3a36;background:#2c1414}.b-amber{color:var(--amber);border-color:#7a6230;background:#2b2412}.b-grey{color:var(--grey);border-color:#4a5666;background:#18202b}.b-violet{color:var(--violet);border-color:#5d4c94;background:#1b1534}
+ul.plain{list-style:none;margin:0;padding:0}ul.plain>li{padding:8px 0;border-bottom:1px solid #1b3247;overflow-wrap:anywhere}
+.trace{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0;font-size:13px}.trace span.step{border:1px solid var(--edge);border-radius:8px;padding:3px 8px;background:#0a1626}.trace .arrow{color:var(--muted)}
+.small{font-size:12px;color:var(--muted)}.empty{padding:20px;color:var(--muted);border:1px dashed #3d5672;border-radius:14px;text-align:center}
+.form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.form .wide{grid-column:1/-1}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}.row input{flex:1 1 200px;width:auto}
+details>summary{cursor:pointer;color:var(--cyan);margin:6px 0}section{margin:18px 0}
+@media(max-width:760px){.grid,.form{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<main class="wrap">
+ <header class="top"><a href="/static/mvp-factory/index.html">← MVP Builder</a><div class="langs" role="group" aria-label="Language"><button data-lang="uk" type="button">UK</button><button data-lang="ru" type="button">RU</button><button data-lang="en" type="button">EN</button></div></header>
+ <h1>Product <span>Evolution</span></h1>
+ <p class="lede" id="intro"></p>
+ <p class="rule" id="rule"></p>
+ <div class="controls"><select id="project" aria-label="Project"></select><button type="button" id="demo"></button><button type="button" id="reload"></button></div>
+ <div id="synth" class="synth" hidden></div>
+ <p class="msg" id="status" role="status" aria-live="polite"></p>
+ <div class="stats"><div class="stat"><strong id="n-version">—</strong><small id="l-version"></small></div><div class="stat"><strong id="n-sub">—</strong><small id="l-sub"></small></div><div class="stat"><strong id="n-fb">—</strong><small id="l-fb"></small></div><div class="stat"><strong id="n-open">—</strong><small id="l-open"></small></div></div>
+ <div class="grid">
+  <section class="card"><h2 id="h-cohort"></h2><div id="cohort"></div></section>
+  <section class="card"><h2 id="h-funnel"></h2><div id="funnel"></div></section>
+ </div>
+ <section class="card"><h2 id="h-themes"></h2><div id="themes"></div></section>
+ <section class="card"><h2 id="h-proposals"></h2><div id="proposals"></div></section>
+ <section class="card" id="forms"></section>
+ <section class="card"><h2 id="h-feedback"></h2><div id="feedback"></div></section>
+ <p class="small" id="footer"></p>
+</main>
+<script>
+'use strict';
+const I={
+ en:{intro:'The improvement loop of an existing MVP: consented feedback → themes → a V2 proposal → owner approval → one Builder task in Relay → shipped → V2 → the same people retest it.',rule:'Real counts only. Synthetic demo data is labelled and never counted. A theme is a signal, not a decision. Only the owner approves a proposal or releases a version; a hand-off is VERIFIED only from Relay facts. Nothing here sends invitations, publishes or changes the MVP stage.',
+  demo:'Synthetic demo loop',real:'Back to real data',reload:'Reload',synth:'SYNTHETIC DEMO — invented participants, no real tickets, PRs or releases.',loading:'Loading…',error:'Cannot load. Sign in as the owner or a member.',saved:'Saved.',
+  l_version:'Current version',l_sub:'Unique substantive feedback (real)',l_fb:'Feedback records (real / synthetic)',l_open:'Open proposals',h_cohort:'Cohorts',h_funnel:'Usage funnel',h_themes:'Feedback themes',h_proposals:'V2 proposals and trace',h_feedback:'Feedback records (anonymised)',
+  cohort1:'First cohort: 10 unique substantive feedback records',cohort2:'Next cohort: 100 invited / opted-in users',notMet:'not reached — no claim is made',met:'reached',unknown:'unknown',source:'source',
+  invited:'Invited',activated:'Activated',used:'Actually used',returned:'Returned',abandoned:'Abandoned',feedback_received:'Feedback received',
+  support:'support',contra:'contrary',people:'people',sample:'sample',share:'share',importance:'avg importance',c_insufficient:'insufficient',c_low:'low',c_medium:'medium',c_high:'high',noThemes:'No themes yet: add tags to real feedback.',
+  s_proposed:'proposed',s_approved:'approved by owner',s_handed_off:'handed off',s_shipped:'shipped',s_declined:'declined',
+  t_feedback:'Feedback',t_issue:'Issue',t_ticket:'Relay',t_pr:'PR',t_release:'Release',t_retest:'Retest',none:'none',
+  approve:'Approve (owner)',decline:'Decline (owner)',handoff:'Hand off to Builder',ship:'Mark shipped',prUrl:'Merged PR or commit URL',lane:'Lane',noProposals:'No proposals.',solved:'solved',partly:'partly',no:'no',original:'original participants',
+  addFb:'Add feedback',participant:'Participant label (not stored; hashed)',consent:'The participant gave explicit consent to store these answers',consentRef:'Where and how consent was given',src:'Source',tried:'Did they try it?',job:'What job did they want done?',helped:'What helped?',failed:'What failed?',change:'What to add or remove?',imp:'Importance (1–5)',pay:'Would pay?',period:'For what period?',pilot:'Paid pilot?',themes:'Themes (tags, comma-separated)',contraT:'Contrary to themes (tags)',retest:'Retest of shipped proposal',solvedQ:'Did the change solve the need?',save:'Save',
+  addProp:'Propose an improvement',title:'Title',problem:'Problem (from feedback)',changeP:'Change',test:'Acceptance test',theme:'Theme',fbIds:'Feedback ids (comma-separated)',issue:'GitHub issue number (optional)',propose:'Propose',
+  funnelSet:'Record a funnel count',step:'Step',count:'Count (empty = unknown)',fsource:'Source of the number',record:'Record',
+  releaseT:'Release the next version (owner)',evidence:'Evidence URL (merged PR / Actions run)',release:'Release',importMb:'Import consented MyBrief feedback',
+  del:'Delete (consent withdrawn, owner)',confirmDel:'Delete this feedback record for good?',substantive:'substantive',notSubst:'not substantive',synthetic:'synthetic',
+  yes:'yes',unk:'unknown',footer:'Owner/member only. Issue #270 · T-630. Data: /api/mvp-evolution/<project>.'},
+ uk:{intro:'Цикл покращення наявного MVP: відгуки за згодою → теми → пропозиція V2 → схвалення власника → одна задача Builder у Relay → випущено → V2 → ті самі люди перевіряють знову.',rule:'Лише реальні числа. Синтетичні демо-дані позначені й ніколи не враховуються. Тема — сигнал, а не рішення. Лише власник схвалює пропозицію чи випускає версію; передача VERIFIED лише за фактами Relay. Звідси нічого не розсилається, не публікується і не змінює етап MVP.',
+  demo:'Синтетичний демо-цикл',real:'Назад до реальних даних',reload:'Оновити',synth:'СИНТЕТИЧНЕ ДЕМО — вигадані учасники, немає реальних задач, PR чи релізів.',loading:'Завантаження…',error:'Не вдалося завантажити. Увійдіть як власник або учасник.',saved:'Збережено.',
+  l_version:'Поточна версія',l_sub:'Унікальні змістовні відгуки (реальні)',l_fb:'Записи відгуків (реальні / синтетичні)',l_open:'Відкриті пропозиції',h_cohort:'Когорти',h_funnel:'Воронка використання',h_themes:'Теми відгуків',h_proposals:'Пропозиції V2 і трасування',h_feedback:'Записи відгуків (анонімізовані)',
+  cohort1:'Перша когорта: 10 унікальних змістовних відгуків',cohort2:'Наступна когорта: 100 запрошених / згодних користувачів',notMet:'не досягнуто — нічого не стверджуємо',met:'досягнуто',unknown:'невідомо',source:'джерело',
+  invited:'Запрошено',activated:'Активовано',used:'Реально користувались',returned:'Повернулись',abandoned:'Покинули',feedback_received:'Відгуків отримано',
+  support:'за',contra:'проти',people:'людей',sample:'вибірка',share:'частка',importance:'сер. важливість',c_insufficient:'недостатньо',c_low:'низька',c_medium:'середня',c_high:'висока',noThemes:'Тем ще немає: додайте теги до реальних відгуків.',
+  s_proposed:'запропоновано',s_approved:'схвалено власником',s_handed_off:'передано',s_shipped:'випущено',s_declined:'відхилено',
+  t_feedback:'Відгуки',t_issue:'Issue',t_ticket:'Relay',t_pr:'PR',t_release:'Реліз',t_retest:'Повторна перевірка',none:'немає',
+  approve:'Схвалити (власник)',decline:'Відхилити (власник)',handoff:'Передати Builder',ship:'Позначити випущеним',prUrl:'URL змердженого PR або коміту',lane:'Виконавець',noProposals:'Пропозицій немає.',solved:'вирішено',partly:'частково',no:'ні',original:'початкових учасників',
+  addFb:'Додати відгук',participant:'Мітка учасника (не зберігається; хеш)',consent:'Учасник дав явну згоду зберегти ці відповіді',consentRef:'Де і як дано згоду',src:'Джерело',tried:'Чи пробував?',job:'Яку задачу хотів вирішити?',helped:'Що допомогло?',failed:'Що не вийшло?',change:'Що додати чи прибрати?',imp:'Важливість (1–5)',pay:'Чи платив би?',period:'За який період?',pilot:'Платний пілот?',themes:'Теми (теги через кому)',contraT:'Проти тем (теги)',retest:'Перевірка випущеної пропозиції',solvedQ:'Чи вирішила зміна потребу?',save:'Зберегти',
+  addProp:'Запропонувати покращення',title:'Назва',problem:'Проблема (з відгуків)',changeP:'Зміна',test:'Тест приймання',theme:'Тема',fbIds:'Id відгуків (через кому)',issue:'Номер GitHub issue (необов’язково)',propose:'Запропонувати',
+  funnelSet:'Записати число воронки',step:'Крок',count:'Кількість (порожньо = невідомо)',fsource:'Джерело числа',record:'Записати',
+  releaseT:'Випустити наступну версію (власник)',evidence:'URL доказу (змерджений PR / запуск Actions)',release:'Випустити',importMb:'Імпортувати відгуки MyBrief за згодою',
+  del:'Видалити (згоду відкликано, власник)',confirmDel:'Видалити цей відгук назавжди?',substantive:'змістовний',notSubst:'не змістовний',synthetic:'синтетичний',
+  yes:'так',unk:'невідомо',footer:'Лише власник/учасник. Issue #270 · T-630. Дані: /api/mvp-evolution/<project>.'},
+ ru:{intro:'Цикл улучшения существующего MVP: отзывы с согласия → темы → предложение V2 → одобрение владельца → одна задача Builder в Relay → выпущено → V2 → те же люди проверяют снова.',rule:'Только реальные числа. Синтетические демо-данные помечены и никогда не учитываются. Тема — сигнал, а не решение. Только владелец одобряет предложение или выпускает версию; передача VERIFIED только по фактам Relay. Отсюда ничего не рассылается, не публикуется и не меняет этап MVP.',
+  demo:'Синтетический демо-цикл',real:'Назад к реальным данным',reload:'Обновить',synth:'СИНТЕТИЧЕСКОЕ ДЕМО — выдуманные участники, нет реальных задач, PR и релизов.',loading:'Загрузка…',error:'Не удалось загрузить. Войдите как владелец или участник.',saved:'Сохранено.',
+  l_version:'Текущая версия',l_sub:'Уникальные содержательные отзывы (реальные)',l_fb:'Записи отзывов (реальные / синтетические)',l_open:'Открытые предложения',h_cohort:'Когорты',h_funnel:'Воронка использования',h_themes:'Темы отзывов',h_proposals:'Предложения V2 и трассировка',h_feedback:'Записи отзывов (анонимизированы)',
+  cohort1:'Первая когорта: 10 уникальных содержательных отзывов',cohort2:'Следующая когорта: 100 приглашённых / согласившихся',notMet:'не достигнуто — ничего не утверждаем',met:'достигнуто',unknown:'неизвестно',source:'источник',
+  invited:'Приглашено',activated:'Активировано',used:'Реально пользовались',returned:'Вернулись',abandoned:'Бросили',feedback_received:'Отзывов получено',
+  support:'за',contra:'против',people:'чел.',sample:'выборка',share:'доля',importance:'ср. важность',c_insufficient:'недостаточно',c_low:'низкая',c_medium:'средняя',c_high:'высокая',noThemes:'Тем пока нет: добавьте теги к реальным отзывам.',
+  s_proposed:'предложено',s_approved:'одобрено владельцем',s_handed_off:'передано',s_shipped:'выпущено',s_declined:'отклонено',
+  t_feedback:'Отзывы',t_issue:'Issue',t_ticket:'Relay',t_pr:'PR',t_release:'Релиз',t_retest:'Повторная проверка',none:'нет',
+  approve:'Одобрить (владелец)',decline:'Отклонить (владелец)',handoff:'Передать Builder',ship:'Отметить выпущенным',prUrl:'URL смерженного PR или коммита',lane:'Исполнитель',noProposals:'Предложений нет.',solved:'решено',partly:'частично',no:'нет',original:'исходных участников',
+  addFb:'Добавить отзыв',participant:'Метка участника (не хранится; хеш)',consent:'Участник дал явное согласие хранить эти ответы',consentRef:'Где и как дано согласие',src:'Источник',tried:'Пробовал?',job:'Какую задачу хотел решить?',helped:'Что помогло?',failed:'Что не получилось?',change:'Что добавить или убрать?',imp:'Важность (1–5)',pay:'Заплатил бы?',period:'За какой период?',pilot:'Платный пилот?',themes:'Темы (теги через запятую)',contraT:'Против тем (теги)',retest:'Проверка выпущенного предложения',solvedQ:'Решило ли изменение потребность?',save:'Сохранить',
+  addProp:'Предложить улучшение',title:'Название',problem:'Проблема (из отзывов)',changeP:'Изменение',test:'Тест приёмки',theme:'Тема',fbIds:'Id отзывов (через запятую)',issue:'Номер GitHub issue (необязательно)',propose:'Предложить',
+  funnelSet:'Записать число воронки',step:'Шаг',count:'Количество (пусто = неизвестно)',fsource:'Источник числа',record:'Записать',
+  releaseT:'Выпустить следующую версию (владелец)',evidence:'URL доказательства (смерженный PR / запуск Actions)',release:'Выпустить',importMb:'Импортировать отзывы MyBrief с согласием',
+  del:'Удалить (согласие отозвано, владелец)',confirmDel:'Удалить этот отзыв навсегда?',substantive:'содержательный',notSubst:'не содержательный',synthetic:'синтетический',
+  yes:'да',unk:'неизвестно',footer:'Только владелец/участник. Issue #270 · T-630. Данные: /api/mvp-evolution/<project>.'}
+};
+const FUNNEL=['invited','activated','used','returned','abandoned'];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const gh=u=>/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(pull|commit|issues|actions\/runs)\/\w+$/.test(String(u||''))?String(u):'';
+const key=()=>(window.crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())+Math.random().toString(16).slice(2);
+let lang='ru',data=null,demo=false,project=new URLSearchParams(location.search).get('project')||'';
+try{const l=localStorage.getItem('mvp-evolution:lang');if(I[l])lang=l}catch(e){}
+const t=()=>I[lang];
+function say(text,err){const s=$('#status');s.textContent=text||'';s.className='msg'+(err?' error':'')}
+async function api(path,body){
+ const res=await fetch(path,{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json','Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+ let out={};try{out=await res.json()}catch(e){}
+ if(!res.ok)throw new Error(out.detail||('HTTP '+res.status));return out;
+}
+async function loadProjects(){
+ try{const reg=await api('/api/mvp-factory');const sel=$('#project');
+  sel.innerHTML=(reg.projects||[]).map(p=>'<option value="'+esc(p.id)+'">'+esc(p.title)+'</option>').join('');
+  if(!project&&reg.projects&&reg.projects.length)project=reg.projects[0].id;sel.value=project;
+ }catch(e){say(t().error,true)}
+}
+async function load(){
+ say(t().loading);
+ try{data=demo?await api('/api/mvp-evolution-demo'):(project?await api('/api/mvp-evolution/'+encodeURIComponent(project)):null);say('');}
+ catch(e){data=null;say(t().error+' ('+e.message+')',true)}
+ render();
+}
+function badge(cls,text){return '<span class="badge '+cls+'">'+esc(text)+'</span>'}
+function confBadge(c){return badge({insufficient:'b-grey',low:'b-amber',medium:'b-amber',high:'b-green'}[c]||'b-grey',t()['c_'+c]||c)}
+function verBadge(v){return badge({VERIFIED:'b-green',UNVERIFIED:'b-amber',BLOCKED:'b-red',SIMULATED:'b-violet'}[v]||'b-grey',v||'UNKNOWN')}
+function render(){
+ const x=t();document.documentElement.lang=lang;
+ document.querySelectorAll('.langs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.lang===lang)));
+ ['intro','rule','footer'].forEach(k=>$('#'+k).textContent=x[k]);
+ ['l_version','l_sub','l_fb','l_open','h_cohort','h_funnel','h_themes','h_proposals','h_feedback'].forEach(k=>$('#'+k.replace('_','-')).textContent=x[k]);
+ $('#demo').textContent=demo?x.real:x.demo;$('#reload').textContent=x.reload;$('#project').disabled=demo;
+ const synth=$('#synth');synth.hidden=!demo;synth.textContent=x.synth;
+ if(!data){['#cohort','#funnel','#themes','#proposals','#feedback','#forms'].forEach(s=>$(s).innerHTML='');return}
+ const c=data.cohort,v=data.current_version;
+ $('#n-version').textContent=v;$('#n-sub').textContent=c.unique_substantive_real+' / '+c.targets[0];
+ $('#n-fb').textContent=c.feedback_real+' / '+c.feedback_synthetic;
+ $('#n-open').textContent=(data.proposals||[]).filter(p=>['proposed','approved','handed_off'].includes(p.state)).length;
+ const fn=(data.funnel||{})[v]||{};const invited=fn.invited&&fn.invited.count;
+ const m=(n,target)=>'<div class="meter" role="img" aria-label="'+n+' / '+target+'"><i style="width:'+Math.min(100,Math.round(100*n/target))+'%"></i></div>';
+ $('#cohort').innerHTML='<p>'+esc(x.cohort1)+'<br><b>'+c.unique_substantive_real+' / '+c.targets[0]+'</b> — '+esc(c.first_target_met?x.met:x.notMet)+'</p>'+m(c.unique_substantive_real,c.targets[0])+
+  '<p>'+esc(x.cohort2)+'<br><b>'+(invited==null?esc(x.unknown):Number(invited)+' / '+c.targets[1])+'</b>'+(invited!=null&&invited>=c.targets[1]?' — '+esc(x.met):' — '+esc(x.notMet))+'</p>'+m(Number(invited||0),c.targets[1]);
+ $('#funnel').innerHTML='<table><thead><tr><th>'+esc(v)+'</th><th></th><th>'+esc(x.source)+'</th></tr></thead><tbody>'+FUNNEL.map(s=>{const r=fn[s];return '<tr><td>'+esc(x[s])+'</td><td>'+(r?Number(r.count):'<span class="small">'+esc(x.unknown)+'</span>')+'</td><td class="small">'+esc(r?r.source:'')+'</td></tr>'}).join('')+
+  '<tr><td>'+esc(x.feedback_received)+'</td><td>'+Number(fn.feedback_received||0)+'</td><td class="small">FactoryOS</td></tr></tbody></table>';
+ const themes=(demo?(data.synthetic_themes||{}):(data.themes||{}));
+ const tv=Object.keys(themes).filter(k=>(themes[k]||[]).length);
+ $('#themes').innerHTML=tv.length?tv.map(ver=>'<h3 class="small">'+esc(ver)+'</h3><ul class="plain">'+themes[ver].map(th=>'<li><b>'+esc(th.theme)+'</b> '+confBadge(th.confidence)+(demo?' '+badge('b-violet',x.synthetic):'')+'<div class="small">'+esc(x.support)+': '+th.unique_support+' '+esc(x.people)+' · '+esc(x.contra)+': '+th.unique_contra+' · '+esc(x.sample)+': '+th.sample_size+' · '+esc(x.share)+': '+Math.round(th.share*100)+'%'+(th.avg_importance!=null?' · '+esc(x.importance)+': '+th.avg_importance:'')+'</div><div class="small">'+th.support_ids.map(esc).join(', ')+(th.contra_ids.length?' | − '+th.contra_ids.map(esc).join(', '):'')+'</div></li>').join('')+'</ul>').join(''):'<div class="empty">'+esc(x.noThemes)+'</div>';
+ $('#proposals').innerHTML=(data.proposals||[]).length?'<ul class="plain">'+data.proposals.slice().reverse().map(p=>proposal(p)).join('')+'</ul>':'<div class="empty">'+esc(x.noProposals)+'</div>';
+ $('#feedback').innerHTML=(data.feedback||[]).length?'<ul class="plain">'+data.feedback.map(r=>{const a=r.answers||{};return '<li><b>'+esc(r.id)+'</b> · '+esc(r.version)+' · '+esc(r.source)+' '+(r.synthetic?badge('b-violet',x.synthetic):'')+' '+badge(r.substantive?'b-green':'b-grey',r.substantive?x.substantive:x.notSubst)+(r.retest_of?' · '+esc(x.t_retest)+' '+esc(r.retest_of)+': '+esc(r.solved):'')+
+  '<div class="small">'+[a.job&&(x.job+' '+a.job),a.helped&&(x.helped+' '+a.helped),a.failed&&(x.failed+' '+a.failed),a.change&&(x.change+' '+a.change)].filter(Boolean).map(esc).join(' · ')+'</div><div class="small">'+(r.themes||[]).map(esc).join(', ')+((r.contra||[]).length?' | − '+r.contra.map(esc).join(', '):'')+' · '+esc((r.consent||{}).ref)+'</div>'+
+  (demo?'':'<button type="button" data-del="'+esc(r.id)+'">'+esc(x.del)+'</button>')+'</li>'}).join('')+'</ul>':'<div class="empty">—</div>';
+ renderForms();
+}
+function proposal(p){
+ const x=t(),h=p.handoff||{},r=p.retest||{solved:{}};
+ const pr=(p.shipped_evidence||[]).map(u=>gh(u)?'<a href="'+esc(gh(u))+'" target="_blank" rel="noopener">'+esc(u.replace(/^https:\/\/github\.com\/[^/]+\/[^/]+\//,''))+'</a>':esc(u)).join(' ')||esc(x.none);
+ const issue=p.issue?'<a href="https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/'+Number(p.issue)+'" target="_blank" rel="noopener">#'+Number(p.issue)+'</a>':esc(x.none);
+ const rel=(data.versions||[]).some(v=>v.version===p.target_version)?esc(p.target_version):esc(x.none);
+ const trace='<div class="trace"><span class="step">'+esc(x.t_feedback)+': '+p.feedback_ids.length+'</span><span class="arrow">→</span><span class="step">'+esc(x.t_issue)+': '+issue+'</span><span class="arrow">→</span><span class="step">'+esc(x.t_ticket)+': '+esc(p.ticket_id||x.none)+(p.handoff?' · '+esc(h.state)+' '+verBadge(h.verification)+(h.run_id?' · '+esc(h.run_id):''):'')+'</span><span class="arrow">→</span><span class="step">'+esc(x.t_pr)+': '+pr+'</span><span class="arrow">→</span><span class="step">'+esc(x.t_release)+': '+rel+'</span><span class="arrow">→</span><span class="step">'+esc(x.t_retest)+': '+Number(r.responses||0)+' ('+esc(x.solved)+' '+Number(r.solved.yes||0)+', '+esc(x.partly)+' '+Number(r.solved.partly||0)+', '+esc(x.no)+' '+Number(r.solved.no||0)+'; '+Number(r.original_participants||0)+' '+esc(x.original)+')</span></div>';
+ let acts='';
+ if(!demo){
+  if(p.state==='proposed')acts='<button type="button" data-act="approve" data-p="'+esc(p.id)+'">'+esc(x.approve)+'</button> <button type="button" data-act="decline" data-p="'+esc(p.id)+'">'+esc(x.decline)+'</button>';
+  if(p.state==='approved')acts='<label>'+esc(x.lane)+' <select data-lane="'+esc(p.id)+'"><option>claude</option><option>chatgpt</option><option>gemini</option><option>unassigned</option></select></label><button type="button" class="primary" data-act="handoff" data-p="'+esc(p.id)+'">'+esc(x.handoff)+'</button> <button type="button" data-act="decline" data-p="'+esc(p.id)+'">'+esc(x.decline)+'</button>';
+  if(p.state==='handed_off')acts='<div class="row"><input data-pr="'+esc(p.id)+'" placeholder="'+esc(x.prUrl)+'" aria-label="'+esc(x.prUrl)+'"><button type="button" data-act="ship" data-p="'+esc(p.id)+'">'+esc(x.ship)+'</button></div>';
+ }
+ return '<li><b>'+esc(p.id)+' · '+esc(p.title)+'</b> '+badge(p.state==='shipped'?'b-green':p.state==='declined'?'b-red':'b-amber',x['s_'+p.state]||p.state)+(p.synthetic?' '+badge('b-violet',x.synthetic):'')+' <span class="small">'+esc(p.from_version)+' → '+esc(p.target_version)+(p.theme?' · '+esc(p.theme):'')+'</span>'+
+  '<div class="small">'+esc(x.problem)+': '+esc(p.problem)+'<br>'+esc(x.changeP)+': '+esc(p.change)+'<br>'+esc(x.test)+': '+esc(p.acceptance_test)+'</div>'+trace+'<div class="row">'+acts+'</div></li>';
+}
+function opts(list,labels){return list.map(v=>'<option value="'+esc(v)+'">'+esc(labels?labels[v]||v:v)+'</option>').join('')}
+function renderForms(){
+ const x=t(),f=$('#forms');f.hidden=demo;if(demo){f.innerHTML='';return}
+ const shipped=(data.proposals||[]).filter(p=>p.state==='shipped'&&p.target_version===data.current_version);
+ const tri=opts(['unknown','yes','no'],{unknown:x.unk,yes:x.yes,no:x.no});
+ f.innerHTML='<details><summary>'+esc(x.addFb)+'</summary><form id="fbForm" class="form">'+
+  '<label>'+esc(x.participant)+'<input name="participant" required maxlength="120" autocomplete="off"></label><label>'+esc(x.src)+'<select name="source">'+opts(['interview','survey','in_product'])+'</select></label>'+
+  '<label class="check wide"><input type="checkbox" name="consent" required> '+esc(x.consent)+'</label><label class="wide">'+esc(x.consentRef)+'<input name="consent_ref" required maxlength="160"></label>'+
+  '<label>'+esc(x.tried)+'<select name="tried">'+tri+'</select></label><label>'+esc(x.imp)+'<input name="importance" type="number" min="1" max="5"></label>'+
+  '<label class="wide">'+esc(x.job)+'<textarea name="job" maxlength="600"></textarea></label><label>'+esc(x.helped)+'<textarea name="helped" maxlength="600"></textarea></label><label>'+esc(x.failed)+'<textarea name="failed" maxlength="600"></textarea></label>'+
+  '<label class="wide">'+esc(x.change)+'<textarea name="change" maxlength="600"></textarea></label>'+
+  '<label>'+esc(x.pay)+'<select name="would_pay">'+tri+'</select></label><label>'+esc(x.period)+'<input name="pay_period" maxlength="40"></label><label>'+esc(x.pilot)+'<select name="paid_pilot">'+tri+'</select></label>'+
+  '<label>'+esc(x.themes)+'<input name="themes" autocomplete="off"></label><label>'+esc(x.contraT)+'<input name="contra" autocomplete="off"></label>'+
+  (shipped.length?'<label>'+esc(x.retest)+'<select name="retest_of"><option value=""></option>'+shipped.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.id+' · '+p.title)+'</option>').join('')+'</select></label><label>'+esc(x.solvedQ)+'<select name="solved">'+opts(['unknown','yes','partly','no'],{unknown:x.unk,yes:x.yes,partly:x.partly,no:x.no})+'</select></label>':'')+
+  '<div class="wide"><button class="primary" type="submit">'+esc(x.save)+'</button></div></form></details>'+
+  '<details><summary>'+esc(x.addProp)+'</summary><form id="propForm" class="form"><label class="wide">'+esc(x.title)+'<input name="title" required maxlength="140"></label><label>'+esc(x.problem)+'<textarea name="problem" required></textarea></label><label>'+esc(x.changeP)+'<textarea name="change" required></textarea></label><label class="wide">'+esc(x.test)+'<textarea name="acceptance_test" required></textarea></label><label>'+esc(x.theme)+'<input name="theme"></label><label>'+esc(x.fbIds)+'<input name="feedback_ids" required></label><label>'+esc(x.issue)+'<input name="issue" type="number" min="1"></label><div class="wide"><button class="primary" type="submit">'+esc(x.propose)+'</button></div></form></details>'+
+  '<details><summary>'+esc(x.funnelSet)+'</summary><form id="funnelForm" class="form"><label>'+esc(x.step)+'<select name="step">'+opts(FUNNEL,x)+'</select></label><label>'+esc(x.count)+'<input name="count" type="number" min="0"></label><label class="wide">'+esc(x.fsource)+'<input name="source" maxlength="200"></label><div class="wide"><button type="submit">'+esc(x.record)+'</button></div></form></details>'+
+  '<details><summary>'+esc(x.releaseT)+'</summary><form id="relForm" class="row"><input name="evidence" required placeholder="'+esc(x.evidence)+'" aria-label="'+esc(x.evidence)+'"><button type="submit">'+esc(x.release)+'</button></form></details>'+
+  (project==='mybrief-pro'?'<div class="row"><button type="button" id="importMb">'+esc(x.importMb)+'</button></div>':'');
+}
+const tags=s=>String(s||'').split(',').map(v=>v.trim().toLowerCase()).filter(Boolean);
+async function send(path,body){try{await api(path,Object.assign({idempotency_key:key()},body));say(t().saved);await load()}catch(e){say(e.message,true)}}
+const base=()=>'/api/mvp-evolution/'+encodeURIComponent(project);
+document.addEventListener('submit',e=>{
+ const f=e.target;if(!f.id)return;e.preventDefault();const v=n=>f.elements[n]?f.elements[n].value.trim():'';
+ if(f.id==='fbForm'){const imp=v('importance');send(base()+'/feedback',{consent:f.elements.consent.checked,consent_ref:v('consent_ref'),participant:v('participant'),source:v('source'),tried:v('tried'),job:v('job'),helped:v('helped'),failed:v('failed'),change:v('change'),importance:imp?Number(imp):null,would_pay:v('would_pay'),pay_period:v('pay_period'),paid_pilot:v('paid_pilot'),themes:tags(v('themes')),contra:tags(v('contra')),retest_of:v('retest_of'),solved:v('solved')||null})}
+ if(f.id==='propForm'){const iss=v('issue');send(base()+'/proposals',{title:v('title'),problem:v('problem'),change:v('change'),acceptance_test:v('acceptance_test'),theme:v('theme').toLowerCase(),feedback_ids:v('feedback_ids').split(',').map(s=>s.trim()).filter(Boolean),issue:iss?Number(iss):null})}
+ if(f.id==='funnelForm'){const c=v('count');send(base()+'/funnel',{step:v('step'),count:c===''?null:Number(c),source:v('source')})}
+ if(f.id==='relForm'){send(base()+'/release',{evidence:[v('evidence')]})}
+});
+document.addEventListener('click',e=>{
+ const b=e.target.closest('button');if(!b)return;
+ if(b.dataset.act){const id=b.dataset.p,body={action:b.dataset.act};
+  if(b.dataset.act==='handoff'){const s=document.querySelector('select[data-lane="'+CSS.escape(id)+'"]');body.lane=s?s.value:'claude'}
+  if(b.dataset.act==='ship'){const i=document.querySelector('input[data-pr="'+CSS.escape(id)+'"]');body.evidence=[i?i.value.trim():'']}
+  send(base()+'/proposals/'+encodeURIComponent(id)+'/decision',body)}
+ if(b.dataset.del&&confirm(t().confirmDel))send(base()+'/feedback/'+encodeURIComponent(b.dataset.del)+'/delete',{});
+ if(b.id==='importMb')send(base()+'/import-mybrief',{});
+});
+$('#project').addEventListener('change',e=>{project=e.target.value;history.replaceState(null,'','?project='+encodeURIComponent(project));load()});
+$('#demo').addEventListener('click',()=>{demo=!demo;load()});
+$('#reload').addEventListener('click',load);
+document.querySelectorAll('.langs button').forEach(b=>b.addEventListener('click',()=>{lang=b.dataset.lang;try{localStorage.setItem('mvp-evolution:lang',lang)}catch(e){}render()}));
+render();loadProjects().then(load);
+</script>
+</body>
+</html>

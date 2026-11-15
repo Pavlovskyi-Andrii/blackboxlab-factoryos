@@ -1346,6 +1346,81 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Not done here (owner/interactive session): resolve the `autopilot/aws-worker` ↔ `main` conflict; until it is
   resolved this fix cannot reach the worker through its main sync.
 
+## 2026-11-15 — T-607 Gemini worker runtime (Google-account login only)
+
+- Owner choice: Gemini CLI on EC2 signs in with Google ("Login with Google", personal free tier); no API key. An AI Studio
+  key is free only while its project has no billing, so the worker refuses to start with `GEMINI_API_KEY`/`GOOGLE_API_KEY`/
+  `GOOGLE_GENAI_USE_VERTEXAI`/`GOOGLE_APPLICATION_CREDENTIALS` set, strips them from each run, and each run gets a system
+  settings file (`GEMINI_CLI_SYSTEM_SETTINGS_PATH` → `.autopilot/gemini-settings.json`) with `security.auth.enforcedType=oauth-personal`.
+  Preflight blocks (no run) without `gemini` on PATH or `~/.gemini/oauth_creds.json`.
+- Same loop, separate process: `autopilot/gemini_worker.py` runs `autopilot.autopilot` with `AUTOPILOT_OPERATOR=gemini`
+  `AUTOPILOT_AGENT=gemini` from its own checkout/branch (`autopilot/gemini-worker`), so the two runners never share a working tree.
+  The Gemini lane takes only `Owner: gemini` (no shared/unowned tasks), and skips owner questions, MyCast, Codex review,
+  browser tasks, Relay owner tickets and owner controls (those belong to the Claude runner; acking controls would swallow Claude's).
+- Headless Gemini runs with `--yolo` (it cannot ask for approval); the boundary is the excluded-tools list (push/merge/rebase/
+  reset --hard/gh/curl/sudo/deploy, written under both the current `tools.exclude` and legacy `excludeTools` keys) plus the
+  existing evidence check (remote-ref change ⇒ push detected ⇒ failed). Exact flag/setting support depends on the installed
+  Gemini CLI version and is verified only on the live probe (T-607-P).
+- Server: new owner-set `FACTORY_GEMINI_WORKER_TOKEN` (≥ 32 chars, no derived default). It opens only `/api/relay/worker/roadmap-claim`
+  (lane must be gemini), `/api/relay/worker/event` (ticket execution owner must be gemini) and `/api/operator-worker/heartbeat`
+  (operator gemini). Tested through the real ASGI app.
+- The FactoryOS Pause button stays Claude-only; the Gemini worker is stopped with systemctl (runbook).
+- Update 2026-11-15 (owner): the Google login on EC2 kept falling back to the API-key dialog, so the owner chose an
+  AI Studio key. Allowed only as opt-in `FACTORY_GEMINI_AUTH=api-key-free-tier` with `GEMINI_API_KEY` from the worker's
+  env file, from a project whose AI Studio Billing Tier is "Free tier" (no billing account: quota overflow is a 429, not a
+  charge). Recommended: a separate project, so the worker does not share the 5 RPM free quota with the Render key
+  (MyCast, Surfer, the older `tools/gemini_ec2_loop.sh` issue→PR loop). Other key variables stay refused; keys are redacted
+  from evidence. `FACTORY_GEMINI_MODEL` optionally pins the model (`--model`). Preflight also accepts the newer
+  `~/.gemini/gemini-credentials.json` login file.
+## 2026-11-15 — T-620 MyCast MVP V1 (#305): library, public episode links, referral ledger
+
+- Reused, not rebuilt: listener accounts (Telegram login + Google, signed `mycast_listener` cookie, 30-day expiry,
+  SameSite=Lax, logout, delete), the JSON listener store and Telegram as audio storage. New logic sits in
+  `mycast_library.py`; `mycast_accounts.py` gains three routes; `app.py` only adds `/mycast/e/` to the public and
+  mycast.pro prefixes.
+- Library: `rec["library"]` keeps the newest 200 delivered episodes (title, length, Telegram file id, public token);
+  the 14-day `deliveries` log is unchanged. Rows report only honest states: ready / no_audio / preparing / failed.
+- Public links: one random 16-char token per published episode (`secrets.token_urlsafe(12)`), indexed in
+  `data["episode_links"]` and checked on both sides, so unpublish revokes at once; republishing makes a new token.
+  Pages and audio are `no-store`, `noindex`, `no-referrer`; they show title, date, length and first name only. Account
+  deletion drops the links. The older account-level "latest episode" toggle (`public_audio`) stays as it was (off by
+  default).
+- Referral rule: #305 (2026-11-10) supersedes the 2026-11-07 offer — both sides get +7 only at the friend's first
+  delivered episode. `FACTORY_MYCAST_FRIEND_BONUS=signup` brings back the friend's immediate +7. Existing tests that
+  pinned the immediate gift were updated to the new rule and the old one is tested through the switch.
+- Ledger: `data["referral_ledger"]` (append-only, newest 5000), id `ref:<inviter>:<friend>` as the idempotency key.
+  Rejections are recorded with a reason (self_referral, duplicate_friend, inviter_cap, inviter_gone). To stop a friend
+  being credited twice after deleting and re-creating the account, a ledger entry keeps two truncated one-way hashes
+  (identity, Telegram chat) — no name, no raw id. This is the only data that outlives account deletion.
+- Promotion hidden by default (`FACTORY_MYCAST_REFERRALS` unset): #305 says the user-visible offer stays off until the
+  owner signs off terms (T-620-H). Invites are still recorded so nobody loses credit when it is switched on. The
+  offer banner, the "share and earn days" entry and the invite box are hidden; sharing and the personal page stay.
+- Access period: free days start at the first delivered episode (`activated_at`). The expiry is shown in the cabinet
+  only when the offer is on or the period is enforced, so open-beta listeners do not see a false deadline.
+  `FACTORY_MYCAST_ENFORCE_TRIAL=1` makes the delivery gate return `trial_ended`; off by default (open beta).
+- Cost caps already in place and unchanged: 10 listener episodes per UTC day across all listeners, 3 failures per
+  day, Gemini demo/voice limits; public audio is rate-limited (60 plays/hour per link).
+## 2026-11-15 — T-615 MyBrief for a profession (#188, pilot `mybrief-pro`)
+
+- Professions: software developer, school teacher (England), accountant / tax adviser (IRS + HMRC). Chosen because
+  their official sources (GitHub Changelog, GOV.UK, IRS Newsroom) are readable by the Surfer and publish dated news.
+- Content: a fixture (`static/mybrief/demo-briefs.json`, `kind: demo_fixture`) written once by this Claude session
+  from pages the FactoryOS Surfer actually read (`web_read`, EC2 Chromium) on 2026-11-15; 13 items, each with the
+  source URL, publisher, publication date and `verified_via: surfer_web_read`. No server-side generation: zero calls,
+  zero spend (the MyCast path — Claude subscription on the worker — is not needed for a fixed demo).
+- Surfer limits seen that day: `web_search` with Gemini returned HTTPError (fell back to Wikipedia, which has no
+  news), so candidates came from a separate web search and only the Surfer read was trusted. Many news sites were
+  unreadable from EC2 (openai.com and thenewstack.io render empty, JetBrains "Access denied", k12dive captcha, EdWeek
+  nav only) and were dropped rather than paraphrased. Owner may want to check the Gemini search key/quota.
+- Briefing text is in English (the sources' language); the page UI is EN/UK/RU and says so.
+- Feedback: public POST under `/api/mybrief/public/` (new public prefix, same model as the MyCast demo), refused
+  unless `consent` is literally `true`. Stored: profession, topics, rating 1–5, would-read-weekly, comment ≤500 chars
+  with e-mails/phone numbers redacted. Not stored: IP, user agent, name, e-mail. Caps: 5 per client per UTC day
+  (in-memory, client id hashed with a per-day salt) and 300 per day overall. A withdraw token (hash stored) deletes
+  the entry. Summary `/api/mybrief/feedback` is signed-in owner/member only.
+- MVP registry: `PILOT_PROTOTYPES` fills an empty `prototype` on `mybrief-pro` with the page; the stage is not moved.
+  Stage events still need evidence links recorded by the owner/member (PR link → spec/build stages).
+- Outreach (sending the link to real people) is the owner's decision: [HUMAN] T-615-H with a runbook.
 ## 2026-11-15 — T-614 AI Decision Memory pilot (#187)
 
 - Delivery shape: one module (`decision_memory.py`) with an `install_*` route function, its test, and one static page
@@ -1404,3 +1479,64 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   scrolled up to it, so it looked missing. The tile now behaves like every other MVP agent: it toggles the shared
   `#mvpAgentCard` slot, which for `abtester` renders «Что делает / Кто выполняет» and the experiments UI. The section
   no longer renders between the pipeline and the agents.
+## 2026-11-15 — T-560-K Gemini search diagnostics + model fallback
+
+- Production `web_search` answered "Gemini search failed (HTTPError)" with no way to tell quota from an unsupported
+  model. The note now carries the HTTP code and Google's error enum (`HTTP 400 INVALID_ARGUMENT`), never Google's
+  free-text message (it can echo request data). On 400/404 the next Flash model is tried (`gemini-flash-latest`,
+  then `gemini-2.5-flash`); 429/5xx are not retried, so one search costs at most 3 calls and still counts once
+  against the 100/day cap. The successful model is returned as `model`.
+
+
+## 2026-11-15 — T-630 Product Evolution S1 (#270, epic #186)
+
+- Slice chosen from #270: M2 (versioned schema + synthetic fixtures + contract tests) and the first M3 vertical slice
+  Feedback → Discovery/Synthesis → Product Manager → Builder task. Reason: it is the smallest part that is useful on real
+  data today (MyBrief already collects consented feedback) and closes the loop to V2 without new infrastructure. Worker
+  contracts for all 13 roles (T-631), consumer-side claims via Relay events (T-632) and in-product usage events (T-633)
+  are separate tasks.
+- Reuse, not a second registry: a project must exist in `mvp_factory.MvpRegistry` (`project_exists` callback); this
+  module never records registry events, so stages still move only through the owner/agent rules there. Data lives in
+  `DATA_DIR/mvp_evolution.json` (0600), one file like the other pilots.
+- Hand-off seam with the other agents: approval creates exactly one ticket through the existing `RELAY_STORE.create`
+  (`source.channel = "mvp-evolution"`, `source_key = mvp-evolution:<project>:<proposal>`, so Relay's own idempotency
+  dedupes retries) with lane `claude` by default or `chatgpt` / `gemini` / `unassigned` chosen by the owner. Relay stays
+  the only queue and executor (CLAUDE_CHATGPT_COORDINATION.md §3); nothing here claims, runs or edits Relay/MCP code,
+  which the T-604 session owns. The status shown is read back with `RELAY_STORE.get` and verified with the existing
+  `_mvp_ticket_done` (done + accepted evidence, no owner override) plus a run_id; otherwise UNKNOWN / UNVERIFIED /
+  BLOCKED. Envelope fields follow #270 §3 (`schema: mvp-evolution/1`).
+- Gates: agents may add feedback and propose; only owner/member hand off or mark shipped; only the owner approves,
+  declines, deletes feedback (consent withdrawn) or releases a version. Releasing v2 is an internal version mark with an
+  evidence link, not a deploy or publication, and needs a shipped proposal for that version.
+- Privacy: consent must be literally `true` plus a free-text consent reference; the participant label is hashed with a
+  per-store salt and the project id (dedupe without storing who); free text redacts e-mails and phone-like numbers.
+  ISO dates are kept (found by the tests: the MyBrief phone regex also eats `2026-11-16`; MyBrief itself is unchanged).
+- "Substantive" = a job-to-be-done plus what helped or failed, ≥ 40 characters together. Imported MyBrief ratings and
+  comments count as feedback received but never as substantive. Confidence: < 3 people insufficient, < 5 low, < 10
+  medium, else high; contrary evidence lowers it. Retest answers are kept out of discovery themes.
+- Synthetic data: allowed only with `source: synthetic` and `synthetic: true` together, never counted in the real
+  cohort, never mixed with real records in one proposal and never handed off to Relay. The demo
+  (`GET /api/mvp-evolution-demo`) runs the whole loop in memory with a fixed clock; its hand-off, PR and release are
+  shown as SIMULATED.
+- `mybrief.FeedbackStore.consented_entries()` was added for the import (entries without withdraw hashes); the app now
+  keeps the MyBrief store in `MYBRIEF_FEEDBACK` so both use one instance.
+
+## 2026-11-15 — T-590 / T-591 / T-592 / T-593 P0 tails: verifiable live acceptance
+
+- The live DONE of T-590/T-591 ("real Telegram message → claim → running → evidence → owner reply") is judged by
+  `relay_acceptance.py` from the ticket's own append-only history, never from model-written status. VERIFIED needs:
+  a Telegram-sourced ticket (only the paired private chat can create one), exactly one ticket for that update,
+  the last `claimed` event with worker id + run_id, then `running` and `done` with the same run_id in time order,
+  a non-empty result, and an `owner_notified` receipt for that final stage within one hour. Older runs never count;
+  a blocked/failed run is reported, not accepted. Code work also needs a branch or PR link; PR/CI/merge/deploy stay
+  "not verified" until the GitHub/Render reconcilers record them.
+- New fact recorded by the server: when `notify_owner` returns True for a worker event (the Telegram Bot API accepted
+  the message), the ticket history gets `owner_notified {stage, run_id}`. It never changes status; a notifier that
+  returns anything else (tests, failures) records nothing, so a lost notice cannot look delivered.
+- `/roadmap` used to repeat `/tasks` (Relay + GitHub issues). It now reads the ROADMAP.md deployed next to `relay.py`
+  (P0 open, HUMAN, next agent tasks, counts) and says these are file checkboxes, not live worker state. GitHub issues
+  remain under `/tasks` and `/github`. The existing test that pinned the old alias was updated to the new behaviour.
+- `/proof R-…` and owner-only `GET /api/relay/{id}/acceptance` expose the verdict (RU/UK/EN, redacted). The ticket
+  card gained 🔄 Refresh (`relay:ticket:<id>`), which now shows the same factual detail as `/task`.
+- Live acceptance stays with the owner as [HUMAN] T-591-H / T-592-H / T-593-H with Owner-desk runbooks; T-590,
+  T-591, T-591-A, T-592 and T-593 stay unchecked until those runs are verified.

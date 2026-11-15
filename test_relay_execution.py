@@ -23,6 +23,7 @@ from test_worker_observability import TestTelegramMatchesWeb as TestWorkerTelegr
 from test_worker_observability import TestWebRenderer as TestWorkerWebRenderer  # noqa: F401
 from test_t599_acceptance import (TestA_NormalTask, TestB_Conflict, TestC_Restart, TestD_Blocked,  # noqa: F401  (T-599)
                                   TestE_Freshness, TestF_NoFabricatedActivity, TestRealRoadmap)
+from test_relay_acceptance import AcceptanceTest, ControlRoomTest  # noqa: F401  (T-591 live acceptance verdict)
 
 
 

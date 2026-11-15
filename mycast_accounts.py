@@ -40,7 +40,8 @@ TELEGRAM_MAX_AGE = 24 * 3600
 CONSENT_VERSION = "mycast-delivery-consent-2026-11-07"
 SENDS_PER_DAY = 3
 MAX_AUDIT = 50
-FREE_DAYS, FRIEND_DAYS, MAX_REFERRALS = 7, 7, 50     # owner offer 2026-11-07: 7 free days, +7 per invited friend
+import mycast_library
+from mycast_library import FREE_DAYS, FRIEND_DAYS, MAX_REFERRALS   # owner offer 2026-11-07; #305 rule in mycast_library
 CODE_RE = re.compile(r"^[A-Za-z0-9_-]{8,4000}$")
 SLUG_RE = re.compile(r"^[a-z0-9]{8}$")
 PAGE = "/static/mycast-configurator/index.html"
@@ -120,9 +121,11 @@ class ListenerStore:
                 rec = {"slug": slug, "provider": who["provider"], "key": key, "created": now, "code": ""}
                 data["index"][key] = slug
                 inviter = data["listeners"].get(ref) if isinstance(ref, str) and SLUG_RE.fullmatch(ref or "") else None
+                if inviter and mycast_library.is_self_referral(inviter, key, who.get("chat_id")):
+                    inviter = None                                               # #305: no self-referral
                 if inviter and int(inviter.get("invited", inviter.get("referrals", 0))) < MAX_REFERRALS:
-                    rec["referred_by"] = ref                                     # the friend gets +7 days now...
-                    # #305: ...the inviter only after the friend's first real episode (credit_referral), so
+                    rec["referred_by"] = ref
+                    # #305: both sides get +7 only at the friend's first real episode (credit_referral), so
                     # throwaway sign-ups cannot farm free days. "invited" caps pending + credited friends.
                     inviter["invited"] = int(inviter.get("invited", inviter.get("referrals", 0))) + 1
                     self._audit(inviter, now, "friend_joined")
@@ -154,17 +157,28 @@ class ListenerStore:
 
     @classmethod
     def credit_referral(cls, data: dict, rec: dict, now: int) -> bool:
-        """#305: called under the store lock when an episode really reached the listener. Credits the inviter once."""
-        ref = rec.get("referred_by")
-        if not ref or rec.get("referral_credited"):
-            return False
-        rec["referral_credited"] = now
-        inviter = data["listeners"].get(ref)
-        if not inviter or int(inviter.get("referrals", 0)) >= MAX_REFERRALS:
-            return False
-        inviter["referrals"] = int(inviter.get("referrals", 0)) + 1
-        cls._audit(inviter, now, "friend_first_episode")
-        return True
+        """#305: called under the store lock when an episode really reached the listener. Decides once, via the ledger."""
+        return mycast_library.credit(data, rec, now)
+
+    def set_episode_public(self, slug: str, day: str, public: bool) -> dict:
+        with self._lock:
+            data = self._load()
+            rec = data["listeners"].get(slug)
+            if not rec:
+                raise AccountError("signed_out", 401)
+            try:
+                row = mycast_library.set_public(data, rec, day, public, int(self.clock()))
+            except KeyError:
+                raise AccountError("episode_not_found", 404)
+            except LookupError:
+                raise AccountError("episode_not_ready", 409)
+            self._save(data)
+            return row
+
+    def public_episode(self, token: str) -> Optional[tuple]:
+        with self._lock:
+            found = mycast_library.find_public(self._load(), token)
+        return (dict(found[0]), found[1], dict(found[2])) if found else None
 
     def get(self, slug: str) -> Optional[dict]:
         with self._lock:
@@ -251,6 +265,7 @@ class ListenerStore:
             rec = data["listeners"].pop(slug, None)
             if rec:
                 data["index"].pop(rec.get("key", ""), None)
+                mycast_library.drop_listener_links(data, slug)   # public episode links die with the account
                 self._save(data)
             return bool(rec)
 
@@ -284,7 +299,10 @@ def public_view(rec: dict) -> dict:
             "status": _delivery_status(rec),
             "audit": (rec.get("audit") or [])[-10:], "referrals": int(rec.get("referrals", 0)),
             "referrals_pending": max(0, int(rec.get("invited", 0)) - int(rec.get("referrals", 0))),
-            "gifted": bool(rec.get("referred_by")), "free_days": free_days(rec)}
+            "gifted": bool(rec.get("referred_by")), "free_days": free_days(rec),
+            "access": mycast_library.access(rec),
+            "referral": {"enabled": mycast_library.referrals_enabled(), "bonus_at": mycast_library.friend_bonus_at(),
+                         "events": (rec.get("referral_events") or [])[-10:]}}
 
 
 def _delivery_status(rec: dict) -> dict:
@@ -300,9 +318,8 @@ def _delivery_status(rec: dict) -> dict:
 
 
 def free_days(rec: dict) -> int:
-    """Owner offer 2026-11-07: 7 days to start, +7 for a friend's invite link, +7 for each invited friend
-    who has received a first real episode (#305)."""
-    return FREE_DAYS + (FRIEND_DAYS if rec.get("referred_by") else 0) + FRIEND_DAYS * int(rec.get("referrals", 0))
+    """7 days to start, +7 for each side of a referral once the friend's first real episode arrives (#305)."""
+    return mycast_library.free_days(rec)
 
 
 def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot_token: Callable[[], str],
@@ -346,7 +363,7 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
         token = bot_token() or ""
         bot_id = token.split(":", 1)[0] if re.fullmatch(r"\d{5,}:.+", token) else ""   # the public numeric part only
         return {"telegram_bot": name or None, "telegram_bot_id": bot_id or None, "google_client_id": google_client_id() or None,
-                "consent_version": CONSENT_VERSION,
+                "consent_version": CONSENT_VERSION, "referrals_enabled": mycast_library.referrals_enabled(),
                 "calendar_available": bool(calendar_available and calendar_available())}
 
     @app.get("/api/mycast/account/me")
@@ -382,9 +399,12 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
                 raise AccountError("bad_google_login", 401)
             if not claims or not claims.get("sub") or claims.get("email_verified") is False:
                 raise AccountError("bad_google_login", 401)
+            ref = str(body.get("ref") or "")
+            current = _current(request)
+            if current and current["slug"] == ref:
+                ref = ""                                        # #305: a signed-in listener cannot invite a new self
             return _signed_in(store.login({"provider": "google", "pid": str(claims["sub"]),
-                                           "name": _name(claims.get("given_name") or claims.get("name"))},
-                                          str(body.get("ref") or "")))
+                                           "name": _name(claims.get("given_name") or claims.get("name"))}, ref))
         except AccountError as exc:
             return _err(exc)
 
@@ -469,13 +489,10 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
 
     @app.get("/api/mycast/account/episodes")
     def mycast_account_episodes(request: Request):
-        """#317 history: the signed-in listener's own sent episodes (last 14 days). Audio stays on Telegram."""
+        """#305 "My podcasts": the signed-in listener's own library (honest states). Audio stays on Telegram."""
         try:
             rec = _signed(request)
-            rows = [{"date": day, "title": e.get("title") or f"MyCast · {day}", "seconds": int(e.get("seconds") or 0),
-                     "audio": bool(e.get("file_id"))}
-                    for day, e in sorted((rec.get("deliveries") or {}).items(), reverse=True) if e.get("status") == "sent"]
-            return {"episodes": rows}
+            return {"episodes": mycast_library.episode_rows(rec)}
         except AccountError as exc:
             return _err(exc)
 
@@ -484,8 +501,8 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
         """Streams one of the listener's own episodes back from Telegram (bot token stays on the server)."""
         try:
             rec = _signed(request)
-            entry = (rec.get("deliveries") or {}).get(day) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day or "") else None
-            if not entry or entry.get("status") != "sent" or not entry.get("file_id"):
+            entry = mycast_library.episodes(rec).get(day) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day or "") else None
+            if not entry or not entry.get("file_id"):
                 raise AccountError("episode_not_found", 404)
             if not fetch_audio:
                 raise AccountError("telegram_not_configured", 503)
@@ -579,3 +596,41 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             return _err(exc)
         store.mark(rec["slug"], public_audio=body.get("public_audio") is True)
         return {"listener": public_view(store.get(rec["slug"]))}
+
+    # ---- #305 / T-620: one episode at a time can be made public; private is the default ----
+    @app.post("/api/mycast/account/episodes/{day}/visibility")
+    async def mycast_account_episode_visibility(day: str, request: Request):
+        try:
+            rec, body = _signed(request), await _body(request)
+            row = store.set_episode_public(rec["slug"], day, body.get("public") is True)
+            return {"episode": row}
+        except AccountError as exc:
+            return _err(exc)
+
+    _NOINDEX = {"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "no-referrer"}
+
+    @app.get("/mycast/e/{token}", include_in_schema=False)
+    def mycast_public_episode(token: str):
+        """A revocable public episode page: player + title/date/length/first name only. no-store, so unpublishing
+        takes effect at once (no CDN copy keeps serving it)."""
+        import mycast_public
+        found = store.public_episode(token)
+        if not found:
+            return HTMLResponse(mycast_public.render_episode_missing(), status_code=404, headers=_NOINDEX)
+        rec, day, entry = found
+        return HTMLResponse(mycast_public.render_episode_page(rec, day, entry, token=token, page=PAGE), headers=_NOINDEX)
+
+    @app.get("/mycast/e/{token}/audio.mp3", include_in_schema=False)
+    def mycast_public_episode_audio(token: str):
+        import mycast_public
+        found = store.public_episode(token)
+        if not found or not found[2].get("file_id") or not fetch_audio:
+            return Response(status_code=404, headers=_NOINDEX)
+        if not mycast_public.allow_play("e:" + token, clock()):
+            return Response(status_code=429, headers=_NOINDEX)
+        try:
+            audio = fetch_audio(found[2]["file_id"])
+        except Exception:
+            return Response(status_code=502, headers=_NOINDEX)
+        return Response(audio, media_type="audio/mpeg",
+                        headers={**_NOINDEX, "Content-Disposition": f'inline; filename="mycast-{found[1]}.mp3"'})

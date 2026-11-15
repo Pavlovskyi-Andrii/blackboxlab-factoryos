@@ -35,8 +35,10 @@ from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compac
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
+from relay_acceptance import latest_telegram_acceptance
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
+from mybrief import FeedbackStore as MyBriefFeedback, install_mybrief_routes, load_catalog as mybrief_catalog
 from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_mvp_project_once
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
@@ -240,6 +242,10 @@ FACTORY_CLAUDE_WORKER_TOKEN_EC2 = os.environ.get("FACTORY_CLAUDE_WORKER_TOKEN_EC
 FACTORY_OPERATOR_WORKER_TOKEN = (os.environ.get("FACTORY_OPERATOR_WORKER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-operator-worker-v1",hashlib.sha256).hexdigest())
 FACTORY_OPERATOR_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_OPERATOR_WORKER_TTL_SECONDS","45"))))
+# T-607: the Gemini worker's own credential (owner-set, >= 32 chars, no derived default). It opens only the Gemini lane:
+# ROADMAP claims with lane=gemini, events on Gemini-owned tickets and the gemini operator heartbeat. Nothing else.
+FACTORY_GEMINI_WORKER_TOKEN = os.environ.get("FACTORY_GEMINI_WORKER_TOKEN", "").strip()
+GEMINI_WORKER_PATHS = ("/api/relay/worker/roadmap-claim", "/api/relay/worker/event", "/api/operator-worker/heartbeat")
 operator_worker_runtime={"claude":{"last_seen":0.0},"gemini":{"last_seen":0.0}}
 _operator_worker_lock=threading.Lock()
 FACTORY_CLAUDE_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_CLAUDE_WORKER_TTL_SECONDS","45"))))
@@ -434,6 +440,17 @@ def _operator_worker_authorized(request: Request) -> bool:
     if not auth.lower().startswith("bearer "):return False
     supplied=auth.split(" ",1)[1].strip()
     return bool(supplied and hmac.compare_digest(supplied,FACTORY_OPERATOR_WORKER_TOKEN))
+
+def _gemini_worker_authorized(request: Request) -> bool:
+    auth=(request.headers.get("authorization") or "").strip()
+    if len(FACTORY_GEMINI_WORKER_TOKEN)<32 or not auth.lower().startswith("bearer "):return False
+    supplied=auth.split(" ",1)[1].strip()
+    return bool(supplied and hmac.compare_digest(supplied,FACTORY_GEMINI_WORKER_TOKEN))
+
+def _worker_lane(request: Request) -> str:
+    """'claude' for the Claude worker credentials, 'gemini' for the Gemini worker token, '' otherwise."""
+    if _claude_worker_authorized(request):return "claude"
+    return "gemini" if _gemini_worker_authorized(request) else ""
 
 def _operator_runtime_online(item: dict) -> bool:
     return (time.time()-float((item or {}).get("last_seen") or 0)) <= FACTORY_OPERATOR_WORKER_TTL_SECONDS
@@ -707,6 +724,7 @@ async def sync_telegram_relay_webhook():
             {"command":"tasks","description":"Задачи Relay и GitHub"},
             {"command":"task","description":"Детали задачи Relay: /task R-0001"},
             {"command":"history","description":"История действий Relay"},
+            {"command":"proof","description":"Приёмка задачи по фактам: /proof R-0001"},
             {"command":"github","description":"GitHub PR, коммиты и CI"},
             {"command":"roadmap","description":"Roadmap и открытые задачи"},
             {"command":"new","description":"Создать новую задачу"},
@@ -731,7 +749,8 @@ class TelegramBridgeNotify(BaseModel):
     task_id: Optional[str] = None
 
 
-install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send)
+install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send,
+                     authorize_gemini_worker=_gemini_worker_authorized)
 
 def _agent_relay_forbidden_tokens():
     """PR #314 review B4: the agent relay tokens must not reuse any broader FactoryOS credential."""
@@ -751,6 +770,15 @@ def _owner_desk_status():
     else:
         out["T-506"]={"state":"todo","detail_key":"tg_no_token"}
     out["T-590-H"]={"state":"info","detail_key":"prod_sha","args":{"sha":BUILD_SHA[:12]}}
+    acc=latest_telegram_acceptance(RELAY_STORE.list(limit=100000))
+    if acc and acc["status"]=="VERIFIED":
+        out["T-591-H"]={"state":"done","detail_key":"accept_verified","args":{"ticket":acc["ticket_id"],"run":acc["run_id"]}}
+    elif acc:
+        out["T-591-H"]={"state":"todo","detail_key":"accept_partial","args":{"ticket":acc["ticket_id"],"missing":", ".join(acc["missing"]) or (acc["problems"][0][:80] if acc["problems"] else "—")}}
+    else:
+        out["T-591-H"]={"state":"todo","detail_key":"accept_none"} if tg.get("paired") else {"state":"blocked","detail_key":"waits","args":{"task":"T-506"}}
+    out["T-592-H"]={"state":"todo","detail_key":"can_start"} if out["T-591-H"]["state"]=="done" else {"state":"blocked","detail_key":"waits","args":{"task":"T-591-H"}}
+    out["T-593-H"]={"state":"todo","detail_key":"t593_live"}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
     youtube=next((a for a in reg.get("adapters") or [] if a.get("kind")=="youtube"),{})
@@ -1152,6 +1180,15 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
+MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
+install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
+from mvp_evolution import EvolutionStore, install_mvp_evolution_routes  # noqa: E402
+install_mvp_evolution_routes(  # T-630 #270: consented feedback -> themes -> owner-approved V2 proposal -> one Relay ticket
+    app, EvolutionStore(DATA_DIR / "mvp_evolution.json", project_exists=lambda pid: _mvp_project(pid) is not None),
+    request_identity, ticket_lookup=RELAY_STORE.get, ticket_verified=_mvp_ticket_done,
+    mybrief_entries=MYBRIEF_FEEDBACK.consented_entries,
+    create_ticket=lambda title, body, key, lane: RELAY_STORE.create(
+        title, body, source={"channel": "mvp-evolution", "source_key": key, "url": ""}, created_by="mvp-evolution", owner=lane)[0])
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
 async def _ab_content_job(title, brief, job_id):
     """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
@@ -1201,7 +1238,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 MYCAST_HOSTS = {h.strip().lower() for h in os.environ.get("FACTORY_MYCAST_HOSTS", "mycast.pro,www.mycast.pro").split(",") if h.strip()}
 MYCAST_PAGE = "/static/mycast-configurator/index.html"
 MYCAST_HOST_PREFIXES = ("/static/mycast-configurator/", "/static/favicon", "/static/apple-touch-icon", "/api/mycast/",
-                        "/mycast/u/", "/.well-known/")
+                        "/mycast/u/", "/mycast/e/", "/.well-known/")
 MYCAST_HOST_PATHS = {"/privacy", "/terms", "/health", "/favicon.ico", "/mycast", "/robots.txt", "/sitemap.xml"}
 
 
@@ -1261,16 +1298,17 @@ async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/api/mycast/calendar/")  # MyCast public beta: capped demo, listener accounts
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
     media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
     claude_worker_api=request.url.path.startswith("/api/claude-worker/") and _claude_worker_authorized(request)
-    operator_worker_api=request.url.path.startswith("/api/operator-worker/") and _operator_worker_authorized(request)
+    gemini_worker_api=request.url.path in GEMINI_WORKER_PATHS and _gemini_worker_authorized(request)
+    operator_worker_api=request.url.path.startswith("/api/operator-worker/") and (_operator_worker_authorized(request) or gemini_worker_api)
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
-    relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
+    relay_worker_api=request.url.path.startswith("/api/relay/worker/") and (_claude_worker_authorized(request) or gemini_worker_api)
     browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
     owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/") or request.url.path.startswith("/api/factory/surfer/worker/")) and _claude_worker_authorized(request)
@@ -11465,9 +11503,12 @@ def claude_worker_task_result(payload: ClaudeWorkerTaskResult):
     return {"ok":True,"result":ingest_claude_worker_result(payload)}
 
 @app.post("/api/operator-worker/heartbeat")
-def operator_worker_heartbeat(payload: OperatorWorkerHeartbeat):
+def operator_worker_heartbeat(payload: OperatorWorkerHeartbeat, request: Request = None):
     op=(payload.operator_id or "").strip().lower()
     if op not in ("claude","gemini"):raise HTTPException(422,"Unsupported operator")
+    # The middleware already admitted either the operator token or the Gemini token; the latter reports only gemini.
+    if request is not None and not _operator_worker_authorized(request) and op!="gemini":
+        raise HTTPException(403,"The Gemini worker token reports only the gemini lane")
     data=payload.model_dump()
     data["operator_id"]=op
     data["last_seen"]=time.time()

@@ -115,6 +115,9 @@ def delivery_gate(rec: dict, now: float) -> dict:
         return {"state": "not_approved", "detail": "", "local_date": ""}
     if not d.get("active"):
         return {"state": "delivery_off", "detail": d.get("paused_reason", ""), "local_date": ""}
+    from mycast_library import access_ended
+    if access_ended(rec, now):                       # T-620: only when FACTORY_MYCAST_ENFORCE_TRIAL=1
+        return {"state": "trial_ended", "detail": "", "local_date": ""}
     try:
         profile = decode_profile(rec["code"])
     except ValueError as exc:
@@ -234,6 +237,9 @@ class ListenerDelivery:
                          "file_id": str(file_id or "")[:200], "title": str(title or "")[:64]}
                 action = "episode_sent"
                 from mycast_accounts import ListenerStore
+                import mycast_library
+                mycast_library.library_add(data, rec, local_date, title=title, seconds=seconds, file_id=file_id,
+                                           now=int(now))       # #305 library; starts the free-access period once
                 ListenerStore.credit_referral(data, rec, int(now))
             else:
                 entry = {**entry, "status": "failed", "failures": int(entry.get("failures", 0)) + 1, "reason": reason[:80]}
