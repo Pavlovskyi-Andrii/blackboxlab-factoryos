@@ -212,6 +212,23 @@ def search_gemini(query: str, limit: int, *, api_key: str, model: str, opener=No
     return {"answer": answer.strip()[:4000], "results": results[:limit]}
 
 
+GEMINI_FALLBACK_MODELS = ("gemini-flash-latest", "gemini-2.5-flash")
+_GOOGLE_STATUS_RE = re.compile(r"^[A-Z_]{1,40}$")
+
+
+def gemini_error(exc: Exception) -> str:
+    """HTTP code plus Google's error enum (e.g. 'HTTP 400 INVALID_ARGUMENT'); never the free-text message."""
+    code = getattr(exc, "code", None)
+    if not code:
+        return type(exc).__name__
+    status = ""
+    try:
+        status = str((json.loads(exc.read().decode("utf-8")).get("error") or {}).get("status") or "")
+    except Exception:
+        pass
+    return f"HTTP {int(code)}" + (f" {status}" if _GOOGLE_STATUS_RE.fullmatch(status) else "")
+
+
 class WebSearch:
     def __init__(self, data_dir: Path, *, provider: Callable[[], str], gemini_key: Callable[[], str],
                  gemini_model: Callable[[str], str], opener=None, cap: int = GEMINI_DAILY_CAP):
@@ -246,13 +263,20 @@ class WebSearch:
                 notes.append(f"daily Gemini search cap ({self.cap.cap}) reached; Wikipedia used instead")
             else:
                 key = self.gemini_key()
-                try:
-                    found = search_gemini(query, limit, api_key=key, model=self.gemini_model(key), opener=self.opener)
-                    return {"provider": "gemini_google_search", "query": query, **found}
-                except Exception as exc:
-                    if wanted == "gemini":
-                        raise HTTPException(502, f"Gemini search failed ({type(exc).__name__})") from None
-                    notes.append(f"Gemini search failed ({type(exc).__name__}); Wikipedia used instead")
+                models = list(dict.fromkeys([self.gemini_model(key), *GEMINI_FALLBACK_MODELS]))
+                errors = []
+                for model in models:          # a model without Search grounding answers 400/404: try the next Flash
+                    try:
+                        found = search_gemini(query, limit, api_key=key, model=model, opener=self.opener)
+                        return {"provider": "gemini_google_search", "model": model, "query": query, **found}
+                    except Exception as exc:
+                        errors.append(f"{model}: {gemini_error(exc)}")
+                        if getattr(exc, "code", None) not in (400, 404):
+                            break
+                reason = "; ".join(errors)
+                if wanted == "gemini":
+                    raise HTTPException(502, f"Gemini search failed ({reason})") from None
+                notes.append(f"Gemini search failed ({reason}); Wikipedia used instead")
         try:
             results = search_wikipedia(query, limit, str(args.get("lang") or "en"), opener=self.opener)
         except Exception as exc:
