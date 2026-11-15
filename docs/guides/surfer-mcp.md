@@ -40,3 +40,8 @@ curl -s https://blackboxlab-factoryos.onrender.com/mcp -H "Authorization: Bearer
 The Gemini coder loop on EC2 uses the same tools without MCP: `POST /api/factory/surfer/worker/{web_search|web_read|web_task}`
 with the worker token it already has (`/etc/factoryos/claude-worker.env`). Before writing code it may run up to 3 searches
 and read up to 2 pages; the log shows `Surfer research: N searches, M pages`. Set `GEMINI_RESEARCH=0` to turn it off.
+
+## Shared agent workspace
+
+The same `/mcp` endpoint also carries the Claude ↔ ChatGPT ↔ Gemini workspace (threads and handoffs on Relay).
+Writing there needs a per-lane token instead of `FACTORY_MCP_TOKEN`: see `docs/guides/agent-workspace-mcp.md`.

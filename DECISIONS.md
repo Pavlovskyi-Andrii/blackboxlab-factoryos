@@ -1545,6 +1545,12 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   variable already exists; if it is not set on Render the page shows "anonymous" and still works.
 
 
+## 2026-11-15 — A/B Tester opens as its own agent card
+
+- Owner feedback (screenshot): the experiments section sat above the agents strip and the «A/B-тестер» tile only
+  scrolled up to it, so it looked missing. The tile now behaves like every other MVP agent: it toggles the shared
+  `#mvpAgentCard` slot, which for `abtester` renders «Что делает / Кто выполняет» and the experiments UI. The section
+  no longer renders between the pipeline and the agents.
 ## 2026-11-15 — T-560-K Gemini search diagnostics + model fallback
 
 - Production `web_search` answered "Gemini search failed (HTTPError)" with no way to tell quota from an unsupported
@@ -1559,6 +1565,20 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   T-620-A…D, then `main` took T-620 too (MyCast MVP V1, #385). Final ids are the non-numeric T-MODS-A…D, so
   parallel agents numbering T-6xx cannot collide again (the ROADMAP parser accepts `T-[A-Za-z0-9-]+`). The branch's
   first four commit subjects still say T-611-A…D (history is not rewritten); they are T-MODS-A…D.
+## 2026-11-15 — T-625 Agent workspace MCP tools (T-604 server slice)
+
+- **Decision:** threads, messages and handoffs live in the existing Relay JSON store (`relay.json`, key `agent_workspace`) under `RelayStore.lock`, in a new module `agent_workspace.py` wired into `/mcp` like `web_surfer.py` (TOOLS + call_tool).
+  **Reason:** the spec makes Relay the single source of truth; a second store or queue is ruled out. Same atomic save and single-process lock as `relay_agent_messages.py`.
+- **Decision (Relay seam):** a handoff is not a plain Relay ticket; its claim goes through `RelayQueue.claim_roadmap("mcp-<lane>", lane, task_id, owner=lane)`, and result / release / accept are `RelayQueue.event(...)` calls on that ROADMAP ticket (`pushed`, `blocked`, `done`) with its run_id and an event_id derived from the handoff.
+  **Reason:** reuses the existing one-claim-per-task, run_id fencing and history; the EC2 worker's `claim_roadmap` for the same task is refused while an MCP lane holds it. Plain queued tickets would be picked up by the EC2 worker's generic poll. RelayQueue was not changed; the workspace re-reads the store after each RelayQueue call inside the same re-entrant lock so both writes land in one snapshot.
+- **Decision:** identity comes only from per-lane tokens `FACTORY_MCP_LANE_TOKEN_{CLAUDE,CHATGPT,GEMINI}` (owner-set, T-624). The shared `FACTORY_MCP_TOKEN` keeps `/mcp` working and may read threads, but every write and every lane-bound read (`list_handoffs`) answers `LANE_AUTH_REQUIRED`. A lane is enabled per token (Claude can work before Gemini exists); a short, repetitive, duplicated or reused token switches that lane off. Separate from `FACTORY_CLAUDE_RELAY_TOKEN` / `FACTORY_CODEX_RELAY_TOKEN` (HTTP inbox, #94), which a lane token must not reuse.
+  **Reason:** spec "a shared token is not proof of being the claude or gemini model"; per-lane enablement lets the owner turn lanes on one at a time.
+- **Decision:** a lane token is accepted in `?key=` only for lanes listed in `FACTORY_MCP_LANE_URL_KEY` (owner opt-in, `chatgpt`), and a logging filter redacts `key=`/`token=` query values from the uvicorn access log (this also covers the existing shared `?key=`).
+  **Reason:** the ChatGPT connector UI cannot send headers (docs/guides/surfer-mcp.md); without a URL credential ChatGPT could never write. Header stays the default for everyone else.
+- **Decision:** threads can be opened by any lane with `post_message {topic}` (the spec's `thread_id` is optional here); only `claude` may `create_handoff`; only the creating lane may `review_handoff`; `release_handoff` offers `blocked`/`cancelled` only (owner reassignment needs owner auth, not built); no `decision` message kind.
+  **Reason:** owner Telegram threads do not exist yet (T-590–T-593 session), so agents need a way to start a brainstorm; Claude prepares the ChatGPT queue per the coordination rules; an executor must not approve its own work; owner decisions stay owner-only.
+- **Decision:** `policy_sha` = first 16 hex of sha256 of `docs/handoff/CLAUDE_CHATGPT_COORDINATION.md`; claims with another SHA fail `POLICY_STALE`. Handoff lease 6 h; an expired claim turns `blocked` (the Relay ticket goes stale and needs owner Retry), never silently re-runs.
+- **Decision:** caps (300 threads, 3000 messages, 500 handoffs, 120 writes per lane per hour, 14-day idempotency ledger) refuse new writes instead of deleting history.
 
 ## 2026-11-15 — T-630 Product Evolution S1 (#270, epic #186)
 

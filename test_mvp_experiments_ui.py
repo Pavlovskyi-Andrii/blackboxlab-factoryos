@@ -20,7 +20,8 @@ def table(lang):
 class ExperimentLanesUiTest(unittest.TestCase):
     def test_wired_into_the_mvp_panel(self):
         self.assertIn("loadMvpCycle(id);loadMvpExperiments(id)", HTML)
-        self.assertIn("mvpPipelineHtml(c)+mvpExperimentsHtml(mvpOpen)", HTML)
+        self.assertIn("+(cur?mvpAgentCard(c,cur):mvpAgent==='abtester'?mvpAbCard():'')", HTML)   # tile opens its own card
+        self.assertIn("+mvpExperimentsHtml(mvpOpen)+'</section>'", HTML)
 
     def test_lane_a_renders_before_lane_b_and_compare_has_no_winner(self):
         js = block()
@@ -67,6 +68,7 @@ class ExperimentLanesUiTest(unittest.TestCase):
         self.assertIn("if(own&&b.preview_approved&&!b.content_job_id)", js)   # owner, approved preview, no job yet
         self.assertIn("/content-job'", js)
         self.assertIn("+mvpAbTile()+'</div>'", HTML)                          # A/B Tester tile next to the agents
+        self.assertIn("onclick=\"mvpToggleAgent(\\'abtester\\')\"", HTML)      # opens like any other agent
         self.assertIn("mvpExpForm='';mvpExpEdit=''", HTML)                    # switching projects closes open forms
 
 
