@@ -1408,6 +1408,34 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Not done here (owner/interactive session): resolve the `autopilot/aws-worker` ↔ `main` conflict; until it is
   resolved this fix cannot reach the worker through its main sync.
 
+## 2026-11-15 — T-614 AI Decision Memory pilot (#187)
+
+- Delivery shape: one module (`decision_memory.py`) with an `install_*` route function, its test, and one static page
+  (`static/decision-memory/index.html`), the same pattern as Faceless Models CRM (#359). No new service, database or
+  dependency; app.py only imports and installs it.
+- Access: owner only for reads and writes. Issue #187 does not authorize public access, so the static page is only an
+  empty shell (the `/static/` prefix is public) and every record comes from `/api/decision-memory` behind the login.
+  Viewers and members get 403; a guest/viewer mode for interviews can be added later if the owner wants it.
+- Demo dataset: parsed at runtime from DECISIONS.md, not copied into a fixture, so it cannot drift or be invented. A
+  `**Decision:** … **Reason:** …` bullet becomes one record; any other section becomes one record (heading = decision,
+  body = rationale). Sources are the DECISIONS.md line on GitHub plus `#NNN` references found in the text (linked as
+  issues; GitHub redirects PR numbers). DECISIONS.md records no responsible person, expected outcome or review date, so
+  those fields are empty in the import: the page shows the gap instead of filling it with guesses. Credential-shaped
+  text (shared `agent_secret_scan` patterns) is replaced by a redaction marker; submitted text with such patterns is
+  refused. 216 records today, 0 redacted.
+- Persistence: owner edits, new decisions and reviews live in `DATA_DIR/decision_memory.json` as an overlay keyed by a
+  stable record id (hash of heading, position and text). If a DECISIONS.md entry is later rewritten, its overlay is
+  orphaned rather than attached to different text. A damaged store returns 503 and is never replaced.
+- Follow-up model: `review_at` makes a decision "scheduled", then "due" once the date passes; recording a review
+  (as expected / partly / did not work / reversed) clears the date or sets the next one.
+- Registry: the `decision-memory` pilot seeded in `mvp_factory.py` is reused, never duplicated. A startup intake
+  (`sync_mvp_registry_once`, marker + file lock) sets its `prototype` link through a new minimal
+  `MvpRegistry.set_prototype` (a `/static/` link only, recorded as a note event) and advances it with evidence only
+  through stages the registry allows an agent (idea → researching → spec_draft → spec_review). build_queued, preview,
+  owner review and the verdict stay with the owner ([HUMAN] T-614-H1). The intake skips a pilot the owner blocked,
+  moved elsewhere or deleted.
+- "AI" is the product hypothesis, not a feature of this pilot: no LLM or provider call. Validating the
+  memory + follow-up loop with 5 interviews comes before spending on summarisation.
 ## 2026-11-15 — T-616 AI Release Guardian (#189)
 
 - Module `release_guardian.py`, page `static/mvp-factory/release-guardian.html`, route `GET /api/release-guardian?prs=…`
