@@ -1454,3 +1454,38 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   free-text message (it can echo request data). On 400/404 the next Flash model is tried (`gemini-flash-latest`,
   then `gemini-2.5-flash`); 429/5xx are not retried, so one search costs at most 3 calls and still counts once
   against the 100/day cap. The successful model is returned as `model`.
+
+
+## 2026-11-15 — T-630 Product Evolution S1 (#270, epic #186)
+
+- Slice chosen from #270: M2 (versioned schema + synthetic fixtures + contract tests) and the first M3 vertical slice
+  Feedback → Discovery/Synthesis → Product Manager → Builder task. Reason: it is the smallest part that is useful on real
+  data today (MyBrief already collects consented feedback) and closes the loop to V2 without new infrastructure. Worker
+  contracts for all 13 roles (T-631), consumer-side claims via Relay events (T-632) and in-product usage events (T-633)
+  are separate tasks.
+- Reuse, not a second registry: a project must exist in `mvp_factory.MvpRegistry` (`project_exists` callback); this
+  module never records registry events, so stages still move only through the owner/agent rules there. Data lives in
+  `DATA_DIR/mvp_evolution.json` (0600), one file like the other pilots.
+- Hand-off seam with the other agents: approval creates exactly one ticket through the existing `RELAY_STORE.create`
+  (`source.channel = "mvp-evolution"`, `source_key = mvp-evolution:<project>:<proposal>`, so Relay's own idempotency
+  dedupes retries) with lane `claude` by default or `chatgpt` / `gemini` / `unassigned` chosen by the owner. Relay stays
+  the only queue and executor (CLAUDE_CHATGPT_COORDINATION.md §3); nothing here claims, runs or edits Relay/MCP code,
+  which the T-604 session owns. The status shown is read back with `RELAY_STORE.get` and verified with the existing
+  `_mvp_ticket_done` (done + accepted evidence, no owner override) plus a run_id; otherwise UNKNOWN / UNVERIFIED /
+  BLOCKED. Envelope fields follow #270 §3 (`schema: mvp-evolution/1`).
+- Gates: agents may add feedback and propose; only owner/member hand off or mark shipped; only the owner approves,
+  declines, deletes feedback (consent withdrawn) or releases a version. Releasing v2 is an internal version mark with an
+  evidence link, not a deploy or publication, and needs a shipped proposal for that version.
+- Privacy: consent must be literally `true` plus a free-text consent reference; the participant label is hashed with a
+  per-store salt and the project id (dedupe without storing who); free text redacts e-mails and phone-like numbers.
+  ISO dates are kept (found by the tests: the MyBrief phone regex also eats `2026-11-16`; MyBrief itself is unchanged).
+- "Substantive" = a job-to-be-done plus what helped or failed, ≥ 40 characters together. Imported MyBrief ratings and
+  comments count as feedback received but never as substantive. Confidence: < 3 people insufficient, < 5 low, < 10
+  medium, else high; contrary evidence lowers it. Retest answers are kept out of discovery themes.
+- Synthetic data: allowed only with `source: synthetic` and `synthetic: true` together, never counted in the real
+  cohort, never mixed with real records in one proposal and never handed off to Relay. The demo
+  (`GET /api/mvp-evolution-demo`) runs the whole loop in memory with a fixed clock; its hand-off, PR and release are
+  shown as SIMULATED.
+- `mybrief.FeedbackStore.consented_entries()` was added for the import (entries without withdraw hashes); the app now
+  keeps the MyBrief store in `MYBRIEF_FEEDBACK` so both use one instance.
+

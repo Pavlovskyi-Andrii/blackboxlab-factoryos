@@ -659,6 +659,46 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   Need: owner opens the preview, fills expected outcome / review date for a few real decisions, contacts 5 people (external contact = owner action) with the interview script, and records build/preview/verdict steps in MVP Builder (agents may not move a pilot past spec review).
   DONE: MVP Builder shows the `decision-memory` pilot at `validated` or `rejected` with an owner event citing the aggregate interview result.
 
+## MVP Factory — self-improving Beta V1→V2 (#270, epic #186)
+
+Incremental loop for the existing MVP Factory (`mvp_factory.py` stays the only registry; this never moves a stage).
+Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to stay clear of the parallel second-wave sessions.
+
+- [x] T-630 Product Evolution S1 — consented feedback ledger, themes, owner-approved V2 proposals, one Relay hand-off, retest
+  Owner: claude (session MVP beta)
+  Priority: P1
+  Depends: #186 registry, Relay (`RelayStore.create`), T-615 MyBrief feedback store
+  Spec: Issue #270 §1, §3, §4, §6 (M2 + first M3 vertical slice); DECISIONS.md «2026-11-15 — T-630»
+  Goal: `mvp_evolution.py` + `static/mvp-factory/evolution.html` (EN/UK/RU, linked from every MVP card): feedback stored only with explicit consent and a consent reference, participant label hashed per project, free text redacted; synthetic data only when marked and never counted; cohort 10 → 100 against real unique substantive records; funnel steps unknown until recorded with a source; deterministic themes with contrary evidence and confidence; proposals cite feedback ids and an acceptance test; only the owner approves/declines/releases; hand-off creates exactly one Relay ticket and reads VERIFIED only from Relay facts (done + run_id + accepted evidence); shipped needs a merged PR/commit link; retest by original participants; privacy delete; MyBrief consented import; one deterministic synthetic V1→V2 loop for the demo.
+  DONE: `python test_mvp_evolution.py` passes (consent, redaction, hashing, synthetic marking/mixing, cohort, funnel, themes, owner gates, concurrent one-ticket hand-off, idempotency, hand-off truth table, full real V1→V2 loop with retest and untouched registry, privacy delete, MyBrief import, synthetic demo, handler auth, page/i18n/wiring), the MVP/pilot suites, `test_owner_desk.py`, the default verification and `node --check` of the page pass.
+
+- [ ] [HUMAN] T-630-H Product Evolution: first cohort of 10 consented feedback records and the first V2 decision
+  Owner: owner
+  Depends: T-630 merged and deployed
+  Need: owner picks the pilot and the outreach channel, talks to people personally (FactoryOS sends nothing), records 10 substantive consented feedback records, approves or declines the first V2 proposal and, after the merged PR, releases v2 and asks the original participants to retest. Runbook in Worker Center → «Ваши задачи».
+  DONE: `/api/mvp-evolution/<pilot>` shows `cohort.first_target_met: true` on real data and an owner decision on a proposal.
+
+- [ ] T-631 Product Evolution S2 — versioned worker contracts for the 13 logical roles of #270 §2
+  Owner: claude (session MVP beta)
+  Priority: P2
+  Depends: T-630
+  Goal: one schema module (role, permissions, trigger, input/output schema, acceptance, Depends, retries, timeout, error state, audit evidence) for Idea/Research … Product Manager, mapped onto the existing `mvp_cycle.AGENTS` engines; contract tests for schema validation, duplicate claim, retry, failed evidence and approval gates. No new runtime process or paid service per role.
+  DONE: contract tests pass; `mvp_cycle`/`mvp_pipeline` suites still pass.
+
+- [ ] T-632 Product Evolution S3 — consumer-side claim of hand-offs through Relay events (M4)
+  Owner: claude (session MVP beta)
+  Priority: P2
+  Depends: T-630, T-604 (shared MCP/Relay interface, other session), T-590–T-593 statuses
+  Goal: the Builder consumer validates the T-630 envelope before claiming, the claim/finish/failure of the Relay ticket is mirrored into the proposal history with the same run_id, a stale or failed run shows BLOCKED with its reason; no double claim. Uses only the Relay interfaces T-604 settles on.
+  DONE: tests for validate-before-claim, duplicate claim refused, stale → blocked, finish → VERIFIED only with evidence.
+
+- [ ] T-633 Product Evolution S4 — consent-aware in-product usage events and export (M5)
+  Owner: claude (session MVP beta)
+  Priority: P2
+  Depends: T-630, T-630-H (owner-approved channel and wording)
+  Goal: pilot pages emit only consented, minimal events (activated / used / returned) into the funnel with per-participant export and delete; no third-party analytics, no outbound invitations.
+  DONE: tests for no-consent → no event, export, delete; funnel counts come from events, not manual entry.
+
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
 - [ ] T-607 Gemini Worker — third authenticated engineering operator via existing Relay
