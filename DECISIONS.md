@@ -1318,3 +1318,25 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   answers.md on every pass; the old code re-ran the blocked task 13 times in that test.
 - Not done here (owner/interactive session): resolve the `autopilot/aws-worker` ↔ `main` conflict; until it is
   resolved this fix cannot reach the worker through its main sync.
+
+## 2026-11-15 — T-615 MyBrief for a profession (#188, pilot `mybrief-pro`)
+
+- Professions: software developer, school teacher (England), accountant / tax adviser (IRS + HMRC). Chosen because
+  their official sources (GitHub Changelog, GOV.UK, IRS Newsroom) are readable by the Surfer and publish dated news.
+- Content: a fixture (`static/mybrief/demo-briefs.json`, `kind: demo_fixture`) written once by this Claude session
+  from pages the FactoryOS Surfer actually read (`web_read`, EC2 Chromium) on 2026-11-15; 13 items, each with the
+  source URL, publisher, publication date and `verified_via: surfer_web_read`. No server-side generation: zero calls,
+  zero spend (the MyCast path — Claude subscription on the worker — is not needed for a fixed demo).
+- Surfer limits seen that day: `web_search` with Gemini returned HTTPError (fell back to Wikipedia, which has no
+  news), so candidates came from a separate web search and only the Surfer read was trusted. Many news sites were
+  unreadable from EC2 (openai.com and thenewstack.io render empty, JetBrains "Access denied", k12dive captcha, EdWeek
+  nav only) and were dropped rather than paraphrased. Owner may want to check the Gemini search key/quota.
+- Briefing text is in English (the sources' language); the page UI is EN/UK/RU and says so.
+- Feedback: public POST under `/api/mybrief/public/` (new public prefix, same model as the MyCast demo), refused
+  unless `consent` is literally `true`. Stored: profession, topics, rating 1–5, would-read-weekly, comment ≤500 chars
+  with e-mails/phone numbers redacted. Not stored: IP, user agent, name, e-mail. Caps: 5 per client per UTC day
+  (in-memory, client id hashed with a per-day salt) and 300 per day overall. A withdraw token (hash stored) deletes
+  the entry. Summary `/api/mybrief/feedback` is signed-in owner/member only.
+- MVP registry: `PILOT_PROTOTYPES` fills an empty `prototype` on `mybrief-pro` with the page; the stage is not moved.
+  Stage events still need evidence links recorded by the owner/member (PR link → spec/build stages).
+- Outreach (sending the link to real people) is the owner's decision: [HUMAN] T-615-H with a runbook.

@@ -51,6 +51,8 @@ EVIDENCE_RE = re.compile(r"^(https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+
                          r"|/static/[A-Za-z0-9_./-]+"
                          r"|/api/mvp-factory/[a-z0-9-]+/artifacts/[a-z0-9_.-]+)$")   # agent artifacts (2026-11-11)
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
+# T-615: preview pages built for seeded pilots. Filled into an empty `prototype` field only; never changes a stage.
+PILOT_PROTOTYPES = {"mybrief-pro": "/static/mybrief/index.html"}
 EVIDENCE_CHECK = "link_shape_only"  # the shape of the link is checked; its relevance to the claimed stage is not
 
 # #313: owner-requested concept must be visible in MVP Builder, including existing
@@ -138,6 +140,16 @@ class MvpError(ValueError):
         self.status = status
 
 
+def _backfill_pilot_prototypes(data: dict[str, Any]) -> bool:
+    changed = False
+    for pid, page in PILOT_PROTOTYPES.items():
+        project = data["projects"].get(pid)
+        if isinstance(project, dict) and not project.get("prototype"):
+            project["prototype"] = page
+            changed = True
+    return changed
+
+
 def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).isoformat(timespec="seconds")
 
@@ -166,7 +178,7 @@ def _seed(now: str) -> dict[str, Any]:
     pilots = [("mycast", "MyCast · personal podcast configurator", 261, "preview_ready", "/static/mycast-configurator/index.html")]
     for issue, pid, title in ((187, "decision-memory", "AI Decision Memory"), (188, "mybrief-pro", "MyBrief for a profession"),
                               (189, "release-guardian", "AI Release Guardian")):
-        pilots.append((pid, title, issue, "idea", ""))
+        pilots.append((pid, title, issue, "idea", PILOT_PROTOTYPES.get(pid, "")))
         events.append(ev(pid, 0, "note", "idea", "idea", [f"{REPO}/issues/{issue}"], f"Pilot recorded from GitHub issue #{issue}."))
     projects = {pid: {"id": pid, "title": title, "issue": issue, "stage": stage, "blocked": None, "prototype": proto,
                       "cost_usd": 0, "approval": {"deploy": False, "outreach": False, "publish": False},
@@ -203,6 +215,8 @@ class MvpRegistry:
                     _add_faceless_creator(data, _iso(self.clock()))
                     data["faceless_creator_intake_complete"] = True
                     self._save(data)
+                elif data.get("version") == 2 and _backfill_pilot_prototypes(data):
+                    self._save(data)  # T-615: link a pilot's preview page; stage and history stay untouched
                 elif data.get("version") == 2 and _backfill_faceless_creator_brief(data):
                     # Preserve existing #313 text, but repair a missing draft.
                     # Do not recreate a project deliberately removed by the owner.
