@@ -148,6 +148,27 @@ class SearchTest(unittest.TestCase):
         self.assertEqual(out["provider"], "wikipedia")
         self.assertNotIn("secret", json.dumps(out))
 
+    def test_gemini_error_reports_code_and_status_and_tries_fallback_models(self):
+        import urllib.error
+
+        def http_error(code, status, message):
+            body = json.dumps({"error": {"code": code, "status": status, "message": message}}).encode()
+            return urllib.error.HTTPError("https://x", code, "err", {}, io.BytesIO(body))
+        opener = Opener(http_error(400, "INVALID_ARGUMENT", "secret detail AIzaXYZ"), GEMINI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "x"})
+        self.assertEqual((out["provider"], out["model"]), ("gemini_google_search", "gemini-flash-latest"))
+        self.assertIn("/models/gemini-2.5-flash:", opener.requests[0].full_url)   # resolved model first
+        opener = Opener(http_error(429, "RESOURCE_EXHAUSTED", "quota secret"), WIKI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "y"})
+        self.assertEqual(out["provider"], "wikipedia")
+        self.assertIn("HTTP 429 RESOURCE_EXHAUSTED", out["note"])
+        self.assertNotIn("secret", json.dumps(out))
+        self.assertEqual(len(opener.requests), 2)                  # 429 is not retried on another model
+        opener = Opener(*[http_error(400, "bad status!", "m") for _ in range(2)], WIKI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "z"})
+        self.assertIn("gemini-2.5-flash: HTTP 400;", out["note"])  # non-enum status text is dropped
+        self.assertNotIn("bad status", out["note"])
+
     def test_query_validation(self):
         s = search(self.tmp.name, opener=Opener())
         for bad in ({"query": ""}, {"query": "x" * 301}, {"query": "x", "provider": "bing"}, {"query": "x", "limit": "a"}):

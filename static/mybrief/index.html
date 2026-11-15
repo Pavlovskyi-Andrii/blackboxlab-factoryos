@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><link rel="icon" href="/static/favicon-32.png" sizes="32x32" type="image/png">
+<title>MyBrief</title>
+<!-- T-615 / #188 MyBrief for a profession (MVP Factory pilot mybrief-pro). Public demo: reads /api/mybrief/public/*.
+     The briefings are a fixed sample written once from real, dated sources; nothing here is live news, nothing is
+     published, and feedback is stored only after the visitor ticks the consent box. -->
+<style>
+:root{--bg:#070a16;--glass:rgba(20,27,54,.62);--edge:rgba(160,180,255,.15);--edge2:rgba(160,180,255,.3);--ink:#eef1ff;--mute:#a3abc9;
+  --cyan:#4fe3ff;--teal:#3ee6c1;--violet:#8b7bff;--warn:#ffd27a;--bad:#ff8f86;--ok:#79e8b0;
+  --display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;--body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--body)}
+body{overflow-x:hidden;background:radial-gradient(60vmax 50vmax at 10% -10%,rgba(91,67,255,.35),transparent 70%),radial-gradient(50vmax 40vmax at 100% 20%,rgba(0,200,255,.18),transparent 70%),var(--bg)}
+.wrap{max-width:980px;margin:0 auto;padding:18px 16px 56px;display:grid;gap:22px;min-width:0}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.brand{font:700 12px var(--mono);letter-spacing:.18em;color:var(--mute);text-transform:uppercase;text-decoration:none}
+.langs{display:flex;gap:4px;padding:3px;border:1px solid var(--edge);border-radius:999px;background:var(--glass)}
+.langs button{font:600 12px var(--mono);background:transparent;color:var(--mute);border:0;border-radius:999px;padding:6px 11px;cursor:pointer}
+.langs button[aria-pressed="true"]{color:var(--bg);background:var(--ink)}
+h1{font:700 clamp(30px,5.4vw,50px)/1.06 var(--display);margin:4px 0 8px}
+h2{font:700 clamp(20px,3vw,26px)/1.15 var(--display);margin:0 0 10px}
+.lede{color:#c8cee8;margin:0;max-width:62ch}
+.honest{margin-top:10px;font:12.5px/1.5 var(--mono);color:var(--warn)}
+.card{background:var(--glass);border:1px solid var(--edge);border-radius:18px;padding:18px;min-width:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.prof{display:block;text-align:left;width:100%;cursor:pointer;padding:14px;border-radius:14px;border:1px solid var(--edge);background:rgba(10,14,32,.55);color:var(--ink);font:inherit}
+.prof[aria-pressed="true"]{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan) inset}
+.prof b{display:block;font-size:17px}.prof small{color:var(--mute)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;gap:6px;align-items:center;padding:8px 12px;border:1px solid var(--edge2);border-radius:999px;cursor:pointer;background:rgba(10,14,32,.5)}
+.chip input{accent-color:var(--teal)}
+.btn{font:700 15px var(--body);padding:11px 18px;border-radius:12px;border:0;background:linear-gradient(100deg,var(--violet),var(--cyan));color:#08101f;cursor:pointer}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--edge2)}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+.item{padding:16px 0;border-top:1px solid var(--edge)}
+.item:first-of-type{border-top:0}
+.item h3{margin:4px 0 6px;font:700 18px/1.3 var(--body)}
+.item p{margin:0 0 8px;color:#d6dbf2}
+.why{font-size:14.5px;color:var(--teal)}
+.tag{display:inline-block;font:600 11px var(--mono);padding:3px 8px;border-radius:999px;border:1px solid var(--edge2);color:var(--mute)}
+.src{font:13px var(--mono);color:var(--mute);overflow-wrap:anywhere}
+.src a{color:var(--cyan)}
+fieldset{border:0;margin:0 0 12px;padding:0}
+legend{font-weight:700;margin-bottom:6px}
+textarea{width:100%;min-height:80px;background:rgba(10,14,32,.6);color:var(--ink);border:1px solid var(--edge2);border-radius:12px;padding:10px;font:inherit}
+.consent{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:12px;border:1px dashed var(--edge2);font-size:14px}
+.consent input{margin-top:4px;accent-color:var(--teal)}
+.note{font-size:13px;color:var(--mute)}
+.msg{font-size:14px}.msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="/static/mvp-factory/index.html" data-i="brand">MVP Factory · pilot</a>
+    <div class="langs" role="group" aria-label="Language">
+      <button type="button" data-lang="en">EN</button><button type="button" data-lang="uk">UK</button><button type="button" data-lang="ru">RU</button>
+    </div>
+  </header>
+
+  <section>
+    <h1 data-i="title">MyBrief for your profession</h1>
+    <p class="lede" data-i="lede">Pick your profession and the topics you care about. You get a short briefing where every item links to its original source.</p>
+    <p class="honest" id="honest"></p>
+  </section>
+
+  <section class="card">
+    <h2 data-i="step1">1 · Your profession</h2>
+    <div class="grid" id="profs"></div>
+    <p class="msg bad" id="loadErr" hidden></p>
+  </section>
+
+  <section class="card" id="topicsCard" hidden>
+    <h2 data-i="step2">2 · Topics</h2>
+    <div class="chips" id="topics"></div>
+    <div class="row"><button class="btn" id="show" type="button" data-i="show">Show my briefing</button></div>
+  </section>
+
+  <section class="card" id="briefCard" hidden>
+    <h2 id="briefTitle"></h2>
+    <p class="note" id="briefNote"></p>
+    <div id="items"></div>
+  </section>
+
+  <section class="card" id="fbCard" hidden>
+    <h2 data-i="fbTitle">Was this useful?</h2>
+    <form id="fb" novalidate>
+      <fieldset><legend data-i="rate">How useful is this briefing? (1 = not at all, 5 = very)</legend>
+        <div class="chips" id="rating"></div></fieldset>
+      <fieldset><legend data-i="weekly">Would you read a briefing like this every week?</legend>
+        <div class="chips">
+          <label class="chip"><input type="radio" name="weekly" value="yes"> <span data-i="yes">Yes</span></label>
+          <label class="chip"><input type="radio" name="weekly" value="no"> <span data-i="no">No</span></label>
+        </div></fieldset>
+      <fieldset><legend data-i="comment">Anything missing? (optional, max 500 characters — please no names or contacts)</legend>
+        <textarea id="comment" maxlength="500"></textarea></fieldset>
+      <label class="consent"><input type="checkbox" id="consent">
+        <span data-i="consentText">I agree that MyBrief stores this feedback (profession, topics, rating, weekly answer, comment) to improve the pilot. No name, e-mail or IP address is stored; e-mails and phone numbers in the comment are removed. I can withdraw it on this page.</span></label>
+      <div class="row"><button class="btn" id="send" type="submit" disabled data-i="send">Send feedback</button>
+        <span class="msg" id="fbMsg" role="status"></span></div>
+    </form>
+    <div class="row" id="withdrawRow" hidden><button class="btn ghost" id="withdraw" type="button" data-i="withdraw">Withdraw my feedback</button></div>
+  </section>
+</div>
+<script>
+(function(){
+  "use strict";
+  var T = {
+    en: {brand:"MVP Factory · pilot", title:"MyBrief for your profession", lede:"Pick your profession and the topics you care about. You get a short briefing where every item links to its original source.",
+      honest:"Demo: a fixed sample written once on {d} from real, dated sources (briefing text in English). Not live news.",
+      step1:"1 · Your profession", step2:"2 · Topics", show:"Show my briefing", fbTitle:"Was this useful?",
+      rate:"How useful is this briefing? (1 = not at all, 5 = very)", weekly:"Would you read a briefing like this every week?", yes:"Yes", no:"No",
+      comment:"Anything missing? (optional, max 500 characters — please no names or contacts)",
+      consentText:"I agree that MyBrief stores this feedback (profession, topics, rating, weekly answer, comment) to improve the pilot. No name, e-mail or IP address is stored; e-mails and phone numbers in the comment are removed. I can withdraw it on this page.",
+      send:"Send feedback", withdraw:"Withdraw my feedback", why:"Why it matters:", source:"Source", items:"items",
+      briefFor:"Briefing · {p}", sent:"Thank you — feedback saved.", withdrawn:"Your feedback was deleted.", needRating:"Choose a rating first.",
+      err_daily_limit:"Daily limit reached, please try tomorrow.", err:"Something went wrong ({c}).", loadErr:"Could not load the demo catalog."},
+    uk: {brand:"MVP Factory · пілот", title:"MyBrief для вашої професії", lede:"Оберіть професію і теми, які вас цікавлять. Ви отримаєте короткий брифінг, де кожен пункт посилається на першоджерело.",
+      honest:"Демо: фіксована добірка, складена один раз {d} з реальних датованих джерел (текст брифінгу англійською). Це не живі новини.",
+      step1:"1 · Ваша професія", step2:"2 · Теми", show:"Показати брифінг", fbTitle:"Чи було це корисно?",
+      rate:"Наскільки корисний цей брифінг? (1 — зовсім ні, 5 — дуже)", weekly:"Чи читали б ви такий брифінг щотижня?", yes:"Так", no:"Ні",
+      comment:"Чого бракує? (необов'язково, до 500 символів — без імен і контактів)",
+      consentText:"Я погоджуюся, що MyBrief зберігає цей відгук (професія, теми, оцінка, відповідь про щотижневе читання, коментар) для покращення пілоту. Ім'я, e-mail та IP-адреса не зберігаються; e-mail і телефони в коментарі видаляються. Я можу відкликати відгук на цій сторінці.",
+      send:"Надіслати відгук", withdraw:"Відкликати мій відгук", why:"Чому це важливо:", source:"Джерело", items:"пунктів",
+      briefFor:"Брифінг · {p}", sent:"Дякуємо — відгук збережено.", withdrawn:"Ваш відгук видалено.", needRating:"Спершу оберіть оцінку.",
+      err_daily_limit:"Денний ліміт вичерпано, спробуйте завтра.", err:"Щось пішло не так ({c}).", loadErr:"Не вдалося завантажити демо-каталог."},
+    ru: {brand:"MVP Factory · пилот", title:"MyBrief для вашей профессии", lede:"Выберите профессию и интересные вам темы. Вы получите короткий брифинг, где каждый пункт ссылается на первоисточник.",
+      honest:"Демо: фиксированная подборка, составленная один раз {d} из реальных датированных источников (текст брифинга на английском). Это не живые новости.",
+      step1:"1 · Ваша профессия", step2:"2 · Темы", show:"Показать брифинг", fbTitle:"Было ли это полезно?",
+      rate:"Насколько полезен этот брифинг? (1 — совсем нет, 5 — очень)", weekly:"Читали бы вы такой брифинг каждую неделю?", yes:"Да", no:"Нет",
+      comment:"Чего не хватает? (необязательно, до 500 символов — без имён и контактов)",
+      consentText:"Я согласен(на), что MyBrief хранит этот отзыв (профессия, темы, оценка, ответ о еженедельном чтении, комментарий) для улучшения пилота. Имя, e-mail и IP-адрес не хранятся; e-mail и телефоны в комментарии удаляются. Я могу отозвать отзыв на этой странице.",
+      send:"Отправить отзыв", withdraw:"Отозвать мой отзыв", why:"Почему это важно:", source:"Источник", items:"пунктов",
+      briefFor:"Брифинг · {p}", sent:"Спасибо — отзыв сохранён.", withdrawn:"Ваш отзыв удалён.", needRating:"Сначала выберите оценку.",
+      err_daily_limit:"Дневной лимит исчерпан, попробуйте завтра.", err:"Что-то пошло не так ({c}).", loadErr:"Не удалось загрузить демо-каталог."}
+  };
+  var API = "/api/mybrief/public/";
+  var state = {lang: "en", catalog: null, prof: null, brief: null, receipt: null};
+  try { var saved = localStorage.getItem("mybrief-lang"); if (T[saved]) state.lang = saved; } catch (e) {}
+  var $ = function(id){ return document.getElementById(id); };
+  function t(k){ return (T[state.lang] || T.en)[k] || T.en[k] || k; }
+  function el(tag, attrs, text){
+    var n = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function(k){ n.setAttribute(k, attrs[k]); });
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function loc(obj){ return obj ? (obj[state.lang] || obj.en || "") : ""; }
+
+  function applyLang(){
+    document.documentElement.lang = state.lang;
+    document.querySelectorAll("[data-i]").forEach(function(n){ n.textContent = t(n.getAttribute("data-i")); });
+    document.querySelectorAll(".langs button").forEach(function(b){ b.setAttribute("aria-pressed", String(b.getAttribute("data-lang") === state.lang)); });
+    $("honest").textContent = state.catalog ? t("honest").replace("{d}", state.catalog.generated_at) : "";
+    renderProfs(); renderTopics(); renderBrief();
+  }
+
+  function renderProfs(){
+    var box = $("profs"); box.textContent = "";
+    if (!state.catalog) return;
+    state.catalog.professions.forEach(function(p){
+      var b = el("button", {type: "button", "class": "prof", "aria-pressed": String(state.prof === p.id)});
+      b.appendChild(el("b", null, loc(p.title)));
+      b.appendChild(el("small", null, loc(p.audience)));
+      b.addEventListener("click", function(){ state.prof = p.id; state.brief = null; renderProfs(); renderTopics(); renderBrief(); });
+      box.appendChild(b);
+    });
+  }
+
+  function currentProf(){
+    if (!state.catalog) return null;
+    return state.catalog.professions.filter(function(p){ return p.id === state.prof; })[0] || null;
+  }
+
+  function renderTopics(){
+    var p = currentProf();
+    $("topicsCard").hidden = !p;
+    var box = $("topics"); box.textContent = "";
+    if (!p) return;
+    p.topics.forEach(function(tp){
+      var lab = el("label", {"class": "chip"});
+      var cb = el("input", {type: "checkbox", value: tp.id}); cb.checked = true;
+      lab.appendChild(cb);
+      lab.appendChild(el("span", null, loc(tp.title) + " · " + tp.items + " " + t("items")));
+      box.appendChild(lab);
+    });
+  }
+
+  function chosenTopics(){
+    return Array.prototype.slice.call(document.querySelectorAll("#topics input:checked")).map(function(n){ return n.value; });
+  }
+
+  function topicTitle(id){
+    var p = currentProf(); if (!p) return id;
+    var tp = p.topics.filter(function(x){ return x.id === id; })[0];
+    return tp ? loc(tp.title) : id;
+  }
+
+  function renderBrief(){
+    var b = state.brief;
+    $("briefCard").hidden = !b; $("fbCard").hidden = !b;
+    if (!b) return;
+    $("briefTitle").textContent = t("briefFor").replace("{p}", loc(b.title));
+    $("briefNote").textContent = t("honest").replace("{d}", b.generated_at);
+    var box = $("items"); box.textContent = "";
+    b.items.forEach(function(it){
+      var art = el("article", {"class": "item", lang: "en"});
+      art.appendChild(el("span", {"class": "tag"}, topicTitle(it.topic)));
+      art.appendChild(el("h3", null, it.headline));
+      art.appendChild(el("p", null, it.summary));
+      art.appendChild(el("p", {"class": "why"}, t("why") + " " + it.why));
+      var src = el("div", {"class": "src"});
+      src.appendChild(document.createTextNode(t("source") + ": " + it.source.publisher + " · " + it.source.date + " · "));
+      var a = el("a", {href: it.source.url, target: "_blank", rel: "noopener noreferrer"}, it.source.title);
+      src.appendChild(a);
+      art.appendChild(src);
+      box.appendChild(art);
+    });
+    var r = $("rating"); if (!r.childElementCount) {
+      for (var i = 1; i <= 5; i++) {
+        var lab = el("label", {"class": "chip"});
+        lab.appendChild(el("input", {type: "radio", name: "rating", value: String(i)}));
+        lab.appendChild(el("span", null, String(i)));
+        r.appendChild(lab);
+      }
+    }
+  }
+
+  function api(path, opts){
+    return fetch(API + path, opts).then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(body){
+        if (!res.ok) { var e = new Error(body.detail || ("http_" + res.status)); e.code = body.detail || ("http_" + res.status); throw e; }
+        return body;
+      });
+    });
+  }
+
+  function showMsg(text, ok){ var m = $("fbMsg"); m.textContent = text; m.className = "msg " + (ok ? "ok" : "bad"); }
+  function errText(e){ return e && e.code === "daily_limit" ? t("err_daily_limit") : t("err").replace("{c}", (e && e.code) || "?"); }
+
+  $("show").addEventListener("click", function(){
+    var topics = chosenTopics();
+    api("brief?profession=" + encodeURIComponent(state.prof) + "&topics=" + encodeURIComponent(topics.join(",")))
+      .then(function(b){ state.brief = b; renderBrief(); $("briefCard").scrollIntoView({behavior: "smooth", block: "start"}); })
+      .catch(function(e){ showMsg(errText(e), false); });
+  });
+
+  $("consent").addEventListener("change", function(){ $("send").disabled = !this.checked || !!state.receipt; });
+
+  $("fb").addEventListener("submit", function(ev){
+    ev.preventDefault();
+    if (!$("consent").checked) return;
+    var rating = document.querySelector("input[name=rating]:checked");
+    if (!rating) { showMsg(t("needRating"), false); return; }
+    var weekly = document.querySelector("input[name=weekly]:checked");
+    var body = {consent: true, profession: state.brief.profession, topics: state.brief.topics, rating: Number(rating.value),
+                would_read_weekly: weekly ? weekly.value === "yes" : null, comment: $("comment").value};
+    $("send").disabled = true;
+    api("feedback", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(body)})
+      .then(function(r){ state.receipt = r; showMsg(t("sent"), true); $("withdrawRow").hidden = false; })
+      .catch(function(e){ $("send").disabled = false; showMsg(errText(e), false); });
+  });
+
+  $("withdraw").addEventListener("click", function(){
+    var r = state.receipt; if (!r) return;
+    api("feedback/" + encodeURIComponent(r.id) + "/withdraw", {method: "POST", headers: {"content-type": "application/json"},
+        body: JSON.stringify({token: r.withdraw_token})})
+      .then(function(){ state.receipt = null; showMsg(t("withdrawn"), true); $("withdrawRow").hidden = true; $("send").disabled = !$("consent").checked; })
+      .catch(function(e){ showMsg(errText(e), false); });
+  });
+
+  document.querySelectorAll(".langs button").forEach(function(b){
+    b.addEventListener("click", function(){
+      state.lang = b.getAttribute("data-lang");
+      try { localStorage.setItem("mybrief-lang", state.lang); } catch (e) {}
+      applyLang();
+    });
+  });
+
+  api("catalog").then(function(c){ state.catalog = c; applyLang(); })
+    .catch(function(){ var m = $("loadErr"); m.textContent = t("loadErr"); m.hidden = false; });
+  applyLang();
+})();
+</script>
+</body>
+</html>

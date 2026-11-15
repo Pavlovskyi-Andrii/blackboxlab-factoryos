@@ -278,6 +278,11 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner 2026-11-15 — Gemini must be able to use the Surfer too. The EC2 Gemini loop is not Gemini CLI but `tools/gemini_issue_pr.cjs` behind the FactoryOS proxy, so it gets a research step: the model plans ≤3 searches and ≤2 page reads, the script runs them through `POST /api/factory/surfer/worker/{tool}` with the worker token EC2 already has, and the results enter the coding prompt as untrusted reference data.
   DONE: `node tools/test_gemini_research.cjs` and `python test_web_surfer.py` prove the limits, https-only reads, worker-token auth, task isolation between worker and MCP callers, and that a failed or empty plan skips research instead of failing the issue.
 
+- [x] T-560-K Gemini search diagnostics + model fallback
+  Owner: claude
+  Goal: production web_search fell back to Wikipedia with only "HTTPError"; report HTTP code + Google error enum and try another Flash model on 400/404.
+  DONE: `python test_web_surfer.py` proves code/status in the note without Google's message text, fallback on 400, no retry on 429.
+
 - [ ] [HUMAN] T-560-I Opt in to Google search via Gemini (optional)
   Depends: T-560-H
   Need: owner decides whether Google Search grounding on the existing Gemini key may be used (free daily quota, billed beyond it on a paid project); if yes, set `FACTORY_WEB_SEARCH_PROVIDER=gemini` in Render. Without it `web_search` answers from Wikipedia only.
@@ -622,6 +627,21 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   Depends: T-620
   Need: owner signs off the rule (+7 days to each side once, at the friend's first real episode; cap 50; no self/duplicate credit), sets `FACTORY_MYCAST_REFERRALS=1` in Render, and runs one live invite with a second Telegram account. Enforcing the end of free days (`FACTORY_MYCAST_ENFORCE_TRIAL=1`) is a separate later business decision.
   DONE: `/api/mycast/account/config` returns `"referrals_enabled": true` and the live check gave both accounts +7 days exactly once.
+
+## MVP Factory pilots (owner 2026-11-15: first MVP wave — #305, #187, #188, #189)
+
+- [x] T-615 MyBrief for a profession — web MVP pilot `mybrief-pro` (#188)
+  Owner: claude (session MyBrief)
+  Priority: P1
+  Spec: Issue #188; docs/MVP_FACTORY_SPEC.md; DECISIONS.md «2026-11-15 — T-615»
+  Goal: public page `/static/mybrief/index.html`: pick one of 3 professions and its topics, see a sample briefing where every item links to a real, dated source read through the FactoryOS Surfer; feedback only after an explicit consent tick, no personal data kept, withdrawable; owner/member summary at `/api/mybrief/feedback`. No server-side LLM call, no publishing, no outreach.
+  DONE: `python test_mybrief.py` passes (fixture validation, topic filter, consent gate, redaction, caps, withdraw, route auth, registry prototype link, page script), MVP + Surfer suites and default verification pass, page JS `node --check`.
+
+- [ ] [HUMAN] T-615-H Start the 48-hour MyBrief validation (outreach is the owner's call)
+  Owner: owner
+  Depends: T-615
+  Need: owner reviews the page, sends the link personally to up to 5 people per profession, and after 48 h reads `/api/mybrief/feedback` and decides validated/rejected in MVP Builder. Runbook in Worker Center → «Ваши задачи».
+  DONE: feedback summary from real people and an owner decision recorded on `mybrief-pro`.
 
 ## MVP Factory pilot 1 — AI Decision Memory (#187, epic #186)
 

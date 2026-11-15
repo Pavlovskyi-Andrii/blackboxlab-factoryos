@@ -1374,6 +1374,27 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   `FACTORY_MYCAST_ENFORCE_TRIAL=1` makes the delivery gate return `trial_ended`; off by default (open beta).
 - Cost caps already in place and unchanged: 10 listener episodes per UTC day across all listeners, 3 failures per
   day, Gemini demo/voice limits; public audio is rate-limited (60 plays/hour per link).
+## 2026-11-15 — T-615 MyBrief for a profession (#188, pilot `mybrief-pro`)
+
+- Professions: software developer, school teacher (England), accountant / tax adviser (IRS + HMRC). Chosen because
+  their official sources (GitHub Changelog, GOV.UK, IRS Newsroom) are readable by the Surfer and publish dated news.
+- Content: a fixture (`static/mybrief/demo-briefs.json`, `kind: demo_fixture`) written once by this Claude session
+  from pages the FactoryOS Surfer actually read (`web_read`, EC2 Chromium) on 2026-11-15; 13 items, each with the
+  source URL, publisher, publication date and `verified_via: surfer_web_read`. No server-side generation: zero calls,
+  zero spend (the MyCast path — Claude subscription on the worker — is not needed for a fixed demo).
+- Surfer limits seen that day: `web_search` with Gemini returned HTTPError (fell back to Wikipedia, which has no
+  news), so candidates came from a separate web search and only the Surfer read was trusted. Many news sites were
+  unreadable from EC2 (openai.com and thenewstack.io render empty, JetBrains "Access denied", k12dive captcha, EdWeek
+  nav only) and were dropped rather than paraphrased. Owner may want to check the Gemini search key/quota.
+- Briefing text is in English (the sources' language); the page UI is EN/UK/RU and says so.
+- Feedback: public POST under `/api/mybrief/public/` (new public prefix, same model as the MyCast demo), refused
+  unless `consent` is literally `true`. Stored: profession, topics, rating 1–5, would-read-weekly, comment ≤500 chars
+  with e-mails/phone numbers redacted. Not stored: IP, user agent, name, e-mail. Caps: 5 per client per UTC day
+  (in-memory, client id hashed with a per-day salt) and 300 per day overall. A withdraw token (hash stored) deletes
+  the entry. Summary `/api/mybrief/feedback` is signed-in owner/member only.
+- MVP registry: `PILOT_PROTOTYPES` fills an empty `prototype` on `mybrief-pro` with the page; the stage is not moved.
+  Stage events still need evidence links recorded by the owner/member (PR link → spec/build stages).
+- Outreach (sending the link to real people) is the owner's decision: [HUMAN] T-615-H with a runbook.
 ## 2026-11-15 — T-614 AI Decision Memory pilot (#187)
 
 - Delivery shape: one module (`decision_memory.py`) with an `install_*` route function, its test, and one static page
@@ -1425,3 +1446,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   `relay.github_error_reason` categories, never response text or the token. No [HUMAN] task: the read-only token
   variable already exists; if it is not set on Render the page shows "anonymous" and still works.
 
+
+## 2026-11-15 — T-560-K Gemini search diagnostics + model fallback
+
+- Production `web_search` answered "Gemini search failed (HTTPError)" with no way to tell quota from an unsupported
+  model. The note now carries the HTTP code and Google's error enum (`HTTP 400 INVALID_ARGUMENT`), never Google's
+  free-text message (it can echo request data). On 400/404 the next Flash model is tried (`gemini-flash-latest`,
+  then `gemini-2.5-flash`); 429/5xx are not retried, so one search costs at most 3 calls and still counts once
+  against the 100/day cap. The successful model is returned as `model`.
