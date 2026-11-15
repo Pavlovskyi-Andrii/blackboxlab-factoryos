@@ -1,4 +1,4 @@
-"""T-611 Mods & skills: vendored plugins (A), registry and switches (B), worker runtime (C), video duel (D).
+"""T-620 Mods & skills: vendored plugins (A), registry and switches (B), worker runtime (C), video duel (D).
 
 Run: python test_mods.py
 """

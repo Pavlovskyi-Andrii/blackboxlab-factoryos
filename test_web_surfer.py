@@ -148,6 +148,27 @@ class SearchTest(unittest.TestCase):
         self.assertEqual(out["provider"], "wikipedia")
         self.assertNotIn("secret", json.dumps(out))
 
+    def test_gemini_error_reports_code_and_status_and_tries_fallback_models(self):
+        import urllib.error
+
+        def http_error(code, status, message):
+            body = json.dumps({"error": {"code": code, "status": status, "message": message}}).encode()
+            return urllib.error.HTTPError("https://x", code, "err", {}, io.BytesIO(body))
+        opener = Opener(http_error(400, "INVALID_ARGUMENT", "secret detail AIzaXYZ"), GEMINI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "x"})
+        self.assertEqual((out["provider"], out["model"]), ("gemini_google_search", "gemini-flash-latest"))
+        self.assertIn("/models/gemini-2.5-flash:", opener.requests[0].full_url)   # resolved model first
+        opener = Opener(http_error(429, "RESOURCE_EXHAUSTED", "quota secret"), WIKI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "y"})
+        self.assertEqual(out["provider"], "wikipedia")
+        self.assertIn("HTTP 429 RESOURCE_EXHAUSTED", out["note"])
+        self.assertNotIn("secret", json.dumps(out))
+        self.assertEqual(len(opener.requests), 2)                  # 429 is not retried on another model
+        opener = Opener(*[http_error(400, "bad status!", "m") for _ in range(2)], WIKI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "z"})
+        self.assertIn("gemini-2.5-flash: HTTP 400;", out["note"])  # non-enum status text is dropped
+        self.assertNotIn("bad status", out["note"])
+
     def test_query_validation(self):
         s = search(self.tmp.name, opener=Opener())
         for bad in ({"query": ""}, {"query": "x" * 301}, {"query": "x", "provider": "bing"}, {"query": "x", "limit": "a"}):
@@ -173,6 +194,44 @@ def mcp_call(factory, payload, token=None):
                       receive)
     response = asyncio.run(factory.factory_mcp(request))
     return response.status_code, json.loads(response.body or b"{}")
+
+
+class WorkerRoutesTest(unittest.TestCase):
+    def test_worker_routes_need_the_worker_token_and_keep_tasks_apart(self):
+        from fastapi import FastAPI
+        from starlette.requests import Request
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = bt.BrowserTaskStore(pathlib.Path(tmp.name))
+        app = FastAPI()
+        ws.install_worker_routes(app, store=store, search=search(tmp.name, opener=Opener(WIKI)),
+                                 authorize_worker=lambda r: r.headers.get("authorization") == "Bearer w")
+        endpoint = next(r.endpoint for r in app.routes if getattr(r, "path", "") == "/api/factory/surfer/worker/{tool}")
+
+        def call(tool, body, token="w"):
+            raw = json.dumps(body).encode()
+
+            async def receive():
+                return {"type": "http.request", "body": raw, "more_body": False}
+            headers = [(b"authorization", ("Bearer " + token).encode())] if token else []
+            return asyncio.run(endpoint(tool, Request({"type": "http", "method": "POST", "headers": headers,
+                                                       "path": "/x", "query_string": b""}, receive)))
+        with self.assertRaises(HTTPException) as err:
+            call("web_search", {"query": "x"}, token="")
+        self.assertEqual(err.exception.status_code, 401)
+        with self.assertRaises(HTTPException) as err:
+            call("shell", {})
+        self.assertEqual(err.exception.status_code, 404)
+        self.assertEqual(call("web_search", {"query": "web", "agent": "gemini"})["provider"], "wikipedia")
+        view = call("web_read", {"url": "https://example.com", "wait_seconds": 0, "agent": "gemini"})
+        self.assertEqual(store.get(view["task_id"])["source"], "worker")
+        self.assertIn("via worker, agent: gemini", store.get(view["task_id"])["note"])
+        self.assertEqual(call("web_task", {"task_id": view["task_id"]})["status"], "queued")
+        with self.assertRaises(HTTPException):                   # an MCP caller cannot read worker tasks
+            ws.web_task(store, {"task_id": view["task_id"]})
+        mcp_task = store.create("https://example.com", [], "", source="mcp")
+        with self.assertRaises(HTTPException):                   # and the worker cannot read MCP tasks
+            call("web_task", {"task_id": mcp_task["id"]})
 
 
 class McpEndpointTest(unittest.TestCase):

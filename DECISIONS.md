@@ -1223,6 +1223,33 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Verified in Chromium against a local server: create → save draft A → health claim refused with a readable message →
   save draft B → approve A only; lanes A (top) / B (below); no horizontal overflow at 375 px.
 
+## 2026-11-15 — T-552-YT Direct YouTube publisher
+- Owner chose the official YouTube Data API over the paid Metricool API (Metricool's free plan has no server API) and
+  ruled out reverse-engineering private provider APIs. TikTok/Instagram/HubSpot remain on T-552.
+- Uploads default to `private` (`FACTORY_YOUTUBE_PRIVACY` may set `unlisted`/`public`). Google also forces uploads
+  from unaudited API projects to private, so a public post needs either YouTube's API audit or a manual switch in
+  YouTube Studio; the receipt is still a real video ID/URL.
+- `selfDeclaredMadeForKids` has no default: `FACTORY_YOUTUBE_MADE_FOR_KIDS` must be set (fail closed), mirroring
+  the Metricool audience rule. Every upload sets `containsSyntheticMedia: true` (AI disclosure).
+- Only the durable archived file of the approved media artifact is uploaded, never a re-fetched URL; the artifact
+  must match the approved snapshot's job and URL.
+- The access token is refreshed before every upload and the refreshed token is written back to the vault. An upload
+  interrupted after the bytes may have landed is raised as TimeoutError so the publish item is marked
+  `outcome_uncertain` and needs explicit confirmation before any retry (no duplicate videos).
+- A Google account without a YouTube channel is refused at connect time (`youtube_channel_missing`) instead of
+  storing a token that cannot upload.
+- With a Google OAuth client configured, Connections → YouTube → Connect starts Google OAuth instead of the
+  Metricool binding.
+- Review follow-up (Codex, advisory): YouTube readiness, token lookup, refresh and persistence use the publish item's
+  workspace (readiness: the caller's), so no workspace sees or uses another's channel. Approval now records the
+  archived file's sha256 (`media_sha256`); the YouTube publisher hashes the archived file and refuses a mismatch or a
+  missing digest before any upload. Dry-run marks per-platform support of the selected adapter and keeps a T-520
+  blocker for an item platform the adapter cannot publish.
+- Second review follow-up: only the digest captured in the approval snapshot is trusted (no fallback to the
+  artifact's current `archive_sha256`, which a re-archive could rewrite together with the file); items without it
+  must be re-approved. `upload_video` hashes and uploads through one open file handle, so a file swapped at the path
+  after the check cannot be what reaches YouTube.
+
 ## 2026-11-15 — T-610 A/B Tester S3: one Content Factory draft job per branch
 
 - `POST /api/mvp-factory/{pid}/experiments/{exp}/branches/{b}/content-job` (owner only) reserves the branch under the
@@ -1241,7 +1268,7 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   no longer depends on the reservation token. The brief puts the draft-only rules first so length capping can never cut
   them. Verified on a real SQLite DB: 6 concurrent/repeated creates → 1 job row, 1 workspace row, 0 publishing rows.
 
-## 2026-11-15 — T-611-A Vendor poteto-mode, grilling and product-film as plugins
+## 2026-11-15 — T-620-A Vendor poteto-mode, grilling and product-film as plugins
 
 - Sources were picked by provenance, not by search rank: poteto-mode from `cursor/plugins` (pstack, by its author
   Lauren Tan; the many `pstack` forks are ports of it), grilling from `mattpocock/skills` (the registries that list it
@@ -1250,7 +1277,7 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   Claude Code adapter doc. The whole pstack Claude Code harness is vendored (1.3 MB) minus the guide images and the
   TLA+ test corpus; vendoring only `poteto-mode/SKILL.md` would leave it pointing at missing files.
 - Each mod is a Claude Code plugin folder under `mods/`, not `.claude/skills/`: nothing loads unless a run passes
-  `--plugin-dir mods/<name>`, so the dashboard switch (T-611-B/C) is the only way a mod becomes active, and the
+  `--plugin-dir mods/<name>`, so the dashboard switch (T-620-B/C) is the only way a mod becomes active, and the
   owner's interactive sessions are not changed silently.
 - product-film: removed the prebuilt `jq` binaries (unreviewable executables) and the display.dev upload scripts.
   Uploading a review page to a third-party site is external publishing, which FactoryOS only does through the owner
@@ -1258,7 +1285,7 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   Correction to the earlier chat answer: product-film does not use Remotion.
 - All three pass `claude plugin validate`.
 
-## 2026-11-15 — T-611-B Mods & skills section: registry, switches, numbers
+## 2026-11-15 — T-620-B Mods & skills section: registry, switches, numbers
 
 - One code catalog (`mods_registry.CATALOG`) and one JSON state file (`DATA_DIR/mods.json`, flock + atomic replace,
   the brand-strategy store pattern). Module is `mods_registry.py`, not `mods.py`: the `mods/` plugin folder would
@@ -1269,14 +1296,14 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - The brand-strategy switch is real: `_apply_workflow_prompt` adds the Master Brief only while it is on, and counts a
   use each time a prompt actually carried it. An unreadable state file falls back to defaults so content work never
   stops on it; the dashboard gets a 503 instead of invented numbers.
-- "Does it help": worker runs are recorded with the mods they really loaded (T-611-C). A comparison is shown only with
+- "Does it help": worker runs are recorded with the mods they really loaded (T-620-C). A comparison is shown only with
   at least 3 runs on each side; a run whose mods could not be applied counts as "without". No other metric is
   claimed (e.g. content approval rate per Master Brief is not measured yet).
 - Owner-only switch and read; `by` is stored as the role, not the e-mail. Viewers do not see the card.
 - Verified in Chromium against a local server (RU, 1440 px and 375 px): no horizontal overflow, no page errors, the
   sidebar item scrolls to the card.
 
-## 2026-11-15 — T-611-C Claude worker applies the switched-on mods
+## 2026-11-15 — T-620-C Claude worker applies the switched-on mods
 
 - Mechanism: `claude --plugin-dir mods/<folder>` per run (checked: `claude --plugin-dir mods/pstack plugin list` →
   loaded; pstack = 58 skills, 2 agents, 0 hooks, 0 MCP servers). No files are copied into `.claude/`, so switching
@@ -1297,13 +1324,13 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Every run is reported to `POST /api/mods/worker/run` with its real mod set (best effort; a lost report only drops
   that run from the comparison).
 
-## 2026-11-15 — T-611-D Video duel: A1/A2 (FactoryOS tool) against B1/B2 (product-film)
+## 2026-11-15 — T-620-D Video duel: A1/A2 (FactoryOS tool) against B1/B2 (product-film)
 
 - Separate from the MVP A/B Tester on purpose: that one is fixed to two persona branches with no winner by design
   (T-608). A tool duel compares production tools on one brief with four takes, and does name a winner.
 - A arms become ordinary draft jobs through the normal `create_job` (format Shorts, brief starts with "ТОЛЬКО
   ЧЕРНОВИК"), so they follow the usual pipeline and the usual publish approval. B arms become Claude Relay tickets
-  (`source_key mods-duel:<duel>:<arm>`, deduplicated) that load product-film only through T-611-C; starting B is
+  (`source_key mods-duel:<duel>:<arm>`, deduplicated) that load product-film only through T-620-C; starting B is
   refused while product-film is off. Start is idempotent (120 s reservation released on failure).
 - Rendered films stay on the worker under `/tmp/factoryos-films/` and are never committed or uploaded; the ticket's
   final note carries the paths. The owner pastes a link and scores 1–5. There is no automatic upload path yet.
@@ -1313,3 +1340,146 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   unknown). The ticket tells the worker to return BLOCKED with the missing tool instead of faking a film.
 - Verified in Chromium against a local server: create duel → A1 job created → B locked → product-film on → B1 Relay
   ticket queued → four scores → "A 3.5 · B 4.5 → побеждает product-film"; no overflow at 375 px, no page errors.
+## 2026-11-15 — T-611 Durable engine: DBOS Transact embedded in FactoryOS (stage 0)
+
+- DBOS Transact 3.5.0 (MIT) runs as a library inside the FastAPI process, not as a separate orchestrator service: no
+  extra container or paid plan, and checkpoints stay on the disk FactoryOS already has. DBOS Conductor and DBOS Cloud are
+  not used, so the engine makes no outbound calls.
+- System database: its own SQLite file `DATA_DIR/dbos_system.sqlite`, never `factory.db`, so DBOS schema migrations can
+  never touch FactoryOS tables. SQLite serves one process; that holds today (render.yaml starts one uvicorn worker, and a
+  disk-backed Render service stops the old instance before starting the new one). `DBOS_SYSTEM_DATABASE_URL` moves it to
+  Postgres before FactoryOS ever runs a second process.
+- `dbos==3.5.0; python_version >= "3.10"`: pinned because an upgrade runs DBOS schema migrations; the marker keeps the
+  Python 3.9 EC2 worker venv installable, and `durable_engine` falls back to the legacy paths when dbos cannot be imported.
+- Fixed `application_version` (`factoryos-durable-v1`) instead of DBOS's default hash of the workflow source: with the
+  default, every deploy that touches workflow code would orphan the workflows started before it, which is exactly the
+  case durability is for. Bump it only when a workflow's sequence of steps changes. `executor_id` is fixed to `local`.
+- Launch is the first startup hook and never raises: on failure FactoryOS keeps the legacy paths and reports the error in
+  health details (`durable_engine`). Shutdown calls `DBOS.destroy(workflow_completion_timeout_sec=0)`: a deploy is not
+  held up by waiting workflows, which resume from their checkpoints on the next launch.
+- Recovery detail found while testing: DBOS re-enqueues an interrupted workflow (ENQUEUED) before running it again
+  (PENDING), so "active" and "resuming" count both statuses.
+- DBOS's sync API raises RuntimeError on a thread with a running asyncio loop, which is where FastAPI runs startup
+  hooks and async endpoints (found by booting the app under uvicorn). `durable_engine.run_sync` runs such calls on a
+  small helper pool and waits; tests call it from a running loop.
+- Kill switch `FACTORY_DBOS_ENABLED=0`: dbos is not even imported, no database file is created, every caller uses its
+  legacy path. Setting it on Render is an owner action.
+- Measured locally (Python 3.13): RSS after `import app` + engine launch 109 MB vs 67 MB with the kill switch (+42 MB).
+  Render memory is a post-deploy check.
+
+## 2026-11-15 — T-612 AI Media Finisher as a durable DBOS workflow (stage 1)
+
+- One workflow per edit job generation, ID `media-finisher:<edit_job_id>:<n>`: submit step, then up to
+  `FACTORY_DBOS_FINISHER_MAX_WAIT_SEC` (6 h) of {wait for the worker callback for `FACTORY_DBOS_FINISHER_POLL_SEC`
+  (30 s) → poll step → submit again if the worker lost the job} until the edit job is ready, failed or deleted. After
+  the max wait the workflow releases the edit job to the legacy watchdog instead of failing it.
+- The steps reuse the existing routines (`_submit_media_finisher_background`, `refresh_edit_job(resubmit=False)`), so
+  the payload, retries, progress stages and `_finalize_edit_job` stay byte-for-byte the same. A step replayed after a
+  crash cannot create a second worker job: submit returns early once `provider_job_id` is recorded, and the worker's
+  POST /jobs is idempotent by `edit_job_id`.
+- `_spawn_media_finisher_submit` is the single switch: engine launched → start or re-attach to the workflow (a deterministic
+  ID makes a second start a no-op); engine off or start error → the legacy thread. All existing callers (start, rerun,
+  startup recovery, ASR and real-media repairs, 404 resubmit) go through it unchanged.
+- The callback endpoint wakes the workflow (`DBOS.send`) after finalizing; a callback lost while FactoryOS restarts is
+  replaced by the next poll. The watchdog skips edit jobs a current-version workflow owns. Jobs that were already at
+  the worker before this deploy are not adopted: the watchdog keeps polling them as before (conservative migration).
+- An older-`APP_VERSION` workflow is cancelled by `start()` before a new generation runs, so an edit job never has two
+  owners after a version bump. Local Booster jobs (`compute_target=local`) are untouched.
+- Workflow history stays in `dbos_system.sqlite` (a few dozen rows per finished job); no retention job yet.
+- Local end-to-end check (real uvicorn processes, fake worker over HTTP): SIGKILL mid-wait → after reboot the workflow
+  resumed and delivered the worker's result in ~1 s with exactly one worker POST; SIGTERM (deploy shape) → stop 0.6 s,
+  same result; a callback finished the workflow in ~1 s with no polling. The only extra POST seen came from the
+  existing one-shot startup repair of recently failed manual uploads (`MEDIA_FINISHER_REAL_MEDIA_REPAIR`), which now
+  runs as generation 1. Not verified: a real worker on Render/EC2 and a real Render deploy.
+
+## 2026-11-15 — T-560-J Gemini coder uses the Surfer
+
+- The EC2 "Gemini" is the issue→PR script `tools/gemini_issue_pr.cjs` (one JSON generation through the FactoryOS proxy),
+  not Gemini CLI, so it cannot call MCP tools. Instead of MCP (which would need `FACTORY_MCP_TOKEN` on EC2), the server
+  exposes the same three tools at `POST /api/factory/surfer/worker/{web_search|web_read|web_task}` behind the worker
+  token EC2 already holds. No new secret, no change on the EC2 host: the loop fetches the script from `main` each run.
+- Research is a separate planning call (same free Flash model) before the coding call: ≤3 searches, ≤2 https pages,
+  12 000 chars into the prompt, framed as untrusted reference data. Any failure (model busy, bad JSON, Surfer error)
+  skips research; the issue is never failed by it. `GEMINI_RESEARCH=0` turns it off. Direct-key mode (GitHub Actions)
+  has no worker token and skips it.
+- Worker tasks are stored with `source: "worker"`; `web_task` shows each caller only its own source.
+## 2026-11-15 — Blocked tasks wake on answers.md content, not mtime (Telegram loop fix)
+
+- Incident: T-590 (ticket R-0004) was re-run every ~2 minutes and Telegram received ~300 cards
+  ("running" → "blocked" → "взята в работу" …). Cause: `origin/main` no longer merges cleanly into
+  `autopilot/aws-worker` (conflict in `.github/workflows/ci.yml`), so every loop pass ran `git merge origin/main`
+  + `git merge --abort`. Main had changed `.autopilot/answers.md`, so both steps rewrote that file; its mtime
+  moved each pass, `answers_marker()` (mtime-based) reported "new owner input" and the parked task was woken.
+- Choice: `answers_marker()` is now a SHA-256 fingerprint of the file's bytes (kept as an int so existing
+  `parking.json` stays valid). Rewrites, checkouts and touches no longer wake a task; a real new answer still does.
+  A parked task wakes once more after this upgrade (old mtime marker ≠ new hash), then stays parked.
+- Regression: `autopilot/test_autopilot.py::parking_regression` simulates a conflicting sync that rewrites
+  answers.md on every pass; the old code re-ran the blocked task 13 times in that test.
+- Not done here (owner/interactive session): resolve the `autopilot/aws-worker` ↔ `main` conflict; until it is
+  resolved this fix cannot reach the worker through its main sync.
+
+## 2026-11-15 — T-614 AI Decision Memory pilot (#187)
+
+- Delivery shape: one module (`decision_memory.py`) with an `install_*` route function, its test, and one static page
+  (`static/decision-memory/index.html`), the same pattern as Faceless Models CRM (#359). No new service, database or
+  dependency; app.py only imports and installs it.
+- Access: owner only for reads and writes. Issue #187 does not authorize public access, so the static page is only an
+  empty shell (the `/static/` prefix is public) and every record comes from `/api/decision-memory` behind the login.
+  Viewers and members get 403; a guest/viewer mode for interviews can be added later if the owner wants it.
+- Demo dataset: parsed at runtime from DECISIONS.md, not copied into a fixture, so it cannot drift or be invented. A
+  `**Decision:** … **Reason:** …` bullet becomes one record; any other section becomes one record (heading = decision,
+  body = rationale). Sources are the DECISIONS.md line on GitHub plus `#NNN` references found in the text (linked as
+  issues; GitHub redirects PR numbers). DECISIONS.md records no responsible person, expected outcome or review date, so
+  those fields are empty in the import: the page shows the gap instead of filling it with guesses. Credential-shaped
+  text (shared `agent_secret_scan` patterns) is replaced by a redaction marker; submitted text with such patterns is
+  refused. 216 records today, 0 redacted.
+- Persistence: owner edits, new decisions and reviews live in `DATA_DIR/decision_memory.json` as an overlay keyed by a
+  stable record id (hash of heading, position and text). If a DECISIONS.md entry is later rewritten, its overlay is
+  orphaned rather than attached to different text. A damaged store returns 503 and is never replaced.
+- Follow-up model: `review_at` makes a decision "scheduled", then "due" once the date passes; recording a review
+  (as expected / partly / did not work / reversed) clears the date or sets the next one.
+- Registry: the `decision-memory` pilot seeded in `mvp_factory.py` is reused, never duplicated. A startup intake
+  (`sync_mvp_registry_once`, marker + file lock) sets its `prototype` link through a new minimal
+  `MvpRegistry.set_prototype` (a `/static/` link only, recorded as a note event) and advances it with evidence only
+  through stages the registry allows an agent (idea → researching → spec_draft → spec_review). build_queued, preview,
+  owner review and the verdict stay with the owner ([HUMAN] T-614-H1). The intake skips a pilot the owner blocked,
+  moved elsewhere or deleted.
+- "AI" is the product hypothesis, not a feature of this pilot: no LLM or provider call. Validating the
+  memory + follow-up loop with 5 interviews comes before spending on summarisation.
+## 2026-11-15 — T-616 AI Release Guardian (#189)
+
+- Module `release_guardian.py`, page `static/mvp-factory/release-guardian.html`, route `GET /api/release-guardian?prs=…`
+  (owner only, like the open-questions board). The MVP Builder card of `release-guardian` links to the page by project
+  id / issue 189; `mvp_factory.py` is unchanged (the seed already holds the pilot; stages still move only by events).
+- Readiness rules (one pure function, `classify_readiness`): red if any check failed; else pending if any runs; else
+  unknown if there is no check, no passed check, a required check is missing or skipped, or the list is truncated;
+  else green. `cancelled`, `action_required`, `startup_failure`, `timed_out` are failures. `skipped`, `neutral`,
+  `stale` and unknown conclusions are "not verified" and never count. A non-required skipped check beside passing
+  ones is listed as "not counted" and does not turn green into unknown.
+- "No jobs ran": a GitHub Actions check suite with zero check runs and a failing conclusion is a failed check named
+  after its workflow and event. Found on the pilot PRs: #162/#163 show three green jobs from a `workflow_dispatch` run
+  while the `pull_request` run of FactoryOS CI ended `failure` with no job; the board marks them red. A queued Actions
+  suite without runs is pending. Suites of other apps without runs (Render's never-run suite) are listed as notes only.
+- The combined `/status` endpoint says `pending` when there are no statuses; only the `statuses` list is used.
+- Required checks come from `GET /rules/branches/{base}` (rulesets, readable without admin). Classic branch
+  protection needs admin and is not read; the page says so. Unreadable rules → "required checks unknown".
+- Token: `_github_read_token()` (read-only token first, as every server-side read). Without a token the board reads
+  anonymously, caps at 5 PRs and caches 10 min; with a token 10 PRs and 2 min. The client stops calling GitHub when
+  `X-RateLimit-Remaining` ≤ 5 until the reset and then serves stale cache or "unknown". Error reasons use the shared
+  `relay.github_error_reason` categories, never response text or the token. No [HUMAN] task: the read-only token
+  variable already exists; if it is not set on Render the page shows "anonymous" and still works.
+
+
+## 2026-11-15 — T-560-K Gemini search diagnostics + model fallback
+
+- Production `web_search` answered "Gemini search failed (HTTPError)" with no way to tell quota from an unsupported
+  model. The note now carries the HTTP code and Google's error enum (`HTTP 400 INVALID_ARGUMENT`), never Google's
+  free-text message (it can echo request data). On 400/404 the next Flash model is tried (`gemini-flash-latest`,
+  then `gemini-2.5-flash`); 429/5xx are not retried, so one search costs at most 3 calls and still counts once
+  against the 100/day cap. The successful model is returned as `model`.
+
+## 2026-11-15 — Mods & skills renumbered T-611 → T-620
+
+- While this branch was open, `main` merged its own T-611 (DBOS durable engine). The Mods & skills tasks are renamed
+  T-620-A…D in ROADMAP, DECISIONS and code comments. The branch's first four commit subjects still say T-611-A…D
+  (history is not rewritten); they are the same tasks as T-620-A…D. T-613/T-615 were left alone as possible gaps.

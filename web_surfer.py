@@ -33,6 +33,7 @@ from urllib import request as urlrequest
 from fastapi import HTTPException
 
 MCP_SOURCE = "mcp"
+WORKER_SOURCE = "worker"      # FactoryOS's own agents on EC2 (the Gemini coder loop), worker token
 READ_WAIT_DEFAULT = 40
 READ_WAIT_MAX = 50
 POLL_SECONDS = 1.0
@@ -115,7 +116,8 @@ def task_view(task: dict) -> dict:
     return view
 
 
-async def web_read(store, args: dict, *, sleep=asyncio.sleep, clock: Callable[[], float] = time.monotonic) -> dict:
+async def web_read(store, args: dict, *, sleep=asyncio.sleep, clock: Callable[[], float] = time.monotonic,
+                   source: str = MCP_SOURCE) -> dict:
     selectors = args.get("selectors") or []
     if not isinstance(selectors, list):
         raise HTTPException(400, "selectors must be a list of CSS selectors")
@@ -124,8 +126,8 @@ async def web_read(store, args: dict, *, sleep=asyncio.sleep, clock: Callable[[]
     except (TypeError, ValueError):
         raise HTTPException(400, "wait_seconds must be a number")
     wait = max(0, min(wait, READ_WAIT_MAX))
-    note = f"via MCP, agent: {_agent_label(args)} (self-declared)"
-    task = store.create(args.get("url", ""), selectors, note, source=MCP_SOURCE, wait_for=args.get("wait_for", ""))
+    note = f"via {'MCP' if source == MCP_SOURCE else 'worker'}, agent: {_agent_label(args)} (self-declared)"
+    task = store.create(args.get("url", ""), selectors, note, source=source, wait_for=args.get("wait_for", ""))
     deadline = clock() + wait
     while task["status"] in ("queued", "running") and clock() < deadline:
         await sleep(POLL_SECONDS)
@@ -133,10 +135,10 @@ async def web_read(store, args: dict, *, sleep=asyncio.sleep, clock: Callable[[]
     return task_view(task)
 
 
-def web_task(store, args: dict) -> dict:
+def web_task(store, args: dict, *, source: str = MCP_SOURCE) -> dict:
     task_id = str(args.get("task_id") or "")
     task = store.get(task_id) if re.fullmatch(r"bt_[0-9a-f]{16}", task_id) else None
-    if not task or task.get("source") != MCP_SOURCE:       # owner's and Claude-token tasks stay private
+    if not task or task.get("source") != source:           # each caller sees only its own kind of task
         raise HTTPException(404, "unknown task")
     return task_view(task)
 
@@ -210,6 +212,23 @@ def search_gemini(query: str, limit: int, *, api_key: str, model: str, opener=No
     return {"answer": answer.strip()[:4000], "results": results[:limit]}
 
 
+GEMINI_FALLBACK_MODELS = ("gemini-flash-latest", "gemini-2.5-flash")
+_GOOGLE_STATUS_RE = re.compile(r"^[A-Z_]{1,40}$")
+
+
+def gemini_error(exc: Exception) -> str:
+    """HTTP code plus Google's error enum (e.g. 'HTTP 400 INVALID_ARGUMENT'); never the free-text message."""
+    code = getattr(exc, "code", None)
+    if not code:
+        return type(exc).__name__
+    status = ""
+    try:
+        status = str((json.loads(exc.read().decode("utf-8")).get("error") or {}).get("status") or "")
+    except Exception:
+        pass
+    return f"HTTP {int(code)}" + (f" {status}" if _GOOGLE_STATUS_RE.fullmatch(status) else "")
+
+
 class WebSearch:
     def __init__(self, data_dir: Path, *, provider: Callable[[], str], gemini_key: Callable[[], str],
                  gemini_model: Callable[[str], str], opener=None, cap: int = GEMINI_DAILY_CAP):
@@ -244,13 +263,20 @@ class WebSearch:
                 notes.append(f"daily Gemini search cap ({self.cap.cap}) reached; Wikipedia used instead")
             else:
                 key = self.gemini_key()
-                try:
-                    found = search_gemini(query, limit, api_key=key, model=self.gemini_model(key), opener=self.opener)
-                    return {"provider": "gemini_google_search", "query": query, **found}
-                except Exception as exc:
-                    if wanted == "gemini":
-                        raise HTTPException(502, f"Gemini search failed ({type(exc).__name__})") from None
-                    notes.append(f"Gemini search failed ({type(exc).__name__}); Wikipedia used instead")
+                models = list(dict.fromkeys([self.gemini_model(key), *GEMINI_FALLBACK_MODELS]))
+                errors = []
+                for model in models:          # a model without Search grounding answers 400/404: try the next Flash
+                    try:
+                        found = search_gemini(query, limit, api_key=key, model=model, opener=self.opener)
+                        return {"provider": "gemini_google_search", "model": model, "query": query, **found}
+                    except Exception as exc:
+                        errors.append(f"{model}: {gemini_error(exc)}")
+                        if getattr(exc, "code", None) not in (400, 404):
+                            break
+                reason = "; ".join(errors)
+                if wanted == "gemini":
+                    raise HTTPException(502, f"Gemini search failed ({reason})") from None
+                notes.append(f"Gemini search failed ({reason}); Wikipedia used instead")
         try:
             results = search_wikipedia(query, limit, str(args.get("lang") or "en"), opener=self.opener)
         except Exception as exc:
@@ -261,13 +287,32 @@ class WebSearch:
         return out
 
 
-async def call_tool(name: str, args: dict, *, store, search: WebSearch) -> dict:
+async def call_tool(name: str, args: dict, *, store, search: WebSearch, source: str = MCP_SOURCE) -> dict:
     if not isinstance(args, dict):
         raise HTTPException(400, "arguments must be an object")
     if name == "web_read":
-        return await web_read(store, args)
+        return await web_read(store, args, source=source)
     if name == "web_task":
-        return web_task(store, args)
+        return web_task(store, args, source=source)
     if name == "web_search":
         return await asyncio.to_thread(search.search, args)
     raise HTTPException(404, "unknown tool")
+
+
+def install_worker_routes(app, *, store, search: WebSearch, authorize_worker: Callable) -> None:
+    """The same three tools for FactoryOS's own EC2 agents (Gemini coder loop) with the worker token they already
+    have, so no new secret is needed on EC2. POST /api/factory/surfer/worker/{web_search|web_read|web_task}."""
+    from fastapi import Request
+
+    @app.post("/api/factory/surfer/worker/{tool}")
+    async def surfer_worker_tool(tool: str, request: Request):
+        if not authorize_worker(request):
+            raise HTTPException(401, "Worker token required")
+        if tool not in TOOL_NAMES:
+            raise HTTPException(404, "unknown tool")
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, "json body required")
+        return await call_tool(tool, body if isinstance(body, dict) else {}, store=store, search=search,
+                               source=WORKER_SOURCE)

@@ -271,6 +271,17 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner 2026-11-15 — the browser agent "doesn't work" and must be usable by ChatGPT, Claude and Gemini. Diagnosis on production: the EC2 runner claims and runs tasks, but a selector that is not on the page failed the whole task after 20 s (`browser_runtime_TimeoutError`, no text, no screenshot), only the Claude token could queue tasks, and there was no search (search engines refuse the EC2 address as automated traffic).
   DONE: `python test_web_surfer.py` and `python test_browser_playwright.py` prove a missing selector is reported as `missing` while the task finishes with the other texts and the screenshot (also checked on real Chromium), multiple matches are all read, `/mcp` lists and runs `web_search`/`web_read`/`web_task`, MCP callers see only MCP tasks, Wikipedia search works without a key, and Gemini Google search runs only with the owner opt-in under a daily cap.
 
+- [x] T-560-J Gemini coder on EC2 uses the Surfer
+  Owner: claude
+  Depends: T-560-H
+  Goal: owner 2026-11-15 — Gemini must be able to use the Surfer too. The EC2 Gemini loop is not Gemini CLI but `tools/gemini_issue_pr.cjs` behind the FactoryOS proxy, so it gets a research step: the model plans ≤3 searches and ≤2 page reads, the script runs them through `POST /api/factory/surfer/worker/{tool}` with the worker token EC2 already has, and the results enter the coding prompt as untrusted reference data.
+  DONE: `node tools/test_gemini_research.cjs` and `python test_web_surfer.py` prove the limits, https-only reads, worker-token auth, task isolation between worker and MCP callers, and that a failed or empty plan skips research instead of failing the issue.
+
+- [x] T-560-K Gemini search diagnostics + model fallback
+  Owner: claude
+  Goal: production web_search fell back to Wikipedia with only "HTTPError"; report HTTP code + Google error enum and try another Flash model on 400/404.
+  DONE: `python test_web_surfer.py` proves code/status in the note without Google's message text, fallback on 400, no retry on 429.
+
 - [ ] [HUMAN] T-560-I Opt in to Google search via Gemini (optional)
   Depends: T-560-H
   Need: owner decides whether Google Search grounding on the existing Gemini key may be used (free daily quota, billed beyond it on a paid project); if yes, set `FACTORY_WEB_SEARCH_PROVIDER=gemini` in Render. Without it `web_search` answers from Wikipedia only.
@@ -439,6 +450,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: implement provider-specific authorize/callback/refresh/revoke flows so a customer can connect, disconnect and replace accounts from FactoryOS without editing Render environment variables.
   DONE: deterministic mocks cover OAuth state/PKCE where supported, token refresh, encrypted secret storage, revoke/disconnect and account replacement without exposing tokens to the browser or logs.
 
+- [x] T-552-YT Direct YouTube publisher (Google OAuth + resumable Shorts upload)
+  Owner: claude
+  Parent: T-552
+  Spec: owner decision 2026-11-15 (.autopilot/answers.md): publish through the official free YouTube Data API instead of the paid Metricool API; TikTok/Instagram/HubSpot stay on T-552.
+  Goal: real Google OAuth transport (exchange, channel identity, refresh, revoke) stored in the encrypted vault; `FACTORY_PUBLISHER_ADAPTER=youtube` uploads the exact archived approved file with AI disclosure, explicit audience and private-by-default privacy; owner connects the channel from Connections; T-520 runbook rewritten for Google Cloud.
+  DONE: `python test_youtube_publisher.py` (zero network) proves exchange/refresh/revoke, no-channel refusal, exact-file upload with receipt, refusals for wrong platform/swapped media/not connected, fixed quota code and uncertain outcome on an interrupted upload, and no token/secret in results or logs. Live connection = HUMAN T-520, first post = HUMAN T-521.
+
 - [x] T-553 Workspace data tenancy
   Owner: claude
   Planner: ChatGPT
@@ -571,32 +589,78 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 
 Owner: "скачай оба скилла и выложи на ветку… Product Film добавляй… раздел «Подключенные фичи и скиллы»… включить / отключить одной кнопкой… видно, даёт ли прирост… A1/A2 против B1/B2 по видео-инструментам… пайплайн плана контента тоже туда".
 
-- [x] T-611-A Vendor poteto-mode (pstack), grilling and product-film as Claude Code plugins
+- [x] T-620-A Vendor poteto-mode (pstack), grilling and product-film as Claude Code plugins
   Owner: claude
   Priority: P1
   Goal: `mods/<name>/` holds each skill as a plugin (`.claude-plugin/plugin.json` + `skills/`), with upstream commit, license and every FactoryOS change recorded in `mods/README.md`; product-film ships without the display.dev publish scripts and bundled binaries.
   DONE: `python test_mods.py` (vendoring checks) green; `claude plugin validate mods/<name>` passes for all three.
 
-- [x] T-611-B Mods & skills section: registry, one-button on/off, usage and before/after numbers
+- [x] T-620-B Mods & skills section: registry, one-button on/off, usage and before/after numbers
   Owner: claude
   Priority: P1
-  Depends: T-611-A
+  Depends: T-620-A
   Goal: sidebar group «Mods & skills» opens a card listing every mod (poteto-mode, grilling, product-film, brand strategy → Master Brief, plus the built-in video tools and peer review as always-on), owner-only on/off with a history, usage counters, and a with/without comparison of worker runs; switching brand strategy off really stops the Master Brief from entering agent prompts. EN/UK/RU.
   DONE: `python test_mods.py`, navigation + locale parity tests, dashboard `node --check`, smoke.
 
-- [x] T-611-C Claude worker applies the switched-on mods
+- [x] T-620-C Claude worker applies the switched-on mods
   Owner: claude
   Priority: P1
-  Depends: T-611-B
+  Depends: T-620-B
   Goal: before each ROADMAP or Relay run the worker reads the enabled mods (worker token), adds `--plugin-dir mods/<name>` and a headless-safety system prompt, starts the prompt with `/pstack:poteto-mode` when poteto-mode is on, and reports the run with its mod set so the dashboard can compare. Server unreachable or CLI without `--plugin-dir` → run without mods, reported as such.
   DONE: `python -m autopilot.test_delegation`, `python test_mods.py`, Python 3.9 import check.
 
-- [x] T-611-D Video tool duel: A1/A2 (Revideo / Media Finisher / explainer) against B1/B2 (product-film)
+- [x] T-620-D Video tool duel: A1/A2 (Revideo / Media Finisher / explainer) against B1/B2 (product-film)
   Owner: claude
   Priority: P2
-  Depends: T-611-C
+  Depends: T-620-C
   Goal: owner creates a duel from one brief; A arms become ordinary draft jobs, B arms become Claude Relay tickets that use product-film (refused while the mod is off); each arm shows its live job/ticket state, takes a result link and an owner score 1–5; the duel shows the A vs B average and winner only when all four are scored. Nothing is published.
   DONE: `python test_mods.py` (duel), dashboard `node --check`, locale parity, smoke.
+
+## MVP Factory pilots — first MVP wave (owner 2026-11-15)
+
+- [x] T-616 AI Release Guardian — read-only GitHub PR readiness board (MVP pilot `release-guardian`, Issue #189)
+  Owner: claude (session Release Guardian)
+  Priority: P1
+  Depends: #186 registry
+  Spec: Issue #189; docs/MVP_FACTORY_SPEC.md (pilot backlog); DECISIONS.md «2026-11-15 — T-616»
+  Goal: owner-only `GET /api/release-guardian` + `static/mvp-factory/release-guardian.html` (EN/UK/RU): per PR the author, every check run, Actions workflows that ran no job, commit statuses, reviews and blockers. Readiness green/red/pending/unknown comes from one pure function; only `success` passes; skipped/neutral/stale, missing required checks and job-less workflows are never success; no checks → unknown. GitHub is read with GET only (existing `FACTORY_GITHUB_READ_TOKEN`, else anonymous with a smaller cap), cached with a TTL and a rate-limit guard; nothing is written to GitHub.
+  DONE: `python test_release_guardian.py` passes (fixtures: success, skipped, neutral, stale, cancelled, no checks, no jobs, queued no jobs, required missing/skipped, truncated, re-run, statuses, GitHub down, stale cache, rate-limit guard, owner-only route through the real auth middleware), the page's inline JS passes `node --check`, the MVP suites and the default verification pass.
+
+## Durable workflows on DBOS (owner 2026-11-15: «Зроби етапи 0 і 1 з плану DBOS»)
+
+Plan: owner's Claude doc «DAG-оркестраторы для AI — исследование для FactoryOS» — stage 0 (engine) and stage 1 (Media Finisher).
+
+- [x] T-611 Durable engine — DBOS Transact embedded in FactoryOS (stage 0)
+  Owner: claude
+  Priority: P1
+  Spec: DECISIONS.md «2026-11-15 — T-611»
+  Goal: `dbos==3.5.0` (MIT, Python 3.10+ marker) runs inside the FastAPI process with its own SQLite system DB on DATA_DIR, launched by the first startup hook, never raising; kill switch `FACTORY_DBOS_ENABLED=0`; engine status in health details; agent rules in CLAUDE.md/AGENTS.md.
+  DONE: `python test_durable_engine.py` passes (kill switch, lifecycle, SIGKILL mid-workflow → resumed without re-running the finished step) and the default verification passes.
+
+- [x] T-612 AI Media Finisher as a durable DBOS workflow (stage 1)
+  Owner: claude
+  Priority: P1
+  Depends: T-611
+  Spec: DECISIONS.md «2026-11-15 — T-612»
+  Goal: submit → wait for the worker callback (or poll) → resubmit if the worker lost the job runs as one DBOS workflow per edit job (`media-finisher:<edit_job_id>:<generation>`): a deploy or crash mid-run neither duplicates the worker job nor loses its result; the callback wakes the workflow; the legacy watchdog skips DBOS-owned edit jobs; `FACTORY_DBOS_ENABLED=0` restores the legacy thread + watchdog.
+  DONE: `python test_durable_media_finisher.py` passes (SIGKILL mid-wait → one submit; callback wake-up; lost-worker resubmit; release; version bump; app wiring on event-loop threads; kill switch) and the default verification passes.
+  Live check after deploy (owner/Claude, not a blocker): one real Media Finisher run with a Render deploy in the middle → one worker job, result delivered; health details `durable_engine.launched=true`.
+
+## MVP Factory pilot 1 — AI Decision Memory (#187, epic #186)
+
+- [x] T-614 AI Decision Memory — owner-only web MVP over FactoryOS's real decision log
+  Owner: claude (session Decision Memory)
+  Priority: P1 (owner 2026-11-15: first wave of MVP pilots, parallel with #305 MyCast, #188 MyBrief, #189 Release Guardian)
+  Depends: #186 registry (`mvp_factory.py`, pilot `decision-memory` already seeded)
+  Spec: issue #187; DECISIONS.md «2026-11-15 — T-614»; interview script `docs/mvp/decision-memory/INTERVIEW_SCRIPT.md`
+  Goal: `decision_memory.py` + `static/decision-memory/index.html`: decision, rationale, responsible, source links, expected outcome, follow-up review (verdict + next date); demo dataset parsed at runtime from DECISIONS.md with credential-shaped text redacted and no invented fields; persistence in `DATA_DIR/decision_memory.json` with idempotent creates/reviews; owner-only API; the existing `decision-memory` registry project gets its preview link and moves only through the agent-allowed stages (research, spec) with evidence. No AI/provider/network call, no publishing, no public data.
+  DONE: `python test_decision_memory.py`, `python test_mvp_factory.py`, `python test_mvp_state_machine.py`, page script `node --check`, and the default verification pass.
+
+- [ ] [HUMAN] T-614-H1 Decision Memory: review the preview, run 5 validation interviews, decide
+  Owner: owner
+  Depends: T-614 merged and deployed
+  Need: owner opens the preview, fills expected outcome / review date for a few real decisions, contacts 5 people (external contact = owner action) with the interview script, and records build/preview/verdict steps in MVP Builder (agents may not move a pilot past spec review).
+  DONE: MVP Builder shows the `decision-memory` pilot at `validated` or `rejected` with an owner event citing the aggregate interview result.
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 

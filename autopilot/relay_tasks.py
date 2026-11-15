@@ -385,7 +385,7 @@ def execute_isolated(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=
         hb.start()
         turns = max(4, min(150, int(os.environ.get("RELAY_CLAUDE_MAX_TURNS", "60"))))
         timeout = max(60, min(3600, int(os.environ.get("RELAY_CLAUDE_TIMEOUT_SECONDS", "1800"))))
-        # T-611-C: plugin folders come from the fresh worktree, so a mod runs from the same commit as the ticket.
+        # T-620-C: plugin folders come from the fresh worktree, so a mod runs from the same commit as the ticket.
         cmd = ["claude", "-p", mods_runtime.prompt_prefix(mods or {}) + build_prompt(ticket, branch), "--output-format",
                "json", "--max-turns", str(turns), *mods_runtime.cli_args(mods or {}, workdir),
                "--disallowedTools", *DISALLOWED_TOOLS]
@@ -454,7 +454,7 @@ def run_one(repo: pathlib.Path, *, status_fn=None) -> bool:
         return False
     if ticket is None:
         return False
-    mods = mods_runtime.prepare(repo, "relay")   # T-611-C: owner's switched-on mods, this run only
+    mods = mods_runtime.prepare(repo, "relay")   # T-620-C: owner's switched-on mods, this run only
     started, outcome = time.time(), {"status": "failed"}
     try:
         outcome = (execute_isolated if isolated_mode() else execute)(ticket, repo, status_fn=status_fn, mods=mods) or outcome

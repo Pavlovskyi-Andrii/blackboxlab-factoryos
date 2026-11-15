@@ -306,7 +306,7 @@ class StrategyTest(unittest.TestCase):
             self.assertIn(f"этап воронки {it['funnel']}", prompt)
             self.assertEqual(factory._apply_workflow_prompt("Scriptwriter", "BASE", "other-job"), "BASE")
             self.assertEqual(factory._apply_workflow_prompt("Scriptwriter", "BASE", None), "BASE")
-        # T-611: the brand-strategy mod switch really decides whether the Master Brief enters the prompt.
+        # T-620: the brand-strategy mod switch really decides whether the Master Brief enters the prompt.
         from mods_registry import ModsStore
         mods = ModsStore(pathlib.Path(tempfile.mkdtemp(prefix="factoryos-mods-")) / "mods.json")
         with patch.object(factory, "STRATEGY", self.store), patch.object(factory, "MODS", mods):

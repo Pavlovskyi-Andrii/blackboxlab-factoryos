@@ -1,4 +1,4 @@
-"""Mods & skills (T-611, owner 2026-11-15): one place that lists every switchable skill or feature of FactoryOS.
+"""Mods & skills (T-620, owner 2026-11-15): one place that lists every switchable skill or feature of FactoryOS.
 
 "Подключенные фичи и скиллы": the owner switches a mod on or off with one button and sees whether it works
 (usage counter, last use) and whether it helps (worker runs with the mod against runs without it).
@@ -48,7 +48,7 @@ MAX_HISTORY = 500
 MAX_RUNS = 1000
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9:._-]{1,120}$")
 
-# Video duel (T-611-D): two takes by a built-in FactoryOS tool (A1, A2) against two takes by product-film (B1, B2).
+# Video duel (T-620-D): two takes by a built-in FactoryOS tool (A1, A2) against two takes by product-film (B1, B2).
 FACTORY_TOOLS = ("revideo", "media-finisher", "explainer-motion")
 ARMS = ("a1", "a2", "b1", "b2")
 DUEL_ID_RE = re.compile(r"^D-\d{4}$")

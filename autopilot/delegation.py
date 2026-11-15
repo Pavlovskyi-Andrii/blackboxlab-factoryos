@@ -46,7 +46,7 @@ DISALLOWED_TOOLS = (
     "Bash(render:*)",
     "Bash(gh workflow run:*)",
     "Bash(gh pr merge:*)",
-    # T-611: product-film's upstream upload path (display.dev) is removed; block it here too.
+    # T-620: product-film's upstream upload path (display.dev) is removed; block it here too.
     "Bash(dsp:*)",
     "Bash(npx -y @displaydev/cli:*)",
 )
@@ -136,7 +136,7 @@ def build_delegation(
 ) -> dict[str, Any]:
     """Return a pinned, bounded delegation spec for exactly one roadmap task.
 
-    ``mods`` (T-611-C, from ``mods_runtime.prepare``) adds the owner's switched-on plugins for this run only."""
+    ``mods`` (T-620-C, from ``mods_runtime.prepare``) adds the owner's switched-on plugins for this run only."""
     task_id = str(task.get("id") or "")
     if not TASK_ID_RE.match(task_id):
         raise ValueError(f"invalid task id: {task_id!r}")
