@@ -73,6 +73,14 @@ jobs:
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
         run: python smoke_tests.py
+      - name: Durable engine tests (DBOS, kill switch, crash recovery)
+        run: |
+          python -m py_compile durable_engine.py test_durable_engine.py
+          python test_durable_engine.py
+      - name: Durable Media Finisher workflow tests (DBOS, zero spend)
+        run: |
+          python -m py_compile durable_media_finisher.py test_durable_media_finisher.py
+          python test_durable_media_finisher.py
       - name: Validate required frontend assets
         run: |
           test -f static/index.html
@@ -237,6 +245,8 @@ jobs:
           python test_browser_tasks.py
           python -m py_compile web_surfer.py test_web_surfer.py
           python test_web_surfer.py
+          node --check tools/gemini_issue_pr.cjs
+          node tools/test_gemini_research.cjs
           python -m py_compile mycast_voices.py test_mycast_voices.py
           python test_mycast_voices.py
           python -m py_compile voice_settings.py test_voice_settings.py
@@ -261,6 +271,20 @@ jobs:
           Path("/tmp/mvp-factory-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
           PY
           node --check /tmp/mvp-factory-ui.js
+      - name: AI Release Guardian pilot (T-616, #189, offline)
+        env:
+          DATA_DIR: /tmp/factoryos-release-guardian-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile release_guardian.py test_release_guardian.py
+          python test_release_guardian.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mvp-factory/release-guardian.html").read_text(encoding="utf-8")
+          Path("/tmp/release-guardian-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/release-guardian-ui.js
       - name: MVP Builder M1 contracts (#272-#275, offline)
         run: |
           python -m py_compile mvp_builder_request.py mvp_builder_preflight.py mvp_builder_manifest.py mvp_builder_projection.py

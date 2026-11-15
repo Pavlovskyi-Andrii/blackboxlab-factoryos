@@ -65,6 +65,8 @@ import youtube_publisher
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
+import durable_engine
+import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -194,6 +196,18 @@ AGENT_SPECS = {
 
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+
+
+@app.on_event("startup")
+def _durable_engine_startup():
+    """T-611: keep this the first startup hook. Launching DBOS resumes interrupted workflows from their last finished step
+    before any later hook (such as the Media Finisher recovery) inspects or restarts work."""
+    durable_engine.launch(DATA_DIR)
+
+
+@app.on_event("shutdown")
+def _durable_engine_shutdown():
+    durable_engine.shutdown()
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -1114,6 +1128,7 @@ BROWSER_TASKS = BrowserTaskStore(DATA_DIR)
 # T-560-H Surfer for every MCP-connected agent; Google search via Gemini only after the owner opts in (may be billed).
 WEB_SEARCH = web_surfer.WebSearch(DATA_DIR, provider=lambda: os.environ.get("FACTORY_WEB_SEARCH_PROVIDER", ""),
                                   gemini_key=lambda: FACTORY_GEMINI_API_KEY, gemini_model=resolve_flash_model)
+web_surfer.install_worker_routes(app, store=BROWSER_TASKS, search=WEB_SEARCH, authorize_worker=_claude_worker_authorized)
 def _browser_session_domains(provider: str, account: str) -> list:
     parts = _vault_parts(required=False)
     if not parts or not _VAULT_SLUG.match(provider or "") or not _VAULT_ACCOUNT.match(account or ""):
@@ -1166,6 +1181,8 @@ from learn_center import install_learn_routes  # noqa: E402
 import brand_strategy as _brand_strategy_mod  # noqa: E402
 install_learn_routes(app, base=BASE, steps_source=lambda: _brand_strategy_mod.STEPS)  # owner 2026-11-14: one Learning section
 install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
+from release_guardian import GitHubReader as _RgReader, ReleaseGuardian as _RgGuardian, install_release_guardian_routes  # noqa: E402
+install_release_guardian_routes(app, _RgGuardian(_RgReader(GITHUB_REPO, _github_read_token)), request_identity)  # T-616 #189: owner-only, GET-only PR board
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
                           redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
@@ -1250,7 +1267,7 @@ async def auth_middleware(request: Request, call_next):
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
     browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
-    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/")) and _claude_worker_authorized(request)
+    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/") or request.url.path.startswith("/api/factory/surfer/worker/")) and _claude_worker_authorized(request)
     # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
             and not (claude_worker_api or operator_worker_api or local_booster_api)):
@@ -1811,6 +1828,7 @@ def health_details():
             "cost_usd": round(float(verification.get("cost_usd") or 0), 6),
         },
         "real_pilot": get_real_pilot(),
+        "durable_engine": durable_engine.status(),
     }
 
 clients: set[WebSocket] = set()
@@ -6139,7 +6157,45 @@ def _submit_media_finisher_background(edit_job_id):
         with _media_finisher_submit_lock:_media_finisher_submit_active.discard(edit_job_id)
 
 def _spawn_media_finisher_submit(edit_job_id):
+    # T-612: once the durable engine is launched, one DBOS workflow owns submit → wait for callback → poll for this
+    # edit job, and a repeated call while it runs is a no-op. Engine off or unavailable → the legacy thread below.
+    if durable_engine.launched():
+        try:
+            workflow_id,created=durable_finisher.start(edit_job_id)
+        except Exception as exc:
+            workflow_id,created=None,False
+            print(json.dumps({"event":"DBOS_MEDIA_FINISHER_START_ERROR","edit_job_id":edit_job_id,"error":str(exc)[:300]}),flush=True)
+        if workflow_id:
+            if created:
+                item=get_edit_job(edit_job_id)
+                if item:event(item["production_job_id"],f"AI Media Finisher durable workflow started: {edit_job_id[:8]} · survives restarts and deploys")
+            return
     threading.Thread(target=_submit_media_finisher_background,args=(edit_job_id,),daemon=True,name=f"finisher-submit-{edit_job_id[:8]}").start()
+
+def _durable_finisher_state(edit_job_id,needs_submit=False):
+    item=get_edit_job(edit_job_id)
+    if not item:return {"status":"missing","provider_job_id":"","needs_submit":False}
+    status=str(item.get("status") or "")
+    return {"status":status,"provider_job_id":str(item.get("provider_job_id") or ""),
+            "needs_submit":bool(needs_submit) and status not in ("ready","failed")}
+
+def _durable_finisher_submit(edit_job_id):
+    """DBOS step body (T-612): the legacy submit routine, safe to repeat after a crash. It returns early once
+    provider_job_id is recorded, and the worker treats edit_job_id as its idempotency key (POST /jobs)."""
+    _submit_media_finisher_background(edit_job_id)
+    return _durable_finisher_state(edit_job_id)
+
+def _durable_finisher_poll(edit_job_id):
+    """DBOS step body (T-612): read the outcome a callback may already have written, otherwise ask the worker.
+    needs_submit=True when the worker has no job for us (its state was lost → 404, or the submit never landed)."""
+    item=get_edit_job(edit_job_id)
+    if not item or item.get("status") in ("ready","failed"):return _durable_finisher_state(edit_job_id)
+    if not str(item.get("provider_job_id") or "").strip():
+        return _durable_finisher_state(edit_job_id,needs_submit=edit_job_id not in _media_finisher_submit_active)
+    refreshed=refresh_edit_job(edit_job_id,resubmit=False)
+    return _durable_finisher_state(edit_job_id,needs_submit=not str(refreshed.get("provider_job_id") or "").strip())
+
+durable_finisher.bind(submit=_durable_finisher_submit,poll=_durable_finisher_poll)
 
 def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     job=get_job(job_id)
@@ -6207,7 +6263,8 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     event(job_id,f"AI Media Finisher queued: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · {package_mode} · compute {route_target}")
     return {"duplicate":False,"edit_job":item}
 
-def refresh_edit_job(edit_job_id):
+def refresh_edit_job(edit_job_id,resubmit=True):
+    # resubmit=False: the caller (the T-612 durable workflow) resubmits itself after a lost-worker 404.
     item=get_edit_job(edit_job_id)
     if not item:raise ValueError("Edit job not found")
     if item["status"] in ("ready","failed"):return item
@@ -6227,7 +6284,7 @@ def refresh_edit_job(edit_job_id):
             con=db();con.execute("""UPDATE edit_jobs SET provider_job_id='',status='queued',error='',response_json=?,updated_at=? WHERE id=?""",
                                  (json.dumps(response,ensure_ascii=False,default=str),ts(),edit_job_id));con.commit();con.close()
             event(item["production_job_id"],f"AI Media Finisher worker state was lost after restart; auto-resubmitting {edit_job_id[:8]}")
-            _spawn_media_finisher_submit(edit_job_id)
+            if resubmit:_spawn_media_finisher_submit(edit_job_id)
             return get_edit_job(edit_job_id)
         raise
     except (TimeoutError,urlerror.URLError):
@@ -11267,9 +11324,11 @@ def _recover_active_media_finisher_jobs():
                                 ORDER BY created_at DESC LIMIT 30""").fetchall();con.close()
     rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],360) and not _is_media_finisher_pilot_request(row["request_json"])
           and str((_decode_json(row["request_json"] or "{}",{})).get("compute_target") or "")!="local"]
-    checked=0
+    checked=durable=0
     for row in rows:
         try:
+            if durable_finisher.active(row["id"]):
+                durable+=1;continue  # T-612: its DBOS workflow waits for the callback and polls; never double-poll.
             if not str(row["provider_job_id"] or "").strip():
                 _spawn_media_finisher_submit(row["id"])
             else:
@@ -11277,7 +11336,7 @@ def _recover_active_media_finisher_jobs():
             checked+=1
         except Exception as exc:
             print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY_ERROR","edit_job_id":row["id"],"error":str(exc)[:400]}),flush=True)
-    if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked}),flush=True)
+    if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked,"durable":durable}),flush=True)
 
 def _media_finisher_watchdog_loop():
     time.sleep(8)
@@ -11595,6 +11654,11 @@ async def media_finisher_callback(edit_job_id:str,payload:MediaFinisherCallbackR
         output_url=(payload.final_url or payload.output_url or "").strip()
         item=_finalize_edit_job(edit_job_id,payload.status,output_url,payload.provider_job_id,payload.error,payload.raw,payload.report,payload.measured_cost_usd,payload.measured_duration_sec)
     except ValueError as exc:raise HTTPException(404,str(exc))
+    # T-612: wake the durable workflow now instead of at its next poll; a no-op when no workflow owns this job. The result is
+    # already saved, so a wake-up failure must not fail the worker's callback: the workflow's next poll reads the result.
+    try:await asyncio.to_thread(durable_finisher.notify,edit_job_id,{"status":item["status"]})
+    except Exception as exc:
+        print(json.dumps({"event":"DBOS_MEDIA_FINISHER_NOTIFY_ERROR","edit_job_id":edit_job_id,"error":str(exc)[:300]}),flush=True)
     await broadcast({"type":"media_finisher","action":"callback","editJobId":edit_job_id,"status":item["status"]})
     return {"ok":True,"edit_job":item}
 

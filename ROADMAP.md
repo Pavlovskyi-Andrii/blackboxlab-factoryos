@@ -271,6 +271,12 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner 2026-11-15 — the browser agent "doesn't work" and must be usable by ChatGPT, Claude and Gemini. Diagnosis on production: the EC2 runner claims and runs tasks, but a selector that is not on the page failed the whole task after 20 s (`browser_runtime_TimeoutError`, no text, no screenshot), only the Claude token could queue tasks, and there was no search (search engines refuse the EC2 address as automated traffic).
   DONE: `python test_web_surfer.py` and `python test_browser_playwright.py` prove a missing selector is reported as `missing` while the task finishes with the other texts and the screenshot (also checked on real Chromium), multiple matches are all read, `/mcp` lists and runs `web_search`/`web_read`/`web_task`, MCP callers see only MCP tasks, Wikipedia search works without a key, and Gemini Google search runs only with the owner opt-in under a daily cap.
 
+- [x] T-560-J Gemini coder on EC2 uses the Surfer
+  Owner: claude
+  Depends: T-560-H
+  Goal: owner 2026-11-15 — Gemini must be able to use the Surfer too. The EC2 Gemini loop is not Gemini CLI but `tools/gemini_issue_pr.cjs` behind the FactoryOS proxy, so it gets a research step: the model plans ≤3 searches and ≤2 page reads, the script runs them through `POST /api/factory/surfer/worker/{tool}` with the worker token EC2 already has, and the results enter the coding prompt as untrusted reference data.
+  DONE: `node tools/test_gemini_research.cjs` and `python test_web_surfer.py` prove the limits, https-only reads, worker-token auth, task isolation between worker and MCP callers, and that a failed or empty plan skips research instead of failing the issue.
+
 - [ ] [HUMAN] T-560-I Opt in to Google search via Gemini (optional)
   Depends: T-560-H
   Need: owner decides whether Google Search grounding on the existing Gemini key may be used (free daily quota, billed beyond it on a paid project); if yes, set `FACTORY_WEB_SEARCH_PROVIDER=gemini` in Render. Without it `web_search` answers from Wikipedia only.
@@ -573,6 +579,36 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Depends: T-609
   Goal: owner-only route creates one inbox job per branch via `create_job` (atomic claim); draft only, no publishing queue row, no provider call; publish approval stays `/api/jobs/{id}/approve` + `_publish_approval_gate`.
   DONE: tests prove one job per branch under concurrent clicks, no publish row, no provider call.
+
+## MVP Factory pilots — first MVP wave (owner 2026-11-15)
+
+- [x] T-616 AI Release Guardian — read-only GitHub PR readiness board (MVP pilot `release-guardian`, Issue #189)
+  Owner: claude (session Release Guardian)
+  Priority: P1
+  Depends: #186 registry
+  Spec: Issue #189; docs/MVP_FACTORY_SPEC.md (pilot backlog); DECISIONS.md «2026-11-15 — T-616»
+  Goal: owner-only `GET /api/release-guardian` + `static/mvp-factory/release-guardian.html` (EN/UK/RU): per PR the author, every check run, Actions workflows that ran no job, commit statuses, reviews and blockers. Readiness green/red/pending/unknown comes from one pure function; only `success` passes; skipped/neutral/stale, missing required checks and job-less workflows are never success; no checks → unknown. GitHub is read with GET only (existing `FACTORY_GITHUB_READ_TOKEN`, else anonymous with a smaller cap), cached with a TTL and a rate-limit guard; nothing is written to GitHub.
+  DONE: `python test_release_guardian.py` passes (fixtures: success, skipped, neutral, stale, cancelled, no checks, no jobs, queued no jobs, required missing/skipped, truncated, re-run, statuses, GitHub down, stale cache, rate-limit guard, owner-only route through the real auth middleware), the page's inline JS passes `node --check`, the MVP suites and the default verification pass.
+
+## Durable workflows on DBOS (owner 2026-11-15: «Зроби етапи 0 і 1 з плану DBOS»)
+
+Plan: owner's Claude doc «DAG-оркестраторы для AI — исследование для FactoryOS» — stage 0 (engine) and stage 1 (Media Finisher).
+
+- [x] T-611 Durable engine — DBOS Transact embedded in FactoryOS (stage 0)
+  Owner: claude
+  Priority: P1
+  Spec: DECISIONS.md «2026-11-15 — T-611»
+  Goal: `dbos==3.5.0` (MIT, Python 3.10+ marker) runs inside the FastAPI process with its own SQLite system DB on DATA_DIR, launched by the first startup hook, never raising; kill switch `FACTORY_DBOS_ENABLED=0`; engine status in health details; agent rules in CLAUDE.md/AGENTS.md.
+  DONE: `python test_durable_engine.py` passes (kill switch, lifecycle, SIGKILL mid-workflow → resumed without re-running the finished step) and the default verification passes.
+
+- [x] T-612 AI Media Finisher as a durable DBOS workflow (stage 1)
+  Owner: claude
+  Priority: P1
+  Depends: T-611
+  Spec: DECISIONS.md «2026-11-15 — T-612»
+  Goal: submit → wait for the worker callback (or poll) → resubmit if the worker lost the job runs as one DBOS workflow per edit job (`media-finisher:<edit_job_id>:<generation>`): a deploy or crash mid-run neither duplicates the worker job nor loses its result; the callback wakes the workflow; the legacy watchdog skips DBOS-owned edit jobs; `FACTORY_DBOS_ENABLED=0` restores the legacy thread + watchdog.
+  DONE: `python test_durable_media_finisher.py` passes (SIGKILL mid-wait → one submit; callback wake-up; lost-worker resubmit; release; version bump; app wiring on event-loop threads; kill switch) and the default verification passes.
+  Live check after deploy (owner/Claude, not a blocker): one real Media Finisher run with a Render deploy in the middle → one worker job, result delivered; health details `durable_engine.launched=true`.
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 

@@ -33,6 +33,7 @@ from urllib import request as urlrequest
 from fastapi import HTTPException
 
 MCP_SOURCE = "mcp"
+WORKER_SOURCE = "worker"      # FactoryOS's own agents on EC2 (the Gemini coder loop), worker token
 READ_WAIT_DEFAULT = 40
 READ_WAIT_MAX = 50
 POLL_SECONDS = 1.0
@@ -115,7 +116,8 @@ def task_view(task: dict) -> dict:
     return view
 
 
-async def web_read(store, args: dict, *, sleep=asyncio.sleep, clock: Callable[[], float] = time.monotonic) -> dict:
+async def web_read(store, args: dict, *, sleep=asyncio.sleep, clock: Callable[[], float] = time.monotonic,
+                   source: str = MCP_SOURCE) -> dict:
     selectors = args.get("selectors") or []
     if not isinstance(selectors, list):
         raise HTTPException(400, "selectors must be a list of CSS selectors")
@@ -124,8 +126,8 @@ async def web_read(store, args: dict, *, sleep=asyncio.sleep, clock: Callable[[]
     except (TypeError, ValueError):
         raise HTTPException(400, "wait_seconds must be a number")
     wait = max(0, min(wait, READ_WAIT_MAX))
-    note = f"via MCP, agent: {_agent_label(args)} (self-declared)"
-    task = store.create(args.get("url", ""), selectors, note, source=MCP_SOURCE, wait_for=args.get("wait_for", ""))
+    note = f"via {'MCP' if source == MCP_SOURCE else 'worker'}, agent: {_agent_label(args)} (self-declared)"
+    task = store.create(args.get("url", ""), selectors, note, source=source, wait_for=args.get("wait_for", ""))
     deadline = clock() + wait
     while task["status"] in ("queued", "running") and clock() < deadline:
         await sleep(POLL_SECONDS)
@@ -133,10 +135,10 @@ async def web_read(store, args: dict, *, sleep=asyncio.sleep, clock: Callable[[]
     return task_view(task)
 
 
-def web_task(store, args: dict) -> dict:
+def web_task(store, args: dict, *, source: str = MCP_SOURCE) -> dict:
     task_id = str(args.get("task_id") or "")
     task = store.get(task_id) if re.fullmatch(r"bt_[0-9a-f]{16}", task_id) else None
-    if not task or task.get("source") != MCP_SOURCE:       # owner's and Claude-token tasks stay private
+    if not task or task.get("source") != source:           # each caller sees only its own kind of task
         raise HTTPException(404, "unknown task")
     return task_view(task)
 
@@ -261,13 +263,32 @@ class WebSearch:
         return out
 
 
-async def call_tool(name: str, args: dict, *, store, search: WebSearch) -> dict:
+async def call_tool(name: str, args: dict, *, store, search: WebSearch, source: str = MCP_SOURCE) -> dict:
     if not isinstance(args, dict):
         raise HTTPException(400, "arguments must be an object")
     if name == "web_read":
-        return await web_read(store, args)
+        return await web_read(store, args, source=source)
     if name == "web_task":
-        return web_task(store, args)
+        return web_task(store, args, source=source)
     if name == "web_search":
         return await asyncio.to_thread(search.search, args)
     raise HTTPException(404, "unknown tool")
+
+
+def install_worker_routes(app, *, store, search: WebSearch, authorize_worker: Callable) -> None:
+    """The same three tools for FactoryOS's own EC2 agents (Gemini coder loop) with the worker token they already
+    have, so no new secret is needed on EC2. POST /api/factory/surfer/worker/{web_search|web_read|web_task}."""
+    from fastapi import Request
+
+    @app.post("/api/factory/surfer/worker/{tool}")
+    async def surfer_worker_tool(tool: str, request: Request):
+        if not authorize_worker(request):
+            raise HTTPException(401, "Worker token required")
+        if tool not in TOOL_NAMES:
+            raise HTTPException(404, "unknown tool")
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, "json body required")
+        return await call_tool(tool, body if isinstance(body, dict) else {}, store=store, search=search,
+                               source=WORKER_SOURCE)
