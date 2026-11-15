@@ -73,6 +73,10 @@ jobs:
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
         run: python smoke_tests.py
+      - name: Durable engine tests (DBOS, kill switch, crash recovery)
+        run: |
+          python -m py_compile durable_engine.py test_durable_engine.py
+          python test_durable_engine.py
       - name: Validate required frontend assets
         run: |
           test -f static/index.html

@@ -1240,3 +1240,30 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   creator writes it with `INSERT OR IGNORE` plus its workspace binding in one transaction; attaching is idempotent and
   no longer depends on the reservation token. The brief puts the draft-only rules first so length capping can never cut
   them. Verified on a real SQLite DB: 6 concurrent/repeated creates → 1 job row, 1 workspace row, 0 publishing rows.
+
+## 2026-11-15 — T-611 Durable engine: DBOS Transact embedded in FactoryOS (stage 0)
+
+- DBOS Transact 3.5.0 (MIT) runs as a library inside the FastAPI process, not as a separate orchestrator service: no
+  extra container or paid plan, and checkpoints stay on the disk FactoryOS already has. DBOS Conductor and DBOS Cloud are
+  not used, so the engine makes no outbound calls.
+- System database: its own SQLite file `DATA_DIR/dbos_system.sqlite`, never `factory.db`, so DBOS schema migrations can
+  never touch FactoryOS tables. SQLite serves one process; that holds today (render.yaml starts one uvicorn worker, and a
+  disk-backed Render service stops the old instance before starting the new one). `DBOS_SYSTEM_DATABASE_URL` moves it to
+  Postgres before FactoryOS ever runs a second process.
+- `dbos==3.5.0; python_version >= "3.10"`: pinned because an upgrade runs DBOS schema migrations; the marker keeps the
+  Python 3.9 EC2 worker venv installable, and `durable_engine` falls back to the legacy paths when dbos cannot be imported.
+- Fixed `application_version` (`factoryos-durable-v1`) instead of DBOS's default hash of the workflow source: with the
+  default, every deploy that touches workflow code would orphan the workflows started before it, which is exactly the
+  case durability is for. Bump it only when a workflow's sequence of steps changes. `executor_id` is fixed to `local`.
+- Launch is the first startup hook and never raises: on failure FactoryOS keeps the legacy paths and reports the error in
+  health details (`durable_engine`). Shutdown calls `DBOS.destroy(workflow_completion_timeout_sec=0)`: a deploy is not
+  held up by waiting workflows, which resume from their checkpoints on the next launch.
+- Recovery detail found while testing: DBOS re-enqueues an interrupted workflow (ENQUEUED) before running it again
+  (PENDING), so "active" and "resuming" count both statuses.
+- DBOS's sync API raises RuntimeError on a thread with a running asyncio loop, which is where FastAPI runs startup
+  hooks and async endpoints (found by booting the app under uvicorn). `durable_engine.run_sync` runs such calls on a
+  small helper pool and waits; tests call it from a running loop.
+- Kill switch `FACTORY_DBOS_ENABLED=0`: dbos is not even imported, no database file is created, every caller uses its
+  legacy path. Setting it on Render is an owner action.
+- Measured locally (Python 3.13): RSS after `import app` + engine launch 109 MB vs 67 MB with the kill switch (+42 MB).
+  Render memory is a post-deploy check.

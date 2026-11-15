@@ -64,6 +64,7 @@ from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
+import durable_engine
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -193,6 +194,18 @@ AGENT_SPECS = {
 
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+
+
+@app.on_event("startup")
+def _durable_engine_startup():
+    """T-611: keep this the first startup hook. Launching DBOS resumes interrupted workflows from their last finished step
+    before any later hook (such as the Media Finisher recovery) inspects or restarts work."""
+    durable_engine.launch(DATA_DIR)
+
+
+@app.on_event("shutdown")
+def _durable_engine_shutdown():
+    durable_engine.shutdown()
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -1805,6 +1818,7 @@ def health_details():
             "cost_usd": round(float(verification.get("cost_usd") or 0), 6),
         },
         "real_pilot": get_real_pilot(),
+        "durable_engine": durable_engine.status(),
     }
 
 clients: set[WebSocket] = set()

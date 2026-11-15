@@ -567,6 +567,17 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner-only route creates one inbox job per branch via `create_job` (atomic claim); draft only, no publishing queue row, no provider call; publish approval stays `/api/jobs/{id}/approve` + `_publish_approval_gate`.
   DONE: tests prove one job per branch under concurrent clicks, no publish row, no provider call.
 
+## Durable workflows on DBOS (owner 2026-11-15: «Зроби етапи 0 і 1 з плану DBOS»)
+
+Plan: owner's Claude doc «DAG-оркестраторы для AI — исследование для FactoryOS» — stage 0 (engine) and stage 1 (Media Finisher).
+
+- [x] T-611 Durable engine — DBOS Transact embedded in FactoryOS (stage 0)
+  Owner: claude
+  Priority: P1
+  Spec: DECISIONS.md «2026-11-15 — T-611»
+  Goal: `dbos==3.5.0` (MIT, Python 3.10+ marker) runs inside the FastAPI process with its own SQLite system DB on DATA_DIR, launched by the first startup hook, never raising; kill switch `FACTORY_DBOS_ENABLED=0`; engine status in health details; agent rules in CLAUDE.md/AGENTS.md.
+  DONE: `python test_durable_engine.py` passes (kill switch, lifecycle, SIGKILL mid-workflow → resumed without re-running the finished step) and the default verification passes.
+
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
 - [ ] T-607 Gemini Worker — third authenticated engineering operator via existing Relay

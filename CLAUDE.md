@@ -58,6 +58,23 @@ Do not block for naming, refactoring, layout, implementation detail, or other re
 - Preserve provider budget limits and idempotency fences.
 - Do not fabricate provider receipts, metrics, media success, CI success, or deployment success.
 
+## Durable workflows (DBOS)
+
+`durable_engine.py` runs DBOS Transact inside the FastAPI process (T-611). Workflow steps are checkpointed in their own
+SQLite file, `DATA_DIR/dbos_system.sqlite`; after a crash, restart or deploy a workflow resumes from its last finished step.
+- A workflow body is deterministic: network, database, clock and random calls go into `@DBOS.step` functions only.
+- A step can run again after a crash (at-least-once): give every external side effect an idempotency key.
+- Never start a workflow or call `DBOS.recv` from inside a step. Give every workflow and step an explicit `name=` and
+  register it at import time, before `durable_engine.launch()`.
+- Changing the order or number of steps of an existing workflow requires bumping `durable_engine.APP_VERSION`, and the
+  owning module must cancel older-version runs. Keep `_durable_engine_startup` the first startup hook in `app.py`.
+- Every durable path keeps its legacy fallback: `FACTORY_DBOS_ENABLED=0` (kill switch, owner-set on Render) must keep
+  working and is covered by tests.
+- Never delete or hand-edit `dbos_system.sqlite`, and upgrade the pinned `dbos` version only in a dedicated task (it runs
+  schema migrations). The SQLite system DB serves one process: before a second worker or instance, move it to Postgres
+  through `DBOS_SYSTEM_DATABASE_URL` (owner-provisioned).
+- Tests: `python test_durable_engine.py`.
+
 ## Default verification
 
 For Python/backend changes:
