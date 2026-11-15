@@ -5,6 +5,7 @@ import hmac
 import json
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from mycast_accounts import (COOKIE, AccountError, ListenerStore, install_mycast_account_routes, public_view, sign, unsign,
@@ -76,7 +77,10 @@ class StoreAndCookieTest(unittest.TestCase):
         a = self.store.login({"provider": "google", "pid": "1", "name": "A"})
         self.assertEqual(public_view(a)["free_days"], 7)
         f = self.store.login({"provider": "google", "pid": "2", "name": "F"}, ref=a["slug"])
-        self.assertEqual((public_view(f)["free_days"], public_view(f)["gifted"]), (14, True))   # 7 + 7 gift
+        # #305 (2026-11-10): the friend's +7 waits for their first real episode, like the inviter's
+        self.assertEqual((public_view(f)["free_days"], public_view(f)["gifted"]), (7, True))
+        with unittest.mock.patch.dict("os.environ", {"FACTORY_MYCAST_FRIEND_BONUS": "signup"}):
+            self.assertEqual(public_view(f)["free_days"], 14)                    # the 2026-11-07 rule, by config
         self.store.login({"provider": "google", "pid": "2", "name": "F"}, ref=a["slug"])         # same friend again: no double count
         self.store.login({"provider": "google", "pid": "1", "name": "A"}, ref=a["slug"])         # cannot invite yourself
         self.store.login({"provider": "telegram", "pid": "3", "name": "G", "chat_id": "3"}, ref="../etc")

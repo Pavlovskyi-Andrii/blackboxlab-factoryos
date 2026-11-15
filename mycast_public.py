@@ -233,3 +233,84 @@ def card_png(rec: dict, profile: dict) -> bytes:
             _CARDS.clear()
         _CARDS[key] = data
     return data
+
+
+# ---- #305 / T-620: one public episode -------------------------------------------------------------------------
+EP_T = {
+    "uk": {"by": "Випуск подкасту {name}", "anon": "Випуск подкасту MyCast", "min": "хв", "share": "Поділитися",
+           "copy": "Скопіювати посилання", "copied": "Скопійовано", "make_own": "Створити свій подкаст",
+           "note": "Цей випуск відкрив автор. Його бачить кожен, хто має посилання; сторінка не індексується пошуковиками. "
+                   "Автор може закрити посилання будь-коли — тоді воно перестане працювати.",
+           "missing_h": "Випуск недоступний", "missing": "Автор закрив цей випуск або посилання неправильне."},
+    "ru": {"by": "Выпуск подкаста {name}", "anon": "Выпуск подкаста MyCast", "min": "мин", "share": "Поделиться",
+           "copy": "Скопировать ссылку", "copied": "Скопировано", "make_own": "Создать свой подкаст",
+           "note": "Этот выпуск открыл автор. Его видит каждый, у кого есть ссылка; страница не индексируется поисковиками. "
+                   "Автор может закрыть ссылку в любой момент — тогда она перестанет работать.",
+           "missing_h": "Выпуск недоступен", "missing": "Автор закрыл этот выпуск или ссылка неверна."},
+    "en": {"by": "An episode of {name}'s podcast", "anon": "A MyCast episode", "min": "min", "share": "Share",
+           "copy": "Copy link", "copied": "Copied", "make_own": "Make your own podcast",
+           "note": "The author made this episode public. Anyone with the link can listen; search engines are asked not to "
+                   "index it. The author can turn the link off at any time, and then it stops working.",
+           "missing_h": "Episode unavailable", "missing": "The author turned this episode off, or the link is wrong."},
+}
+_EP_CSS = """:root{color-scheme:dark;--bg:#0b1024;--card:#121a38;--edge:#26325e;--ink:#eef2ff;--mute:#9aa6cf}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(1200px 600px at 10% -10%,#2a1d6b 0,transparent 60%),var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:680px;margin:0 auto;padding:20px 16px 48px}header a{color:var(--mute);text-decoration:none;font:700 13px/1 ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase}
+section{margin:16px 0;padding:18px;border:1px solid var(--edge);border-radius:18px;background:var(--card)}h1{margin:0 0 4px;font-size:clamp(20px,5vw,28px)}
+.mute{color:var(--mute);margin:4px 0 0;font-size:14px}audio{width:100%;margin-top:12px}.btns{display:flex;flex-wrap:wrap;gap:8px}
+.btn{display:inline-block;min-height:44px;padding:10px 16px;border-radius:12px;border:1px solid var(--edge);background:#18214a;color:var(--ink);text-decoration:none;font-weight:600;cursor:pointer;font-size:15px}
+.btn.primary{border:0;background:linear-gradient(90deg,#ff8a6b,#ff6a88);color:#1a0d12}a:focus-visible,.btn:focus-visible{outline:3px solid #4fe3ff;outline-offset:2px}"""
+
+
+def _js(value: str) -> str:
+    """A JS string literal that is safe inside <script> (the title comes from a model, so never trust it)."""
+    import json
+    return json.dumps(str(value)).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
+def _ep_lang(rec: dict) -> str:
+    try:
+        from mycast_listener_delivery import decode_profile
+        lang = decode_profile(rec.get("code") or "").get("language")
+    except Exception:
+        lang = "uk"
+    return lang if lang in EP_T else "uk"
+
+
+def render_episode_page(rec: dict, day: str, entry: dict, *, token: str, page: str) -> str:
+    lang = _ep_lang(rec)
+    t, e = EP_T[lang], html.escape
+    name = first_name(rec)
+    title = str(entry.get("title") or f"MyCast · {day}")[:64]
+    by = t["by"].format(name=name) if name else t["anon"]
+    minutes = max(1, round(int(entry.get("seconds") or 0) / 60)) if entry.get("seconds") else 0
+    meta = day + (f" · {minutes} {t['min']}" if minutes else "")
+    url = f"{SITE}/mycast/e/{token}"
+    return f"""<!DOCTYPE html>
+<html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>{e(title)} · MyCast</title>
+<meta name="description" content="{e(by)} · {e(meta)}">
+<meta property="og:type" content="music.song"><meta property="og:site_name" content="MyCast">
+<meta property="og:title" content="{e(title)}"><meta property="og:description" content="{e(by)} · {e(meta)}">
+<meta property="og:url" content="{e(url)}"><meta property="og:image" content="{SITE}/static/mycast-configurator/mycast-logo-512.png">
+<link rel="icon" href="/static/mycast-configurator/mycast-favicon-32.png" sizes="32x32" type="image/png">
+<style>{_EP_CSS}</style></head><body><div class="wrap">
+<header><a href="{e(page)}">MyCast.pro</a></header>
+<main><section><h1>{e(title)}</h1><p class="mute">{e(by)} · {e(meta)}</p>
+<audio controls preload="none" src="/mycast/e/{e(token)}/audio.mp3"></audio></section>
+<section><div class="btns"><button class="btn" type="button" id="share">{e(t['share'])}</button>
+<a class="btn primary" href="{e(page)}">{e(t['make_own'])}</a></div><p class="mute" id="msg" role="status" aria-live="polite"></p></section>
+<p class="mute">{e(t['note'])}</p></main></div>
+<script>document.getElementById('share').onclick=function(){{var u={_js(url)},m=document.getElementById('msg');
+if(navigator.share){{navigator.share({{title:{_js(title)},url:u}}).catch(function(){{}});return}}
+if(navigator.clipboard){{navigator.clipboard.writeText(u).then(function(){{m.textContent={_js(t['copied'])}}},function(){{m.textContent=u}})}}else m.textContent=u}};</script>
+</body></html>"""
+
+
+def render_episode_missing() -> str:
+    t, e = EP_T["uk"], html.escape
+    en = EP_T["en"]
+    return f"""<!DOCTYPE html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>MyCast</title><style>{_EP_CSS}</style></head><body><div class="wrap">
+<header><a href="/mycast">MyCast.pro</a></header><main><section><h1>{e(t['missing_h'])}</h1><p class="mute">{e(t['missing'])}</p>
+<p class="mute" lang="en">{e(en['missing'])}</p></section><a class="btn primary" href="/mycast">{e(t['make_own'])}</a></main></div></body></html>"""
