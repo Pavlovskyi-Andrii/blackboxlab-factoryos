@@ -73,7 +73,8 @@ SQLite file, `DATA_DIR/dbos_system.sqlite`; after a crash, restart or deploy a w
 - Never delete or hand-edit `dbos_system.sqlite`, and upgrade the pinned `dbos` version only in a dedicated task (it runs
   schema migrations). The SQLite system DB serves one process: before a second worker or instance, move it to Postgres
   through `DBOS_SYSTEM_DATABASE_URL` (owner-provisioned).
-- Tests: `python test_durable_engine.py`.
+- One module per durable flow, e.g. `durable_media_finisher.py` (T-612: AI Media Finisher submit → callback/poll).
+- Tests: `python test_durable_engine.py` and `python test_durable_media_finisher.py`.
 
 ## Default verification
 

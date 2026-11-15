@@ -1267,3 +1267,28 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   legacy path. Setting it on Render is an owner action.
 - Measured locally (Python 3.13): RSS after `import app` + engine launch 109 MB vs 67 MB with the kill switch (+42 MB).
   Render memory is a post-deploy check.
+
+## 2026-11-15 — T-612 AI Media Finisher as a durable DBOS workflow (stage 1)
+
+- One workflow per edit job generation, ID `media-finisher:<edit_job_id>:<n>`: submit step, then up to
+  `FACTORY_DBOS_FINISHER_MAX_WAIT_SEC` (6 h) of {wait for the worker callback for `FACTORY_DBOS_FINISHER_POLL_SEC`
+  (30 s) → poll step → submit again if the worker lost the job} until the edit job is ready, failed or deleted. After
+  the max wait the workflow releases the edit job to the legacy watchdog instead of failing it.
+- The steps reuse the existing routines (`_submit_media_finisher_background`, `refresh_edit_job(resubmit=False)`), so
+  the payload, retries, progress stages and `_finalize_edit_job` stay byte-for-byte the same. A step replayed after a
+  crash cannot create a second worker job: submit returns early once `provider_job_id` is recorded, and the worker's
+  POST /jobs is idempotent by `edit_job_id`.
+- `_spawn_media_finisher_submit` is the single switch: engine launched → start or re-attach to the workflow (a deterministic
+  ID makes a second start a no-op); engine off or start error → the legacy thread. All existing callers (start, rerun,
+  startup recovery, ASR and real-media repairs, 404 resubmit) go through it unchanged.
+- The callback endpoint wakes the workflow (`DBOS.send`) after finalizing; a callback lost while FactoryOS restarts is
+  replaced by the next poll. The watchdog skips edit jobs a current-version workflow owns. Jobs that were already at
+  the worker before this deploy are not adopted: the watchdog keeps polling them as before (conservative migration).
+- An older-`APP_VERSION` workflow is cancelled by `start()` before a new generation runs, so an edit job never has two
+  owners after a version bump. Local Booster jobs (`compute_target=local`) are untouched.
+- Workflow history stays in `dbos_system.sqlite` (a few dozen rows per finished job); no retention job yet.
+- Local end-to-end check (real uvicorn processes, fake worker over HTTP): SIGKILL mid-wait → after reboot the workflow
+  resumed and delivered the worker's result in ~1 s with exactly one worker POST; SIGTERM (deploy shape) → stop 0.6 s,
+  same result; a callback finished the workflow in ~1 s with no polling. The only extra POST seen came from the
+  existing one-shot startup repair of recently failed manual uploads (`MEDIA_FINISHER_REAL_MEDIA_REPAIR`), which now
+  runs as generation 1. Not verified: a real worker on Render/EC2 and a real Render deploy.
