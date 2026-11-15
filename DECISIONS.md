@@ -1318,3 +1318,27 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   answers.md on every pass; the old code re-ran the blocked task 13 times in that test.
 - Not done here (owner/interactive session): resolve the `autopilot/aws-worker` ↔ `main` conflict; until it is
   resolved this fix cannot reach the worker through its main sync.
+
+## 2026-11-15 — T-616 AI Release Guardian (#189)
+
+- Module `release_guardian.py`, page `static/mvp-factory/release-guardian.html`, route `GET /api/release-guardian?prs=…`
+  (owner only, like the open-questions board). The MVP Builder card of `release-guardian` links to the page by project
+  id / issue 189; `mvp_factory.py` is unchanged (the seed already holds the pilot; stages still move only by events).
+- Readiness rules (one pure function, `classify_readiness`): red if any check failed; else pending if any runs; else
+  unknown if there is no check, no passed check, a required check is missing or skipped, or the list is truncated;
+  else green. `cancelled`, `action_required`, `startup_failure`, `timed_out` are failures. `skipped`, `neutral`,
+  `stale` and unknown conclusions are "not verified" and never count. A non-required skipped check beside passing
+  ones is listed as "not counted" and does not turn green into unknown.
+- "No jobs ran": a GitHub Actions check suite with zero check runs and a failing conclusion is a failed check named
+  after its workflow and event. Found on the pilot PRs: #162/#163 show three green jobs from a `workflow_dispatch` run
+  while the `pull_request` run of FactoryOS CI ended `failure` with no job; the board marks them red. A queued Actions
+  suite without runs is pending. Suites of other apps without runs (Render's never-run suite) are listed as notes only.
+- The combined `/status` endpoint says `pending` when there are no statuses; only the `statuses` list is used.
+- Required checks come from `GET /rules/branches/{base}` (rulesets, readable without admin). Classic branch
+  protection needs admin and is not read; the page says so. Unreadable rules → "required checks unknown".
+- Token: `_github_read_token()` (read-only token first, as every server-side read). Without a token the board reads
+  anonymously, caps at 5 PRs and caches 10 min; with a token 10 PRs and 2 min. The client stops calling GitHub when
+  `X-RateLimit-Remaining` ≤ 5 until the reset and then serves stale cache or "unknown". Error reasons use the shared
+  `relay.github_error_reason` categories, never response text or the token. No [HUMAN] task: the read-only token
+  variable already exists; if it is not set on Render the page shows "anonymous" and still works.
+

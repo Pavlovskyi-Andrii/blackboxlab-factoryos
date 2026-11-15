@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>AI Release Guardian · MVP Builder</title>
+<style>
+:root{color-scheme:dark;--bg:#070f1a;--panel:#0c1929;--panel2:#102239;--edge:#294560;--ink:#e8f1fc;--muted:#9db1c9;--blue:#189eff;--cyan:#69d4f2;--green:#64cf9b;--red:#ff7b72;--amber:#e7b35b;--grey:#9aa7b8}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 90% 0%,#142b49 0%,transparent 42%),var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+a{color:var(--cyan)}button,input{font:inherit}button{cursor:pointer;border:1px solid var(--edge);border-radius:10px;color:var(--ink);background:var(--panel2);padding:9px 13px}button:hover{border-color:var(--blue)}button:disabled{opacity:.5;cursor:not-allowed}.primary{background:linear-gradient(110deg,#1575ec,#11b4ec);color:#fff;border:0;font-weight:700}
+.wrap{max-width:1200px;margin:auto;padding:25px 16px 90px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.langs{display:flex;gap:5px}.langs button{padding:6px 11px}.langs button[aria-pressed=true]{background:#174e86;border-color:var(--blue)}
+h1{font-size:clamp(26px,4vw,40px);line-height:1.15;margin:22px 0 8px}h1 span{color:#63d4ff}.lede{max-width:860px;color:var(--muted);margin:0 0 14px}.rule{font-size:13px;padding:12px 15px;border-radius:12px;border:1px solid #2f5d4a;background:#0f2a22;color:#c9f3dd}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:18px 0}.controls input{background:#071522;border:1px solid #34506a;color:var(--ink);border-radius:9px;padding:9px 10px;min-width:0;flex:1 1 200px}
+.meta{color:var(--muted);font-size:13px}.msg{min-height:22px;color:var(--muted);font-size:13px}.msg.error{color:#ffaaa6}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.stat{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:14px}.stat strong{display:block;font-size:28px;line-height:1.2}.stat small{color:var(--muted)}
+.list{display:grid;gap:14px}.pr{background:var(--panel);border:1px solid var(--edge);border-radius:16px;padding:18px;min-width:0}.prHead{display:flex;gap:10px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}.pr h2{margin:0;font-size:18px;overflow-wrap:anywhere}.pr h2 a{color:var(--ink);text-decoration:none}.pr h2 a:hover{text-decoration:underline}
+.badge{display:inline-block;border-radius:30px;padding:3px 10px;font-size:12px;font-weight:700;border:1px solid;white-space:nowrap}.b-green{color:var(--green);border-color:#2f7a55;background:#0f2a1f}.b-red{color:var(--red);border-color:#8a3a36;background:#2c1414}.b-pending{color:var(--amber);border-color:#7a6230;background:#2b2412}.b-unknown{color:var(--grey);border-color:#4a5666;background:#18202b}
+.badges{display:flex;gap:6px;flex-wrap:wrap}.cols{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-top:12px}.cols h3{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px}
+ul.plain{list-style:none;margin:0;padding:0}ul.plain li{padding:5px 0;border-bottom:1px solid #1b3247;font-size:14px;overflow-wrap:anywhere;display:flex;gap:8px;align-items:baseline}.dot{flex:0 0 auto;width:9px;height:9px;border-radius:50%;display:inline-block;transform:translateY(1px)}.d-passed{background:var(--green)}.d-failed{background:var(--red)}.d-pending{background:var(--amber)}.d-not_verified{background:var(--grey)}
+.small{font-size:12px;color:var(--muted)}.empty{padding:28px;color:var(--muted);border:1px dashed #3d5672;border-radius:14px;text-align:center}.footer{font-size:12px;color:var(--muted);margin-top:24px}
+@media(max-width:760px){.cols{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<main class="wrap">
+ <header class="top"><a href="/static/mvp-factory/index.html" id="back">← MVP Builder</a><div class="langs" role="group" aria-label="Language"><button data-lang="uk" type="button">UK</button><button data-lang="ru" type="button">RU</button><button data-lang="en" type="button">EN</button></div></header>
+ <h1>AI Release <span>Guardian</span></h1>
+ <p class="lede" id="intro"></p>
+ <p class="rule" id="rule"></p>
+ <form class="controls" id="form"><input id="prs" name="prs" inputmode="numeric" autocomplete="off" aria-label="PR"><button class="primary" type="submit" id="show"></button><button type="button" id="open"></button><button type="button" id="pilot"></button></form>
+ <p class="msg" id="status" role="status" aria-live="polite"></p>
+ <div class="stats"><div class="stat"><strong id="n-green">—</strong><small id="l-green"></small></div><div class="stat"><strong id="n-red">—</strong><small id="l-red"></small></div><div class="stat"><strong id="n-pending">—</strong><small id="l-pending"></small></div><div class="stat"><strong id="n-unknown">—</strong><small id="l-unknown"></small></div></div>
+ <section id="list" class="list"><div class="empty">…</div></section>
+ <p class="footer" id="footer"></p>
+</main>
+<script>
+'use strict';
+const I={
+ en:{r_green:'Checks green',r_red:'Checks red',r_pending:'Checks running',r_unknown:'Readiness unknown',intro:'Read-only board of pull requests: author, the real state of every check run, reviews and blockers. Nothing here comments, approves, merges or deploys.',rule:'Rule: only a check that finished with "success" counts. Skipped, neutral or missing checks and workflows that ran no job are never success. No checks at all means readiness unknown, not green.',
+  show:'Show PRs',open:'Open PRs',pilot:'Pilot #162 #163 #144',placeholder:'PR numbers, e.g. 162, 163',loading:'Reading GitHub…',error:'Cannot load. Sign in as the FactoryOS owner and retry.',empty:'No pull requests to show.',
+  green:'Green',red:'Red',pending:'Pending',unknown:'Unknown',ready:'Ready to merge',not_ready:'Not ready',merged:'Merged',closed:'Closed',open_state:'Open',
+  checks:'Checks',reviews:'Reviews',blockers:'Blockers',notes:'Notes',author:'Author',head:'Head',noChecks:'No checks reported for this commit.',noBlockers:'None found.',approved:'Approved',changes:'Changes requested',requested:'Review requested',noReviews:'No reviews.',
+  checked:'Checked',auth_token:'GitHub read via the FactoryOS read-only token',auth_anonymous:'Anonymous GitHub read: fewer PRs, longer cache, low rate limit',required:'Required checks (rulesets)',requiredNone:'none in rulesets (classic branch protection is not visible to this token)',requiredUnknown:'rulesets unreadable — required checks unknown',footer:'Owner-only, GET-only. Responses are cached and the client stops before GitHub\'s rate limit runs out. Issue #189 · T-616.',
+  s_passed:'passed',s_failed:'failed',s_pending:'running',s_not_verified:'not verified',
+  c_check_failed:'Check failed',c_workflow_no_jobs:'Workflow finished without running any job',c_check_pending:'Still running',c_required_missing:'Required check has not reported',c_required_not_verified:'Required check skipped / neutral',c_required_unknown:'Required checks unknown (rules unreadable)',c_not_counted:'Not counted as success',c_no_checks:'No checks at all',c_nothing_passed:'No check passed',c_list_truncated:'Check list is incomplete',c_github_unavailable:'GitHub could not be read',
+  c_draft:'Draft',c_merge_conflict:'Merge conflict',c_changes_requested:'Changes requested',c_approvals_missing:'Approvals missing',c_reviews_unknown:'Reviews could not be read',c_checks_red:'Checks are red',c_checks_pending:'Checks still running',c_checks_unknown:'Check status unknown',c_mergeability_unknown:'GitHub has not computed mergeability yet',c_behind_base:'Behind the base branch',c_review_rules_unknown:'Review rules unknown',c_reviews_unavailable:'Reviews unavailable',c_app_suite_without_runs:'App suite never ran (not counted)',c_workflow_without_jobs:'Workflow without jobs (not counted)'},
+ uk:{r_green:'Перевірки зелені',r_red:'Перевірки червоні',r_pending:'Перевірки йдуть',r_unknown:'Готовність невідома',intro:'Дошка pull request лише для читання: автор, реальний стан кожної перевірки, рев’ю та блокери. Звідси нічого не коментується, не схвалюється, не мержиться і не деплоїться.',rule:'Правило: зараховується лише перевірка, що завершилась «success». Пропущені, neutral, відсутні перевірки та workflow без жодного job ніколи не є успіхом. Немає перевірок — готовність невідома, а не зелена.',
+  show:'Показати PR',open:'Відкриті PR',pilot:'Пілот #162 #163 #144',placeholder:'Номери PR, напр. 162, 163',loading:'Читаю GitHub…',error:'Не вдалося завантажити. Увійдіть як власник FactoryOS і повторіть.',empty:'Немає pull request для показу.',
+  green:'Зелені',red:'Червоні',pending:'Виконуються',unknown:'Невідомо',ready:'Готовий до merge',not_ready:'Не готовий',merged:'Змерджено',closed:'Закрито',open_state:'Відкрито',
+  checks:'Перевірки',reviews:'Рев’ю',blockers:'Блокери',notes:'Примітки',author:'Автор',head:'Коміт',noChecks:'Для цього коміту перевірок немає.',noBlockers:'Не знайдено.',approved:'Схвалено',changes:'Потрібні зміни',requested:'Запит рев’ю',noReviews:'Рев’ю немає.',
+  checked:'Перевірено',auth_token:'GitHub читається через read-only токен FactoryOS',auth_anonymous:'Анонімне читання GitHub: менше PR, довший кеш, низький ліміт',required:'Обов’язкові перевірки (rulesets)',requiredNone:'у rulesets немає (класичний branch protection цьому токену не видно)',requiredUnknown:'rulesets не читаються — обов’язкові перевірки невідомі',footer:'Лише власник, лише GET. Відповіді кешуються, клієнт зупиняється до вичерпання ліміту GitHub. Issue #189 · T-616.',
+  s_passed:'пройдено',s_failed:'впала',s_pending:'виконується',s_not_verified:'не перевірено',
+  c_check_failed:'Перевірка впала',c_workflow_no_jobs:'Workflow завершився без жодного job',c_check_pending:'Ще виконується',c_required_missing:'Обов’язкова перевірка не звітувала',c_required_not_verified:'Обов’язкова перевірка пропущена / neutral',c_required_unknown:'Обов’язкові перевірки невідомі (правила не читаються)',c_not_counted:'Не зараховано як успіх',c_no_checks:'Перевірок немає взагалі',c_nothing_passed:'Жодна перевірка не пройшла',c_list_truncated:'Список перевірок неповний',c_github_unavailable:'GitHub не прочитано',
+  c_draft:'Чернетка',c_merge_conflict:'Конфлікт злиття',c_changes_requested:'Запитано зміни',c_approvals_missing:'Бракує схвалень',c_reviews_unknown:'Рев’ю не прочитано',c_checks_red:'Перевірки червоні',c_checks_pending:'Перевірки ще йдуть',c_checks_unknown:'Стан перевірок невідомий',c_mergeability_unknown:'GitHub ще не обчислив можливість злиття',c_behind_base:'Відстає від базової гілки',c_review_rules_unknown:'Правила рев’ю невідомі',c_reviews_unavailable:'Рев’ю недоступні',c_app_suite_without_runs:'Suite застосунку не запускався (не враховано)',c_workflow_without_jobs:'Workflow без job (не враховано)'},
+ ru:{r_green:'Проверки зелёные',r_red:'Проверки красные',r_pending:'Проверки идут',r_unknown:'Готовность неизвестна',intro:'Доска pull request только для чтения: автор, реальное состояние каждой проверки, ревью и блокеры. Отсюда ничего не комментируется, не одобряется, не мержится и не деплоится.',rule:'Правило: засчитывается только проверка, завершившаяся «success». Пропущенные, neutral, отсутствующие проверки и workflow без единого job никогда не считаются успехом. Нет проверок — готовность неизвестна, а не «зелено».',
+  show:'Показать PR',open:'Открытые PR',pilot:'Пилот #162 #163 #144',placeholder:'Номера PR, напр. 162, 163',loading:'Читаю GitHub…',error:'Не удалось загрузить. Войдите как владелец FactoryOS и повторите.',empty:'Нет pull request для показа.',
+  green:'Зелёные',red:'Красные',pending:'Выполняются',unknown:'Неизвестно',ready:'Готов к merge',not_ready:'Не готов',merged:'Смержен',closed:'Закрыт',open_state:'Открыт',
+  checks:'Проверки',reviews:'Ревью',blockers:'Блокеры',notes:'Примечания',author:'Автор',head:'Коммит',noChecks:'Для этого коммита проверок нет.',noBlockers:'Не найдено.',approved:'Одобрено',changes:'Запрошены изменения',requested:'Запрошено ревью',noReviews:'Ревью нет.',
+  checked:'Проверено',auth_token:'GitHub читается через read-only токен FactoryOS',auth_anonymous:'Анонимное чтение GitHub: меньше PR, дольше кэш, низкий лимит',required:'Обязательные проверки (rulesets)',requiredNone:'в rulesets нет (классический branch protection этому токену не виден)',requiredUnknown:'rulesets не читаются — обязательные проверки неизвестны',footer:'Только владелец, только GET. Ответы кэшируются, клиент останавливается до исчерпания лимита GitHub. Issue #189 · T-616.',
+  s_passed:'пройдена',s_failed:'упала',s_pending:'выполняется',s_not_verified:'не проверено',
+  c_check_failed:'Проверка упала',c_workflow_no_jobs:'Workflow завершился без единого job',c_check_pending:'Ещё выполняется',c_required_missing:'Обязательная проверка не отчиталась',c_required_not_verified:'Обязательная проверка пропущена / neutral',c_required_unknown:'Обязательные проверки неизвестны (правила не читаются)',c_not_counted:'Не засчитано как успех',c_no_checks:'Проверок нет вообще',c_nothing_passed:'Ни одна проверка не прошла',c_list_truncated:'Список проверок неполный',c_github_unavailable:'GitHub не прочитан',
+  c_draft:'Черновик',c_merge_conflict:'Конфликт слияния',c_changes_requested:'Запрошены изменения',c_approvals_missing:'Не хватает одобрений',c_reviews_unknown:'Ревью не прочитаны',c_checks_red:'Проверки красные',c_checks_pending:'Проверки ещё идут',c_checks_unknown:'Состояние проверок неизвестно',c_mergeability_unknown:'GitHub ещё не вычислил возможность слияния',c_behind_base:'Отстаёт от базовой ветки',c_review_rules_unknown:'Правила ревью неизвестны',c_reviews_unavailable:'Ревью недоступны',c_app_suite_without_runs:'Suite приложения не запускался (не учтено)',c_workflow_without_jobs:'Workflow без job (не учтено)'}
+};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const safeUrl=u=>/^https:\/\/github\.com\//.test(String(u||''))?String(u):'';
+let lang='ru',data=null,query='',failed='';
+try{const l=localStorage.getItem('release-guardian:lang');if(I[l])lang=l}catch(e){}
+const t=k=>(I[lang][k]!==undefined?I[lang][k]:(I.en[k]!==undefined?I.en[k]:k));
+function reason(r){return esc(t('c_'+r.code))+(r.name?' · <b>'+esc(r.name)+'</b>':'')+(r.detail?' <span class="small">('+esc(r.detail)+')</span>':'')}
+function badge(state){return '<span class="badge b-'+esc(state)+'">'+esc(t('r_'+state))+'</span>'}
+function verdictBadge(v){const cls=v==='ready'?'green':v==='not_ready'?'red':'unknown';return '<span class="badge b-'+cls+'">'+esc(t(v==='open'?'open_state':v))+'</span>'}
+function checkItem(c){const u=safeUrl(c.url);const name=u?'<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(c.name)+'</a>':esc(c.name);
+ return '<li><span class="dot d-'+esc(c.state)+'"></span><span>'+name+' <span class="small">· '+esc(t('s_'+c.state))+(c.conclusion&&c.conclusion!==c.state?' · '+esc(c.conclusion):'')+(c.source==='workflow_no_jobs'?' · '+esc(t('c_workflow_no_jobs')):'')+'</span></span></li>'}
+function card(p){const r=p.readiness||{readiness:'unknown',reasons:[]};const rv=p.reviews||{approved:[],changes_requested:[],requested:[]};
+ const reviews=[].concat(rv.approved.map(x=>'<li>✅ '+esc(x)+' <span class="small">· '+esc(t('approved'))+'</span></li>'),rv.changes_requested.map(x=>'<li>⛔ '+esc(x)+' <span class="small">· '+esc(t('changes'))+'</span></li>'),rv.requested.map(x=>'<li>⏳ '+esc(x)+' <span class="small">· '+esc(t('requested'))+'</span></li>'));
+ const req=p.required_checks==null?t('requiredUnknown'):(p.required_checks.length?p.required_checks.join(', '):t('requiredNone'));
+ const notes=[].concat(r.reasons||[],p.notes||[],p.check_notes||[]).filter(x=>!['check_failed','workflow_no_jobs','check_pending'].includes(x.code));
+ const head=p.head_sha?String(p.head_sha).slice(0,7):'—';const url=safeUrl(p.url);
+ return '<article class="pr"><div class="prHead"><div><h2><a href="'+esc(url)+'" target="_blank" rel="noopener">#'+esc(p.number)+' '+esc(p.title||'')+'</a></h2>'
+ +'<div class="small">'+esc(t('author'))+': <b>'+esc((p.author||{}).login||'?')+'</b>'+((p.author||{}).type==='Bot'?' (bot)':'')+' · '+esc(t('head'))+': <code>'+esc(head)+'</code>'+(p.base?' → '+esc(p.base):'')+'</div></div>'
+ +'<div class="badges">'+badge(r.readiness)+verdictBadge(p.verdict||'unknown')+'</div></div>'
+ +'<div class="cols"><div><h3>'+esc(t('checks'))+'</h3>'+((p.checks||[]).length?'<ul class="plain">'+p.checks.map(checkItem).join('')+'</ul>':'<p class="small">'+esc(t('noChecks'))+'</p>')
+ +'<p class="small">'+esc(t('required'))+': '+esc(req)+'</p></div>'
+ +'<div><h3>'+esc(t('blockers'))+'</h3>'+((p.blockers||[]).length?'<ul class="plain">'+p.blockers.map(b=>'<li>'+reason(b)+'</li>').join('')+'</ul>':'<p class="small">'+esc(t('noBlockers'))+'</p>')
+ +'<h3 style="margin-top:12px">'+esc(t('reviews'))+'</h3>'+(reviews.length?'<ul class="plain">'+reviews.join('')+'</ul>':'<p class="small">'+esc(t('noReviews'))+'</p>')
+ +(notes.length?'<h3 style="margin-top:12px">'+esc(t('notes'))+'</h3><ul class="plain">'+notes.map(n=>'<li>'+reason(n)+'</li>').join('')+'</ul>':'')+'</div></div></article>'}
+function render(){document.documentElement.lang=lang;
+ document.querySelectorAll('.langs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.lang===lang)));
+ const ids={intro:'intro',rule:'rule',show:'show',open:'open',pilot:'pilot',footer:'footer','l-green':'green','l-red':'red','l-pending':'pending','l-unknown':'unknown'};
+ Object.keys(ids).forEach(id=>{$('#'+id).textContent=t(ids[id])});$('#prs').placeholder=t('placeholder');
+ const pulls=data?data.pulls||[]:[];
+ ['green','red','pending','unknown'].forEach(k=>{$('#n-'+k).textContent=data?String(pulls.filter(p=>(p.readiness||{}).readiness===k).length):'—'});
+ const st=$('#status');
+ if(failed){st.className='msg error';st.textContent=t('error')+' ('+failed+')'}
+ else if(!data){st.className='msg';st.textContent=t('loading')}
+ else{st.className='msg';st.textContent=t('checked')+': '+String(data.checked_at||'').replace('T',' ').slice(0,19)+' UTC · '+data.repo+' · '+t(data.auth==='token'?'auth_token':'auth_anonymous')+(data.list_error?' · '+t('c_github_unavailable')+' ('+data.list_error+')':'')}
+ $('#list').innerHTML=data?(pulls.length?pulls.map(card).join(''):'<div class="empty">'+esc(t('empty'))+'</div>'):(failed?'':'<div class="empty">'+esc(t('loading'))+'</div>')}
+async function load(prs){query=prs||'';data=null;failed='';render();
+ try{const res=await fetch('/api/release-guardian'+(query?'?prs='+encodeURIComponent(query):''),{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});
+  const obj=await res.json().catch(()=>({}));if(!res.ok)throw Error(obj.detail||String(res.status));data=obj}
+ catch(e){failed=e.message||'error'}
+ render()}
+document.querySelectorAll('.langs button').forEach(b=>b.addEventListener('click',()=>{lang=b.dataset.lang;try{localStorage.setItem('release-guardian:lang',lang)}catch(e){}render()}));
+$('#form').addEventListener('submit',e=>{e.preventDefault();load($('#prs').value.trim())});
+$('#open').addEventListener('click',()=>{$('#prs').value='';load('')});
+$('#pilot').addEventListener('click',()=>{$('#prs').value='162, 163, 144';load('162,163,144')});
+const initial=new URLSearchParams(location.search).get('prs')||'';$('#prs').value=initial;load(initial);
+</script>
+</body>
+</html>
