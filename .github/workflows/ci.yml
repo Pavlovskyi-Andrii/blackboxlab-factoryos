@@ -271,6 +271,20 @@ jobs:
           Path("/tmp/mvp-factory-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
           PY
           node --check /tmp/mvp-factory-ui.js
+      - name: AI Release Guardian pilot (T-616, #189, offline)
+        env:
+          DATA_DIR: /tmp/factoryos-release-guardian-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile release_guardian.py test_release_guardian.py
+          python test_release_guardian.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mvp-factory/release-guardian.html").read_text(encoding="utf-8")
+          Path("/tmp/release-guardian-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/release-guardian-ui.js
       - name: MVP Builder M1 contracts (#272-#275, offline)
         run: |
           python -m py_compile mvp_builder_request.py mvp_builder_preflight.py mvp_builder_manifest.py mvp_builder_projection.py
