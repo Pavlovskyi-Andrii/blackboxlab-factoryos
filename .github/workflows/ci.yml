@@ -375,6 +375,8 @@ jobs:
         run: |
           python -m py_compile oauth_framework.py test_oauth_framework.py
           python test_oauth_framework.py
+          python -m py_compile youtube_publisher.py test_youtube_publisher.py
+          python test_youtube_publisher.py
       - name: Workspace data tenancy regression
         env:
           FACTORY_PASSWORD: ""

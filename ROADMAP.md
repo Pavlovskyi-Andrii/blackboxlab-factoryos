@@ -439,6 +439,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: implement provider-specific authorize/callback/refresh/revoke flows so a customer can connect, disconnect and replace accounts from FactoryOS without editing Render environment variables.
   DONE: deterministic mocks cover OAuth state/PKCE where supported, token refresh, encrypted secret storage, revoke/disconnect and account replacement without exposing tokens to the browser or logs.
 
+- [x] T-552-YT Direct YouTube publisher (Google OAuth + resumable Shorts upload)
+  Owner: claude
+  Parent: T-552
+  Spec: owner decision 2026-11-15 (.autopilot/answers.md): publish through the official free YouTube Data API instead of the paid Metricool API; TikTok/Instagram/HubSpot stay on T-552.
+  Goal: real Google OAuth transport (exchange, channel identity, refresh, revoke) stored in the encrypted vault; `FACTORY_PUBLISHER_ADAPTER=youtube` uploads the exact archived approved file with AI disclosure, explicit audience and private-by-default privacy; owner connects the channel from Connections; T-520 runbook rewritten for Google Cloud.
+  DONE: `python test_youtube_publisher.py` (zero network) proves exchange/refresh/revoke, no-channel refusal, exact-file upload with receipt, refusals for wrong platform/swapped media/not connected, fixed quota code and uncertain outcome on an interrupted upload, and no token/secret in results or logs. Live connection = HUMAN T-520, first post = HUMAN T-521.
+
 - [x] T-553 Workspace data tenancy
   Owner: claude
   Planner: ChatGPT

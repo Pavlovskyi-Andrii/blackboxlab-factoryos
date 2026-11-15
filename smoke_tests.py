@@ -894,7 +894,7 @@ try:
             "Metricool YouTube compliance metadata regression")
     require("MUTATED AFTER APPROVAL" not in json.dumps(mc_payload,ensure_ascii=False),
             "Metricool must never receive mutable post-approval package state")
-    require(app.get_publisher_adapter_registry()["adapters"][-1]["configured"] is True,
+    require(next(a for a in app.get_publisher_adapter_registry()["adapters"] if a["kind"]=="metricool")["configured"] is True,
             "Metricool adapter registry must reflect complete server-side configuration")
     ig_payload,_,ig_network=app._metricool_scheduler_payload(
         {**metricool_item,"platform":"instagram_reels"},pub["content_snapshot"],pub["media"])
