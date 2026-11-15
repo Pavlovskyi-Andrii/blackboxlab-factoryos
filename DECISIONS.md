@@ -1454,3 +1454,24 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   free-text message (it can echo request data). On 400/404 the next Flash model is tried (`gemini-flash-latest`,
   then `gemini-2.5-flash`); 429/5xx are not retried, so one search costs at most 3 calls and still counts once
   against the 100/day cap. The successful model is returned as `model`.
+
+
+## 2026-11-15 — T-590 / T-591 / T-592 / T-593 P0 tails: verifiable live acceptance
+
+- The live DONE of T-590/T-591 ("real Telegram message → claim → running → evidence → owner reply") is judged by
+  `relay_acceptance.py` from the ticket's own append-only history, never from model-written status. VERIFIED needs:
+  a Telegram-sourced ticket (only the paired private chat can create one), exactly one ticket for that update,
+  the last `claimed` event with worker id + run_id, then `running` and `done` with the same run_id in time order,
+  a non-empty result, and an `owner_notified` receipt for that final stage within one hour. Older runs never count;
+  a blocked/failed run is reported, not accepted. Code work also needs a branch or PR link; PR/CI/merge/deploy stay
+  "not verified" until the GitHub/Render reconcilers record them.
+- New fact recorded by the server: when `notify_owner` returns True for a worker event (the Telegram Bot API accepted
+  the message), the ticket history gets `owner_notified {stage, run_id}`. It never changes status; a notifier that
+  returns anything else (tests, failures) records nothing, so a lost notice cannot look delivered.
+- `/roadmap` used to repeat `/tasks` (Relay + GitHub issues). It now reads the ROADMAP.md deployed next to `relay.py`
+  (P0 open, HUMAN, next agent tasks, counts) and says these are file checkboxes, not live worker state. GitHub issues
+  remain under `/tasks` and `/github`. The existing test that pinned the old alias was updated to the new behaviour.
+- `/proof R-…` and owner-only `GET /api/relay/{id}/acceptance` expose the verdict (RU/UK/EN, redacted). The ticket
+  card gained 🔄 Refresh (`relay:ticket:<id>`), which now shows the same factual detail as `/task`.
+- Live acceptance stays with the owner as [HUMAN] T-591-H / T-592-H / T-593-H with Owner-desk runbooks; T-590,
+  T-591, T-591-A, T-592 and T-593 stay unchecked until those runs are verified.
