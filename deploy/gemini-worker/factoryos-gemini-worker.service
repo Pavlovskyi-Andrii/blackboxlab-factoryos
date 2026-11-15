@@ -1,0 +1,27 @@
+# T-607 Gemini worker. Install as /etc/systemd/system/factoryos-gemini-worker.service (see
+# docs/handoff/GEMINI_EC2_WORKER.md). Runs as ec2-user from its OWN checkout on its OWN branch, beside the Claude
+# worker; it takes only ROADMAP tasks marked `Owner: gemini`. Gemini CLI uses ec2-user's Google login (~/.gemini),
+# never an API key: the worker refuses to start when GEMINI_API_KEY/GOOGLE_API_KEY is set.
+[Unit]
+Description=FactoryOS Gemini worker (Google-account login, no API key)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/factoryos-gemini
+# Holds FACTORYOS_URL and FACTORY_GEMINI_WORKER_TOKEN only (chmod 600). No API keys.
+EnvironmentFile=/home/ec2-user/.config/factoryos/gemini-worker.env
+Environment=AUTOPILOT_REPO=/home/ec2-user/factoryos-gemini
+Environment=AUTOPILOT_DAEMON=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m autopilot.gemini_worker
+Restart=on-failure
+RestartSec=60s
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
