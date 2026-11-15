@@ -136,6 +136,8 @@ jobs:
           python test_evidence.py
           python -m py_compile peer_review.py test_peer_review.py
           python test_peer_review.py
+          python -m py_compile test_mods.py
+          python test_mods.py
           python -m py_compile mycast_subtopics.py test_mycast_subtopics.py
           python test_mycast_subtopics.py
           python -m py_compile mvp_cycle.py test_mvp_cycle.py

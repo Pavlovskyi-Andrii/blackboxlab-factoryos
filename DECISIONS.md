@@ -1240,3 +1240,20 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   creator writes it with `INSERT OR IGNORE` plus its workspace binding in one transaction; attaching is idempotent and
   no longer depends on the reservation token. The brief puts the draft-only rules first so length capping can never cut
   them. Verified on a real SQLite DB: 6 concurrent/repeated creates → 1 job row, 1 workspace row, 0 publishing rows.
+
+## 2026-11-15 — T-611-A Vendor poteto-mode, grilling and product-film as plugins
+
+- Sources were picked by provenance, not by search rank: poteto-mode from `cursor/plugins` (pstack, by its author
+  Lauren Tan; the many `pstack` forks are ports of it), grilling from `mattpocock/skills` (the registries that list it
+  name it as the source), product-film from `display-dev/product-film`. All MIT. Commits are pinned in `mods/README.md`.
+- poteto-mode is not standalone: it routes to ~50 bundled pstack skills, playbooks, the `poteto-agent` subagent and the
+  Claude Code adapter doc. The whole pstack Claude Code harness is vendored (1.3 MB) minus the guide images and the
+  TLA+ test corpus; vendoring only `poteto-mode/SKILL.md` would leave it pointing at missing files.
+- Each mod is a Claude Code plugin folder under `mods/`, not `.claude/skills/`: nothing loads unless a run passes
+  `--plugin-dir mods/<name>`, so the dashboard switch (T-611-B/C) is the only way a mod becomes active, and the
+  owner's interactive sessions are not changed silently.
+- product-film: removed the prebuilt `jq` binaries (unreviewable executables) and the display.dev upload scripts.
+  Uploading a review page to a third-party site is external publishing, which FactoryOS only does through the owner
+  approval gate. The skill renders locally (Playwright + ffmpeg, no paid API), which fits ZERO ADDITIONAL SPEND.
+  Correction to the earlier chat answer: product-film does not use Remotion.
+- All three pass `claude plugin validate`.
