@@ -1346,6 +1346,32 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Not done here (owner/interactive session): resolve the `autopilot/aws-worker` ↔ `main` conflict; until it is
   resolved this fix cannot reach the worker through its main sync.
 
+## 2026-11-15 — T-607 Gemini worker runtime (Google-account login only)
+
+- Owner choice: Gemini CLI on EC2 signs in with Google ("Login with Google", personal free tier); no API key. An AI Studio
+  key is free only while its project has no billing, so the worker refuses to start with `GEMINI_API_KEY`/`GOOGLE_API_KEY`/
+  `GOOGLE_GENAI_USE_VERTEXAI`/`GOOGLE_APPLICATION_CREDENTIALS` set, strips them from each run, and each run gets a system
+  settings file (`GEMINI_CLI_SYSTEM_SETTINGS_PATH` → `.autopilot/gemini-settings.json`) with `security.auth.enforcedType=oauth-personal`.
+  Preflight blocks (no run) without `gemini` on PATH or `~/.gemini/oauth_creds.json`.
+- Same loop, separate process: `autopilot/gemini_worker.py` runs `autopilot.autopilot` with `AUTOPILOT_OPERATOR=gemini`
+  `AUTOPILOT_AGENT=gemini` from its own checkout/branch (`autopilot/gemini-worker`), so the two runners never share a working tree.
+  The Gemini lane takes only `Owner: gemini` (no shared/unowned tasks), and skips owner questions, MyCast, Codex review,
+  browser tasks, Relay owner tickets and owner controls (those belong to the Claude runner; acking controls would swallow Claude's).
+- Headless Gemini runs with `--yolo` (it cannot ask for approval); the boundary is the excluded-tools list (push/merge/rebase/
+  reset --hard/gh/curl/sudo/deploy, written under both the current `tools.exclude` and legacy `excludeTools` keys) plus the
+  existing evidence check (remote-ref change ⇒ push detected ⇒ failed). Exact flag/setting support depends on the installed
+  Gemini CLI version and is verified only on the live probe (T-607-P).
+- Server: new owner-set `FACTORY_GEMINI_WORKER_TOKEN` (≥ 32 chars, no derived default). It opens only `/api/relay/worker/roadmap-claim`
+  (lane must be gemini), `/api/relay/worker/event` (ticket execution owner must be gemini) and `/api/operator-worker/heartbeat`
+  (operator gemini). Tested through the real ASGI app.
+- The FactoryOS Pause button stays Claude-only; the Gemini worker is stopped with systemctl (runbook).
+- Update 2026-11-15 (owner): the Google login on EC2 kept falling back to the API-key dialog, so the owner chose an
+  AI Studio key. Allowed only as opt-in `FACTORY_GEMINI_AUTH=api-key-free-tier` with `GEMINI_API_KEY` from the worker's
+  env file, from a project whose AI Studio Billing Tier is "Free tier" (no billing account: quota overflow is a 429, not a
+  charge). Recommended: a separate project, so the worker does not share the 5 RPM free quota with the Render key
+  (MyCast, Surfer, the older `tools/gemini_ec2_loop.sh` issue→PR loop). Other key variables stay refused; keys are redacted
+  from evidence. `FACTORY_GEMINI_MODEL` optionally pins the model (`--model`). Preflight also accepts the newer
+  `~/.gemini/gemini-credentials.json` login file.
 ## 2026-11-15 — T-620 MyCast MVP V1 (#305): library, public episode links, referral ledger
 
 - Reused, not rebuilt: listener accounts (Telegram login + Google, signed `mycast_listener` cookie, 30-day expiry,

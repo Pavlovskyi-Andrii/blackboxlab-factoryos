@@ -1591,7 +1591,8 @@ def worker_event_text(ticket: dict, stage: str) -> str:
     return "\n".join(lines)[:3900]
 
 
-def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, queue=None, authorize_worker=None, notify_owner=None) -> None:
+def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, queue=None, authorize_worker=None, notify_owner=None,
+                         authorize_gemini_worker=None) -> None:
     @app.get("/api/relay")
     def relay_list(request: Request, status: str = "", limit: int = 200):
         _owner_guard(request, request_identity)
@@ -1693,6 +1694,18 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
         if queue is None:
             raise HTTPException(503, "Claude queue unavailable")
 
+    def _worker_lane(request: Request) -> str:
+        """T-607: 'claude' for the Claude worker credential, 'gemini' for the Gemini worker token (narrow scope)."""
+        if authorize_worker and authorize_worker(request):
+            lane = "claude"
+        elif authorize_gemini_worker and authorize_gemini_worker(request):
+            lane = "gemini"
+        else:
+            raise HTTPException(401, "Worker credential required")
+        if queue is None:
+            raise HTTPException(503, "Claude queue unavailable")
+        return lane
+
     @app.post("/api/relay/worker/claim")
     def relay_worker_claim(payload: RelayWorkerClaimRequest, request: Request):
         _require_worker(request)
@@ -1704,7 +1717,8 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
 
     @app.post("/api/relay/worker/roadmap-claim")
     def relay_worker_roadmap_claim(payload: RelayRoadmapClaimRequest, request: Request):
-        _require_worker(request)
+        if _worker_lane(request) == "gemini" and (payload.lane or "").strip().lower() != "gemini":
+            raise HTTPException(403, "The Gemini worker token claims only lane gemini")
         try:
             ticket, reason = queue.claim_roadmap(payload.worker_id, payload.lane, payload.task_id,
                                                  payload.title, payload.owner)
@@ -1720,7 +1734,12 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
 
     @app.post("/api/relay/worker/event")
     def relay_worker_event(payload: RelayWorkerEventRequest, request: Request):
-        _require_worker(request)
+        if _worker_lane(request) == "gemini":
+            existing = store.get(payload.ticket_id)
+            if existing is None:
+                raise HTTPException(404, "Relay ticket not found")
+            if str((existing.get("execution") or {}).get("owner") or "") != "gemini":
+                raise HTTPException(403, "The Gemini worker token reports only on Gemini-owned tickets")
         try:
             ticket = queue.event(payload.ticket_id, payload.worker_id, payload.stage, payload.note, payload.evidence,
                                  run_id=payload.run_id, event_id=payload.event_id)

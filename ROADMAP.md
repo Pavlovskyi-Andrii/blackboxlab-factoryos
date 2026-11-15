@@ -669,6 +669,16 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   Spec: Issue #119; reuse existing Gemini operator lane, task registry and Relay claim/event journal
   Goal: add a **real** Gemini executor alongside Claude and ChatGPT, not only a provider/logo: prove a legitimately authenticated, zero-additional-spend Gemini runtime on an existing approved host; reuse the same atomic task claim, files_scope, run_id fencing, events and owner visibility. Only take Owner: gemini or explicitly delegated work; never duplicate Claude/ChatGPT active claims. No paid Gemini/Vertex/Google Cloud API or subscription upgrade; unsupported headless access => blocked, not a fake working badge.
   DONE: tests for auth, no runtime, unique claim, Depends, quotas/rate limit, restart and redaction; one real harmless Gemini-owned task → claimed/running → commit/PR → review with verified Relay/Telegram/Web evidence and zero extra charges. Until then status = planned/unconfigured; never claim a deployed worker from this roadmap entry.
+  Progress 2026-11-15 (owner chose Google-account login, no API key): runtime implemented — `autopilot/gemini_worker.py` (separate checkout/branch, lane heartbeat), Gemini CLI adapter in `autopilot/delegation.py` (Google login enforced, API-key variables stripped and refused, push/merge/deploy shell excluded, quota → `subscription_limit`), Gemini lane takes only `Owner: gemini`, narrow server token `FACTORY_GEMINI_WORKER_TOKEN` (lane-gemini claim/events/heartbeat only). `python test_gemini_worker.py` covers auth, no runtime, own-lane claim, token scope, quota, redaction. Runbook: `docs/handoff/GEMINI_EC2_WORKER.md`. Still open: owner setup (T-607-H) and the live probe (T-607-P).
+
+- [ ] [HUMAN] T-607-H Set up the Gemini worker on EC2
+  Need: owner logs Gemini CLI in with Google on EC2 (no API key), sets the same `FACTORY_GEMINI_WORKER_TOKEN` in Render and in `~/.config/factoryos/gemini-worker.env`, creates the `~/factoryos-gemini` checkout on `autopilot/gemini-worker` and enables `factoryos-gemini-worker.service`. Steps: `docs/handoff/GEMINI_EC2_WORKER.md`.
+  DONE: FactoryOS Workers shows the Gemini lane online with `auth_mode=google_account`.
+
+- [ ] T-607-P Gemini worker live probe
+  Owner: gemini
+  Goal: prove the Gemini lane end to end with a harmless change: create `docs/verification/T-607_gemini_probe.md` with the UTC date and one sentence saying this file was produced by the FactoryOS Gemini worker for T-607-P. Change nothing else except this checkbox and `.autopilot/status.json`.
+  DONE: the file exists, this checkbox is `[x]`, exactly one commit whose subject starts with T-607-P on `autopilot/gemini-worker`; Relay shows the claim/run_id and the Telegram cards say Gemini.
 
 - [x] [HUMAN] T-605 Gemini API key in Render (FACTORY_GEMINI_API_KEY)
   Done (verified 2026-11-05): MyCast was voiced with Gemini through the server key. Issue #215 was accepted by the owner, and the 2026-11-05 full episode arrived. The owner desk status reads `gemini_key_ok`.

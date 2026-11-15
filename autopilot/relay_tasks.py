@@ -24,9 +24,14 @@ except ImportError:
     from delegation import delegated_env, DISALLOWED_TOOLS
 
 
+def lane() -> str:
+    return (os.environ.get("AUTOPILOT_OPERATOR", "claude").strip().lower() or "claude")
+
+
 def endpoint() -> tuple[str, str]:
-    return (os.environ.get("FACTORYOS_URL", "").rstrip("/"),
-            os.environ.get("FACTORY_CLAUDE_WORKER_TOKEN", ""))
+    # T-607: the Gemini runner uses its own, narrower token (roadmap claim/events for lane gemini only).
+    name = "FACTORY_GEMINI_WORKER_TOKEN" if lane() == "gemini" else "FACTORY_CLAUDE_WORKER_TOKEN"
+    return (os.environ.get("FACTORYOS_URL", "").rstrip("/"), os.environ.get(name, ""))
 
 
 def configured() -> bool:
@@ -35,7 +40,10 @@ def configured() -> bool:
 
 
 def worker_id() -> str:
-    raw = os.environ.get("FACTORY_CLAUDE_NODE_ID") or ("claude-" + socket.gethostname())
+    if lane() == "gemini":
+        raw = os.environ.get("FACTORY_GEMINI_NODE_ID") or ("gemini-" + socket.gethostname())
+    else:
+        raw = os.environ.get("FACTORY_CLAUDE_NODE_ID") or ("claude-" + socket.gethostname())
     return re.sub(r"[^A-Za-z0-9_.:-]", "-", raw)[:80]
 
 
