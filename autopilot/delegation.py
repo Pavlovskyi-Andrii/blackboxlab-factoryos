@@ -50,6 +50,15 @@ GEMINI_EXCLUDED_SHELL = (
     "npm publish", "sudo",
 )
 GEMINI_AUTH_TYPE = "oauth-personal"   # "Login with Google": free personal tier, no API key, no billing
+# Owner 2026-11-15: the Google login kept falling back to a key, so the owner may opt in to an AI Studio key from a
+# project WITHOUT billing ("Free tier" in AI Studio): Google cannot bill it, quota overflow is a 429, never a charge.
+# Opt-in only (FACTORY_GEMINI_AUTH=api-key-free-tier); the key comes from the worker's own env file.
+GEMINI_KEY_AUTH = "api-key-free-tier"
+
+
+def gemini_auth_mode(env: dict[str, str] | None = None) -> str:
+    env = os.environ if env is None else env
+    return GEMINI_KEY_AUTH if env.get("FACTORY_GEMINI_AUTH", "").strip().lower() == GEMINI_KEY_AUTH else "google"
 # Claude Code permission rules: the delegated agent may commit locally but
 # must never push, switch to a protected branch or deploy.
 DISALLOWED_TOOLS = (
@@ -153,16 +162,17 @@ def gemini_task_prompt(task: dict[str, Any]) -> str:
     )
 
 
-def gemini_settings(max_turns: int) -> dict[str, Any]:
+def gemini_settings(max_turns: int, auth: str = "google") -> dict[str, Any]:
     """System-level Gemini CLI settings for one run: Google-account auth enforced, dangerous shell excluded.
 
     Both the current (`tools.exclude`, `security.auth.*`) and the legacy (`excludeTools`, `selectedAuthType`)
     keys are written, so the same file works across CLI versions.
     """
     excluded = [f"run_shell_command({cmd})" for cmd in GEMINI_EXCLUDED_SHELL]
+    auth_type = "gemini-api-key" if auth == GEMINI_KEY_AUTH else GEMINI_AUTH_TYPE
     return {
-        "security": {"auth": {"selectedType": GEMINI_AUTH_TYPE, "enforcedType": GEMINI_AUTH_TYPE}},
-        "selectedAuthType": GEMINI_AUTH_TYPE,
+        "security": {"auth": {"selectedType": auth_type, "enforcedType": auth_type}},
+        "selectedAuthType": auth_type,
         "tools": {"exclude": excluded},
         "excludeTools": excluded,
         "model": {"maxSessionTurns": max_turns},
@@ -192,8 +202,16 @@ def agent_preflight(spec: dict[str, Any], *, env: dict[str, str] | None = None,
         return {"status": "blocked", "error_category": "gemini_cli_unavailable",
                 "summary": "Gemini CLI is not installed on this worker.",
                 "need": "On EC2 install Node.js 20+ and `npm install -g @google/gemini-cli`, then run `gemini` once and log in with Google."}
+    env = os.environ if env is None else env
+    if gemini_auth_mode(env) == GEMINI_KEY_AUTH:
+        if not env.get("GEMINI_API_KEY", "").strip():
+            return {"status": "blocked", "error_category": "subscription_auth_required",
+                    "summary": "Gemini worker is in free-tier key mode but GEMINI_API_KEY is missing.",
+                    "need": "Put a key from an AI Studio project WITHOUT billing into ~/.config/factoryos/gemini-worker.env as GEMINI_API_KEY."}
+        return None
     home = gemini_home(env)
-    if not (home / "oauth_creds.json").exists():
+    # Gemini CLI has stored the Google login as oauth_creds.json and, in newer versions, gemini-credentials.json.
+    if not any((home / name).exists() for name in ("oauth_creds.json", "gemini-credentials.json")):
         return {"status": "blocked", "error_category": "subscription_auth_required",
                 "summary": "Gemini CLI has no Google-account login on this worker.",
                 "need": "On EC2 run `NO_BROWSER=true gemini`, choose Login with Google, open the link on your phone and paste the code. Do not enter an API key."}
@@ -246,6 +264,9 @@ def build_delegation(
         # Headless Gemini cannot ask for approval: --yolo auto-approves, and the system settings file
         # (written by run_delegation) excludes push/merge/deploy shell commands and enforces Google login.
         cmd = ["gemini", "-p", gemini_task_prompt(task), "--output-format", "json", "--yolo"]
+        model = os.environ.get("FACTORY_GEMINI_MODEL", "").strip()
+        if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", model):
+            cmd += ["--model", model]
         env_extra = {"GEMINI_CLI_SYSTEM_SETTINGS_PATH": str(gemini_settings_path(repo))}
     return {
         "agent": agent,
@@ -257,14 +278,17 @@ def build_delegation(
         "max_turns": turns,
         "timeout_seconds": timeout,
         "cmd": cmd,
-        "auth_mode": "google_account" if agent == "gemini" else "subscription",
+        "gemini_auth": gemini_auth_mode() if agent == "gemini" else "",
+        "auth_mode": ({"google": "google_account", GEMINI_KEY_AUTH: GEMINI_KEY_AUTH}[gemini_auth_mode()]
+                      if agent == "gemini" else "subscription"),
     }
 
 
-def delegated_env(base: dict[str, str] | None = None) -> dict[str, str]:
+def delegated_env(base: dict[str, str] | None = None, keep: tuple[str, ...] = ()) -> dict[str, str]:
     env = dict(os.environ if base is None else base)
     for key in SCRUBBED_ENV:
-        env.pop(key, None)
+        if key not in keep:
+            env.pop(key, None)
     return env
 
 
@@ -563,9 +587,13 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run,
     # the live task/run visible to the heartbeat while the CLI is working.
     write_run_state(repo, run_state)
     agent = str(spec.get("agent") or "claude")
+    keep: tuple[str, ...] = ()
     if agent == "gemini":
-        gemini_settings_path(repo).write_text(json.dumps(gemini_settings(int(spec["max_turns"])), indent=2) + "\n",
-                                              encoding="utf-8")
+        gemini_settings_path(repo).write_text(
+            json.dumps(gemini_settings(int(spec["max_turns"]), str(spec.get("gemini_auth") or "google")), indent=2) + "\n",
+            encoding="utf-8")
+    # Only the owner's opt-in free-tier key survives; every other key/credential variable is still stripped.
+    keep = ("GEMINI_API_KEY",) if spec.get("gemini_auth") == GEMINI_KEY_AUTH else ()
     exit_code: int | None = None
     output = ""
     timed_out = False
@@ -573,7 +601,7 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run,
         result = runner(
             spec["cmd"],
             cwd=repo,
-            env={**venv_env(delegated_env(), venv), **(spec.get("env_extra") or {})},
+            env={**venv_env(delegated_env(keep=keep), venv), **(spec.get("env_extra") or {})},
             timeout=spec["timeout_seconds"],
             check=False,
             text=True,

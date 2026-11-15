@@ -6,7 +6,8 @@ runs Gemini CLI headless in its own checkout and pushes only to its own worker b
 tickets, never answers owner questions and never runs Claude.
 
 Run it from a separate checkout on a dedicated branch (e.g. ~/factoryos-gemini on autopilot/gemini-worker), with
-FACTORY_GEMINI_WORKER_TOKEN set. No API key: Gemini CLI must be logged in with Google (`NO_BROWSER=true gemini`).
+FACTORY_GEMINI_WORKER_TOKEN set. Auth: the Google login (`NO_BROWSER=true gemini`), or, by owner opt-in,
+FACTORY_GEMINI_AUTH=api-key-free-tier + GEMINI_API_KEY from an AI Studio project without billing.
 """
 from __future__ import annotations
 
@@ -26,6 +27,19 @@ HEARTBEAT_SECONDS = max(10, min(120, int(os.environ.get("FACTORY_GEMINI_HEARTBEA
 CODE_UPDATED = 75  # autopilot.EXIT_CODE_UPDATED
 # Variables that would let Gemini CLI fall back to an API key (possibly billed) instead of the Google login.
 KEY_VARIABLES = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS")
+# Owner opt-in (2026-11-15): an AI Studio key from a project WITHOUT billing. Only GEMINI_API_KEY is then allowed.
+KEY_MODE = "api-key-free-tier"
+
+
+def key_mode(env: dict[str, str] | None = None) -> bool:
+    env = os.environ if env is None else env
+    return env.get("FACTORY_GEMINI_AUTH", "").strip().lower() == KEY_MODE
+
+
+def forbidden_variables(env: dict[str, str] | None = None) -> list[str]:
+    env = os.environ if env is None else env
+    allowed = {"GEMINI_API_KEY"} if key_mode(env) else set()
+    return [k for k in KEY_VARIABLES if k not in allowed and env.get(k, "").strip()]
 _stop = threading.Event()
 
 
@@ -59,7 +73,7 @@ def heartbeat(version: str, *, status: str = "idle", task_id: str = "", last_res
         "hostname": socket.gethostname()[:120],
         "runtime": "gemini-cli",
         "version": version[:120],
-        "auth_mode": "google_account",
+        "auth_mode": KEY_MODE if key_mode() else "google_account",
         "branch": current_branch()[:120],
         "repo": REPO.name[:120],
         "status": status,
@@ -82,7 +96,8 @@ def _heartbeat_loop(version: str) -> None:
 def child_env(base: dict[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ if base is None else base)
     for key in KEY_VARIABLES:
-        env.pop(key, None)
+        if not (key == "GEMINI_API_KEY" and key_mode(env)):
+            env.pop(key, None)
     env.update({"AUTOPILOT_REPO": str(REPO), "FACTORYOS_URL": FACTORY_URL,
                 "AUTOPILOT_OPERATOR": "gemini", "AUTOPILOT_AGENT": "gemini"})
     # The Gemini runner never holds the Claude credentials: it cannot claim Claude work or ack owner controls.
@@ -92,10 +107,11 @@ def child_env(base: dict[str, str] | None = None) -> dict[str, str]:
 
 
 def main() -> int:
-    for key in KEY_VARIABLES:
-        if os.environ.get(key, "").strip():
-            raise SystemExit(f"Refusing to start: {key} is set. The Gemini worker runs only on the Google-account "
-                             "login (free tier); remove the key from the worker environment.")
+    for key in forbidden_variables():
+        raise SystemExit(f"Refusing to start: {key} is set. The Gemini worker runs on the Google-account login, or on "
+                         "GEMINI_API_KEY only with FACTORY_GEMINI_AUTH=api-key-free-tier (a project without billing).")
+    if key_mode() and not os.environ.get("GEMINI_API_KEY", "").strip():
+        raise SystemExit("FACTORY_GEMINI_AUTH=api-key-free-tier needs GEMINI_API_KEY in the worker env file.")
     if not WORKER_TOKEN:
         raise SystemExit("FACTORY_GEMINI_WORKER_TOKEN is required (owner sets the same value in Render).")
     version = gemini_version()

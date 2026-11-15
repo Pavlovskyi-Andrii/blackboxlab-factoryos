@@ -210,6 +210,53 @@ class RunnerTest(unittest.TestCase):
             self.assertNotIn(key, env)
         self.assertEqual(env["FACTORY_GEMINI_WORKER_TOKEN"], "g")
 
+    def test_free_tier_key_mode_is_opt_in_and_keeps_only_gemini_api_key(self):
+        repo = make_repo()
+        with patch.dict(os.environ, {"FACTORY_GEMINI_AUTH": "api-key-free-tier", "FACTORY_GEMINI_MODEL": "gemini-3.6-flash"}):
+            spec = dg.build_delegation(TASK, repo, max_turns=40, timeout_seconds=900, agent="gemini")
+        self.assertEqual(spec["auth_mode"], "api-key-free-tier")
+        self.assertEqual(spec["cmd"][-2:], ["--model", "gemini-3.6-flash"])
+        calls = []
+
+        def runner(cmd, *, cwd, env, timeout, **kwargs):
+            calls.append(env)
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "AIzaFreeTierKeyForTests", "GOOGLE_API_KEY": "nope",
+                                     "ANTHROPIC_API_KEY": "nope"}):
+            dg.run_delegation(spec, runner=runner, venv_fn=lambda _r: (None, "none"))
+        env = calls[0]
+        self.assertEqual(env["GEMINI_API_KEY"], "AIzaFreeTierKeyForTests")
+        self.assertNotIn("GOOGLE_API_KEY", env)
+        self.assertNotIn("ANTHROPIC_API_KEY", env)
+        settings = json.loads(Path(env["GEMINI_CLI_SYSTEM_SETTINGS_PATH"]).read_text())
+        self.assertEqual(settings["security"]["auth"]["enforcedType"], "gemini-api-key")
+        # Without the opt-in the key is stripped and Google login is enforced.
+        spec = dg.build_delegation(TASK, repo, max_turns=40, timeout_seconds=900, agent="gemini")
+        self.assertEqual(spec["auth_mode"], "google_account")
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "AIzaFreeTierKeyForTests"}):
+            dg.run_delegation(spec, runner=runner, venv_fn=lambda _r: (None, "none"))
+        self.assertNotIn("GEMINI_API_KEY", calls[-1])
+        # A key never reaches the evidence tail.
+        self.assertNotIn("AIzaFreeTierKeyForTests0000", dg._safe_cli_output("key AIzaFreeTierKeyForTests0000 leaked"))
+
+    def test_key_mode_preflight_and_worker_entry(self):
+        key_env = {"FACTORY_GEMINI_AUTH": "api-key-free-tier", "HOME": tempfile.mkdtemp()}
+        self.assertEqual(dg.agent_preflight({"agent": "gemini"}, env=key_env, which=lambda _n: "/usr/bin/gemini")["need"][:7], "Put a k")
+        self.assertIsNone(dg.agent_preflight({"agent": "gemini"}, env={**key_env, "GEMINI_API_KEY": "k"},
+                                             which=lambda _n: "/usr/bin/gemini"))
+        self.assertEqual(gw.forbidden_variables({**key_env, "GEMINI_API_KEY": "k"}), [])
+        self.assertEqual(gw.forbidden_variables({**key_env, "GEMINI_API_KEY": "k", "GOOGLE_API_KEY": "g"}), ["GOOGLE_API_KEY"])
+        self.assertEqual(gw.forbidden_variables({"GEMINI_API_KEY": "k"}), ["GEMINI_API_KEY"])
+        env = gw.child_env({**key_env, "GEMINI_API_KEY": "k", "GOOGLE_API_KEY": "g"})
+        self.assertEqual(env["GEMINI_API_KEY"], "k")
+        self.assertNotIn("GOOGLE_API_KEY", env)
+        # Newer Gemini CLI stores the Google login as gemini-credentials.json.
+        home = Path(tempfile.mkdtemp())
+        (home / ".gemini").mkdir()
+        (home / ".gemini" / "gemini-credentials.json").write_text("{}")
+        self.assertIsNone(dg.agent_preflight({"agent": "gemini"}, env={"HOME": str(home)}, which=lambda _n: "/usr/bin/gemini"))
+
     def test_heartbeat_payload_is_secret_free(self):
         sent = {}
 

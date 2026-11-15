@@ -1,17 +1,39 @@
 # Gemini worker on EC2 (T-607)
 
+Not to be confused with the older issue→PR loop (`tools/gemini_ec2_loop.sh`, since 2026-11-04): that one makes one
+JSON generation per `Owner: Gemini` Issue through the Render key. This worker runs Gemini CLI as a full coding agent
+(tests, one commit per task) on ROADMAP tasks marked `Owner: gemini`.
+
 The Gemini worker is the third engineering operator. It runs **beside** the Claude worker on the same EC2,
 in its own checkout and on its own branch, and takes only ROADMAP tasks marked `Owner: gemini`.
 
-## Free only: Google login, never an API key
+## Free only: Google login, or a key from a project without billing
 
 - Gemini CLI signs in with the owner's **Google account** ("Login with Google", personal free tier). No API key.
 - A Gemini API key (AI Studio) is free only while its Google project has no billing; with billing, calls past the
-  free quota are paid. So the worker **refuses to start** when `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
+  free quota are paid. So by default the worker **refuses to start** when `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
   `GOOGLE_GENAI_USE_VERTEXAI` or `GOOGLE_APPLICATION_CREDENTIALS` is set, strips them from every run, and writes
   a per-run settings file that enforces the Google-login auth type (`oauth-personal`).
 - When the free quota is used up, the run is reported as `subscription_limit` and the queue waits; it is never
-  switched to a key.
+  switched to a key. A key is accepted only in the opt-in free-tier key mode below.
+
+### Alternative chosen by the owner (2026-11-15): free-tier API key
+
+If the Google login keeps falling back to "Enter Gemini API Key", use a key from an AI Studio project **without billing**:
+
+1. AI Studio → Projects → **Create project** (e.g. `factoryos-gemini-worker`), so the worker does not share the 5 RPM free
+   quota with MyCast / the issue→PR loop that use the Render key. Do **not** click "Set up billing" on it, ever.
+2. API Keys → Create API key in that project. Check that its **Billing Tier** column says **Free tier**.
+3. Put it only in `~/.config/factoryos/gemini-worker.env` (never in chat, git or Render):
+   ```
+   FACTORY_GEMINI_AUTH=api-key-free-tier
+   GEMINI_API_KEY=<the key>
+   # optional: FACTORY_GEMINI_MODEL=<model id shown by /model>
+   ```
+Without billing Google cannot charge: past the quota requests get HTTP 429 and the worker waits (`subscription_limit`).
+Every other key variable (`GOOGLE_API_KEY`, Vertex, service accounts) is still refused.
+
+For an interactive `gemini` session as ec2-user: `/auth` → Use Gemini API Key → Ctrl+C (clears a bad stored key) → paste the key.
 
 ## What the worker can and cannot do
 
@@ -43,6 +65,7 @@ Its token `FACTORY_GEMINI_WORKER_TOKEN` opens only three server paths: `/api/rel
      ```
      FACTORYOS_URL=https://blackboxlab-factoryos.onrender.com
      FACTORY_GEMINI_WORKER_TOKEN=<value>
+     # key mode only (see above): FACTORY_GEMINI_AUTH=api-key-free-tier and GEMINI_API_KEY=<free-tier key>
      ```
 3. **Own checkout and branch**:
    ```bash

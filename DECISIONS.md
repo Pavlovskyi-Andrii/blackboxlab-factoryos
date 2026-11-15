@@ -1338,3 +1338,10 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   (lane must be gemini), `/api/relay/worker/event` (ticket execution owner must be gemini) and `/api/operator-worker/heartbeat`
   (operator gemini). Tested through the real ASGI app.
 - The FactoryOS Pause button stays Claude-only; the Gemini worker is stopped with systemctl (runbook).
+- Update 2026-11-15 (owner): the Google login on EC2 kept falling back to the API-key dialog, so the owner chose an
+  AI Studio key. Allowed only as opt-in `FACTORY_GEMINI_AUTH=api-key-free-tier` with `GEMINI_API_KEY` from the worker's
+  env file, from a project whose AI Studio Billing Tier is "Free tier" (no billing account: quota overflow is a 429, not a
+  charge). Recommended: a separate project, so the worker does not share the 5 RPM free quota with the Render key
+  (MyCast, Surfer, the older `tools/gemini_ec2_loop.sh` issue→PR loop). Other key variables stay refused; keys are redacted
+  from evidence. `FACTORY_GEMINI_MODEL` optionally pins the model (`--model`). Preflight also accepts the newer
+  `~/.gemini/gemini-credentials.json` login file.
