@@ -1180,7 +1180,15 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
-install_mybrief_routes(app, MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog()), request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
+MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
+install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
+from mvp_evolution import EvolutionStore, install_mvp_evolution_routes  # noqa: E402
+install_mvp_evolution_routes(  # T-630 #270: consented feedback -> themes -> owner-approved V2 proposal -> one Relay ticket
+    app, EvolutionStore(DATA_DIR / "mvp_evolution.json", project_exists=lambda pid: _mvp_project(pid) is not None),
+    request_identity, ticket_lookup=RELAY_STORE.get, ticket_verified=_mvp_ticket_done,
+    mybrief_entries=MYBRIEF_FEEDBACK.consented_entries,
+    create_ticket=lambda title, body, key, lane: RELAY_STORE.create(
+        title, body, source={"channel": "mvp-evolution", "source_key": key, "url": ""}, created_by="mvp-evolution", owner=lane)[0])
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
 async def _ab_content_job(title, brief, job_id):
     """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
