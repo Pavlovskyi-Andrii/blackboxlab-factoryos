@@ -408,7 +408,7 @@ def install_decision_memory_routes(app, store: DecisionStore, identity_fn: Calla
 
 # --- MVP Factory registry link (the "decision-memory" pilot seeded in mvp_factory.py) -------------------------------
 AGENT = "claude-session-decision-memory"
-PILOT_PR = 0  # set to the T-614 PR number once it exists; until then the spec steps cite the issue only
+PILOT_PR = 384  # T-614 PR; the spec_draft -> spec_review step cites it
 INTAKE_VERSION = "v1"
 
 
