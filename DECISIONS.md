@@ -1240,3 +1240,55 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   creator writes it with `INSERT OR IGNORE` plus its workspace binding in one transaction; attaching is idempotent and
   no longer depends on the reservation token. The brief puts the draft-only rules first so length capping can never cut
   them. Verified on a real SQLite DB: 6 concurrent/repeated creates → 1 job row, 1 workspace row, 0 publishing rows.
+
+## 2026-11-15 — T-611 Durable engine: DBOS Transact embedded in FactoryOS (stage 0)
+
+- DBOS Transact 3.5.0 (MIT) runs as a library inside the FastAPI process, not as a separate orchestrator service: no
+  extra container or paid plan, and checkpoints stay on the disk FactoryOS already has. DBOS Conductor and DBOS Cloud are
+  not used, so the engine makes no outbound calls.
+- System database: its own SQLite file `DATA_DIR/dbos_system.sqlite`, never `factory.db`, so DBOS schema migrations can
+  never touch FactoryOS tables. SQLite serves one process; that holds today (render.yaml starts one uvicorn worker, and a
+  disk-backed Render service stops the old instance before starting the new one). `DBOS_SYSTEM_DATABASE_URL` moves it to
+  Postgres before FactoryOS ever runs a second process.
+- `dbos==3.5.0; python_version >= "3.10"`: pinned because an upgrade runs DBOS schema migrations; the marker keeps the
+  Python 3.9 EC2 worker venv installable, and `durable_engine` falls back to the legacy paths when dbos cannot be imported.
+- Fixed `application_version` (`factoryos-durable-v1`) instead of DBOS's default hash of the workflow source: with the
+  default, every deploy that touches workflow code would orphan the workflows started before it, which is exactly the
+  case durability is for. Bump it only when a workflow's sequence of steps changes. `executor_id` is fixed to `local`.
+- Launch is the first startup hook and never raises: on failure FactoryOS keeps the legacy paths and reports the error in
+  health details (`durable_engine`). Shutdown calls `DBOS.destroy(workflow_completion_timeout_sec=0)`: a deploy is not
+  held up by waiting workflows, which resume from their checkpoints on the next launch.
+- Recovery detail found while testing: DBOS re-enqueues an interrupted workflow (ENQUEUED) before running it again
+  (PENDING), so "active" and "resuming" count both statuses.
+- DBOS's sync API raises RuntimeError on a thread with a running asyncio loop, which is where FastAPI runs startup
+  hooks and async endpoints (found by booting the app under uvicorn). `durable_engine.run_sync` runs such calls on a
+  small helper pool and waits; tests call it from a running loop.
+- Kill switch `FACTORY_DBOS_ENABLED=0`: dbos is not even imported, no database file is created, every caller uses its
+  legacy path. Setting it on Render is an owner action.
+- Measured locally (Python 3.13): RSS after `import app` + engine launch 109 MB vs 67 MB with the kill switch (+42 MB).
+  Render memory is a post-deploy check.
+
+## 2026-11-15 — T-612 AI Media Finisher as a durable DBOS workflow (stage 1)
+
+- One workflow per edit job generation, ID `media-finisher:<edit_job_id>:<n>`: submit step, then up to
+  `FACTORY_DBOS_FINISHER_MAX_WAIT_SEC` (6 h) of {wait for the worker callback for `FACTORY_DBOS_FINISHER_POLL_SEC`
+  (30 s) → poll step → submit again if the worker lost the job} until the edit job is ready, failed or deleted. After
+  the max wait the workflow releases the edit job to the legacy watchdog instead of failing it.
+- The steps reuse the existing routines (`_submit_media_finisher_background`, `refresh_edit_job(resubmit=False)`), so
+  the payload, retries, progress stages and `_finalize_edit_job` stay byte-for-byte the same. A step replayed after a
+  crash cannot create a second worker job: submit returns early once `provider_job_id` is recorded, and the worker's
+  POST /jobs is idempotent by `edit_job_id`.
+- `_spawn_media_finisher_submit` is the single switch: engine launched → start or re-attach to the workflow (a deterministic
+  ID makes a second start a no-op); engine off or start error → the legacy thread. All existing callers (start, rerun,
+  startup recovery, ASR and real-media repairs, 404 resubmit) go through it unchanged.
+- The callback endpoint wakes the workflow (`DBOS.send`) after finalizing; a callback lost while FactoryOS restarts is
+  replaced by the next poll. The watchdog skips edit jobs a current-version workflow owns. Jobs that were already at
+  the worker before this deploy are not adopted: the watchdog keeps polling them as before (conservative migration).
+- An older-`APP_VERSION` workflow is cancelled by `start()` before a new generation runs, so an edit job never has two
+  owners after a version bump. Local Booster jobs (`compute_target=local`) are untouched.
+- Workflow history stays in `dbos_system.sqlite` (a few dozen rows per finished job); no retention job yet.
+- Local end-to-end check (real uvicorn processes, fake worker over HTTP): SIGKILL mid-wait → after reboot the workflow
+  resumed and delivered the worker's result in ~1 s with exactly one worker POST; SIGTERM (deploy shape) → stop 0.6 s,
+  same result; a callback finished the workflow in ~1 s with no polling. The only extra POST seen came from the
+  existing one-shot startup repair of recently failed manual uploads (`MEDIA_FINISHER_REAL_MEDIA_REPAIR`), which now
+  runs as generation 1. Not verified: a real worker on Render/EC2 and a real Render deploy.
