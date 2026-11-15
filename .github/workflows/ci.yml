@@ -410,10 +410,11 @@ jobs:
           python test_operator_lanes.py
       - name: Motion explainer (#353) offline + RU/UK/EN completeness
         run: python test_explainer_motion.py
-      - name: A/B Tester S1 (T-608) experiments in the MVP registry
+      - name: A/B Tester S1+S2 (T-608/T-609) experiments - registry and dashboard lanes
         run: |
           python -m py_compile mvp_experiments.py test_mvp_experiments.py
           python test_mvp_experiments.py
+          python test_mvp_experiments_ui.py
       - name: Learning section (/learn) catalog, sandbox and login
         run: |
           python -m py_compile learn_center.py test_learn_center.py

@@ -1192,3 +1192,14 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   approved by an old click. Decision fields are whitelisted (`choice`, `note`) — no winner/lift can be stored.
 - Members are denied MVP routes by the existing workspace tenancy middleware, same as all other MVP routes; the
   module itself still distinguishes owner/member for when that changes.
+
+## 2026-11-15 — T-609 A/B Tester S2: experiment lanes in the dashboard MVP panel
+
+- Lives inside the existing project panel (`mvpRenderPanel` → `mvpExperimentsHtml`), loaded with its own GET so the
+  cycle polling and the experiments list fail independently. Lanes follow the API order (a, b) — never re-sorted — so
+  A is above B on every viewport; the compare card only ever renders the API's `reason` (no winner/lift fields exist).
+- Owner-only actions (approve preview, record decision) are hidden for non-owners *and* refused by the API. Form
+  values live in `mvpExpVals`, so a panel re-render (cycle polling) never wipes what the owner is typing; focus and
+  caret are restored through the panel's existing `data-fk` mechanism.
+- Verified in Chromium against a local server: create → save draft A → health claim refused with a readable message →
+  save draft B → approve A only; lanes A (top) / B (below); no horizontal overflow at 375 px.
