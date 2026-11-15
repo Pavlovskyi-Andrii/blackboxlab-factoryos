@@ -110,6 +110,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: 7 consecutive mornings delivered, each with transcript + sources; owner feedback recorded; cost stays zero.
   Progress 2026-11-02: pipeline implemented (autopilot/mycast_daily.py → branch mycast/daily via GitHub API → Piper render workflow → POST /api/factory/mycast/worker/deliver → Telegram sendAudio). Open: 7 live mornings.
   Progress 2026-11-02 (later): Piper voice judged unlistenable by the owner; Gemini two-host voices on the server added (voice-deliver), Piper stays as fallback. Needs T-605 (key in Render).
+  Note 2026-11-15 (T-620 review): no code tail in the #305 files; what remains is the live part of DONE (7 consecutive delivered mornings + owner feedback), not an engineering change.
 
 - [ ] T-604 Shared Claude ↔ ChatGPT workspace through the FactoryOS MCP server
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -276,6 +277,11 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Depends: T-560-H
   Goal: owner 2026-11-15 — Gemini must be able to use the Surfer too. The EC2 Gemini loop is not Gemini CLI but `tools/gemini_issue_pr.cjs` behind the FactoryOS proxy, so it gets a research step: the model plans ≤3 searches and ≤2 page reads, the script runs them through `POST /api/factory/surfer/worker/{tool}` with the worker token EC2 already has, and the results enter the coding prompt as untrusted reference data.
   DONE: `node tools/test_gemini_research.cjs` and `python test_web_surfer.py` prove the limits, https-only reads, worker-token auth, task isolation between worker and MCP callers, and that a failed or empty plan skips research instead of failing the issue.
+
+- [x] T-560-K Gemini search diagnostics + model fallback
+  Owner: claude
+  Goal: production web_search fell back to Wikipedia with only "HTTPError"; report HTTP code + Google error enum and try another Flash model on 400/404.
+  DONE: `python test_web_surfer.py` proves code/status in the note without Google's message text, fallback on 400, no retry on 429.
 
 - [ ] [HUMAN] T-560-I Opt in to Google search via Gemini (optional)
   Depends: T-560-H
@@ -445,6 +451,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: implement provider-specific authorize/callback/refresh/revoke flows so a customer can connect, disconnect and replace accounts from FactoryOS without editing Render environment variables.
   DONE: deterministic mocks cover OAuth state/PKCE where supported, token refresh, encrypted secret storage, revoke/disconnect and account replacement without exposing tokens to the browser or logs.
 
+- [x] T-552-YT Direct YouTube publisher (Google OAuth + resumable Shorts upload)
+  Owner: claude
+  Parent: T-552
+  Spec: owner decision 2026-11-15 (.autopilot/answers.md): publish through the official free YouTube Data API instead of the paid Metricool API; TikTok/Instagram/HubSpot stay on T-552.
+  Goal: real Google OAuth transport (exchange, channel identity, refresh, revoke) stored in the encrypted vault; `FACTORY_PUBLISHER_ADAPTER=youtube` uploads the exact archived approved file with AI disclosure, explicit audience and private-by-default privacy; owner connects the channel from Connections; T-520 runbook rewritten for Google Cloud.
+  DONE: `python test_youtube_publisher.py` (zero network) proves exchange/refresh/revoke, no-channel refusal, exact-file upload with receipt, refusals for wrong platform/swapped media/not connected, fixed quota code and uncertain outcome on an interrupted upload, and no token/secret in results or logs. Live connection = HUMAN T-520, first post = HUMAN T-521.
+
 - [x] T-553 Workspace data tenancy
   Owner: claude
   Planner: ChatGPT
@@ -573,6 +586,16 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner-only route creates one inbox job per branch via `create_job` (atomic claim); draft only, no publishing queue row, no provider call; publish approval stays `/api/jobs/{id}/approve` + `_publish_approval_gate`.
   DONE: tests prove one job per branch under concurrent clicks, no publish row, no provider call.
 
+## MVP Factory pilots — first MVP wave (owner 2026-11-15)
+
+- [x] T-616 AI Release Guardian — read-only GitHub PR readiness board (MVP pilot `release-guardian`, Issue #189)
+  Owner: claude (session Release Guardian)
+  Priority: P1
+  Depends: #186 registry
+  Spec: Issue #189; docs/MVP_FACTORY_SPEC.md (pilot backlog); DECISIONS.md «2026-11-15 — T-616»
+  Goal: owner-only `GET /api/release-guardian` + `static/mvp-factory/release-guardian.html` (EN/UK/RU): per PR the author, every check run, Actions workflows that ran no job, commit statuses, reviews and blockers. Readiness green/red/pending/unknown comes from one pure function; only `success` passes; skipped/neutral/stale, missing required checks and job-less workflows are never success; no checks → unknown. GitHub is read with GET only (existing `FACTORY_GITHUB_READ_TOKEN`, else anonymous with a smaller cap), cached with a TTL and a rate-limit guard; nothing is written to GitHub.
+  DONE: `python test_release_guardian.py` passes (fixtures: success, skipped, neutral, stale, cancelled, no checks, no jobs, queued no jobs, required missing/skipped, truncated, re-run, statuses, GitHub down, stale cache, rate-limit guard, owner-only route through the real auth middleware), the page's inline JS passes `node --check`, the MVP suites and the default verification pass.
+
 ## Durable workflows on DBOS (owner 2026-11-15: «Зроби етапи 0 і 1 з плану DBOS»)
 
 Plan: owner's Claude doc «DAG-оркестраторы для AI — исследование для FactoryOS» — stage 0 (engine) and stage 1 (Media Finisher).
@@ -592,6 +615,49 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   Goal: submit → wait for the worker callback (or poll) → resubmit if the worker lost the job runs as one DBOS workflow per edit job (`media-finisher:<edit_job_id>:<generation>`): a deploy or crash mid-run neither duplicates the worker job nor loses its result; the callback wakes the workflow; the legacy watchdog skips DBOS-owned edit jobs; `FACTORY_DBOS_ENABLED=0` restores the legacy thread + watchdog.
   DONE: `python test_durable_media_finisher.py` passes (SIGKILL mid-wait → one submit; callback wake-up; lost-worker resubmit; release; version bump; app wiring on event-loop threads; kill switch) and the default verification passes.
   Live check after deploy (owner/Claude, not a blocker): one real Media Finisher run with a Render deploy in the middle → one worker job, result delivered; health details `durable_engine.launched=true`.
+
+- [x] T-620 MyCast MVP V1 — accounts, podcast library, revocable public episode links, 7+7 referral ledger
+  Owner: claude (session MyCast)
+  Priority: P1 (owner decision 2026-11-10, Issue #305)
+  Spec: Issue #305; DECISIONS.md «2026-11-15 — T-620». Reuses the existing Telegram/Google listener accounts (#281/#317) and Telegram-hosted audio; no new identity provider, storage, paid API or infra.
+  Goal: a signed-in listener sees "My podcasts" (server-backed library beyond the 14-day delivery log, honest ready/preparing/failed/no-audio states, playback of real audio only); each episode is private by default and can get a revocable `/mycast/e/<token>` link (player + safe metadata, noindex, no-store; unpublishing kills the link at once); referral +7/+7 is decided once at the friend's first delivered episode through an idempotent ledger (no self, duplicate, incomplete or racing credits); free-access expiry is computed from the first episode. The invite promotion stays hidden (`FACTORY_MYCAST_REFERRALS` off) until T-620-H.
+  DONE: `python test_mycast_library.py` plus every `test_mycast*.py`, `python test_owner_desk.py`, the default verification and `node --check` of the extracted configurator JS pass.
+
+- [ ] [HUMAN] T-620-H Approve the MyCast referral terms and turn the offer on
+  Depends: T-620
+  Need: owner signs off the rule (+7 days to each side once, at the friend's first real episode; cap 50; no self/duplicate credit), sets `FACTORY_MYCAST_REFERRALS=1` in Render, and runs one live invite with a second Telegram account. Enforcing the end of free days (`FACTORY_MYCAST_ENFORCE_TRIAL=1`) is a separate later business decision.
+  DONE: `/api/mycast/account/config` returns `"referrals_enabled": true` and the live check gave both accounts +7 days exactly once.
+
+## MVP Factory pilots (owner 2026-11-15: first MVP wave — #305, #187, #188, #189)
+
+- [x] T-615 MyBrief for a profession — web MVP pilot `mybrief-pro` (#188)
+  Owner: claude (session MyBrief)
+  Priority: P1
+  Spec: Issue #188; docs/MVP_FACTORY_SPEC.md; DECISIONS.md «2026-11-15 — T-615»
+  Goal: public page `/static/mybrief/index.html`: pick one of 3 professions and its topics, see a sample briefing where every item links to a real, dated source read through the FactoryOS Surfer; feedback only after an explicit consent tick, no personal data kept, withdrawable; owner/member summary at `/api/mybrief/feedback`. No server-side LLM call, no publishing, no outreach.
+  DONE: `python test_mybrief.py` passes (fixture validation, topic filter, consent gate, redaction, caps, withdraw, route auth, registry prototype link, page script), MVP + Surfer suites and default verification pass, page JS `node --check`.
+
+- [ ] [HUMAN] T-615-H Start the 48-hour MyBrief validation (outreach is the owner's call)
+  Owner: owner
+  Depends: T-615
+  Need: owner reviews the page, sends the link personally to up to 5 people per profession, and after 48 h reads `/api/mybrief/feedback` and decides validated/rejected in MVP Builder. Runbook in Worker Center → «Ваши задачи».
+  DONE: feedback summary from real people and an owner decision recorded on `mybrief-pro`.
+
+## MVP Factory pilot 1 — AI Decision Memory (#187, epic #186)
+
+- [x] T-614 AI Decision Memory — owner-only web MVP over FactoryOS's real decision log
+  Owner: claude (session Decision Memory)
+  Priority: P1 (owner 2026-11-15: first wave of MVP pilots, parallel with #305 MyCast, #188 MyBrief, #189 Release Guardian)
+  Depends: #186 registry (`mvp_factory.py`, pilot `decision-memory` already seeded)
+  Spec: issue #187; DECISIONS.md «2026-11-15 — T-614»; interview script `docs/mvp/decision-memory/INTERVIEW_SCRIPT.md`
+  Goal: `decision_memory.py` + `static/decision-memory/index.html`: decision, rationale, responsible, source links, expected outcome, follow-up review (verdict + next date); demo dataset parsed at runtime from DECISIONS.md with credential-shaped text redacted and no invented fields; persistence in `DATA_DIR/decision_memory.json` with idempotent creates/reviews; owner-only API; the existing `decision-memory` registry project gets its preview link and moves only through the agent-allowed stages (research, spec) with evidence. No AI/provider/network call, no publishing, no public data.
+  DONE: `python test_decision_memory.py`, `python test_mvp_factory.py`, `python test_mvp_state_machine.py`, page script `node --check`, and the default verification pass.
+
+- [ ] [HUMAN] T-614-H1 Decision Memory: review the preview, run 5 validation interviews, decide
+  Owner: owner
+  Depends: T-614 merged and deployed
+  Need: owner opens the preview, fills expected outcome / review date for a few real decisions, contacts 5 people (external contact = owner action) with the interview script, and records build/preview/verdict steps in MVP Builder (agents may not move a pilot past spec review).
+  DONE: MVP Builder shows the `decision-memory` pilot at `validated` or `rejected` with an owner event citing the aggregate interview result.
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 

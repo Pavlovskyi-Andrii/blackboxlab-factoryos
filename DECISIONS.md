@@ -1223,6 +1223,33 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Verified in Chromium against a local server: create → save draft A → health claim refused with a readable message →
   save draft B → approve A only; lanes A (top) / B (below); no horizontal overflow at 375 px.
 
+## 2026-11-15 — T-552-YT Direct YouTube publisher
+- Owner chose the official YouTube Data API over the paid Metricool API (Metricool's free plan has no server API) and
+  ruled out reverse-engineering private provider APIs. TikTok/Instagram/HubSpot remain on T-552.
+- Uploads default to `private` (`FACTORY_YOUTUBE_PRIVACY` may set `unlisted`/`public`). Google also forces uploads
+  from unaudited API projects to private, so a public post needs either YouTube's API audit or a manual switch in
+  YouTube Studio; the receipt is still a real video ID/URL.
+- `selfDeclaredMadeForKids` has no default: `FACTORY_YOUTUBE_MADE_FOR_KIDS` must be set (fail closed), mirroring
+  the Metricool audience rule. Every upload sets `containsSyntheticMedia: true` (AI disclosure).
+- Only the durable archived file of the approved media artifact is uploaded, never a re-fetched URL; the artifact
+  must match the approved snapshot's job and URL.
+- The access token is refreshed before every upload and the refreshed token is written back to the vault. An upload
+  interrupted after the bytes may have landed is raised as TimeoutError so the publish item is marked
+  `outcome_uncertain` and needs explicit confirmation before any retry (no duplicate videos).
+- A Google account without a YouTube channel is refused at connect time (`youtube_channel_missing`) instead of
+  storing a token that cannot upload.
+- With a Google OAuth client configured, Connections → YouTube → Connect starts Google OAuth instead of the
+  Metricool binding.
+- Review follow-up (Codex, advisory): YouTube readiness, token lookup, refresh and persistence use the publish item's
+  workspace (readiness: the caller's), so no workspace sees or uses another's channel. Approval now records the
+  archived file's sha256 (`media_sha256`); the YouTube publisher hashes the archived file and refuses a mismatch or a
+  missing digest before any upload. Dry-run marks per-platform support of the selected adapter and keeps a T-520
+  blocker for an item platform the adapter cannot publish.
+- Second review follow-up: only the digest captured in the approval snapshot is trusted (no fallback to the
+  artifact's current `archive_sha256`, which a re-archive could rewrite together with the file); items without it
+  must be re-approved. `upload_video` hashes and uploads through one open file handle, so a file swapped at the path
+  after the check cannot be what reaches YouTube.
+
 ## 2026-11-15 — T-610 A/B Tester S3: one Content Factory draft job per branch
 
 - `POST /api/mvp-factory/{pid}/experiments/{exp}/branches/{b}/content-job` (owner only) reserves the branch under the
@@ -1345,3 +1372,111 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   (MyCast, Surfer, the older `tools/gemini_ec2_loop.sh` issue→PR loop). Other key variables stay refused; keys are redacted
   from evidence. `FACTORY_GEMINI_MODEL` optionally pins the model (`--model`). Preflight also accepts the newer
   `~/.gemini/gemini-credentials.json` login file.
+## 2026-11-15 — T-620 MyCast MVP V1 (#305): library, public episode links, referral ledger
+
+- Reused, not rebuilt: listener accounts (Telegram login + Google, signed `mycast_listener` cookie, 30-day expiry,
+  SameSite=Lax, logout, delete), the JSON listener store and Telegram as audio storage. New logic sits in
+  `mycast_library.py`; `mycast_accounts.py` gains three routes; `app.py` only adds `/mycast/e/` to the public and
+  mycast.pro prefixes.
+- Library: `rec["library"]` keeps the newest 200 delivered episodes (title, length, Telegram file id, public token);
+  the 14-day `deliveries` log is unchanged. Rows report only honest states: ready / no_audio / preparing / failed.
+- Public links: one random 16-char token per published episode (`secrets.token_urlsafe(12)`), indexed in
+  `data["episode_links"]` and checked on both sides, so unpublish revokes at once; republishing makes a new token.
+  Pages and audio are `no-store`, `noindex`, `no-referrer`; they show title, date, length and first name only. Account
+  deletion drops the links. The older account-level "latest episode" toggle (`public_audio`) stays as it was (off by
+  default).
+- Referral rule: #305 (2026-11-10) supersedes the 2026-11-07 offer — both sides get +7 only at the friend's first
+  delivered episode. `FACTORY_MYCAST_FRIEND_BONUS=signup` brings back the friend's immediate +7. Existing tests that
+  pinned the immediate gift were updated to the new rule and the old one is tested through the switch.
+- Ledger: `data["referral_ledger"]` (append-only, newest 5000), id `ref:<inviter>:<friend>` as the idempotency key.
+  Rejections are recorded with a reason (self_referral, duplicate_friend, inviter_cap, inviter_gone). To stop a friend
+  being credited twice after deleting and re-creating the account, a ledger entry keeps two truncated one-way hashes
+  (identity, Telegram chat) — no name, no raw id. This is the only data that outlives account deletion.
+- Promotion hidden by default (`FACTORY_MYCAST_REFERRALS` unset): #305 says the user-visible offer stays off until the
+  owner signs off terms (T-620-H). Invites are still recorded so nobody loses credit when it is switched on. The
+  offer banner, the "share and earn days" entry and the invite box are hidden; sharing and the personal page stay.
+- Access period: free days start at the first delivered episode (`activated_at`). The expiry is shown in the cabinet
+  only when the offer is on or the period is enforced, so open-beta listeners do not see a false deadline.
+  `FACTORY_MYCAST_ENFORCE_TRIAL=1` makes the delivery gate return `trial_ended`; off by default (open beta).
+- Cost caps already in place and unchanged: 10 listener episodes per UTC day across all listeners, 3 failures per
+  day, Gemini demo/voice limits; public audio is rate-limited (60 plays/hour per link).
+## 2026-11-15 — T-615 MyBrief for a profession (#188, pilot `mybrief-pro`)
+
+- Professions: software developer, school teacher (England), accountant / tax adviser (IRS + HMRC). Chosen because
+  their official sources (GitHub Changelog, GOV.UK, IRS Newsroom) are readable by the Surfer and publish dated news.
+- Content: a fixture (`static/mybrief/demo-briefs.json`, `kind: demo_fixture`) written once by this Claude session
+  from pages the FactoryOS Surfer actually read (`web_read`, EC2 Chromium) on 2026-11-15; 13 items, each with the
+  source URL, publisher, publication date and `verified_via: surfer_web_read`. No server-side generation: zero calls,
+  zero spend (the MyCast path — Claude subscription on the worker — is not needed for a fixed demo).
+- Surfer limits seen that day: `web_search` with Gemini returned HTTPError (fell back to Wikipedia, which has no
+  news), so candidates came from a separate web search and only the Surfer read was trusted. Many news sites were
+  unreadable from EC2 (openai.com and thenewstack.io render empty, JetBrains "Access denied", k12dive captcha, EdWeek
+  nav only) and were dropped rather than paraphrased. Owner may want to check the Gemini search key/quota.
+- Briefing text is in English (the sources' language); the page UI is EN/UK/RU and says so.
+- Feedback: public POST under `/api/mybrief/public/` (new public prefix, same model as the MyCast demo), refused
+  unless `consent` is literally `true`. Stored: profession, topics, rating 1–5, would-read-weekly, comment ≤500 chars
+  with e-mails/phone numbers redacted. Not stored: IP, user agent, name, e-mail. Caps: 5 per client per UTC day
+  (in-memory, client id hashed with a per-day salt) and 300 per day overall. A withdraw token (hash stored) deletes
+  the entry. Summary `/api/mybrief/feedback` is signed-in owner/member only.
+- MVP registry: `PILOT_PROTOTYPES` fills an empty `prototype` on `mybrief-pro` with the page; the stage is not moved.
+  Stage events still need evidence links recorded by the owner/member (PR link → spec/build stages).
+- Outreach (sending the link to real people) is the owner's decision: [HUMAN] T-615-H with a runbook.
+## 2026-11-15 — T-614 AI Decision Memory pilot (#187)
+
+- Delivery shape: one module (`decision_memory.py`) with an `install_*` route function, its test, and one static page
+  (`static/decision-memory/index.html`), the same pattern as Faceless Models CRM (#359). No new service, database or
+  dependency; app.py only imports and installs it.
+- Access: owner only for reads and writes. Issue #187 does not authorize public access, so the static page is only an
+  empty shell (the `/static/` prefix is public) and every record comes from `/api/decision-memory` behind the login.
+  Viewers and members get 403; a guest/viewer mode for interviews can be added later if the owner wants it.
+- Demo dataset: parsed at runtime from DECISIONS.md, not copied into a fixture, so it cannot drift or be invented. A
+  `**Decision:** … **Reason:** …` bullet becomes one record; any other section becomes one record (heading = decision,
+  body = rationale). Sources are the DECISIONS.md line on GitHub plus `#NNN` references found in the text (linked as
+  issues; GitHub redirects PR numbers). DECISIONS.md records no responsible person, expected outcome or review date, so
+  those fields are empty in the import: the page shows the gap instead of filling it with guesses. Credential-shaped
+  text (shared `agent_secret_scan` patterns) is replaced by a redaction marker; submitted text with such patterns is
+  refused. 216 records today, 0 redacted.
+- Persistence: owner edits, new decisions and reviews live in `DATA_DIR/decision_memory.json` as an overlay keyed by a
+  stable record id (hash of heading, position and text). If a DECISIONS.md entry is later rewritten, its overlay is
+  orphaned rather than attached to different text. A damaged store returns 503 and is never replaced.
+- Follow-up model: `review_at` makes a decision "scheduled", then "due" once the date passes; recording a review
+  (as expected / partly / did not work / reversed) clears the date or sets the next one.
+- Registry: the `decision-memory` pilot seeded in `mvp_factory.py` is reused, never duplicated. A startup intake
+  (`sync_mvp_registry_once`, marker + file lock) sets its `prototype` link through a new minimal
+  `MvpRegistry.set_prototype` (a `/static/` link only, recorded as a note event) and advances it with evidence only
+  through stages the registry allows an agent (idea → researching → spec_draft → spec_review). build_queued, preview,
+  owner review and the verdict stay with the owner ([HUMAN] T-614-H1). The intake skips a pilot the owner blocked,
+  moved elsewhere or deleted.
+- "AI" is the product hypothesis, not a feature of this pilot: no LLM or provider call. Validating the
+  memory + follow-up loop with 5 interviews comes before spending on summarisation.
+## 2026-11-15 — T-616 AI Release Guardian (#189)
+
+- Module `release_guardian.py`, page `static/mvp-factory/release-guardian.html`, route `GET /api/release-guardian?prs=…`
+  (owner only, like the open-questions board). The MVP Builder card of `release-guardian` links to the page by project
+  id / issue 189; `mvp_factory.py` is unchanged (the seed already holds the pilot; stages still move only by events).
+- Readiness rules (one pure function, `classify_readiness`): red if any check failed; else pending if any runs; else
+  unknown if there is no check, no passed check, a required check is missing or skipped, or the list is truncated;
+  else green. `cancelled`, `action_required`, `startup_failure`, `timed_out` are failures. `skipped`, `neutral`,
+  `stale` and unknown conclusions are "not verified" and never count. A non-required skipped check beside passing
+  ones is listed as "not counted" and does not turn green into unknown.
+- "No jobs ran": a GitHub Actions check suite with zero check runs and a failing conclusion is a failed check named
+  after its workflow and event. Found on the pilot PRs: #162/#163 show three green jobs from a `workflow_dispatch` run
+  while the `pull_request` run of FactoryOS CI ended `failure` with no job; the board marks them red. A queued Actions
+  suite without runs is pending. Suites of other apps without runs (Render's never-run suite) are listed as notes only.
+- The combined `/status` endpoint says `pending` when there are no statuses; only the `statuses` list is used.
+- Required checks come from `GET /rules/branches/{base}` (rulesets, readable without admin). Classic branch
+  protection needs admin and is not read; the page says so. Unreadable rules → "required checks unknown".
+- Token: `_github_read_token()` (read-only token first, as every server-side read). Without a token the board reads
+  anonymously, caps at 5 PRs and caches 10 min; with a token 10 PRs and 2 min. The client stops calling GitHub when
+  `X-RateLimit-Remaining` ≤ 5 until the reset and then serves stale cache or "unknown". Error reasons use the shared
+  `relay.github_error_reason` categories, never response text or the token. No [HUMAN] task: the read-only token
+  variable already exists; if it is not set on Render the page shows "anonymous" and still works.
+
+
+## 2026-11-15 — T-560-K Gemini search diagnostics + model fallback
+
+- Production `web_search` answered "Gemini search failed (HTTPError)" with no way to tell quota from an unsupported
+  model. The note now carries the HTTP code and Google's error enum (`HTTP 400 INVALID_ARGUMENT`), never Google's
+  free-text message (it can echo request data). On 400/404 the next Flash model is tried (`gemini-flash-latest`,
+  then `gemini-2.5-flash`); 429/5xx are not retried, so one search costs at most 3 calls and still counts once
+  against the 100/day cap. The successful model is returned as `model`.

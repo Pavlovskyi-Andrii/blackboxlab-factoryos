@@ -1,0 +1,150 @@
+{
+ "version": 1,
+ "kind": "demo_fixture",
+ "generated_at": "2026-11-15",
+ "generated_by": "Claude session (MyBrief pilot, T-615), written once from pages read through the FactoryOS Surfer",
+ "method": "Every item was written only from the text of its source page as read by the FactoryOS Surfer (web_read, EC2 Chromium) on 2026-11-15. Search candidates came from a web search; Surfer web_search (Gemini) returned HTTPError that day and Wikipedia search had no news. Pages the Surfer could not read (bot walls, captchas, empty renders) were dropped, not paraphrased from elsewhere.",
+ "language": "en",
+ "professions": [
+  {
+   "id": "software-developer",
+   "title": {"en": "Software developer", "uk": "Розробник ПЗ", "ru": "Разработчик ПО"},
+   "audience": {"en": "Engineers who use AI coding tools at work.", "uk": "Інженери, які працюють з AI-інструментами для коду.", "ru": "Инженеры, которые работают с AI-инструментами для кода."},
+   "topics": [
+    {"id": "ai-tools", "title": {"en": "AI coding tools", "uk": "AI-інструменти для коду", "ru": "AI-инструменты для кода"}},
+    {"id": "models", "title": {"en": "Model changes", "uk": "Зміни моделей", "ru": "Изменения моделей"}},
+    {"id": "code-review", "title": {"en": "Code review", "uk": "Код-рев'ю", "ru": "Код-ревью"}}
+   ],
+   "items": [
+    {
+     "id": "dev-copilot-weekly-nov2",
+     "topic": "ai-tools",
+     "headline": "Copilot arrives in JetBrains Air and Xcode; VS Code 1.145 adds scheduled agent automations",
+     "summary": "GitHub's weekly release notes say Copilot is now available in JetBrains Air (local or cloud agent sessions on an existing subscription) and in Xcode's built-in coding assistant as a public preview from Xcode 27.3 beta. VS Code 1.145 lets local automations run on cron expressions with custom agents from the workspace, and the Copilot app can merge a pull request through Agent Merge once required checks pass.",
+     "why": "If your team is on JetBrains or Xcode, you can now try the same agent workflow without switching editors; scheduled automations need the same review discipline as any CI job.",
+     "source": {"title": "GitHub Copilot weekly releases — November 2", "publisher": "GitHub Changelog", "url": "https://github.blog/changelog/2026-11-06-github-copilot-weekly-releases-november-2/", "date": "2026-11-06", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    },
+    {
+     "id": "dev-gemini-4-hydrogen",
+     "topic": "models",
+     "headline": "Gemini 4 Hydrogen is generally available in GitHub Copilot, billed at provider list price",
+     "summary": "GitHub describes Gemini 4 Hydrogen as Google's latest Flash model, designed for fast agentic coding, tool use and multistep workflows, with better instruction following than Gemini 3.8 Flash. It is billed at provider list pricing under usage-based billing, rolls out gradually to Pro, Pro+, Max, Business and Enterprise users, and is enabled by default unless an administrator turned the default off.",
+     "why": "A default-enabled, usage-billed model can change your team's spend; check the model policy in Copilot settings before people pick it.",
+     "source": {"title": "Gemini 4 Hydrogen in GitHub Copilot", "publisher": "GitHub Changelog", "url": "https://github.blog/changelog/2026-11-13-gemini-4-hydrogen-in-github-copilot/", "date": "2026-11-13", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    },
+    {
+     "id": "dev-copilot-deprecation-nov16",
+     "topic": "models",
+     "headline": "Three Copilot models are deprecated on 16 November 2026",
+     "summary": "GitHub will deprecate Claude Opus 4.8, Claude Opus 5 and GPT-5.6 Terra across all Copilot experiences on 16 November 2026; the suggested replacements are Claude Opus 5.5 and GPT-6.1 Sol or GPT-6 Luna. Claude Opus 4.8 stays available to individual subscribers on annual plans, and the alternatives are enabled automatically for Business and Enterprise unless an administrator disabled them.",
+     "why": "Scripts, CI jobs or team docs that pin one of these model names will stop working; update them before the date.",
+     "source": {"title": "Upcoming deprecation of selected GitHub Copilot models in mid-November", "publisher": "GitHub Changelog", "url": "https://github.blog/changelog/2026-10-15-upcoming-deprecation-of-selected-github-copilot-models-in-mid-november/", "date": "2026-10-15", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    },
+    {
+     "id": "dev-copilot-code-review-api",
+     "topic": "code-review",
+     "headline": "Copilot code review settings can now be managed through the REST and GraphQL APIs",
+     "summary": "Enterprise, organization and repository administrators can now read and update Copilot code review settings through the APIs, and reviews carry explicit attribution fields that identify Copilot's reviews and comments. Review sessions now show the AI credits consumed, balanced-effort reviews use three reviewer models with another model combining their findings, and failed or timed-out reviews are retried once automatically.",
+     "why": "You can now audit which review comments came from Copilot and what they cost, which makes it easier to measure whether automated review is worth it.",
+     "source": {"title": "Copilot code review: API management and review overview updates", "publisher": "GitHub Changelog", "url": "https://github.blog/changelog/2026-11-06-copilot-code-review-api-management-and-review-overview-updates/", "date": "2026-11-06", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    }
+   ]
+  },
+  {
+   "id": "teacher",
+   "title": {"en": "School teacher (England)", "uk": "Шкільний вчитель (Англія)", "ru": "Школьный учитель (Англия)"},
+   "audience": {"en": "Secondary-school teachers in England; sources are Department for Education announcements.", "uk": "Вчителі середньої школи в Англії; джерела — оголошення Міністерства освіти.", "ru": "Учителя средней школы в Англии; источники — объявления Министерства образования."},
+   "topics": [
+    {"id": "classroom-tech", "title": {"en": "Phones and classroom tech", "uk": "Телефони і технології в класі", "ru": "Телефоны и технологии в классе"}},
+    {"id": "curriculum", "title": {"en": "Curriculum and qualifications", "uk": "Програма і кваліфікації", "ru": "Программа и квалификации"}},
+    {"id": "ai-in-education", "title": {"en": "AI in education", "uk": "AI в освіті", "ru": "AI в образовании"}}
+   ],
+   "items": [
+    {
+     "id": "teach-phone-free",
+     "topic": "classroom-tech",
+     "headline": "Strengthened guidance: phones out of use and inaccessible for the whole school day",
+     "summary": "The Department for Education says schools should go beyond 'not seen, not heard' and adopt whole-school approaches that keep phones inaccessible all day, such as lockable pouches, collection at the start of the day or secure storage. It cites that only 16% of secondary pupils say phone rules are followed all of the time, and launched a consultation on technology in the classroom, including independent safety certification for EdTech.",
+     "why": "Expect your school's phone policy to tighten, and watch the EdTech certification consultation if you choose classroom software.",
+     "source": {"title": "Strengthened guidance to take the next leap to phone-free schools", "publisher": "GOV.UK — Department for Education", "url": "https://www.gov.uk/government/news/strengthened-guidance-to-take-the-next-leap-to-phone-free-schools", "date": "2026-11-10", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    },
+    {
+     "id": "teach-ks3-overhaul",
+     "topic": "curriculum",
+     "headline": "Key stage 3 restored as a distinct three-year phase; no early GCSE starts for large cohorts",
+     "summary": "The government will restore key stage 3 as a distinct three-year phase, with slimmed-down and better-sequenced content in a new National Curriculum due later this year. Schools should not start GCSE specifications early for large cohorts or routinely narrow options early; the announcement cites that persistent absence almost doubles between Years 7 and 9 to one in four pupils.",
+     "why": "Year 7–9 planning that front-loads GCSE content will need to change once the new curriculum is published.",
+     "source": {"title": "Curriculum overhaul to re-engage pupils in vital early secondary years", "publisher": "GOV.UK — Department for Education", "url": "https://www.gov.uk/government/news/curriculum-overhaul-to-re-engage-pupils-in-vital-early-secondary-years", "date": "2026-11-08", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    },
+    {
+     "id": "teach-ukrainian-gcse",
+     "topic": "curriculum",
+     "headline": "A new Ukrainian GCSE: first teaching from September 2028",
+     "summary": "Pupils in England, Wales and Northern Ireland will be able to take a new Ukrainian GCSE, open to all pupils and assessing listening, speaking, reading and writing like other modern foreign language GCSEs. AQA will develop it; first teaching is expected from September 2028 and first assessments in 2029.",
+     "why": "Language departments and schools with Ukrainian pupils can start planning for a formal qualification in their home language.",
+     "source": {"title": "New Ukrainian GCSE to help young people preserve their heritage", "publisher": "GOV.UK — Department for Education", "url": "https://www.gov.uk/government/news/new-ukrainian-gcse-to-help-young-people-preserve-their-heritage", "date": "2026-11-04", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    },
+    {
+     "id": "teach-ai-tutoring",
+     "topic": "ai-in-education",
+     "headline": "Government invites EdTech firms to build supervised AI tutoring tools for disadvantaged pupils",
+     "summary": "Up to 8 organisations will receive £300,000 each to co-design AI tutoring tools with teachers for Years 9 to 10 in English, maths, science and modern foreign languages, tested in schools under teacher supervision. Successful tools are meant to be available nationally from 2027 and could reach up to 450,000 disadvantaged pupils a year; national benchmarks for accuracy and safety are being developed with teachers.",
+     "why": "This is older news (April 2026) but sets the frame for AI tools likely to reach classrooms in 2027, and teachers are being asked to help shape them.",
+     "source": {"title": "Edtech and AI companies invited to help build safe AI tutoring tools for disadvantaged pupils", "publisher": "GOV.UK — DSIT and Department for Education", "url": "https://www.gov.uk/government/news/edtech-and-ai-companies-invited-to-help-build-safe-ai-tutoring-tools-for-disadvantaged-pupils", "date": "2026-04-16", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    }
+   ]
+  },
+  {
+   "id": "accountant",
+   "title": {"en": "Accountant / tax adviser", "uk": "Бухгалтер / податковий консультант", "ru": "Бухгалтер / налоговый консультант"},
+   "audience": {"en": "Tax preparers and advisers working with US (IRS) and UK (HMRC) clients.", "uk": "Податкові консультанти з клієнтами у США (IRS) та Великій Британії (HMRC).", "ru": "Налоговые консультанты с клиентами в США (IRS) и Великобритании (HMRC)."},
+   "topics": [
+    {"id": "tax-law", "title": {"en": "Tax rules and thresholds", "uk": "Податкові правила і пороги", "ru": "Налоговые правила и пороги"}},
+    {"id": "practice-admin", "title": {"en": "Practice admin", "uk": "Адміністрування практики", "ru": "Администрирование практики"}},
+    {"id": "making-tax-digital", "title": {"en": "Making Tax Digital (UK)", "uk": "Making Tax Digital (UK)", "ru": "Making Tax Digital (UK)"}}
+   ],
+   "items": [
+    {
+     "id": "acc-irs-2027-inflation",
+     "topic": "tax-law",
+     "headline": "IRS publishes tax year 2027 inflation adjustments for almost 70 provisions",
+     "summary": "Revenue Procedure 2026-35 sets the tax year 2027 adjustments, including tax rate schedules and standard deduction amounts; they generally apply to returns filed in 2028. The release notes that some items are not adjusted by statute, for example the Lifetime Learning Credit phase-out stays at $80,000–$90,000 MAGI ($160,000–$180,000 joint).",
+     "why": "Update planning spreadsheets and client projections for 2027 from the Revenue Procedure itself.",
+     "source": {"title": "IRS releases tax inflation adjustments for tax year 2027; taxpayers continue to benefit from the Working Families Tax Cuts", "publisher": "IRS Newsroom (IR-2026-133)", "url": "https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2027-taxpayers-continue-to-benefit-from-the-working-families-tax-cuts", "date": "2026-11-05", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    },
+    {
+     "id": "acc-hmrc-iht-pensions",
+     "topic": "tax-law",
+     "headline": "HMRC: unused pension funds enter the Inheritance Tax estate from 6 April 2027",
+     "summary": "HMRC's agent update says most unused pension funds and pension death benefits will count towards a deceased person's estate for Inheritance Tax when the member dies on or after 6 April 2027, as legislated in the Finance Act 2026. Advisers of personal representatives, pension beneficiaries and scheme administrators are told to read two technical notes; full guidance is due by April 2027.",
+     "why": "Estate and pension planning conversations with UK clients should cover this change now.",
+     "source": {"title": "Issue 148 of agent update", "publisher": "GOV.UK — HM Revenue & Customs", "url": "https://www.gov.uk/government/publications/agent-update-issue-148/issue-148-of-agent-update", "date": "2026-10-15", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    },
+    {
+     "id": "acc-ptin-2027",
+     "topic": "practice-admin",
+     "headline": "Renew your PTIN for 2027: current numbers expire 31 December 2026",
+     "summary": "Anyone paid to prepare federal returns needs a valid PTIN, renewed every year; online renewal takes about 15 minutes, while a paper Form W-12 can take about six weeks. PTIN renewal is separate from enrolled agent renewal; agents with SSNs ending in 7, 8 or 9 (or without an SSN) are in the cycle that runs to 31 January 2027.",
+     "why": "Renew before the filing season so returns are not blocked by an expired PTIN.",
+     "source": {"title": "IRS reminder: Tax professionals should renew their PTINs for 2027", "publisher": "IRS Newsroom (IR-2026-130)", "url": "https://www.irs.gov/newsroom/irs-reminder-tax-professionals-should-renew-their-ptins-for-2027", "date": "2026-11-04", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    },
+    {
+     "id": "acc-tax-pro-account",
+     "topic": "practice-admin",
+     "headline": "Tax Pro Account now lets authorized professionals pay on behalf of business clients",
+     "summary": "Authorized tax professionals can now make certain payments for business clients through Tax Pro Account; previously they could only view balances and payment activity. They must hold the appropriate authorization for the client and the tax matters involved.",
+     "why": "Routine client payments can move into the same online service you already use for authorizations.",
+     "source": {"title": "IRS expands Tax Pro Account for business client payments", "publisher": "IRS Newsroom (IR-2026-134)", "url": "https://www.irs.gov/newsroom/irs-expands-tax-pro-account-for-business-client-payments", "date": "2026-11-06", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    },
+    {
+     "id": "acc-mtd-q2",
+     "topic": "making-tax-digital",
+     "headline": "Making Tax Digital for Income Tax: second quarterly update was due 7 November 2026",
+     "summary": "HMRC's agent update reminded agents that the second quarterly update deadline for Making Tax Digital for Income Tax is 7 November 2026. The same issue says multi-factor authentication is now live on all agent accounts and that agent reference number checks for tax adviser registration are temporarily paused.",
+     "why": "That deadline has now passed; check which clients still owe their second quarterly update.",
+     "source": {"title": "Issue 148 of agent update", "publisher": "GOV.UK — HM Revenue & Customs", "url": "https://www.gov.uk/government/publications/agent-update-issue-148/issue-148-of-agent-update", "date": "2026-10-15", "verified_via": "surfer_web_read", "read_at": "2026-11-15"}
+    }
+   ]
+  }
+ ]
+}

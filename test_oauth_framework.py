@@ -126,8 +126,9 @@ def check_production_default_is_fenced():
         require(status == 200 and SECRET_SENTINEL not in body, "registry must not expose secrets")
         providers = json.loads(body)["providers"]
         for p in providers:
-            require(not p["ready"] and set(p["blockers"]) == {"client_not_configured", "adapter_missing",
-                                                              "vault_unavailable"}, f"{p['id']} blockers")
+            # T-552-YT: YouTube ships a real adapter; every other provider still has none.
+            expected = {"client_not_configured", "vault_unavailable"} | (set() if p["id"] == "youtube" else {"adapter_missing"})
+            require(not p["ready"] and set(p["blockers"]) == expected, f"{p['id']} blockers")
             require(p["redirect_uri"] == f"{factory.FACTORY_PUBLIC_BASE_URL}/api/oauth/{p['id']}/callback", "redirect")
             status, _, body = call("POST", f"/api/oauth/{p['id']}/authorize")
             require(status == 409 and json.loads(body)["reason"] == "client_not_configured", "authorize refused")
@@ -315,8 +316,9 @@ def main():
             check_state_and_callback_errors(mocks)
             check_disconnect(mocks)
             check_auth_boundaries()
-        require(isinstance(factory.OAUTH_FLOW.vault, oauth.UnavailableTokenVault) and not factory.OAUTH_FLOW.adapters,
-                "production defaults restored")
+        require(isinstance(factory.OAUTH_FLOW.vault, oauth.UnavailableTokenVault)
+                and set(factory.OAUTH_FLOW.adapters) == {"youtube"},
+                "production defaults restored (only the real YouTube adapter is registered)")
         check_no_leakage()
     logging.getLogger().removeHandler(handler)
     print("T-551-A OAuth framework scaffold: PASS (zero secrets, zero network)")

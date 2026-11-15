@@ -37,6 +37,7 @@ from worker_observability import build_worker_overview, sanitize_supervisor, san
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
+from mybrief import FeedbackStore as MyBriefFeedback, install_mybrief_routes, load_catalog as mybrief_catalog
 from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_mvp_project_once
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
@@ -61,6 +62,7 @@ from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_rout
                             install_voice_settings_routes)
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
+import youtube_publisher
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
@@ -768,14 +770,19 @@ def _owner_desk_status():
     out["T-590-H"]={"state":"info","detail_key":"prod_sha","args":{"sha":BUILD_SHA[:12]}}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
-    if reg.get("selected")=="metricool" and metricool.get("configured"):
+    youtube=next((a for a in reg.get("adapters") or [] if a.get("kind")=="youtube"),{})
+    if reg.get("selected")=="youtube":
+        out["T-520"]=({"state":"done","detail_key":"youtube_ok","args":{"channel":youtube.get("channel_title") or "—"}}
+                      if youtube.get("configured") else
+                      {"state":"todo","detail_key":"youtube_blocked","args":{"reasons":", ".join(youtube.get("blockers") or [])}})
+    elif reg.get("selected")=="metricool" and metricool.get("configured"):
         out["T-520"]={"state":"done","detail_key":"metricool_ok" if metricool.get("youtube_audience_configured") else "metricool_no_audience"}
     elif reg.get("selected")=="metricool":
         out["T-520"]={"state":"todo","detail_key":"metricool_unconfigured"}
     else:
         out["T-520"]={"state":"todo","detail_key":"publisher_selected","args":{"adapter":reg.get("selected") or "manual"}}
     out["T-521"]={"state":"todo","detail_key":"can_start"} if out["T-520"]["state"]=="done" else {"state":"blocked","detail_key":"waits","args":{"task":"T-520"}}
-    out["T-551"]={"state":"blocked","detail_key":"waits_t552"}
+    out["T-551"]={"state":"optional","detail_key":"t551_youtube_in_t520"}
     out["T-598-H1"]={"state":"done","detail_key":"h1_done"}
     out["T-598-H2"]={"state":"optional","detail_key":"h2_optional"}
     out["T-605"]={"state":"done","detail_key":"gemini_key_ok"} if FACTORY_GEMINI_API_KEY else {"state":"todo","detail_key":"gemini_key_missing"}
@@ -1162,6 +1169,7 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
+install_mybrief_routes(app, MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog()), request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
 async def _ab_content_job(title, brief, job_id):
     """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
@@ -1187,10 +1195,18 @@ async def _ab_content_job(title, brief, job_id):
 
 install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity, create_job=_ab_content_job)  # T-608..T-610 A/B Tester: drafts only, owner-gated
 install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
+from decision_memory import DecisionStore, install_decision_memory_routes, sync_mvp_registry_once  # noqa: E402
+install_decision_memory_routes(app, DecisionStore(DATA_DIR / "decision_memory.json", BASE / "DECISIONS.md"), request_identity)  # T-614 #187: owner-only
+try:
+    sync_mvp_registry_once(MVP_REGISTRY, DATA_DIR / "decision_memory_registry_intake.marker")  # links the existing #187 pilot
+except (OSError, ValueError) as exc:
+    print("Decision Memory registry intake skipped:", type(exc).__name__)
 from learn_center import install_learn_routes  # noqa: E402
 import brand_strategy as _brand_strategy_mod  # noqa: E402
 install_learn_routes(app, base=BASE, steps_source=lambda: _brand_strategy_mod.STEPS)  # owner 2026-11-14: one Learning section
 install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
+from release_guardian import GitHubReader as _RgReader, ReleaseGuardian as _RgGuardian, install_release_guardian_routes  # noqa: E402
+install_release_guardian_routes(app, _RgGuardian(_RgReader(GITHUB_REPO, _github_read_token)), request_identity)  # T-616 #189: owner-only, GET-only PR board
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
                           redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
@@ -1203,7 +1219,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 MYCAST_HOSTS = {h.strip().lower() for h in os.environ.get("FACTORY_MYCAST_HOSTS", "mycast.pro,www.mycast.pro").split(",") if h.strip()}
 MYCAST_PAGE = "/static/mycast-configurator/index.html"
 MYCAST_HOST_PREFIXES = ("/static/mycast-configurator/", "/static/favicon", "/static/apple-touch-icon", "/api/mycast/",
-                        "/mycast/u/", "/.well-known/")
+                        "/mycast/u/", "/mycast/e/", "/.well-known/")
 MYCAST_HOST_PATHS = {"/privacy", "/terms", "/health", "/favicon.ico", "/mycast", "/robots.txt", "/sitemap.xml"}
 
 
@@ -1263,7 +1279,7 @@ async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/api/mycast/calendar/")  # MyCast public beta: capped demo, listener accounts
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
     media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)
@@ -8702,9 +8718,29 @@ def link_job_idea(job_id,idea_id):
 def _metricool_configured():
     return bool(_metricool_credentials_present() and not _integration_explicitly_disconnected("Metricool"))
 
+def _youtube_publisher_state(workspace=None):
+    """Direct YouTube publisher readiness from facts only: OAuth client, stored channel token, upload settings.
+    Scoped to one workspace (default: the caller's), so no workspace sees another's channel."""
+    workspace=workspace or tenancy.binding_workspace()
+    from oauth_framework import get_provider
+    spec=get_provider("youtube")
+    blockers=[b for b in OAUTH_FLOW.blockers(spec)]
+    tokens=None
+    if "vault_unavailable" not in blockers:
+        try:tokens=OAUTH_FLOW.vault.get(workspace,"youtube")
+        except Exception:blockers.append("vault_unreadable")
+    if not tokens and not blockers:blockers.append("youtube_not_connected")
+    if _integration_explicitly_disconnected("YouTube",workspace):blockers.append("youtube_disconnected")
+    settings=youtube_publisher.upload_settings()
+    blockers+=settings["blockers"]
+    return {"configured":not blockers,"blockers":blockers,"channel_id":(tokens.account_id if tokens else ""),
+            "channel_title":(tokens.account_label if tokens else ""),"privacy":settings["privacy"],
+            "audience_configured":settings["made_for_kids"] is not None}
+
 def get_publisher_adapter_registry():
     webhook=bool(FACTORY_PUBLISHER_ENDPOINT)
     metricool=_metricool_configured()
+    youtube=_youtube_publisher_state()
     return {"selected":FACTORY_PUBLISHER_ADAPTER,
             "scheduler_enabled":FACTORY_PUBLISHER_SCHEDULER_ENABLED,
             "scheduler_interval_sec":FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC,
@@ -8716,6 +8752,12 @@ def get_publisher_adapter_registry():
                  "execution":"server-side Metricool scheduler",
                  "supported_platforms":["instagram_reels","tiktok","youtube_shorts"],
                  "youtube_audience_configured":FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS in ("true","false","1","0","yes","no")},
+                {"kind":"youtube","configured":youtube["configured"],
+                 "status":"configured" if youtube["configured"] else "not_configured",
+                 "execution":"direct YouTube Data API upload (official, free quota)",
+                 "supported_platforms":["youtube_shorts"],"blockers":youtube["blockers"],
+                 "channel_title":youtube["channel_title"],"privacy":youtube["privacy"],
+                 "youtube_audience_configured":youtube["audience_configured"]},
             ],
             "secrets_exposed":False,
             "note":"Approval never publishes directly. Metricool receives only the exact immutable approved snapshot and durable media URL after explicit scheduling. A Metricool scheduler ID is never treated as a real platform post receipt."}
@@ -8751,7 +8793,7 @@ def _publish_item(row):
     item["media"]={
         "artifact_id":meta.get("media_artifact_id"),"url":meta.get("media_url") or "",
         "title":meta.get("media_title") or "","mime_type":meta.get("media_mime_type") or "",
-        "edit_job_id":meta.get("media_edit_job_id")
+        "edit_job_id":meta.get("media_edit_job_id"),"sha256":meta.get("media_sha256") or ""
     } if meta.get("media_artifact_id") or meta.get("media_url") else None
     item["content_snapshot"]=meta.get("content_snapshot") if isinstance(meta.get("content_snapshot"),dict) else None
     item["content_snapshot_hash"]=str(meta.get("content_snapshot_hash") or "")
@@ -8782,7 +8824,9 @@ def _ensure_publish_item(job_id,approval_decision_id=None):
           "content_snapshot":content_snapshot,"content_snapshot_hash":snapshot_hash,
           "media_artifact_id":media.get("id"),"media_url":media.get("url") or "",
           "media_title":media.get("title") or "","media_mime_type":media.get("mime_type") or "",
-          "media_edit_job_id":media_meta.get("edit_job_id")}
+          "media_edit_job_id":media_meta.get("edit_job_id"),
+          # T-552-YT: digest of the exact durable file the owner approved; byte-uploading publishers verify it.
+          "media_sha256":media_meta.get("archive_sha256") or ""}
     con.execute("""INSERT INTO publishing_queue(
         id,job_id,package_id,status,target,platform,scheduled_at,idempotency_key,attempt_count,
         external_post_id,external_url,last_error,created_at,updated_at,published_at,meta_json
@@ -9119,6 +9163,51 @@ def _publish_receipt(item,external_post_id,external_url="",published_at=None,sou
     event(item["job_id"],f"Publish confirmed: {item['platform']} · {external_post_id}")
     sync_cycle_for_publish(item["id"])
 
+def _publish_via_youtube(item,content,media,workspace):
+    """T-552-YT: upload the exact approved durable media to the connected channel. Never retried blindly."""
+    if item.get("platform")!="youtube_shorts":
+        raise RuntimeError(f"YouTube publisher only handles youtube_shorts, not {item.get('platform')}")
+    state=_youtube_publisher_state(workspace)
+    if not state["configured"]:
+        raise RuntimeError("YouTube publisher is not ready: "+", ".join(state["blockers"]))
+    artifact=_artifact_media_row((media or {}).get("artifact_id"))
+    if not artifact or artifact.get("job_id")!=item.get("job_id") or (artifact.get("url") or "")!=(media or {}).get("url"):
+        raise RuntimeError("Approved media artifact does not match the approved snapshot")
+    path,archive_meta=_artifact_archive_file(artifact)
+    if not path or not Path(path).is_file():
+        raise RuntimeError("Approved media is not in the durable FactoryOS archive; YouTube needs the exact file")
+    # The bytes must be the ones approved: only the digest captured in the approval snapshot counts (never the
+    # artifact's current metadata, which a re-archive could rewrite together with the file). upload_video re-checks
+    # it on the same file handle it uploads from.
+    expected=str((media or {}).get("sha256") or "").lower()
+    if not expected:
+        raise RuntimeError("Approved media has no digest in the approval snapshot; re-approve it before publishing")
+    if expected!=str((archive_meta or {}).get("sha256") or "").lower():
+        raise RuntimeError("Archived media bytes do not match the approved media digest")
+    from oauth_framework import get_provider
+    spec=get_provider("youtube");adapter=OAUTH_FLOW.adapters["youtube"]
+    try:
+        tokens=adapter.refresh(spec,OAUTH_FLOW.vault.get(workspace,"youtube"))
+        OAUTH_FLOW.vault.put(workspace,"youtube",tokens)
+    except OAuthError as exc:
+        raise RuntimeError(f"YouTube token refresh failed ({exc.code}); reconnect YouTube") from None
+    settings=youtube_publisher.upload_settings()
+    metadata=youtube_publisher.video_metadata(content,settings)
+    try:
+        result=youtube_publisher.upload_video(adapter.http,tokens.access_token,Path(path),
+                                              (archive_meta or {}).get("content_type") or media.get("mime_type") or "video/mp4",metadata,
+                                              expected)
+    except youtube_publisher.YouTubeError as exc:
+        if exc.code in ("youtube_media_digest_mismatch","youtube_media_digest_missing"):
+            raise RuntimeError("Archived media bytes do not match the approved media digest") from None
+        # Uncertain outcomes surface as TimeoutError so the publish item demands explicit confirmation before a retry.
+        if exc.uncertain:raise TimeoutError(exc.code) from None
+        raise RuntimeError(exc.code) from None
+    raw={"provider":"youtube","channel_id":tokens.account_id,"channel_title":tokens.account_label,
+         "video_id":result["video_id"],"privacy":result["privacy"],"upload_status":result["upload_status"],
+         "made_for_kids":settings["made_for_kids"],"contains_synthetic_media":True}
+    return {"manual":False,"status":"published","external_post_id":result["video_id"],"external_url":result["url"],"raw":raw}
+
 def _publish_via_adapter(item):
     if FACTORY_PUBLISHER_ADAPTER=="manual":
         return {"manual":True,"status":"publishing"}
@@ -9135,6 +9224,8 @@ def _publish_via_adapter(item):
     media=item.get("media") or {}
     if FACTORY_PUBLISHER_ADAPTER=="metricool":
         return _publish_via_metricool(item,content,media)
+    if FACTORY_PUBLISHER_ADAPTER=="youtube":
+        return _publish_via_youtube(item,content,media,workspace)
     if not FACTORY_PUBLISHER_ENDPOINT:
         raise RuntimeError(f"Publisher adapter '{FACTORY_PUBLISHER_ADAPTER}' is not configured")
     payload={"idempotency_key":item["idempotency_key"],"publish_id":item["id"],"job_id":item["job_id"],"workspace_key":workspace,
@@ -9202,8 +9293,14 @@ def build_publish_dry_run(publish_id):
     registry=get_publisher_adapter_registry()
     metricool=next((a for a in registry["adapters"] if a["kind"]=="metricool"),{})
     real_blockers=[]
-    if not metricool.get("configured") or FACTORY_PUBLISHER_ADAPTER=="manual":
+    selected=next((a for a in registry["adapters"] if a["kind"]==FACTORY_PUBLISHER_ADAPTER),{})
+    if FACTORY_PUBLISHER_ADAPTER=="manual" or not selected.get("configured"):
         real_blockers.append("T-520: no configured real publisher adapter")
+    supported=selected.get("supported_platforms")
+    if FACTORY_PUBLISHER_ADAPTER!="manual" and supported is not None:
+        for plan in plans:plan["real_publisher_supported"]=plan["platform"] in supported
+        if item.get("platform") and item["platform"]!="unspecified" and item["platform"] not in supported:
+            real_blockers.append(f"T-520: publisher '{FACTORY_PUBLISHER_ADAPTER}' does not support {item['platform']}")
     real_blockers.append("T-521: explicit owner approval of this exact snapshot for a real post")
     # The plan hash excludes publication times so re-running the same snapshot is idempotent.
     stable=[{k:v for k,v in p.items() if k!="scheduled_at_utc"} for p in plans]
@@ -10408,6 +10505,10 @@ async def connect_integration(provider: str, payload: IntegrationConnectRequest=
     if provider not in PORTABLE_INTEGRATIONS:raise HTTPException(404,"Unknown integration")
     label=(payload.account_label or "").strip()[:180]
     external_id=(payload.external_account_id or "").strip()[:180]
+    if provider=="YouTube" and os.environ.get("FACTORY_OAUTH_GOOGLE_CLIENT_ID","").strip():
+        # T-552-YT: a configured Google OAuth client means the channel is connected by OAuth, not via Metricool.
+        return {"ok":False,"state":"oauth_redirect","provider":provider,"oauth_provider":"youtube",
+                "message":"Continue in Google to connect your YouTube channel."}
     if provider in ("Metricool","YouTube","Instagram","TikTok"):
         if not _metricool_credentials_present():
             return {"ok":False,"state":"needs_setup","provider":provider,
@@ -10468,6 +10569,8 @@ OAUTH_FLOW = OAuthFlow(
     redirect_base=FACTORY_PUBLIC_BASE_URL,
     client_id_lookup=lambda spec: os.environ.get(spec.client_id_env,""),
     vault=_oauth_token_vault(),
+    # T-552-YT: real Google transport for YouTube; other providers stay blocked until their adapters exist.
+    adapters={"youtube":youtube_publisher.GoogleOAuthAdapter()},
 )
 
 @app.get("/api/factory/vault/status")

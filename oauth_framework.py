@@ -278,8 +278,12 @@ class OAuthFlow:
         out = []
         if not (self.client_id_lookup(spec) or "").strip():
             out.append("client_not_configured")
-        if spec.id not in self.adapters:
+        adapter = self.adapters.get(spec.id)
+        if adapter is None:
             out.append("adapter_missing")
+        elif hasattr(adapter, "ready") and not out and not adapter.ready(spec):
+            # Real adapters (T-552) also need the client secret; report it instead of failing at exchange.
+            out.append("client_secret_missing")
         if isinstance(self.vault, UnavailableTokenVault):
             out.append("vault_unavailable")
         return out
