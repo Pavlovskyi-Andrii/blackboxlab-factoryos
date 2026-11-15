@@ -264,6 +264,18 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: durable AES-256-GCM vault (key from FACTORY_VAULT_KEY, rotation via FACTORY_VAULT_KEY_PREVIOUS) for browser login fields, Playwright storage_state sessions and OAuth tokens; opt-in restore of a bound session in the Playwright executor without loosening the write/submit guard.
   DONE: `python test_browser_vault.py` proves ciphertext-only files, scope binding (no cross-workspace decrypt, tamper/move rejected), human-only material refused, key rotation, session capture/replace/disconnect, restored state reaches the browser context but never results/artifacts, unbound refs block before launch, and the OAuth flow drops `vault_unavailable` when the key is set.
 
+- [x] T-560-H Surfer for every connected agent (MCP web_search / web_read / web_task)
+  Owner: claude
+  Depends: T-560-C
+  Spec: docs/guides/surfer-mcp.md, DECISIONS.md T-560-H
+  Goal: owner 2026-11-15 — the browser agent "doesn't work" and must be usable by ChatGPT, Claude and Gemini. Diagnosis on production: the EC2 runner claims and runs tasks, but a selector that is not on the page failed the whole task after 20 s (`browser_runtime_TimeoutError`, no text, no screenshot), only the Claude token could queue tasks, and there was no search (search engines refuse the EC2 address as automated traffic).
+  DONE: `python test_web_surfer.py` and `python test_browser_playwright.py` prove a missing selector is reported as `missing` while the task finishes with the other texts and the screenshot (also checked on real Chromium), multiple matches are all read, `/mcp` lists and runs `web_search`/`web_read`/`web_task`, MCP callers see only MCP tasks, Wikipedia search works without a key, and Gemini Google search runs only with the owner opt-in under a daily cap.
+
+- [ ] [HUMAN] T-560-I Opt in to Google search via Gemini (optional)
+  Depends: T-560-H
+  Need: owner decides whether Google Search grounding on the existing Gemini key may be used (free daily quota, billed beyond it on a paid project); if yes, set `FACTORY_WEB_SEARCH_PROVIDER=gemini` in Render. Without it `web_search` answers from Wikipedia only.
+  DONE: `web_search` returns `"provider": "gemini_google_search"`.
+
 - [ ] [HUMAN] T-560-G Configure FACTORY_VAULT_KEY
   Depends: T-560-F
   Need: owner generates a key (`python -c "from browser_runner.vault import generate_key; print(generate_key())"`) and stores it only in the Render secret environment (and the browser runner host), never in Git or chat.
