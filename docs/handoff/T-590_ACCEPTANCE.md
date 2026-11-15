@@ -36,9 +36,19 @@ Rule: a stage counts as verified only with evidence. Everything else is UNVERIFI
 - Green on Python 3.9: compile, `smoke_tests.py`, the planner, `test_relay_execution` (74 tests), `test_relay_telegram` (9), `test_worker_token_binding` (2), `autopilot.test_delegation` and `autopilot.test_autopilot`. The working tree had unrelated uncommitted edits in `app.py`/`static/index.html` from another session; the smoke ran with them in place, and they are not part of this commit.
 - This run was denied `gh`, `curl` and `env`-prefixed commands. So the CI result for `c2879b9`, Render `build_sha`, `paired=true`, the live trace and the Issue #41 comment remain UNVERIFIED. Nothing was claimed.
 
+## Re-check (2026-11-15, run `run-20261115093856-a5105e`, head `e24369d`)
+- Since 2026-11-01 several stages have changed in the repo record, but none were observed live by this run:
+  - T-506 is checked: the owner chat was paired on 2026-11-02.
+  - The #289 round trip (per-ticket branch → PR → CI/merge reconcile → Telegram) and Evidence Tiers 1–2.6 (a ticket closes only on merged PR + CI from Render's own read, plus a `deployed` check via `render:build`) are on main.
+  - DECISIONS records owner Telegram tickets R-0063 (2026-11-11) and R-0074 (2026-11-14) that ran on the live worker.
+- Local refs only (no fetch): `origin/main` = `418e25f`. `autopilot/aws-worker` holds T-609/T-610 plus merges of main, so it is ahead of main and not behind it.
+- Green on Python 3.9: compile, `smoke_tests.py`, the planner, `test_relay_execution` (111 tests) and `test_relay_telegram` (25).
+- This run was denied `gh`, `git fetch`/`-C`, `env` prefixes and the FactoryOS `web_read` tool, so it could not read GitHub, Render or Issue #41. The DONE criterion still lacks independently observed evidence: a single owner ticket traced live through claim, run_id, PR, CI, merge, deployed revision and Telegram `/task`, posted to Issue #41. T-590 stays unchecked. Nothing was claimed.
+
 ## Exact remaining actions
 
 1. **Session with GitHub access (Claude interactive, standing grant):** push `autopilot/aws-worker`, then open PR `autopilot/aws-worker → main`. Wait for CI on the current head; merge only when it is green.
 2. **After merge:** `GET https://blackboxlab-factoryos.onrender.com/api/version` must return `build_sha` equal to the merge commit.
 3. **HUMAN, owner only (T-506):** put `FACTORY_TELEGRAM_BOT_TOKEN` in the FactoryOS Render secret env. Start Telegram pairing in FactoryOS and send the one-time `/pair CODE` to the bot. Done when `/api/factory/telegram/status` shows `paired=true`.
+   _Done 2026-11-02 (T-506 checked)._
 4. **Live trace:** in the paired chat, send `/new test: T-590 live trace` and wait for `claimed` with a run_id. Then send `/task <id>` and check that it matches the `/relay` web detail. Post the redacted transcript, the SHA, the PR, the CI run and `build_sha` to Issue #41, and only then tick T-590.
