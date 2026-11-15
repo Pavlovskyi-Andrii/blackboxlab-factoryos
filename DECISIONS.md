@@ -1292,3 +1292,28 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   same result; a callback finished the workflow in ~1 s with no polling. The only extra POST seen came from the
   existing one-shot startup repair of recently failed manual uploads (`MEDIA_FINISHER_REAL_MEDIA_REPAIR`), which now
   runs as generation 1. Not verified: a real worker on Render/EC2 and a real Render deploy.
+
+## 2026-11-15 — T-613 Content pipeline run as a durable DBOS workflow (stage 2, part 1)
+
+- `run_job` starts `content-run:<job_id>:<generation>` (durable_content.py) when the engine is launched. The workflow walks
+  the same stages as `run_until_review`: enter stage → one step per agent (`execute_agent`) → quality gate; the script
+  stage is two steps (variant pipeline, content package); then the review gate (`waiting_approval`). Approval and
+  publishing are untouched. The legacy asyncio task stays for the kill switch, a start error, the Factory Cycle and the
+  paid verification (stage 3 moves those).
+- The plan (stages and agents) is a workflow input: a deploy that edits `AGENT_MAP` cannot change a run in flight.
+- Steps run on DBOS executor threads, but every FactoryOS coroutine (agents, broadcast) still runs on the app's event
+  loop through `durable_engine.run_on_main_loop` (the loop is captured by the startup hook), inside the job's workspace
+  scope like before.
+- Interrupted steps: `durable_engine.step_attempt()` counts starts per (workflow, step) in `durable_step_attempts.sqlite`.
+  On a second start the step marks this run's leftover `running` agent rows failed. A demo agent then runs again; a
+  live agent fails the run with "provider request failed … outcome uncertain", which the Error Center classifies as
+  `transport_uncertain` (confirm before a manual retry). This keeps the existing rule that an uncertain paid call is
+  never repeated automatically.
+- Ownership: the startup hook adds jobs with an active durable run to `running_jobs`, every step re-adds its job, and
+  the supervisor's orphan auto-heal skips jobs a durable run owns. `run_job` answers "Already running" for them.
+- A new click on Run after a failure or from review is a new generation and re-runs the stage from its start, as before;
+  durability applies within one run. The variant pipeline is one step: after a crash inside it, demo mode reruns it and
+  live mode stops with an uncertain-spend incident; splitting it into one step per LLM call is a follow-up.
+- Checked locally with real uvicorn (demo agents): SIGKILL and SIGTERM during Visual Director → after reboot the run
+  resumed by itself and reached the review gate in ~5 s; 15 finished agents, none twice; the interrupted run is marked
+  failed and the agent reran. CI test covers the paid case with a fake provider. Not verified: a real paid run on Render.

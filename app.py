@@ -66,6 +66,7 @@ from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
 import durable_engine
 import durable_media_finisher as durable_finisher
+import durable_content
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -202,6 +203,8 @@ def _durable_engine_startup():
     """T-611: keep this the first startup hook. Launching DBOS resumes interrupted workflows from their last finished step
     before any later hook (such as the Media Finisher recovery) inspects or restarts work."""
     durable_engine.launch(DATA_DIR)
+    # T-613: a content run resumed by DBOS owns its job before its next step runs; the supervisor must not reset it.
+    running_jobs.update(durable_content.active_job_ids())
 
 
 @app.on_event("shutdown")
@@ -7614,7 +7617,7 @@ def supervisor_audit(auto_heal=False, persist=False):
                 "A pipeline stage raised an exception and the job is paused.",
                 "Open the responsible agent ledger, inspect the error, then retry from the current stage.")
 
-        if j["status"] == "running" and j["id"] not in running_jobs:
+        if j["status"] == "running" and j["id"] not in running_jobs and not durable_content.active(j["id"]):
             add("critical", "orphan_job", f"Orphaned running job: {j['title']}",
                 "The database says the job is running, but no worker task owns it.",
                 "Reset it to ready and restart from the current stage.")
@@ -10836,7 +10839,7 @@ async def move_job(job_id:str,m:Move):
 
 @app.post("/api/jobs/{job_id}/run")
 async def run_job(job_id:str):
-    if job_id in running_jobs: return {"ok":True,"message":"Already running"}
+    if job_id in running_jobs or durable_content.active(job_id): return {"ok":True,"message":"Already running"}
     jobs=get_jobs(); job=next((j for j in jobs if j["id"]==job_id),None)
     if not job: raise HTTPException(404,"Job not found")
     restarted_from_review=False
@@ -10859,7 +10862,7 @@ async def run_job(job_id:str):
     if get_job_cost(job_id) >= FACTORY_JOB_BUDGET_USD:
         return {"ok":False,"message":"This job reached its provider budget. Review its agent ledger before continuing."}
     running_jobs.add(job_id)
-    asyncio.create_task(run_in_job_workspace(job_id,run_until_review(job_id)))
+    _spawn_content_run(job_id)
     return {
         "ok":True,
         "message":"Factory restarted from Research with the approval gate preserved." if restarted_from_review else "Factory started."
@@ -10893,6 +10896,91 @@ async def run_until_review(job_id:str):
         await broadcast({"type":"job_failed","jobId":job_id,"error":str(exc)})
     finally:
         running_jobs.discard(job_id)
+
+# ---- T-613: the same run as a durable DBOS workflow (durable_content.py). Each hook is one checkpointed step and runs
+# on a DBOS thread; FactoryOS coroutines (agents, broadcast) still run on the app's event loop via run_on_main_loop.
+
+def _content_run_plan(job_id):
+    job=get_job(job_id)
+    start=max(1,STAGES.index(job["stage"]))
+    return [{"index":idx,"stage":STAGES[idx],"agents":list(AGENT_MAP.get(STAGES[idx],[]))} for idx in range(start,STAGES.index("qa")+1)]
+
+def _spawn_content_run(job_id):
+    """Start the run to the review gate: a durable workflow when the engine is launched (resumes after a restart or
+    deploy, never repeats a finished agent), otherwise the legacy asyncio task. Call from the event loop."""
+    if durable_engine.launched():
+        try:
+            workflow_id,created=durable_content.start(job_id,_content_run_plan(job_id),ts())
+        except Exception as exc:
+            workflow_id,created=None,False
+            print(json.dumps({"event":"DBOS_CONTENT_RUN_START_ERROR","job_id":job_id,"error":str(exc)[:300]}),flush=True)
+        if workflow_id:
+            running_jobs.add(job_id)
+            if created:event(job_id,"Factory run is durable: it resumes after a restart or deploy without repeating finished agents")
+            return workflow_id
+    asyncio.create_task(run_in_job_workspace(job_id,run_until_review(job_id)))
+    return None
+
+def _durable_content_fence(job_id,label,live,started_at):
+    """An earlier start of this step was interrupted (crash or deploy) before DBOS checkpointed it. A demo agent just
+    runs again. A live one may have paid for a call whose result was lost: fail with an uncertain-spend incident, the
+    policy for any uncertain provider outcome, instead of paying for a second call."""
+    if durable_engine.step_attempt()<=1:return
+    con=db();rows=con.execute("""SELECT id FROM agent_runs WHERE job_id=? AND status='running' AND started_at>=?""",
+                              (job_id,started_at)).fetchall();con.close()
+    note=("Interrupted by a FactoryOS restart: the provider request failed or may have completed; outcome uncertain"
+          if live else "Interrupted by a FactoryOS restart (demo run, no provider call); restarted automatically")
+    for row in rows:finish_agent_run(row["id"],status="failed",error=note,meta={"mode":"live_llm" if live else "demo","interrupted":True})
+    if live:raise RuntimeError(f"{label}: {note}. Confirm in Error Center before retrying")
+    event(job_id,f"{label}: restarted after an interruption (no paid call involved)")
+
+def _durable_content_enter_stage(job_id,index):
+    stage=STAGES[int(index)]
+    running_jobs.add(job_id)
+    con=db();con.execute("UPDATE jobs SET stage=?,status='running',progress=?,updated_at=? WHERE id=?",
+                         (stage,int(int(index)/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close()
+    durable_engine.run_on_main_loop(run_in_job_workspace(job_id,broadcast()))
+    return {"stage":stage}
+
+def _durable_content_agent(job_id,stage,agent,started_at):
+    running_jobs.add(job_id)
+    with tenancy.workspace_scope(job_workspace_key(job_id)):
+        _durable_content_fence(job_id,agent,bool(FACTORY_LLM_API_KEY and agent in LLM_LIVE_AGENTS),started_at)
+    durable_engine.run_on_main_loop(run_in_job_workspace(job_id,execute_agent(agent,stage,job_id,delay=1.1)))
+    return {"agent":agent,"stage":stage,"status":"completed"}
+
+def _durable_content_script(job_id,part,started_at):
+    running_jobs.add(job_id)
+    with tenancy.workspace_scope(job_workspace_key(job_id)):
+        _durable_content_fence(job_id,"Variant pipeline" if part=="variants" else "Content Packager",bool(FACTORY_LLM_API_KEY),started_at)
+    coro=run_variant_pipeline(job_id,None) if part=="variants" else generate_content_package(job_id)
+    durable_engine.run_on_main_loop(run_in_job_workspace(job_id,coro))
+    return {"part":part,"status":"completed"}
+
+def _durable_content_gate(job_id,stage):
+    with tenancy.workspace_scope(job_workspace_key(job_id)):
+        gate=validate_stage_outputs(job_id,stage)
+        if not gate["ok"]:
+            raise RuntimeError(f"Quality gate failed for {stage}: missing artifacts from {', '.join(gate['missing'])}")
+        event(job_id,f"Quality gate passed: {stage} ({gate['ready']}/{gate['expected']} agent outputs)")
+    return {"stage":stage,"ready":gate["ready"],"expected":gate["expected"]}
+
+def _durable_content_review(job_id):
+    con=db();con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(ts(),job_id));con.commit();con.close()
+    with tenancy.workspace_scope(job_workspace_key(job_id)):event(job_id,"Review gate: waiting for approval")
+    running_jobs.discard(job_id)
+    durable_engine.run_on_main_loop(run_in_job_workspace(job_id,broadcast()))
+    return {"status":"waiting_approval"}
+
+def _durable_content_failed(job_id,error):
+    con=db();con.execute("UPDATE jobs SET status='failed',updated_at=? WHERE id=?",(ts(),job_id));con.commit();con.close()
+    with tenancy.workspace_scope(job_workspace_key(job_id)):event(job_id,f"Pipeline failed: {error}")
+    running_jobs.discard(job_id)
+    durable_engine.run_on_main_loop(run_in_job_workspace(job_id,broadcast({"type":"job_failed","jobId":job_id,"error":error})))
+    return {"status":"failed"}
+
+durable_content.bind(enter_stage=_durable_content_enter_stage,agent=_durable_content_agent,script=_durable_content_script,
+                     gate=_durable_content_gate,review=_durable_content_review,failed=_durable_content_failed)
 
 @app.post("/api/jobs/{job_id}/approve")
 async def approve(job_id:str):

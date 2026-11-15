@@ -587,6 +587,15 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   DONE: `python test_durable_media_finisher.py` passes (SIGKILL mid-wait → one submit; callback wake-up; lost-worker resubmit; release; version bump; app wiring on event-loop threads; kill switch) and the default verification passes.
   Live check after deploy (owner/Claude, not a blocker): one real Media Finisher run with a Render deploy in the middle → one worker job, result delivered; health details `durable_engine.launched=true`.
 
+- [x] T-613 Content pipeline run to the review gate as a durable DBOS workflow (stage 2, part 1)
+  Owner: claude
+  Priority: P1
+  Depends: T-611; merge after the stage 1 live check
+  Spec: DECISIONS.md «2026-11-15 — T-613»
+  Goal: `run_job` starts `content-run:<job_id>:<generation>`: one checkpointed step per agent (script stage: variant pipeline, content package), a quality-gate step per stage, then the review gate exactly as `run_until_review`. A restart or deploy resumes the run by itself without re-running finished agents; a paid call interrupted mid-flight becomes an uncertain-spend incident instead of a second paid call; the supervisor never resets a job a durable run owns; `FACTORY_DBOS_ENABLED=0` keeps the asyncio task.
+  DONE: `python test_durable_content.py` passes (workflow SIGKILL: paid/demo agents, gate failure, re-attach; app: run to review with each agent once, supervisor guard; SIGKILL during a paid call → no finished paid agent called again, uncertain-spend incident) and the default verification passes.
+  Next in stage 2 (separate tasks, after this one is live): approval as `DBOS.recv` from Approval Studio and Telegram (timeout → expired, never publish); publishing through a DBOS queue with limiter and the approval id as idempotency key; the variant pipeline split into one step per LLM call.
+
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
 - [ ] T-607 Gemini Worker — third authenticated engineering operator via existing Relay

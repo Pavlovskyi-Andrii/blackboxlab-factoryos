@@ -16,6 +16,10 @@ Rules for workflow code (also in CLAUDE.md and AGENTS.md):
   than one FactoryOS process.
 - Call DBOS from FactoryOS code through ``run_sync``: DBOS's sync API refuses to run on a thread with a running asyncio
   loop, which is where FastAPI runs startup hooks and async endpoints.
+- Steps run on DBOS executor threads. FactoryOS coroutines (agents, broadcast) go through ``run_on_main_loop`` so they
+  run on the app's own event loop, as before.
+- A step whose side effect cannot be repeated blindly (a paid provider call) asks ``step_attempt()`` first: more than 1
+  means an earlier start of this very step was interrupted before its result was checkpointed.
 
 Kill switch: ``FACTORY_DBOS_ENABLED=0`` keeps dbos unimported, nothing launches, and every caller uses its legacy path.
 """
@@ -24,14 +28,17 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 APP_VERSION = "factoryos-durable-v1"
 SYSTEM_DB_FILENAME = "dbos_system.sqlite"
+STEP_ATTEMPTS_FILENAME = "durable_step_attempts.sqlite"
+ACTIVE_WORKFLOW_STATUSES = ("PENDING", "ENQUEUED")
 
 
 def wanted() -> bool:
@@ -51,8 +58,9 @@ if wanted():
 
 _lock = threading.Lock()
 _caller = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dbos-call")
+_start_lock = threading.Lock()
 _state: Dict[str, Any] = {"configured": False, "launched": False, "error": "", "system_database": "", "launched_at": 0.0,
-                          "pending_at_launch": None}
+                          "pending_at_launch": None, "loop": None, "data_dir": None}
 _status_sections: Dict[str, Callable[[], Dict[str, Any]]] = {}
 
 
@@ -84,6 +92,120 @@ def run_sync(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
 
 def launched() -> bool:
     return bool(_state["launched"])
+
+
+def main_loop() -> Optional[asyncio.AbstractEventLoop]:
+    """The app's event loop, captured by launch() when it runs inside a FastAPI startup hook."""
+    return _state["loop"]
+
+
+def run_on_main_loop(coro: Any) -> Any:
+    """Run a FactoryOS coroutine on the app's event loop from a DBOS step thread, and wait for its result.
+
+    Without a captured loop (a script or test that launched the engine directly) the coroutine runs on a fresh loop in
+    this thread. Calling this on the loop's own thread would deadlock, so that is refused.
+    """
+    loop = _state["loop"]
+    if loop is None or loop.is_closed() or not loop.is_running():
+        return asyncio.run(coro)
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is loop:
+        coro.close()
+        raise RuntimeError("run_on_main_loop() called on the event loop's own thread")
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
+
+
+def step_attempt() -> int:
+    """Call first inside a DBOS step: how many times this step of this workflow has started, across crashes.
+
+    1 is the first start. More means an earlier start was interrupted (a crash, a deploy) before DBOS checkpointed its
+    result, so its side effects may or may not have happened. Kept in its own small SQLite file next to the system DB.
+    """
+    workflow_id, step_id = DBOS.workflow_id, DBOS.step_id
+    if not workflow_id or step_id is None:
+        raise RuntimeError("step_attempt() must be called inside a DBOS step")
+    folder = _state["data_dir"] or Path(".")
+    con = sqlite3.connect(str(Path(folder) / STEP_ATTEMPTS_FILENAME), timeout=30)
+    try:
+        with con:
+            con.execute("""CREATE TABLE IF NOT EXISTS step_attempts(workflow_id TEXT NOT NULL, step_id INTEGER NOT NULL,
+                           attempts INTEGER NOT NULL, first_started_at REAL, last_started_at REAL,
+                           PRIMARY KEY(workflow_id, step_id))""")
+            now = time.time()
+            con.execute("""INSERT INTO step_attempts VALUES(?,?,1,?,?) ON CONFLICT(workflow_id, step_id)
+                           DO UPDATE SET attempts=attempts+1, last_started_at=excluded.last_started_at""",
+                        (workflow_id, step_id, now, now))
+            return int(con.execute("SELECT attempts FROM step_attempts WHERE workflow_id=? AND step_id=?",
+                                   (workflow_id, step_id)).fetchone()[0])
+    finally:
+        con.close()
+
+
+def generation_of(workflow_id: str) -> int:
+    try:
+        return int(str(workflow_id).rsplit(":", 1)[1])
+    except (IndexError, ValueError):
+        return -1
+
+
+def _generations(prefix: str) -> List[Any]:
+    return list(DBOS.list_workflows(workflow_id_prefix=prefix, load_input=False, load_output=False))
+
+
+def _active_generation(rows: List[Any]) -> Optional[str]:
+    active = [row for row in rows if row.status in ACTIVE_WORKFLOW_STATUSES and row.app_version == APP_VERSION]
+    return max(active, key=lambda row: generation_of(row.workflow_id)).workflow_id if active else None
+
+
+def active_generation(prefix: str) -> Optional[str]:
+    """The running current-version workflow `<prefix><n>`, if any. Safe from any thread; None when not launched."""
+    if not launched():
+        return None
+    try:
+        return run_sync(lambda: _active_generation(_generations(prefix)))
+    except Exception:
+        return None
+
+
+def active_generations(prefix: str) -> List[str]:
+    """IDs of all running current-version workflows whose ID starts with prefix (e.g. "content-run:")."""
+    if not launched():
+        return []
+    rows = run_sync(_generations, prefix)
+    return [row.workflow_id for row in rows
+            if row.status in ACTIVE_WORKFLOW_STATUSES and row.app_version == APP_VERSION]
+
+
+def start_generation(prefix: str, workflow: Callable[..., Any], *args: Any) -> Tuple[Optional[str], bool]:
+    """Start workflow as `<prefix><n>` with the next generation n, or re-attach to the one running. Returns (id, created).
+
+    The deterministic ID is the idempotency key: a second start while one runs is a no-op. An older-APP_VERSION run is
+    never resumed by this process, so it is cancelled before the new generation starts (one owner per prefix).
+    """
+    if not launched() or workflow is None:
+        return None, False
+    return run_sync(_start_generation, prefix, workflow, args)
+
+
+def _start_generation(prefix: str, workflow: Callable[..., Any], args: Tuple[Any, ...]) -> Tuple[Optional[str], bool]:
+    with _start_lock:
+        rows = _generations(prefix)
+        existing = _active_generation(rows)
+        if existing:
+            return existing, False
+        for row in rows:
+            if row.status in ACTIVE_WORKFLOW_STATUSES and row.app_version != APP_VERSION:
+                try:
+                    DBOS.cancel_workflow(row.workflow_id)
+                except Exception as exc:
+                    log("DBOS_CANCEL_ERROR", workflow_id=row.workflow_id, error=str(exc)[:200])
+        workflow_id = f"{prefix}{max([generation_of(row.workflow_id) for row in rows] + [-1]) + 1}"
+        with SetWorkflowID(workflow_id):
+            DBOS.start_workflow(workflow, *args)
+    return workflow_id, True
 
 
 def add_status_section(name: str, section: Callable[[], Dict[str, Any]]) -> None:
@@ -118,10 +240,15 @@ def launch(data_dir: Any) -> bool:
             _state["error"] = IMPORT_ERROR or "dbos is not installed"
             return False
         try:
+            _state["loop"] = asyncio.get_running_loop()  # set when launched from a FastAPI startup hook
+        except RuntimeError:
+            _state["loop"] = None
+        try:
+            folder = Path(data_dir)
+            folder.mkdir(parents=True, exist_ok=True)  # SQLite cannot create a missing parent directory.
+            _state["data_dir"] = folder
             url = os.environ.get("DBOS_SYSTEM_DATABASE_URL", "").strip()
             if not url:
-                folder = Path(data_dir)
-                folder.mkdir(parents=True, exist_ok=True)  # SQLite cannot create a missing parent directory.
                 url = f"sqlite:///{folder / SYSTEM_DB_FILENAME}"
             if not _state["configured"]:
                 DBOS(config={

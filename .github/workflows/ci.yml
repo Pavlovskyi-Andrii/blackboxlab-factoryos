@@ -81,6 +81,10 @@ jobs:
         run: |
           python -m py_compile durable_media_finisher.py test_durable_media_finisher.py
           python test_durable_media_finisher.py
+      - name: Durable content run tests (DBOS stage 2 gate, fake paid provider, zero spend)
+        run: |
+          python -m py_compile durable_content.py test_durable_content.py
+          python test_durable_content.py
       - name: Validate required frontend assets
         run: |
           test -f static/index.html

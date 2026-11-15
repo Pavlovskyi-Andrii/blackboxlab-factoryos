@@ -66,6 +66,9 @@ SQLite file, `DATA_DIR/dbos_system.sqlite`; after a crash, restart or deploy a w
 - A step can run again after a crash (at-least-once): give every external side effect an idempotency key.
 - Never start a workflow or call `DBOS.recv` from inside a step. Give every workflow and step an explicit `name=` and
   register it at import time, before `durable_engine.launch()`.
+- Steps run on DBOS threads: call DBOS through `durable_engine.run_sync`, and FactoryOS coroutines (agents, broadcast)
+  through `durable_engine.run_on_main_loop`. A step whose side effect must not repeat blindly (a paid call) checks
+  `durable_engine.step_attempt()`: above 1 means an earlier start was interrupted, so treat the outcome as uncertain.
 - Changing the order or number of steps of an existing workflow requires bumping `durable_engine.APP_VERSION`, and the
   owning module must cancel older-version runs. Keep `_durable_engine_startup` the first startup hook in `app.py`.
 - Every durable path keeps its legacy fallback: `FACTORY_DBOS_ENABLED=0` (kill switch, owner-set on Render) must keep
@@ -73,8 +76,9 @@ SQLite file, `DATA_DIR/dbos_system.sqlite`; after a crash, restart or deploy a w
 - Never delete or hand-edit `dbos_system.sqlite`, and upgrade the pinned `dbos` version only in a dedicated task (it runs
   schema migrations). The SQLite system DB serves one process: before a second worker or instance, move it to Postgres
   through `DBOS_SYSTEM_DATABASE_URL` (owner-provisioned).
-- One module per durable flow, e.g. `durable_media_finisher.py` (T-612: AI Media Finisher submit → callback/poll).
-- Tests: `python test_durable_engine.py` and `python test_durable_media_finisher.py`.
+- One module per durable flow: `durable_media_finisher.py` (T-612: AI Media Finisher submit → callback/poll),
+  `durable_content.py` (T-613: the content run to the review gate, one step per agent).
+- Tests: `python test_durable_engine.py`, `python test_durable_media_finisher.py`, `python test_durable_content.py`.
 
 ## Default verification
 
