@@ -615,6 +615,21 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   DONE: `python test_durable_media_finisher.py` passes (SIGKILL mid-wait → one submit; callback wake-up; lost-worker resubmit; release; version bump; app wiring on event-loop threads; kill switch) and the default verification passes.
   Live check after deploy (owner/Claude, not a blocker): one real Media Finisher run with a Render deploy in the middle → one worker job, result delivered; health details `durable_engine.launched=true`.
 
+## MVP Factory pilots (owner 2026-11-15: first MVP wave — #305, #187, #188, #189)
+
+- [x] T-615 MyBrief for a profession — web MVP pilot `mybrief-pro` (#188)
+  Owner: claude (session MyBrief)
+  Priority: P1
+  Spec: Issue #188; docs/MVP_FACTORY_SPEC.md; DECISIONS.md «2026-11-15 — T-615»
+  Goal: public page `/static/mybrief/index.html`: pick one of 3 professions and its topics, see a sample briefing where every item links to a real, dated source read through the FactoryOS Surfer; feedback only after an explicit consent tick, no personal data kept, withdrawable; owner/member summary at `/api/mybrief/feedback`. No server-side LLM call, no publishing, no outreach.
+  DONE: `python test_mybrief.py` passes (fixture validation, topic filter, consent gate, redaction, caps, withdraw, route auth, registry prototype link, page script), MVP + Surfer suites and default verification pass, page JS `node --check`.
+
+- [ ] [HUMAN] T-615-H Start the 48-hour MyBrief validation (outreach is the owner's call)
+  Owner: owner
+  Depends: T-615
+  Need: owner reviews the page, sends the link personally to up to 5 people per profession, and after 48 h reads `/api/mybrief/feedback` and decides validated/rejected in MVP Builder. Runbook in Worker Center → «Ваши задачи».
+  DONE: feedback summary from real people and an owner decision recorded on `mybrief-pro`.
+
 ## MVP Factory pilot 1 — AI Decision Memory (#187, epic #186)
 
 - [x] T-614 AI Decision Memory — owner-only web MVP over FactoryOS's real decision log
