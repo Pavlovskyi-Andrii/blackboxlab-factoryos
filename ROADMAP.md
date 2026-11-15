@@ -553,7 +553,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: `projects[pid].experiments[exp]` with exactly two branches a/b; SEGMENT_COMPARISON (never a winner) or CONTROLLED_AB (draft only); per-branch, per-revision owner preview approval; owner decision closes; no metrics/publish/spend/outreach writes; copy deny-list; project stage untouched.
   DONE: `python test_mvp_experiments.py` and the MVP suites pass; default verification passes.
 
-- [ ] T-609 A/B Tester S2 — dashboard branch lanes (A on top, B below) in the MVP panel
+- [x] T-609 A/B Tester S2 — dashboard branch lanes (A on top, B below) in the MVP panel
   Owner: claude
   Priority: P2
   Depends: T-608
