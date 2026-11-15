@@ -9,7 +9,7 @@ from pathlib import Path
 import fastapi
 
 from mvp_factory import MvpError, MvpRegistry
-from mvp_experiments import Experiments, install_mvp_experiment_routes, validate_copy
+from mvp_experiments import Experiments, content_job_id, install_mvp_experiment_routes, validate_copy
 
 PID = "mycast"
 
@@ -206,6 +206,140 @@ class RoutesTest(unittest.TestCase):
         self.assertIsNone(exp["comparison"]["winner"])
         status, _ = self.call(base + "/{exp_id}/decision", "owner", {"choice": "stop"}, project_id=PID, exp_id="mc-exp-focus-001")
         self.assertEqual(status, 200)
+
+
+class ContentJobTest(unittest.TestCase):
+    """T-610 S3: one Content Factory draft job per branch, owner-only, after the preview approval."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.reg = MvpRegistry(Path(self.tmp.name) / "mvp_factory.json", clock=Clock())
+        self.ex = Experiments(self.reg)
+        self.jobs = {}                         # like the jobs table: INSERT OR IGNORE by primary key
+        self.calls = 0
+        app = fastapi.FastAPI()
+
+        async def create_job(title, brief, job_id):
+            self.calls += 1
+            await asyncio.sleep(0.01)          # a real await point, so concurrent clicks interleave
+            self.jobs.setdefault(job_id, (title, brief))
+            return job_id
+        self.create_job = create_job
+        self.store = install_mvp_experiment_routes(app, self.reg, lambda r: {"role": r.role, "email": r.role + "@x"},
+                                                   create_job=create_job)
+        self.route = next(r.endpoint for r in app.routes if getattr(r, "path", "").endswith("/content-job"))
+        self.ex.create(PID, spec(), actor_role="owner")
+        self.ex.save_draft(PID, "mc-exp-focus-001", "a", dict(COPY), actor_role="owner")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    async def click(self, role="owner", branch="a"):
+        out = await self.route(project_id=PID, exp_id="mc-exp-focus-001", branch_id=branch, request=Req(role, {}))
+        return (out.status_code, json.loads(out.body)) if hasattr(out, "status_code") else (200, out)
+
+    def test_needs_owner_and_an_approved_preview(self):
+        self.assertEqual(asyncio.run(self.click(role="member"))[0], 403)
+        self.assertEqual(asyncio.run(self.click()), (409, {"detail": "preview_not_approved"}))
+        self.assertEqual(asyncio.run(self.click(branch="b")), (409, {"detail": "preview_not_approved"}))   # no draft at all
+        self.assertEqual(self.jobs, {})
+
+    def test_one_job_per_branch_even_under_concurrent_clicks(self):
+        self.ex.approve_preview(PID, "mc-exp-focus-001", "a", 1, actor_role="owner")
+        jid = content_job_id(PID, "mc-exp-focus-001", "a")
+
+        async def burst():
+            return await asyncio.gather(*[self.click() for _ in range(5)])
+        results = asyncio.run(burst())
+        self.assertEqual(list(self.jobs), [jid])
+        oks = [r for s, r in results if s == 200]
+        self.assertTrue(oks and all(r["job_id"] == jid for r in oks))
+        self.assertTrue(all(s in (200, 409) for s, _ in results))
+        self.assertEqual(asyncio.run(self.click()), (200, {"job_id": jid, "existing": True}))
+        exp = next(p for p in self.ex.r.snapshot()["projects"] if p["id"] == PID)["experiments"]["mc-exp-focus-001"]
+        a, b = exp["branches"]
+        self.assertEqual((a["content_job_id"], b["content_job_id"]), (jid, None))   # a job for A never appears under B
+        self.assertNotEqual(jid, content_job_id(PID, "mc-exp-focus-001", "b"))
+        self.assertNotIn("content_job_claim", a)
+        self.assertFalse(a["approval"]["publish"])                                   # a draft job is not a publish approval
+
+    def test_slow_creator_past_the_reservation_still_makes_one_job(self):
+        """Codex #376: a reservation that expires mid-creation must not lead to a second job."""
+        self.ex.approve_preview(PID, "mc-exp-focus-001", "a", 1, actor_role="owner")
+        self.store.CLAIM_SECONDS = 0                                                  # every click passes the claim
+
+        async def burst():
+            return await asyncio.gather(*[self.click() for _ in range(4)])
+        results = asyncio.run(burst())
+        self.assertGreater(self.calls, 1)                                             # several creators really ran...
+        self.assertEqual(len(self.jobs), 1)                                           # ...and wrote one job
+        self.assertTrue(all(st == 200 and r["job_id"] == content_job_id(PID, "mc-exp-focus-001", "a") for st, r in results))
+        events = [e for e in json.loads(self.ex.r.path.read_text())["events"] if "handed to Content Factory" in e.get("note", "")]
+        self.assertEqual(len(events), 1)                                              # attached once
+
+    def test_crash_between_create_and_attach_and_creator_that_persists_then_raises(self):
+        self.ex.approve_preview(PID, "mc-exp-focus-001", "a", 1, actor_role="owner")
+        jid = content_job_id(PID, "mc-exp-focus-001", "a")
+        # 1) the job row exists but the process died before attaching (claim left behind and expired)
+        claim = self.ex.claim_content_job(PID, "mc-exp-focus-001", "a", actor_role="owner")
+        asyncio.run(self.create_job(claim["title"], claim["brief"], claim["job_id"]))
+        self.store.CLAIM_SECONDS = 0
+        self.assertEqual(asyncio.run(self.click())[1]["job_id"], jid)
+        self.assertEqual(len(self.jobs), 1)
+        # 2) a creator that persists and then raises: the retry reuses the same id
+        self.ex.create(PID, spec(id="exp-two"), actor_role="owner")
+        self.ex.save_draft(PID, "exp-two", "b", dict(COPY), actor_role="owner")
+        self.ex.approve_preview(PID, "exp-two", "b", 1, actor_role="owner")
+        store, app = {}, fastapi.FastAPI()
+        state = {"fail": True}
+
+        async def flaky(title, brief, job_id):
+            store.setdefault(job_id, title)
+            if state.pop("fail", False):
+                raise RuntimeError("crashed after insert")
+            return job_id
+        install_mvp_experiment_routes(app, self.reg, lambda r: {"role": "owner", "email": ""}, create_job=flaky)
+        route = next(r.endpoint for r in app.routes if getattr(r, "path", "").endswith("/content-job"))
+        with self.assertRaises(RuntimeError):
+            asyncio.run(route(project_id=PID, exp_id="exp-two", branch_id="b", request=Req("owner", {})))
+        out = asyncio.run(route(project_id=PID, exp_id="exp-two", branch_id="b", request=Req("owner", {})))
+        self.assertEqual((len(store), out["job_id"]), (1, content_job_id(PID, "exp-two", "b")))
+        self.assertRaises(MvpError, self.ex.attach_content_job, PID, "exp-two", "b", "t", "someone-elses-id", actor="x")
+
+    def test_brief_carries_branch_copy_and_draft_only_rules(self):
+        self.ex.approve_preview(PID, "mc-exp-focus-001", "a", 1, actor_role="owner")
+        asyncio.run(self.click())
+        title, brief = next(iter(self.jobs.values()))
+        self.assertIn("A/B mc-exp-focus-001 · A", title)
+        self.assertTrue(brief.startswith("RULES — DRAFTS ONLY"))                          # rules can never be truncated away
+        for needle in ("branch A · revision 1", "NOT a randomized A/B test", "entrepreneurs", COPY["headline"],
+                       "DRAFTS ONLY", "Do not publish", "placeholders"):
+            self.assertIn(needle, brief)
+        self.assertNotIn("Personal goals", brief)                                         # the other branch stays out
+
+    def test_failed_creation_releases_the_reservation(self):
+        self.ex.approve_preview(PID, "mc-exp-focus-001", "a", 1, actor_role="owner")
+        calls = []
+
+        async def broken(title, brief, job_id):
+            calls.append(1)
+            raise RuntimeError("db down")
+        app = fastapi.FastAPI()
+        install_mvp_experiment_routes(app, self.reg, lambda r: {"role": r.role, "email": ""}, create_job=broken)
+        route = next(r.endpoint for r in app.routes if getattr(r, "path", "").endswith("/content-job"))
+        with self.assertRaises(RuntimeError):
+            asyncio.run(route(project_id=PID, exp_id="mc-exp-focus-001", branch_id="a", request=Req("owner", {})))
+        self.assertEqual(asyncio.run(self.click())[0], 200)                               # not stuck as "pending"
+        self.assertEqual(len(self.jobs), 1)
+
+    def test_no_job_creator_means_503_and_closed_experiments_refuse(self):
+        app = fastapi.FastAPI()
+        install_mvp_experiment_routes(app, self.reg, lambda r: {"role": "owner", "email": ""})
+        route = next(r.endpoint for r in app.routes if getattr(r, "path", "").endswith("/content-job"))
+        out = asyncio.run(route(project_id=PID, exp_id="mc-exp-focus-001", branch_id="a", request=Req("owner", {})))
+        self.assertEqual(out.status_code, 503)
+        self.ex.approve_preview(PID, "mc-exp-focus-001", "a", 1, actor_role="owner")
+        self.ex.decide(PID, "mc-exp-focus-001", {"choice": "stop"}, actor_role="owner")
+        self.assertEqual(asyncio.run(self.click()), (409, {"detail": "experiment_closed"}))
 
 
 if __name__ == "__main__":

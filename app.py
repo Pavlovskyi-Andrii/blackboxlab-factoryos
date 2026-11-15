@@ -1138,7 +1138,29 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
-install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity)  # T-608 A/B Tester S1: drafts only, owner-gated
+async def _ab_content_job(title, brief, job_id):
+    """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
+    Codex review on #376: the id is deterministic per branch and the insert is INSERT OR IGNORE in one transaction with
+    its workspace binding, so retries, slow creators and crashes can never make a second job. Nothing runs or publishes."""
+    workspace = tenancy.normalize_workspace(tenancy.current() or tenancy.DEFAULT_WORKSPACE)
+    con = db()
+    try:
+        now = ts()
+        cur = con.execute("INSERT OR IGNORE INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                          (job_id, title[:200], brief, "inbox", "AI presenter", "Short only", "Russian", 8, "idle", 0, now, now))
+        created = cur.rowcount == 1
+        if created:
+            assign_job_workspace(con, job_id, workspace)
+        con.commit()
+    finally:
+        con.close()
+    if created:
+        event(job_id, f"Created: {title[:200]}")
+        await broadcast()
+    return job_id
+
+
+install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity, create_job=_ab_content_job)  # T-608..T-610 A/B Tester: drafts only, owner-gated
 install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
 from learn_center import install_learn_routes  # noqa: E402
 import brand_strategy as _brand_strategy_mod  # noqa: E402

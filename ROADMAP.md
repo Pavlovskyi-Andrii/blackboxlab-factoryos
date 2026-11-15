@@ -567,7 +567,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: `static/index.html` only: experiment section with mode badge, lane A above lane B, per-branch draft/preview state, compare card "segment comparison: no winner", EN/UK/RU, no horizontal overflow at 375 px.
   DONE: dashboard JS `node --check`, locale parity, UI test, S1 tests.
 
-- [ ] T-610 A/B Tester S3 — one Content Factory draft job per branch
+- [x] T-610 A/B Tester S3 — one Content Factory draft job per branch
   Owner: claude
   Priority: P2
   Depends: T-609
