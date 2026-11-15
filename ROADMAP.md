@@ -577,7 +577,7 @@ Owner: "скачай оба скилла и выложи на ветку… Prod
   Goal: `mods/<name>/` holds each skill as a plugin (`.claude-plugin/plugin.json` + `skills/`), with upstream commit, license and every FactoryOS change recorded in `mods/README.md`; product-film ships without the display.dev publish scripts and bundled binaries.
   DONE: `python test_mods.py` (vendoring checks) green; `claude plugin validate mods/<name>` passes for all three.
 
-- [ ] T-611-B Mods & skills section: registry, one-button on/off, usage and before/after numbers
+- [x] T-611-B Mods & skills section: registry, one-button on/off, usage and before/after numbers
   Owner: claude
   Priority: P1
   Depends: T-611-A

@@ -943,6 +943,11 @@ def _strategy_job_exists(job_id):
 install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft, create_job=_strategy_job,
                         job_exists=_strategy_job_exists)
 
+# Owner 2026-11-15 (T-611): Mods & skills — one-button on/off for skills and features, with usage and before/after.
+from mods_registry import ModsStore, install_mods_routes
+MODS = ModsStore(DATA_DIR / "mods.json")
+install_mods_routes(app, MODS, identity=request_identity, worker_auth=_claude_worker_authorized)
+
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
 FACELESS_CRM = FacelessCrm(DATA_DIR / "faceless_crm.json")  # #359 owner-only internal persona tracker
@@ -8036,9 +8041,13 @@ def _apply_workflow_prompt(agent,system,job_id=None):
     # Stage 3 (owner 2026-11-14): jobs from a brand plan (or linked to a brand) carry that brand's Master Brief.
     try:
         from brand_strategy import agent_context, brand_for_job
-        passport,item=brand_for_job(STRATEGY,job_id)
-        brief=agent_context(passport,agent,item) if passport else ""
-        if brief:additions.append(brief)
+        # T-611: the "brand-strategy" mod switch decides whether the Master Brief enters agent prompts.
+        if MODS.enabled("brand-strategy"):
+            passport,item=brand_for_job(STRATEGY,job_id)
+            brief=agent_context(passport,agent,item) if passport else ""
+            if brief:
+                additions.append(brief)
+                MODS.use("brand-strategy")
     except Exception as exc:
         print(f"brand brief not added for {agent}: {type(exc).__name__}",file=__import__("sys").stderr)
     return system + (("\n" + "\n".join(additions)) if additions else "")

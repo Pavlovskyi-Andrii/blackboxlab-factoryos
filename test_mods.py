@@ -1,4 +1,4 @@
-"""T-611 Mods & skills: vendored plugins (A).
+"""T-611 Mods & skills: vendored plugins (A), registry and switches (B).
 
 Run: python test_mods.py
 """
@@ -7,7 +7,15 @@ from __future__ import annotations
 import json
 import os
 import re
+import asyncio
+import tempfile
 from pathlib import Path
+
+os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-mods-"))
+import fastapi  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
+
+import mods_registry as mr  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 MODS = ROOT / "mods"
@@ -64,7 +72,127 @@ def test_pstack_bundle_is_complete():
     require((MODS / "pstack" / "agents" / "poteto-agent.md").is_file(), "poteto-agent subagent missing")
 
 
-TESTS = [test_vendored_plugins, test_no_binaries_or_external_publishing, test_pstack_bundle_is_complete]
+class Req:
+    def __init__(self, body=None, role="owner", worker=False):
+        self.body, self.role, self.worker = body, role, worker
+
+    async def json(self):
+        if isinstance(self.body, Exception):
+            raise self.body
+        return self.body
+
+
+def run(x):
+    return asyncio.run(x) if asyncio.iscoroutine(x) else x
+
+
+def make(tmp=None):
+    store = mr.ModsStore(Path(tmp or tempfile.mkdtemp(prefix="factoryos-mods-")) / "mods.json")
+    app = fastapi.FastAPI()
+    mr.install_mods_routes(app, store, identity=lambda r: {"role": r.role}, worker_auth=lambda r: r.worker)
+    h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+    return store, h
+
+
+def status_of(fn, *args):
+    try:
+        run(fn(*args))
+    except HTTPException as exc:
+        return exc.status_code
+    return 200
+
+
+def mod(view, mod_id):
+    return next(m for m in view["mods"] if m["id"] == mod_id)
+
+
+def test_defaults_and_owner_only():
+    store, h = make()
+    get, toggle = h[("GET", "/api/factory/mods")], h[("POST", "/api/factory/mods/{mod_id}")]
+    v = get(Req())
+    require([m["id"] for m in v["mods"]] == [m["id"] for m in mr.CATALOG], "catalog order changed")
+    require(mod(v, "brand-strategy")["enabled"] and not mod(v, "poteto-mode")["enabled"], "defaults wrong")
+    require(all(m["enabled"] for m in v["mods"] if not m["toggle"]), "built-in tools must read as on")
+    require(not store.path.exists(), "reading must not write state")
+    for role in ("member", "viewer"):
+        require(status_of(get, Req(role=role)) == 403, f"{role} can read mods")
+        require(status_of(toggle, "grilling", Req({"enabled": True}, role=role)) == 403, f"{role} can switch")
+    require(status_of(toggle, "nope", Req({"enabled": True})) == 404, "unknown mod accepted")
+    require(status_of(toggle, "revideo", Req({"enabled": False})) == 409, "built-in tool switched off")
+    for bad in ({"enabled": "yes"}, {}, ValueError("x")):
+        require(status_of(toggle, "grilling", Req(bad)) in (400, 422), f"bad body accepted: {bad!r}")
+
+
+def test_toggle_history_and_worker_plan():
+    store, h = make()
+    toggle, plan = h[("POST", "/api/factory/mods/{mod_id}")], h[("GET", "/api/mods/worker/plan")]
+    require(status_of(plan, Req()) == 401, "worker plan open without the worker token")
+    require(run(plan(Req(worker=True)))["plugins"] == [], "nothing is loaded before the owner switches a mod on")
+    v = run(toggle("poteto-mode", Req({"enabled": True})))
+    run(toggle("poteto-mode", Req({"enabled": True})))          # same state twice: one history row
+    run(toggle("product-film", Req({"enabled": True})))
+    m = mod(v, "poteto-mode")
+    require(m["enabled"] and m["since"] and len(m["history"]) == 1 and m["history"][0]["enabled"], "switch not recorded")
+    p = run(plan(Req(worker=True)))
+    require(p["plugins"] == [{"id": "poteto-mode", "plugin": "pstack", "invoke": "/pstack:poteto-mode"},
+                             {"id": "product-film", "plugin": "product-film", "invoke": ""}], f"plan wrong: {p}")
+    require("brand-strategy" in p["enabled"] and all(x["id"] != "brand-strategy" for x in p["plugins"]),
+            "brand strategy is a server feature, not a worker plugin")
+    run(toggle("poteto-mode", Req({"enabled": False})))
+    require([x["id"] for x in run(plan(Req(worker=True)))["plugins"]] == ["product-film"], "switch-off not applied")
+    require(len(mod(h[("GET", "/api/factory/mods")](Req()), "poteto-mode")["history"]) == 2, "switch-off not in history")
+
+
+def test_runs_compare_and_uses():
+    store, h = make()
+    post = h[("POST", "/api/mods/worker/run")]
+    require(status_of(post, Req({"run_id": "r1", "result": "done"})) == 401, "run accepted without worker token")
+    for bad in ({"result": "done"}, {"run_id": "r1", "result": "maybe"}, {"run_id": "r1", "result": "done", "mods": ["revideo"]},
+                {"run_id": "r1", "result": "done", "kind": "x"}, {"run_id": "bad id!", "result": "done"},
+                {"run_id": "r1", "result": "done", "duration_seconds": "x"}):
+        require(status_of(post, Req(bad, worker=True)) == 422, f"bad run accepted: {bad}")
+
+    def rec(i, result, mods, applied=True, dur=600):
+        return run(post(Req({"run_id": f"run-{i}", "task": "T-1", "result": result, "duration_seconds": dur,
+                             "mods": mods, "applied": applied}, worker=True)))
+    require(rec(1, "done", ["poteto-mode"])["recorded"] and not rec(1, "done", ["poteto-mode"])["recorded"], "run_id not idempotent")
+    c = mr.view(store.read())
+    require(not mod(c, "poteto-mode")["compare"]["ready"] and mod(c, "poteto-mode")["compare"]["done_rate_delta"] is None,
+            "comparison claimed from one run")
+    rec(2, "done", ["poteto-mode"]); rec(3, "failed", ["poteto-mode"])
+    rec(4, "done", ["poteto-mode"], applied=False)                 # mods could not be applied: counts as without
+    rec(5, "failed", []); rec(6, "blocked", [])
+    v = mr.view(store.read())
+    cmp = mod(v, "poteto-mode")["compare"]
+    require(cmp["with"]["runs"] == 3 and cmp["with"]["done"] == 2 and cmp["without"]["runs"] == 3, f"split wrong: {cmp}")
+    require(cmp["ready"] and cmp["done_rate_delta"] == round(2 / 3 - 1 / 3, 3), f"delta wrong: {cmp}")
+    require(cmp["with"]["avg_minutes"] == 10.0, "duration average wrong")
+    require(mod(v, "poteto-mode")["uses"] == 3, "uses must count only applied runs")
+    require(v["runs_total"] == 6 and v["recent_runs"][0]["run_id"] in {"run-6", "run-5"}, "recent runs wrong")
+
+
+def test_unreadable_state_fails_safe():
+    store, h = make()
+    store.path.write_text("{broken", encoding="utf-8")
+    require(store.enabled("brand-strategy") is True and store.enabled("grilling") is False, "bad file must mean defaults")
+    store.use("grilling")                                          # never raises
+    require(store.path.read_text(encoding="utf-8") == "{broken", "a broken state file must not be overwritten silently")
+    require(status_of(h[("GET", "/api/factory/mods")], Req()) == 503, "unreadable state must be reported")
+    require(status_of(h[("GET", "/api/mods/worker/plan")], Req(worker=True)) == 503, "worker must see the failure")
+
+
+def test_dashboard_wiring():
+    html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    require('data-nav-group="mods"' in html and 'id="modsCard"' in html, "Mods & skills section missing")
+    for m in mr.CATALOG:
+        require(f'"mods.m.{m["id"]}.name"' in html and f'"mods.m.{m["id"]}.desc"' in html, f"{m['id']}: no dashboard copy")
+    require("loadMods();" in html and "const mdc=$('#modsCard');if(mdc)mdc.style.display=readOnly?'none':''" in html,
+            "card not loaded or not hidden from viewers")
+
+
+TESTS = [test_vendored_plugins, test_no_binaries_or_external_publishing, test_pstack_bundle_is_complete,
+         test_defaults_and_owner_only, test_toggle_history_and_worker_plan, test_runs_compare_and_uses,
+         test_unreadable_state_fails_safe, test_dashboard_wiring]
 
 if __name__ == "__main__":
     for t in TESTS:

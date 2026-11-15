@@ -306,6 +306,15 @@ class StrategyTest(unittest.TestCase):
             self.assertIn(f"этап воронки {it['funnel']}", prompt)
             self.assertEqual(factory._apply_workflow_prompt("Scriptwriter", "BASE", "other-job"), "BASE")
             self.assertEqual(factory._apply_workflow_prompt("Scriptwriter", "BASE", None), "BASE")
+        # T-611: the brand-strategy mod switch really decides whether the Master Brief enters the prompt.
+        from mods_registry import ModsStore
+        mods = ModsStore(pathlib.Path(tempfile.mkdtemp(prefix="factoryos-mods-")) / "mods.json")
+        with patch.object(factory, "STRATEGY", self.store), patch.object(factory, "MODS", mods):
+            self.assertIn("Master Brief бренда MyCast", factory._apply_workflow_prompt("Scriptwriter", "BASE", "job-1"))
+            self.assertEqual(mods.read()["uses"]["brand-strategy"]["count"], 1)
+            mods.set_enabled("brand-strategy", False, "owner")
+            self.assertEqual(factory._apply_workflow_prompt("Scriptwriter", "BASE", "job-1"), "BASE")
+            self.assertEqual(mods.read()["uses"]["brand-strategy"]["count"], 1)
 
 
     def test_long_sections_never_push_tone_or_cta_out(self):

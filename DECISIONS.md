@@ -1257,3 +1257,21 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   approval gate. The skill renders locally (Playwright + ffmpeg, no paid API), which fits ZERO ADDITIONAL SPEND.
   Correction to the earlier chat answer: product-film does not use Remotion.
 - All three pass `claude plugin validate`.
+
+## 2026-11-15 — T-611-B Mods & skills section: registry, switches, numbers
+
+- One code catalog (`mods_registry.CATALOG`) and one JSON state file (`DATA_DIR/mods.json`, flock + atomic replace,
+  the brand-strategy store pattern). Module is `mods_registry.py`, not `mods.py`: the `mods/` plugin folder would
+  shadow `import mods` as a namespace package.
+- Toggleable: poteto-mode, grilling, product-film (default off) and brand-strategy (default on, so today's behaviour
+  is unchanged). Revideo, Media Finisher, explainer motion and Gemini peer review are listed as built-in and cannot be
+  switched off from here; switching core production off by one click is not something the owner asked for.
+- The brand-strategy switch is real: `_apply_workflow_prompt` adds the Master Brief only while it is on, and counts a
+  use each time a prompt actually carried it. An unreadable state file falls back to defaults so content work never
+  stops on it; the dashboard gets a 503 instead of invented numbers.
+- "Does it help": worker runs are recorded with the mods they really loaded (T-611-C). A comparison is shown only with
+  at least 3 runs on each side; a run whose mods could not be applied counts as "without". No other metric is
+  claimed (e.g. content approval rate per Master Brief is not measured yet).
+- Owner-only switch and read; `by` is stored as the role, not the e-mail. Viewers do not see the card.
+- Verified in Chromium against a local server (RU, 1440 px and 375 px): no horizontal overflow, no page errors, the
+  sidebar item scrolls to the card.
