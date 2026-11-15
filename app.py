@@ -750,8 +750,6 @@ def _owner_desk_status():
     out["T-598-H2"]={"state":"optional","detail_key":"h2_optional"}
     out["T-605"]={"state":"done","detail_key":"gemini_key_ok"} if FACTORY_GEMINI_API_KEY else {"state":"todo","detail_key":"gemini_key_missing"}
     out["T-606"]={"state":"todo","detail_key":"jules_pending"}
-    out["D-240"]={"state":"todo","detail_key":"deps_decision"}
-    out["HF-213"]={"state":"todo","detail_key":"higgsfield_deadline"}
     return out
 
 def _mycast_send_audio(audio, filename, title, caption):
@@ -9993,9 +9991,21 @@ async def next_factory_cycle(cycle_id:str):
 @app.get("/api/approval")
 def approval_studio(job_id: Optional[str]=None):
     data=get_approval_queue()
+    data["filter"]={"job_id":None,"applied":False,"total_items":len(data["items"])}
     if job_id:
-        data["items"]=[x for x in data["items"] if x["job"]["id"]==job_id]
-        data["summary"]["items"]=len(data["items"])
+        matched=[x for x in data["items"] if x["job"]["id"]==job_id]
+        if matched:
+            data["items"]=matched
+            data["summary"]["items"]=len(matched)
+            data["filter"].update(job_id=job_id,applied=True)
+        else:
+            # The job selected elsewhere (e.g. "Ready to run") is not in review yet. Filtering to it would show an
+            # empty studio next to a non-zero "waiting" counter; show the whole queue and say where that job is.
+            job=get_job(job_id)
+            data["filter"]["job_id"]=job_id
+            if job:
+                data["filter"]["selected_job"]={"id":job["id"],"title":job.get("title") or "",
+                                                "status":job.get("status") or "","stage":job.get("stage") or ""}
     data["regeneration_quotes"]={x:_estimated_regeneration_cost(x) for x in ("hook","script","caption","voice")}
     return data
 

@@ -276,6 +276,14 @@ legacy_id=legacy["id"]
 con=app.db();con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(app.ts(),legacy_id));con.commit();con.close()
 legacy_item=next(x for x in app.get_approval_queue()["items"] if x["job"]["id"]==legacy_id)
 require(legacy_item["legacy_incomplete"] is True and legacy_item["review_ready"] is False,"legacy approval item must be explicitly marked incomplete")
+# Approval Studio opened with a selected job that is not in review must not render empty next to a non-zero counter.
+studio_off=app.approval_studio(job_id=job_id)
+require(studio_off["filter"]["applied"] is False and studio_off["filter"]["selected_job"]["id"]==job_id
+        and any(x["job"]["id"]==legacy_id for x in studio_off["items"]),
+        "approval studio must fall back to the whole queue and name the selected job that is not in review")
+studio_on=app.approval_studio(job_id=legacy_id)
+require(studio_on["filter"]["applied"] is True and [x["job"]["id"] for x in studio_on["items"]]==[legacy_id]
+        and studio_on["filter"]["total_items"]>=1,"approval studio must still filter to a selected job that is in review")
 contract_job=asyncio.run(app.create_job(app.JobCreate(title="CI worker contract",brief="Unknown-value fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))["id"]
 contract_seed=app.save_artifact("Scout","analysis","CI contract seed","seed",job_id=contract_job)
 running_run=app.start_agent_run("Researcher",contract_job,"research",model="simulation-v4.2")

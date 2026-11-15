@@ -18,3 +18,10 @@ Owner granted Claude, permanently and without asking each time:
 3. On the EC2 worker host: read logs/state, update the worker checkout (`git pull`), and restart the worker/supervisor services when they are stuck.
 4. Close stale PRs and Issues with a comment explaining why.
 Still owner-only (unchanged safety invariants): secrets/tokens, any paid service or API, real social publishing, deleting data or irreversible AWS/Render infrastructure changes, Telegram pairing (T-506), Metricool credentials (T-520).
+
+## Owner answers 2026-11-15
+- T-590-H: owner verified `/api/version` build_sha `60c983bd19fd…` == latest main commit. Production runs main.
+- T-560-G: owner reports FACTORY_VAULT_KEY is set in Render (not yet confirmed via `/api/factory/vault/status`).
+- T-606: Jules web reports "not yet available in your region" (Ukraine); owner connected it via VPN to the repository. Owner prefers a Gemini CLI worker on the existing EC2 host (zero extra spend) over Jules.
+- T-520: Metricool API needs a paid plan; owner does not want to pay before testing. Free plan = 20 posts/month in Metricool's own UI. Owner open to a FactoryOS-native publisher instead. No reverse-engineering of private provider APIs.
+- D-240: owner decision — take #240 and #241 now (Depends: none, owner decision). #242 waits.

@@ -1056,7 +1056,7 @@ const I18N={
   "explainFlow.brain":"Signals → Scout → Researcher → Strategist → Verifier → Shortlist",
   "explainFlow.discovery":"Candidate → Public metrics → Compare → Revideo",
   "approval.statWaiting":"waiting for review","approval.statApproved":"approved","approval.statRejected":"rejected","approval.statItems":"review items",
-  "approval.empty":"No jobs are currently in the approval workflow.","approval.preview":"Preview","approval.hook":"Hook","approval.script":"Script","approval.sources":"Sources",
+  "approval.notInReview":"The selected job «{title}» is not in review yet (status: {status}, stage: {stage}). Below are all jobs waiting for review.","approval.filtered":"Showing only the selected job.","approval.showAll":"Show all jobs in review","approval.emptyHelp":"A video gets here after the factory finishes it: Jobs → pick a job → Run Factory. When the job passes QA it waits here for your approval; nothing is published without it.","approval.openJobs":"Open Jobs","approval.empty":"No jobs are currently in the approval workflow.","approval.preview":"Preview","approval.hook":"Hook","approval.script":"Script","approval.sources":"Sources",
   "approval.warnings":"Fact / QA warnings","approval.variantDiff":"Variant diff","approval.publishTarget":"Publish target","approval.history":"Decision history",
   "approval.noFindings":"No structured findings recorded.","approval.noSources":"No sources recorded.","approval.noDecisions":"No decisions yet.",
   "approval.variants":"variants","approval.approveQueue":"Approve to queue","approval.reject":"Reject","approval.legacy":"Legacy / incomplete package",
@@ -1335,7 +1335,7 @@ const I18N={
   "explainFlow.brain":"Сигнали → Scout → Researcher → Strategist → Verifier → Шортлист",
   "explainFlow.discovery":"Кандидат → Публічні метрики → Порівняння → Revideo",
   "approval.statWaiting":"очікують перевірки","approval.statApproved":"схвалено","approval.statRejected":"відхилено","approval.statItems":"на перевірці",
-  "approval.empty":"Зараз немає job у workflow схвалення.","approval.preview":"Прев’ю","approval.hook":"Hook","approval.script":"Сценарій","approval.sources":"Джерела",
+  "approval.notInReview":"Вибрана job «{title}» ще не на перевірці (статус: {status}, етап: {stage}). Нижче — усі job, що чекають перевірки.","approval.filtered":"Показано лише вибрану job.","approval.showAll":"Показати всі job на перевірці","approval.emptyHelp":"Відео потрапляє сюди, коли фабрика його доробить: Jobs → виберіть job → Run Factory. Після QA job чекає тут вашого схвалення; без нього нічого не публікується.","approval.openJobs":"Відкрити Jobs","approval.empty":"Зараз немає job у workflow схвалення.","approval.preview":"Прев’ю","approval.hook":"Hook","approval.script":"Сценарій","approval.sources":"Джерела",
   "approval.warnings":"Fact / QA попередження","approval.variantDiff":"Різниця варіантів","approval.publishTarget":"Ціль публікації","approval.history":"Історія рішень",
   "approval.noFindings":"Структурованих зауважень немає.","approval.noSources":"Джерела не записані.","approval.noDecisions":"Рішень ще немає.",
   "approval.variants":"варіанти","approval.approveQueue":"Схвалити в чергу","approval.reject":"Відхилити","approval.legacy":"Legacy / неповний пакет",
@@ -1614,7 +1614,7 @@ const I18N={
   "explainFlow.brain":"Сигналы → Scout → Researcher → Strategist → Verifier → Шортлист",
   "explainFlow.discovery":"Кандидат → Публичные метрики → Сравнение → Revideo",
   "approval.statWaiting":"ждут проверки","approval.statApproved":"одобрено","approval.statRejected":"отклонено","approval.statItems":"на проверке",
-  "approval.empty":"Сейчас нет job в workflow одобрения.","approval.preview":"Превью","approval.hook":"Hook","approval.script":"Сценарий","approval.sources":"Источники",
+  "approval.notInReview":"Выбранная job «{title}» ещё не на проверке (статус: {status}, этап: {stage}). Ниже — все job, которые ждут проверки.","approval.filtered":"Показана только выбранная job.","approval.showAll":"Показать все job на проверке","approval.emptyHelp":"Видео попадает сюда, когда фабрика его доделает: Jobs → выберите job → Run Factory. После QA job ждёт здесь вашего одобрения; без него ничего не публикуется.","approval.openJobs":"Открыть Jobs","approval.empty":"Сейчас нет job в workflow одобрения.","approval.preview":"Превью","approval.hook":"Hook","approval.script":"Сценарий","approval.sources":"Источники",
   "approval.warnings":"Fact / QA предупреждения","approval.variantDiff":"Разница вариантов","approval.publishTarget":"Цель публикации","approval.history":"История решений",
   "approval.noFindings":"Структурированных замечаний нет.","approval.noSources":"Источники не записаны.","approval.noDecisions":"Решений пока нет.",
   "approval.variants":"варианты","approval.approveQueue":"Одобрить в очередь","approval.reject":"Отклонить","approval.legacy":"Legacy / неполный пакет",
@@ -3762,13 +3762,17 @@ async function openCycleReview(jobId){try{await api('/api/jobs/'+jobId+'/select'
 async function learnFactoryCycleUi(id){try{const r=await api('/api/factory-cycles/'+id+'/learn',{method:'POST'});toast(r.ready?'Learning saved':(r.reason||'No metrics yet'));renderAutonomousFactory();await refresh()}catch(e){toast(e.message)}}
 async function nextFactoryCycle(id){try{await api('/api/factory-cycles/'+id+'/next',{method:'POST'});toast(tr('cycle.nextCreated'));renderAutonomousFactory();await refresh()}catch(e){toast(e.message)}}
 
-async function openApprovalStudio(){_openFlow('approval');const root=$('#approvalBody');root.innerHTML='<div class="flowEmpty">'+esc(tr('approval.loading'))+'</div>';try{const q=S&&S.selectedJobId?'?job_id='+encodeURIComponent(S.selectedJobId):'';renderApprovalStudio(await api('/api/approval'+q))}catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}}
+async function openApprovalStudio(all){_openFlow('approval');const root=$('#approvalBody');root.innerHTML='<div class="flowEmpty">'+esc(tr('approval.loading'))+'</div>';try{const q=!all&&S&&S.selectedJobId?'?job_id='+encodeURIComponent(S.selectedJobId):'';renderApprovalStudio(await api('/api/approval'+q))}catch(e){root.innerHTML='<div class="flowEmpty">'+esc(e.message)+'</div>'}}
+function approvalOpenJobs(){closeApprovalStudio();const el=document.querySelector('.jobs');if(el)el.scrollIntoView()}
 function closeApprovalStudio(){_closeFlow('approval')}
 function renderApprovalStudio(d){
  const root=$('#approvalBody'),items=d.items||[],s=d.summary||{},quotes=d.regeneration_quotes||{};
  let out='<div class="flowSummary"><div class="flowStat"><b>'+Number(s.waiting||0)+'</b><span>'+esc(tr('approval.statWaiting'))+'</span></div><div class="flowStat"><b>'+Number(s.approved||0)+'</b><span>'+esc(tr('approval.statApproved'))+'</span></div><div class="flowStat"><b>'+Number(s.rejected||0)+'</b><span>'+esc(tr('approval.statRejected'))+'</span></div><div class="flowStat"><b>'+Number(s.items||0)+'</b><span>'+esc(tr('approval.statItems'))+'</span></div></div>';
  out+='<div class="explainStrip"><div><b>'+esc(tr('approval.hook'))+'</b><span>'+esc(tr('approval.hookHelp'))+'</span></div><div><b>'+esc(tr('approval.warnings'))+'</b><span>'+esc(tr('approval.warningsHelp'))+'</span></div><div><b>'+esc(tr('approval.publishTarget'))+'</b><span>'+esc(tr('approval.publishTargetHelp'))+'</span></div></div>';
- if(!items.length){root.innerHTML=out+'<div class="flowEmpty">'+esc(tr('approval.empty'))+'</div>';return}
+ const f=d.filter||{},sj=f.selected_job;
+ if(sj)out+='<div class="legacyBanner" data-approval-filter="not-in-review">'+esc(tr('approval.notInReview',{title:sj.title||'—',status:cycleStateLabel(sj.status||'idle'),stage:sj.stage||'—'}))+'</div>';
+ else if(f.applied&&Number(f.total_items||0)>items.length)out+='<div class="flowActions" data-approval-filter="applied"><span>'+esc(tr('approval.filtered'))+'</span><button class="btn" onclick="openApprovalStudio(true)">'+esc(tr('approval.showAll'))+' ('+Number(f.total_items)+')</button></div>';
+ if(!items.length){root.innerHTML=out+'<div class="flowEmpty" data-approval-empty="1"><p>'+esc(tr('approval.empty'))+'</p><p>'+esc(tr('approval.emptyHelp'))+'</p><button class="btn" onclick="approvalOpenJobs()">'+esc(tr('approval.openJobs'))+'</button></div>';return}
  out+='<div class="flowGrid">'+items.map(x=>{
   const j=x.job||{},p=(x.package||{}).package||{},v=x.variants||{},sel=(v.variants||[]).find(y=>y.status==='selected')||{},hist=x.history||[],diff=(x.variant_diff||{}).comparisons||[],pub=x.publish||{},mr=x.media_review||{};
   const findings=((sel.qa||{}).findings||[]).map(f=>textValue(f.type)+': '+textValue(f.message)).join('\n')||tr('approval.noFindings');
