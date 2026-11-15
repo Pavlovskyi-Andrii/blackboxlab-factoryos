@@ -1296,3 +1296,20 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   of the Claude subscription limit. That is the price the with/without numbers have to justify. No paid API is used.
 - Every run is reported to `POST /api/mods/worker/run` with its real mod set (best effort; a lost report only drops
   that run from the comparison).
+
+## 2026-11-15 — T-611-D Video duel: A1/A2 (FactoryOS tool) against B1/B2 (product-film)
+
+- Separate from the MVP A/B Tester on purpose: that one is fixed to two persona branches with no winner by design
+  (T-608). A tool duel compares production tools on one brief with four takes, and does name a winner.
+- A arms become ordinary draft jobs through the normal `create_job` (format Shorts, brief starts with "ТОЛЬКО
+  ЧЕРНОВИК"), so they follow the usual pipeline and the usual publish approval. B arms become Claude Relay tickets
+  (`source_key mods-duel:<duel>:<arm>`, deduplicated) that load product-film only through T-611-C; starting B is
+  refused while product-film is off. Start is idempotent (120 s reservation released on failure).
+- Rendered films stay on the worker under `/tmp/factoryos-films/` and are never committed or uploaded; the ticket's
+  final note carries the paths. The owner pastes a link and scores 1–5. There is no automatic upload path yet.
+- A take can be scored only after it was started or has a link. The verdict (A average, B average, winner tool or
+  tie) is computed by the server only when all four takes are scored; clearing a score withdraws it.
+- Not verified here: a real product-film render on the EC2 worker (Node/ffmpeg/Playwright presence there is
+  unknown). The ticket tells the worker to return BLOCKED with the missing tool instead of faking a film.
+- Verified in Chromium against a local server: create duel → A1 job created → B locked → product-film on → B1 Relay
+  ticket queued → four scores → "A 3.5 · B 4.5 → побеждает product-film"; no overflow at 375 px, no page errors.

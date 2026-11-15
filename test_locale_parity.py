@@ -42,6 +42,8 @@ SAME_AS_EN = {
     # T-611 mod names are product names (owner 2026-11-15)
     "mods.m.poteto-mode.name", "mods.m.grilling.name", "mods.m.product-film.name", "mods.m.revideo.name",
     "mods.m.media-finisher.name", "mods.m.explainer-motion.name",
+    # T-611-D duel: symbols, arm letters and the Relay product name only
+    "duel.noScore", "duel.result", "duel.ticket",
 }
 
 # English UI strings that used to be hardcoded outside tr(). They must stay localized.

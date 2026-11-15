@@ -1,4 +1,4 @@
-"""T-611 Mods & skills: vendored plugins (A), registry and switches (B), worker runtime (C).
+"""T-611 Mods & skills: vendored plugins (A), registry and switches (B), worker runtime (C), video duel (D).
 
 Run: python test_mods.py
 """
@@ -89,10 +89,10 @@ def run(x):
     return asyncio.run(x) if asyncio.iscoroutine(x) else x
 
 
-def make(tmp=None):
+def make(tmp=None, **hooks):
     store = mr.ModsStore(Path(tmp or tempfile.mkdtemp(prefix="factoryos-mods-")) / "mods.json")
     app = fastapi.FastAPI()
-    mr.install_mods_routes(app, store, identity=lambda r: {"role": r.role}, worker_auth=lambda r: r.worker)
+    mr.install_mods_routes(app, store, identity=lambda r: {"role": r.role}, worker_auth=lambda r: r.worker, **hooks)
     h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
     return store, h
 
@@ -278,7 +278,62 @@ def test_runtime_reports_runs():
         os.environ.pop("FACTORY_CLAUDE_WORKER_TOKEN", None)
 
 
-TESTS = [test_runtime_resolve_fails_closed, test_runtime_flags_prompt_and_tools, test_runtime_reports_runs,
+def test_video_duel():
+    jobs, tickets = [], []
+
+    async def create_job(title, brief, fmt):
+        jobs.append((title, brief, fmt))
+        return f"job-{len(jobs)}"
+
+    def create_ticket(title, body, key):
+        tickets.append((title, body, key))
+        return f"R-{len(tickets):04d}"
+    store, h = make(create_job=create_job, create_ticket=create_ticket,
+                    job_state=lambda j: {"status": "review"}, ticket_state=lambda t: {"status": "inbox", "execution": "queued"})
+    new, start = h[("POST", "/api/factory/mods/duels")], h[("POST", "/api/factory/mods/duels/{duel_id}/arms/{arm}/start")]
+    upd, toggle = h[("POST", "/api/factory/mods/duels/{duel_id}/arms/{arm}")], h[("POST", "/api/factory/mods/{mod_id}")]
+    require(status_of(new, Req({"title": "x", "brief": "y"}, role="member")) == 403, "member created a duel")
+    for bad in ({"title": "", "brief": "y"}, {"title": "x", "brief": "y", "factory_tool": "product-film"}):
+        require(status_of(new, Req(bad)) == 422, f"bad duel accepted: {bad}")
+    v = run(new(Req({"title": "Launch", "brief": "Show the MyCast daily podcast", "factory_tool": "media-finisher"})))
+    d = v["duels"][0]
+    require(d["id"] == "D-0001" and [a["tool"] for a in d["arms"]] == ["media-finisher"] * 2 + ["product-film"] * 2, d)
+    require(not d["verdict"]["ready"] and d["verdict"]["missing"] == ["a1", "a2", "b1", "b2"], "verdict without scores")
+    require(status_of(start, "D-0001", "b1", Req()) == 409 and not tickets, "B arm started while product-film is off")
+    require(status_of(start, "D-0009", "a1", Req()) == 404 and status_of(start, "D-0001", "c1", Req()) == 404, "bad ids")
+    run(start("D-0001", "a1", Req())); run(start("D-0001", "a1", Req()))   # second click: same job
+    require(len(jobs) == 1 and jobs[0][2] == "Shorts" and "ТОЛЬКО ЧЕРНОВИК" in jobs[0][1] and "media-finisher" in jobs[0][1],
+            f"A arm job wrong: {jobs}")
+    run(toggle("product-film", Req({"enabled": True})))
+    v = run(start("D-0001", "b2", Req()))
+    require(len(tickets) == 1 and tickets[0][2] == "mods-duel:D-0001:b2" and "/product-film:product-film" in tickets[0][1]
+            and "Ничего не публиковать" in tickets[0][1], f"B arm ticket wrong: {tickets}")
+    arms = {a["id"]: a for a in v["duels"][0]["arms"]}
+    require(arms["a1"]["job_id"] == "job-1" and arms["a1"]["live"] == {"status": "review"}, arms["a1"])
+    require(arms["b2"]["ticket_id"] == "R-0001" and arms["b2"]["live"]["execution"] == "queued", arms["b2"])
+    require(mod(v, "product-film")["uses"] == 1, "product-film use not counted")
+    for bad in ({"score": 6}, {"score": True}, {"score": "5"}, {"result_url": "javascript:alert(1)"}, {}):
+        require(status_of(upd, "D-0001", "a1", Req(bad)) == 422, f"bad arm update accepted: {bad}")
+    require(status_of(upd, "D-0001", "a2", Req({"score": 3})) == 409, "scored a take that does not exist")
+    for arm, score in (("a1", 4), ("a2", 2), ("b1", 5)):
+        v = run(upd("D-0001", arm, Req({"score": score, "result_url": "https://example.com/v.mp4"})))
+    require(not v["duels"][0]["verdict"]["ready"], "verdict from three scores")
+    v = run(upd("D-0001", "b2", Req({"score": 4})))
+    ver = v["duels"][0]["verdict"]
+    require(ver == {"ready": True, "avg_a": 3.0, "avg_b": 4.5, "winner": "b", "winner_tool": "product-film"}, ver)
+    v = run(upd("D-0001", "b2", Req({"score": None})))
+    require(not v["duels"][0]["verdict"]["ready"], "clearing a score must withdraw the verdict")
+
+    async def boom(*a):
+        raise RuntimeError("db down")
+    store2, h2 = make(create_job=boom)
+    run(h2[("POST", "/api/factory/mods/duels")](Req({"title": "x", "brief": "y"})))
+    st = h2[("POST", "/api/factory/mods/duels/{duel_id}/arms/{arm}/start")]
+    require(status_of(st, "D-0001", "a1", Req()) == 502, "failed start not reported")
+    require("starting" not in store2.read()["duels"]["D-0001"]["arms"]["a1"], "failed start must release the arm")
+
+
+TESTS = [test_video_duel, test_runtime_resolve_fails_closed, test_runtime_flags_prompt_and_tools, test_runtime_reports_runs,
          test_vendored_plugins, test_no_binaries_or_external_publishing, test_pstack_bundle_is_complete,
          test_defaults_and_owner_only, test_toggle_history_and_worker_plan, test_runs_compare_and_uses,
          test_unreadable_state_fails_safe, test_dashboard_wiring]

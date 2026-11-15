@@ -946,7 +946,26 @@ install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strateg
 # Owner 2026-11-15 (T-611): Mods & skills — one-button on/off for skills and features, with usage and before/after.
 from mods_registry import ModsStore, install_mods_routes
 MODS = ModsStore(DATA_DIR / "mods.json")
-install_mods_routes(app, MODS, identity=request_identity, worker_auth=_claude_worker_authorized)
+
+
+def _duel_job_state(job_id):
+    job = get_job(job_id)
+    return {"status": job.get("status") or "", "title": job.get("title") or ""} if job else None
+
+
+def _duel_ticket_state(ticket_id):
+    t = RELAY_STORE.get(ticket_id)
+    if not t:
+        return None
+    ex = t.get("execution") or {}
+    return {"status": t.get("status") or "", "execution": ex.get("state") or "", "note": str(ex.get("note") or "")[:400]}
+
+
+install_mods_routes(app, MODS, identity=request_identity, worker_auth=_claude_worker_authorized,
+                    create_job=_strategy_job, job_state=_duel_job_state, ticket_state=_duel_ticket_state,
+                    create_ticket=lambda title, body, key: RELAY_STORE.create(
+                        title, body, source={"channel": "mods-duel", "source_key": key, "url": ""},
+                        created_by="mods-duel", owner="claude")[0]["id"])
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")

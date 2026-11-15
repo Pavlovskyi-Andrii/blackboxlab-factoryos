@@ -591,7 +591,7 @@ Owner: "скачай оба скилла и выложи на ветку… Prod
   Goal: before each ROADMAP or Relay run the worker reads the enabled mods (worker token), adds `--plugin-dir mods/<name>` and a headless-safety system prompt, starts the prompt with `/pstack:poteto-mode` when poteto-mode is on, and reports the run with its mod set so the dashboard can compare. Server unreachable or CLI without `--plugin-dir` → run without mods, reported as such.
   DONE: `python -m autopilot.test_delegation`, `python test_mods.py`, Python 3.9 import check.
 
-- [ ] T-611-D Video tool duel: A1/A2 (Revideo / Media Finisher / explainer) against B1/B2 (product-film)
+- [x] T-611-D Video tool duel: A1/A2 (Revideo / Media Finisher / explainer) against B1/B2 (product-film)
   Owner: claude
   Priority: P2
   Depends: T-611-C

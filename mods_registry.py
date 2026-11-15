@@ -48,6 +48,14 @@ MAX_HISTORY = 500
 MAX_RUNS = 1000
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9:._-]{1,120}$")
 
+# Video duel (T-611-D): two takes by a built-in FactoryOS tool (A1, A2) against two takes by product-film (B1, B2).
+FACTORY_TOOLS = ("revideo", "media-finisher", "explainer-motion")
+ARMS = ("a1", "a2", "b1", "b2")
+DUEL_ID_RE = re.compile(r"^D-\d{4}$")
+MAX_DUELS = 30
+START_HOLD = 120
+URL_RE = re.compile(r"^(https?://[^\s<>\"']{3,500}|/[A-Za-z0-9/_.?=&%-]{1,300})$")
+
 
 def _now() -> int:
     return int(time.time())
@@ -152,6 +160,46 @@ class ModsStore:
         return self.change(fn)
 
 
+def _clean_text(value, limit: int) -> str:
+    return re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", " ", str(value or "")).replace("\r", "").strip()[:limit]
+
+
+def arm_tool(duel: dict, arm: str) -> str:
+    return duel["factory_tool"] if arm.startswith("a") else "product-film"
+
+
+def verdict(duel: dict) -> dict:
+    """A against B only when all four takes are scored; never a winner from partial data."""
+    scores = {a: (duel["arms"][a].get("score")) for a in ARMS}
+    missing = [a for a, v in scores.items() if v is None]
+    if missing:
+        return {"ready": False, "missing": missing}
+    avg_a, avg_b = (scores["a1"] + scores["a2"]) / 2, (scores["b1"] + scores["b2"]) / 2
+    winner = "tie" if avg_a == avg_b else ("a" if avg_a > avg_b else "b")
+    return {"ready": True, "avg_a": avg_a, "avg_b": avg_b, "winner": winner,
+            "winner_tool": "" if winner == "tie" else arm_tool(duel, winner + "1")}
+
+
+def job_brief(duel: dict, arm: str) -> str:
+    tool = arm_tool(duel, arm)
+    return (f"ВИДЕО-ДУЭЛЬ {duel['id']}, дубль {arm.upper()} (инструмент: {tool}). ТОЛЬКО ЧЕРНОВИК: не публиковать, "
+            "не запускать платные провайдеры, публикация только через обычное одобрение владельца.\n"
+            f"Сделай вариант {arm[-1]} из 2 — он должен отличаться от второго дубля хуком или подачей.\n\n"
+            f"Бриф: {duel['brief']}")
+
+
+def ticket_body(duel: dict, arm: str) -> str:
+    return (f"Видео-дуэль {duel['id']}, дубль {arm.upper()}: сделай короткий продуктовый ролик скиллом "
+            "/product-film:product-film (он загружен в этот запуск).\n"
+            f"Это вариант {arm[-1]} из 2: второй дубль B должен отличаться маршрутом или подачей "
+            "(например, B1 — walkthrough в kinetic-стиле, B2 — reel или paper collage).\n"
+            f"Папка фильма: /tmp/factoryos-films/{duel['id']}-{arm}/. Видео в git не коммитить.\n"
+            "Ничего не публиковать и не загружать во внешние сервисы, платные API и покупки запрещены.\n"
+            "Если нет Node 18+, ffmpeg или Playwright — верни BLOCKED и назови, чего не хватает.\n"
+            "В итоговом ответе: пути к MP4, постеру и review-странице.\n\n"
+            f"Бриф: {duel['brief']}")
+
+
 def _side(runs: list) -> dict:
     n = len(runs)
     out = {"runs": n, **{r: sum(1 for x in runs if x["result"] == r) for r in RUN_RESULTS}}
@@ -191,6 +239,18 @@ def view(data: dict) -> dict:
     return {"mods": mods, "runs_total": len(runs), "recent_runs": last}
 
 
+def duel_view(duel: dict, live: Callable[[str, str], Optional[dict]]) -> dict:
+    arms = []
+    for a in ARMS:
+        row = dict(duel["arms"][a])
+        ref = row.get("job_id") or row.get("ticket_id") or ""
+        row.update(id=a, tool=arm_tool(duel, a), live=live(a, ref) if ref else None)
+        row.pop("starting", None)
+        arms.append(row)
+    return {"id": duel["id"], "title": duel["title"], "brief": duel["brief"], "factory_tool": duel["factory_tool"],
+            "created_at": duel["created_at"], "arms": arms, "verdict": verdict(duel)}
+
+
 def clean_run(body: dict) -> dict:
     if not isinstance(body, dict):
         raise HTTPException(400, "json object required")
@@ -224,7 +284,11 @@ def worker_plan(store: ModsStore) -> dict:
 
 
 def install_mods_routes(app, store: ModsStore, *, identity: Callable, worker_auth: Callable[[Request], bool],
-                        extra: Optional[Callable[[dict], dict]] = None) -> None:
+                        create_job: Optional[Callable] = None, create_ticket: Optional[Callable] = None,
+                        job_state: Optional[Callable[[str], Optional[dict]]] = None,
+                        ticket_state: Optional[Callable[[str], Optional[dict]]] = None) -> None:
+    """create_job(title, brief, fmt) -> awaitable job id; create_ticket(title, body, source_key) -> ticket id.
+    job_state / ticket_state(id) -> small dict or None, shown live on each duel arm."""
     def owner(request: Request) -> str:
         if (identity(request) or {}).get("role") != "owner":
             raise HTTPException(403, "Owner access required")
@@ -249,27 +313,125 @@ def install_mods_routes(app, store: ModsStore, *, identity: Callable, worker_aut
         except Exception as exc:
             raise HTTPException(503, f"mods state unreadable: {type(exc).__name__}")
         out = view(data)
-        if extra:
-            out.update(extra(data))
+
+        def live(arm: str, ref: str):
+            try:
+                fn = job_state if arm.startswith("a") else ticket_state
+                return fn(ref) if fn else None
+            except Exception:
+                return None
+        duels = sorted((data.get("duels") or {}).values(), key=lambda d: d.get("created_at") or 0, reverse=True)
+        out["duels"] = [duel_view(d, live) for d in duels]
         return out
+
+    def duel_or_404(data: dict, duel_id: str) -> dict:
+        duel = (data.get("duels") or {}).get(duel_id) if DUEL_ID_RE.fullmatch(duel_id or "") else None
+        if not duel:
+            raise HTTPException(404, "unknown duel")
+        return duel
+
+    def arm_ok(arm: str) -> str:
+        if arm not in ARMS:
+            raise HTTPException(404, "unknown arm")
+        return arm
 
     @app.get("/api/factory/mods")
     def mods_list(request: Request):
         owner(request)
         return full_view()
 
-    @app.post("/api/factory/mods/{mod_id}")
-    async def mods_toggle(mod_id: str, request: Request):
-        by = owner(request)
-        mod = BY_ID.get(mod_id)
-        if not mod:
-            raise HTTPException(404, "unknown mod")
-        if not mod["toggle"]:
-            raise HTTPException(409, "built-in tool: always on")
+    @app.post("/api/factory/mods/duels")
+    async def duel_create(request: Request):
+        owner(request)
         b = await body(request)
-        if not isinstance(b.get("enabled"), bool):
-            raise HTTPException(422, "enabled must be true or false")
-        store.set_enabled(mod_id, b["enabled"], by)
+        title, brief = _clean_text(b.get("title"), 120), _clean_text(b.get("brief"), 3000)
+        tool = str(b.get("factory_tool") or "revideo")
+        if not title or not brief:
+            raise HTTPException(422, "title and brief are required")
+        if tool not in FACTORY_TOOLS:
+            raise HTTPException(422, "factory_tool must be revideo, media-finisher or explainer-motion")
+
+        def fn(data):
+            duels = data.setdefault("duels", {})
+            if len(duels) >= MAX_DUELS:
+                raise HTTPException(409, "too many duels")
+            data["duel_seq"] = int(data.get("duel_seq") or 0) + 1
+            duel_id = f"D-{data['duel_seq']:04d}"
+            duels[duel_id] = {"id": duel_id, "title": title, "brief": brief, "factory_tool": tool, "created_at": _now(),
+                              "arms": {a: {"job_id": "", "ticket_id": "", "result_url": "", "score": None} for a in ARMS}}
+        store.change(fn)
+        return full_view()
+
+    @app.post("/api/factory/mods/duels/{duel_id}/arms/{arm}/start")
+    async def duel_start(duel_id: str, arm: str, request: Request):
+        """A arm → an ordinary draft job; B arm → a Claude Relay ticket that loads product-film. Idempotent."""
+        owner(request)
+        arm_ok(arm)
+        if arm.startswith("b") and not store.enabled("product-film"):
+            raise HTTPException(409, "switch product-film on first")
+        if (arm.startswith("a") and not create_job) or (arm.startswith("b") and not create_ticket):
+            raise HTTPException(503, "this server cannot start that arm")
+        now = _now()
+
+        def reserve(data):
+            duel = duel_or_404(data, duel_id)
+            row = duel["arms"][arm]
+            if row.get("job_id") or row.get("ticket_id"):
+                return None
+            if now - int(row.get("starting") or 0) < START_HOLD:
+                raise HTTPException(409, "already starting")
+            row["starting"] = now
+            return dict(duel)
+        duel = store.change(reserve)
+        if duel is None:
+            return full_view()
+        title = f"{duel['id']} {arm.upper()} · {duel['title']}"[:180]
+        try:
+            if arm.startswith("a"):
+                ref = await create_job(title, job_brief(duel, arm), "Shorts")
+            else:
+                ref = create_ticket(title, ticket_body(duel, arm), f"mods-duel:{duel['id']}:{arm}")
+        except HTTPException:
+            store.change(lambda data: duel_or_404(data, duel_id)["arms"][arm].pop("starting", None))
+            raise
+        except Exception as exc:
+            store.change(lambda data: duel_or_404(data, duel_id)["arms"][arm].pop("starting", None))
+            raise HTTPException(502, f"could not start {arm}: {type(exc).__name__}")
+
+        def attach(data):
+            row = duel_or_404(data, duel_id)["arms"][arm]
+            row["job_id" if arm.startswith("a") else "ticket_id"] = str(ref)
+            row.pop("starting", None)
+        store.change(attach)
+        if arm.startswith("b"):
+            store.use("product-film")
+        return full_view()
+
+    @app.post("/api/factory/mods/duels/{duel_id}/arms/{arm}")
+    async def duel_arm_update(duel_id: str, arm: str, request: Request):
+        owner(request)
+        arm_ok(arm)
+        b = await body(request)
+        patch = {}
+        if "result_url" in b:
+            url = _clean_text(b.get("result_url"), 500)
+            if url and not URL_RE.fullmatch(url):
+                raise HTTPException(422, "result_url must be an http(s) link or a FactoryOS path")
+            patch["result_url"] = url
+        if "score" in b:
+            score = b.get("score")
+            if score is not None and (isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5):
+                raise HTTPException(422, "score must be 1-5 or null")
+            patch["score"] = score
+        if not patch:
+            raise HTTPException(422, "nothing to update")
+        def fn(data):
+            row = duel_or_404(data, duel_id)["arms"][arm]
+            after = {**row, **patch}
+            if after.get("score") is not None and not (after.get("job_id") or after.get("ticket_id") or after.get("result_url")):
+                raise HTTPException(409, "start the take or add its link before scoring it")
+            row.update(patch)
+        store.change(fn)
         return full_view()
 
     @app.get("/api/mods/worker/plan")
@@ -284,3 +446,18 @@ def install_mods_routes(app, store: ModsStore, *, identity: Callable, worker_aut
     async def mods_worker_run(request: Request):
         worker(request)
         return store.record_run(clean_run(await body(request)))
+
+    # Registered last: its {mod_id} would otherwise capture /api/factory/mods/duels.
+    @app.post("/api/factory/mods/{mod_id}")
+    async def mods_toggle(mod_id: str, request: Request):
+        by = owner(request)
+        mod = BY_ID.get(mod_id)
+        if not mod:
+            raise HTTPException(404, "unknown mod")
+        if not mod["toggle"]:
+            raise HTTPException(409, "built-in tool: always on")
+        b = await body(request)
+        if not isinstance(b.get("enabled"), bool):
+            raise HTTPException(422, "enabled must be true or false")
+        store.set_enabled(mod_id, b["enabled"], by)
+        return full_view()
