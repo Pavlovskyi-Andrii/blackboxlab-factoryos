@@ -17,7 +17,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any, Callable
+import secrets
+import time
+from typing import Any, Awaitable, Callable, Optional
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -154,6 +156,7 @@ def comparison(exp: dict) -> dict:
 def view(exp: dict) -> dict:
     out = json.loads(json.dumps(exp))
     for b in out["branches"]:
+        b.pop("content_job_claim", None)   # internal reservation token, never shown
         p = b["approval"]["preview"]
         b["preview_approved"] = bool(p) and p.get("rev") == b["revision"] and b["revision"] > 0
     out["comparison"] = comparison(exp)
@@ -315,11 +318,90 @@ class Experiments:
             return {"experiment": view(exp)}
 
 
+    # -- S3 (T-610): one Content Factory draft job per branch ------------------------------------------------
+    CLAIM_SECONDS = 120
+
+    def claim_content_job(self, pid: str, exp_id: str, branch_id: str, *, actor_role: str, actor: str = "") -> dict:
+        """Reserve the branch under the registry lock before any job exists, so two clicks make one job.
+        Returns {"existing": job_id} or {"token": ..., "brief": ..., "title": ...}."""
+        if actor_role != "owner":
+            raise MvpError("owner_only", 403)
+        if branch_id not in BRANCH_IDS:
+            raise MvpError("unknown_branch", 404)
+        with self.r._lock:
+            data = self.r._load()
+            project = self._project(data, pid)
+            exp = self._experiment(project, exp_id)
+            branch = next(b for b in exp["branches"] if b["id"] == branch_id)
+            if branch.get("content_job_id"):
+                return {"existing": branch["content_job_id"]}
+            prev = (branch["approval"]["preview"] or {}).get("rev")
+            if not branch["revision"] or prev != branch["revision"]:
+                raise MvpError("preview_not_approved", 409)   # the owner approves the draft before it is handed off
+            claim = branch.get("content_job_claim") or {}
+            if claim and time.time() - float(claim.get("at", 0)) < self.CLAIM_SECONDS:
+                raise MvpError("content_job_pending", 409)
+            token = secrets.token_hex(8)
+            branch["content_job_claim"] = {"token": token, "at": time.time()}
+            self.r._save(data)
+            return {"token": token, "title": f"[A/B {exp_id} · {branch_id.upper()}] {branch['label']}"[:200],
+                    "brief": content_brief(project, exp, branch)}
+
+    def release_content_job(self, pid: str, exp_id: str, branch_id: str, token: str) -> None:
+        with self.r._lock:
+            data = self.r._load()
+            b = self._branch_or_none(data, pid, exp_id, branch_id)
+            if b and (b.get("content_job_claim") or {}).get("token") == token:
+                b.pop("content_job_claim", None)
+                self.r._save(data)
+
+    def attach_content_job(self, pid: str, exp_id: str, branch_id: str, token: str, job_id: str, *, actor: str) -> dict:
+        with self.r._lock:
+            data = self.r._load()
+            project = self._project(data, pid)
+            exp = self._experiment(project, exp_id, open_only=False)
+            branch = next(b for b in exp["branches"] if b["id"] == branch_id)
+            if (branch.get("content_job_claim") or {}).get("token") == token:
+                branch.pop("content_job_claim", None)
+                branch["content_job_id"] = job_id
+                self._event(data, project, actor, f"Branch {branch_id.upper()} handed to Content Factory as a draft job "
+                            f"{job_id} (inbox). Nothing is published; publishing needs the job's own approval.", exp_id, branch_id)
+                exp["updated_at"] = _iso(self.r.clock())
+                self.r._save(data)
+            return view(exp)["branches"][BRANCH_IDS.index(branch_id)]
+
+    def _branch_or_none(self, data: dict, pid: str, exp_id: str, branch_id: str):
+        exp = ((data["projects"].get(pid) or {}).get("experiments") or {}).get(exp_id)
+        return next((b for b in exp["branches"] if b["id"] == branch_id), None) if exp else None
+
+
+def content_brief(project: dict, exp: dict, branch: dict) -> str:
+    """The job brief: everything Content Factory needs, and the limits it must keep (correction 10)."""
+    c = branch.get("copy") or {}
+    lines = [f"A/B experiment {exp['id']} · branch {branch['id'].upper()} · revision {branch['revision']}",
+             f"Project: {project.get('title') or project['id']} ({project['id']})",
+             f"Mode: {exp['mode']} — " + ("segment comparison, NOT a randomized A/B test; never claim a winner."
+                                          if exp["mode"] == "SEGMENT_COMPARISON" else "controlled A/B is not instrumented yet."),
+             f"Audience (persona): {branch['persona']} — {branch['label']}",
+             f"Hypothesis: {exp.get('hypothesis', '')}", "",
+             "Owner-approved landing copy for this branch:",
+             f"- Headline: {c.get('headline', '')}", f"- Subheadline: {c.get('subhead', '')}", f"- CTA: {c.get('cta', '')}"]
+    lines += [f"- Bullet: {x}" for x in c.get("bullets") or []]
+    posts = c.get("posts") or {}
+    lines += [f"- Short post draft: {x}" for x in posts.get("short") or []]
+    lines += [f"- Medium post draft: {x}" for x in posts.get("medium") or []]
+    lines += ["", "Rules: DRAFTS ONLY. Do not publish, schedule, buy ads or contact anyone. Facebook and TikTok are placeholders.",
+              "No health or guaranteed-result claims; no personal data. Keep this branch's audience and CTA; do not mix in the other branch.",
+              "Publishing later needs the owner's approval of this job in Review."]
+    return "\n".join(lines)[:8000]
+
+
 def experiments_view(project: dict) -> list[dict]:
     return [view(e) for e in sorted((project.get("experiments") or {}).values(), key=lambda e: e["created_at"])]
 
 
-def install_mvp_experiment_routes(app, registry: MvpRegistry, identity_fn: Callable) -> Experiments:
+def install_mvp_experiment_routes(app, registry: MvpRegistry, identity_fn: Callable,
+                                  create_job: Optional[Callable[[str, str], Awaitable[str]]] = None) -> Experiments:
     store = Experiments(registry)
 
     def _who(request: Request) -> tuple[str, str]:
@@ -375,6 +457,26 @@ def install_mvp_experiment_routes(app, registry: MvpRegistry, identity_fn: Calla
             return JSONResponse({"detail": "bad_body"}, status_code=400)
         return _run(lambda: store.approve_preview(project_id, exp_id, branch_id, body.get("revision"),
                                                   actor_role=role, actor=email))
+
+    @app.post("/api/mvp-factory/{project_id}/experiments/{exp_id}/branches/{branch_id}/content-job")
+    async def mvp_experiment_content_job(project_id: str, exp_id: str, branch_id: str, request: Request):
+        """T-610: one inbox job per branch, draft only. Never runs the job, never queues publishing, calls no provider."""
+        role, email = _who(request)
+        if create_job is None:
+            return JSONResponse({"detail": "job_creation_unavailable"}, status_code=503)
+        try:
+            claim = store.claim_content_job(project_id, exp_id, branch_id, actor_role=role, actor=email)
+        except MvpError as exc:
+            return JSONResponse({"detail": exc.code}, status_code=exc.status)
+        if "existing" in claim:
+            return {"job_id": claim["existing"], "existing": True}
+        try:
+            job_id = await create_job(claim["title"], claim["brief"])
+        except Exception:
+            store.release_content_job(project_id, exp_id, branch_id, claim["token"])
+            raise
+        branch = store.attach_content_job(project_id, exp_id, branch_id, claim["token"], job_id, actor=email or role)
+        return {"job_id": job_id, "existing": False, "branch": branch}
 
     @app.post("/api/mvp-factory/{project_id}/experiments/{exp_id}/decision")
     async def mvp_experiment_decision(project_id: str, exp_id: str, request: Request):

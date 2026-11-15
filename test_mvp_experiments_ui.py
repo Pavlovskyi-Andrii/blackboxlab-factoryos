@@ -13,7 +13,7 @@ def block():
 
 
 def table(lang):
-    m = re.search(r"Object\.assign\(I18N\.%s,(\{\"mvpx\.title\".*?\})\);" % lang, HTML)
+    m = re.search(r"Object\.assign\(I18N\.%s,(\{\"mvpx\.[a-zA-Z]+\".*?\})\);" % lang, HTML)
     return json.loads(m.group(1))
 
 
@@ -60,6 +60,14 @@ class ExperimentLanesUiTest(unittest.TestCase):
                 self.assertIn(prefix + v, en)
         self.assertIn("не рандомизированный", ru["mvpx.modeNote.SEGMENT_COMPARISON"])
         self.assertIn("не разрешение на публикацию", ru["mvpx.approved"])
+        self.assertIn("Ничего не публикуется", ru["mvpx.cfCreated"])
+
+    def test_s3_send_to_content_factory_and_ab_tile(self):
+        js = block()
+        self.assertIn("if(own&&b.preview_approved&&!b.content_job_id)", js)   # owner, approved preview, no job yet
+        self.assertIn("/content-job'", js)
+        self.assertIn("+mvpAbTile()+'</div>'", HTML)                          # A/B Tester tile next to the agents
+        self.assertIn("mvpExpForm='';mvpExpEdit=''", HTML)                    # switching projects closes open forms
 
 
 if __name__ == "__main__":
