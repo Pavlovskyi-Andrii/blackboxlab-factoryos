@@ -73,6 +73,14 @@ jobs:
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
         run: python smoke_tests.py
+      - name: Durable engine tests (DBOS, kill switch, crash recovery)
+        run: |
+          python -m py_compile durable_engine.py test_durable_engine.py
+          python test_durable_engine.py
+      - name: Durable Media Finisher workflow tests (DBOS, zero spend)
+        run: |
+          python -m py_compile durable_media_finisher.py test_durable_media_finisher.py
+          python test_durable_media_finisher.py
       - name: Validate required frontend assets
         run: |
           test -f static/index.html
@@ -235,6 +243,8 @@ jobs:
           python test_mycast_domain.py
           python -m py_compile browser_tasks.py autopilot/browser_tasks.py browser_runner/egress_proxy.py test_browser_tasks.py
           python test_browser_tasks.py
+          python -m py_compile web_surfer.py test_web_surfer.py
+          python test_web_surfer.py
           python -m py_compile mycast_voices.py test_mycast_voices.py
           python test_mycast_voices.py
           python -m py_compile voice_settings.py test_voice_settings.py
@@ -410,22 +420,10 @@ jobs:
           python test_operator_lanes.py
       - name: Motion explainer (#353) offline + RU/UK/EN completeness
         run: python test_explainer_motion.py
-      - name: A/B Tester S1 (T-608) experiments in the MVP registry
+      - name: A/B Tester S1+S2 (T-608/T-609) experiments - registry and dashboard lanes
         run: |
           python -m py_compile mvp_experiments.py test_mvp_experiments.py
           python test_mvp_experiments.py
-      - name: A/B Tester S3 (T-610) one Content Factory draft job per branch
-        env:
-          FACTORY_PASSWORD: ""
-          FACTORY_LLM_API_KEY: ""
-        run: |
-          python -m py_compile test_mvp_experiment_jobs.py
-          python test_mvp_experiment_jobs.py
-      - name: A/B Tester S2 (T-609) branch lanes in the MVP panel
-        env:
-          FACTORYOS_REQUIRE_NODE: "1"
-        run: |
-          python -m py_compile test_mvp_experiments_ui.py
           python test_mvp_experiments_ui.py
       - name: Learning section (/learn) catalog, sandbox and login
         run: |

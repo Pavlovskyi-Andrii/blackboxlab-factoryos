@@ -40,6 +40,7 @@ from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_mvp_project_once
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
+import web_surfer
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
@@ -63,6 +64,8 @@ from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
+import durable_engine
+import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -192,6 +195,18 @@ AGENT_SPECS = {
 
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+
+
+@app.on_event("startup")
+def _durable_engine_startup():
+    """T-611: keep this the first startup hook. Launching DBOS resumes interrupted workflows from their last finished step
+    before any later hook (such as the Media Finisher recovery) inspects or restarts work."""
+    durable_engine.launch(DATA_DIR)
+
+
+@app.on_event("shutdown")
+def _durable_engine_shutdown():
+    durable_engine.shutdown()
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -749,8 +764,6 @@ def _owner_desk_status():
     out["T-598-H2"]={"state":"optional","detail_key":"h2_optional"}
     out["T-605"]={"state":"done","detail_key":"gemini_key_ok"} if FACTORY_GEMINI_API_KEY else {"state":"todo","detail_key":"gemini_key_missing"}
     out["T-606"]={"state":"todo","detail_key":"jules_pending"}
-    out["D-240"]={"state":"todo","detail_key":"deps_decision"}
-    out["HF-213"]={"state":"todo","detail_key":"higgsfield_deadline"}
     return out
 
 def _mycast_send_audio(audio, filename, title, caption):
@@ -1106,6 +1119,9 @@ async def mvp_agent_message(project_id: str, agent: str, request: Request):
     return {"ok":True,"routed":"gemini"}
 # T-560 wiring: owner's read-only browser tasks, run by the EC2 runner (Playwright never runs on Render).
 BROWSER_TASKS = BrowserTaskStore(DATA_DIR)
+# T-560-H Surfer for every MCP-connected agent; Google search via Gemini only after the owner opts in (may be billed).
+WEB_SEARCH = web_surfer.WebSearch(DATA_DIR, provider=lambda: os.environ.get("FACTORY_WEB_SEARCH_PROVIDER", ""),
+                                  gemini_key=lambda: FACTORY_GEMINI_API_KEY, gemini_model=resolve_flash_model)
 def _browser_session_domains(provider: str, account: str) -> list:
     parts = _vault_parts(required=False)
     if not parts or not _VAULT_SLUG.match(provider or "") or not _VAULT_ACCOUNT.match(account or ""):
@@ -1130,11 +1146,29 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
-async def _mvp_experiment_job(title, brief):
-    """T-610 S3: a branch becomes an ordinary inbox job through the normal job route; it is not run or queued."""
-    out = await create_job(JobCreate(title=title[:200], brief=brief, format="Short-form drafts", language="English"))
-    return out["id"]
-install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity, create_job=_mvp_experiment_job)  # T-608/T-610 A/B Tester: drafts only, owner-gated
+async def _ab_content_job(title, brief, job_id):
+    """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
+    Codex review on #376: the id is deterministic per branch and the insert is INSERT OR IGNORE in one transaction with
+    its workspace binding, so retries, slow creators and crashes can never make a second job. Nothing runs or publishes."""
+    workspace = tenancy.normalize_workspace(tenancy.current() or tenancy.DEFAULT_WORKSPACE)
+    con = db()
+    try:
+        now = ts()
+        cur = con.execute("INSERT OR IGNORE INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                          (job_id, title[:200], brief, "inbox", "AI presenter", "Short only", "Russian", 8, "idle", 0, now, now))
+        created = cur.rowcount == 1
+        if created:
+            assign_job_workspace(con, job_id, workspace)
+        con.commit()
+    finally:
+        con.close()
+    if created:
+        event(job_id, f"Created: {title[:200]}")
+        await broadcast()
+    return job_id
+
+
+install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity, create_job=_ab_content_job)  # T-608..T-610 A/B Tester: drafts only, owner-gated
 install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
 from learn_center import install_learn_routes  # noqa: E402
 import brand_strategy as _brand_strategy_mod  # noqa: E402
@@ -1697,7 +1731,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]
+]+web_surfer.TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -1739,6 +1773,8 @@ async def factory_mcp(request: Request):
                     "status":x["status"],"progress":x.get("execution_progress",0),
                     "priority":x["priority"],"owner":x["owner"]
                 } for x in rows])
+            elif name in web_surfer.TOOL_NAMES:
+                result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -1783,6 +1819,7 @@ def health_details():
             "cost_usd": round(float(verification.get("cost_usd") or 0), 6),
         },
         "real_pilot": get_real_pilot(),
+        "durable_engine": durable_engine.status(),
     }
 
 clients: set[WebSocket] = set()
@@ -6111,7 +6148,45 @@ def _submit_media_finisher_background(edit_job_id):
         with _media_finisher_submit_lock:_media_finisher_submit_active.discard(edit_job_id)
 
 def _spawn_media_finisher_submit(edit_job_id):
+    # T-612: once the durable engine is launched, one DBOS workflow owns submit → wait for callback → poll for this
+    # edit job, and a repeated call while it runs is a no-op. Engine off or unavailable → the legacy thread below.
+    if durable_engine.launched():
+        try:
+            workflow_id,created=durable_finisher.start(edit_job_id)
+        except Exception as exc:
+            workflow_id,created=None,False
+            print(json.dumps({"event":"DBOS_MEDIA_FINISHER_START_ERROR","edit_job_id":edit_job_id,"error":str(exc)[:300]}),flush=True)
+        if workflow_id:
+            if created:
+                item=get_edit_job(edit_job_id)
+                if item:event(item["production_job_id"],f"AI Media Finisher durable workflow started: {edit_job_id[:8]} · survives restarts and deploys")
+            return
     threading.Thread(target=_submit_media_finisher_background,args=(edit_job_id,),daemon=True,name=f"finisher-submit-{edit_job_id[:8]}").start()
+
+def _durable_finisher_state(edit_job_id,needs_submit=False):
+    item=get_edit_job(edit_job_id)
+    if not item:return {"status":"missing","provider_job_id":"","needs_submit":False}
+    status=str(item.get("status") or "")
+    return {"status":status,"provider_job_id":str(item.get("provider_job_id") or ""),
+            "needs_submit":bool(needs_submit) and status not in ("ready","failed")}
+
+def _durable_finisher_submit(edit_job_id):
+    """DBOS step body (T-612): the legacy submit routine, safe to repeat after a crash. It returns early once
+    provider_job_id is recorded, and the worker treats edit_job_id as its idempotency key (POST /jobs)."""
+    _submit_media_finisher_background(edit_job_id)
+    return _durable_finisher_state(edit_job_id)
+
+def _durable_finisher_poll(edit_job_id):
+    """DBOS step body (T-612): read the outcome a callback may already have written, otherwise ask the worker.
+    needs_submit=True when the worker has no job for us (its state was lost → 404, or the submit never landed)."""
+    item=get_edit_job(edit_job_id)
+    if not item or item.get("status") in ("ready","failed"):return _durable_finisher_state(edit_job_id)
+    if not str(item.get("provider_job_id") or "").strip():
+        return _durable_finisher_state(edit_job_id,needs_submit=edit_job_id not in _media_finisher_submit_active)
+    refreshed=refresh_edit_job(edit_job_id,resubmit=False)
+    return _durable_finisher_state(edit_job_id,needs_submit=not str(refreshed.get("provider_job_id") or "").strip())
+
+durable_finisher.bind(submit=_durable_finisher_submit,poll=_durable_finisher_poll)
 
 def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     job=get_job(job_id)
@@ -6179,7 +6254,8 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     event(job_id,f"AI Media Finisher queued: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · {package_mode} · compute {route_target}")
     return {"duplicate":False,"edit_job":item}
 
-def refresh_edit_job(edit_job_id):
+def refresh_edit_job(edit_job_id,resubmit=True):
+    # resubmit=False: the caller (the T-612 durable workflow) resubmits itself after a lost-worker 404.
     item=get_edit_job(edit_job_id)
     if not item:raise ValueError("Edit job not found")
     if item["status"] in ("ready","failed"):return item
@@ -6199,7 +6275,7 @@ def refresh_edit_job(edit_job_id):
             con=db();con.execute("""UPDATE edit_jobs SET provider_job_id='',status='queued',error='',response_json=?,updated_at=? WHERE id=?""",
                                  (json.dumps(response,ensure_ascii=False,default=str),ts(),edit_job_id));con.commit();con.close()
             event(item["production_job_id"],f"AI Media Finisher worker state was lost after restart; auto-resubmitting {edit_job_id[:8]}")
-            _spawn_media_finisher_submit(edit_job_id)
+            if resubmit:_spawn_media_finisher_submit(edit_job_id)
             return get_edit_job(edit_job_id)
         raise
     except (TimeoutError,urlerror.URLError):
@@ -9991,9 +10067,21 @@ async def next_factory_cycle(cycle_id:str):
 @app.get("/api/approval")
 def approval_studio(job_id: Optional[str]=None):
     data=get_approval_queue()
+    data["filter"]={"job_id":None,"applied":False,"total_items":len(data["items"])}
     if job_id:
-        data["items"]=[x for x in data["items"] if x["job"]["id"]==job_id]
-        data["summary"]["items"]=len(data["items"])
+        matched=[x for x in data["items"] if x["job"]["id"]==job_id]
+        if matched:
+            data["items"]=matched
+            data["summary"]["items"]=len(matched)
+            data["filter"].update(job_id=job_id,applied=True)
+        else:
+            # The job selected elsewhere (e.g. "Ready to run") is not in review yet. Filtering to it would show an
+            # empty studio next to a non-zero "waiting" counter; show the whole queue and say where that job is.
+            job=get_job(job_id)
+            data["filter"]["job_id"]=job_id
+            if job:
+                data["filter"]["selected_job"]={"id":job["id"],"title":job.get("title") or "",
+                                                "status":job.get("status") or "","stage":job.get("stage") or ""}
     data["regeneration_quotes"]={x:_estimated_regeneration_cost(x) for x in ("hook","script","caption","voice")}
     return data
 
@@ -11140,9 +11228,11 @@ def _recover_active_media_finisher_jobs():
                                 ORDER BY created_at DESC LIMIT 30""").fetchall();con.close()
     rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],360) and not _is_media_finisher_pilot_request(row["request_json"])
           and str((_decode_json(row["request_json"] or "{}",{})).get("compute_target") or "")!="local"]
-    checked=0
+    checked=durable=0
     for row in rows:
         try:
+            if durable_finisher.active(row["id"]):
+                durable+=1;continue  # T-612: its DBOS workflow waits for the callback and polls; never double-poll.
             if not str(row["provider_job_id"] or "").strip():
                 _spawn_media_finisher_submit(row["id"])
             else:
@@ -11150,7 +11240,7 @@ def _recover_active_media_finisher_jobs():
             checked+=1
         except Exception as exc:
             print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY_ERROR","edit_job_id":row["id"],"error":str(exc)[:400]}),flush=True)
-    if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked}),flush=True)
+    if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked,"durable":durable}),flush=True)
 
 def _media_finisher_watchdog_loop():
     time.sleep(8)
@@ -11468,6 +11558,11 @@ async def media_finisher_callback(edit_job_id:str,payload:MediaFinisherCallbackR
         output_url=(payload.final_url or payload.output_url or "").strip()
         item=_finalize_edit_job(edit_job_id,payload.status,output_url,payload.provider_job_id,payload.error,payload.raw,payload.report,payload.measured_cost_usd,payload.measured_duration_sec)
     except ValueError as exc:raise HTTPException(404,str(exc))
+    # T-612: wake the durable workflow now instead of at its next poll; a no-op when no workflow owns this job. The result is
+    # already saved, so a wake-up failure must not fail the worker's callback: the workflow's next poll reads the result.
+    try:await asyncio.to_thread(durable_finisher.notify,edit_job_id,{"status":item["status"]})
+    except Exception as exc:
+        print(json.dumps({"event":"DBOS_MEDIA_FINISHER_NOTIFY_ERROR","edit_job_id":edit_job_id,"error":str(exc)[:300]}),flush=True)
     await broadcast({"type":"media_finisher","action":"callback","editJobId":edit_job_id,"status":item["status"]})
     return {"ok":True,"edit_job":item}
 

@@ -1246,3 +1246,112 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 
 ## 2026-11-15 — T-590 sixth re-check (same day)
 - The result is unchanged and T-590 stays unchecked. All deterministic suites are green. `gh` and `web_read` were denied, and `answers.md` has no owner trace, so ticking the box would fabricate CI, deploy and Telegram evidence. Worker re-runs of T-590 cannot close it. The parent scheduler should stop re-dispatching T-590 to the worker until a session with GitHub and Render read access exists, or until the owner posts the trace.
+## 2026-11-15 — T-560-H Surfer for every connected agent
+
+- Diagnosis on production (agent token, 9 read tasks): the EC2 runner is alive (claims within ~1 s, Wikipedia read in
+  4 s with a screenshot). The "broken" runs were selectors that do not exist on the page: example.com no longer has an
+  `<h1>`, and `inner_text` on a missing selector failed the whole task after 20 s as `browser_runtime_TimeoutError` with
+  no text and no screenshot. Several matches (`.result a`) failed too (Playwright strict mode).
+- Read tasks now wait ≤ 8 s per selector, read **every** match (`all_inner_texts`), and report a missing selector as
+  `{"text": "", "missing": true}`; the run continues to the screenshot. Non-read plans keep the strict behaviour.
+- Search engines refuse the EC2 datacenter address as automated traffic (DuckDuckGo, Mojeek, Startpage: block pages;
+  Brave and Bing: empty pages). Bypassing that is a T-560 non-goal, so `web_search` never goes through the browser:
+  it uses official APIs — Wikipedia (MediaWiki API, free, no key; default) and Gemini with Google Search grounding on
+  the key FactoryOS already has. Grounding can be billed beyond the free quota, so it is **off** until the owner sets
+  `FACTORY_WEB_SEARCH_PROVIDER=gemini` (T-560-I), and capped at 100 searches per UTC day in
+  `DATA_DIR/web_search_usage.json`. Failures fall back to Wikipedia and report only the exception type.
+- "Everyone connected" = the `/mcp` endpoint (ChatGPT connectors, Claude connectors, Gemini CLI all speak MCP), so the
+  Surfer is three MCP tools: `web_search`, `web_read` (queues, waits ≤ 40 s, else returns the task id) and `web_task`.
+  MCP tasks are stored with `source: "mcp"`; the 200/day agent cap applies to them as a group; `web_task` shows only
+  MCP tasks, so owner and Claude-token tasks stay private. The MCP token is shared, so `agent` is a self-declared label
+  in the task note, never an identity. Screenshots stay owner-only (dashboard), not returned over MCP.
+## 2026-11-15 — T-609 A/B Tester S2: experiment lanes in the dashboard MVP panel
+
+- Lives inside the existing project panel (`mvpRenderPanel` → `mvpExperimentsHtml`), loaded with its own GET so the
+  cycle polling and the experiments list fail independently. Lanes follow the API order (a, b) — never re-sorted — so
+  A is above B on every viewport; the compare card only ever renders the API's `reason` (no winner/lift fields exist).
+- Owner-only actions (approve preview, record decision) are hidden for non-owners *and* refused by the API. Form
+  values live in `mvpExpVals`, so a panel re-render (cycle polling) never wipes what the owner is typing; focus and
+  caret are restored through the panel's existing `data-fk` mechanism.
+- Verified in Chromium against a local server: create → save draft A → health claim refused with a readable message →
+  save draft B → approve A only; lanes A (top) / B (below); no horizontal overflow at 375 px.
+
+## 2026-11-15 — T-610 A/B Tester S3: one Content Factory draft job per branch
+
+- `POST /api/mvp-factory/{pid}/experiments/{exp}/branches/{b}/content-job` (owner only) reserves the branch under the
+  registry lock (`content_job_claim`, 120 s), then creates an ordinary inbox job through the normal `create_job`, then
+  attaches the job id by token — the brand-strategy pattern from #358. Two clicks make one job; a failed creation
+  releases the reservation; a second click returns the existing job.
+- Handoff requires the branch's preview to be approved at the current revision; the job brief carries the branch's
+  owner-approved copy, persona and mode plus "DRAFTS ONLY / do not publish / placeholders / no health claims", and
+  never the other branch's copy. The job is not run and no publishing row is created; publishing stays behind the
+  job's own approval and `_publish_approval_gate`.
+- UI: owner-only «В Content Factory» per branch, the job shown in the lane, an «A/B-тестер» tile next to the other MVP
+  agents (scrolls to the experiments), open forms closed on project switch, shorter «Обучение» nav label.
+- Codex review on #376 (blocking, fixed): the 120 s reservation alone did not guarantee one job (slow creator, lost
+  reservation, crash between insert and attach). The job id is now `uuid5(project, experiment, branch)` and the A/B
+  creator writes it with `INSERT OR IGNORE` plus its workspace binding in one transaction; attaching is idempotent and
+  no longer depends on the reservation token. The brief puts the draft-only rules first so length capping can never cut
+  them. Verified on a real SQLite DB: 6 concurrent/repeated creates → 1 job row, 1 workspace row, 0 publishing rows.
+
+## 2026-11-15 — T-611 Durable engine: DBOS Transact embedded in FactoryOS (stage 0)
+
+- DBOS Transact 3.5.0 (MIT) runs as a library inside the FastAPI process, not as a separate orchestrator service: no
+  extra container or paid plan, and checkpoints stay on the disk FactoryOS already has. DBOS Conductor and DBOS Cloud are
+  not used, so the engine makes no outbound calls.
+- System database: its own SQLite file `DATA_DIR/dbos_system.sqlite`, never `factory.db`, so DBOS schema migrations can
+  never touch FactoryOS tables. SQLite serves one process; that holds today (render.yaml starts one uvicorn worker, and a
+  disk-backed Render service stops the old instance before starting the new one). `DBOS_SYSTEM_DATABASE_URL` moves it to
+  Postgres before FactoryOS ever runs a second process.
+- `dbos==3.5.0; python_version >= "3.10"`: pinned because an upgrade runs DBOS schema migrations; the marker keeps the
+  Python 3.9 EC2 worker venv installable, and `durable_engine` falls back to the legacy paths when dbos cannot be imported.
+- Fixed `application_version` (`factoryos-durable-v1`) instead of DBOS's default hash of the workflow source: with the
+  default, every deploy that touches workflow code would orphan the workflows started before it, which is exactly the
+  case durability is for. Bump it only when a workflow's sequence of steps changes. `executor_id` is fixed to `local`.
+- Launch is the first startup hook and never raises: on failure FactoryOS keeps the legacy paths and reports the error in
+  health details (`durable_engine`). Shutdown calls `DBOS.destroy(workflow_completion_timeout_sec=0)`: a deploy is not
+  held up by waiting workflows, which resume from their checkpoints on the next launch.
+- Recovery detail found while testing: DBOS re-enqueues an interrupted workflow (ENQUEUED) before running it again
+  (PENDING), so "active" and "resuming" count both statuses.
+- DBOS's sync API raises RuntimeError on a thread with a running asyncio loop, which is where FastAPI runs startup
+  hooks and async endpoints (found by booting the app under uvicorn). `durable_engine.run_sync` runs such calls on a
+  small helper pool and waits; tests call it from a running loop.
+- Kill switch `FACTORY_DBOS_ENABLED=0`: dbos is not even imported, no database file is created, every caller uses its
+  legacy path. Setting it on Render is an owner action.
+- Measured locally (Python 3.13): RSS after `import app` + engine launch 109 MB vs 67 MB with the kill switch (+42 MB).
+  Render memory is a post-deploy check.
+
+## 2026-11-15 — T-612 AI Media Finisher as a durable DBOS workflow (stage 1)
+
+- One workflow per edit job generation, ID `media-finisher:<edit_job_id>:<n>`: submit step, then up to
+  `FACTORY_DBOS_FINISHER_MAX_WAIT_SEC` (6 h) of {wait for the worker callback for `FACTORY_DBOS_FINISHER_POLL_SEC`
+  (30 s) → poll step → submit again if the worker lost the job} until the edit job is ready, failed or deleted. After
+  the max wait the workflow releases the edit job to the legacy watchdog instead of failing it.
+- The steps reuse the existing routines (`_submit_media_finisher_background`, `refresh_edit_job(resubmit=False)`), so
+  the payload, retries, progress stages and `_finalize_edit_job` stay byte-for-byte the same. A step replayed after a
+  crash cannot create a second worker job: submit returns early once `provider_job_id` is recorded, and the worker's
+  POST /jobs is idempotent by `edit_job_id`.
+- `_spawn_media_finisher_submit` is the single switch: engine launched → start or re-attach to the workflow (a deterministic
+  ID makes a second start a no-op); engine off or start error → the legacy thread. All existing callers (start, rerun,
+  startup recovery, ASR and real-media repairs, 404 resubmit) go through it unchanged.
+- The callback endpoint wakes the workflow (`DBOS.send`) after finalizing; a callback lost while FactoryOS restarts is
+  replaced by the next poll. The watchdog skips edit jobs a current-version workflow owns. Jobs that were already at
+  the worker before this deploy are not adopted: the watchdog keeps polling them as before (conservative migration).
+- An older-`APP_VERSION` workflow is cancelled by `start()` before a new generation runs, so an edit job never has two
+  owners after a version bump. Local Booster jobs (`compute_target=local`) are untouched.
+- Workflow history stays in `dbos_system.sqlite` (a few dozen rows per finished job); no retention job yet.
+- Local end-to-end check (real uvicorn processes, fake worker over HTTP): SIGKILL mid-wait → after reboot the workflow
+  resumed and delivered the worker's result in ~1 s with exactly one worker POST; SIGTERM (deploy shape) → stop 0.6 s,
+  same result; a callback finished the workflow in ~1 s with no polling. The only extra POST seen came from the
+  existing one-shot startup repair of recently failed manual uploads (`MEDIA_FINISHER_REAL_MEDIA_REPAIR`), which now
+  runs as generation 1. Not verified: a real worker on Render/EC2 and a real Render deploy.
+
+## 2026-11-15 — `autopilot/aws-worker` re-synced with main (merge conflict resolved)
+
+- The worker branch carried its own local T-609/T-610 commits (98d27b2, e24369d); main got the reviewed PR versions
+  of the same tasks (#373, #376). Merging main conflicted in ci.yml, app.py, mvp_experiments.py, static/index.html,
+  test_mvp_experiments.py and test_mvp_experiments_ui.py, so every worker sync failed (and triggered the Telegram loop above).
+- Resolution: main's version for all six conflicting files (the merged, CI-checked implementation). The worker-only
+  `test_mvp_experiment_jobs.py` tested the superseded local T-610 API (its create-job hook no longer exists) and
+  was removed with that implementation; main's `test_mvp_experiments.py` (one job per branch under concurrent clicks,
+  no publish approval, slow creator) and `test_mvp_experiments_ui.py` cover the same DONE criteria and pass.

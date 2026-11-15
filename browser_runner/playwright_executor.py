@@ -47,6 +47,7 @@ _UNSAFE_WORDS = re.compile(
     r"checkout|transfer|subscribe|unsubscribe|invite|confirm|follow|like)(?:[^a-z]|$)",
     re.I,
 )
+READ_SELECTOR_WAIT_MS = 8000          # how long a read task waits for a selector before reporting it missing
 _CHALLENGE_MARKERS = (
     ("captcha", 'iframe[src*="recaptcha"],iframe[src*="hcaptcha"],.h-captcha,.g-recaptcha'),
     ("2fa", 'input[autocomplete="one-time-code"],input[name="otp"],input[name="totp"]'),
@@ -364,6 +365,7 @@ def run_playwright(
                                 break
                         step = dict(input_step)
                         kind = step["type"]
+                        missing = False
                         ms = min(time_left(), 20000)
                         if kind == "navigate":
                             page.goto(step["url"], wait_until="domcontentloaded", timeout=ms)
@@ -400,6 +402,17 @@ def run_playwright(
                                 locator.set_input_files(str(path), timeout=ms)
                             elif kind == "wait_for":
                                 locator.wait_for(state="visible", timeout=ms)
+                            elif kind == "extract" and plan.action_class == "read":
+                                # Read tasks (Surfer): a selector that is not on the page, or matches several
+                                # elements, must not fail the whole task. Every match is read; a missing one is
+                                # reported as missing and the run goes on to the remaining steps and screenshot.
+                                try:
+                                    locator.first.wait_for(state="attached", timeout=min(ms, READ_SELECTOR_WAIT_MS))
+                                    text = "\n".join(t.strip() for t in locator.all_inner_texts() if t.strip())
+                                except Exception as exc:
+                                    if isinstance(exc, TimeoutError) or type(exc).__name__ != "TimeoutError":
+                                        raise
+                                    text, missing = "", True
                             elif kind == "extract":
                                 text = locator.inner_text(timeout=ms)
                         if blocked_requests:
@@ -412,6 +425,8 @@ def run_playwright(
                         if kind == "extract":
                             record["text_chars"] = len(text)
                             record["text_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+                            if missing:
+                                record["missing"] = True
                             if policy.return_extracted_text and plan.action_class == "read":
                                 record["text"] = str(redact(text))[:EXTRACT_TEXT_LIMIT]
                         if kind == "screenshot":
