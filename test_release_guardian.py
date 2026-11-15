@@ -355,42 +355,65 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(d["pulls"][0]["reason"], "invalid_token")
 
 
+def asgi_get(app, path, query=b"", method="GET", cookie=None):
+    """Call an ASGI app directly (no httpx/TestClient dependency, as in test_route_auth_fixes.py)."""
+    import asyncio
+    headers = [(b"host", b"testserver")]
+    if cookie:
+        headers.append((b"cookie", cookie.encode()))
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method, "scheme": "http",
+             "path": path, "raw_path": path.encode(), "query_string": query, "headers": headers,
+             "server": ("testserver", 80), "client": ("127.0.0.1", 50000), "root_path": ""}
+    sent, delivered = [], []
+
+    async def receive():
+        if not delivered:
+            delivered.append(True)
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await asyncio.Event().wait()
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(app(scope, receive, send))
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    return start["status"], b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+
+
 class RouteTest(unittest.TestCase):
     def test_owner_only(self):
+        import json
         from fastapi import FastAPI
-        from fastapi.testclient import TestClient
         from release_guardian import install_release_guardian_routes
         fake = FakeGitHub(pr_routes(runs=[run("smoke", rid=1)]))
         g = ReleaseGuardian(GitHubReader(REPO, lambda: "", fetch=fake))
         app = FastAPI()
         role = {"v": None}
         install_release_guardian_routes(app, g, lambda r: {"role": role["v"]} if role["v"] else None)
-        c = TestClient(app)
         for r in (None, "viewer", "member"):
             role["v"] = r
-            self.assertEqual(c.get("/api/release-guardian?prs=7").status_code, 403, r)
+            self.assertEqual(asgi_get(app, "/api/release-guardian", b"prs=7")[0], 403, r)
         self.assertEqual(fake.calls, [])  # refused requests never reach GitHub
         role["v"] = "owner"
-        res = c.get("/api/release-guardian?prs=7")
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()["pulls"][0]["number"], 7)
-        self.assertTrue(res.json()["read_only"])
-        self.assertEqual(c.post("/api/release-guardian").status_code, 405)
+        status, body = asgi_get(app, "/api/release-guardian", b"prs=7")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data["pulls"][0]["number"], 7)
+        self.assertTrue(data["read_only"])
+        self.assertEqual(asgi_get(app, "/api/release-guardian", method="POST")[0], 405)
 
     def test_app_wiring_requires_login(self):
         """Through the real app and its auth middleware, with login enabled. No request here reaches GitHub."""
         os.environ.setdefault("DATA_DIR", "/tmp/factoryos-release-guardian-test")
         from unittest.mock import patch
         import app as factory_app
-        from fastapi.testclient import TestClient
         paths = {getattr(r, "path", "") for r in factory_app.app.routes}
         self.assertIn("/api/release-guardian", paths)
         with patch.object(factory_app, "FACTORY_PASSWORD", "auth-enabled-for-tests"):
-            c = TestClient(factory_app.app)
-            self.assertEqual(c.get("/api/release-guardian?prs=1").status_code, 401)
+            self.assertEqual(asgi_get(factory_app.app, "/api/release-guardian", b"prs=1")[0], 401)
             viewer = factory_app._role_session_token("viewer", "guest")
-            c.cookies.set(factory_app.COOKIE_NAME, viewer)
-            self.assertEqual(c.get("/api/release-guardian?prs=1").status_code, 403)
+            cookie = f"{factory_app.COOKIE_NAME}={viewer}"
+            self.assertEqual(asgi_get(factory_app.app, "/api/release-guardian", b"prs=1", cookie=cookie)[0], 403)
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)
