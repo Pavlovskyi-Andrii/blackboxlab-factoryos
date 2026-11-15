@@ -272,6 +272,12 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner 2026-11-15 — the browser agent "doesn't work" and must be usable by ChatGPT, Claude and Gemini. Diagnosis on production: the EC2 runner claims and runs tasks, but a selector that is not on the page failed the whole task after 20 s (`browser_runtime_TimeoutError`, no text, no screenshot), only the Claude token could queue tasks, and there was no search (search engines refuse the EC2 address as automated traffic).
   DONE: `python test_web_surfer.py` and `python test_browser_playwright.py` prove a missing selector is reported as `missing` while the task finishes with the other texts and the screenshot (also checked on real Chromium), multiple matches are all read, `/mcp` lists and runs `web_search`/`web_read`/`web_task`, MCP callers see only MCP tasks, Wikipedia search works without a key, and Gemini Google search runs only with the owner opt-in under a daily cap.
 
+- [x] T-560-J Gemini coder on EC2 uses the Surfer
+  Owner: claude
+  Depends: T-560-H
+  Goal: owner 2026-11-15 — Gemini must be able to use the Surfer too. The EC2 Gemini loop is not Gemini CLI but `tools/gemini_issue_pr.cjs` behind the FactoryOS proxy, so it gets a research step: the model plans ≤3 searches and ≤2 page reads, the script runs them through `POST /api/factory/surfer/worker/{tool}` with the worker token EC2 already has, and the results enter the coding prompt as untrusted reference data.
+  DONE: `node tools/test_gemini_research.cjs` and `python test_web_surfer.py` prove the limits, https-only reads, worker-token auth, task isolation between worker and MCP callers, and that a failed or empty plan skips research instead of failing the issue.
+
 - [ ] [HUMAN] T-560-I Opt in to Google search via Gemini (optional)
   Depends: T-560-H
   Need: owner decides whether Google Search grounding on the existing Gemini key may be used (free daily quota, billed beyond it on a paid project); if yes, set `FACTORY_WEB_SEARCH_PROVIDER=gemini` in Render. Without it `web_search` answers from Wikipedia only.

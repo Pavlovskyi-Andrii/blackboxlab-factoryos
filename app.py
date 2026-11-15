@@ -1122,6 +1122,7 @@ BROWSER_TASKS = BrowserTaskStore(DATA_DIR)
 # T-560-H Surfer for every MCP-connected agent; Google search via Gemini only after the owner opts in (may be billed).
 WEB_SEARCH = web_surfer.WebSearch(DATA_DIR, provider=lambda: os.environ.get("FACTORY_WEB_SEARCH_PROVIDER", ""),
                                   gemini_key=lambda: FACTORY_GEMINI_API_KEY, gemini_model=resolve_flash_model)
+web_surfer.install_worker_routes(app, store=BROWSER_TASKS, search=WEB_SEARCH, authorize_worker=_claude_worker_authorized)
 def _browser_session_domains(provider: str, account: str) -> list:
     parts = _vault_parts(required=False)
     if not parts or not _VAULT_SLUG.match(provider or "") or not _VAULT_ACCOUNT.match(account or ""):
@@ -1258,7 +1259,7 @@ async def auth_middleware(request: Request, call_next):
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
     browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
-    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/")) and _claude_worker_authorized(request)
+    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/") or request.url.path.startswith("/api/factory/surfer/worker/")) and _claude_worker_authorized(request)
     # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
             and not (claude_worker_api or operator_worker_api or local_booster_api)):

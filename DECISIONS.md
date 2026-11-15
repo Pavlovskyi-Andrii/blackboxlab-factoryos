@@ -1355,6 +1355,17 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   `test_mvp_experiment_jobs.py` tested the superseded local T-610 API (its create-job hook no longer exists) and
   was removed with that implementation; main's `test_mvp_experiments.py` (one job per branch under concurrent clicks,
   no publish approval, slow creator) and `test_mvp_experiments_ui.py` cover the same DONE criteria and pass.
+## 2026-11-15 — T-560-J Gemini coder uses the Surfer
+
+- The EC2 "Gemini" is the issue→PR script `tools/gemini_issue_pr.cjs` (one JSON generation through the FactoryOS proxy),
+  not Gemini CLI, so it cannot call MCP tools. Instead of MCP (which would need `FACTORY_MCP_TOKEN` on EC2), the server
+  exposes the same three tools at `POST /api/factory/surfer/worker/{web_search|web_read|web_task}` behind the worker
+  token EC2 already holds. No new secret, no change on the EC2 host: the loop fetches the script from `main` each run.
+- Research is a separate planning call (same free Flash model) before the coding call: ≤3 searches, ≤2 https pages,
+  12 000 chars into the prompt, framed as untrusted reference data. Any failure (model busy, bad JSON, Surfer error)
+  skips research; the issue is never failed by it. `GEMINI_RESEARCH=0` turns it off. Direct-key mode (GitHub Actions)
+  has no worker token and skips it.
+- Worker tasks are stored with `source: "worker"`; `web_task` shows each caller only its own source.
 ## 2026-11-15 — Blocked tasks wake on answers.md content, not mtime (Telegram loop fix)
 
 - Incident: T-590 (ticket R-0004) was re-run every ~2 minutes and Telegram received ~300 cards
