@@ -1314,6 +1314,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - A new click on Run after a failure or from review is a new generation and re-runs the stage from its start, as before;
   durability applies within one run. The variant pipeline is one step: after a crash inside it, demo mode reruns it and
   live mode stops with an uncertain-spend incident; splitting it into one step per LLM call is a follow-up.
+- Codex review #380, fixed: a durable start that fails may still have persisted its workflow, so the legacy task starts
+  only after DBOS confirms that no durable run owns the job; if DBOS cannot answer, nothing starts and `run_job` says so
+  (two runners would pay for the same agents twice). The enter step stores the plan's saved stage name, not
+  `STAGES[index]`, so a deploy that reorders stages cannot mislabel a resumed run. Which steps count as paid now has one
+  helper, `_content_step_is_paid`, mirroring each operation's own demo/live switch.
 - Checked locally with real uvicorn (demo agents): SIGKILL and SIGTERM during Visual Director → after reboot the run
   resumed by itself and reached the review gate in ~5 s; 15 finished agents, none twice; the interrupted run is marked
   failed and the agent reran. CI test covers the paid case with a fake provider. Not verified: a real paid run on Render.

@@ -48,8 +48,8 @@ def _hook(name: str, *args: Any) -> Dict[str, Any]:
 
 if DBOS is not None:
     @DBOS.step(name="factoryos.content.enter_stage")
-    def _enter_stage_step(job_id: str, index: int) -> Dict[str, Any]:
-        return _hook("enter_stage", job_id, index)
+    def _enter_stage_step(job_id: str, index: int, stage: str) -> Dict[str, Any]:
+        return _hook("enter_stage", job_id, index, stage)
 
     @DBOS.step(name="factoryos.content.agent")
     def _agent_step(job_id: str, stage: str, agent: str, started_at: str) -> Dict[str, Any]:
@@ -75,8 +75,8 @@ if DBOS is not None:
     def content_run_workflow(job_id: str, plan: List[Dict[str, Any]], started_at: str) -> Dict[str, Any]:
         try:
             for entry in plan:
-                stage = str(entry["stage"])
-                _enter_stage_step(job_id, int(entry["index"]))
+                stage = str(entry["stage"])  # the saved name: a deploy may reorder STAGES while this run waits
+                _enter_stage_step(job_id, int(entry["index"]), stage)
                 if stage == "script":
                     _script_step(job_id, "variants", started_at)
                     _script_step(job_id, "package", started_at)
@@ -110,9 +110,14 @@ def start(job_id: str, plan: List[Dict[str, Any]], started_at: str) -> Tuple[Opt
     return workflow_id, created
 
 
+def active_workflow(job_id: str, strict: bool = False) -> Optional[str]:
+    """The durable run that owns this job, if any. strict=True raises when DBOS cannot answer."""
+    return engine.active_generation(job_prefix(job_id), strict=strict) if job_id else None
+
+
 def active(job_id: str) -> bool:
     """True while a current-version durable run owns this job (supervisor auto-heal and new runs must leave it alone)."""
-    return bool(job_id) and engine.active_generation(job_prefix(job_id)) is not None
+    return active_workflow(job_id) is not None
 
 
 def active_job_ids() -> List[str]:

@@ -160,13 +160,18 @@ def _active_generation(rows: List[Any]) -> Optional[str]:
     return max(active, key=lambda row: generation_of(row.workflow_id)).workflow_id if active else None
 
 
-def active_generation(prefix: str) -> Optional[str]:
-    """The running current-version workflow `<prefix><n>`, if any. Safe from any thread; None when not launched."""
+def active_generation(prefix: str, strict: bool = False) -> Optional[str]:
+    """The running current-version workflow `<prefix><n>`, if any. Safe from any thread; None when not launched.
+
+    strict=True raises when DBOS cannot answer, so a caller can tell "no run" from "unknown".
+    """
     if not launched():
         return None
     try:
         return run_sync(lambda: _active_generation(_generations(prefix)))
     except Exception:
+        if strict:
+            raise
         return None
 
 

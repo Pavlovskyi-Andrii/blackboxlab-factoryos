@@ -54,8 +54,9 @@ def _bind_fake_hooks(data_dir: Path):
     import durable_engine as engine
     import durable_content as content
 
-    def enter_stage(job_id, index):
+    def enter_stage(job_id, index, stage):
         bump(data_dir / f"{job_id}.enter-{index}")
+        (data_dir / f"{job_id}.enter-stage-{index}").write_text(stage)
         return {"index": index}
 
     def agent(job_id, stage, name, started_at):
@@ -139,11 +140,13 @@ def child_second(data_dir: Path):
     require(content.active_job_ids() == [] and not content.active("j-demo"), "finished runs own nothing")
 
     # A failed quality gate fails the run (its error is checkpointed like any step error); the review gate is not reached.
+    # The plan's saved stage name reaches the enter step as is, never re-derived from its index (Codex review #380).
     (data_dir / "fail-gate-j-gate").write_text("1")
-    workflow_id, created = content.start("j-gate", [{"index": 1, "stage": "research", "agents": ["A"]}], STARTED_AT)
+    workflow_id, created = content.start("j-gate", [{"index": 5, "stage": "research", "agents": ["A"]}], STARTED_AT)
     result = DBOS.retrieve_workflow(workflow_id).get_result()
     require(created and result["status"] == "failed" and "Quality gate failed" in result["error"], f"gate: {result}")
     require(not (data_dir / "j-gate.review").exists(), "gate failure must not reach review")
+    require((data_dir / "j-gate.enter-stage-5").read_text() == "research", "enter step must get the saved stage name")
     # A new run of the same job is a new generation.
     (data_dir / "fail-gate-j-gate").unlink()
     workflow_id, created = content.start("j-gate", [{"index": 1, "stage": "research", "agents": ["A"]}], STARTED_AT)
@@ -226,9 +229,24 @@ def child_app_demo(data_dir: Path):
     import durable_engine as engine
     import durable_content as content
     require(engine.launched() and engine.main_loop() is not None, f"engine: {engine.status()}")
+    legacy_runs = []
+
+    async def legacy_runner(job_id):
+        legacy_runs.append(job_id)
+
+    app.run_until_review = legacy_runner  # any legacy fallback below would show up here
+    real_start, real_owner = content.start, content.active_workflow
+
+    def start_then_fail(*args):  # Codex review #380: the start persisted the workflow, then raised
+        real_start(*args)
+        raise RuntimeError("synthetic failure after the workflow was persisted")
+
+    content.start = start_then_fail
     job_id = _new_job(app, on_loop, "CI durable content run")
     response = on_loop(app.run_job(job_id))
-    require(response["ok"] and content.active(job_id), f"run_job must start a durable run: {response}")
+    content.start = real_start
+    require(response["ok"] and content.active(job_id) and not legacy_runs,
+            f"a durable start that persisted, then failed, must not add a legacy runner: {response} {legacy_runs}")
     require(on_loop(app.run_job(job_id))["message"] == "Already running", "a second click must not start another run")
 
     # The supervisor must not reset a job a durable run owns, even if running_jobs forgot it (as after a restart).
@@ -245,6 +263,47 @@ def child_app_demo(data_dir: Path):
     require(runs.get(("Content Packager", "package")) == 1, f"script stage: {runs}")
     require(not content.active(job_id) and job_id not in app.running_jobs, "a finished run owns nothing")
     require(app.health_details()["durable_engine"]["workflows"]["content_run"]["runs_started"] == 1, "health counter")
+
+    # A failed start whose outcome DBOS cannot confirm starts nothing; a confirmed non-start falls back to the legacy task.
+    def start_fails(*args):
+        raise RuntimeError("synthetic start failure")
+
+    def owner_unknown(job_id, strict=False):  # like the real lookup during an outage: None, or raise when strict
+        if strict:
+            raise RuntimeError("synthetic DBOS outage")
+        return None
+
+    other = _new_job(app, on_loop, "CI start failure")
+    content.start, content.active_workflow = start_fails, owner_unknown
+    blocked = on_loop(app.run_job(other))
+    require(not blocked["ok"] and "could not confirm" in blocked["message"] and other not in app.running_jobs
+            and not legacy_runs, f"unknown start outcome must start nothing: {blocked} {legacy_runs}")
+    content.active_workflow = real_owner
+    fallback = on_loop(app.run_job(other))
+    wait_for(lambda: legacy_runs == [other], "a confirmed non-start must fall back to the legacy task")
+    require(fallback["ok"] and not content.active(other), f"legacy fallback: {fallback}")
+    content.start = real_start
+    app.running_jobs.discard(other)
+
+    # The enter step stores the plan's stage name even if a deploy reordered STAGES (Codex review #380).
+    saved = list(app.STAGES)
+    app.STAGES[3], app.STAGES[4] = app.STAGES[4], app.STAGES[3]
+    try:
+        app._durable_content_enter_stage(other, 3, "visual")
+        require(app.get_job(other)["stage"] == "visual", "enter step must use the saved stage name")
+    finally:
+        app.STAGES[:] = saved
+
+    # Which steps count as paid mirrors each operation's own demo/live switch.
+    require(not any(app._content_step_is_paid(agent=a) for a in ("QA Agent", "Voice Agent"))
+            and not app._content_step_is_paid(part="variants"), "no key → nothing is paid")
+    app.FACTORY_LLM_API_KEY = "ci-placeholder-not-a-key"
+    try:
+        require(app._content_step_is_paid(agent="QA Agent") and not app._content_step_is_paid(agent="Voice Agent")
+                and app._content_step_is_paid(part="variants") and app._content_step_is_paid(part="package"),
+                "with a key: LLM agents and both script operations are paid, Voice/Render are not")
+    finally:
+        app.FACTORY_LLM_API_KEY = ""
 
 
 def child_app_live_first(data_dir: Path):

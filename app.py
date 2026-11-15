@@ -10862,7 +10862,9 @@ async def run_job(job_id:str):
     if get_job_cost(job_id) >= FACTORY_JOB_BUDGET_USD:
         return {"ok":False,"message":"This job reached its provider budget. Review its agent ledger before continuing."}
     running_jobs.add(job_id)
-    _spawn_content_run(job_id)
+    if _spawn_content_run(job_id)=="blocked":
+        running_jobs.discard(job_id)
+        return {"ok":False,"message":"Factory could not confirm whether the durable run started, so nothing was started. Try again in a minute."}
     return {
         "ok":True,
         "message":"Factory restarted from Research with the approval gate preserved." if restarted_from_review else "Factory started."
@@ -10907,19 +10909,34 @@ def _content_run_plan(job_id):
 
 def _spawn_content_run(job_id):
     """Start the run to the review gate: a durable workflow when the engine is launched (resumes after a restart or
-    deploy, never repeats a finished agent), otherwise the legacy asyncio task. Call from the event loop."""
+    deploy, never repeats a finished agent), otherwise the legacy asyncio task. Call from the event loop.
+
+    Returns "durable", "legacy" or "blocked". A failed durable start may still have persisted its workflow, which will
+    run: the legacy task starts only once DBOS confirms that no durable run owns the job. If DBOS cannot answer, nothing
+    starts ("blocked"), because two runners would pay for the same agents twice."""
     if durable_engine.launched():
         try:
             workflow_id,created=durable_content.start(job_id,_content_run_plan(job_id),ts())
         except Exception as exc:
-            workflow_id,created=None,False
             print(json.dumps({"event":"DBOS_CONTENT_RUN_START_ERROR","job_id":job_id,"error":str(exc)[:300]}),flush=True)
+            try:workflow_id,created=durable_content.active_workflow(job_id,strict=True),False
+            except Exception as check:
+                print(json.dumps({"event":"DBOS_CONTENT_RUN_START_UNKNOWN","job_id":job_id,"error":str(check)[:300]}),flush=True)
+                return "blocked"
         if workflow_id:
             running_jobs.add(job_id)
             if created:event(job_id,"Factory run is durable: it resumes after a restart or deploy without repeating finished agents")
-            return workflow_id
+            return "durable"
     asyncio.create_task(run_in_job_workspace(job_id,run_until_review(job_id)))
-    return None
+    return "legacy"
+
+def _content_step_is_paid(agent=None,part=None):
+    """Could running this step again repeat a paid provider call? Mirrors each operation's own demo/live switch:
+    run_variant_pipeline and generate_content_package go live whenever FACTORY_LLM_API_KEY is set (the variant pipeline
+    makes several calls in one step, so a rerun would repeat the finished ones too); execute_agent only for
+    LLM_LIVE_AGENTS."""
+    if part in ("variants","package"):return bool(FACTORY_LLM_API_KEY)
+    return bool(FACTORY_LLM_API_KEY and agent in LLM_LIVE_AGENTS)
 
 def _durable_content_fence(job_id,label,live,started_at):
     """An earlier start of this step was interrupted (crash or deploy) before DBOS checkpointed it. A demo agent just
@@ -10934,25 +10951,26 @@ def _durable_content_fence(job_id,label,live,started_at):
     if live:raise RuntimeError(f"{label}: {note}. Confirm in Error Center before retrying")
     event(job_id,f"{label}: restarted after an interruption (no paid call involved)")
 
-def _durable_content_enter_stage(job_id,index):
-    stage=STAGES[int(index)]
+def _durable_content_enter_stage(job_id,index,stage):
+    # The plan's saved stage name wins over its index: a deploy may have reordered STAGES since this run started.
+    position=STAGES.index(stage) if stage in STAGES else int(index)
     running_jobs.add(job_id)
     con=db();con.execute("UPDATE jobs SET stage=?,status='running',progress=?,updated_at=? WHERE id=?",
-                         (stage,int(int(index)/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close()
+                         (stage,int(position/(len(STAGES)-1)*100),ts(),job_id));con.commit();con.close()
     durable_engine.run_on_main_loop(run_in_job_workspace(job_id,broadcast()))
     return {"stage":stage}
 
 def _durable_content_agent(job_id,stage,agent,started_at):
     running_jobs.add(job_id)
     with tenancy.workspace_scope(job_workspace_key(job_id)):
-        _durable_content_fence(job_id,agent,bool(FACTORY_LLM_API_KEY and agent in LLM_LIVE_AGENTS),started_at)
+        _durable_content_fence(job_id,agent,_content_step_is_paid(agent=agent),started_at)
     durable_engine.run_on_main_loop(run_in_job_workspace(job_id,execute_agent(agent,stage,job_id,delay=1.1)))
     return {"agent":agent,"stage":stage,"status":"completed"}
 
 def _durable_content_script(job_id,part,started_at):
     running_jobs.add(job_id)
     with tenancy.workspace_scope(job_workspace_key(job_id)):
-        _durable_content_fence(job_id,"Variant pipeline" if part=="variants" else "Content Packager",bool(FACTORY_LLM_API_KEY),started_at)
+        _durable_content_fence(job_id,"Variant pipeline" if part=="variants" else "Content Packager",_content_step_is_paid(part=part),started_at)
     coro=run_variant_pipeline(job_id,None) if part=="variants" else generate_content_package(job_id)
     durable_engine.run_on_main_loop(run_in_job_workspace(job_id,coro))
     return {"part":part,"status":"completed"}
