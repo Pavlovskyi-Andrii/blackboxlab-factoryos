@@ -1,4 +1,5 @@
 from __future__ import annotations
+import hashlib
 import json
 import os
 import pathlib
@@ -267,10 +268,18 @@ def commits_ahead(branch: str) -> int:
 
 
 def answers_marker() -> int:
+    """Fingerprint of the owner's answers: changes only when their *content* changes.
+
+    2026-11-15: this used the file's mtime. A sync whose merge of main conflicted ran `git merge` +
+    `git merge --abort` on every loop pass; both rewrite answers.md (main had changed it), so the mtime moved
+    each pass, a blocked task was "woken" every ~2 minutes and Telegram got ~300 identical cards. A content
+    hash ignores rewrites, checkouts and touches; only real new owner input wakes a blocked task.
+    """
     try:
-        return ANSWERS.stat().st_mtime_ns
-    except FileNotFoundError:
+        data = ANSWERS.read_bytes()
+    except OSError:
         return 0
+    return int.from_bytes(hashlib.sha256(data).digest()[:7], "big") or 1
 
 
 def parking_path() -> pathlib.Path:
