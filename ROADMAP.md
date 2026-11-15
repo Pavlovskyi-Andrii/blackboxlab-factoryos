@@ -54,6 +54,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Progress (2026-10-31, acceptance run): all deterministic stages re-verified on the EC2 worker. Fixed the Python 3.9 import failure in `app.py`/`media_finisher_worker/app.py`, so smoke + planner now run on the worker, with no app-level skips. Live stages are still open: PR/CI/merge/`build_sha`/Telegram/Issue #41. Exact steps: `docs/handoff/T-590_ACCEPTANCE.md`.
   Re-check (2026-10-31, run-20261031162233-a7b938): deterministic stages green again at `62ffd5e`. The branch is still 10 commits ahead of main (not merged), and the live stages remain blocked on GitHub access plus HUMAN T-506.
   Re-check (2026-11-01): `autopilot/aws-worker` == `origin/main` == `c2879b9`, so the T-590 slice is merged into main. Deterministic stages are green again (smoke, planner, relay 74, telegram 9, token binding, delegation, autopilot). This run was denied network/`gh`/`curl`, so CI on `c2879b9`, Render `build_sha`, Telegram pairing (HUMAN T-506), the live `/new` trace and the Issue #41 evidence are still unverified.
+  Progress (2026-11-15, P0 tails session): T-506 pairing is done (checked). The live trace is now provable from server facts alone: `relay_acceptance.py` + `/proof R-…` + owner-only `GET /api/relay/{id}/acceptance` judge Telegram intake → one ticket → claim/run_id → running → done → Telegram delivery receipt (the server now records `owner_notified` when the Bot API accepts a worker notice). The remaining live stages are the owner's run in **[HUMAN] T-591-H**; production `/health` answered 502 during this session, so `build_sha` was not compared (T-590-H).
 
 - [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
   Owner: claude
@@ -61,11 +62,13 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; Issue #41 and #51.
   Goal: verify actual owner Telegram chat pairing/webhook and tested /status, /tasks, /task <id>, /history, /roadmap, /github; callbacks for refresh/detail/retry; preserve event history; RU/UK/EN. Only verified ChatGPT actions visible, not fictional live ChatGPT sessions.
   DONE: real test message in paired owner chat -> one ticket -> authenticated Claude claim -> running -> final evidence -> owner reply with exact IDs and GitHub links, redacted transcript and timestamps. If needs owner 2FA, mark HUMAN with exact ask and do not claim done.
+  Progress (2026-11-15): code side done and tested (`test_relay_acceptance.py`, run in CI via `test_relay_execution.py`): `/roadmap` is now a real ROADMAP.md view (P0 / HUMAN / next agent tasks; it used to repeat `/tasks`), `/history` is RU/UK/EN, the ticket card has 🔄 Refresh → factual stages + history, `/proof R-…` gives the copyable acceptance transcript (IDs, run_id, UTC times, branch/PR, PR/CI/merge/deploy "not verified" until reconciled). Live part: **[HUMAN] T-591-H**; Owner desk shows its status from the newest Telegram ticket's verdict.
 
 - [ ] T-591-A Telegram Relay P0 status/queue/stale hotfix (ChatGPT owner, Claude follow-up acceptance)
   Owner: claude. Depends: T-590 (implementation merged in #63; final live acceptance remains T-591).
   Scope: truthful heartbeat vs active task, claimable queue counts, stale-claim handling without auto-rerun, owner retry instructions.
   Test: test_relay_livefix.py and existing Relay suites; CI before merge, then Render and owner live E2E. Never mark T-591 done until actual Telegram task executes.
+  Progress (2026-11-15): the hotfix scope is covered by test_relay_livefix.py (in the CI relay suite); a stale or blocked run is never counted by the new acceptance verdict and Retry is the only way back. Closes together with T-591 after **[HUMAN] T-591-H**.
 
 - [ ] T-592 Fix Build Progress / Worker Center factual status and UI freeze
   Owner: claude
@@ -73,6 +76,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Spec: Issues #55, #56, #54, #52 and docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md.
   Goal: reconcile 87% vs 49% metric scopes; distinguish EC2/SSM/systemd/subscription auth/heartbeat/claim/task; fix race for .autopilot/status.json, stale/offline, huge overflow; make owner HUMAN blockers actionable.
   DONE: deterministic tests + screenshot evidence showing same task/stage in Telegram and Web; no ghost running/false progress; columns usable mobile+desktop and consistent stale timestamps; non-main PR/CI.
+  Progress (2026-11-15): code is on main via T-596 (separate signals, one read model for web and Telegram, `test_worker_observability.py`), T-595 (columns/overflow, `test_drawers.py`) and the 87%/49% denominators (DECISIONS.md). The Telegram ticket card now has 🔄 Refresh with the same factual stages as `/relay`. What is left is evidence only the owner can produce (a screenshot of the real Telegram next to the web view): **[HUMAN] T-592-H**.
 
 - [ ] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
   Owner: claude
@@ -81,6 +85,20 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Goal: reproducible restricted permission profile, safe tests and dependency boot (Python 3.9), non-spinning retry, durable worker errors, GitHub/ROADMAP task dedupe, automated safe backlog sequence and concise verified owner reporting.
   DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
   Progress 2026-10-30: first live claimed runs on EC2 blocked because the agent's Python lived in /tmp/fos-venv (wiped on reboot) and headless `claude -p` denied python3. Delegation now keeps a persistent gitignored `<repo>/.venv` rebuilt only when requirements.txt changes, puts it first on PATH, and pre-allows the CLAUDE.md verification loop (Read/Edit/Write, python, node --check, local git add/commit) while push/deploy stay disallowed.
+  Progress (2026-11-15): the deterministic parts are covered on main (T-599 claims/parking, T-598 persisted retries, T-600 usage-limit hold, `autopilot.test_autopilot`, `autopilot.test_delegation`). Not provable from a cloud session: the live EC2 sequence (next safe task after a verified commit) and a day without direct-main pushes or paid spend — **[HUMAN] T-593-H**.
+
+- [ ] [HUMAN] T-591-H Live Telegram acceptance: one test task end to end (closes the live part of T-590 / T-591 / T-591-A)
+  Need: owner sends one plain test message in the paired chat, waits for the worker's 🏁 notice, then `/proof R-…`; runbook in Owner desk (RU/EN/UK).
+  DONE: `/proof` shows "VERIFIED by the server" (Telegram intake, one ticket, claim + run_id, running, done, delivery receipt) and the transcript is in Issue #41.
+
+- [ ] [HUMAN] T-592-H Compare Telegram and the web for one task (phone + desktop screenshots)
+  Depends: T-591-H
+  Need: owner screenshots the same ticket in Telegram (🔄 Refresh) and on /relay + Worker Center; runbook in Owner desk.
+  DONE: same stage/run_id/last-contact in both, no ghost running, Build Progress columns fully visible; screenshots in Issue #56 or confirmed by the owner.
+
+- [ ] [HUMAN] T-593-H Confirm the EC2 worker moves on to the next safe task by itself
+  Need: owner checks main CI, `/workers` + Worker Center after a verified commit, and a day later main history (PRs only) and bills (no new paid spend); runbook in Owner desk.
+  DONE: next safe ROADMAP task claimed after a verified commit, main green, no direct pushes, no paid spend.
 
 - [x] T-600 Fail-closed Claude CLI error diagnostics / retry classification
   Live EC2 re-test 2026-11-01: at 12:01 UTC T-551-A hit `usage_limit_reached` ("resets 4:20pm (UTC)"); the worker held the whole queue (no task parked or failed) and resumed T-551-A at 16:22 UTC (reset + 120 s grace).
@@ -709,6 +727,16 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Spec: Issue #119; reuse existing Gemini operator lane, task registry and Relay claim/event journal
   Goal: add a **real** Gemini executor alongside Claude and ChatGPT, not only a provider/logo: prove a legitimately authenticated, zero-additional-spend Gemini runtime on an existing approved host; reuse the same atomic task claim, files_scope, run_id fencing, events and owner visibility. Only take Owner: gemini or explicitly delegated work; never duplicate Claude/ChatGPT active claims. No paid Gemini/Vertex/Google Cloud API or subscription upgrade; unsupported headless access => blocked, not a fake working badge.
   DONE: tests for auth, no runtime, unique claim, Depends, quotas/rate limit, restart and redaction; one real harmless Gemini-owned task → claimed/running → commit/PR → review with verified Relay/Telegram/Web evidence and zero extra charges. Until then status = planned/unconfigured; never claim a deployed worker from this roadmap entry.
+  Progress 2026-11-15 (owner chose Google-account login, no API key): runtime implemented — `autopilot/gemini_worker.py` (separate checkout/branch, lane heartbeat), Gemini CLI adapter in `autopilot/delegation.py` (Google login enforced, API-key variables stripped and refused, push/merge/deploy shell excluded, quota → `subscription_limit`), Gemini lane takes only `Owner: gemini`, narrow server token `FACTORY_GEMINI_WORKER_TOKEN` (lane-gemini claim/events/heartbeat only). `python test_gemini_worker.py` covers auth, no runtime, own-lane claim, token scope, quota, redaction. Runbook: `docs/handoff/GEMINI_EC2_WORKER.md`. Still open: owner setup (T-607-H) and the live probe (T-607-P).
+
+- [ ] [HUMAN] T-607-H Set up the Gemini worker on EC2
+  Need: owner logs Gemini CLI in with Google on EC2 (no API key), sets the same `FACTORY_GEMINI_WORKER_TOKEN` in Render and in `~/.config/factoryos/gemini-worker.env`, creates the `~/factoryos-gemini` checkout on `autopilot/gemini-worker` and enables `factoryos-gemini-worker.service`. Steps: `docs/handoff/GEMINI_EC2_WORKER.md`.
+  DONE: FactoryOS Workers shows the Gemini lane online with `auth_mode=google_account`.
+
+- [ ] T-607-P Gemini worker live probe
+  Owner: gemini
+  Goal: prove the Gemini lane end to end with a harmless change: create `docs/verification/T-607_gemini_probe.md` with the UTC date and one sentence saying this file was produced by the FactoryOS Gemini worker for T-607-P. Change nothing else except this checkbox and `.autopilot/status.json`.
+  DONE: the file exists, this checkbox is `[x]`, exactly one commit whose subject starts with T-607-P on `autopilot/gemini-worker`; Relay shows the claim/run_id and the Telegram cards say Gemini.
 
 - [x] [HUMAN] T-605 Gemini API key in Render (FACTORY_GEMINI_API_KEY)
   Done (verified 2026-11-05): MyCast was voiced with Gemini through the server key. Issue #215 was accepted by the owner, and the 2026-11-05 full episode arrived. The owner desk status reads `gemini_key_ok`.

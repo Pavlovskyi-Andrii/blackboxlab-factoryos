@@ -166,6 +166,14 @@ jobs:
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
         run: python test_worker_token_binding.py
+      - name: T-607 Gemini worker (Google login only, narrow token, own lane)
+        env:
+          DATA_DIR: /tmp/factoryos-gemini-worker-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile autopilot/gemini_worker.py test_gemini_worker.py
+          python test_gemini_worker.py
       - name: Team tasks page regression
         env:
           DATA_DIR: /tmp/factoryos-team-tasks-ci
