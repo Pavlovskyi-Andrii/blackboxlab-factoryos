@@ -57,6 +57,11 @@ Rule: a stage counts as verified only with evidence. Everything else is UNVERIFI
 - Green: compile and the planner. `smoke_tests.py`, `test_relay_execution` and `test_relay_telegram` were not re-run because Bash was denied for them (both `env` and in-process forms). The last green result for those is the third run at `fd6e083`.
 - `gh issue view 41` and the FactoryOS `web_read` of `/api/version` were denied. No live stage was observed, nothing was claimed, and T-590 stays unchecked.
 
+## Re-check (2026-11-15, fifth run, head `f0d275c`)
+- Green: compile, the planner (needs `FINISHER_DATA_DIR`, because the default `/var/data` is not writable on EC2) and `smoke_tests.py` (8). Each suite also passed in its own process with its own `DATA_DIR`: relay pairing 4, smoke_evidence 9, lifecycle 10, execution 111, telegram 25, agent_messages 20, notify_dedupe 6, livefix 5, and telegram_group 8.
+- When all the Relay suites are loaded into one unittest process, `test_relay_telegram.test_webhook_operator_lanes` fails: the Claude lane card shows no R-0002. This is shared module state between suites, not a product regression, because the same test passes alone. Run the suites one per process.
+- `git fetch`, `gh issue view 41` and FactoryOS `web_read` of Issue #41 were denied. No live stage was observed, nothing was claimed, and T-590 stays unchecked.
+
 ## Exact remaining actions
 
 1. **Session with GitHub access (Claude interactive, standing grant):** push `autopilot/aws-worker`, then open PR `autopilot/aws-worker → main`. Wait for CI on the current head; merge only when it is green.

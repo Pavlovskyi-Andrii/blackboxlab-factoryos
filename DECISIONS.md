@@ -1239,3 +1239,7 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 
 ## 2026-11-15 — T-590 fourth re-check (same day)
 - The result is unchanged and T-590 stays unchecked. `gh` and `web_read` were denied, so no live stage was observed. Smoke and the Relay suites were also denied, so only compile and the planner were re-run. Ticking the box would need CI, deploy and Telegram evidence that this run cannot observe (CLAUDE.md: no fabricated CI/deploy success).
+
+## 2026-11-15 — T-590 fifth re-check (same day)
+- The result is unchanged and T-590 stays unchecked. `git fetch`, `gh` and `web_read` of Issue #41 were denied, so no live stage (CI, deployed `build_sha`, Telegram `/task` trace, Issue #41 evidence) was observed. Ticking the box would fabricate CI/deploy success.
+- Run the Relay/Telegram suites one per process with their own `DATA_DIR`, as earlier runs did. When they are loaded into one unittest process, shared module state makes `test_webhook_operator_lanes` fail; it passes alone. Run the planner with `FINISHER_DATA_DIR` under `/tmp`, because the worker cannot create `/var/data`.
