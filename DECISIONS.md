@@ -1222,3 +1222,21 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   caret are restored through the panel's existing `data-fk` mechanism.
 - Verified in Chromium against a local server: create → save draft A → health claim refused with a readable message →
   save draft B → approve A only; lanes A (top) / B (below); no horizontal overflow at 375 px.
+
+## 2026-11-15 — T-610 A/B Tester S3: one Content Factory draft job per branch
+
+- `POST /api/mvp-factory/{pid}/experiments/{exp}/branches/{b}/content-job` (owner only) reserves the branch under the
+  registry lock (`content_job_claim`, 120 s), then creates an ordinary inbox job through the normal `create_job`, then
+  attaches the job id by token — the brand-strategy pattern from #358. Two clicks make one job; a failed creation
+  releases the reservation; a second click returns the existing job.
+- Handoff requires the branch's preview to be approved at the current revision; the job brief carries the branch's
+  owner-approved copy, persona and mode plus "DRAFTS ONLY / do not publish / placeholders / no health claims", and
+  never the other branch's copy. The job is not run and no publishing row is created; publishing stays behind the
+  job's own approval and `_publish_approval_gate`.
+- UI: owner-only «В Content Factory» per branch, the job shown in the lane, an «A/B-тестер» tile next to the other MVP
+  agents (scrolls to the experiments), open forms closed on project switch, shorter «Обучение» nav label.
+- Codex review on #376 (blocking, fixed): the 120 s reservation alone did not guarantee one job (slow creator, lost
+  reservation, crash between insert and attach). The job id is now `uuid5(project, experiment, branch)` and the A/B
+  creator writes it with `INSERT OR IGNORE` plus its workspace binding in one transaction; attaching is idempotent and
+  no longer depends on the reservation token. The brief puts the draft-only rules first so length capping can never cut
+  them. Verified on a real SQLite DB: 6 concurrent/repeated creates → 1 job row, 1 workspace row, 0 publishing rows.
