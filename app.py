@@ -1187,7 +1187,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 MYCAST_HOSTS = {h.strip().lower() for h in os.environ.get("FACTORY_MYCAST_HOSTS", "mycast.pro,www.mycast.pro").split(",") if h.strip()}
 MYCAST_PAGE = "/static/mycast-configurator/index.html"
 MYCAST_HOST_PREFIXES = ("/static/mycast-configurator/", "/static/favicon", "/static/apple-touch-icon", "/api/mycast/",
-                        "/mycast/u/", "/.well-known/")
+                        "/mycast/u/", "/mycast/e/", "/.well-known/")
 MYCAST_HOST_PATHS = {"/privacy", "/terms", "/health", "/favicon.ico", "/mycast", "/robots.txt", "/sitemap.xml"}
 
 
@@ -1247,7 +1247,7 @@ async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/api/mycast/calendar/")  # MyCast public beta: capped demo, listener accounts
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/api/mycast/calendar/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
     media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)

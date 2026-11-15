@@ -110,6 +110,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: 7 consecutive mornings delivered, each with transcript + sources; owner feedback recorded; cost stays zero.
   Progress 2026-11-02: pipeline implemented (autopilot/mycast_daily.py → branch mycast/daily via GitHub API → Piper render workflow → POST /api/factory/mycast/worker/deliver → Telegram sendAudio). Open: 7 live mornings.
   Progress 2026-11-02 (later): Piper voice judged unlistenable by the owner; Gemini two-host voices on the server added (voice-deliver), Piper stays as fallback. Needs T-605 (key in Render).
+  Note 2026-11-15 (T-620 review): no code tail in the #305 files; what remains is the live part of DONE (7 consecutive delivered mornings + owner feedback), not an engineering change.
 
 - [ ] T-604 Shared Claude ↔ ChatGPT workspace through the FactoryOS MCP server
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -592,6 +593,18 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   Goal: submit → wait for the worker callback (or poll) → resubmit if the worker lost the job runs as one DBOS workflow per edit job (`media-finisher:<edit_job_id>:<generation>`): a deploy or crash mid-run neither duplicates the worker job nor loses its result; the callback wakes the workflow; the legacy watchdog skips DBOS-owned edit jobs; `FACTORY_DBOS_ENABLED=0` restores the legacy thread + watchdog.
   DONE: `python test_durable_media_finisher.py` passes (SIGKILL mid-wait → one submit; callback wake-up; lost-worker resubmit; release; version bump; app wiring on event-loop threads; kill switch) and the default verification passes.
   Live check after deploy (owner/Claude, not a blocker): one real Media Finisher run with a Render deploy in the middle → one worker job, result delivered; health details `durable_engine.launched=true`.
+
+- [x] T-620 MyCast MVP V1 — accounts, podcast library, revocable public episode links, 7+7 referral ledger
+  Owner: claude (session MyCast)
+  Priority: P1 (owner decision 2026-11-10, Issue #305)
+  Spec: Issue #305; DECISIONS.md «2026-11-15 — T-620». Reuses the existing Telegram/Google listener accounts (#281/#317) and Telegram-hosted audio; no new identity provider, storage, paid API or infra.
+  Goal: a signed-in listener sees "My podcasts" (server-backed library beyond the 14-day delivery log, honest ready/preparing/failed/no-audio states, playback of real audio only); each episode is private by default and can get a revocable `/mycast/e/<token>` link (player + safe metadata, noindex, no-store; unpublishing kills the link at once); referral +7/+7 is decided once at the friend's first delivered episode through an idempotent ledger (no self, duplicate, incomplete or racing credits); free-access expiry is computed from the first episode. The invite promotion stays hidden (`FACTORY_MYCAST_REFERRALS` off) until T-620-H.
+  DONE: `python test_mycast_library.py` plus every `test_mycast*.py`, `python test_owner_desk.py`, the default verification and `node --check` of the extracted configurator JS pass.
+
+- [ ] [HUMAN] T-620-H Approve the MyCast referral terms and turn the offer on
+  Depends: T-620
+  Need: owner signs off the rule (+7 days to each side once, at the friend's first real episode; cap 50; no self/duplicate credit), sets `FACTORY_MYCAST_REFERRALS=1` in Render, and runs one live invite with a second Telegram account. Enforcing the end of free days (`FACTORY_MYCAST_ENFORCE_TRIAL=1`) is a separate later business decision.
+  DONE: `/api/mycast/account/config` returns `"referrals_enabled": true` and the live check gave both accounts +7 days exactly once.
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 

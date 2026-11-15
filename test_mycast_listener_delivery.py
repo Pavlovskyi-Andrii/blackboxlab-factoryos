@@ -116,13 +116,15 @@ class GateTest(unittest.TestCase):
         self.store.set_delivery(friend, True, True)
         view = lambda: public_view(self.store.get(inviter))
         self.assertEqual((view()["free_days"], view()["referrals_pending"]), (7, 1))
-        self.assertEqual(public_view(self.store.get(friend))["free_days"], 14)     # the friend's gift is immediate
+        # #305 (2026-11-10): the friend's +7 also waits for their first real episode (activation gate)
+        self.assertEqual(public_view(self.store.get(friend))["free_days"], 7)
         self.d.claim(friend, "2026-11-13")
         self.d.finish(friend, "2026-11-13", False, "TelegramError")
         self.assertEqual(view()["referrals"], 0)                                   # a failed send is not an episode
         self.d.claim(friend, "2026-11-13")
         self.d.finish(friend, "2026-11-13", True, seconds=290)
         self.assertEqual((view()["free_days"], view()["referrals"], view()["referrals_pending"]), (14, 1, 0))
+        self.assertEqual(public_view(self.store.get(friend))["free_days"], 14)     # +7 for the friend too, now
         self.assertIn("friend_first_episode", [e["action"] for e in view()["audit"]])
         self.clock.t = at("2026-11-14", "07:31")
         self.d.claim(friend, "2026-11-14")
@@ -376,7 +378,8 @@ class HistoryTest(unittest.TestCase):
             h = {(next(iter(r.methods)), r.path): r.endpoint for r in acc.routes if hasattr(r, "methods")}
             mine, theirs = sign("s", s, clock()), sign("s", other, clock())
             eps = h[("GET", "/api/mycast/account/episodes")](Req(cookie=mine))["episodes"]
-            self.assertEqual(eps, [{"date": "2026-11-13", "title": "MyCast · 13 листопада", "seconds": 0, "audio": True}])
+            self.assertEqual(eps, [{"date": "2026-11-13", "title": "MyCast · 13 листопада", "seconds": 0, "audio": True,
+                                    "status": "ready", "public": False, "public_url": None}])   # #305: private by default
             audio = h[("GET", "/api/mycast/account/episodes/{day}/audio")]("2026-11-13", Req(cookie=mine))
             self.assertEqual((audio.body, audio.media_type, fetched), (b"ID3-from-telegram", "audio/mpeg", ["FILE-ID-777"]))
             self.assertEqual(h[("GET", "/api/mycast/account/episodes")](Req(cookie=theirs))["episodes"], [])

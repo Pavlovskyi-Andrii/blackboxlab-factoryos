@@ -44,6 +44,12 @@ class MyCastDomainTest(unittest.TestCase):
         self.assertEqual(get("/api/mycast/account/config")[0], 200)
         self.assertEqual(get("/health")[0], 200)
 
+    def test_public_episode_links_are_served_on_both_hosts(self):
+        """T-620: /mycast/e/<token> is public (no staff login) and stays on mycast.pro; unknown links are a 404."""
+        for host in ("mycast.pro", "blackboxlab-factoryos.onrender.com"):
+            status, headers, _ = get("/mycast/e/AAAAAAAAAAAAAAAA", host=host)
+            self.assertEqual((status, headers.get("x-robots-tag")), (404, "noindex, nofollow"), host)
+
     def test_www_redirects_to_apex_and_factoryos_is_unchanged(self):
         status, headers, _ = get("/", host="www.mycast.pro")
         self.assertEqual((status, headers["location"]), (301, "https://mycast.pro" + factory.MYCAST_PAGE))

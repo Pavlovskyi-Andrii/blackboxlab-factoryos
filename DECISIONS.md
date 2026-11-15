@@ -1318,3 +1318,32 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   answers.md on every pass; the old code re-ran the blocked task 13 times in that test.
 - Not done here (owner/interactive session): resolve the `autopilot/aws-worker` ↔ `main` conflict; until it is
   resolved this fix cannot reach the worker through its main sync.
+
+## 2026-11-15 — T-620 MyCast MVP V1 (#305): library, public episode links, referral ledger
+
+- Reused, not rebuilt: listener accounts (Telegram login + Google, signed `mycast_listener` cookie, 30-day expiry,
+  SameSite=Lax, logout, delete), the JSON listener store and Telegram as audio storage. New logic sits in
+  `mycast_library.py`; `mycast_accounts.py` gains three routes; `app.py` only adds `/mycast/e/` to the public and
+  mycast.pro prefixes.
+- Library: `rec["library"]` keeps the newest 200 delivered episodes (title, length, Telegram file id, public token);
+  the 14-day `deliveries` log is unchanged. Rows report only honest states: ready / no_audio / preparing / failed.
+- Public links: one random 16-char token per published episode (`secrets.token_urlsafe(12)`), indexed in
+  `data["episode_links"]` and checked on both sides, so unpublish revokes at once; republishing makes a new token.
+  Pages and audio are `no-store`, `noindex`, `no-referrer`; they show title, date, length and first name only. Account
+  deletion drops the links. The older account-level "latest episode" toggle (`public_audio`) stays as it was (off by
+  default).
+- Referral rule: #305 (2026-11-10) supersedes the 2026-11-07 offer — both sides get +7 only at the friend's first
+  delivered episode. `FACTORY_MYCAST_FRIEND_BONUS=signup` brings back the friend's immediate +7. Existing tests that
+  pinned the immediate gift were updated to the new rule and the old one is tested through the switch.
+- Ledger: `data["referral_ledger"]` (append-only, newest 5000), id `ref:<inviter>:<friend>` as the idempotency key.
+  Rejections are recorded with a reason (self_referral, duplicate_friend, inviter_cap, inviter_gone). To stop a friend
+  being credited twice after deleting and re-creating the account, a ledger entry keeps two truncated one-way hashes
+  (identity, Telegram chat) — no name, no raw id. This is the only data that outlives account deletion.
+- Promotion hidden by default (`FACTORY_MYCAST_REFERRALS` unset): #305 says the user-visible offer stays off until the
+  owner signs off terms (T-620-H). Invites are still recorded so nobody loses credit when it is switched on. The
+  offer banner, the "share and earn days" entry and the invite box are hidden; sharing and the personal page stay.
+- Access period: free days start at the first delivered episode (`activated_at`). The expiry is shown in the cabinet
+  only when the offer is on or the period is enforced, so open-beta listeners do not see a false deadline.
+  `FACTORY_MYCAST_ENFORCE_TRIAL=1` makes the delivery gate return `trial_ended`; off by default (open beta).
+- Cost caps already in place and unchanged: 10 listener episodes per UTC day across all listeners, 3 failures per
+  day, Gemini demo/voice limits; public audio is rate-limited (60 plays/hour per link).
