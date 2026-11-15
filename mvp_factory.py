@@ -309,6 +309,29 @@ class MvpRegistry:
             self._save(data)
             return {"duplicate": False, "event": event, "project": dict(project, recommendation=recommend(project))}
 
+    def set_prototype(self, project_id: str, url: str, *, actor_role: str, actor: str = "") -> dict[str, Any]:
+        """T-614: link a project's clickable preview (a /static/ page only). Recorded as a note event; never a stage change."""
+        if actor_role not in ("owner", "member", "agent"):
+            raise MvpError("forbidden", 403)
+        url = str(url or "").strip()
+        if not re.fullmatch(r"/static/[A-Za-z0-9_./-]+", url) or ".." in url or "//" in url:
+            raise MvpError("bad_evidence")
+        with self._lock:
+            data = self._load()
+            project = data["projects"].get(project_id)
+            if not project:
+                raise MvpError("unknown_project", 404)
+            if project.get("prototype") == url:
+                return project
+            now = _iso(self.clock())
+            project["prototype"], project["updated_at"] = url, now
+            data["events"].append({"id": f"ev-{len(data['events']) + 1}-{int(self.clock() * 1000)}", "project": project_id,
+                                   "at": now, "actor": _clean(actor, 80) or actor_role, "kind": "note",
+                                   "from_stage": project["stage"], "to_stage": project["stage"], "evidence": [url],
+                                   "evidence_check": EVIDENCE_CHECK, "note": "Prototype link set."})
+            self._save(data)
+            return project
+
     def add_project(self, project_id: str, title: str, issue: int = 0, *, actor_role: str, brief: str = "") -> dict[str, Any]:
         """Owner 2026-11-11 ("New Project" in the dashboard): a GitHub issue is optional and the owner's technical
         brief (goal, users, must-haves, acceptance) is stored with the project. The id is derived from the title
