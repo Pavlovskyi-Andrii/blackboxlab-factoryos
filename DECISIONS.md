@@ -1245,4 +1245,8 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   archived file's sha256 (`media_sha256`); the YouTube publisher hashes the archived file and refuses a mismatch or a
   missing digest before any upload. Dry-run marks per-platform support of the selected adapter and keeps a T-520
   blocker for an item platform the adapter cannot publish.
+- Second review follow-up: only the digest captured in the approval snapshot is trusted (no fallback to the
+  artifact's current `archive_sha256`, which a re-archive could rewrite together with the file); items without it
+  must be re-approved. `upload_video` hashes and uploads through one open file handle, so a file swapped at the path
+  after the check cannot be what reaches YouTube.
 

@@ -231,7 +231,39 @@ def check_publish_path():
             factory._publish_via_adapter({**item, "media": {**undigested, "sha256": ""}})
             raise AssertionError("media without a recorded digest must be refused")
         except RuntimeError as e:
-            require("no recorded digest" in str(e), f"no-digest refusal: {e}")
+            require("no digest in the approval snapshot" in str(e), f"no-digest refusal: {e}")
+
+        # Artifact re-archived after approval: new bytes AND a matching new digest in the archive/artifact
+        # metadata. Only the digest captured in the approval snapshot counts, so it is still refused.
+        import hashlib
+        archive_json = factory.MEDIA_ARCHIVE_DIR / (media["url"].split("/media-archive/")[1].split("?")[0] + ".json")
+        saved_json = archive_json.read_text(encoding="utf-8")
+        swapped = b"\x00\x00\x00\x18ftypmp42-UNAPPROVED-video"
+        path.write_bytes(swapped)
+        archive_json.write_text(json.dumps({**json.loads(saved_json), "sha256": hashlib.sha256(swapped).hexdigest()}),
+                                encoding="utf-8")
+        try:
+            factory._publish_via_adapter(item)
+            raise AssertionError("re-archived media must not pass with its own new digest")
+        except RuntimeError as e:
+            require("do not match the approved media digest" in str(e), f"re-archive refusal: {e}")
+        path.write_bytes(original)
+        archive_json.write_text(saved_json, encoding="utf-8")
+
+        # A file swapped at the path after the digest check never reaches YouTube: the upload streams from the
+        # handle that was hashed.
+        class SwapDuringInit(FakeGoogle):
+            def __call__(self, method, url, headers, body, timeout):
+                if url.startswith("https://www.googleapis.com/upload/youtube/v3/videos"):
+                    tmp = path.with_suffix(".swap")
+                    tmp.write_bytes(swapped)
+                    os.replace(tmp, path)
+                return super().__call__(method, url, headers, body, timeout)
+        swapper = SwapDuringInit()
+        with patch.object(factory.OAUTH_FLOW, "adapters", {"youtube": yt.GoogleOAuthAdapter(http=swapper)}):
+            factory._publish_via_adapter(item)
+        require(swapper.uploaded == payload, "bytes uploaded are the hashed, approved bytes")
+        path.write_bytes(original)
 
         # Workspace isolation: another workspace neither sees the default channel nor publishes through it.
         with factory.tenancy.workspace_scope("customer-b"):
@@ -261,6 +293,26 @@ def check_publish_path():
     print("OK publish path: exact archived file, receipt, refresh persisted, refusals, quota, uncertain outcome")
 
 
+def check_approval_records_digest():
+    """The approval snapshot captures the archived file's digest; publishers trust only that value."""
+    import asyncio
+    job_id = asyncio.run(factory.create_job(factory.JobCreate(title="T-552-YT digest", brief="fixture",
+                                                              presenter="Faceless", format="Short only",
+                                                              language="English", outputs=1)))["id"]
+    media, _ = archived_media(job_id)
+    package = {"id": "pkg-digest", "status": "ready", "package": {"title": "Digest", "hashtags": []}}
+    artifact = {"id": media["artifact_id"], "url": media["url"], "mime_type": "video/mp4",
+                "meta": {"archive_sha256": media["sha256"]}}
+    with patch.object(factory, "get_content_package", lambda jid: {"package_record": package}), \
+            patch.object(factory, "_selected_production_variant", lambda jid: {"id": "var-digest"}), \
+            patch.object(factory, "_media_review_state", lambda jid: {"required": True, "ready": True,
+                                                                     "artifact": artifact}):
+        item = factory._ensure_publish_item(job_id, "decision-digest")
+    require(item["media"]["sha256"] == media["sha256"] and len(item["media"]["sha256"]) == 64,
+            "approval snapshot must carry the archived file digest")
+    print("OK approval snapshot records the approved file digest")
+
+
 def main():
     handler = Capture()
     logging.getLogger().addHandler(handler)
@@ -269,6 +321,7 @@ def main():
         check_adapter_unit()
         check_settings_and_metadata()
         check_publish_path()
+        check_approval_records_digest()
     logging.getLogger().removeHandler(handler)
     print("T-552-YT direct YouTube publisher: PASS (zero secrets, zero network)")
 

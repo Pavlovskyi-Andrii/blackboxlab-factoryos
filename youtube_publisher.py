@@ -13,6 +13,7 @@ Rules this module keeps:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -181,14 +182,30 @@ def video_metadata(content: dict, settings: dict) -> dict:
 
 
 def upload_video(http: Http, access_token: str, path: Path, mime_type: str, metadata: dict,
-                 timeout: float = 600.0) -> dict:
-    """Resumable upload in one PUT. Returns {video_id, url}. Raises YouTubeError (never with tokens)."""
+                 expected_sha256: str, timeout: float = 600.0) -> dict:
+    """Resumable upload in one PUT. Returns {video_id, url}. Raises YouTubeError (never with tokens).
+
+    The file is opened once: its digest is checked and its bytes are uploaded through the same handle, so a file
+    swapped at the path after the check cannot be what reaches YouTube."""
     path = Path(path)
     if not path.is_file():
         raise YouTubeError("youtube_media_missing")
-    size = path.stat().st_size
-    if size <= 0:
-        raise YouTubeError("youtube_media_empty")
+    if not expected_sha256:
+        raise YouTubeError("youtube_media_digest_missing")
+    with path.open("rb") as handle:
+        size = os.fstat(handle.fileno()).st_size
+        if size <= 0:
+            raise YouTubeError("youtube_media_empty")
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+        if digest.hexdigest() != str(expected_sha256).lower():
+            raise YouTubeError("youtube_media_digest_mismatch")
+        handle.seek(0)
+        return _upload_handle(http, access_token, handle, size, mime_type, metadata, timeout)
+
+
+def _upload_handle(http, access_token, handle, size, mime_type, metadata, timeout):
     mime_type = mime_type if str(mime_type or "").startswith("video/") else "video/mp4"
     status, headers, raw = http("POST", UPLOAD_URL, {
         "Authorization": "Bearer " + access_token, "Content-Type": "application/json; charset=UTF-8",
@@ -202,9 +219,8 @@ def upload_video(http: Http, access_token: str, path: Path, mime_type: str, meta
             raise YouTubeError("youtube_auth_failed")
         raise YouTubeError(f"youtube_upload_rejected_{status}" + (f"_{reason}" if reason else ""))
     try:
-        with path.open("rb") as handle:
-            status, _, raw = http("PUT", headers["location"], {"Content-Type": mime_type,
-                                                               "Content-Length": str(size)}, handle, timeout)
+        status, _, raw = http("PUT", headers["location"], {"Content-Type": mime_type,
+                                                           "Content-Length": str(size)}, handle, timeout)
     except (TimeoutError, OSError, urlerror.URLError):
         # The bytes may have landed: the caller must not retry blindly (duplicate video).
         raise YouTubeError("youtube_upload_outcome_uncertain", uncertain=True)

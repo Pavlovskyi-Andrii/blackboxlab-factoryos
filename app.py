@@ -9059,12 +9059,6 @@ def _publish_receipt(item,external_post_id,external_url="",published_at=None,sou
     event(item["job_id"],f"Publish confirmed: {item['platform']} · {external_post_id}")
     sync_cycle_for_publish(item["id"])
 
-def _file_sha256(path):
-    digest=hashlib.sha256()
-    with open(path,"rb") as handle:
-        for chunk in iter(lambda:handle.read(1024*1024),b""):digest.update(chunk)
-    return digest.hexdigest()
-
 def _publish_via_youtube(item,content,media,workspace):
     """T-552-YT: upload the exact approved durable media to the connected channel. Never retried blindly."""
     if item.get("platform")!="youtube_shorts":
@@ -9078,13 +9072,13 @@ def _publish_via_youtube(item,content,media,workspace):
     path,archive_meta=_artifact_archive_file(artifact)
     if not path or not Path(path).is_file():
         raise RuntimeError("Approved media is not in the durable FactoryOS archive; YouTube needs the exact file")
-    # The bytes must be the ones approved: digest recorded at approval (or, for items approved before it was
-    # recorded, at archive time). A replaced or unverifiable file is refused, never uploaded.
-    artifact_meta=_decode_json(artifact.get("meta_json") or "{}",{})
-    expected=str((media or {}).get("sha256") or artifact_meta.get("archive_sha256") or "").lower()
+    # The bytes must be the ones approved: only the digest captured in the approval snapshot counts (never the
+    # artifact's current metadata, which a re-archive could rewrite together with the file). upload_video re-checks
+    # it on the same file handle it uploads from.
+    expected=str((media or {}).get("sha256") or "").lower()
     if not expected:
-        raise RuntimeError("Approved media has no recorded digest; re-archive and re-approve it before publishing")
-    if expected!=str((archive_meta or {}).get("sha256") or "").lower() or _file_sha256(path)!=expected:
+        raise RuntimeError("Approved media has no digest in the approval snapshot; re-approve it before publishing")
+    if expected!=str((archive_meta or {}).get("sha256") or "").lower():
         raise RuntimeError("Archived media bytes do not match the approved media digest")
     from oauth_framework import get_provider
     spec=get_provider("youtube");adapter=OAUTH_FLOW.adapters["youtube"]
@@ -9097,8 +9091,11 @@ def _publish_via_youtube(item,content,media,workspace):
     metadata=youtube_publisher.video_metadata(content,settings)
     try:
         result=youtube_publisher.upload_video(adapter.http,tokens.access_token,Path(path),
-                                              (archive_meta or {}).get("content_type") or media.get("mime_type") or "video/mp4",metadata)
+                                              (archive_meta or {}).get("content_type") or media.get("mime_type") or "video/mp4",metadata,
+                                              expected)
     except youtube_publisher.YouTubeError as exc:
+        if exc.code in ("youtube_media_digest_mismatch","youtube_media_digest_missing"):
+            raise RuntimeError("Archived media bytes do not match the approved media digest") from None
         # Uncertain outcomes surface as TimeoutError so the publish item demands explicit confirmation before a retry.
         if exc.uncertain:raise TimeoutError(exc.code) from None
         raise RuntimeError(exc.code) from None
