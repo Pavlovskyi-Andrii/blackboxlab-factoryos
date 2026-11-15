@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 import evidence as proof
+from relay_acceptance import acceptance_report, acceptance_text
 from relay_execution import lifecycle_text
 from lane_board import lane_board_text, telegram_lang
 from worker_observability import worker_overview_text
@@ -280,6 +281,23 @@ class RelayStore:
                 return dict(item)
         raise KeyError(ticket_id)
 
+    def record_owner_notice(self, ticket_id: str, stage: str, run_id: str = "") -> Optional[dict]:
+        """T-591: the Telegram Bot API accepted the owner notice for `stage`. A server-observed receipt, never a status change."""
+        ticket_id = str(ticket_id or "").strip().upper()
+        with self.lock:
+            state = self._load_unlocked()
+            for item in state["tickets"]:
+                if str(item.get("id") or "").upper() != ticket_id:
+                    continue
+                entry = {"at": _now(), "actor": "telegram", "action": "owner_notified", "stage": str(stage or "")[:40],
+                         "from_status": item.get("status"), "to_status": item.get("status")}
+                if run_id:
+                    entry["run_id"] = str(run_id)[:120]
+                item.setdefault("history", []).append(entry)
+                self._save_unlocked(state)
+                return entry
+        return None
+
     def add_note(self, ticket_id: str, text: str, actor: str = "owner", kind: str = "note") -> dict:
         ticket_id = str(ticket_id or "").strip().upper()
         note_text = str(text or "").strip()
@@ -402,7 +420,8 @@ def _ticket_keyboard(ticket_id: str) -> dict:
             ],
             [{"text": "↻ Retry", "callback_data": f"relay:retry:{ticket_id}"},
              {"text": "✖ Cancel queued", "callback_data": f"relay:cancel:{ticket_id}"}],
-            [{"text": "📋 Мои задачи", "callback_data": "relay:list:active"}],
+            [{"text": "🔄 Обновить", "callback_data": f"relay:ticket:{ticket_id}"},
+             {"text": "📋 Мои задачи", "callback_data": "relay:list:active"}],
         ]
     }
 
@@ -652,6 +671,7 @@ _HELP_TEXTS = {
         "/relay — Обзор Relay и активных задач\n"
         "/roadmap — Дорожная карта и задачи\n"
         "/task — Карточка задачи по ID (напр. /task R-0001)\n"
+        "/proof — Приёмка: вся цепочка задачи по фактам сервера (напр. /proof R-0001)\n"
         "/history — История событий и действий\n"
         "/github — Статус репозитория GitHub и CI\n"
         "/issue — Передать GitHub Issue в очередь (напр. /issue 41)\n"
@@ -678,6 +698,7 @@ _HELP_TEXTS = {
         "/relay — Огляд Relay та активних завдань\n"
         "/roadmap — Дорожня карта та завдання\n"
         "/task — Картка завдання за ID (напр. /task R-0001)\n"
+        "/proof — Приймання: весь ланцюг задачі за фактами сервера (напр. /proof R-0001)\n"
         "/history — Історія подій та дій\n"
         "/github — Статус репозиторію GitHub та CI\n"
         "/issue — Передати GitHub Issue у чергу (напр. /issue 41)\n"
@@ -704,6 +725,7 @@ _HELP_TEXTS = {
         "/relay — Overview of Relay and active tasks\n"
         "/roadmap — View roadmap and task list\n"
         "/task — View task details by ID (e.g. /task R-0001)\n"
+        "/proof — Acceptance: the whole task chain from server facts (e.g. /proof R-0001)\n"
         "/history — History of Relay and GitHub events\n"
         "/github — GitHub repository and CI status\n"
         "/issue — Queue open GitHub Issue (e.g. /issue 41)\n"
@@ -1111,30 +1133,118 @@ def _relay_tasks_text(store: RelayStore, provider: Optional[Callable[[], dict]],
     return "\n".join(lines)[:3900]
 
 
-def _relay_history_text(store: RelayStore, github: Optional[Callable[[], dict]] = None) -> str:
+_HISTORY_TEXT = {
+    "ru": {"title": "🕘 Relay · подтверждённая история", "none": "Событий пока нет", "commits": "GitHub: подтверждённые коммиты main",
+           "gh_na": "GitHub: данные недоступны", "chatgpt": "Нет автоматической истории действий ChatGPT вне GitHub/Relay."},
+    "uk": {"title": "🕘 Relay · підтверджена історія", "none": "Подій поки немає", "commits": "GitHub: підтверджені коміти main",
+           "gh_na": "GitHub: дані недоступні", "chatgpt": "Немає автоматичної історії дій ChatGPT поза GitHub/Relay."},
+    "en": {"title": "🕘 Relay · verified history", "none": "No events yet", "commits": "GitHub: verified main commits",
+           "gh_na": "GitHub: data unavailable", "chatgpt": "No automatic ChatGPT activity history outside GitHub/Relay."},
+}
+
+
+def _relay_history_text(store: RelayStore, github: Optional[Callable[[], dict]] = None, lang: str = "ru") -> str:
+    t = _HISTORY_TEXT.get(lang) or _HISTORY_TEXT["ru"]
     events = []
     for ticket in store.list(limit=500):
         for event in ticket.get("history") or []:
             events.append((str(event.get("at") or ""), str(ticket.get("id") or ""), event))
     events.sort(key=lambda row: row[0], reverse=True)
-    lines = ["🕘 Relay · подтверждённая история"]
+    lines = [t["title"]]
     for at, ticket_id, event in events[:20]:
         lines.append(at[:19] + " · " + ticket_id + " · " + str(event.get("actor") or "?")[:32] + " · " + str(event.get("action") or "?")[:30])
     if not events:
-        lines.append("Событий пока нет")
+        lines.append(t["none"])
     if github:
         try:
             snapshot = github() or {}
             if snapshot.get("available"):
                 lines.append("")
-                lines.append("GitHub: подтверждённые коммиты main")
+                lines.append(t["commits"])
                 for commit in (snapshot.get("commits") or [])[:8]:
                     lines.append(str(commit.get("date") or "")[:19] + " · " + str(commit.get("sha") or "")[:7] + " · " + str(commit.get("author") or "?")[:22] + " · " + str(commit.get("message") or "")[:50])
             else:
-                lines.append("GitHub: данные недоступны")
+                lines.append(t["gh_na"])
         except Exception:
-            lines.append("GitHub: данные недоступны")
-    lines.append("Нет автоматической истории действий ChatGPT вне GitHub/Relay.")
+            lines.append(t["gh_na"])
+    lines.append(t["chatgpt"])
+    return "\n".join(lines)[:3900]
+
+
+def _task_detail_text(ticket: dict) -> str:
+    """`/task R-0001` and the 🔄 refresh button: card, brief, factual stages and the last history events."""
+    lines = [_ticket_card(ticket), ("ТЗ: " + str(ticket.get("body") or "")[:450]) if ticket.get("body") else "",
+             lifecycle_text(ticket), "История:"]
+    for event in (ticket.get("history") or [])[-12:]:
+        evidence = event.get("evidence") or {}
+        commit = " · " + str(evidence.get("commit") or "")[:10] if evidence.get("commit") else ""
+        lines.append(f"{str(event.get('at') or '')[:19]} · {event.get('actor') or '?'} · {event.get('action') or '?'}{commit} · {str(event.get('note') or '')[:120]}")
+    return "\n".join(x for x in lines if x)[:3900]
+
+
+_PROOF_USAGE = {
+    "ru": "Пример: /proof R-0001 — проверить по фактам сервера всю цепочку Telegram → воркер → Telegram для тикета.",
+    "uk": "Приклад: /proof R-0001 — перевірити за фактами сервера весь ланцюг Telegram → воркер → Telegram для тікета.",
+    "en": "Example: /proof R-0001 — check the whole Telegram → worker → Telegram chain for a ticket from server facts.",
+}
+
+ROADMAP_PATH = Path(__file__).resolve().parent / "ROADMAP.md"
+_ROADMAP_LINE = re.compile(r"^- \[([ xX])\]\s+(\[HUMAN\]\s+)?(T-[A-Za-z0-9-]+)\s+(.+)$")
+_ROADMAP_TEXT = {
+    "ru": {"title": "🗺 ROADMAP (файл в задеплоенной версии)", "counts": "Готово {done} из {total} · открыто {open} · HUMAN {human}",
+           "p0": "P0 (открытые):", "human": "Нужно от владельца (HUMAN):", "next": "Следующие задачи агентов:",
+           "none": "—", "na": "ROADMAP недоступен на сервере; статус неизвестен.",
+           "note": "Это чекбоксы файла, а не живой статус воркера: /status и /workers показывают исполнение."},
+    "uk": {"title": "🗺 ROADMAP (файл у задеплоєній версії)", "counts": "Готово {done} з {total} · відкрито {open} · HUMAN {human}",
+           "p0": "P0 (відкриті):", "human": "Потрібно від власника (HUMAN):", "next": "Наступні задачі агентів:",
+           "none": "—", "na": "ROADMAP недоступний на сервері; статус невідомий.",
+           "note": "Це чекбокси файлу, а не живий статус воркера: /status і /workers показують виконання."},
+    "en": {"title": "🗺 ROADMAP (file in the deployed version)", "counts": "Done {done} of {total} · open {open} · HUMAN {human}",
+           "p0": "P0 (open):", "human": "Needs the owner (HUMAN):", "next": "Next agent tasks:",
+           "none": "—", "na": "ROADMAP is not available on the server; status unknown.",
+           "note": "These are file checkboxes, not live worker state: /status and /workers show execution."},
+}
+
+
+def roadmap_summary(text: str) -> dict:
+    """Open/done tasks from ROADMAP.md text; P0 = an open task whose own lines say P0."""
+    tasks: list[dict] = []
+    for raw in (text or "").splitlines():
+        match = _ROADMAP_LINE.match(raw.strip())
+        if match:
+            tasks.append({"id": match.group(3), "title": match.group(4).strip(), "done": match.group(1) != " ",
+                          "human": bool(match.group(2)), "p0": bool(re.search(r"\bP0\b", match.group(4)))})
+        elif tasks and raw[:1].isspace() and re.search(r"\bP0\b", raw):
+            tasks[-1]["p0"] = True
+    open_tasks = [x for x in tasks if not x["done"]]
+    return {"total": len(tasks), "done": len(tasks) - len(open_tasks), "open": len(open_tasks),
+            "p0": [x for x in open_tasks if x["p0"] and not x["human"]],
+            "human": [x for x in open_tasks if x["human"]],
+            "next": [x for x in open_tasks if not x["human"] and not x["p0"]]}
+
+
+def _default_roadmap() -> str:
+    return ROADMAP_PATH.read_text(encoding="utf-8")
+
+
+def _roadmap_text(provider: Optional[Callable[[], str]] = None, lang: str = "ru") -> str:
+    t = _ROADMAP_TEXT.get(lang) or _ROADMAP_TEXT["ru"]
+    try:
+        summary = roadmap_summary((provider or _default_roadmap)() or "")
+    except Exception:
+        return t["na"]
+    if not summary["total"]:
+        return t["na"]
+    lines = [t["title"], t["counts"].format(done=summary["done"], total=summary["total"], open=summary["open"], human=len(summary["human"]))]
+    for key, limit in (("p0", 10), ("human", 10), ("next", 5)):
+        lines.extend(["", t[key]])
+        rows = summary[key]
+        lines.extend("• " + x["id"] + " " + x["title"][:80] for x in rows[:limit])
+        if len(rows) > limit:
+            lines.append(f"… +{len(rows) - limit}")
+        if not rows:
+            lines.append(t["none"])
+    lines.extend(["", t["note"]])
     return "\n".join(lines)[:3900]
 
 
@@ -1144,6 +1254,7 @@ def _relay_keyboard() -> dict:
          {"text": "🕘 История", "callback_data": "relay:overview:history"}],
         [{"text": "🔗 GitHub / CI", "callback_data": "relay:overview:github"},
          {"text": "🧠 Воркеры", "callback_data": "relay:overview:workers"}],
+        [{"text": "🗺 Roadmap", "callback_data": "relay:overview:roadmap"}],
         _operator_buttons(),
         [{"text": "⚔️ Battles", "callback_data": "battle:list"}],
     ]}
@@ -1206,6 +1317,7 @@ def relay_handle_telegram_update(
     lane_board_provider: Optional[Callable[[], dict]] = None,
     operator_lanes_provider: Optional[Callable[[], list]] = None,
     battle_controls=None,
+    roadmap_provider: Optional[Callable[[], str]] = None,
 ) -> Optional[dict]:
     """Handle Relay-specific Telegram traffic.
 
@@ -1219,6 +1331,9 @@ def relay_handle_telegram_update(
 
     ``battle_controls`` (T-587) is a ``telegram_battles.BattleTelegram``: ``battle:*`` callbacks and
     ``/battles`` / ``/battle <id>`` show Battle Runs and record only the safe owner approve/reject decision.
+
+    ``roadmap_provider`` (T-591) returns ROADMAP.md text for ``/roadmap``; by default the file deployed
+    next to this module is read. ``/proof R-0001`` answers with the relay_acceptance verdict for one ticket.
     """
     if not isinstance(update, dict):
         return None
@@ -1246,7 +1361,9 @@ def relay_handle_telegram_update(
             if action == "tasks":
                 value = _relay_tasks_text(store, operator_status_provider, github_provider, lane_board_provider, lang)
             elif action == "history":
-                value = _relay_history_text(store, github_provider)
+                value = _relay_history_text(store, github_provider, lang)
+            elif action == "roadmap":
+                value = _roadmap_text(roadmap_provider, lang)
             elif action == "github":
                 value = _github_text(github_provider() if github_provider else {"available": False})
             elif action == "workers":
@@ -1332,7 +1449,7 @@ def relay_handle_telegram_update(
                 telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Тикет не найден"})
                 return {"handled": True}
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
-            telegram_api("sendMessage", {"chat_id": chat_id, "text": _ticket_card(queue.view(ticket) if queue else ticket),
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": _task_detail_text(queue.view(ticket) if queue else ticket),
                                          "reply_markup": _ticket_keyboard(ticket_id)})
             return {"handled": True, "action": "ticket", "ticket_id": ticket_id}
         match = re.fullmatch(r"relay:status:(R-\d{4,8}):(inbox|in_progress|need_you|done|archived)", data)
@@ -1386,14 +1503,24 @@ def relay_handle_telegram_update(
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider, lane_board_provider, lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "list"}
     if command == "/history":
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_history_text(store, github_provider), "reply_markup": _relay_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_history_text(store, github_provider, lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "history"}
     if command == "/github":
         telegram_api("sendMessage", {"chat_id": chat_id, "text": _github_text(github_provider() if github_provider else {"available": False}), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "github"}
     if command == "/roadmap":
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _relay_tasks_text(store, operator_status_provider, github_provider, lane_board_provider, lang), "reply_markup": _relay_keyboard()})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _roadmap_text(roadmap_provider, lang), "reply_markup": _relay_keyboard()})
         return {"handled": True, "action": "roadmap"}
+    if command == "/proof":
+        parts = text.split(maxsplit=1)
+        ticket_id = parts[1].strip().upper() if len(parts) > 1 else ""
+        ticket = store.get(ticket_id) if ticket_id else None
+        if not ticket:
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": _PROOF_USAGE.get(lang, _PROOF_USAGE["ru"])})
+            return {"handled": True, "action": "proof_help"}
+        report = acceptance_report(ticket, store.list(limit=100000))
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": acceptance_text(report, lang), "reply_markup": _ticket_keyboard(ticket["id"])})
+        return {"handled": True, "action": "proof", "ticket_id": ticket["id"], "status": report["status"]}
     if command == "/task":
         parts = text.split(maxsplit=1)
         ticket_id = parts[1].strip().upper() if len(parts) > 1 else ""
@@ -1414,16 +1541,8 @@ def relay_handle_telegram_update(
         if not ticket:
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "Задача не найдена. Пример: /task R-0001"})
             return {"handled": True}
-        if queue:
-            ticket = queue.view(ticket)
-        history = ticket.get("history") or []
-        lines = [_ticket_card(ticket), ("ТЗ: " + str(ticket.get("body") or "")[:450]) if ticket.get("body") else "",
-                 lifecycle_text(ticket), "История:"]
-        for event in history[-12:]:
-            evidence = event.get("evidence") or {}
-            commit = " · " + str(evidence.get("commit") or "")[:10] if evidence.get("commit") else ""
-            lines.append(f"{str(event.get('at') or '')[:19]} · {event.get('actor') or '?'} · {event.get('action') or '?'}{commit} · {str(event.get('note') or '')[:120]}")
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": "\n".join(lines)[:3900], "reply_markup": _ticket_keyboard(ticket_id)})
+        telegram_api("sendMessage", {"chat_id": chat_id, "text": _task_detail_text(queue.view(ticket) if queue else ticket),
+                                     "reply_markup": _ticket_keyboard(ticket_id)})
         return {"handled": True, "action": "detail", "ticket_id": ticket_id}
     if command == "/issue":
         parts = text.split(maxsplit=1)
@@ -1622,6 +1741,16 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
             raise HTTPException(404, "Relay ticket not found")
         return queue.view(ticket) if queue else ticket
 
+    @app.get("/api/relay/{ticket_id}/acceptance")
+    def relay_acceptance(ticket_id: str, request: Request, lang: str = "ru"):
+        """T-591: owner-only verdict on the live Telegram → worker → Telegram chain for one ticket."""
+        _owner_guard(request, request_identity)
+        ticket = store.get(ticket_id)
+        if not ticket:
+            raise HTTPException(404, "Relay ticket not found")
+        report = acceptance_report(ticket, store.list(limit=100000))
+        return {**report, "text": acceptance_text(report, lang if lang in ("ru", "uk", "en") else "ru")}
+
     @app.post("/api/relay/{ticket_id}/status")
     def relay_status(ticket_id: str, payload: RelayStatusRequest, request: Request):
         identity = _owner_guard(request, request_identity)
@@ -1749,7 +1878,8 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
             raise HTTPException(409, str(exc))
         if payload.stage not in {"heartbeat", "checkpoint"} and notify_owner and not ticket.get("replayed"):
             try:
-                notify_owner(worker_event_text(ticket, payload.stage))
+                if notify_owner(worker_event_text(ticket, payload.stage)) is True:
+                    store.record_owner_notice(payload.ticket_id, payload.stage, (ticket.get("execution") or {}).get("run_id") or "")
             except Exception:
                 pass
         return {"ok": True, "ticket": ticket}
