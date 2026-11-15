@@ -1293,6 +1293,17 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   existing one-shot startup repair of recently failed manual uploads (`MEDIA_FINISHER_REAL_MEDIA_REPAIR`), which now
   runs as generation 1. Not verified: a real worker on Render/EC2 and a real Render deploy.
 
+## 2026-11-15 — T-560-J Gemini coder uses the Surfer
+
+- The EC2 "Gemini" is the issue→PR script `tools/gemini_issue_pr.cjs` (one JSON generation through the FactoryOS proxy),
+  not Gemini CLI, so it cannot call MCP tools. Instead of MCP (which would need `FACTORY_MCP_TOKEN` on EC2), the server
+  exposes the same three tools at `POST /api/factory/surfer/worker/{web_search|web_read|web_task}` behind the worker
+  token EC2 already holds. No new secret, no change on the EC2 host: the loop fetches the script from `main` each run.
+- Research is a separate planning call (same free Flash model) before the coding call: ≤3 searches, ≤2 https pages,
+  12 000 chars into the prompt, framed as untrusted reference data. Any failure (model busy, bad JSON, Surfer error)
+  skips research; the issue is never failed by it. `GEMINI_RESEARCH=0` turns it off. Direct-key mode (GitHub Actions)
+  has no worker token and skips it.
+- Worker tasks are stored with `source: "worker"`; `web_task` shows each caller only its own source.
 ## 2026-11-15 — Blocked tasks wake on answers.md content, not mtime (Telegram loop fix)
 
 - Incident: T-590 (ticket R-0004) was re-run every ~2 minutes and Telegram received ~300 cards

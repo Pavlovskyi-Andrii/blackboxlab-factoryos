@@ -34,3 +34,9 @@ curl -s https://blackboxlab-factoryos.onrender.com/mcp -H "Authorization: Bearer
   -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"Playwright"}}}'
 ```
+
+## FactoryOS's own agents (EC2)
+
+The Gemini coder loop on EC2 uses the same tools without MCP: `POST /api/factory/surfer/worker/{web_search|web_read|web_task}`
+with the worker token it already has (`/etc/factoryos/claude-worker.env`). Before writing code it may run up to 3 searches
+and read up to 2 pages; the log shows `Surfer research: N searches, M pages`. Set `GEMINI_RESEARCH=0` to turn it off.
