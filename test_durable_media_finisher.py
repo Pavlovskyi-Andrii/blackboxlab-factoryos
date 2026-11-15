@@ -261,6 +261,24 @@ def child_app_disabled(data_dir: Path):
     require(calls == {"POST": 1, "GET": 1}, f"without the engine the legacy watchdog polls the edit job as before: {calls}")
     require(not (data_dir / engine.SYSTEM_DB_FILENAME).exists(), "kill switch must not create the DBOS database")
 
+    # Codex review on #379: a failing wake-up must never fail the worker's callback once the result is saved.
+    import asyncio
+    from starlette.requests import Request
+
+    def broken_notify(*_args, **_kwargs):
+        raise RuntimeError("synthetic notify failure")
+
+    broadcasts = []
+
+    async def record_broadcast(payload=None):
+        broadcasts.append(payload)
+
+    app.durable_finisher.notify, app.broadcast = broken_notify, record_broadcast
+    payload = app.MediaFinisherCallbackRequest(status="failed", error="CI synthetic worker failure", provider_job_id="ci-provider-1")
+    response = asyncio.run(app.media_finisher_callback(edit_id, payload, Request({"type": "http", "headers": []})))
+    require(response["ok"] is True and app.get_edit_job(edit_id)["status"] == "failed", f"callback after notify error: {response}")
+    require(broadcasts and broadcasts[-1]["action"] == "callback", "the UI broadcast must still go out")
+
 
 CHILDREN = {"first": child_first, "old-version": child_old_version, "second": child_second,
             "app": child_app, "app-disabled": child_app_disabled}

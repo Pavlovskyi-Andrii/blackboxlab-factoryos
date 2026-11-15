@@ -11558,8 +11558,11 @@ async def media_finisher_callback(edit_job_id:str,payload:MediaFinisherCallbackR
         output_url=(payload.final_url or payload.output_url or "").strip()
         item=_finalize_edit_job(edit_job_id,payload.status,output_url,payload.provider_job_id,payload.error,payload.raw,payload.report,payload.measured_cost_usd,payload.measured_duration_sec)
     except ValueError as exc:raise HTTPException(404,str(exc))
-    # T-612: wake the durable workflow now instead of at its next poll; a no-op when no workflow owns this job.
-    await asyncio.to_thread(durable_finisher.notify,edit_job_id,{"status":item["status"]})
+    # T-612: wake the durable workflow now instead of at its next poll; a no-op when no workflow owns this job. The result is
+    # already saved, so a wake-up failure must not fail the worker's callback: the workflow's next poll reads the result.
+    try:await asyncio.to_thread(durable_finisher.notify,edit_job_id,{"status":item["status"]})
+    except Exception as exc:
+        print(json.dumps({"event":"DBOS_MEDIA_FINISHER_NOTIFY_ERROR","edit_job_id":edit_job_id,"error":str(exc)[:300]}),flush=True)
     await broadcast({"type":"media_finisher","action":"callback","editJobId":edit_job_id,"status":item["status"]})
     return {"ok":True,"edit_job":item}
 
