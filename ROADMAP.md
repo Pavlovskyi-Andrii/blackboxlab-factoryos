@@ -277,6 +277,11 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner 2026-11-15 — Gemini must be able to use the Surfer too. The EC2 Gemini loop is not Gemini CLI but `tools/gemini_issue_pr.cjs` behind the FactoryOS proxy, so it gets a research step: the model plans ≤3 searches and ≤2 page reads, the script runs them through `POST /api/factory/surfer/worker/{tool}` with the worker token EC2 already has, and the results enter the coding prompt as untrusted reference data.
   DONE: `node tools/test_gemini_research.cjs` and `python test_web_surfer.py` prove the limits, https-only reads, worker-token auth, task isolation between worker and MCP callers, and that a failed or empty plan skips research instead of failing the issue.
 
+- [x] T-560-K Gemini search diagnostics + model fallback
+  Owner: claude
+  Goal: production web_search fell back to Wikipedia with only "HTTPError"; report HTTP code + Google error enum and try another Flash model on 400/404.
+  DONE: `python test_web_surfer.py` proves code/status in the note without Google's message text, fallback on 400, no retry on 429.
+
 - [ ] [HUMAN] T-560-I Opt in to Google search via Gemini (optional)
   Depends: T-560-H
   Need: owner decides whether Google Search grounding on the existing Gemini key may be used (free daily quota, billed beyond it on a paid project); if yes, set `FACTORY_WEB_SEARCH_PROVIDER=gemini` in Render. Without it `web_search` answers from Wikipedia only.
