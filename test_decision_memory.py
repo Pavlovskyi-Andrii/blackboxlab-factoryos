@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import asyncio
 
 import decision_memory as dm
 from agent_secret_scan import contains_secret
@@ -158,6 +158,18 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.snapshot()["stats"]["created"], 1)
 
 
+class Req:
+    """Stand-in for a Starlette request: CI has no httpx, so TestClient is not available."""
+
+    def __init__(self, body=None, raw=None):
+        self.body, self.raw = body, raw
+
+    async def json(self):
+        if self.raw is not None:
+            return json.loads(self.raw)
+        return self.body
+
+
 class RouteTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -165,28 +177,39 @@ class RouteTests(unittest.TestCase):
         app = FastAPI()
         store = dm.DecisionStore(Path(self.tmp.name) / "dm.json", ROOT / "DECISIONS.md")
         dm.install_decision_memory_routes(app, store, lambda request: dict(self.who))
-        self.client = TestClient(app)
+        self.routes = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if r.path.startswith("/api/decision-memory")}
 
     def tearDown(self):
         self.tmp.cleanup()
 
+    def call(self, method, path, *args, body=None, raw=None):
+        out = asyncio.run(self.routes[(method, path)](*args, request=Req(body, raw)))
+        if hasattr(out, "status_code"):
+            return out.status_code, json.loads(out.body)
+        return 200, out
+
     def test_owner_only(self):
+        self.assertEqual(set(self.routes), {("GET", "/api/decision-memory"), ("POST", "/api/decision-memory/decisions"),
+                                            ("POST", "/api/decision-memory/decisions/{decision_id}"),
+                                            ("POST", "/api/decision-memory/decisions/{decision_id}/reviews")})
         body = {"decision": "d", "rationale": "r"}
         for who, status in (({}, 401), ({"role": "viewer"}, 403), ({"role": "member", "email": "m@x"}, 403)):
             self.who = who
-            self.assertEqual(self.client.get("/api/decision-memory").status_code, status, who)
-            self.assertEqual(self.client.post("/api/decision-memory/decisions", json=body).status_code, status, who)
+            self.assertEqual(self.call("GET", "/api/decision-memory")[0], status, who)
+            self.assertEqual(self.call("POST", "/api/decision-memory/decisions", body=body)[0], status, who)
+            self.assertEqual(self.call("POST", "/api/decision-memory/decisions/{decision_id}/reviews", "x",
+                                       body={"verdict": "missed"})[0], status, who)
         self.who = {"role": "owner", "email": "owner@example.com"}
-        snap = self.client.get("/api/decision-memory").json()
+        snap = self.call("GET", "/api/decision-memory")[1]
         self.assertGreater(snap["stats"]["imported"], 100)
-        made = self.client.post("/api/decision-memory/decisions", json=dict(body, idempotency_key="a")).json()
+        made = self.call("POST", "/api/decision-memory/decisions", body=dict(body, idempotency_key="a"))[1]
         self.assertEqual(made["decision"]["actor"], "owner@example.com")
         did = made["decision"]["id"]
-        self.assertEqual(self.client.post(f"/api/decision-memory/decisions/{did}", json={"owner": "me"}).json()["owner"], "me")
-        self.assertEqual(self.client.post(f"/api/decision-memory/decisions/{did}/reviews", json={"verdict": "missed"}).status_code, 200)
-        self.assertEqual(self.client.post("/api/decision-memory/decisions", content=b"[1]",
-                                          headers={"content-type": "application/json"}).json(), {"detail": "bad_body"})
-        self.assertEqual(self.client.post("/api/decision-memory/decisions/nope", json={"owner": "x"}).status_code, 404)
+        self.assertEqual(self.call("POST", "/api/decision-memory/decisions/{decision_id}", did, body={"owner": "me"})[1]["owner"], "me")
+        self.assertEqual(self.call("POST", "/api/decision-memory/decisions/{decision_id}/reviews", did, body={"verdict": "missed"})[0], 200)
+        self.assertEqual(self.call("POST", "/api/decision-memory/decisions", raw="[1]"), (400, {"detail": "bad_body"}))
+        self.assertEqual(self.call("POST", "/api/decision-memory/decisions", raw="{bad"), (400, {"detail": "bad_body"}))
+        self.assertEqual(self.call("POST", "/api/decision-memory/decisions/{decision_id}", "nope", body={"owner": "x"})[0], 404)
 
 
 class RegistryTests(unittest.TestCase):
