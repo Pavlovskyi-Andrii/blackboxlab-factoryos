@@ -42,6 +42,7 @@ from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
 import web_surfer
+import agent_workspace
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
@@ -740,6 +741,14 @@ def _agent_relay_forbidden_tokens():
             os.environ.get("FACTORY_TELEGRAM_BRIDGE_TOKEN", ""), FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN, FACTORY_MCP_TOKEN)
 
 AGENT_MESSAGES = install_agent_message_routes(app, RELAY_STORE, _agent_relay_forbidden_tokens)
+
+def _mcp_lane_forbidden_tokens():
+    """T-604: a per-lane MCP token must not reuse the shared MCP token or any other FactoryOS credential."""
+    return _agent_relay_forbidden_tokens()+(os.environ.get("FACTORY_CLAUDE_RELAY_TOKEN",""),os.environ.get("FACTORY_CODEX_RELAY_TOKEN",""))
+
+AGENT_WORKSPACE = agent_workspace.AgentWorkspace(RELAY_STORE, RELAY_QUEUE, known_secrets=_mcp_lane_forbidden_tokens)
+agent_workspace.install_routes(app, AGENT_WORKSPACE, lambda: agent_workspace.lane_status(forbidden=_mcp_lane_forbidden_tokens()))
+agent_workspace.install_access_log_redaction()
 
 def _owner_desk_status():
     """Live facts for the owner runbooks; never calls a provider. Lines are keys localized by owner_desk_i18n."""
@@ -1748,13 +1757,14 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS
+]+web_surfer.TOOLS+agent_workspace.TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
     if not FACTORY_MCP_TOKEN:
         return JSONResponse({"jsonrpc":"2.0","id":None,"error":{"code":-32001,"message":"FactoryOS MCP connector is disabled until FACTORY_MCP_TOKEN is configured."}},status_code=503)
-    if not _factory_mcp_authorized(request):
+    mcp_lane=agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
+    if not (mcp_lane or _factory_mcp_authorized(request)):
         return JSONResponse({"jsonrpc":"2.0","id":None,"error":{"code":-32000,"message":"Unauthorized"}},status_code=401)
     try:
         payload=await request.json()
@@ -1790,6 +1800,11 @@ async def factory_mcp(request: Request):
                     "status":x["status"],"progress":x.get("execution_progress",0),
                     "priority":x["priority"],"owner":x["owner"]
                 } for x in rows])
+            elif name in agent_workspace.TOOL_NAMES:
+                data=agent_workspace.call_tool(AGENT_WORKSPACE,name,args,mcp_lane)
+                if "error" in data:
+                    return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,**_factory_mcp_text(data["error"])}})
+                result=_factory_mcp_text(data)
             elif name in web_surfer.TOOL_NAMES:
                 result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH))
             elif name=="submit_design_review":
@@ -1809,9 +1824,10 @@ async def factory_mcp(request: Request):
 def factory_mcp_info(request: Request):
     if not FACTORY_MCP_TOKEN:
         return JSONResponse({"enabled":False,"detail":"Set FACTORY_MCP_TOKEN in Render to enable the Claude/remote MCP connector."},status_code=503)
-    if not _factory_mcp_authorized(request):
+    lane=agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
+    if not (lane or _factory_mcp_authorized(request)):
         return JSONResponse({"enabled":True,"detail":"Authentication required: Bearer token or ?key= token."},status_code=401)
-    return {"enabled":True,"server":"Blackbox Lab FactoryOS","version":APP_VERSION,"tools":[x["name"] for x in FACTORY_MCP_TOOLS]}
+    return {"enabled":True,"server":"Blackbox Lab FactoryOS","version":APP_VERSION,"lane":lane or None,"tools":[x["name"] for x in FACTORY_MCP_TOOLS]}
 
 @app.get("/health")
 def health(request: Request):

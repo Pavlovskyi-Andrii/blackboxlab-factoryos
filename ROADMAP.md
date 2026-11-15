@@ -118,6 +118,26 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Spec: Issue #94, docs/handoff/CLAUDE_CHATGPT_COORDINATION.md. The FactoryOS MCP server (`/mcp` in app.py, already used by ChatGPT: list_build_tasks, get_design_context, submit_design_review) is ours, so ChatGPT can get authenticated tools without a new service.
   Goal: MCP tools for a shared thread and handoffs backed by the existing Relay store: post_message / read_thread (brainstorm between agents, visible to the owner in Worker Center), list_handoffs / claim_handoff / submit_handoff_result (one claim per task, run_id, files_scope), with Claude reviewing results before merge.
   DONE: a live round-trip — Claude posts a handoff, ChatGPT claims it via MCP and submits a PR link, Claude reviews and merges — visible in Worker Center; tests for auth, single claim, replay and secret scrubbing.
+  Progress 2026-11-15 (session T-604): the server slice is T-625 below — workspace tools on `/mcp` (`agent_workspace.py`), per-lane auth, single claim through the Relay ROADMAP ticket, replay, secret scrubbing; guide `docs/guides/agent-workspace-mcp.md`. Still open for DONE: owner sets the lane tokens (T-624), then the live round-trip (Claude create_handoff → ChatGPT claim + PR link → Claude review/merge) and a Worker Center panel on `GET /api/factory/agent-workspace` (T-626). Telegram group chat (`/discuss`, `/decision`) stays with the T-590–T-593 Relay/Telegram work.
+
+- [x] T-625 Agent workspace MCP tools: threads and handoffs behind per-lane tokens (T-604 server slice)
+  Owner: claude (session T-604)
+  Priority: P1
+  Spec: docs/handoff/T-604_MCP_TOOLS_SPEC.md; DECISIONS.md 2026-11-15 T-625.
+  Goal: `post_message`, `list_threads`, `read_thread`, `create_handoff`, `list_handoffs`, `claim_handoff`, `submit_handoff_result`, `release_handoff`, `review_handoff` on `/mcp`, stored in the Relay store; sender derived from a per-lane credential (`FACTORY_MCP_LANE_TOKEN_CLAUDE/_CHATGPT/_GEMINI`), the shared `FACTORY_MCP_TOKEN` only reads threads; claim goes through `RelayQueue.claim_roadmap` (run_id, one claim per task, EC2 worker fenced out); idempotency keys; no owner decisions by agents; credential-shaped text refused; `?key=` query values redacted from the access log.
+  DONE: `python test_agent_workspace.py` (lane auth, single claim, replay, secret scrubbing, Relay fencing, lease/release, /mcp handler) plus test_web_surfer.py, test_relay*.py and the default verification green. Done 2026-11-15.
+
+- [ ] [HUMAN] T-624 Per-lane FactoryOS MCP tokens in Render (Claude / ChatGPT / Gemini)
+  Depends: T-625
+  Need: owner generates three different random tokens (`python -c "import secrets;print(secrets.token_urlsafe(32))"`, one per lane) and adds them in Render → Environment: `FACTORY_MCP_LANE_TOKEN_CLAUDE`, `FACTORY_MCP_LANE_TOKEN_CHATGPT`, optionally `FACTORY_MCP_LANE_TOKEN_GEMINI`; plus `FACTORY_MCP_LANE_URL_KEY=chatgpt` because the ChatGPT connector cannot send headers. Then reconnects ChatGPT with `…/mcp?key=<CHATGPT lane token>` and Claude Code with the Claude lane token as Bearer. Runbook: docs/guides/agent-workspace-mcp.md. Agents never see or set these values.
+  DONE: `GET /api/factory/agent-workspace` (signed in) shows `lanes.claude.enabled` and `lanes.chatgpt.enabled` true; `GET /mcp` with each connector reports its own `lane`.
+
+- [ ] T-626 Worker Center panel for the shared agent workspace
+  Owner: claude
+  Priority: P2
+  Depends: T-625
+  Goal: read-only Worker Center card from `GET /api/factory/agent-workspace`: lanes enabled/disabled (reason, never token values), latest threads with attributed messages, handoffs by state with run_id, Relay ticket link and PR link; EN/UK/RU.
+  DONE: test covering empty / disabled-lane / active-handoff states, dashboard `node --check`, CI-gated PR.
 
 - [ ] T-602 UI fixes from the 2026-11-01 screenshot review
   Owner: claude
