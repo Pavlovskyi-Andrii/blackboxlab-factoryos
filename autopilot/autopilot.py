@@ -8,7 +8,7 @@ import time
 from typing import Any
 
 try:
-    from .delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
+    from .delegation import agent_preflight, build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from .notify import configured as telegram_configured
     from .notify import send, wait_answer
     from . import control
@@ -17,7 +17,7 @@ try:
     from . import browser_tasks, codex_review, mycast_daily, mycast_listeners
     from . import mods_runtime
 except ImportError:
-    from delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
+    from delegation import agent_preflight, build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
     import mods_runtime
@@ -55,6 +55,14 @@ IDLE_SECONDS = max(15, min(3600, int(os.environ.get("AUTOPILOT_IDLE_SECONDS", "6
 # Operator identity of this runner. Roadmap tasks carrying `Owner: <other operator>` are skipped.
 OPERATOR = os.environ.get("AUTOPILOT_OPERATOR", "claude").strip().lower() or "claude"
 SHARED_OWNERS = {"", "any", "auto"}
+# T-607: which agent CLI runs a task. The Gemini lane runs Gemini CLI on the owner's Google-account login.
+AGENT = (os.environ.get("AUTOPILOT_AGENT", "").strip().lower()
+         or (OPERATOR if OPERATOR in {"claude", "gemini"} else "claude"))
+# A non-Claude lane takes only tasks that name it (`Owner: gemini`), never shared/unowned work (ROADMAP T-607).
+EXPLICIT_OWNER_ONLY = os.environ.get("AUTOPILOT_EXPLICIT_OWNER_ONLY", "1" if OPERATOR != "claude" else "0"
+                                     ).strip().lower() in {"1", "true", "yes", "on"}
+# Owner questions, MyCast, Codex review, browser tasks and Relay owner tickets belong to the Claude runner.
+CLAUDE_SIDE_JOBS = OPERATOR == "claude"
 # T-599-C: without a server claim no ROADMAP task runs, unless explicitly allowed for offline dev runs.
 ALLOW_UNCLAIMED = os.environ.get("AUTOPILOT_ALLOW_UNCLAIMED", "0").strip().lower() in {"1", "true", "yes", "on"}
 CLAIM_RETRY_SECONDS = 300
@@ -147,7 +155,10 @@ def parse_roadmap(path: pathlib.Path = ROADMAP) -> list[dict[str, Any]]:
 
 def owned_by_operator(task: dict[str, Any], operator: str = "") -> bool:
     owner = str(task.get("owner") or "").lower()
-    return owner in SHARED_OWNERS or owner == (operator or OPERATOR)
+    operator = operator or OPERATOR
+    if EXPLICIT_OWNER_ONLY and operator == OPERATOR:
+        return owner == operator
+    return owner in SHARED_OWNERS or owner == operator
 
 
 def unmet_dependencies(task: dict[str, Any], tasks: list[dict[str, Any]]) -> list[str]:
@@ -189,7 +200,8 @@ def done_status_is_consistent(status: dict[str, Any], expected_task: dict[str, A
 
 
 def run_agent(target: dict[str, Any]) -> dict[str, Any]:
-    mods = mods_runtime.prepare(REPO, "roadmap")  # T-620-C: owner's switched-on mods, this run only
+    # Owner's switched-on mods, this run only. They are Claude Code plugins: the Gemini lane never loads them.
+    mods = mods_runtime.prepare(REPO, "roadmap") if AGENT == "claude" else None
     try:
         spec = build_delegation(
             target,
@@ -197,16 +209,21 @@ def run_agent(target: dict[str, Any]) -> dict[str, Any]:
             max_turns=MAX_TURNS,
             timeout_seconds=TASK_TIMEOUT_SECONDS,
             skip_permissions=SKIP_PERMISSIONS,
+            agent=AGENT,
             mods=mods,
         )
     except ValueError as exc:
         return {"task": target.get("id"), "status": "failed", "summary": f"delegation refused: {exc}"}
+    refused = agent_preflight(spec)
+    if refused:
+        return {"task": target.get("id"), **refused}
     evidence = run_delegation(spec)
     write_evidence(REPO, evidence)
-    report_result(evidence)
-    mods_runtime.report_run(mods, run_id=str(evidence.get("run_id") or ""), task=str(target.get("id") or ""),
-                            kind="roadmap", result=str(evidence.get("result") or ""),
-                            duration_seconds=evidence.get("duration_seconds") or 0)
+    if AGENT == "claude":
+        report_result(evidence)   # /api/claude-worker/task-result is the Claude lane's own record
+        mods_runtime.report_run(spec["mods"], run_id=str(evidence.get("run_id") or ""), task=str(target.get("id") or ""),
+                                kind="roadmap", result=str(evidence.get("result") or ""),
+                                duration_seconds=evidence.get("duration_seconds") or 0)
     status = dict(evidence["status"])
     status["status"] = evidence["result"]
     if evidence["violations"]:
@@ -453,7 +470,9 @@ def main() -> int:
 
     while True:
         # Owner controls are only read here, between tasks, so a pause never interrupts a running task.
-        decision = poll_control(paused, set(blocked) | failed_hold, decided)
+        # The owner controls queue serves the Claude runner; a Gemini runner must not ack (and so swallow) its commands.
+        decision = (poll_control(paused, set(blocked) | failed_hold, decided) if CLAUDE_SIDE_JOBS
+                    else {"paused": False, "retry": "", "acks": []})
         if decision["retry"]:
             send(f"🔁 {decision['retry']}: owner requested a retry from FactoryOS.")
             failures = 0
@@ -512,50 +531,52 @@ def main() -> int:
             persist()
             send("▶️ Claude subscription limit window has passed; the queue resumes.")
 
-        # Owner desk questions are short and read-only, so they go before any long task.
-        owner_questions.maybe_selftest()
-        asked, hint = owner_questions.answer_one(REPO)
-        if asked == "limit":
-            notice = hold_for_limit(hint)
-            write_runtime_status("idle", summary=notice)
-            send(notice)
-            continue
-        if asked in ("answered", "failed"):
-            continue
-
-        # T-603: the owner's morning MyCast episode, once a day, between tasks.
-        if MYCAST_ENABLED:
-            cast = mycast_daily.run_daily(ANSWERS.with_name("mycast.json"), repo=REPO)
-            if cast == "limit":
-                notice = hold_for_limit("")
+        # T-607: the Gemini runner skips the Claude-only jobs below (they start Claude CLI or claim Claude tickets).
+        if CLAUDE_SIDE_JOBS:
+            # Owner desk questions are short and read-only, so they go before any long task.
+            owner_questions.maybe_selftest()
+            asked, hint = owner_questions.answer_one(REPO)
+            if asked == "limit":
+                notice = hold_for_limit(hint)
                 write_runtime_status("idle", summary=notice)
                 send(notice)
                 continue
-            if cast != "idle":
-                continue
-            # #317: website listeners' episodes, one per pass, only after the owner's own episode is settled.
-            cast = mycast_listeners.run_listeners(ANSWERS.with_name("mycast_listeners.json"))
-            if cast == "limit":
-                notice = hold_for_limit("")
-                write_runtime_status("idle", summary=notice)
-                send(notice)
-                continue
-            if cast != "idle":
+            if asked in ("answered", "failed"):
                 continue
 
-        # Owner 2026-11-13: every open PR gets an automatic Codex review (advisory comment). Cheap: no model runs here,
-        # Codex answers in its own isolated service; at most one new request per pass.
-        codex_review.run_once(ANSWERS.with_name("codex_review.json"))
-        # T-560: the owner's read-only browser tasks (anonymous Chromium, one per pass; idle without Playwright).
-        if browser_tasks.run_one() == "done":
-            continue
+            # T-603: the owner's morning MyCast episode, once a day, between tasks.
+            if MYCAST_ENABLED:
+                cast = mycast_daily.run_daily(ANSWERS.with_name("mycast.json"), repo=REPO)
+                if cast == "limit":
+                    notice = hold_for_limit("")
+                    write_runtime_status("idle", summary=notice)
+                    send(notice)
+                    continue
+                if cast != "idle":
+                    continue
+                # #317: website listeners' episodes, one per pass, only after the owner's own episode is settled.
+                cast = mycast_listeners.run_listeners(ANSWERS.with_name("mycast_listeners.json"))
+                if cast == "limit":
+                    notice = hold_for_limit("")
+                    write_runtime_status("idle", summary=notice)
+                    send(notice)
+                    continue
+                if cast != "idle":
+                    continue
 
-        # Relay owner tickets have priority over ordinary roadmap work. This is
-        # an actual claim + bounded Claude CLI invocation, not a UI status flip.
-        if relay_tasks.run_one(REPO, status_fn=write_runtime_status):
-            last_idle_notice = ""
-            time.sleep(PAUSE_SECONDS)
-            continue
+            # Owner 2026-11-13: every open PR gets an automatic Codex review (advisory comment). Cheap: no model runs here,
+            # Codex answers in its own isolated service; at most one new request per pass.
+            codex_review.run_once(ANSWERS.with_name("codex_review.json"))
+            # T-560: the owner's read-only browser tasks (anonymous Chromium, one per pass; idle without Playwright).
+            if browser_tasks.run_one() == "done":
+                continue
+
+            # Relay owner tickets have priority over ordinary roadmap work. This is
+            # an actual claim + bounded Claude CLI invocation, not a UI status flip.
+            if relay_tasks.run_one(REPO, status_fn=write_runtime_status):
+                last_idle_notice = ""
+                time.sleep(PAUSE_SECONDS)
+                continue
 
         # Keep the dedicated EC2 Relay executor focused on owner requests.
         # It must not silently consume unrelated ROADMAP tasks while idle.

@@ -116,13 +116,15 @@ class GateTest(unittest.TestCase):
         self.store.set_delivery(friend, True, True)
         view = lambda: public_view(self.store.get(inviter))
         self.assertEqual((view()["free_days"], view()["referrals_pending"]), (7, 1))
-        self.assertEqual(public_view(self.store.get(friend))["free_days"], 14)     # the friend's gift is immediate
+        # #305 (2026-11-10): the friend's +7 also waits for their first real episode (activation gate)
+        self.assertEqual(public_view(self.store.get(friend))["free_days"], 7)
         self.d.claim(friend, "2026-11-13")
         self.d.finish(friend, "2026-11-13", False, "TelegramError")
         self.assertEqual(view()["referrals"], 0)                                   # a failed send is not an episode
         self.d.claim(friend, "2026-11-13")
         self.d.finish(friend, "2026-11-13", True, seconds=290)
         self.assertEqual((view()["free_days"], view()["referrals"], view()["referrals_pending"]), (14, 1, 0))
+        self.assertEqual(public_view(self.store.get(friend))["free_days"], 14)     # +7 for the friend too, now
         self.assertIn("friend_first_episode", [e["action"] for e in view()["audit"]])
         self.clock.t = at("2026-11-14", "07:31")
         self.d.claim(friend, "2026-11-14")
@@ -175,6 +177,8 @@ class GateTest(unittest.TestCase):
                          ("Андрій", "2026-11-13", "sent", 1))
         self.assertEqual(view["listeners"][0]["slug"], s2)                     # due first
         text = json.dumps(view, ensure_ascii=False)
+        for r in view["listeners"]:   # random public slugs may contain digits like "777": only private data counts
+            text = text.replace(r["slug"], "")
         for private in ("777", "778", "olena@example.com", "tg-file-1", CODE[:20], "Тест"):
             self.assertNotIn(private, text)
 
@@ -252,7 +256,10 @@ class RouteTest(unittest.TestCase):
         status, body = asgi_get("/api/factory/mycast/worker/listeners/due", WORKER)
         due = json.loads(body)["listeners"]
         self.assertEqual((status, [d["slug"] for d in due]), (200, [s]))
-        self.assertNotIn("777", body.decode())
+        public = body.decode()
+        for d in due:                 # the random public slug may contain "777"; the chat id must not appear
+            public = public.replace(d["slug"], "")
+        self.assertNotIn("777", public)
         self.assertEqual(asgi_get("/api/factory/mycast/worker/listeners/due", "wrong")[0], 401)
 
         def tts(key, ep, voices, **kw):
@@ -376,7 +383,8 @@ class HistoryTest(unittest.TestCase):
             h = {(next(iter(r.methods)), r.path): r.endpoint for r in acc.routes if hasattr(r, "methods")}
             mine, theirs = sign("s", s, clock()), sign("s", other, clock())
             eps = h[("GET", "/api/mycast/account/episodes")](Req(cookie=mine))["episodes"]
-            self.assertEqual(eps, [{"date": "2026-11-13", "title": "MyCast · 13 листопада", "seconds": 0, "audio": True}])
+            self.assertEqual(eps, [{"date": "2026-11-13", "title": "MyCast · 13 листопада", "seconds": 0, "audio": True,
+                                    "status": "ready", "public": False, "public_url": None}])   # #305: private by default
             audio = h[("GET", "/api/mycast/account/episodes/{day}/audio")]("2026-11-13", Req(cookie=mine))
             self.assertEqual((audio.body, audio.media_type, fetched), (b"ID3-from-telegram", "audio/mpeg", ["FILE-ID-777"]))
             self.assertEqual(h[("GET", "/api/mycast/account/episodes")](Req(cookie=theirs))["episodes"], [])

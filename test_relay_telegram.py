@@ -134,7 +134,11 @@ class TestRelayTelegram(unittest.TestCase):
     def test_roadmap_is_displayed_and_not_converted_to_ticket(self):
         count = self.store.summary()["total"]
         self.message("/roadmap")
-        self.assertIn("#41", self.last_message())
+        # T-591: /roadmap is the ROADMAP.md view (it used to repeat /tasks); GitHub issues stay under /tasks and /github.
+        text = self.last_message()
+        self.assertIn("ROADMAP", text)
+        self.assertIn("T-590", text)
+        self.assertIn("HUMAN", text)
         self.assertEqual(count, self.store.summary()["total"])
 
     def test_help_command_ru_uk_en(self):
@@ -165,7 +169,7 @@ class TestRelayTelegram(unittest.TestCase):
         import re
         from relay import _help_text
         handled_commands = {
-            "/help", "/start", "/pair", "/status", "/tasks", "/relay", "/roadmap", "/task",
+            "/help", "/start", "/pair", "/status", "/tasks", "/relay", "/roadmap", "/task", "/proof",
             "/history", "/github", "/issue", "/battles", "/battle", "/workers", "/operators",
             "/new", "/work", "/done", "/need", "/inbox",
             "/ask",  # #133: handled by the app webhook (owner question queue) before the Relay handler

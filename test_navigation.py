@@ -53,7 +53,7 @@ BEFORE = {
     "nav.ownerHub": "document.querySelector('.ohCard').scrollIntoView()",
     "nav.strategy": "document.querySelector('.stratCard').scrollIntoView()",   # owner 2026-11-14: brand strategy
     "nav.learn": "openLearning()",   # owner 2026-11-14: one Learning section (my learning, explainers, guide)
-    "mods.nav": "document.querySelector('.modsCard').scrollIntoView()",   # owner 2026-11-15 (T-620): Mods & skills
+    "mods.nav": "document.querySelector('.modsCard').scrollIntoView()",   # owner 2026-11-15 (T-MODS): Mods & skills
 }
 GROUPS = ("overview", "create", "publish", "grow", "automation", "mvp", "mods", "learn", "system")
 # Live counters updated by other renderers must keep their ids inside the sidebar.

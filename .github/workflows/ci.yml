@@ -168,6 +168,14 @@ jobs:
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
         run: python test_worker_token_binding.py
+      - name: T-607 Gemini worker (Google login only, narrow token, own lane)
+        env:
+          DATA_DIR: /tmp/factoryos-gemini-worker-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile autopilot/gemini_worker.py test_gemini_worker.py
+          python test_gemini_worker.py
       - name: Team tasks page regression
         env:
           DATA_DIR: /tmp/factoryos-team-tasks-ci
@@ -237,6 +245,8 @@ jobs:
           python test_mycast_calendar.py
           python -m py_compile mycast_public.py test_mycast_public.py
           python test_mycast_public.py
+          python -m py_compile mycast_library.py test_mycast_library.py
+          python test_mycast_library.py
           python -m py_compile brand_strategy.py brand_strategy_seeds.py test_brand_strategy.py
           python test_brand_strategy.py
           python -m py_compile test_builder_recovery.py
@@ -273,6 +283,30 @@ jobs:
           Path("/tmp/mvp-factory-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
           PY
           node --check /tmp/mvp-factory-ui.js
+      - name: MVP Product Evolution (T-630, #270, offline)
+        run: |
+          python -m py_compile mvp_evolution.py test_mvp_evolution.py
+          python test_mvp_evolution.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mvp-factory/evolution.html").read_text(encoding="utf-8")
+          Path("/tmp/mvp-evolution-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/mvp-evolution-ui.js
+      - name: MyBrief pilot (T-615, #188)
+        env:
+          DATA_DIR: /tmp/factoryos-mybrief-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile mybrief.py test_mybrief.py
+          python test_mybrief.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mybrief/index.html").read_text(encoding="utf-8")
+          Path("/tmp/mybrief-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/mybrief-ui.js
       - name: AI Decision Memory pilot (#187, T-614)
         run: |
           python -m py_compile decision_memory.py test_decision_memory.py

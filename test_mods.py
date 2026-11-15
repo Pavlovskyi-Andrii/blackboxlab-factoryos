@@ -1,4 +1,4 @@
-"""T-620 Mods & skills: vendored plugins (A), registry and switches (B), worker runtime (C), video duel (D).
+"""T-MODS Mods & skills: vendored plugins (A), registry and switches (B), worker runtime (C), video duel (D).
 
 Run: python test_mods.py
 """
@@ -234,6 +234,9 @@ def test_runtime_flags_prompt_and_tools():
     allowed = cmd[cmd.index("--allowedTools") + 1:cmd.index("--disallowedTools")]
     require({"Skill", "Task", "Agent"} <= set(allowed), "skills/subagents not allowed while poteto-mode is on")
     require({"Bash(dsp:*)", "Bash(git push:*)"} <= set(cmd[cmd.index("--disallowedTools") + 1:]), "safety deny-list lost")
+    gem = dg.build_delegation(task, repo, agent="gemini", mods=ctx)
+    require(gem["cmd"][0] == "gemini" and "--plugin-dir" not in gem["cmd"] and gem["mods"]["mods"] == []
+            and not gem["mods"]["applied"], "Claude plugins must never ride on a Gemini run")
     film = rt.cli_args(rt.resolve(ROOT, "relay", {"plugins": [PLAN_ALL["plugins"][2]]}, True), Path("/w"))
     require(film[:2] == ["--plugin-dir", "/w/mods/product-film"] and "BLOCKED" in film[-1], film)
 

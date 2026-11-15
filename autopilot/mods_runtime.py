@@ -1,4 +1,4 @@
-"""T-620-C: the Claude worker loads the mods the owner switched on in the dashboard (Mods & skills).
+"""T-MODS-C: the Claude worker loads the mods the owner switched on in the dashboard (Mods & skills).
 
 Per run: read the plan from FactoryOS (worker token), keep only plugin folders that exist in the checkout the run
 uses, and turn them into ``--plugin-dir`` flags plus one system prompt that keeps the run headless and inside
