@@ -1223,6 +1223,33 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Verified in Chromium against a local server: create → save draft A → health claim refused with a readable message →
   save draft B → approve A only; lanes A (top) / B (below); no horizontal overflow at 375 px.
 
+## 2026-11-15 — T-552-YT Direct YouTube publisher
+- Owner chose the official YouTube Data API over the paid Metricool API (Metricool's free plan has no server API) and
+  ruled out reverse-engineering private provider APIs. TikTok/Instagram/HubSpot remain on T-552.
+- Uploads default to `private` (`FACTORY_YOUTUBE_PRIVACY` may set `unlisted`/`public`). Google also forces uploads
+  from unaudited API projects to private, so a public post needs either YouTube's API audit or a manual switch in
+  YouTube Studio; the receipt is still a real video ID/URL.
+- `selfDeclaredMadeForKids` has no default: `FACTORY_YOUTUBE_MADE_FOR_KIDS` must be set (fail closed), mirroring
+  the Metricool audience rule. Every upload sets `containsSyntheticMedia: true` (AI disclosure).
+- Only the durable archived file of the approved media artifact is uploaded, never a re-fetched URL; the artifact
+  must match the approved snapshot's job and URL.
+- The access token is refreshed before every upload and the refreshed token is written back to the vault. An upload
+  interrupted after the bytes may have landed is raised as TimeoutError so the publish item is marked
+  `outcome_uncertain` and needs explicit confirmation before any retry (no duplicate videos).
+- A Google account without a YouTube channel is refused at connect time (`youtube_channel_missing`) instead of
+  storing a token that cannot upload.
+- With a Google OAuth client configured, Connections → YouTube → Connect starts Google OAuth instead of the
+  Metricool binding.
+- Review follow-up (Codex, advisory): YouTube readiness, token lookup, refresh and persistence use the publish item's
+  workspace (readiness: the caller's), so no workspace sees or uses another's channel. Approval now records the
+  archived file's sha256 (`media_sha256`); the YouTube publisher hashes the archived file and refuses a mismatch or a
+  missing digest before any upload. Dry-run marks per-platform support of the selected adapter and keeps a T-520
+  blocker for an item platform the adapter cannot publish.
+- Second review follow-up: only the digest captured in the approval snapshot is trusted (no fallback to the
+  artifact's current `archive_sha256`, which a re-archive could rewrite together with the file); items without it
+  must be re-approved. `upload_video` hashes and uploads through one open file handle, so a file swapped at the path
+  after the check cannot be what reaches YouTube.
+
 ## 2026-11-15 — T-610 A/B Tester S3: one Content Factory draft job per branch
 
 - `POST /api/mvp-factory/{pid}/experiments/{exp}/branches/{b}/content-job` (owner only) reserves the branch under the
