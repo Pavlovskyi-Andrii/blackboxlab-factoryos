@@ -62,6 +62,10 @@ Rule: a stage counts as verified only with evidence. Everything else is UNVERIFI
 - When all the Relay suites are loaded into one unittest process, `test_relay_telegram.test_webhook_operator_lanes` fails: the Claude lane card shows no R-0002. This is shared module state between suites, not a product regression, because the same test passes alone. Run the suites one per process.
 - `git fetch`, `gh issue view 41` and FactoryOS `web_read` of Issue #41 were denied. No live stage was observed, nothing was claimed, and T-590 stays unchecked.
 
+## Re-check (2026-11-15, sixth run `run-20261115100050-a0498b`, head `1f4a4a1`)
+- Green: compile, `smoke_tests.py` (8), the planner, `test_relay_execution` (111) and `test_relay_telegram` (25). Each suite ran in its own process, with env set inside Python, because `env`-prefixed commands were denied.
+- `.autopilot/answers.md` has no owner-posted trace. `gh` and FactoryOS `web_read` of `/api/version` were denied. No live stage was observed, and T-590 stays unchecked.
+
 ## Exact remaining actions
 
 1. **Session with GitHub access (Claude interactive, standing grant):** push `autopilot/aws-worker`, then open PR `autopilot/aws-worker → main`. Wait for CI on the current head; merge only when it is green.

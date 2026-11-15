@@ -1243,3 +1243,6 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 ## 2026-11-15 — T-590 fifth re-check (same day)
 - The result is unchanged and T-590 stays unchecked. `git fetch`, `gh` and `web_read` of Issue #41 were denied, so no live stage (CI, deployed `build_sha`, Telegram `/task` trace, Issue #41 evidence) was observed. Ticking the box would fabricate CI/deploy success.
 - Run the Relay/Telegram suites one per process with their own `DATA_DIR`, as earlier runs did. When they are loaded into one unittest process, shared module state makes `test_webhook_operator_lanes` fail; it passes alone. Run the planner with `FINISHER_DATA_DIR` under `/tmp`, because the worker cannot create `/var/data`.
+
+## 2026-11-15 — T-590 sixth re-check (same day)
+- The result is unchanged and T-590 stays unchecked. All deterministic suites are green. `gh` and `web_read` were denied, and `answers.md` has no owner trace, so ticking the box would fabricate CI, deploy and Telegram evidence. Worker re-runs of T-590 cannot close it. The parent scheduler should stop re-dispatching T-590 to the worker until a session with GitHub and Render read access exists, or until the owner posts the trace.
