@@ -45,6 +45,10 @@ Rule: a stage counts as verified only with evidence. Everything else is UNVERIFI
 - Green on Python 3.9: compile, `smoke_tests.py`, the planner, `test_relay_execution` (111 tests) and `test_relay_telegram` (25).
 - This run was denied `gh`, `git fetch`/`-C`, `env` prefixes and the FactoryOS `web_read` tool, so it could not read GitHub, Render or Issue #41. The DONE criterion still lacks independently observed evidence: a single owner ticket traced live through claim, run_id, PR, CI, merge, deployed revision and Telegram `/task`, posted to Issue #41. T-590 stays unchecked. Nothing was claimed.
 
+## Re-check (2026-11-15, second run, head `9614bcf`)
+- Green on Python 3.9: compile, `smoke_tests.py`, the planner, `test_relay_execution` (111 tests) and `test_relay_telegram` (25).
+- `gh issue view 41` and the FactoryOS `web_read` of `/api/version` were both denied again. No stage changed, nothing was claimed, and T-590 stays unchecked.
+
 ## Exact remaining actions
 
 1. **Session with GitHub access (Claude interactive, standing grant):** push `autopilot/aws-worker`, then open PR `autopilot/aws-worker → main`. Wait for CI on the current head; merge only when it is green.

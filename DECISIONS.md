@@ -1230,3 +1230,6 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 ## 2026-11-15 — T-590 re-check (run-20261115093856-a5105e)
 - T-590 stays unchecked. Pairing (T-506), the #289 round trip and the Evidence Protocol are on main, and owner Telegram tickets have run live per earlier entries (R-0063, R-0074). The DONE criterion asks for evidence verified independently, though: one owner ticket traced through claim, run_id, PR, CI, merge, deployed revision and Telegram `/task`, then recorded in Issue #41. This run could not read GitHub, Render or Telegram (`gh`, fetch, `env` and `web_read` were all denied). Repo notes written by other sessions are not observed evidence, so the checkbox was not ticked from them.
 - No code change was needed. The deterministic stages are green, and stage-by-stage status is in `docs/handoff/T-590_ACCEPTANCE.md`.
+
+## 2026-11-15 — T-590 second re-check (same day)
+- The result is unchanged. `gh` and `web_read` were denied, and the deterministic suites are green (smoke, planner, relay 111, telegram 25). T-590 stays unchecked. Re-running it from a worker without GitHub/Render read access cannot close it. The next useful run needs a session that can read Issue #41, the CI run and `/api/version` (a standing-grant interactive session), or an owner-posted trace in `.autopilot/answers.md`.
