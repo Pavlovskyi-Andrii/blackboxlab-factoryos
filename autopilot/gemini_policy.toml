@@ -1,0 +1,40 @@
+# FactoryOS Gemini lane: deny rules loaded with `gemini --admin-policy <this file>` (highest policy tier).
+# Mirrors autopilot/delegation.py DISALLOWED_TOOLS for the Claude lane. argsPattern is an unanchored regex over the
+# tool's JSON arguments, so the command is caught anywhere in a pipeline. The runner also points the agent's
+# `remote.origin.pushurl` at a dead path and fails any run whose remote-tracking refs changed.
+
+[[rule]]
+toolName = "run_shell_command"
+argsPattern = 'git\s+(-c\s+\S+\s+)*push\b'
+decision = "deny"
+priority = 900
+
+[[rule]]
+toolName = "run_shell_command"
+argsPattern = 'git\s+(checkout|switch)\s+(-\S+\s+)*(main|master)\b'
+decision = "deny"
+priority = 900
+
+[[rule]]
+toolName = "run_shell_command"
+argsPattern = 'git\s+(branch\s+-D|reset\s+--hard|rebase|merge|config)\b'
+decision = "deny"
+priority = 900
+
+[[rule]]
+toolName = "run_shell_command"
+argsPattern = '(\bgh\s+(pr\s+merge|workflow\s+run|release|secret|auth)\b|\brender\b|\baws\s|\bgcloud\s|\bcurl\b[^"]*\b(POST|PUT|DELETE)\b)'
+decision = "deny"
+priority = 900
+
+[[rule]]
+toolName = "run_shell_command"
+argsPattern = '(\.env\b|oauth_creds\.json|\.gemini/|printenv|\benv\s*("|$|\|)|/proc/\S*/environ)'
+decision = "deny"
+priority = 900
+
+[[rule]]
+toolName = ["read_file", "read_many_files", "write_file", "replace"]
+argsPattern = '(\.env"|\.env\\|oauth_creds\.json|/\.gemini/)'
+decision = "deny"
+priority = 900

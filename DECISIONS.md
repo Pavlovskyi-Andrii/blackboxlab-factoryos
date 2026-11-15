@@ -1369,3 +1369,24 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   `relay.github_error_reason` categories, never response text or the token. No [HUMAN] task: the read-only token
   variable already exists; if it is not set on Render the page shows "anonymous" and still works.
 
+## 2026-11-15 — Issue #119 Gemini CLI worker lane on the existing EC2 host
+
+- Reuses the shared runner: `AUTOPILOT_OPERATOR=gemini` in `autopilot/autopilot.py` swaps only the executor
+  (`autopilot/gemini_executor.py`) and keeps the Relay roadmap-claim, run_id fencing, events, parking, push and
+  `delegation.run_delegation` evidence checks (one commit, closed checkbox, no push, no main). No parallel queue.
+- The gemini lane is strict: it takes only `Owner: gemini` tasks, never the shared pool (`""/any/auto` stays Claude's),
+  and it skips every Claude-only side job (owner questions, MyCast, Codex review, browser tasks, Relay tickets).
+- Preflight (no model call) runs before every claim: CLI starts, `~/.gemini/settings.json` auth is `oauth-personal`,
+  cached login file exists, branch is `gemini/*`, checkout is not the Claude one. Not ready → no claim, status
+  `blocked` with the exact reason; the worker heartbeat reports `unconfigured`/`refused`.
+- Zero-spend guard refuses on names only (values are never read): `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
+  `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GEMINI_BASE_URL`, `GOOGLE_CLOUD_PROJECT(_ID)`,
+  `GEMINI_CLI_USE_COMPUTE_ADC`, `CLOUD_SHELL`, and the mere existence of a `.env` the CLI would auto-load
+  (`<repo>/.env`, `<repo>/.gemini/.env`, `~/.gemini/.env`).
+- Quota/rate limit and lost login/ineligible account are lane-wide holds (reuse of the T-600 limit hold, persisted in
+  parking.json), not task failures: daily quota parks 6 h, rate limit 30 min, unavailable 1 h (6 h when ineligible).
+- Push is fenced three ways: admin-tier policy file `autopilot/gemini_policy.toml`, `remote.origin.pushurl` pointed at
+  a dead path in the child env, and the existing remote-ref check. Timeout kills the whole process group.
+- One long-lived branch `gemini/aws-worker` in its own clone `/home/ec2-user/factoryos-gemini` (mirrors Claude's
+  `autopilot/aws-worker`); does not collide with the existing `gemini/issue-N` branches of `tools/gemini_ec2_loop.sh`.
+- Gemini lane results are not posted to `/api/claude-worker/task-result` (Claude-only ingestion); Relay events carry them.

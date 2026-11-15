@@ -1,0 +1,44 @@
+# FactoryOS Gemini CLI lane (Issue #119). Install as /etc/systemd/system/factoryos-gemini-worker.service.
+# Separate service and separate checkout from factoryos-claude-worker.service: the two never share a working tree.
+# Runbook (RU): docs/handoff/GEMINI_CLI_WORKER.md
+[Unit]
+Description=FactoryOS Gemini CLI worker (Owner: gemini ROADMAP tasks, personal Google login, zero spend)
+After=network-online.target
+Wants=network-online.target
+# Never hide repeated failures behind an infinite rapid restart loop.
+StartLimitIntervalSec=900
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/ec2-user/factoryos-gemini
+Environment=HOME=/home/ec2-user
+Environment=AUTOPILOT_REPO=/home/ec2-user/factoryos-gemini
+Environment=AUTOPILOT_OPERATOR=gemini
+Environment=AUTOPILOT_DAEMON=1
+Environment=PYTHONUNBUFFERED=1
+# Root-owned, mode 0600. Holds FACTORYOS_URL, FACTORY_CLAUDE_WORKER_TOKEN (Relay claim), optionally
+# FACTORY_OPERATOR_WORKER_TOKEN (lane heartbeat), FACTORY_GEMINI_BIN and PATH. NEVER a Gemini/Google API key:
+# the worker refuses to start if GEMINI_API_KEY, GOOGLE_API_KEY, GOOGLE_GENAI_USE_VERTEXAI (and similar) are set.
+EnvironmentFile=/etc/factoryos/gemini-worker.env
+ExecStart=/usr/bin/python3 -m autopilot.gemini_worker
+Restart=on-failure
+RestartSec=120s
+# Exit 3 = refused by the zero-spend guard or missing Relay credential: wait for the owner, do not loop.
+RestartPreventExitStatus=3
+TimeoutStopSec=60
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+# The Claude worker's checkout (and its .env) and the shared env directory are invisible to this lane.
+InaccessiblePaths=-/opt/factoryos -/root -/etc/factoryos
+# Lower priority than the Claude worker on the same host.
+CPUWeight=50
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

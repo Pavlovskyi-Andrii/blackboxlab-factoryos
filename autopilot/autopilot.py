@@ -15,6 +15,7 @@ try:
     from . import relay_tasks
     from . import owner_questions
     from . import browser_tasks, codex_review, mycast_daily, mycast_listeners
+    from . import gemini_executor
 except ImportError:
     from delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
@@ -26,6 +27,7 @@ except ImportError:
     import codex_review
     import mycast_daily
     import mycast_listeners
+    import gemini_executor
 
 def _default_repo() -> pathlib.Path:
     """AUTOPILOT_REPO wins; otherwise the container path; otherwise this checkout (EC2/phone runs)."""
@@ -53,6 +55,10 @@ IDLE_SECONDS = max(15, min(3600, int(os.environ.get("AUTOPILOT_IDLE_SECONDS", "6
 # Operator identity of this runner. Roadmap tasks carrying `Owner: <other operator>` are skipped.
 OPERATOR = os.environ.get("AUTOPILOT_OPERATOR", "claude").strip().lower() or "claude"
 SHARED_OWNERS = {"", "any", "auto"}
+# Issue #119: lanes other than Claude take only tasks explicitly delegated to them (`Owner: gemini`), never the
+# shared pool, and they skip the Claude-only side jobs (owner questions, MyCast, Codex review, browser, Relay tickets).
+STRICT_OWNER_OPERATORS = {"gemini"}
+EXECUTORS = {"claude", "gemini"}
 # T-599-C: without a server claim no ROADMAP task runs, unless explicitly allowed for offline dev runs.
 ALLOW_UNCLAIMED = os.environ.get("AUTOPILOT_ALLOW_UNCLAIMED", "0").strip().lower() in {"1", "true", "yes", "on"}
 CLAIM_RETRY_SECONDS = 300
@@ -145,7 +151,10 @@ def parse_roadmap(path: pathlib.Path = ROADMAP) -> list[dict[str, Any]]:
 
 def owned_by_operator(task: dict[str, Any], operator: str = "") -> bool:
     owner = str(task.get("owner") or "").lower()
-    return owner in SHARED_OWNERS or owner == (operator or OPERATOR)
+    operator = operator or OPERATOR
+    if operator in STRICT_OWNER_OPERATORS:
+        return owner == operator
+    return owner in SHARED_OWNERS or owner == operator
 
 
 def unmet_dependencies(task: dict[str, Any], tasks: list[dict[str, Any]]) -> list[str]:
@@ -186,7 +195,26 @@ def done_status_is_consistent(status: dict[str, Any], expected_task: dict[str, A
     return bool(persisted and persisted["done"] and not persisted["human"])
 
 
+def run_gemini_agent(target: dict[str, Any]) -> dict[str, Any]:
+    """Issue #119: same evidence/verification path as Claude, Gemini CLI as the executor."""
+    try:
+        spec = gemini_executor.build_gemini_delegation(target, REPO, timeout_seconds=TASK_TIMEOUT_SECONDS)
+    except ValueError as exc:
+        return {"task": target.get("id"), "status": "failed", "summary": f"delegation refused: {exc}"}
+    evidence = run_delegation(spec, runner=gemini_executor.bounded_run, env_fn=gemini_executor.child_env,
+                              diagnose_fn=gemini_executor.diagnose_gemini_failure)
+    write_evidence(REPO, evidence)
+    # Not reported to /api/claude-worker/task-result: that endpoint ingests Claude lane results only.
+    status = gemini_executor.sanitize_status(dict(evidence["status"]))
+    status["status"] = evidence["result"]
+    if evidence["violations"]:
+        status["summary"] = "; ".join(evidence["violations"])
+    return status
+
+
 def run_agent(target: dict[str, Any]) -> dict[str, Any]:
+    if OPERATOR == "gemini":
+        return run_gemini_agent(target)
     try:
         spec = build_delegation(
             target,
@@ -331,10 +359,13 @@ def commit_files(sha: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()] if result.returncode == 0 else []
 
 
-def limit_notice(until: float) -> str:
+def limit_notice(until: float, reason: str = "") -> str:
     import datetime as dt
 
     moment = dt.datetime.fromtimestamp(until, dt.timezone.utc)
+    if OPERATOR != "claude":
+        return (f"⏳ {OPERATOR} lane parked until {moment:%H:%M} UTC ({_kyiv_label(moment)}): "
+                f"{reason or 'provider limit reached'} No task is parked or counted as failed. Resumes automatically.")
     return (f"⏳ Claude subscription limit reached. Queue paused until {moment:%H:%M} UTC ({_kyiv_label(moment)}); "
             "no task is parked or counted as failed. Resumes automatically.")
 
@@ -415,8 +446,20 @@ def idle_notice(path: pathlib.Path = ROADMAP, parked: set[str] | frozenset[str] 
     return "🏁 FactoryOS roadmap has no remaining safe tasks."
 
 
+def lane_preflight() -> dict[str, Any]:
+    """Executor readiness checked before every claim; Claude keeps its existing checks elsewhere."""
+    if OPERATOR == "gemini":
+        return gemini_executor.preflight(REPO)
+    return {"state": "ready", "reasons": []}
+
+
 def main() -> int:
+    if OPERATOR not in EXECUTORS:
+        raise RuntimeError(f"AUTOPILOT_OPERATOR={OPERATOR!r} has no executor; supported: {sorted(EXECUTORS)}")
     branch = assert_safe_branch()
+    if OPERATOR == "gemini" and not branch.startswith(gemini_executor.BRANCH_PREFIX):
+        raise RuntimeError(f"The gemini lane runs only on a {gemini_executor.BRANCH_PREFIX}* branch, not {branch}.")
+    claude_side_jobs = OPERATOR == "claude"
     # T-599-A: a blocked or failed task is parked instead of stalling the whole queue.
     # Blocked tasks wake up when answers/HEAD change; failed ones only on an owner Retry.
     # T-598: this state is persisted, so a restart cannot reset the bounded retries.
@@ -430,12 +473,15 @@ def main() -> int:
     def persist() -> None:
         save_parking(blocked, failed_hold, failures_task, failures, limit_until)
 
-    def hold_for_limit(hint: str) -> str:
+    def hold_for_limit(hint: str, seconds: float = 0.0, reason: str = "") -> str:
         nonlocal limit_until
         reset_at = limit_reset_epoch(hint, time.time())
-        limit_until = (reset_at + LIMIT_GRACE_SECONDS) if reset_at else time.time() + LIMIT_BACKOFF_SECONDS
+        if reset_at:
+            limit_until = reset_at + LIMIT_GRACE_SECONDS
+        else:
+            limit_until = time.time() + (seconds if seconds > 0 else LIMIT_BACKOFF_SECONDS)
         persist()
-        return limit_notice(limit_until)
+        return limit_notice(limit_until, reason)
 
     # Tasks the server refused to hand us (another lane/run owns them): retry after a pause.
     deferred: dict[str, float] = {}
@@ -503,11 +549,15 @@ def main() -> int:
         if limit_until:
             limit_until = 0.0
             persist()
-            send("▶️ Claude subscription limit window has passed; the queue resumes.")
+            send("▶️ Claude subscription limit window has passed; the queue resumes." if claude_side_jobs
+                 else f"▶️ {OPERATOR} lane hold has passed; the queue resumes.")
 
         # Owner desk questions are short and read-only, so they go before any long task.
-        owner_questions.maybe_selftest()
-        asked, hint = owner_questions.answer_one(REPO)
+        if claude_side_jobs:
+            owner_questions.maybe_selftest()
+            asked, hint = owner_questions.answer_one(REPO)
+        else:
+            asked, hint = "idle", ""
         if asked == "limit":
             notice = hold_for_limit(hint)
             write_runtime_status("idle", summary=notice)
@@ -517,7 +567,7 @@ def main() -> int:
             continue
 
         # T-603: the owner's morning MyCast episode, once a day, between tasks.
-        if MYCAST_ENABLED:
+        if MYCAST_ENABLED and claude_side_jobs:
             cast = mycast_daily.run_daily(ANSWERS.with_name("mycast.json"), repo=REPO)
             if cast == "limit":
                 notice = hold_for_limit("")
@@ -538,14 +588,15 @@ def main() -> int:
 
         # Owner 2026-11-13: every open PR gets an automatic Codex review (advisory comment). Cheap: no model runs here,
         # Codex answers in its own isolated service; at most one new request per pass.
-        codex_review.run_once(ANSWERS.with_name("codex_review.json"))
+        if claude_side_jobs:
+            codex_review.run_once(ANSWERS.with_name("codex_review.json"))
         # T-560: the owner's read-only browser tasks (anonymous Chromium, one per pass; idle without Playwright).
-        if browser_tasks.run_one() == "done":
+        if claude_side_jobs and browser_tasks.run_one() == "done":
             continue
 
         # Relay owner tickets have priority over ordinary roadmap work. This is
         # an actual claim + bounded Claude CLI invocation, not a UI status flip.
-        if relay_tasks.run_one(REPO, status_fn=write_runtime_status):
+        if claude_side_jobs and relay_tasks.run_one(REPO, status_fn=write_runtime_status):
             last_idle_notice = ""
             time.sleep(PAUSE_SECONDS)
             continue
@@ -572,6 +623,22 @@ def main() -> int:
             del deferred[task_id]
         parked = set(blocked) | failed_hold | set(deferred)
         target = next_safe_task(ROADMAP, skip=parked)
+        if target:
+            # Issue #119: never claim a task the executor cannot run (missing CLI/login, spend guard). The claim
+            # would burn a run_id and show "running" for work that cannot start.
+            ready = lane_preflight()
+            if ready["state"] != "ready":
+                reason = "; ".join(gemini_executor.redact(r) for r in ready["reasons"])[:600]
+                notice = f"🔌 {OPERATOR} lane {ready['state']}: {reason}"
+                write_runtime_status("blocked", task=target["id"], summary=notice,
+                                     need="Owner: fix the lane setup (see docs/handoff/GEMINI_CLI_WORKER.md)")
+                if notice != last_idle_notice:
+                    send(notice)
+                    last_idle_notice = notice
+                if not DAEMON_MODE:
+                    return 7
+                time.sleep(max(IDLE_SECONDS, 300))
+                continue
         if not target:
             notice = idle_notice(ROADMAP, parked=parked & {t["id"] for t in parse_roadmap(ROADMAP) if not t["done"]})
             write_runtime_status("idle", summary=notice)
@@ -601,7 +668,8 @@ def main() -> int:
         report = relay_tasks.RunReporter(ticket) if ticket else (lambda *a, **k: None)
         head_before = git_head()
         if ticket:
-            report("running", f"{target['id']}: Claude Code CLI started", {"branch": branch})
+            cli = "Gemini CLI" if OPERATOR == "gemini" else "Claude Code CLI"
+            report("running", f"{target['id']}: {cli} started", {"branch": branch})
             with report:
                 status = run_agent(target)
         else:
@@ -624,9 +692,13 @@ def main() -> int:
             evidence["commit"] = head_after
             report("committed", f"{target['id']}: commit {head_after[:10]} on {branch}", evidence)
 
-        if status.get("error_category") == "subscription_limit":
+        if status.get("error_category") in ("subscription_limit", "lane_unavailable"):
             # Not the task's fault: no attempt counted, nothing parked; the next task would hit the same wall.
-            notice = hold_for_limit(str(status.get("limit_resets") or ""))
+            try:
+                hold = float(status.get("hold_seconds") or 0)
+            except (TypeError, ValueError):
+                hold = 0.0
+            notice = hold_for_limit(str(status.get("limit_resets") or ""), hold, summary)
             report("blocked", f"{target['id']}: not run — {notice}", evidence)
             write_runtime_status("idle", task=target["id"], summary=notice)
             send(notice)

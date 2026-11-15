@@ -35,7 +35,12 @@ def configured() -> bool:
 
 
 def worker_id() -> str:
-    raw = os.environ.get("FACTORY_CLAUDE_NODE_ID") or ("claude-" + socket.gethostname())
+    # Issue #119: a second lane on the same host (AUTOPILOT_OPERATOR=gemini) must claim under its own identity.
+    operator = (os.environ.get("AUTOPILOT_OPERATOR") or "claude").strip().lower() or "claude"
+    if operator == "claude":
+        raw = os.environ.get("FACTORY_CLAUDE_NODE_ID") or ("claude-" + socket.gethostname())
+    else:
+        raw = os.environ.get("FACTORY_WORKER_NODE_ID") or (operator + "-" + socket.gethostname())
     return re.sub(r"[^A-Za-z0-9_.:-]", "-", raw)[:80]
 
 

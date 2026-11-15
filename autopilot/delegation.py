@@ -224,6 +224,8 @@ def _safe_cli_output(value: Any) -> str:
         r"\1[REDACTED]", tail,
     )
     tail = re.sub(r"(?i)([?&](?:code|token|access_token|refresh_token|state)=)[^&\s\"']+", r"\1[REDACTED]", tail)
+    # Google credentials (Gemini CLI lane): API keys, OAuth access/refresh tokens, OAuth client secrets.
+    tail = re.sub(r"\b(?:AIza[0-9A-Za-z_-]{30,}|ya29\.[0-9A-Za-z._-]{10,}|1//[0-9A-Za-z_-]{20,}|GOCSPX-[0-9A-Za-z_-]{10,})", "[REDACTED]", tail)
     return tail[-OUTPUT_TAIL_CHARS:]
 
 
@@ -352,9 +354,10 @@ def diagnose_missing_status(*, exit_code: int | None, timed_out: bool, output: s
 
 
 def _load_status(path: pathlib.Path, *, exit_code: int | None = None,
-                 timed_out: bool = False, output: str = "") -> dict[str, Any]:
+                 timed_out: bool = False, output: str = "",
+                 diagnose_fn: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
     if not path.exists():
-        return diagnose_missing_status(exit_code=exit_code, timed_out=timed_out, output=output)
+        return (diagnose_fn or diagnose_missing_status)(exit_code=exit_code, timed_out=timed_out, output=output)
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -438,8 +441,14 @@ def _iso(stamp: float) -> str:
 
 
 def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run,
-                   venv_fn: Callable[[pathlib.Path], tuple[pathlib.Path | None, str]] = ensure_venv) -> dict[str, Any]:
-    """Execute a delegation spec and return captured, verified evidence."""
+                   venv_fn: Callable[[pathlib.Path], tuple[pathlib.Path | None, str]] = ensure_venv,
+                   env_fn: Callable[[], dict[str, str]] = delegated_env,
+                   diagnose_fn: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Execute a delegation spec and return captured, verified evidence.
+
+    ``env_fn`` / ``diagnose_fn`` let another executor (the Gemini CLI lane) reuse the same evidence and
+    verification path with its own scrubbed environment and its own reading of an early CLI failure.
+    """
     repo = pathlib.Path(spec["repo"])
     venv, venv_note = venv_fn(repo)
     status_path = repo / ".autopilot" / "status.json"
@@ -468,7 +477,7 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run,
         result = runner(
             spec["cmd"],
             cwd=repo,
-            env=venv_env(delegated_env(), venv),
+            env=venv_env(env_fn(), venv),
             timeout=spec["timeout_seconds"],
             check=False,
             text=True,
@@ -481,7 +490,7 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run,
         output = _tail(exc.stdout) + _tail(exc.stderr)
     except OSError as exc:
         # e.g. claude CLI missing: a failed run, never a ghost "running" record.
-        output = f"Claude CLI could not start: {type(exc).__name__}"
+        output = f"{spec.get('cli_label') or 'Claude CLI'} could not start: {type(exc).__name__}"
     after = git_snapshot(repo)
     commits = []
     if before["head"] and after["head"] and before["head"] != after["head"]:
@@ -505,7 +514,8 @@ def run_delegation(spec: dict[str, Any], *, runner: Runner = subprocess.run,
         "after": after,
         "commits": commits,
         "roadmap_done": _roadmap_task_done(repo, spec["task_id"]),
-        "status": _load_status(status_path, exit_code=exit_code, timed_out=timed_out, output=output),
+        "status": _load_status(status_path, exit_code=exit_code, timed_out=timed_out, output=output,
+                               diagnose_fn=diagnose_fn),
         "output_tail": _safe_cli_output(output),
         "pushed": after.get("remote_refs") != before.get("remote_refs"),
         "deploy_credentials_scrubbed": True,
