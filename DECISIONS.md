@@ -1459,3 +1459,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   `relay.github_error_reason` categories, never response text or the token. No [HUMAN] task: the read-only token
   variable already exists; if it is not set on Render the page shows "anonymous" and still works.
 
+
+## 2026-11-15 — T-560-K Gemini search diagnostics + model fallback
+
+- Production `web_search` answered "Gemini search failed (HTTPError)" with no way to tell quota from an unsupported
+  model. The note now carries the HTTP code and Google's error enum (`HTTP 400 INVALID_ARGUMENT`), never Google's
+  free-text message (it can echo request data). On 400/404 the next Flash model is tried (`gemini-flash-latest`,
+  then `gemini-2.5-flash`); 429/5xx are not retried, so one search costs at most 3 calls and still counts once
+  against the 100/day cap. The successful model is returned as `model`.
