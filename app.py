@@ -1177,6 +1177,8 @@ from learn_center import install_learn_routes  # noqa: E402
 import brand_strategy as _brand_strategy_mod  # noqa: E402
 install_learn_routes(app, base=BASE, steps_source=lambda: _brand_strategy_mod.STEPS)  # owner 2026-11-14: one Learning section
 install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
+from release_guardian import GitHubReader as _RgReader, ReleaseGuardian as _RgGuardian, install_release_guardian_routes  # noqa: E402
+install_release_guardian_routes(app, _RgGuardian(_RgReader(GITHUB_REPO, _github_read_token)), request_identity)  # T-616 #189: owner-only, GET-only PR board
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
                           redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
