@@ -1,4 +1,4 @@
-"""T-611 Mods & skills: vendored plugins (A), registry and switches (B).
+"""T-611 Mods & skills: vendored plugins (A), registry and switches (B), worker runtime (C).
 
 Run: python test_mods.py
 """
@@ -16,6 +16,9 @@ import fastapi  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
 import mods_registry as mr  # noqa: E402
+from autopilot import delegation as dg  # noqa: E402
+from autopilot import mods_runtime as rt  # noqa: E402
+from autopilot import relay_tasks  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 MODS = ROOT / "mods"
@@ -190,7 +193,93 @@ def test_dashboard_wiring():
             "card not loaded or not hidden from viewers")
 
 
-TESTS = [test_vendored_plugins, test_no_binaries_or_external_publishing, test_pstack_bundle_is_complete,
+PLAN_ALL = {"enabled": ["brand-strategy", "grilling", "poteto-mode", "product-film"],
+            "plugins": [{"id": "poteto-mode", "plugin": "pstack", "invoke": "/pstack:poteto-mode"},
+                        {"id": "grilling", "plugin": "grilling", "invoke": ""},
+                        {"id": "product-film", "plugin": "product-film", "invoke": ""}]}
+
+
+def test_runtime_resolve_fails_closed():
+    off = rt.resolve(ROOT, "roadmap", None, True)
+    require(off == {"mods": [], "plugins": [], "applied": False, "note": "mods plan unavailable (server unreachable)"}, off)
+    require(rt.resolve(ROOT, "roadmap", {"plugins": []}, False)["applied"], "no mods switched on is a clean run")
+    require(not rt.resolve(ROOT, "roadmap", PLAN_ALL, False)["applied"], "old CLI must run without mods")
+    road = rt.resolve(ROOT, "roadmap", PLAN_ALL, True)
+    require(road["mods"] == ["poteto-mode", "grilling"] and road["applied"], f"roadmap loads dev mods only: {road}")
+    relay = rt.resolve(ROOT, "relay", PLAN_ALL, True)
+    require(relay["plugins"] == ["pstack", "grilling", "product-film"], f"relay plugins: {relay}")
+    for bad in ("../etc", "nope", "a/b"):
+        r = rt.resolve(ROOT, "roadmap", {"plugins": [{"id": "grilling", "plugin": bad}]}, True)
+        require(not r["applied"] and not r["mods"], f"plugin folder {bad!r} accepted")
+    calls = []
+    r = rt.prepare(ROOT, "roadmap", plan_fn=lambda: {"plugins": []}, support_fn=lambda: calls.append(1) or False)
+    require(r["applied"] and not calls, "CLI probed although nothing is switched on")
+
+
+def test_runtime_flags_prompt_and_tools():
+    import subprocess
+    repo = Path(tempfile.mkdtemp(prefix="factoryos-mods-repo-"))
+    subprocess.run(["git", "init", "-q", "-b", "work", str(repo)], check=True)
+    ctx = rt.resolve(ROOT, "roadmap", PLAN_ALL, True)
+    task = {"id": "T-999", "title": "x"}
+    plain = dg.build_delegation(task, repo)["cmd"]
+    require("--plugin-dir" not in plain and "Skill" not in plain and plain[2].startswith("Работай"), "no-mod run changed")
+    cmd = dg.build_delegation(task, repo, mods=ctx)["cmd"]
+    require(cmd[2].startswith("/pstack:poteto-mode Работай строго по CLAUDE.md"), "poteto-mode not invoked first")
+    dirs = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--plugin-dir"]
+    require(dirs == [str(repo.resolve() / "mods" / "pstack"), str(repo.resolve() / "mods" / "grilling")], dirs)
+    require(cmd.index("--append-system-prompt") < cmd.index("--allowedTools"), "variadic tool list would eat the flags")
+    rules = cmd[cmd.index("--append-system-prompt") + 1]
+    require("headless" in rules and "DECISIONS.md" in rules and "Autonomy section does not apply" in rules, rules)
+    allowed = cmd[cmd.index("--allowedTools") + 1:cmd.index("--disallowedTools")]
+    require({"Skill", "Task", "Agent"} <= set(allowed), "skills/subagents not allowed while poteto-mode is on")
+    require({"Bash(dsp:*)", "Bash(git push:*)"} <= set(cmd[cmd.index("--disallowedTools") + 1:]), "safety deny-list lost")
+    film = rt.cli_args(rt.resolve(ROOT, "relay", {"plugins": [PLAN_ALL["plugins"][2]]}, True), Path("/w"))
+    require(film[:2] == ["--plugin-dir", "/w/mods/product-film"] and "BLOCKED" in film[-1], film)
+
+
+def test_runtime_reports_runs():
+    sent = []
+
+    class R:
+        status_code = 200
+
+    os.environ.pop("FACTORYOS_URL", None)
+    require(not rt.report_run({"mods": []}, run_id="r", task="T", kind="roadmap", result="done", duration_seconds=1,
+                              post=lambda *a, **k: sent.append(k) or R()), "reported without a server")
+    os.environ.update(FACTORYOS_URL="https://factory.example", FACTORY_CLAUDE_WORKER_TOKEN="t" * 40)
+    try:
+        ok = rt.report_run({"mods": ["grilling"], "applied": True}, run_id="run-1", task="T-1", kind="relay",
+                           result="weird", duration_seconds=12.34, post=lambda *a, **k: sent.append((a, k)) or R())
+        (url,), kw = sent[-1]
+        require(ok and url == "https://factory.example/api/mods/worker/run", url)
+        require(kw["json"] == {"run_id": "run-1", "task": "T-1", "kind": "relay", "result": "failed", "duration_seconds": 12.3,
+                               "mods": ["grilling"], "applied": True, "note": ""}, kw["json"])
+
+        class Bad:
+            status_code = 500
+        require(rt.fetch_plan(get=lambda *a, **k: Bad()) is None, "server error must mean no plan")
+        require(rt.fetch_plan(get=lambda *a, **k: (_ for _ in ()).throw(OSError())) is None, "network error must mean no plan")
+        # Relay: run_one loads the plan, passes it to the executor and reports the executor's real outcome.
+        seen = {}
+        orig = (relay_tasks.claim, relay_tasks.execute_isolated, rt.prepare, rt.report_run)
+        relay_tasks.claim = lambda: {"id": "R-0001", "execution": {"run_id": "run-77"}}
+        relay_tasks.execute_isolated = lambda t, repo, **k: seen.update(mods=k["mods"]) or {"status": "blocked"}
+        rt.prepare = lambda repo, kind: {"mods": ["product-film"], "plugins": ["product-film"], "applied": True, "kind": kind}
+        rt.report_run = lambda ctx, **k: seen.update(report=k)
+        try:
+            relay_tasks.run_one(ROOT)
+        finally:
+            relay_tasks.claim, relay_tasks.execute_isolated, rt.prepare, rt.report_run = orig
+        require(seen["mods"]["kind"] == "relay" and seen["report"]["result"] == "blocked"
+                and seen["report"]["run_id"] == "run-77", seen)
+    finally:
+        os.environ.pop("FACTORYOS_URL", None)
+        os.environ.pop("FACTORY_CLAUDE_WORKER_TOKEN", None)
+
+
+TESTS = [test_runtime_resolve_fails_closed, test_runtime_flags_prompt_and_tools, test_runtime_reports_runs,
+         test_vendored_plugins, test_no_binaries_or_external_publishing, test_pstack_bundle_is_complete,
          test_defaults_and_owner_only, test_toggle_history_and_worker_plan, test_runs_compare_and_uses,
          test_unreadable_state_fails_safe, test_dashboard_wiring]
 

@@ -1275,3 +1275,24 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Owner-only switch and read; `by` is stored as the role, not the e-mail. Viewers do not see the card.
 - Verified in Chromium against a local server (RU, 1440 px and 375 px): no horizontal overflow, no page errors, the
   sidebar item scrolls to the card.
+
+## 2026-11-15 — T-611-C Claude worker applies the switched-on mods
+
+- Mechanism: `claude --plugin-dir mods/<folder>` per run (checked: `claude --plugin-dir mods/pstack plugin list` →
+  loaded; pstack = 58 skills, 2 agents, 0 hooks, 0 MCP servers). No files are copied into `.claude/`, so switching
+  off takes effect on the very next run and leaves nothing behind.
+- The worker asks `GET /api/mods/worker/plan` (worker token) before every ROADMAP and Relay run. Fail direction is
+  "run without mods": server unreachable, CLI without `--plugin-dir`, or a plugin folder missing in the checkout →
+  no plugin loaded, and the run is reported `applied: false` with the reason, so it counts as "without" in the
+  comparison instead of polluting "with".
+- ROADMAP runs load only the development mods (poteto-mode, grilling); product-film loads only for Relay tickets
+  (the video duel's B arms). Relay plugin folders come from the ticket's fresh worktree.
+- poteto-mode is `disable-model-invocation: true`, so the prompt starts with `/pstack:poteto-mode`. Its Autonomy
+  section ("external actions proceed without asking") and grilling's "wait for the user" are overridden by an
+  appended system prompt: headless, CLAUDE.md wins, grilling becomes one self-answered pass recorded in DECISIONS.md.
+- ROADMAP runs pre-allow only what a loaded mod needs (`Skill`; plus `Task`/`Agent` for poteto-mode subagents).
+  `dsp` and the display.dev CLI are on the deny-list as a second lock behind the removed upload scripts.
+- Cost note: pstack adds ~4.7k always-on tokens to every session while poteto-mode is on, and its subagents use more
+  of the Claude subscription limit. That is the price the with/without numbers have to justify. No paid API is used.
+- Every run is reported to `POST /api/mods/worker/run` with its real mod set (best effort; a lost report only drops
+  that run from the comparison).

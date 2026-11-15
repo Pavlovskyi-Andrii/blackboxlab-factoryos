@@ -584,7 +584,7 @@ Owner: "скачай оба скилла и выложи на ветку… Prod
   Goal: sidebar group «Mods & skills» opens a card listing every mod (poteto-mode, grilling, product-film, brand strategy → Master Brief, plus the built-in video tools and peer review as always-on), owner-only on/off with a history, usage counters, and a with/without comparison of worker runs; switching brand strategy off really stops the Master Brief from entering agent prompts. EN/UK/RU.
   DONE: `python test_mods.py`, navigation + locale parity tests, dashboard `node --check`, smoke.
 
-- [ ] T-611-C Claude worker applies the switched-on mods
+- [x] T-611-C Claude worker applies the switched-on mods
   Owner: claude
   Priority: P1
   Depends: T-611-B

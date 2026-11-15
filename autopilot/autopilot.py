@@ -14,10 +14,12 @@ try:
     from . import relay_tasks
     from . import owner_questions
     from . import browser_tasks, codex_review, mycast_daily, mycast_listeners
+    from . import mods_runtime
 except ImportError:
     from delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
+    import mods_runtime
     import control
     import relay_tasks
     import owner_questions
@@ -186,6 +188,7 @@ def done_status_is_consistent(status: dict[str, Any], expected_task: dict[str, A
 
 
 def run_agent(target: dict[str, Any]) -> dict[str, Any]:
+    mods = mods_runtime.prepare(REPO, "roadmap")  # T-611-C: owner's switched-on mods, this run only
     try:
         spec = build_delegation(
             target,
@@ -193,12 +196,16 @@ def run_agent(target: dict[str, Any]) -> dict[str, Any]:
             max_turns=MAX_TURNS,
             timeout_seconds=TASK_TIMEOUT_SECONDS,
             skip_permissions=SKIP_PERMISSIONS,
+            mods=mods,
         )
     except ValueError as exc:
         return {"task": target.get("id"), "status": "failed", "summary": f"delegation refused: {exc}"}
     evidence = run_delegation(spec)
     write_evidence(REPO, evidence)
     report_result(evidence)
+    mods_runtime.report_run(mods, run_id=str(evidence.get("run_id") or ""), task=str(target.get("id") or ""),
+                            kind="roadmap", result=str(evidence.get("result") or ""),
+                            duration_seconds=evidence.get("duration_seconds") or 0)
     status = dict(evidence["status"])
     status["status"] = evidence["result"]
     if evidence["violations"]:

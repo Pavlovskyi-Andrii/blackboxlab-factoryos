@@ -46,6 +46,9 @@ DISALLOWED_TOOLS = (
     "Bash(render:*)",
     "Bash(gh workflow run:*)",
     "Bash(gh pr merge:*)",
+    # T-611: product-film's upstream upload path (display.dev) is removed; block it here too.
+    "Bash(dsp:*)",
+    "Bash(npx -y @displaydev/cli:*)",
 )
 # Headless `claude -p` cannot ask for approval, so anything not pre-allowed is denied.
 # The verification loop from CLAUDE.md (edit, run python tests, node --check, local commit)
@@ -73,6 +76,11 @@ ALLOWED_TOOLS = (
 VENV_DIR = ".venv"
 VENV_TIMEOUT_SECONDS = 900
 TASK_ID_RE = re.compile(r"^T-[A-Za-z0-9-]+$")
+
+try:
+    from . import mods_runtime
+except ImportError:
+    import mods_runtime
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -124,8 +132,11 @@ def build_delegation(
     max_turns: int = 80,
     timeout_seconds: int = 3600,
     skip_permissions: bool = False,
+    mods: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Return a pinned, bounded delegation spec for exactly one roadmap task."""
+    """Return a pinned, bounded delegation spec for exactly one roadmap task.
+
+    ``mods`` (T-611-C, from ``mods_runtime.prepare``) adds the owner's switched-on plugins for this run only."""
     task_id = str(task.get("id") or "")
     if not TASK_ID_RE.match(task_id):
         raise ValueError(f"invalid task id: {task_id!r}")
@@ -139,16 +150,19 @@ def build_delegation(
         raise ValueError("delegation refuses to run on main/master or a detached HEAD")
     turns = _clamp(max_turns, MAX_TURNS_RANGE)
     timeout = _clamp(timeout_seconds, TIMEOUT_RANGE)
+    mods = mods or {"mods": [], "plugins": [], "applied": False, "note": "mods not requested"}
     cmd = [
         "claude",
         "-p",
-        task_prompt(task),
+        mods_runtime.prompt_prefix(mods) + task_prompt(task),
         "--output-format",
         "json",
         "--max-turns",
         str(turns),
+        *mods_runtime.cli_args(mods, repo),
         "--allowedTools",
         *ALLOWED_TOOLS,
+        *mods_runtime.extra_tools(mods),
         "--disallowedTools",
         *DISALLOWED_TOOLS,
     ]
@@ -163,6 +177,7 @@ def build_delegation(
         "timeout_seconds": timeout,
         "cmd": cmd,
         "auth_mode": "subscription",
+        "mods": mods,
     }
 
 
