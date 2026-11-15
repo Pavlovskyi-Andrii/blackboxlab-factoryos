@@ -35,6 +35,7 @@ from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compac
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
+from relay_acceptance import latest_telegram_acceptance
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from mybrief import FeedbackStore as MyBriefFeedback, install_mybrief_routes, load_catalog as mybrief_catalog
@@ -708,6 +709,7 @@ async def sync_telegram_relay_webhook():
             {"command":"tasks","description":"Задачи Relay и GitHub"},
             {"command":"task","description":"Детали задачи Relay: /task R-0001"},
             {"command":"history","description":"История действий Relay"},
+            {"command":"proof","description":"Приёмка задачи по фактам: /proof R-0001"},
             {"command":"github","description":"GitHub PR, коммиты и CI"},
             {"command":"roadmap","description":"Roadmap и открытые задачи"},
             {"command":"new","description":"Создать новую задачу"},
@@ -752,6 +754,15 @@ def _owner_desk_status():
     else:
         out["T-506"]={"state":"todo","detail_key":"tg_no_token"}
     out["T-590-H"]={"state":"info","detail_key":"prod_sha","args":{"sha":BUILD_SHA[:12]}}
+    acc=latest_telegram_acceptance(RELAY_STORE.list(limit=100000))
+    if acc and acc["status"]=="VERIFIED":
+        out["T-591-H"]={"state":"done","detail_key":"accept_verified","args":{"ticket":acc["ticket_id"],"run":acc["run_id"]}}
+    elif acc:
+        out["T-591-H"]={"state":"todo","detail_key":"accept_partial","args":{"ticket":acc["ticket_id"],"missing":", ".join(acc["missing"]) or (acc["problems"][0][:80] if acc["problems"] else "—")}}
+    else:
+        out["T-591-H"]={"state":"todo","detail_key":"accept_none"} if tg.get("paired") else {"state":"blocked","detail_key":"waits","args":{"task":"T-506"}}
+    out["T-592-H"]={"state":"todo","detail_key":"can_start"} if out["T-591-H"]["state"]=="done" else {"state":"blocked","detail_key":"waits","args":{"task":"T-591-H"}}
+    out["T-593-H"]={"state":"todo","detail_key":"t593_live"}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
     youtube=next((a for a in reg.get("adapters") or [] if a.get("kind")=="youtube"),{})
