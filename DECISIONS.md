@@ -1240,4 +1240,9 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   storing a token that cannot upload.
 - With a Google OAuth client configured, Connections → YouTube → Connect starts Google OAuth instead of the
   Metricool binding.
+- Review follow-up (Codex, advisory): YouTube readiness, token lookup, refresh and persistence use the publish item's
+  workspace (readiness: the caller's), so no workspace sees or uses another's channel. Approval now records the
+  archived file's sha256 (`media_sha256`); the YouTube publisher hashes the archived file and refuses a mismatch or a
+  missing digest before any upload. Dry-run marks per-platform support of the selected adapter and keeps a T-520
+  blocker for an item platform the adapter cannot publish.
 

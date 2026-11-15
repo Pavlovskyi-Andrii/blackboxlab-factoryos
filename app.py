@@ -8614,17 +8614,19 @@ def link_job_idea(job_id,idea_id):
 def _metricool_configured():
     return bool(_metricool_credentials_present() and not _integration_explicitly_disconnected("Metricool"))
 
-def _youtube_publisher_state():
-    """Direct YouTube publisher readiness from facts only: OAuth client, stored channel token, upload settings."""
+def _youtube_publisher_state(workspace=None):
+    """Direct YouTube publisher readiness from facts only: OAuth client, stored channel token, upload settings.
+    Scoped to one workspace (default: the caller's), so no workspace sees another's channel."""
+    workspace=workspace or tenancy.binding_workspace()
     from oauth_framework import get_provider
     spec=get_provider("youtube")
     blockers=[b for b in OAUTH_FLOW.blockers(spec)]
     tokens=None
     if "vault_unavailable" not in blockers:
-        try:tokens=OAUTH_FLOW.vault.get(tenancy.DEFAULT_WORKSPACE,"youtube")
+        try:tokens=OAUTH_FLOW.vault.get(workspace,"youtube")
         except Exception:blockers.append("vault_unreadable")
     if not tokens and not blockers:blockers.append("youtube_not_connected")
-    if _integration_explicitly_disconnected("YouTube"):blockers.append("youtube_disconnected")
+    if _integration_explicitly_disconnected("YouTube",workspace):blockers.append("youtube_disconnected")
     settings=youtube_publisher.upload_settings()
     blockers+=settings["blockers"]
     return {"configured":not blockers,"blockers":blockers,"channel_id":(tokens.account_id if tokens else ""),
@@ -8687,7 +8689,7 @@ def _publish_item(row):
     item["media"]={
         "artifact_id":meta.get("media_artifact_id"),"url":meta.get("media_url") or "",
         "title":meta.get("media_title") or "","mime_type":meta.get("media_mime_type") or "",
-        "edit_job_id":meta.get("media_edit_job_id")
+        "edit_job_id":meta.get("media_edit_job_id"),"sha256":meta.get("media_sha256") or ""
     } if meta.get("media_artifact_id") or meta.get("media_url") else None
     item["content_snapshot"]=meta.get("content_snapshot") if isinstance(meta.get("content_snapshot"),dict) else None
     item["content_snapshot_hash"]=str(meta.get("content_snapshot_hash") or "")
@@ -8718,7 +8720,9 @@ def _ensure_publish_item(job_id,approval_decision_id=None):
           "content_snapshot":content_snapshot,"content_snapshot_hash":snapshot_hash,
           "media_artifact_id":media.get("id"),"media_url":media.get("url") or "",
           "media_title":media.get("title") or "","media_mime_type":media.get("mime_type") or "",
-          "media_edit_job_id":media_meta.get("edit_job_id")}
+          "media_edit_job_id":media_meta.get("edit_job_id"),
+          # T-552-YT: digest of the exact durable file the owner approved; byte-uploading publishers verify it.
+          "media_sha256":media_meta.get("archive_sha256") or ""}
     con.execute("""INSERT INTO publishing_queue(
         id,job_id,package_id,status,target,platform,scheduled_at,idempotency_key,attempt_count,
         external_post_id,external_url,last_error,created_at,updated_at,published_at,meta_json
@@ -9055,11 +9059,17 @@ def _publish_receipt(item,external_post_id,external_url="",published_at=None,sou
     event(item["job_id"],f"Publish confirmed: {item['platform']} · {external_post_id}")
     sync_cycle_for_publish(item["id"])
 
-def _publish_via_youtube(item,content,media):
+def _file_sha256(path):
+    digest=hashlib.sha256()
+    with open(path,"rb") as handle:
+        for chunk in iter(lambda:handle.read(1024*1024),b""):digest.update(chunk)
+    return digest.hexdigest()
+
+def _publish_via_youtube(item,content,media,workspace):
     """T-552-YT: upload the exact approved durable media to the connected channel. Never retried blindly."""
     if item.get("platform")!="youtube_shorts":
         raise RuntimeError(f"YouTube publisher only handles youtube_shorts, not {item.get('platform')}")
-    state=_youtube_publisher_state()
+    state=_youtube_publisher_state(workspace)
     if not state["configured"]:
         raise RuntimeError("YouTube publisher is not ready: "+", ".join(state["blockers"]))
     artifact=_artifact_media_row((media or {}).get("artifact_id"))
@@ -9068,11 +9078,19 @@ def _publish_via_youtube(item,content,media):
     path,archive_meta=_artifact_archive_file(artifact)
     if not path or not Path(path).is_file():
         raise RuntimeError("Approved media is not in the durable FactoryOS archive; YouTube needs the exact file")
+    # The bytes must be the ones approved: digest recorded at approval (or, for items approved before it was
+    # recorded, at archive time). A replaced or unverifiable file is refused, never uploaded.
+    artifact_meta=_decode_json(artifact.get("meta_json") or "{}",{})
+    expected=str((media or {}).get("sha256") or artifact_meta.get("archive_sha256") or "").lower()
+    if not expected:
+        raise RuntimeError("Approved media has no recorded digest; re-archive and re-approve it before publishing")
+    if expected!=str((archive_meta or {}).get("sha256") or "").lower() or _file_sha256(path)!=expected:
+        raise RuntimeError("Archived media bytes do not match the approved media digest")
     from oauth_framework import get_provider
     spec=get_provider("youtube");adapter=OAUTH_FLOW.adapters["youtube"]
     try:
-        tokens=adapter.refresh(spec,OAUTH_FLOW.vault.get(tenancy.DEFAULT_WORKSPACE,"youtube"))
-        OAUTH_FLOW.vault.put(tenancy.DEFAULT_WORKSPACE,"youtube",tokens)
+        tokens=adapter.refresh(spec,OAUTH_FLOW.vault.get(workspace,"youtube"))
+        OAUTH_FLOW.vault.put(workspace,"youtube",tokens)
     except OAuthError as exc:
         raise RuntimeError(f"YouTube token refresh failed ({exc.code}); reconnect YouTube") from None
     settings=youtube_publisher.upload_settings()
@@ -9106,7 +9124,7 @@ def _publish_via_adapter(item):
     if FACTORY_PUBLISHER_ADAPTER=="metricool":
         return _publish_via_metricool(item,content,media)
     if FACTORY_PUBLISHER_ADAPTER=="youtube":
-        return _publish_via_youtube(item,content,media)
+        return _publish_via_youtube(item,content,media,workspace)
     if not FACTORY_PUBLISHER_ENDPOINT:
         raise RuntimeError(f"Publisher adapter '{FACTORY_PUBLISHER_ADAPTER}' is not configured")
     payload={"idempotency_key":item["idempotency_key"],"publish_id":item["id"],"job_id":item["job_id"],"workspace_key":workspace,
@@ -9177,6 +9195,11 @@ def build_publish_dry_run(publish_id):
     selected=next((a for a in registry["adapters"] if a["kind"]==FACTORY_PUBLISHER_ADAPTER),{})
     if FACTORY_PUBLISHER_ADAPTER=="manual" or not selected.get("configured"):
         real_blockers.append("T-520: no configured real publisher adapter")
+    supported=selected.get("supported_platforms")
+    if FACTORY_PUBLISHER_ADAPTER!="manual" and supported is not None:
+        for plan in plans:plan["real_publisher_supported"]=plan["platform"] in supported
+        if item.get("platform") and item["platform"]!="unspecified" and item["platform"] not in supported:
+            real_blockers.append(f"T-520: publisher '{FACTORY_PUBLISHER_ADAPTER}' does not support {item['platform']}")
     real_blockers.append("T-521: explicit owner approval of this exact snapshot for a real post")
     # The plan hash excludes publication times so re-running the same snapshot is idempotent.
     stable=[{k:v for k,v in p.items() if k!="scheduled_at_utc"} for p in plans]

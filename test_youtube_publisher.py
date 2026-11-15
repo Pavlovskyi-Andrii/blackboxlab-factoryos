@@ -134,15 +134,19 @@ def check_settings_and_metadata():
 
 
 def archived_media(job_id, payload=b"\x00\x00\x00\x18ftypmp42-t552-video-bytes"):
+    import hashlib
     archive_id = str(uuid.uuid4())
+    digest = hashlib.sha256(payload).hexdigest()
     factory.MEDIA_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     (factory.MEDIA_ARCHIVE_DIR / f"{archive_id}.mp4").write_bytes(payload)
     (factory.MEDIA_ARCHIVE_DIR / f"{archive_id}.json").write_text(json.dumps(
-        {"archive_id": archive_id, "stored_name": f"{archive_id}.mp4", "content_type": "video/mp4"}), encoding="utf-8")
+        {"archive_id": archive_id, "stored_name": f"{archive_id}.mp4", "content_type": "video/mp4",
+         "sha256": digest}), encoding="utf-8")
     url = f"{factory.FACTORY_PUBLIC_BASE_URL}/media-archive/{archive_id}?token=t"
     artifact_id = factory.save_artifact("Media Finisher", "video", "final", job_id=job_id, url=url,
-                                        mime_type="video/mp4", meta={"archive_id": archive_id, "durable_media": True})
-    return {"artifact_id": artifact_id, "url": url, "mime_type": "video/mp4"}, payload
+                                        mime_type="video/mp4", meta={"archive_id": archive_id, "durable_media": True,
+                                                                     "archive_sha256": digest})
+    return {"artifact_id": artifact_id, "url": url, "mime_type": "video/mp4", "sha256": digest}, payload
 
 
 def check_publish_path():
@@ -203,6 +207,45 @@ def check_publish_path():
                 raise AssertionError("quota must fail")
             except RuntimeError as e:
                 require(str(e) == "youtube_quotaExceeded", f"fixed quota code, no provider text: {e}")
+        # Replaced bytes under the same artifact/URL, or no recorded digest, are refused before any upload.
+        path = factory.MEDIA_ARCHIVE_DIR / (media["url"].split("/media-archive/")[1].split("?")[0] + ".mp4")
+        original = path.read_bytes()
+        path.write_bytes(original + b"tampered")
+        calls_before = len(fake.calls)
+        try:
+            factory._publish_via_adapter(item)
+            raise AssertionError("replaced archive file must be refused")
+        except RuntimeError as e:
+            require("do not match the approved media digest" in str(e), f"digest refusal: {e}")
+        require(not any(u.startswith("https://www.googleapis.com/upload") for _, u in fake.calls[calls_before:]),
+                "no upload attempted for tampered media")
+        path.write_bytes(original)
+        undigested, _ = archived_media(job_id)
+        con = factory.db()
+        con.execute("UPDATE artifacts SET meta_json=? WHERE id=?",
+                    (json.dumps({"archive_id": undigested["url"].split("/media-archive/")[1].split("?")[0]}),
+                     undigested["artifact_id"]))
+        con.commit()
+        con.close()
+        try:
+            factory._publish_via_adapter({**item, "media": {**undigested, "sha256": ""}})
+            raise AssertionError("media without a recorded digest must be refused")
+        except RuntimeError as e:
+            require("no recorded digest" in str(e), f"no-digest refusal: {e}")
+
+        # Workspace isolation: another workspace neither sees the default channel nor publishes through it.
+        with factory.tenancy.workspace_scope("customer-b"):
+            other = factory._youtube_publisher_state()
+            require(other["channel_title"] == "" and "youtube_not_connected" in other["blockers"],
+                    f"other workspace must not see the default channel: {other}")
+            ytreg = next(a for a in factory.get_publisher_adapter_registry()["adapters"] if a["kind"] == "youtube")
+            require(ytreg["channel_title"] == "" and not ytreg["configured"], "registry scoped to the caller")
+        try:
+            factory._publish_via_adapter({**item, "workspace_key": "customer-b"})
+            raise AssertionError("another workspace must not publish through the default channel")
+        except RuntimeError as e:
+            require("customer-b" in str(e), f"workspace refusal: {e}")
+
         for mode in ("timeout", "500"):
             flaky = yt.GoogleOAuthAdapter(http=FakeGoogle(put_mode=mode))
             with patch.object(factory.OAUTH_FLOW, "adapters", {"youtube": flaky}):
