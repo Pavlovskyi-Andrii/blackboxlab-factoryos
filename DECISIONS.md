@@ -1233,3 +1233,6 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 
 ## 2026-11-15 — T-590 second re-check (same day)
 - The result is unchanged. `gh` and `web_read` were denied, and the deterministic suites are green (smoke, planner, relay 111, telegram 25). T-590 stays unchecked. Re-running it from a worker without GitHub/Render read access cannot close it. The next useful run needs a session that can read Issue #41, the CI run and `/api/version` (a standing-grant interactive session), or an owner-posted trace in `.autopilot/answers.md`.
+
+## 2026-11-15 — T-590 third re-check (same day)
+- The result is unchanged and T-590 stays unchecked. The run asked for DONE + checkbox, but `git fetch` and `gh` were denied, so ticking it would rest only on repo notes rather than observed evidence. The CLAUDE.md "no fabricated CI/deploy success" invariant wins. The deterministic suites are green. The status is `blocked`, and the exact ask is in `.autopilot/status.json`.

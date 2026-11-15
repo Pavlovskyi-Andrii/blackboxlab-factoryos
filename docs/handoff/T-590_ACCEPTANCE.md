@@ -49,6 +49,10 @@ Rule: a stage counts as verified only with evidence. Everything else is UNVERIFI
 - Green on Python 3.9: compile, `smoke_tests.py`, the planner, `test_relay_execution` (111 tests) and `test_relay_telegram` (25).
 - `gh issue view 41` and the FactoryOS `web_read` of `/api/version` were both denied again. No stage changed, nothing was claimed, and T-590 stays unchecked.
 
+## Re-check (2026-11-15, third run, head `fd6e083`)
+- Green on Python 3.9: compile, `smoke_tests.py`, the planner, `test_relay_execution` (111 tests) and `test_relay_telegram` (25).
+- `git fetch origin` and `gh issue view 41` were denied. No live stage could be observed, nothing was claimed, and T-590 stays unchecked. Another worker re-run cannot change this. The next run needs GitHub/Render read access, or an owner-posted trace in `.autopilot/answers.md`.
+
 ## Exact remaining actions
 
 1. **Session with GitHub access (Claude interactive, standing grant):** push `autopilot/aws-worker`, then open PR `autopilot/aws-worker → main`. Wait for CI on the current head; merge only when it is green.
