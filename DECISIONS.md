@@ -1397,3 +1397,10 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   `relay.github_error_reason` categories, never response text or the token. No [HUMAN] task: the read-only token
   variable already exists; if it is not set on Render the page shows "anonymous" and still works.
 
+
+## 2026-11-15 — A/B Tester opens as its own agent card
+
+- Owner feedback (screenshot): the experiments section sat above the agents strip and the «A/B-тестер» tile only
+  scrolled up to it, so it looked missing. The tile now behaves like every other MVP agent: it toggles the shared
+  `#mvpAgentCard` slot, which for `abtester` renders «Что делает / Кто выполняет» and the experiments UI. The section
+  no longer renders between the pipeline and the agents.
