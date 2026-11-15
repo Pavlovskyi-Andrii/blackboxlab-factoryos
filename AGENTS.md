@@ -20,6 +20,13 @@ Claude has its own file (`CLAUDE.md`). This file is for every other agent that w
 - Do not weaken the human approval gate before publishing, authentication, or tests to get a green run.
 - Do not claim work you did not verify: say "not verified" instead.
 
+## Durable workflows (DBOS)
+- `durable_engine.py` checkpoints workflow steps so they survive restarts and deploys. Read the "Durable workflows (DBOS)"
+  section of `CLAUDE.md` before touching a `@DBOS.workflow` or `@DBOS.step` function.
+- In short: no network/DB/clock calls in a workflow body (only in steps); every external side effect of a step needs an
+  idempotency key; never change a workflow's steps without bumping `durable_engine.APP_VERSION`; keep the
+  `FACTORY_DBOS_ENABLED=0` legacy path working; never delete `dbos_system.sqlite` or upgrade `dbos` on your own.
+
 ## Done means
 - Tests for the change, passing locally where possible and in CI (`FactoryOS CI` must be green on the PR).
 - The PR description lists: what changed, which issue/ROADMAP task, the exact commands you ran and their result, what is not verified.

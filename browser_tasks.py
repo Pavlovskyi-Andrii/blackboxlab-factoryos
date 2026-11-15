@@ -131,7 +131,8 @@ class BrowserTaskStore:
         texts = []
         for row in (body.get("texts") or [])[:MAX_SELECTORS]:
             if isinstance(row, dict):
-                texts.append({"selector": str(row.get("selector") or "")[:200], "text": str(row.get("text") or "")[:MAX_TEXT]})
+                texts.append(dict({"selector": str(row.get("selector") or "")[:200], "text": str(row.get("text") or "")[:MAX_TEXT]},
+                                  **({"missing": True} if row.get("missing") else {})))
         shot = body.get("screenshot_png_b64") or ""
         with self.lock:
             items = self._load()

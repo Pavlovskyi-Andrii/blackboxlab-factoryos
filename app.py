@@ -40,6 +40,7 @@ from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_mvp_project_once
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
+import web_surfer
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
@@ -60,9 +61,12 @@ from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_rout
                             install_voice_settings_routes)
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
+import youtube_publisher
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
+import durable_engine
+import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
 APP_VERSION = "v5.7.1"
@@ -192,6 +196,18 @@ AGENT_SPECS = {
 
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+
+
+@app.on_event("startup")
+def _durable_engine_startup():
+    """T-611: keep this the first startup hook. Launching DBOS resumes interrupted workflows from their last finished step
+    before any later hook (such as the Media Finisher recovery) inspects or restarts work."""
+    durable_engine.launch(DATA_DIR)
+
+
+@app.on_event("shutdown")
+def _durable_engine_shutdown():
+    durable_engine.shutdown()
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -737,20 +753,23 @@ def _owner_desk_status():
     out["T-590-H"]={"state":"info","detail_key":"prod_sha","args":{"sha":BUILD_SHA[:12]}}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
-    if reg.get("selected")=="metricool" and metricool.get("configured"):
+    youtube=next((a for a in reg.get("adapters") or [] if a.get("kind")=="youtube"),{})
+    if reg.get("selected")=="youtube":
+        out["T-520"]=({"state":"done","detail_key":"youtube_ok","args":{"channel":youtube.get("channel_title") or "—"}}
+                      if youtube.get("configured") else
+                      {"state":"todo","detail_key":"youtube_blocked","args":{"reasons":", ".join(youtube.get("blockers") or [])}})
+    elif reg.get("selected")=="metricool" and metricool.get("configured"):
         out["T-520"]={"state":"done","detail_key":"metricool_ok" if metricool.get("youtube_audience_configured") else "metricool_no_audience"}
     elif reg.get("selected")=="metricool":
         out["T-520"]={"state":"todo","detail_key":"metricool_unconfigured"}
     else:
         out["T-520"]={"state":"todo","detail_key":"publisher_selected","args":{"adapter":reg.get("selected") or "manual"}}
     out["T-521"]={"state":"todo","detail_key":"can_start"} if out["T-520"]["state"]=="done" else {"state":"blocked","detail_key":"waits","args":{"task":"T-520"}}
-    out["T-551"]={"state":"blocked","detail_key":"waits_t552"}
+    out["T-551"]={"state":"optional","detail_key":"t551_youtube_in_t520"}
     out["T-598-H1"]={"state":"done","detail_key":"h1_done"}
     out["T-598-H2"]={"state":"optional","detail_key":"h2_optional"}
     out["T-605"]={"state":"done","detail_key":"gemini_key_ok"} if FACTORY_GEMINI_API_KEY else {"state":"todo","detail_key":"gemini_key_missing"}
     out["T-606"]={"state":"todo","detail_key":"jules_pending"}
-    out["D-240"]={"state":"todo","detail_key":"deps_decision"}
-    out["HF-213"]={"state":"todo","detail_key":"higgsfield_deadline"}
     return out
 
 def _mycast_send_audio(audio, filename, title, caption):
@@ -1106,6 +1125,10 @@ async def mvp_agent_message(project_id: str, agent: str, request: Request):
     return {"ok":True,"routed":"gemini"}
 # T-560 wiring: owner's read-only browser tasks, run by the EC2 runner (Playwright never runs on Render).
 BROWSER_TASKS = BrowserTaskStore(DATA_DIR)
+# T-560-H Surfer for every MCP-connected agent; Google search via Gemini only after the owner opts in (may be billed).
+WEB_SEARCH = web_surfer.WebSearch(DATA_DIR, provider=lambda: os.environ.get("FACTORY_WEB_SEARCH_PROVIDER", ""),
+                                  gemini_key=lambda: FACTORY_GEMINI_API_KEY, gemini_model=resolve_flash_model)
+web_surfer.install_worker_routes(app, store=BROWSER_TASKS, search=WEB_SEARCH, authorize_worker=_claude_worker_authorized)
 def _browser_session_domains(provider: str, account: str) -> list:
     parts = _vault_parts(required=False)
     if not parts or not _VAULT_SLUG.match(provider or "") or not _VAULT_ACCOUNT.match(account or ""):
@@ -1154,10 +1177,18 @@ async def _ab_content_job(title, brief, job_id):
 
 install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity, create_job=_ab_content_job)  # T-608..T-610 A/B Tester: drafts only, owner-gated
 install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
+from decision_memory import DecisionStore, install_decision_memory_routes, sync_mvp_registry_once  # noqa: E402
+install_decision_memory_routes(app, DecisionStore(DATA_DIR / "decision_memory.json", BASE / "DECISIONS.md"), request_identity)  # T-614 #187: owner-only
+try:
+    sync_mvp_registry_once(MVP_REGISTRY, DATA_DIR / "decision_memory_registry_intake.marker")  # links the existing #187 pilot
+except (OSError, ValueError) as exc:
+    print("Decision Memory registry intake skipped:", type(exc).__name__)
 from learn_center import install_learn_routes  # noqa: E402
 import brand_strategy as _brand_strategy_mod  # noqa: E402
 install_learn_routes(app, base=BASE, steps_source=lambda: _brand_strategy_mod.STEPS)  # owner 2026-11-14: one Learning section
 install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
+from release_guardian import GitHubReader as _RgReader, ReleaseGuardian as _RgGuardian, install_release_guardian_routes  # noqa: E402
+install_release_guardian_routes(app, _RgGuardian(_RgReader(GITHUB_REPO, _github_read_token)), request_identity)  # T-616 #189: owner-only, GET-only PR board
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
                           redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
@@ -1242,7 +1273,7 @@ async def auth_middleware(request: Request, call_next):
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
     browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
-    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/")) and _claude_worker_authorized(request)
+    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/") or request.url.path.startswith("/api/factory/surfer/worker/")) and _claude_worker_authorized(request)
     # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
             and not (claude_worker_api or operator_worker_api or local_booster_api)):
@@ -1715,7 +1746,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]
+]+web_surfer.TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -1757,6 +1788,8 @@ async def factory_mcp(request: Request):
                     "status":x["status"],"progress":x.get("execution_progress",0),
                     "priority":x["priority"],"owner":x["owner"]
                 } for x in rows])
+            elif name in web_surfer.TOOL_NAMES:
+                result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -1801,6 +1834,7 @@ def health_details():
             "cost_usd": round(float(verification.get("cost_usd") or 0), 6),
         },
         "real_pilot": get_real_pilot(),
+        "durable_engine": durable_engine.status(),
     }
 
 clients: set[WebSocket] = set()
@@ -6129,7 +6163,45 @@ def _submit_media_finisher_background(edit_job_id):
         with _media_finisher_submit_lock:_media_finisher_submit_active.discard(edit_job_id)
 
 def _spawn_media_finisher_submit(edit_job_id):
+    # T-612: once the durable engine is launched, one DBOS workflow owns submit → wait for callback → poll for this
+    # edit job, and a repeated call while it runs is a no-op. Engine off or unavailable → the legacy thread below.
+    if durable_engine.launched():
+        try:
+            workflow_id,created=durable_finisher.start(edit_job_id)
+        except Exception as exc:
+            workflow_id,created=None,False
+            print(json.dumps({"event":"DBOS_MEDIA_FINISHER_START_ERROR","edit_job_id":edit_job_id,"error":str(exc)[:300]}),flush=True)
+        if workflow_id:
+            if created:
+                item=get_edit_job(edit_job_id)
+                if item:event(item["production_job_id"],f"AI Media Finisher durable workflow started: {edit_job_id[:8]} · survives restarts and deploys")
+            return
     threading.Thread(target=_submit_media_finisher_background,args=(edit_job_id,),daemon=True,name=f"finisher-submit-{edit_job_id[:8]}").start()
+
+def _durable_finisher_state(edit_job_id,needs_submit=False):
+    item=get_edit_job(edit_job_id)
+    if not item:return {"status":"missing","provider_job_id":"","needs_submit":False}
+    status=str(item.get("status") or "")
+    return {"status":status,"provider_job_id":str(item.get("provider_job_id") or ""),
+            "needs_submit":bool(needs_submit) and status not in ("ready","failed")}
+
+def _durable_finisher_submit(edit_job_id):
+    """DBOS step body (T-612): the legacy submit routine, safe to repeat after a crash. It returns early once
+    provider_job_id is recorded, and the worker treats edit_job_id as its idempotency key (POST /jobs)."""
+    _submit_media_finisher_background(edit_job_id)
+    return _durable_finisher_state(edit_job_id)
+
+def _durable_finisher_poll(edit_job_id):
+    """DBOS step body (T-612): read the outcome a callback may already have written, otherwise ask the worker.
+    needs_submit=True when the worker has no job for us (its state was lost → 404, or the submit never landed)."""
+    item=get_edit_job(edit_job_id)
+    if not item or item.get("status") in ("ready","failed"):return _durable_finisher_state(edit_job_id)
+    if not str(item.get("provider_job_id") or "").strip():
+        return _durable_finisher_state(edit_job_id,needs_submit=edit_job_id not in _media_finisher_submit_active)
+    refreshed=refresh_edit_job(edit_job_id,resubmit=False)
+    return _durable_finisher_state(edit_job_id,needs_submit=not str(refreshed.get("provider_job_id") or "").strip())
+
+durable_finisher.bind(submit=_durable_finisher_submit,poll=_durable_finisher_poll)
 
 def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     job=get_job(job_id)
@@ -6197,7 +6269,8 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     event(job_id,f"AI Media Finisher queued: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · {package_mode} · compute {route_target}")
     return {"duplicate":False,"edit_job":item}
 
-def refresh_edit_job(edit_job_id):
+def refresh_edit_job(edit_job_id,resubmit=True):
+    # resubmit=False: the caller (the T-612 durable workflow) resubmits itself after a lost-worker 404.
     item=get_edit_job(edit_job_id)
     if not item:raise ValueError("Edit job not found")
     if item["status"] in ("ready","failed"):return item
@@ -6217,7 +6290,7 @@ def refresh_edit_job(edit_job_id):
             con=db();con.execute("""UPDATE edit_jobs SET provider_job_id='',status='queued',error='',response_json=?,updated_at=? WHERE id=?""",
                                  (json.dumps(response,ensure_ascii=False,default=str),ts(),edit_job_id));con.commit();con.close()
             event(item["production_job_id"],f"AI Media Finisher worker state was lost after restart; auto-resubmitting {edit_job_id[:8]}")
-            _spawn_media_finisher_submit(edit_job_id)
+            if resubmit:_spawn_media_finisher_submit(edit_job_id)
             return get_edit_job(edit_job_id)
         raise
     except (TimeoutError,urlerror.URLError):
@@ -8626,9 +8699,29 @@ def link_job_idea(job_id,idea_id):
 def _metricool_configured():
     return bool(_metricool_credentials_present() and not _integration_explicitly_disconnected("Metricool"))
 
+def _youtube_publisher_state(workspace=None):
+    """Direct YouTube publisher readiness from facts only: OAuth client, stored channel token, upload settings.
+    Scoped to one workspace (default: the caller's), so no workspace sees another's channel."""
+    workspace=workspace or tenancy.binding_workspace()
+    from oauth_framework import get_provider
+    spec=get_provider("youtube")
+    blockers=[b for b in OAUTH_FLOW.blockers(spec)]
+    tokens=None
+    if "vault_unavailable" not in blockers:
+        try:tokens=OAUTH_FLOW.vault.get(workspace,"youtube")
+        except Exception:blockers.append("vault_unreadable")
+    if not tokens and not blockers:blockers.append("youtube_not_connected")
+    if _integration_explicitly_disconnected("YouTube",workspace):blockers.append("youtube_disconnected")
+    settings=youtube_publisher.upload_settings()
+    blockers+=settings["blockers"]
+    return {"configured":not blockers,"blockers":blockers,"channel_id":(tokens.account_id if tokens else ""),
+            "channel_title":(tokens.account_label if tokens else ""),"privacy":settings["privacy"],
+            "audience_configured":settings["made_for_kids"] is not None}
+
 def get_publisher_adapter_registry():
     webhook=bool(FACTORY_PUBLISHER_ENDPOINT)
     metricool=_metricool_configured()
+    youtube=_youtube_publisher_state()
     return {"selected":FACTORY_PUBLISHER_ADAPTER,
             "scheduler_enabled":FACTORY_PUBLISHER_SCHEDULER_ENABLED,
             "scheduler_interval_sec":FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC,
@@ -8640,6 +8733,12 @@ def get_publisher_adapter_registry():
                  "execution":"server-side Metricool scheduler",
                  "supported_platforms":["instagram_reels","tiktok","youtube_shorts"],
                  "youtube_audience_configured":FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS in ("true","false","1","0","yes","no")},
+                {"kind":"youtube","configured":youtube["configured"],
+                 "status":"configured" if youtube["configured"] else "not_configured",
+                 "execution":"direct YouTube Data API upload (official, free quota)",
+                 "supported_platforms":["youtube_shorts"],"blockers":youtube["blockers"],
+                 "channel_title":youtube["channel_title"],"privacy":youtube["privacy"],
+                 "youtube_audience_configured":youtube["audience_configured"]},
             ],
             "secrets_exposed":False,
             "note":"Approval never publishes directly. Metricool receives only the exact immutable approved snapshot and durable media URL after explicit scheduling. A Metricool scheduler ID is never treated as a real platform post receipt."}
@@ -8675,7 +8774,7 @@ def _publish_item(row):
     item["media"]={
         "artifact_id":meta.get("media_artifact_id"),"url":meta.get("media_url") or "",
         "title":meta.get("media_title") or "","mime_type":meta.get("media_mime_type") or "",
-        "edit_job_id":meta.get("media_edit_job_id")
+        "edit_job_id":meta.get("media_edit_job_id"),"sha256":meta.get("media_sha256") or ""
     } if meta.get("media_artifact_id") or meta.get("media_url") else None
     item["content_snapshot"]=meta.get("content_snapshot") if isinstance(meta.get("content_snapshot"),dict) else None
     item["content_snapshot_hash"]=str(meta.get("content_snapshot_hash") or "")
@@ -8706,7 +8805,9 @@ def _ensure_publish_item(job_id,approval_decision_id=None):
           "content_snapshot":content_snapshot,"content_snapshot_hash":snapshot_hash,
           "media_artifact_id":media.get("id"),"media_url":media.get("url") or "",
           "media_title":media.get("title") or "","media_mime_type":media.get("mime_type") or "",
-          "media_edit_job_id":media_meta.get("edit_job_id")}
+          "media_edit_job_id":media_meta.get("edit_job_id"),
+          # T-552-YT: digest of the exact durable file the owner approved; byte-uploading publishers verify it.
+          "media_sha256":media_meta.get("archive_sha256") or ""}
     con.execute("""INSERT INTO publishing_queue(
         id,job_id,package_id,status,target,platform,scheduled_at,idempotency_key,attempt_count,
         external_post_id,external_url,last_error,created_at,updated_at,published_at,meta_json
@@ -9043,6 +9144,51 @@ def _publish_receipt(item,external_post_id,external_url="",published_at=None,sou
     event(item["job_id"],f"Publish confirmed: {item['platform']} · {external_post_id}")
     sync_cycle_for_publish(item["id"])
 
+def _publish_via_youtube(item,content,media,workspace):
+    """T-552-YT: upload the exact approved durable media to the connected channel. Never retried blindly."""
+    if item.get("platform")!="youtube_shorts":
+        raise RuntimeError(f"YouTube publisher only handles youtube_shorts, not {item.get('platform')}")
+    state=_youtube_publisher_state(workspace)
+    if not state["configured"]:
+        raise RuntimeError("YouTube publisher is not ready: "+", ".join(state["blockers"]))
+    artifact=_artifact_media_row((media or {}).get("artifact_id"))
+    if not artifact or artifact.get("job_id")!=item.get("job_id") or (artifact.get("url") or "")!=(media or {}).get("url"):
+        raise RuntimeError("Approved media artifact does not match the approved snapshot")
+    path,archive_meta=_artifact_archive_file(artifact)
+    if not path or not Path(path).is_file():
+        raise RuntimeError("Approved media is not in the durable FactoryOS archive; YouTube needs the exact file")
+    # The bytes must be the ones approved: only the digest captured in the approval snapshot counts (never the
+    # artifact's current metadata, which a re-archive could rewrite together with the file). upload_video re-checks
+    # it on the same file handle it uploads from.
+    expected=str((media or {}).get("sha256") or "").lower()
+    if not expected:
+        raise RuntimeError("Approved media has no digest in the approval snapshot; re-approve it before publishing")
+    if expected!=str((archive_meta or {}).get("sha256") or "").lower():
+        raise RuntimeError("Archived media bytes do not match the approved media digest")
+    from oauth_framework import get_provider
+    spec=get_provider("youtube");adapter=OAUTH_FLOW.adapters["youtube"]
+    try:
+        tokens=adapter.refresh(spec,OAUTH_FLOW.vault.get(workspace,"youtube"))
+        OAUTH_FLOW.vault.put(workspace,"youtube",tokens)
+    except OAuthError as exc:
+        raise RuntimeError(f"YouTube token refresh failed ({exc.code}); reconnect YouTube") from None
+    settings=youtube_publisher.upload_settings()
+    metadata=youtube_publisher.video_metadata(content,settings)
+    try:
+        result=youtube_publisher.upload_video(adapter.http,tokens.access_token,Path(path),
+                                              (archive_meta or {}).get("content_type") or media.get("mime_type") or "video/mp4",metadata,
+                                              expected)
+    except youtube_publisher.YouTubeError as exc:
+        if exc.code in ("youtube_media_digest_mismatch","youtube_media_digest_missing"):
+            raise RuntimeError("Archived media bytes do not match the approved media digest") from None
+        # Uncertain outcomes surface as TimeoutError so the publish item demands explicit confirmation before a retry.
+        if exc.uncertain:raise TimeoutError(exc.code) from None
+        raise RuntimeError(exc.code) from None
+    raw={"provider":"youtube","channel_id":tokens.account_id,"channel_title":tokens.account_label,
+         "video_id":result["video_id"],"privacy":result["privacy"],"upload_status":result["upload_status"],
+         "made_for_kids":settings["made_for_kids"],"contains_synthetic_media":True}
+    return {"manual":False,"status":"published","external_post_id":result["video_id"],"external_url":result["url"],"raw":raw}
+
 def _publish_via_adapter(item):
     if FACTORY_PUBLISHER_ADAPTER=="manual":
         return {"manual":True,"status":"publishing"}
@@ -9059,6 +9205,8 @@ def _publish_via_adapter(item):
     media=item.get("media") or {}
     if FACTORY_PUBLISHER_ADAPTER=="metricool":
         return _publish_via_metricool(item,content,media)
+    if FACTORY_PUBLISHER_ADAPTER=="youtube":
+        return _publish_via_youtube(item,content,media,workspace)
     if not FACTORY_PUBLISHER_ENDPOINT:
         raise RuntimeError(f"Publisher adapter '{FACTORY_PUBLISHER_ADAPTER}' is not configured")
     payload={"idempotency_key":item["idempotency_key"],"publish_id":item["id"],"job_id":item["job_id"],"workspace_key":workspace,
@@ -9126,8 +9274,14 @@ def build_publish_dry_run(publish_id):
     registry=get_publisher_adapter_registry()
     metricool=next((a for a in registry["adapters"] if a["kind"]=="metricool"),{})
     real_blockers=[]
-    if not metricool.get("configured") or FACTORY_PUBLISHER_ADAPTER=="manual":
+    selected=next((a for a in registry["adapters"] if a["kind"]==FACTORY_PUBLISHER_ADAPTER),{})
+    if FACTORY_PUBLISHER_ADAPTER=="manual" or not selected.get("configured"):
         real_blockers.append("T-520: no configured real publisher adapter")
+    supported=selected.get("supported_platforms")
+    if FACTORY_PUBLISHER_ADAPTER!="manual" and supported is not None:
+        for plan in plans:plan["real_publisher_supported"]=plan["platform"] in supported
+        if item.get("platform") and item["platform"]!="unspecified" and item["platform"] not in supported:
+            real_blockers.append(f"T-520: publisher '{FACTORY_PUBLISHER_ADAPTER}' does not support {item['platform']}")
     real_blockers.append("T-521: explicit owner approval of this exact snapshot for a real post")
     # The plan hash excludes publication times so re-running the same snapshot is idempotent.
     stable=[{k:v for k,v in p.items() if k!="scheduled_at_utc"} for p in plans]
@@ -10009,9 +10163,21 @@ async def next_factory_cycle(cycle_id:str):
 @app.get("/api/approval")
 def approval_studio(job_id: Optional[str]=None):
     data=get_approval_queue()
+    data["filter"]={"job_id":None,"applied":False,"total_items":len(data["items"])}
     if job_id:
-        data["items"]=[x for x in data["items"] if x["job"]["id"]==job_id]
-        data["summary"]["items"]=len(data["items"])
+        matched=[x for x in data["items"] if x["job"]["id"]==job_id]
+        if matched:
+            data["items"]=matched
+            data["summary"]["items"]=len(matched)
+            data["filter"].update(job_id=job_id,applied=True)
+        else:
+            # The job selected elsewhere (e.g. "Ready to run") is not in review yet. Filtering to it would show an
+            # empty studio next to a non-zero "waiting" counter; show the whole queue and say where that job is.
+            job=get_job(job_id)
+            data["filter"]["job_id"]=job_id
+            if job:
+                data["filter"]["selected_job"]={"id":job["id"],"title":job.get("title") or "",
+                                                "status":job.get("status") or "","stage":job.get("stage") or ""}
     data["regeneration_quotes"]={x:_estimated_regeneration_cost(x) for x in ("hook","script","caption","voice")}
     return data
 
@@ -10320,6 +10486,10 @@ async def connect_integration(provider: str, payload: IntegrationConnectRequest=
     if provider not in PORTABLE_INTEGRATIONS:raise HTTPException(404,"Unknown integration")
     label=(payload.account_label or "").strip()[:180]
     external_id=(payload.external_account_id or "").strip()[:180]
+    if provider=="YouTube" and os.environ.get("FACTORY_OAUTH_GOOGLE_CLIENT_ID","").strip():
+        # T-552-YT: a configured Google OAuth client means the channel is connected by OAuth, not via Metricool.
+        return {"ok":False,"state":"oauth_redirect","provider":provider,"oauth_provider":"youtube",
+                "message":"Continue in Google to connect your YouTube channel."}
     if provider in ("Metricool","YouTube","Instagram","TikTok"):
         if not _metricool_credentials_present():
             return {"ok":False,"state":"needs_setup","provider":provider,
@@ -10380,6 +10550,8 @@ OAUTH_FLOW = OAuthFlow(
     redirect_base=FACTORY_PUBLIC_BASE_URL,
     client_id_lookup=lambda spec: os.environ.get(spec.client_id_env,""),
     vault=_oauth_token_vault(),
+    # T-552-YT: real Google transport for YouTube; other providers stay blocked until their adapters exist.
+    adapters={"youtube":youtube_publisher.GoogleOAuthAdapter()},
 )
 
 @app.get("/api/factory/vault/status")
@@ -11158,9 +11330,11 @@ def _recover_active_media_finisher_jobs():
                                 ORDER BY created_at DESC LIMIT 30""").fetchall();con.close()
     rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],360) and not _is_media_finisher_pilot_request(row["request_json"])
           and str((_decode_json(row["request_json"] or "{}",{})).get("compute_target") or "")!="local"]
-    checked=0
+    checked=durable=0
     for row in rows:
         try:
+            if durable_finisher.active(row["id"]):
+                durable+=1;continue  # T-612: its DBOS workflow waits for the callback and polls; never double-poll.
             if not str(row["provider_job_id"] or "").strip():
                 _spawn_media_finisher_submit(row["id"])
             else:
@@ -11168,7 +11342,7 @@ def _recover_active_media_finisher_jobs():
             checked+=1
         except Exception as exc:
             print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY_ERROR","edit_job_id":row["id"],"error":str(exc)[:400]}),flush=True)
-    if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked}),flush=True)
+    if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked,"durable":durable}),flush=True)
 
 def _media_finisher_watchdog_loop():
     time.sleep(8)
@@ -11486,6 +11660,11 @@ async def media_finisher_callback(edit_job_id:str,payload:MediaFinisherCallbackR
         output_url=(payload.final_url or payload.output_url or "").strip()
         item=_finalize_edit_job(edit_job_id,payload.status,output_url,payload.provider_job_id,payload.error,payload.raw,payload.report,payload.measured_cost_usd,payload.measured_duration_sec)
     except ValueError as exc:raise HTTPException(404,str(exc))
+    # T-612: wake the durable workflow now instead of at its next poll; a no-op when no workflow owns this job. The result is
+    # already saved, so a wake-up failure must not fail the worker's callback: the workflow's next poll reads the result.
+    try:await asyncio.to_thread(durable_finisher.notify,edit_job_id,{"status":item["status"]})
+    except Exception as exc:
+        print(json.dumps({"event":"DBOS_MEDIA_FINISHER_NOTIFY_ERROR","edit_job_id":edit_job_id,"error":str(exc)[:300]}),flush=True)
     await broadcast({"type":"media_finisher","action":"callback","editJobId":edit_job_id,"status":item["status"]})
     return {"ok":True,"edit_job":item}
 

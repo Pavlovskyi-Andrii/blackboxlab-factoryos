@@ -12,3 +12,6 @@ autopilot-ssh/
 .autopilot/*
 !.autopilot/answers.md
 !.autopilot/status.example.json
+
+# Temporary git worktrees of Claude Code subagents; never part of the project.
+.claude/worktrees/
