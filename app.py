@@ -1171,6 +1171,12 @@ async def _ab_content_job(title, brief, job_id):
 
 install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity, create_job=_ab_content_job)  # T-608..T-610 A/B Tester: drafts only, owner-gated
 install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
+from decision_memory import DecisionStore, install_decision_memory_routes, sync_mvp_registry_once  # noqa: E402
+install_decision_memory_routes(app, DecisionStore(DATA_DIR / "decision_memory.json", BASE / "DECISIONS.md"), request_identity)  # T-614 #187: owner-only
+try:
+    sync_mvp_registry_once(MVP_REGISTRY, DATA_DIR / "decision_memory_registry_intake.marker")  # links the existing #187 pilot
+except (OSError, ValueError) as exc:
+    print("Decision Memory registry intake skipped:", type(exc).__name__)
 from learn_center import install_learn_routes  # noqa: E402
 import brand_strategy as _brand_strategy_mod  # noqa: E402
 install_learn_routes(app, base=BASE, steps_source=lambda: _brand_strategy_mod.STEPS)  # owner 2026-11-14: one Learning section

@@ -593,6 +593,22 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   DONE: `python test_durable_media_finisher.py` passes (SIGKILL mid-wait → one submit; callback wake-up; lost-worker resubmit; release; version bump; app wiring on event-loop threads; kill switch) and the default verification passes.
   Live check after deploy (owner/Claude, not a blocker): one real Media Finisher run with a Render deploy in the middle → one worker job, result delivered; health details `durable_engine.launched=true`.
 
+## MVP Factory pilot 1 — AI Decision Memory (#187, epic #186)
+
+- [x] T-614 AI Decision Memory — owner-only web MVP over FactoryOS's real decision log
+  Owner: claude (session Decision Memory)
+  Priority: P1 (owner 2026-11-15: first wave of MVP pilots, parallel with #305 MyCast, #188 MyBrief, #189 Release Guardian)
+  Depends: #186 registry (`mvp_factory.py`, pilot `decision-memory` already seeded)
+  Spec: issue #187; DECISIONS.md «2026-11-15 — T-614»; interview script `docs/mvp/decision-memory/INTERVIEW_SCRIPT.md`
+  Goal: `decision_memory.py` + `static/decision-memory/index.html`: decision, rationale, responsible, source links, expected outcome, follow-up review (verdict + next date); demo dataset parsed at runtime from DECISIONS.md with credential-shaped text redacted and no invented fields; persistence in `DATA_DIR/decision_memory.json` with idempotent creates/reviews; owner-only API; the existing `decision-memory` registry project gets its preview link and moves only through the agent-allowed stages (research, spec) with evidence. No AI/provider/network call, no publishing, no public data.
+  DONE: `python test_decision_memory.py`, `python test_mvp_factory.py`, `python test_mvp_state_machine.py`, page script `node --check`, and the default verification pass.
+
+- [ ] [HUMAN] T-614-H1 Decision Memory: review the preview, run 5 validation interviews, decide
+  Owner: owner
+  Depends: T-614 merged and deployed
+  Need: owner opens the preview, fills expected outcome / review date for a few real decisions, contacts 5 people (external contact = owner action) with the interview script, and records build/preview/verdict steps in MVP Builder (agents may not move a pilot past spec review).
+  DONE: MVP Builder shows the `decision-memory` pilot at `validated` or `rejected` with an owner event citing the aggregate interview result.
+
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
 - [ ] T-607 Gemini Worker — third authenticated engineering operator via existing Relay
