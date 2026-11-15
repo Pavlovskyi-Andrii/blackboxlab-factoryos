@@ -1318,3 +1318,23 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   answers.md on every pass; the old code re-ran the blocked task 13 times in that test.
 - Not done here (owner/interactive session): resolve the `autopilot/aws-worker` ↔ `main` conflict; until it is
   resolved this fix cannot reach the worker through its main sync.
+
+## 2026-11-15 — T-607 Gemini worker runtime (Google-account login only)
+
+- Owner choice: Gemini CLI on EC2 signs in with Google ("Login with Google", personal free tier); no API key. An AI Studio
+  key is free only while its project has no billing, so the worker refuses to start with `GEMINI_API_KEY`/`GOOGLE_API_KEY`/
+  `GOOGLE_GENAI_USE_VERTEXAI`/`GOOGLE_APPLICATION_CREDENTIALS` set, strips them from each run, and each run gets a system
+  settings file (`GEMINI_CLI_SYSTEM_SETTINGS_PATH` → `.autopilot/gemini-settings.json`) with `security.auth.enforcedType=oauth-personal`.
+  Preflight blocks (no run) without `gemini` on PATH or `~/.gemini/oauth_creds.json`.
+- Same loop, separate process: `autopilot/gemini_worker.py` runs `autopilot.autopilot` with `AUTOPILOT_OPERATOR=gemini`
+  `AUTOPILOT_AGENT=gemini` from its own checkout/branch (`autopilot/gemini-worker`), so the two runners never share a working tree.
+  The Gemini lane takes only `Owner: gemini` (no shared/unowned tasks), and skips owner questions, MyCast, Codex review,
+  browser tasks, Relay owner tickets and owner controls (those belong to the Claude runner; acking controls would swallow Claude's).
+- Headless Gemini runs with `--yolo` (it cannot ask for approval); the boundary is the excluded-tools list (push/merge/rebase/
+  reset --hard/gh/curl/sudo/deploy, written under both the current `tools.exclude` and legacy `excludeTools` keys) plus the
+  existing evidence check (remote-ref change ⇒ push detected ⇒ failed). Exact flag/setting support depends on the installed
+  Gemini CLI version and is verified only on the live probe (T-607-P).
+- Server: new owner-set `FACTORY_GEMINI_WORKER_TOKEN` (≥ 32 chars, no derived default). It opens only `/api/relay/worker/roadmap-claim`
+  (lane must be gemini), `/api/relay/worker/event` (ticket execution owner must be gemini) and `/api/operator-worker/heartbeat`
+  (operator gemini). Tested through the real ASGI app.
+- The FactoryOS Pause button stays Claude-only; the Gemini worker is stopped with systemctl (runbook).
