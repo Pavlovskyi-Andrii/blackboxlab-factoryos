@@ -155,26 +155,43 @@ class SearchTest(unittest.TestCase):
                 s.search(bad)
 
 
+def mcp_call(factory, payload, token=None):
+    """Calls the /mcp handler directly (CI has no HTTP client for TestClient)."""
+    from starlette.requests import Request
+    body = json.dumps(payload).encode()
+    headers = [(b"content-type", b"application/json")]
+    if token:
+        headers.append((b"authorization", ("Bearer " + token).encode()))
+    sent = {"done": False}
+
+    async def receive():
+        if sent["done"]:
+            return {"type": "http.disconnect"}
+        sent["done"] = True
+        return {"type": "http.request", "body": body, "more_body": False}
+    request = Request({"type": "http", "method": "POST", "path": "/mcp", "query_string": b"", "headers": headers},
+                      receive)
+    response = asyncio.run(factory.factory_mcp(request))
+    return response.status_code, json.loads(response.body or b"{}")
+
+
 class McpEndpointTest(unittest.TestCase):
     def test_tools_listed_and_callable_through_mcp(self):
-        from fastapi.testclient import TestClient
         import app as factory
         factory.WEB_SEARCH.opener = Opener(WIKI)
-        client = TestClient(factory.app)
-        headers = {"Authorization": "Bearer " + factory.FACTORY_MCP_TOKEN}
-        listed = client.post("/mcp", headers=headers, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).json()
+        token = factory.FACTORY_MCP_TOKEN
+        _, listed = mcp_call(factory, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, token)
         names = {t["name"] for t in listed["result"]["tools"]}
         self.assertTrue({"web_search", "web_read", "web_task", "get_design_context"} <= names)
-        self.assertEqual(client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).status_code, 401)
-        found = client.post("/mcp", headers=headers, json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
-            "name": "web_search", "arguments": {"query": "web browser", "agent": "gemini"}}}).json()
+        self.assertEqual(mcp_call(factory, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0], 401)
+        _, found = mcp_call(factory, {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+            "name": "web_search", "arguments": {"query": "web browser", "agent": "gemini"}}}, token)
         self.assertEqual(json.loads(found["result"]["content"][0]["text"])["provider"], "wikipedia")
-        queued = client.post("/mcp", headers=headers, json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
-            "name": "web_read", "arguments": {"url": "https://example.com", "wait_seconds": 0}}}).json()
-        task = json.loads(queued["result"]["content"][0]["text"])
-        self.assertEqual(task["status"], "queued")
-        bad = client.post("/mcp", headers=headers, json={"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {
-            "name": "web_read", "arguments": {"url": "http://example.com"}}}).json()
+        _, queued = mcp_call(factory, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
+            "name": "web_read", "arguments": {"url": "https://example.com", "wait_seconds": 0}}}, token)
+        self.assertEqual(json.loads(queued["result"]["content"][0]["text"])["status"], "queued")
+        _, bad = mcp_call(factory, {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {
+            "name": "web_read", "arguments": {"url": "http://example.com"}}}, token)
         self.assertTrue(bad["result"]["isError"])
 
 
