@@ -1696,4 +1696,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   the workflow token may not create a ref on such a commit. v5.9.0 moves to `b991f85` (#294), the week's last merge
   without a workflow edit; #295, #297 and #298 move to the v5.10.0 entry (the already published v5.10.0 release notes
   were written before this move). `test_versioning.py` now refuses a backfill commit that edits workflows.
+- Correction: the "workflow-editing commit" explanation was wrong. Run 43852619083 got the same 403 for `b991f85`,
+  whose own diff touches no workflow, while v5.6…v5.8.0 (whose trees also differ from main in `.github/workflows`)
+  and v5.10.0 worked. The only shared trait of the two refused commits is that their tree has `gemini-coder.yml`,
+  which no earlier tag has; GitHub does not document the rule, so it is not encoded in a test. The guard added to
+  `test_versioning.py` on that wrong premise is removed, v5.9.0 leaves the backfill list (so pushes stop failing),
+  and the owner creates v5.9.0 once in the GitHub UI on `b991f85` with the README entry as notes (owner credentials
+  are not limited like the workflow token). Answers the two minor Codex findings on #398 by removing that check.
 

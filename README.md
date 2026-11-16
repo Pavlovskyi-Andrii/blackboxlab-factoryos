@@ -24,8 +24,7 @@ and `/health` all show it, and `test_versioning.py` fails CI if this changelog's
 `APP_VERSION` disagree. Minor = new features, patch = fixes only. A release PR bumps the version and adds its entry
 here; after it merges, `.github/workflows/release.yml` tags the merge commit and publishes the GitHub Release.
 v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their weeks: the app showed `v5.7.1`
-during that time. v5.9.0 is tagged on #294: GitHub's workflow token cannot tag a commit that edits
-`.github/workflows`, which #295, #297 and #298 do, so those three belong to v5.10.0.
+during that time. v5.9.0 ends at #294 (2026-11-08); #295, #297 and #298 are in v5.10.0.
 
 ### v5.10.0 — Evidence, MVP Builder, Brand Strategy, Durable Engine, Mods & Skills — 2026-11-08 … 2026-11-16
 - **Version sync and releases:** the sidebar badge (was a hard-coded `v5.3`), header and `/health` now all show
