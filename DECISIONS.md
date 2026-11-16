@@ -1729,3 +1729,8 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   confirmation flow, open agent log, run from stage, review. Editing an input/result is not offered: the backend has
   no artifact edit endpoint outside Variant Studio's partial reruns (reachable from the selected-job panel).
 - Hop details stay collapsed except unresolved failures; open/closed state survives the frequent WebSocket re-renders.
+## 2026-11-16 — Gemini search: flash-lite fallback, 429 tries the next model
+
+- Production after the daily reset: `gemini-2.5-flash` 404, `gemini-flash-latest` 429 RESOURCE_EXHAUSTED. Owner asked to try
+  `gemini-flash-lite-latest`. It is added to the fallback list, and a 429 now moves to the next model (quotas are per
+  model); network errors and 5xx still stop. At most 3 Gemini calls per search (`GEMINI_MAX_ATTEMPTS`: the resolved model first, then the fallbacks in order), still one count against the 100/day cap.
