@@ -822,6 +822,12 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Goal: the `cycle` screen shows a 7-step map (who acts: agent or you; what is needed from you) with each cycle's current position, a collapsible plain-language «How does Autopilot work?», a demo/live cost line, a beginner empty state, a new-cycle form (start from newest signals or a ready idea) with an optional target (brand / topic / platform / audience) visible on every card, Stop / Resume / Retry, «Change target» before production, and buttons that open each step's real result. Safety unchanged: the cycle still stops at human approval, publishing stays a separate explicit action, paid runs still need the cost confirmation; nothing paid is enabled.
   DONE: `python test_factory_cycle_controls.py` (target validation and use, topic filter, stop/resume incl. pending stop before production, approval gate, cost confirmation, readiness) + `test_locale_parity.py`, `test_navigation.py`, `test_explainability.py`, smoke suite and inline-JS `node --check` green; screenshots at 1280/390 px in `docs/screenshots/t-646/` with no horizontal scroll.
 
+- [x] T-647 Cycle Control: server error and status messages in EN/UK/RU
+  Owner: claude (session Autopilot UX)
+  Spec: owner 2026-11-16 «переведи серверные ошибки цикла на UK/RU»; follow-up to T-646; DECISIONS.md «2026-11-16 — T-647»
+  Goal: every cycle error the server returns (HTTP errors of the cycle routes, the stored `last_error`, error events in the history, run/learn messages) carries a stable code + params next to its English text, and the dashboard shows it in the selected language; an unknown message is shown as "server message (not translated)" with the original text, never hidden.
+  DONE: `python test_factory_cycle_controls.py` (every code translated in EN/UK/RU, real messages map to codes, failure stores the code, HTTP detail carries it) + locale parity, navigation, explainability, smoke and `node --check` green; screenshots in `docs/screenshots/t-647/`.
+
 ## Content making-of (owner voice note 2026-11-16, items 5–6)
 
 - [x] T-690 Content runs: close runs interrupted by a restart, show where each content item stopped

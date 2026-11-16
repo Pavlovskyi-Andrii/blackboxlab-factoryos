@@ -202,7 +202,84 @@ class CycleControls(unittest.TestCase):
         after = app.get_factory_cycle(c["id"], True)
         self.assertEqual(after["status"], "stopped")
         self.assertIn("provider exploded", after["last_error"])
+        ev = next(e for e in after["events"] if (e["meta"] or {}).get("code") == "stopped_then_failed")
+        self.assertEqual(ev["meta"]["cause"]["code"], "unknown")
+        self.assertEqual(ev["meta"]["cause"]["text"], "provider exploded")
         self.assertEqual(app.sync_factory_cycle(c["id"])["status"], "stopped", "stays stopped until resumed")
+
+    # T-647: server messages carry a code so the dashboard can show them in EN/UK/RU.
+    def test_every_server_message_code_is_translated(self):
+        import json
+        import re
+        html = (__import__("pathlib").Path(__file__).resolve().parent / "static" / "index.html").read_text(encoding="utf-8")
+        codes = {code for _, code in app.CYCLE_MESSAGE_CODES} | {"unknown", "stopped_then_failed", "brand_not_linked"}
+        for lang in ("en", "uk", "ru"):
+            line = next(l for l in html.split("\n") if l.startswith("Object.assign(I18N." + lang + ",{") and '"cycle.srv.not_found"' in l)
+            keys = set(json.loads(line[len("Object.assign(I18N." + lang + ","):-2]))
+            missing = {c for c in codes if "cycle.srv." + c not in keys}
+            self.assertFalse(missing, f"{lang} lacks translations for {missing}")
+        self.assertIn("cycleApi('/api/factory-cycles", html)
+        self.assertNotRegex(html, r"[^e]api\('/api/factory-cycles", "cycle calls must go through cycleApi")
+
+    def test_real_messages_map_to_codes(self):
+        cases = {
+            "Live LLM provider is not configured": "llm_not_configured",
+            "Daily provider budget would be exceeded by the next Content Brain call": "daily_budget",
+            "No source signals are available. Add a signal or configure RSS feeds.": "no_signals",
+            "No source signals available": "no_signals",
+            "Rejected idea cannot enter production": "idea_rejected",
+            "Live-mode idea must pass Content Brain verification before production": "idea_not_verified",
+            "Production did not reach the human approval gate": "production_not_at_gate",
+            "This cycle is stopped. Resume it first.": "stopped_resume_first",
+            "Factory cycle not found": "not_found",
+            "Unknown target platform: fax": "bad_platform",
+            "No real performance snapshot exists for this cycle yet.": "no_metrics",
+        }
+        for msg, code in cases.items():
+            self.assertEqual(app.cycle_message_info(msg)[0], code, msg)
+        self.assertEqual(app.cycle_message_info("Unknown target platform: fax")[1], {"value": "fax"})
+        code, params = app.cycle_message_info("This idea already has production job abcd1234 made for a different target "
+                                               "(TOPIC: alpha). Start the cycle from another idea, or set the same target.")
+        self.assertEqual((code, params), ("job_other_target", {"job": "abcd1234", "have": "TOPIC: alpha"}))
+        self.assertEqual(app.cycle_message_info("boom"), ("unknown", {"text": "boom"}))
+        code, params = app.cycle_message_info("x" * 900)
+        self.assertEqual(code, "unknown")
+        self.assertTrue(params["truncated"])
+        self.assertTrue(params["text"].endswith("…"))
+
+    def test_failure_stores_code_and_http_errors_carry_it(self):
+        signal("Error codes fixture signal", "codes")
+        c = app.create_factory_cycle(app.FactoryCycleCreate(target={"topic": "codes"}))
+        run(app._run_factory_cycle_to_review(c["id"], 1, "English"))   # demo: no LLM -> idea generation fails
+        after = app.get_factory_cycle(c["id"], True)
+        self.assertEqual(after["status"], "failed")
+        self.assertEqual(after["meta"]["last_error_code"], "llm_not_configured")
+        self.assertTrue(any((e["meta"] or {}).get("code") == "llm_not_configured" for e in after["events"]))
+        app.stop_factory_cycle(c["id"])
+        with self.assertRaises(HTTPException) as ctx:
+            run(app.run_factory_cycle_api(c["id"], app.FactoryCycleRunRequest()))
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(ctx.exception.detail["code"], "stopped_resume_first")
+        self.assertIn("Resume", ctx.exception.detail["message"])
+        app.resume_factory_cycle(c["id"])
+        out = run(app.run_factory_cycle_api(c["id"], app.FactoryCycleRunRequest()))
+        self.assertEqual(out["message_code"], "started")
+
+    def test_stop_then_parameterized_failure_keeps_cause_params(self):
+        c = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=idea("Stop then param fail")["id"]))
+        original = app.run_until_review
+
+        async def stop_then_fail(job_id):
+            app.stop_factory_cycle(c["id"])
+            raise RuntimeError("Unknown target platform: fax")
+        app.run_until_review = stop_then_fail
+        try:
+            run(app._run_factory_cycle_to_review(c["id"], 1, "English"))
+        finally:
+            app.run_until_review = original
+        ev = next(e for e in app.get_factory_cycle(c["id"], True)["events"] if (e["meta"] or {}).get("code") == "stopped_then_failed")
+        self.assertEqual(ev["meta"]["cause"]["code"], "bad_platform")
+        self.assertEqual(ev["meta"]["cause"]["params"], {"value": "fax"})
 
     def test_next_cycle_inherits_target(self):
         parent = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=idea()["id"], target={"topic": "kept", "audience": "parents"}))
