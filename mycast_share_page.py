@@ -12,7 +12,8 @@ What a recipient of a shared episode sees, with no login:
 
 Demo cards come from `static/mycast-share/demos.json`. A card plays only when its file sits in
 `static/mycast-share/audio/` and the owner approved it (`approved_by_owner: true`); otherwise it says "soon" and has
-no play button (T-645-H). City pictures are generative SVG drawn here, no external images.
+no play button (T-645-H). T-665: a card also plays a track the owner generated with Gemini in the owner console
+(`mycast_demo_audio.py`, kept under DATA_DIR) once the owner approved it. City pictures are generative SVG drawn here, no external images.
 T-620 guarantees stay: noindex/no-store (route headers), revocable token, every model/user string escaped.
 """
 from __future__ import annotations
@@ -29,6 +30,14 @@ BASE = Path(__file__).parent
 DEMO_MANIFEST = BASE / "static" / "mycast-share" / "demos.json"
 DEMO_AUDIO_DIR = BASE / "static" / "mycast-share" / "audio"
 DEMO_AUDIO_RE = re.compile(r"^/static/mycast-share/audio/[a-z0-9][a-z0-9_-]{0,60}\.(mp3|m4a|ogg)$")
+# T-665: owner-generated, owner-approved tracks kept under DATA_DIR and served by mycast_demo_audio.
+DEMO_SERVER_AUDIO_RE = re.compile(r"^/mycast/demo/[a-z0-9][a-z0-9_-]{0,39}\.(uk|ru|en)\.mp3$")
+_DEMO_AUDIO_SOURCE = None   # callable(city, lang) -> approved public URL or None; set by app.py
+
+
+def set_demo_audio_source(fn) -> None:
+    global _DEMO_AUDIO_SOURCE
+    _DEMO_AUDIO_SOURCE = fn
 LANGS = ("uk", "ru", "en")
 SITE = "https://mycast.pro"
 
@@ -231,8 +240,10 @@ def _loc(v, lang: str) -> str:
     return str(v or "")[:240]
 
 
-def demo_cards(lang: str, *, manifest: Path = DEMO_MANIFEST, audio_dir: Path = DEMO_AUDIO_DIR) -> list:
-    """Demo cards from the manifest. `audio` is kept only for an owner-approved local file that exists."""
+def demo_cards(lang: str, *, manifest: Path = DEMO_MANIFEST, audio_dir: Path = DEMO_AUDIO_DIR, server_audio=None) -> list:
+    """Demo cards from the manifest. `audio` is kept only for an owner-approved local file that exists, or (T-665) an
+    owner-approved track from the server store (`server_audio(city, lang)`)."""
+    server_audio = _DEMO_AUDIO_SOURCE if server_audio is None else server_audio
     try:
         data = json.loads(manifest.read_text(encoding="utf-8"))
     except Exception:
@@ -244,9 +255,20 @@ def demo_cards(lang: str, *, manifest: Path = DEMO_MANIFEST, audio_dir: Path = D
         audio = str(d.get("audio") or "")
         playable = (d.get("approved_by_owner") is True and bool(DEMO_AUDIO_RE.match(audio))
                     and (audio_dir / audio.rsplit("/", 1)[1]).is_file())
+        meta = _loc(d.get("meta"), lang)
+        if not playable and server_audio:
+            try:
+                url = server_audio(d["id"], lang)
+            except Exception:
+                url = None
+            if isinstance(url, str) and DEMO_SERVER_AUDIO_RE.match(url):
+                audio, playable = url, True
+                track_lang = url.rsplit(".", 2)[1]
+                if track_lang != lang:                       # say so when only another language is approved
+                    meta = f"{meta} · {track_lang.upper()}"
         palette = [c for c in (d.get("palette") or []) if isinstance(c, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", c)]
         out.append({"id": d["id"], "name": _loc(d.get("name"), lang), "title": _loc(d.get("title"), lang),
-                    "desc": _loc(d.get("desc"), lang), "meta": _loc(d.get("meta"), lang),
+                    "desc": _loc(d.get("desc"), lang), "meta": meta,
                     "motif": str(d.get("motif") or "temple"), "palette": palette, "audio": audio if playable else None})
     return out
 

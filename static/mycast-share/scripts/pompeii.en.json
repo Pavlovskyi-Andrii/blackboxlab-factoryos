@@ -1,0 +1,73 @@
+{
+ "id": "pompeii",
+ "language": "en",
+ "title": "Pompeii: a day under the ash",
+ "voices": "MyCast two hosts: A = Charon, B = Kore (mycast.gemini_tts_pcm)",
+ "checked": "2026-11-16: dates, numbers and names checked against the lead of en.wikipedia.org/wiki/Pompeii read through the FactoryOS Surfer; the other links are the standard Wikipedia articles for the remaining facts. No invented facts or quotes.",
+ "sources": [
+  "https://en.wikipedia.org/wiki/Pompeii",
+  "https://en.wikipedia.org/wiki/Eruption_of_Mount_Vesuvius_in_79_AD"
+ ],
+ "lines": [
+  {
+   "host": "A",
+   "text": "Hi! This is a MyCast demo. Today we are in Pompeii, near Naples."
+  },
+  {
+   "host": "B",
+   "text": "The city that stopped in AD 79. What happened?"
+  },
+  {
+   "host": "A",
+   "text": "Mount Vesuvius erupted. Pompeii, along with Herculaneum and Stabiae, was buried under four to six metres of volcanic ash and pumice."
+  },
+  {
+   "host": "B",
+   "text": "How many people lived there?"
+  },
+  {
+   "host": "A",
+   "text": "Estimates range from ten to twenty thousand. It was a wealthy town with fine public buildings and luxurious houses."
+  },
+  {
+   "host": "B",
+   "text": "Do we know how it all unfolded?"
+  },
+  {
+   "host": "A",
+   "text": "We have an eyewitness: the letters of Pliny the Younger, who watched the eruption from across the bay. The exact day is still debated: traditionally August, but newer finds point to autumn."
+  },
+  {
+   "host": "B",
+   "text": "Why is Pompeii so important to science?"
+  },
+  {
+   "host": "A",
+   "text": "Because the ash preserved the city almost whole. UNESCO calls it the only site that gives a complete picture of an ancient Roman city."
+  },
+  {
+   "host": "B",
+   "text": "And there is graffiti too, right?"
+  },
+  {
+   "host": "A",
+   "text": "Hundreds of wall inscriptions. Scholars use them to study everyday spoken Latin, not the Latin of the classical writers."
+  },
+  {
+   "host": "B",
+   "text": "What about those famous figures of people?"
+  },
+  {
+   "host": "A",
+   "text": "The bodies decayed and left hollows in the ash. Archaeologists filled them with plaster and got casts of people's last moments."
+  },
+  {
+   "host": "B",
+   "text": "Haunting and moving at once. Today millions of visitors come every year."
+  },
+  {
+   "host": "A",
+   "text": "That was a MyCast demo episode. You can build your own podcast at mycast.pro."
+  }
+ ]
+}
