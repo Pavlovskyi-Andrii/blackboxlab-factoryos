@@ -1,3 +1,16 @@
+- [ ] [HUMAN] T-645-H Generate, listen to and approve the MyCast demo episodes (Athens, Rome, …)
+  Depends: T-645, T-665
+  Need: owner (who approved Gemini voicing within the free quota, 2026-11-16) opens the owner console `/factory/mycast-demos` on the FactoryOS host, presses "Generate" (one city or all, ≤5 per run, ≤10 per day; a Google 429 stops the run, retry the next day), listens to each track and presses "Approve". Runbook in Worker Center → «Ваши задачи».
+  DONE: at least the Athens and Rome cards play on a live `/mycast/e/<token>` page.
+
+- [x] T-665 MyCast demo audio: owner-triggered Gemini voicing of the demo cities, approve-before-public
+  Owner: claude (session MyCast demo audio)
+  Priority: P1 (owner request 2026-11-16: «Демо-аудио для городов (T-645-H) — озвучь их Gemini», free quota only)
+  Depends: T-645
+  Spec: DECISIONS.md «2026-11-16 — T-665». `mycast_demo_audio.py`; scripts `static/mycast-share/scripts/<city>.<lang>.json` (UK/RU/EN, sources).
+  Goal: fact-checked two-host scripts for the five demo cities in the repo; an owner-only console and API voice one city or all with the existing MyCast TTS (`gemini_tts_pcm`, Charon + Kore) and the server key, store MP3 under DATA_DIR (never the repo), never re-voice a finished track without an explicit "regenerate", cap 5 per run and a daily cap, stop the whole run on a Google 429 with "quota exhausted, try again tomorrow"; the shared-episode page plays only tracks the owner approved (owner-only "Approve"), served from `/mycast/demo/<city>.<lang>.mp3`. Nothing is generated or published automatically.
+  DONE: `python test_mycast_demo_audio.py` (fake TTS: scripts, idempotency, run/daily caps, 429 stop, owner-only routes, approval and its withdrawal, public route and page play approved tracks only, escaping, `node --check` of the console JS) and every `test_mycast*.py`, `python test_owner_desk.py` and the default verification pass.
+
 # FactoryOS Roadmap
 
 This file is the execution queue for the autonomous Factory Builder.

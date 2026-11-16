@@ -158,16 +158,40 @@ class SearchTest(unittest.TestCase):
         out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "x"})
         self.assertEqual((out["provider"], out["model"]), ("gemini_google_search", "gemini-flash-latest"))
         self.assertIn("/models/gemini-2.5-flash:", opener.requests[0].full_url)   # resolved model first
-        opener = Opener(http_error(429, "RESOURCE_EXHAUSTED", "quota secret"), WIKI)
+        opener = Opener(http_error(429, "RESOURCE_EXHAUSTED", "quota secret"), GEMINI)
         out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "y"})
+        self.assertEqual((out["provider"], out["model"]), ("gemini_google_search", "gemini-flash-latest"))  # 429 → next model
+        opener = Opener(*[http_error(429, "RESOURCE_EXHAUSTED", "quota secret") for _ in range(3)], WIKI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "y2"})
         self.assertEqual(out["provider"], "wikipedia")
-        self.assertIn("HTTP 429 RESOURCE_EXHAUSTED", out["note"])
+        self.assertIn("gemini-flash-lite-latest: HTTP 429 RESOURCE_EXHAUSTED", out["note"])
         self.assertNotIn("secret", json.dumps(out))
-        self.assertEqual(len(opener.requests), 2)                  # 429 is not retried on another model
-        opener = Opener(*[http_error(400, "bad status!", "m") for _ in range(2)], WIKI)
+        self.assertEqual(len(opener.requests), 4)                  # 3 distinct models + Wikipedia
+        opener = Opener(OSError("down"), WIKI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "y3"})
+        self.assertEqual(len(opener.requests), 2)                  # a network error is not retried on another model
+        opener = Opener(*[http_error(400, "bad status!", "m") for _ in range(3)], WIKI)
         out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "z"})
         self.assertIn("gemini-2.5-flash: HTTP 400;", out["note"])  # non-enum status text is dropped
         self.assertNotIn("bad status", out["note"])
+
+    def test_production_sequence_404_429_then_flash_lite_and_three_attempt_cap(self):
+        import urllib.error
+
+        def http_error(code, status):
+            body = json.dumps({"error": {"code": code, "status": status}}).encode()
+            return urllib.error.HTTPError("https://x", code, "err", {}, io.BytesIO(body))
+        opener = Opener(http_error(404, "NOT_FOUND"), http_error(429, "RESOURCE_EXHAUSTED"), GEMINI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "q"})
+        self.assertEqual((out["provider"], out["model"]), ("gemini_google_search", "gemini-flash-lite-latest"))
+        self.assertIn("/models/gemini-flash-lite-latest:", opener.requests[2].full_url)
+        s = ws.WebSearch(pathlib.Path(self.tmp.name), provider=lambda: "gemini", gemini_key=lambda: "k",
+                         gemini_model=lambda _k: "gemini-9.9-flash",
+                         opener=Opener(*[http_error(404, "NOT_FOUND") for _ in range(3)], WIKI), cap=10)
+        out = s.search({"query": "q2"})                            # resolved model outside the fallback list
+        self.assertEqual(len(s.opener.requests), 4)                # still 3 Gemini calls + Wikipedia
+        self.assertIn("gemini-9.9-flash: HTTP 404", out["note"])
+        self.assertNotIn("gemini-2.5-flash", out["note"])
 
     def test_query_validation(self):
         s = search(self.tmp.name, opener=Opener())

@@ -1,0 +1,77 @@
+{
+ "id": "athens",
+ "language": "en",
+ "title": "Acropolis: the city on the rock",
+ "voices": "MyCast two hosts: A = Charon, B = Kore (mycast.gemini_tts_pcm)",
+ "checked": "2026-11-16: dates, numbers and names checked against the lead of en.wikipedia.org/wiki/Parthenon read through the FactoryOS Surfer; the other links are the standard Wikipedia articles for the remaining facts. No invented facts or quotes.",
+ "sources": [
+  "https://en.wikipedia.org/wiki/Parthenon",
+  "https://en.wikipedia.org/wiki/Acropolis_of_Athens"
+ ],
+ "lines": [
+  {
+   "host": "A",
+   "text": "Hi! This is a MyCast demo, and today we are on the Acropolis in Athens."
+  },
+  {
+   "host": "B",
+   "text": "The rock above the city where the Parthenon stands. Where did it come from?"
+  },
+  {
+   "host": "A",
+   "text": "It was built in the fifth century BC as a thanksgiving for the Greek victory over the Persian invaders. Construction started in 447 BC."
+  },
+  {
+   "host": "B",
+   "text": "How long did the work take?"
+  },
+  {
+   "host": "A",
+   "text": "The temple itself was finished in 438 BC, and the sculptures and decoration went on until 432. The architects were Iktinos and Callicrates."
+  },
+  {
+   "host": "B",
+   "text": "And inside stood a huge statue of Athena by Phidias, right?"
+  },
+  {
+   "host": "A",
+   "text": "Right. Interestingly, the temple was also a treasury. For a time it held the funds of the Delian League."
+  },
+  {
+   "host": "B",
+   "text": "So it was a temple and a bank at once. But today the Parthenon has no roof. What happened?"
+  },
+  {
+   "host": "A",
+   "text": "It had a stormy history. At the end of the sixth century AD it became a Christian church, and after the Ottoman conquest, a mosque."
+  },
+  {
+   "host": "B",
+   "text": "And the destruction?"
+  },
+  {
+   "host": "A",
+   "text": "In 1687, during the Venetian siege of the Acropolis, a bomb hit the Parthenon, which the Ottomans used to store gunpowder. The explosion wrecked much of the building."
+  },
+  {
+   "host": "B",
+   "text": "What about the sculptures that survived?"
+  },
+  {
+   "host": "A",
+   "text": "In the early nineteenth century Lord Elgin took many of them to England. People still argue about where they belong."
+  },
+  {
+   "host": "B",
+   "text": "And since 1975 Greece has run large restoration projects there."
+  },
+  {
+   "host": "A",
+   "text": "So when you look at the Parthenon, you see twenty-five centuries of history in one stone."
+  },
+  {
+   "host": "B",
+   "text": "That was a MyCast demo episode. You can build your own podcast at mycast.pro."
+  }
+ ]
+}
