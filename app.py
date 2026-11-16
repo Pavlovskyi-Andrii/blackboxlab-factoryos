@@ -1935,8 +1935,32 @@ def health_details():
 
 clients: set[WebSocket] = set()
 member_clients: set[WebSocket] = set()
-running_jobs: set[str] = set()
+class _LeasedJobSet(set):
+    """T-690: the in-process job registry also writes a job lease, so another process (an overlapping deploy) can
+    see that this process is executing the job and must not reset it."""
+    def add(self, job_id):
+        super().add(job_id)
+        _write_job_lease(job_id, True)
+    def discard(self, job_id):
+        super().discard(job_id)
+        _write_job_lease(job_id, False)
+
+def _write_job_lease(job_id, held):
+    try:
+        con=db()
+        if held:
+            con.execute("INSERT OR REPLACE INTO job_leases(job_id,process_id,created_at) VALUES(?,?,?)",(job_id,PROCESS_ID,ts()))
+        else:
+            con.execute("DELETE FROM job_leases WHERE job_id=? AND process_id=?",(job_id,PROCESS_ID))
+        con.commit();con.close()
+    except Exception as exc:
+        print(json.dumps({"event":"JOB_LEASE_ERROR","error":str(exc)[:200]}),flush=True)
+
+running_jobs: set[str] = _LeasedJobSet()
 package_building: set[str] = set()
+# T-690: runs this process started and has not finished yet (content pipeline, variant reruns, Content Packager,
+# media QA …). A run of ours is orphaned only when it is not here, whatever registry its caller used.
+LIVE_RUNS: set[str] = set()
 selected_job_id: Optional[str] = None
 selected_job_by_workspace: dict = {}
 agent_runtime = {name: "idle" for name in AGENTS}
@@ -2288,6 +2312,11 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent, started_at DESC);
     CREATE TABLE IF NOT EXISTS agent_run_leases(
       run_id TEXT PRIMARY KEY,
+      process_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS job_leases(
+      job_id TEXT PRIMARY KEY,
       process_id TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
@@ -4191,6 +4220,7 @@ def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
     # T-690: the run belongs to this process; another process may close it only after our heartbeat lease expires.
     con.execute("INSERT OR REPLACE INTO agent_run_leases(run_id,process_id,created_at) VALUES(?,?,?)",(run_id,PROCESS_ID,now))
     con.commit(); con.close()
+    LIVE_RUNS.add(run_id)
     return run_id
 
 def attach_run_inputs(run_id, inputs):
@@ -4203,6 +4233,7 @@ def attach_run_inputs(run_id, inputs):
     con.commit(); con.close()
 
 def finish_agent_run(run_id, status="completed", input_tokens=0, output_tokens=0, cost_usd=0.0, error=None, meta=None):
+    LIVE_RUNS.discard(run_id)
     con=db(); row=con.execute("SELECT started_at FROM agent_runs WHERE id=?",(run_id,)).fetchone()
     finished=ts()
     duration_ms=0
@@ -7555,12 +7586,22 @@ def _heartbeat_loop():
         except Exception as exc:print(json.dumps({"event":"PROCESS_HEARTBEAT_ERROR","error":str(exc)[:200]}),flush=True)
         time.sleep(RUN_HEARTBEAT_SECONDS)
 
+def _lease_cutoff(seconds):
+    return (datetime.now(timezone.utc)-timedelta(seconds=seconds)).isoformat()
+
+def job_owned_by_live_process(job_id, lease_seconds=None):
+    """True when another process holds a fresh lease on the job (it is executing it right now)."""
+    cutoff=_lease_cutoff(RUN_LEASE_SECONDS if lease_seconds is None else lease_seconds)
+    con=db()
+    row=con.execute("""SELECT 1 FROM job_leases j JOIN process_heartbeats h ON h.process_id=j.process_id
+                       WHERE j.job_id=? AND j.process_id<>? AND h.heartbeat_at>?""",(job_id,PROCESS_ID,cutoff)).fetchone()
+    con.close()
+    return bool(row)
+
 def _run_is_orphaned(row, now_dt, lease_seconds, legacy_grace_seconds):
-    if row["job_id"] in running_jobs:
-        return False
     owner=row.get("process_id")
     if owner==PROCESS_ID:
-        return True  # our own run whose task is gone (dead task / orphan heal)
+        return row["id"] not in LIVE_RUNS  # our own run whose task is gone (no finish was recorded)
     if owner:
         beat=row.get("heartbeat_at")
         return not beat or (now_dt-_parse_dt(beat)).total_seconds()>lease_seconds
@@ -7585,11 +7626,21 @@ def close_interrupted_agent_runs(job_id=None, lease_seconds=None, legacy_grace_s
     now_dt=datetime.now(timezone.utc)
     rows=[dict(x) for x in con.execute(sql,params).fetchall()]
     rows=[r for r in rows if _run_is_orphaned(r,now_dt,lease,grace)]
-    now=ts()
+    now=ts();closed=[]
+    lease_cut=_lease_cutoff(lease);legacy_cut=_lease_cutoff(grace)
     for r in rows:
-        con.execute("UPDATE agent_runs SET status='failed',finished_at=?,error=? WHERE id=? AND status='running'",
-                    (now,RUN_INTERRUPTED_ERROR,r["id"]))
+        if r.get("process_id")==PROCESS_ID and r["id"] in LIVE_RUNS:
+            continue
+        # The ownership test is repeated inside the UPDATE, so a heartbeat renewed after the SELECT still protects the
+        # run: a foreign owner must be stale *now*, and a lease-less run must still be older than the grace window.
+        cur=con.execute("""UPDATE agent_runs SET status='failed',finished_at=?,error=? WHERE id=? AND status='running'
+                AND NOT EXISTS (SELECT 1 FROM agent_run_leases l JOIN process_heartbeats h ON h.process_id=l.process_id
+                                WHERE l.run_id=agent_runs.id AND l.process_id<>? AND h.heartbeat_at>?)
+                AND (EXISTS (SELECT 1 FROM agent_run_leases l WHERE l.run_id=agent_runs.id) OR agent_runs.started_at<?)""",
+                (now,RUN_INTERRUPTED_ERROR,r["id"],PROCESS_ID,lease_cut,legacy_cut))
+        if cur.rowcount:closed.append(r)
     con.commit();con.close()
+    rows=closed
     for r in rows:
         event(r["job_id"],f"Run interrupted: {r['agent']} ({r['stage'] or 'stage unknown'}) did not finish; marked failed so it can be retried")
     return len(rows)
@@ -7847,7 +7898,7 @@ def supervisor_audit(auto_heal=False, persist=False):
                 "A pipeline stage raised an exception and the job is paused.",
                 "Open the responsible agent ledger, inspect the error, then retry from the current stage.")
 
-        if j["status"] == "running" and j["id"] not in running_jobs:
+        if j["status"] == "running" and j["id"] not in running_jobs and not job_owned_by_live_process(j["id"]):
             add("critical", "orphan_job", f"Orphaned running job: {j['title']}",
                 "The database says the job is running, but no worker task owns it.",
                 "Reset it to ready and restart from the current stage.")

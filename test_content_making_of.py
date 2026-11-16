@@ -57,7 +57,8 @@ def run_status(rid):
 def test_interrupted_runs_are_closed():
     job = new_job("Interrupted by deploy")
     r_scout, a_scout = run(job, "Scout", "research", "completed", output="Scout brief", cost=0.01)
-    r_res, _ = run(job, "Researcher", "research", inputs=[(a_scout, "Scout")])  # left 'running' by a dead task
+    r_res, _ = run(job, "Researcher", "research", inputs=[(a_scout, "Scout")])
+    app.LIVE_RUNS.discard(r_res)  # its task died without recording a finish
     busy = new_job("Still executing here")
     r_busy, _ = run(busy, "Scout", "research")
     app.running_jobs.add(busy)
@@ -83,6 +84,7 @@ def test_interrupted_runs_are_closed():
     require(any(m.startswith("Run interrupted: Researcher") for m in events), "the interruption must be logged on the job")
     # Supervisor orphan heal also closes the job's runs.
     r_again, _ = run(job, "Researcher", "research")
+    app.LIVE_RUNS.discard(r_again)
     con = app.db(); con.execute("UPDATE jobs SET status='running' WHERE id=?", (job,)); con.commit(); con.close()
     app.supervisor_audit(auto_heal=True, persist=False)
     require(app.get_job(job)["status"] == "idle", "orphaned job is reset to ready")
@@ -143,6 +145,57 @@ def test_other_process_runs_survive_until_lease_expires():
     require(run_status(legacy)["status"] == "failed", "a lease-less run past the grace window is closed")
 
 
+def test_live_local_runs_and_foreign_jobs_are_protected():
+    """Codex review 2 on #404: own runs outside running_jobs, lease renewal between SELECT and UPDATE, foreign jobs."""
+    job = new_job("Package build outside running_jobs")
+    rid, _ = run(job, "Content Packager", "package")  # live: started here, not finished, job not in running_jobs
+    require(job not in app.running_jobs, "fixture: the job is not in the content-task registry")
+    app.close_interrupted_agent_runs()
+    app.supervisor_audit(auto_heal=True, persist=False)
+    require(run_status(rid)["status"] == "running", "a live in-process run outside running_jobs must survive the heal")
+    app.finish_agent_run(rid)
+    require(rid not in app.LIVE_RUNS, "finishing a run releases its liveness")
+
+    # Snapshot says stale, but the owner renewed its heartbeat before the UPDATE: the run must stay live.
+    other = "other-process-renewing"
+    foreign, _ = run(job, "Researcher", "research")
+    app.LIVE_RUNS.discard(foreign)
+    con = app.db()
+    con.execute("UPDATE agent_run_leases SET process_id=? WHERE run_id=?", (other, foreign))
+    con.commit(); con.close()
+    app.beat_process_heartbeat(other)
+    original = app._run_is_orphaned
+    app._run_is_orphaned = lambda *a, **k: True  # stale snapshot
+    try:
+        require(app.close_interrupted_agent_runs(job_id=job) == 0, "renewed lease must win over a stale snapshot")
+    finally:
+        app._run_is_orphaned = original
+    require(run_status(foreign)["status"] == "running", "the UPDATE must re-check the owner's lease atomically")
+
+    # A job another live process is executing must not be reset to idle by this process's Supervisor.
+    busy = new_job("Executing in the old instance")
+    con = app.db()
+    con.execute("UPDATE jobs SET status='running' WHERE id=?", (busy,))
+    con.execute("INSERT OR REPLACE INTO job_leases(job_id,process_id,created_at) VALUES(?,?,?)", (busy, other, app.ts()))
+    con.commit(); con.close()
+    app.beat_process_heartbeat(other)
+    require(app.job_owned_by_live_process(busy), "fresh foreign job lease is visible")
+    app.supervisor_audit(auto_heal=True, persist=False)
+    require(app.get_job(busy)["status"] == "running", "a job leased by a live process must not be reset")
+    con = app.db()
+    con.execute("UPDATE process_heartbeats SET heartbeat_at=? WHERE process_id=?", ("2020-01-01T00:00:00+00:00", other))
+    con.commit(); con.close()
+    app.supervisor_audit(auto_heal=True, persist=False)
+    require(app.get_job(busy)["status"] == "idle", "after the lease expires the orphaned job is reset")
+    # The in-process registry writes the job lease itself.
+    app.running_jobs.add(busy)
+    con = app.db()
+    row = con.execute("SELECT process_id FROM job_leases WHERE job_id=?", (busy,)).fetchone()
+    con.close()
+    app.running_jobs.discard(busy)
+    require(row and row["process_id"] == app.PROCESS_ID, "running_jobs.add must lease the job to this process")
+
+
 def test_flow_enrichment_and_attention():
     job = new_job("Making-of chain")
     r1, a1 = run(job, "Scout", "research", "completed", output="Scout brief", cost=0.02)
@@ -194,6 +247,7 @@ def test_static_ui_contract():
 if __name__ == "__main__":
     test_interrupted_runs_are_closed()
     test_other_process_runs_survive_until_lease_expires()
+    test_live_local_runs_and_foreign_jobs_are_protected()
     test_flow_enrichment_and_attention()
     test_static_ui_contract()
     print("test_content_making_of: OK")

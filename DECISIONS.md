@@ -1745,6 +1745,15 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   process closes a run only after the owner's heartbeat is older than `FACTORY_RUN_LEASE_SECONDS` (90 s); lease-less
   rows from an older build wait `AGENT_TIMEOUT_SECONDS × attempts + 300 s`. The Supervisor cycle (60 s, auto-heal)
   closes them once the lease lapses. Separate tables avoid an `ALTER TABLE` on `agent_runs`.
+- Second Codex review on #404:
+  - Liveness of a run is now tracked per run, not per job. `LIVE_RUNS` holds runs started and not yet finished in
+    this process. The Content Packager, variant partial reruns and media QA run outside `running_jobs` and must not
+    be closed by the 60 s Supervisor heal.
+  - The close is one conditional `UPDATE`. It re-checks inside SQL that no other process holds a fresh heartbeat
+    and that a lease-less run is past the grace window. A heartbeat renewed between the SELECT and the UPDATE
+    therefore still protects the run.
+  - `running_jobs` also writes `job_leases`. The orphan-job reset skips jobs that another live process leases, so an
+    overlapping deploy cannot reset a job the old instance is executing and allow a duplicate run.
 - The workspace (member) status path deliberately gets no `attention` field: T-553 keeps operator telemetry (agent
   incidents) out of member responses; the UI treats the field as optional.
 - The new `run_interrupted` policy is retryable but not auto-retried and requires confirmation with spend uncertain:
