@@ -1372,6 +1372,27 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   (MyCast, Surfer, the older `tools/gemini_ec2_loop.sh` issue→PR loop). Other key variables stay refused; keys are redacted
   from evidence. `FACTORY_GEMINI_MODEL` optionally pins the model (`--model`). Preflight also accepts the newer
   `~/.gemini/gemini-credentials.json` login file.
+## 2026-11-16 — T-645 MyCast share card (owner voice request): coverflow, demo cities, public DNA
+
+- New module `mycast_share_page.py` renders `/mycast/e/<token>`; `mycast_public.render_episode_page` stays as the
+  older plain fallback and is no longer routed. The route adds `?lang=` and `Accept-Language` (`Vary`), headers as T-620.
+- Cover: a byte-identical Python port of the configurator's `coverSVG()` (index.html), checked against node in the
+  tests, drawn from the author's saved share code. Gradient ids are made unique per cover on the page.
+- Public DNA, chosen narrowly: topics (labels from `topics.json`), category mix, geography as Ukraine/world counts,
+  frequency/days · delivery time · length, voice mode · language. Not shown: followed accounts, own free-text topics,
+  free text, a custom city or country (it can locate a person), timezone, voice names, calendar switches. The
+  account-level `/mycast/u/` page already shows more; the episode page keeps to the minimum.
+- Language: `?lang` → browser (first supported tag) → author's podcast language. UK/RU/EN.
+- Demo cards: no prepared city demo audio exists in the repo (only `docs/prototypes/mycast/audio/2026-11-02.mp3`, not a
+  city demo) and nothing is voiced with paid calls, so the manifest ships with `audio: null`. A card plays only when
+  `audio` matches `/static/mycast-share/audio/<name>.(mp3|m4a|ogg)`, the file exists and `approved_by_owner` is
+  literally true; otherwise "soon" and no play button. Owner task T-645-H.
+- City pictures: own generative SVG line art (temple, colosseum, tholos, wreath, volcano) on the DNA-style background,
+  no external images and nothing from the owner's reference screenshot, so no licence question.
+- Carousel: one shared `<audio>`; loops so the author's card has neighbours on both sides; pointer swipe, arrows,
+  dots, ←/→. Without JS the deck is a horizontal scroll-snap row. The reference's ♥ became "share": there is no like
+  store, and a heart that does nothing would be a fake control.
+
 ## 2026-11-15 — T-620 MyCast MVP V1 (#305): library, public episode links, referral ledger
 
 - Reused, not rebuilt: listener accounts (Telegram login + Google, signed `mycast_listener` cookie, 30-day expiry,

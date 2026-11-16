@@ -666,6 +666,19 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   Need: owner signs off the rule (+7 days to each side once, at the friend's first real episode; cap 50; no self/duplicate credit), sets `FACTORY_MYCAST_REFERRALS=1` in Render, and runs one live invite with a second Telegram account. Enforcing the end of free days (`FACTORY_MYCAST_ENFORCE_TRIAL=1`) is a separate later business decision.
   DONE: `/api/mycast/account/config` returns `"referrals_enabled": true` and the live check gave both accounts +7 days exactly once.
 
+- [x] T-645 MyCast share card — glass coverflow on the public episode page with demo city cards and the public podcast DNA
+  Owner: claude (session MyCast share page)
+  Priority: P1 (owner voice request 2026-11-16)
+  Depends: T-620
+  Spec: DECISIONS.md «2026-11-16 — T-645». `mycast_share_page.py` renders `/mycast/e/<token>`; demo cards from `static/mycast-share/demos.json`.
+  Goal: a recipient of a shared episode (no login) sees a swipeable glass coverflow: the author's episode in the centre with the configurator's own generative DNA cover, title, date, length and its own player; demo cards (Athens, Rome, Delphi, Olympia, Pompeii) around it, playing only owner-approved local audio and otherwise marked "soon" with no play button; a glass player bar; "About this podcast" with topics, category mix, Ukraine/world geography, schedule and voice only (no chat id, contact, slug, share code, file id, follows, own free-text topics or custom city). T-620 guarantees kept: noindex/no-store, revocable link, every model/manifest string escaped. UK/RU/EN by `?lang`, browser, author.
+  DONE: `python test_mycast_share_page.py` (escaping, no private fields, honest demo manifest, language, cover byte-identical to the configurator via node, `node --check` of the inline JS) and every `test_mycast*.py`, `python test_owner_desk.py` and the default verification pass; Playwright screenshots at 390 and 1280 px in `docs/screenshots/t645/`.
+
+- [ ] [HUMAN] T-645-H Make and approve the MyCast demo episodes (Athens, Rome, …)
+  Depends: T-645
+  Need: owner provides 1–2 minute two-host MP3s per city (own files, or explicitly confirms Gemini voicing within the free quota / accepted spend) and approves each; Claude then adds them to `static/mycast-share/audio/` with `approved_by_owner: true`. Runbook in Worker Center → «Ваши задачи».
+  DONE: at least the Athens and Rome cards play on a live `/mycast/e/<token>` page.
+
 ## MVP Factory pilots (owner 2026-11-15: first MVP wave — #305, #187, #188, #189)
 
 - [x] T-615 MyBrief for a profession — web MVP pilot `mybrief-pro` (#188)
