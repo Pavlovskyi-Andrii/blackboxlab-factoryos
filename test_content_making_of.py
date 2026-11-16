@@ -15,6 +15,8 @@ import asyncio
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -95,6 +97,52 @@ def _events(job):
     return rows
 
 
+CHILD = r"""
+import os, sys
+import app
+job = sys.argv[1]
+rid = app.start_agent_run("Researcher", job, "research")
+app.beat_process_heartbeat()
+print(rid + " " + app.PROCESS_ID, flush=True)
+sys.stdin.read()  # stay alive (a run in flight in another process) until the parent closes stdin
+"""
+
+
+def test_other_process_runs_survive_until_lease_expires():
+    """Codex review on #404: an overlapping deploy must not mark the old instance's active runs interrupted."""
+    job = new_job("Overlapping deploy")
+    child = subprocess.Popen([sys.executable, "-c", CHILD, job], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             text=True, env={**os.environ}, cwd=str(Path(__file__).resolve().parent))
+    try:
+        line = child.stdout.readline().split()
+        require(len(line) == 2, f"child process did not start a run: {line}")
+        rid, other = line
+        require(other != app.PROCESS_ID, "the second process must have its own identity")
+        app.close_interrupted_agent_runs()
+        app.supervisor_audit(auto_heal=True, persist=False)
+        require(run_status(rid)["status"] == "running", "a run owned by a live process (fresh heartbeat) must not be closed")
+    finally:
+        child.stdin.close()
+        child.wait(timeout=60)
+    # The old instance is gone; until its lease expires the run still counts as live.
+    app.close_interrupted_agent_runs()
+    require(run_status(rid)["status"] == "running", "a just-stopped owner keeps its run until the lease expires")
+    con = app.db()
+    con.execute("UPDATE process_heartbeats SET heartbeat_at=? WHERE process_id=?", ("2020-01-01T00:00:00+00:00", other))
+    con.commit(); con.close()
+    require(app.close_interrupted_agent_runs() >= 1 and run_status(rid)["status"] == "failed", "an expired lease closes the run")
+    # Lease-less legacy rows (older build still draining) wait for the longest possible agent attempt.
+    legacy = __import__("uuid").uuid4().hex
+    con = app.db()
+    con.execute("INSERT INTO agent_runs(id,job_id,agent,stage,status,started_at,model) VALUES(?,?,?,?,?,?,?)",
+                (legacy, job, "Scout", "research", "running", app.ts(), "legacy"))
+    con.commit(); con.close()
+    app.close_interrupted_agent_runs()
+    require(run_status(legacy)["status"] == "running", "a fresh lease-less run must not be closed")
+    app.close_interrupted_agent_runs(legacy_grace_seconds=0)
+    require(run_status(legacy)["status"] == "failed", "a lease-less run past the grace window is closed")
+
+
 def test_flow_enrichment_and_attention():
     job = new_job("Making-of chain")
     r1, a1 = run(job, "Scout", "research", "completed", output="Scout brief", cost=0.02)
@@ -145,6 +193,7 @@ def test_static_ui_contract():
 
 if __name__ == "__main__":
     test_interrupted_runs_are_closed()
+    test_other_process_runs_survive_until_lease_expires()
     test_flow_enrichment_and_attention()
     test_static_ui_contract()
     print("test_content_making_of: OK")

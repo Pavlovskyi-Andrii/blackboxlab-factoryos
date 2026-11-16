@@ -1711,6 +1711,14 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   not exist, while the Supervisor reset the job to `idle`, which the list showed as «готово» with 25–50 % progress.
 - Orphaned rows are closed as `failed` with `RUN_INTERRUPTED_ERROR` at startup (no content task survives a restart)
   and when the Supervisor heals an orphaned job; runs of jobs still in `running_jobs` are never touched.
+- Ownership (Codex review on #404): "not in this process's `running_jobs`" is not proof a run is dead — during an
+  overlapping Render deploy the old instance still executes while the new one starts. Each process now has a
+  `PROCESS_ID`, leases the runs it starts (`agent_run_leases`) and renews `process_heartbeats` every ≤30 s. Another
+  process closes a run only after the owner's heartbeat is older than `FACTORY_RUN_LEASE_SECONDS` (90 s); lease-less
+  rows from an older build wait `AGENT_TIMEOUT_SECONDS × attempts + 300 s`. The Supervisor cycle (60 s, auto-heal)
+  closes them once the lease lapses. Separate tables avoid an `ALTER TABLE` on `agent_runs`.
+- The workspace (member) status path deliberately gets no `attention` field: T-553 keeps operator telemetry (agent
+  incidents) out of member responses; the UI treats the field as optional.
 - The new `run_interrupted` policy is retryable but not auto-retried and requires confirmation with spend uncertain:
   a live provider call may already have been billed. The job itself stays `idle` (ready to resume) rather than
   `failed`, so the Supervisor does not raise a critical alarm for a deploy; the open incident carries the signal.

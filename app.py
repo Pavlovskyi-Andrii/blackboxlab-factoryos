@@ -2268,6 +2268,15 @@ def init_db():
       meta_json TEXT DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent, started_at DESC);
+    CREATE TABLE IF NOT EXISTS agent_run_leases(
+      run_id TEXT PRIMARY KEY,
+      process_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS process_heartbeats(
+      process_id TEXT PRIMARY KEY,
+      heartbeat_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_agent_runs_job ON agent_runs(job_id, started_at DESC);
     CREATE TABLE IF NOT EXISTS artifacts(
       id TEXT PRIMARY KEY,
@@ -4157,9 +4166,12 @@ def get_factory_tasks():
 def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
     run_id=str(uuid.uuid4())
     con=db()
+    now=ts()
     con.execute("""INSERT INTO agent_runs(id,job_id,agent,stage,status,started_at,model)
                    VALUES(?,?,?,?,?,?,?)""",
-                (run_id,job_id,agent,stage,"running",ts(),model))
+                (run_id,job_id,agent,stage,"running",now,model))
+    # T-690: the run belongs to this process; another process may close it only after our heartbeat lease expires.
+    con.execute("INSERT OR REPLACE INTO agent_run_leases(run_id,process_id,created_at) VALUES(?,?,?)",(run_id,PROCESS_ID,now))
     con.commit(); con.close()
     return run_id
 
@@ -7505,17 +7517,56 @@ def get_job_flow(job_id, limit=40):
 RUN_INTERRUPTED_ERROR=("Run interrupted: the FactoryOS server restarted or the worker task stopped before this agent "
                        "finished; no result was recorded.")
 
-def close_interrupted_agent_runs(job_id=None):
-    """T-690: content-job runs live in this process. After a deploy/restart (or a dead task) their agent_runs row
-    stayed 'running' forever, so the trace showed a phantom live worker and the owner could not see where the job
-    stopped. Close such rows as failed with an explicit, classified reason. Runs of a job this process is still
-    executing are never touched."""
+# T-690: each FastAPI process owns the runs it starts and renews a heartbeat. During an overlapping Render deploy the
+# old instance keeps executing while the new one starts, so "not in my running_jobs" is not proof that a run is dead.
+PROCESS_ID=str(uuid.uuid4())
+RUN_LEASE_SECONDS=int(os.environ.get("FACTORY_RUN_LEASE_SECONDS","90"))
+RUN_HEARTBEAT_SECONDS=max(5,min(30,RUN_LEASE_SECONDS//3))
+# Runs written before leases existed (or by an older build still draining) are closed only after the longest a single
+# agent can take: every attempt at the provider timeout, plus a margin.
+LEGACY_RUN_GRACE_SECONDS=AGENT_TIMEOUT_SECONDS*max(1,AGENT_MAX_RETRIES+1)+300
+
+def beat_process_heartbeat(process_id=None):
     con=db()
-    sql="SELECT id,job_id,agent,stage FROM agent_runs WHERE status='running' AND job_id IS NOT NULL"
+    con.execute("INSERT OR REPLACE INTO process_heartbeats(process_id,heartbeat_at) VALUES(?,?)",(process_id or PROCESS_ID,ts()))
+    con.commit();con.close()
+
+def _heartbeat_loop():
+    while True:
+        try:beat_process_heartbeat()
+        except Exception as exc:print(json.dumps({"event":"PROCESS_HEARTBEAT_ERROR","error":str(exc)[:200]}),flush=True)
+        time.sleep(RUN_HEARTBEAT_SECONDS)
+
+def _run_is_orphaned(row, now_dt, lease_seconds, legacy_grace_seconds):
+    if row["job_id"] in running_jobs:
+        return False
+    owner=row.get("process_id")
+    if owner==PROCESS_ID:
+        return True  # our own run whose task is gone (dead task / orphan heal)
+    if owner:
+        beat=row.get("heartbeat_at")
+        return not beat or (now_dt-_parse_dt(beat)).total_seconds()>lease_seconds
+    started=row.get("started_at")
+    return bool(started) and (now_dt-_parse_dt(started)).total_seconds()>legacy_grace_seconds
+
+def close_interrupted_agent_runs(job_id=None, lease_seconds=None, legacy_grace_seconds=None):
+    """T-690: content-job runs live in a FastAPI process. After a deploy/restart (or a dead task) their agent_runs
+    row stayed 'running' forever, so the trace showed a phantom live worker and the owner could not see where the job
+    stopped. Close such rows as failed with an explicit, classified reason, but only when no live process owns them:
+    our own run whose job we no longer execute, a run whose owner's heartbeat lease expired, or a lease-less legacy
+    run older than any agent attempt can last."""
+    lease=RUN_LEASE_SECONDS if lease_seconds is None else lease_seconds
+    grace=LEGACY_RUN_GRACE_SECONDS if legacy_grace_seconds is None else legacy_grace_seconds
+    con=db()
+    sql="""SELECT r.id,r.job_id,r.agent,r.stage,r.started_at,l.process_id,h.heartbeat_at FROM agent_runs r
+           LEFT JOIN agent_run_leases l ON l.run_id=r.id LEFT JOIN process_heartbeats h ON h.process_id=l.process_id
+           WHERE r.status='running' AND r.job_id IS NOT NULL"""
     params=[]
     if job_id:
-        sql+=" AND job_id=?";params.append(job_id)
-    rows=[dict(x) for x in con.execute(sql,params).fetchall() if x["job_id"] not in running_jobs]
+        sql+=" AND r.job_id=?";params.append(job_id)
+    now_dt=datetime.now(timezone.utc)
+    rows=[dict(x) for x in con.execute(sql,params).fetchall()]
+    rows=[r for r in rows if _run_is_orphaned(r,now_dt,lease,grace)]
     now=ts()
     for r in rows:
         con.execute("UPDATE agent_runs SET status='failed',finished_at=?,error=? WHERE id=? AND status='running'",
@@ -7805,6 +7856,11 @@ def supervisor_audit(auto_heal=False, persist=False):
                 f"Stage {j['stage']} and stored progress {j['progress']}% disagree.",
                 "Calculate progress from completed stage artifacts instead of storing it independently.")
 
+    if auto_heal:
+        interrupted=close_interrupted_agent_runs()
+        if interrupted:
+            healed.append(f"Closed {interrupted} agent run(s) whose process stopped before they finished.")
+
     # Reset impossible agent runtime states.
     if not running_jobs:
         stale_agents = [a for a, state in agent_runtime.items() if state == "working" and a != "Supervisor"]
@@ -7948,7 +8004,10 @@ async def supervisor_loop():
 
 @app.on_event("startup")
 def close_runs_interrupted_by_restart():
-    # T-690: no content-job task survives a restart, so every 'running' content run left in the DB is orphaned.
+    # T-690: renew this process's lease, then close only runs no live process owns (an overlapping old instance keeps
+    # its runs until its heartbeat expires; the Supervisor cycle closes them after that).
+    beat_process_heartbeat()
+    threading.Thread(target=_heartbeat_loop,daemon=True,name="run-heartbeat").start()
     closed=close_interrupted_agent_runs()
     if closed:print(json.dumps({"event":"AGENT_RUNS_INTERRUPTED","closed":closed}),flush=True)
 
