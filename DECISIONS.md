@@ -1684,6 +1684,7 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - GitHub Releases need an API this session's GitHub tools do not offer, so `.github/workflows/release.yml` does it
   with the workflow's own token (`contents: write`), only on pushes to main that touch `app.py` or `README.md`
   (seconds of runner time). It skips existing releases; `workflow_dispatch` backfills a release for an existing tag.
-- Past versions with an identifiable commit are tagged on their commits (v5.6, v5.7, v5.7.1) and the retroactive
-  weeks on the last merge of each week (v5.8.0 → `b6b4523`, v5.9.0 → `3c8c9ea`).
+- Past versions are tagged by the same workflow (`workflow_dispatch` with `tag` + full `target` SHA on main), because
+  this session's git proxy refuses tag pushes: v5.6 → `04f87ca`, v5.7 → `f1e5daf`, v5.7.1 → `f4fee78`, and the
+  retroactive weeks on the last merge of each week, v5.8.0 → `b6b4523`, v5.9.0 → `3c8c9ea`.
 

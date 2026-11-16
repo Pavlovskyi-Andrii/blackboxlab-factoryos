@@ -2,7 +2,7 @@ name: Release
 # T-VERSION (owner 2026-11-16): every APP_VERSION that reaches main becomes a git tag and a GitHub Release whose notes
 # are that version's "### vX.Y.Z — …" entry from the README "Product changelog". Runs only when app.py or README.md
 # change on main (a few seconds of runner time); a version that is already released is skipped, so re-runs are safe.
-# workflow_dispatch backfills a release for an existing tag (its notes also come from the README).
+# workflow_dispatch backfills a past version: tag + release on the given commit, notes from the README entry.
 on:
   push:
     branches: [main]
@@ -10,7 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to publish a release for (e.g. v5.9.0); empty = current APP_VERSION"
+        description: "Version to publish (e.g. v5.9.0); empty = current APP_VERSION"
+        required: false
+        default: ""
+      target:
+        description: "Full commit SHA to tag when the tag does not exist yet (backfill); empty = this run's commit"
         required: false
         default: ""
 
@@ -54,6 +58,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.v.outputs.tag }}
           TITLE: ${{ steps.v.outputs.title }}
+          TARGET: ${{ github.event.inputs.target }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists"; exit 0
@@ -61,5 +66,9 @@ jobs:
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             gh release create "$TAG" --verify-tag --title "$TITLE" --notes-file release-notes.md
           else
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TITLE" --notes-file release-notes.md
+            target="${TARGET:-$GITHUB_SHA}"
+            case "$target" in *[!0-9a-f]*|"") echo "target must be a full commit SHA"; exit 1;; esac
+            [ "${#target}" -eq 40 ] || { echo "target must be a full 40-char SHA"; exit 1; }
+            git merge-base --is-ancestor "$target" origin/main || { echo "target is not on main"; exit 1; }
+            gh release create "$TAG" --target "$target" --title "$TITLE" --notes-file release-notes.md
           fi
