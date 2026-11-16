@@ -1669,3 +1669,21 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - **Decision:** in demo mode (no LLM key) the form defaults to "start from a ready idea" and says why: idea generation from signals needs a live model, so a signals-only cycle fails honestly with "Live LLM provider is not configured".
 - **Decision (Codex review on #395):** when the owner changes the topic before production, signals the cycle selected by itself are re-selected for the new topic (signals or an idea chosen explicitly stay as chosen); the run-time signal collection records the same "no signal matched the topic" event as creation; a failed brand link is stored as `meta.brand_link_error`, logged as a WARNING event and shown in red on the card (production still reaches the approval gate, where the owner can reject).
 - **Decision (second Codex review on #395):** an idea has one production job; a cycle reuses it only if the job was made for the same target (compared with the `CYCLE TARGET (owner):` line in its brief), otherwise the run fails before production with an actionable error. Topic selection now scans all new signals (bounded to 2000, matched in Python so Cyrillic is case-insensitive) before the per-cycle limit. A step that fails after the owner requested a stop leaves the cycle `stopped` (error kept) rather than `failed`.
+
+## 2026-11-16 — T-VERSION One version everywhere, changelog and GitHub Releases
+
+- Found: `APP_VERSION` stuck at `v5.7.1` since 2026-10-26 (204 merges since), the sidebar badge hard-coded `v5.3`, the
+  README changelog ending at v5.5.1, and no git tags or GitHub Releases at all.
+- New current version `v5.10.0`. The weeks in between got retroactive entries v5.8.0 (10-27…11-02) and v5.9.0
+  (11-03…11-09) grouped by area with PR numbers, labelled as written on 2026-11-16; v5.10.0 covers 11-10…11-16. One
+  entry per week instead of one per PR keeps the changelog readable; every merged PR number is listed.
+- Single source: the sidebar badge and header read `S.version` from `/api/status`; the static fallback must equal
+  `APP_VERSION` (`test_versioning.py`, in CI), as must the README's first changelog entry and the smoke pin.
+- Releases are cut by release PRs, not per feature PR: many agents merge in parallel, and a per-PR bump of one line
+  in `app.py` and the README top would conflict constantly. Claude, now the merger, cuts a release at least daily.
+- GitHub Releases need an API this session's GitHub tools do not offer, so `.github/workflows/release.yml` does it
+  with the workflow's own token (`contents: write`), only on pushes to main that touch `app.py` or `README.md`
+  (seconds of runner time). It skips existing releases; `workflow_dispatch` backfills a release for an existing tag.
+- Past versions with an identifiable commit are tagged on their commits (v5.6, v5.7, v5.7.1) and the retroactive
+  weeks on the last merge of each week (v5.8.0 → `b6b4523`, v5.9.0 → `3c8c9ea`).
+

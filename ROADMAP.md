@@ -789,6 +789,14 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Goal: the `cycle` screen shows a 7-step map (who acts: agent or you; what is needed from you) with each cycle's current position, a collapsible plain-language «How does Autopilot work?», a demo/live cost line, a beginner empty state, a new-cycle form (start from newest signals or a ready idea) with an optional target (brand / topic / platform / audience) visible on every card, Stop / Resume / Retry, «Change target» before production, and buttons that open each step's real result. Safety unchanged: the cycle still stops at human approval, publishing stays a separate explicit action, paid runs still need the cost confirmation; nothing paid is enabled.
   DONE: `python test_factory_cycle_controls.py` (target validation and use, topic filter, stop/resume incl. pending stop before production, approval gate, cost confirmation, readiness) + `test_locale_parity.py`, `test_navigation.py`, `test_explainability.py`, smoke suite and inline-JS `node --check` green; screenshots at 1280/390 px in `docs/screenshots/t-646/` with no horizontal scroll.
 
+## Versioning (owner 2026-11-16)
+
+- [x] T-VERSION One version everywhere + changelog v5.6 → v5.10.0 + automatic GitHub Releases
+  Owner: claude
+  Priority: P1
+  Goal: `APP_VERSION` is the single version shown in the dashboard header, the sidebar badge (was hard-coded v5.3) and `/health`; README changelog continued from v5.6 to v5.10.0 (204 merges since v5.7.1); `release.yml` tags each new version on main and publishes its GitHub Release from the changelog; past versions tagged and backfilled.
+  DONE: `python test_versioning.py`, smoke, dashboard `node --check`, navigation/locale tests; GitHub shows tag + release v5.10.0 after merge.
+
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
 - [ ] T-607 Gemini Worker — third authenticated engineering operator via existing Relay

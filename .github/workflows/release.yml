@@ -1,0 +1,65 @@
+name: Release
+# T-VERSION (owner 2026-11-16): every APP_VERSION that reaches main becomes a git tag and a GitHub Release whose notes
+# are that version's "### vX.Y.Z — …" entry from the README "Product changelog". Runs only when app.py or README.md
+# change on main (a few seconds of runner time); a version that is already released is skipped, so re-runs are safe.
+# workflow_dispatch backfills a release for an existing tag (its notes also come from the README).
+on:
+  push:
+    branches: [main]
+    paths: [app.py, README.md]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish a release for (e.g. v5.9.0); empty = current APP_VERSION"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Version and notes from APP_VERSION and the README changelog
+        id: v
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import os, re, pathlib
+          tag = (os.environ.get("INPUT_TAG") or "").strip()
+          if not tag:
+              tag = re.search(r'^APP_VERSION = "([^"]+)"', pathlib.Path("app.py").read_text(), re.M).group(1)
+          if not re.fullmatch(r"v\d+\.\d+(\.\d+)?", tag):
+              raise SystemExit(f"not a version tag: {tag!r}")
+          log = pathlib.Path("README.md").read_text().split("## Product changelog", 1)[1]
+          m = re.search(r"^### " + re.escape(tag) + r" — ([^\n]*)\n(.*?)(?=^### |\Z)", log, re.M | re.S)
+          if not m:
+              raise SystemExit(f"README Product changelog has no entry for {tag}")
+          pathlib.Path("release-notes.md").write_text(m.group(2).strip() + "\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"tag={tag}\ntitle=FactoryOS {tag} — {m.group(1).strip()}\n")
+          PY
+      - name: Tag and publish the GitHub Release (skipped when it already exists)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          TITLE: ${{ steps.v.outputs.title }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists"; exit 0
+          fi
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            gh release create "$TAG" --verify-tag --title "$TITLE" --notes-file release-notes.md
+          else
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TITLE" --notes-file release-notes.md
+          fi

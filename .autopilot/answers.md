@@ -25,3 +25,8 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 - T-606: Jules web reports "not yet available in your region" (Ukraine); owner connected it via VPN to the repository. Owner prefers a Gemini CLI worker on the existing EC2 host (zero extra spend) over Jules.
 - T-520: Metricool API needs a paid plan; owner does not want to pay before testing. Free plan = 20 posts/month in Metricool's own UI. Owner open to a FactoryOS-native publisher instead. No reverse-engineering of private provider APIs.
 - D-240: owner decision — take #240 and #241 now (Depends: none, owner decision). #242 waits.
+
+
+## Owner answers 2026-11-16
+- Merging: owner confirms Claude merges its own PRs itself (after green CI on the current head, no conflicts) and then checks the Render deploy.
+- Versioning: owner wants one version shown everywhere on the site (sidebar said v5.3, header v5.7.1), the README changelog continued from v5.7 to today, a new current version on the site and on GitHub, and versioning kept up from now on. Rules: CLAUDE.md "Versioning and releases".
