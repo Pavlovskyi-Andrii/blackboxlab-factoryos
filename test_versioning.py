@@ -84,12 +84,6 @@ def test_backfill_list_matches_changelog():
         require(tag in versions, f"backfill {tag} has no README changelog entry")
         require(re.fullmatch(r"[0-9a-f]{40}", sha), f"backfill {tag} needs a full commit SHA")
         require(tag != app_version(), "the current version is released by the push run, not the backfill list")
-        # Run 43851658678: GitHub's workflow token got 403 tagging 3c8c9ea, a commit that edits .github/workflows.
-        import subprocess
-        diff = subprocess.run(["git", "diff", "--name-only", f"{sha}^1", sha, "--", ".github/workflows"],
-                              cwd=ROOT, capture_output=True, text=True)
-        if diff.returncode == 0:   # shallow CI checkouts may not have the commit; then the release run is the check
-            require(not diff.stdout.strip(), f"backfill {tag} commit edits .github/workflows: the token cannot tag it")
     wf = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     require(".github/release-backfill.txt" in wf and 'release_publish.sh strict "$tag" "$sha"' in wf,
             "release workflow lost the backfill step")

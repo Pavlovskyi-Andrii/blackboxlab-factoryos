@@ -796,7 +796,12 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Priority: P1
   Goal: `APP_VERSION` is the single version shown in the dashboard header, the sidebar badge (was hard-coded v5.3) and `/health`; README changelog continued from v5.6 to v5.10.0 (204 merges since v5.7.1); `release.yml` tags each new version on main and publishes its GitHub Release from the changelog; past versions tagged and backfilled.
   DONE: `python test_versioning.py`, smoke, dashboard `node --check`, navigation/locale tests.
-  Evidence: release v5.10.0 published by run 43850500408 (DECISIONS.md). Pending: the v5.6…v5.9.0 backfill from `.github/release-backfill.txt`.
+  Evidence: v5.10.0 (run 43850500408) and v5.6, v5.7, v5.7.1, v5.8.0 (run 43851658678) published. v5.9.0: the workflow token gets 403 on it, so the owner creates it in the GitHub UI (see T-VERSION-H).
+
+- [ ] [HUMAN] T-VERSION-H Create GitHub release v5.9.0 on commit b991f85 (one-time, GitHub UI)
+  Owner: owner
+  Need: GitHub → Releases → Draft a new release → tag `v5.9.0`, target commit `b991f856404196e0146d6a1ce2fbc3cee60d20d0`, title from the README `### v5.9.0` heading, notes = that entry's bullets, not marked Latest → Publish. The workflow token is refused (HTTP 403) for this commit.
+  DONE: https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/releases/tag/v5.9.0 exists.
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
