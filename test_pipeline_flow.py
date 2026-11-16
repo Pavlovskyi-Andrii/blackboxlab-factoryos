@@ -31,6 +31,12 @@ def extract(html):
     helpers = script[script.index("function textValue(v){"):]
     helpers = helpers[:helpers.index("\n", helpers.index("const esc="))]
     tr = re.search(r"^function tr\(key,vars=\{\}\)\{.*\}$", script, re.M).group(0)
+    # T-691: making-of details reuse the Error Center copy and the shared formatters.
+    i18n += "\n" + "\n".join(l for l in script.split("\n") if l.startswith("Object.assign(I18N."))
+    for name in ("fmtDuration", "fmtMoney"):
+        helpers += "\n" + re.search(r"^function %s\(.*$" % name, script, re.M).group(0)
+    start = script.index("function errorPolicyText(")
+    helpers += "\n" + script[start:script.index("\n}\n", start) + 2]
     return script, block, i18n, helpers, tr
 
 
@@ -42,7 +48,7 @@ def static_checks(html, script, block):
             "stacked mobile fallback missing")
     require(".pfHop.running{" in css and "prefers-reduced-motion:reduce){.pfHop.running" in css, "live movement / reduced-motion styles missing")
     require('id="pipelineFlow"' in html and html.index('id="pipeline"') < html.index('id="pipelineFlow"'), "flow container must sit under the pipeline cards")
-    require("renderPipelineFlow(S.selectedJobFlow)" in script, "pipeline() must render the selected job flow")
+    require(re.search(r"renderPipelineFlow\(S\.selectedJobFlow[,)]", script), "pipeline() must render the selected job flow")
     require("innerHTML" not in block and "document." not in block and "fetch(" not in block, "renderer must stay pure (no DOM/network)")
     require(not re.search(r"token|api_key|password|secret|content", block, re.I), "renderer must not read secret fields or artifact content")
     keys = set(re.findall(r"tr\('(pflow\.[a-zA-Z.]*[a-zA-Z])'", block)) | set(re.findall(r"pfNone\('(pflow\.[a-zA-Z.]+)'\)", block))
@@ -58,8 +64,9 @@ R = {n: f"run-{n}" for n in ("research", "script", "visual", "voice", "render")}
 A = {"seed": "art-seed", "research": "art-research", "script": "art-script"}
 
 
-def hop(order, run, agent, stage, state, inputs, outputs=(), downstream=(), error=""):
-    return {"order": order, "run_id": run, "agent": agent, "stage": stage, "status": state, "state": state,
+def hop(order, run, agent, stage, state, inputs, outputs=(), downstream=(), error="", policy=None):
+    extra = {"policy": policy, "resolved": False} if policy else {}
+    return {**extra, "order": order, "run_id": run, "agent": agent, "stage": stage, "status": state, "state": state,
             "started_at": "2026-10-24T14:00:00+00:00", "finished_at": None if state == "running" else "2026-10-24T14:01:00+00:00",
             "error": error, "inputs": list(inputs), "outputs": list(outputs), "downstream": list(downstream)}
 
@@ -82,10 +89,12 @@ HOPS = [
          down(R["render"], "Render Agent", "blocked", A["script"]), down(R["render"], "Render Agent", "blocked", A["script"])]),
     hop(3, R["visual"], "Visual Director", "visual", "running", [inp(A["script"], "Draft script", "Scriptwriter", R["script"], "run")]),
     hop(4, R["voice"], "Voice Agent", "voice", "failed", [inp(A["script"], "Draft script", "Scriptwriter", R["script"], "run")],
-        error="Timed out <img src=x onerror=alert(2)>"),
+        error="Timed out <img src=x onerror=alert(2)>",
+        policy={"code": "transport_uncertain", "retryable": True, "requires_confirmation": True}),
     hop(5, R["render"], "Render Agent", "made_up_stage", "blocked",
         [inp(A["script"], "Draft script", "Scriptwriter", R["script"], "run"), inp("bad'id);alert(3)//", "Forged ref", "Scout", None, "source")],
-        error="Missing required upstream artifacts: Voice Agent"),
+        error="Missing required upstream artifacts: Voice Agent",
+        policy={"code": "dependency_missing", "retryable": False, "requires_confirmation": False}),
 ]
 COUNTS = {"running": 1, "done": 2, "blocked": 1, "failed": 1, "queued": 0, "unknown": 0}
 FIXTURES = {
@@ -153,6 +162,16 @@ def render_checks(out):
             "empty flow must render an explicit empty state")
     require("Зараз працює: Visual Director" in out["uk:live"] and "заблоковано" in out["uk:live"], "UK labels missing")
     require("Сейчас работает: Visual Director" in out["ru:live"] and "ошибка" in out["ru:live"], "RU labels missing")
+    # T-691: every hop expands into its making-of details; unresolved stops open by default with safe actions only.
+    require(live.count('class="pfMore"') == 5, "every hop needs an expandable details block")
+    require(f'<details class="pfMore" data-run="{R["voice"]}" open' in failed, "failed hop details must open by default")
+    require(f"rerunAgent('Voice Agent','{R['voice']}',true)" in failed and "Confirm and retry Voice Agent" in failed,
+            "possibly billed failure must retry only through the confirmation path")
+    require("Provider outcome is uncertain" in failed and "Do not auto-retry" in failed, "failed hop must explain the classified reason and action")
+    require("rerunAgent(" not in blocked and "Rebuild" in blocked, "non-retryable stop must not offer a retry")
+    require(f'<details class="pfMore" data-run="{R["research"]}" open' not in first and "not recorded" in first,
+            "done hop stays collapsed and never invents duration/cost")
+    require("Открыть журнал Voice Agent" in out["ru:live"] and "Причина" in out["ru:live"], "RU making-of labels missing")
 
 
 def main():

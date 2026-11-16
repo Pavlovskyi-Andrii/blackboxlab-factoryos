@@ -1935,8 +1935,32 @@ def health_details():
 
 clients: set[WebSocket] = set()
 member_clients: set[WebSocket] = set()
-running_jobs: set[str] = set()
+class _LeasedJobSet(set):
+    """T-690: the in-process job registry also writes a job lease, so another process (an overlapping deploy) can
+    see that this process is executing the job and must not reset it."""
+    def add(self, job_id):
+        super().add(job_id)
+        _write_job_lease(job_id, True)
+    def discard(self, job_id):
+        super().discard(job_id)
+        _write_job_lease(job_id, False)
+
+def _write_job_lease(job_id, held):
+    try:
+        con=db()
+        if held:
+            con.execute("INSERT OR REPLACE INTO job_leases(job_id,process_id,created_at) VALUES(?,?,?)",(job_id,PROCESS_ID,ts()))
+        else:
+            con.execute("DELETE FROM job_leases WHERE job_id=? AND process_id=?",(job_id,PROCESS_ID))
+        con.commit();con.close()
+    except Exception as exc:
+        print(json.dumps({"event":"JOB_LEASE_ERROR","error":str(exc)[:200]}),flush=True)
+
+running_jobs: set[str] = _LeasedJobSet()
 package_building: set[str] = set()
+# T-690: runs this process started and has not finished yet (content pipeline, variant reruns, Content Packager,
+# media QA …). A run of ours is orphaned only when it is not here, whatever registry its caller used.
+LIVE_RUNS: set[str] = set()
 selected_job_id: Optional[str] = None
 selected_job_by_workspace: dict = {}
 agent_runtime = {name: "idle" for name in AGENTS}
@@ -2286,6 +2310,20 @@ def init_db():
       meta_json TEXT DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent, started_at DESC);
+    CREATE TABLE IF NOT EXISTS agent_run_leases(
+      run_id TEXT PRIMARY KEY,
+      process_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS job_leases(
+      job_id TEXT PRIMARY KEY,
+      process_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS process_heartbeats(
+      process_id TEXT PRIMARY KEY,
+      heartbeat_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_agent_runs_job ON agent_runs(job_id, started_at DESC);
     CREATE TABLE IF NOT EXISTS artifacts(
       id TEXT PRIMARY KEY,
@@ -4175,10 +4213,14 @@ def get_factory_tasks():
 def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
     run_id=str(uuid.uuid4())
     con=db()
+    now=ts()
     con.execute("""INSERT INTO agent_runs(id,job_id,agent,stage,status,started_at,model)
                    VALUES(?,?,?,?,?,?,?)""",
-                (run_id,job_id,agent,stage,"running",ts(),model))
+                (run_id,job_id,agent,stage,"running",now,model))
+    # T-690: the run belongs to this process; another process may close it only after our heartbeat lease expires.
+    con.execute("INSERT OR REPLACE INTO agent_run_leases(run_id,process_id,created_at) VALUES(?,?,?)",(run_id,PROCESS_ID,now))
     con.commit(); con.close()
+    LIVE_RUNS.add(run_id)
     return run_id
 
 def attach_run_inputs(run_id, inputs):
@@ -4191,6 +4233,7 @@ def attach_run_inputs(run_id, inputs):
     con.commit(); con.close()
 
 def finish_agent_run(run_id, status="completed", input_tokens=0, output_tokens=0, cost_usd=0.0, error=None, meta=None):
+    LIVE_RUNS.discard(run_id)
     con=db(); row=con.execute("SELECT started_at FROM agent_runs WHERE id=?",(run_id,)).fetchone()
     finished=ts()
     duration_ms=0
@@ -7458,9 +7501,13 @@ def get_job_flow(job_id, limit=40):
         return empty
     con=db()
     runs=[dict(x) for x in con.execute(
-        """SELECT id,agent,stage,status,started_at,finished_at,error FROM agent_runs
+        """SELECT id,agent,stage,status,started_at,finished_at,error,duration_ms,cost_usd,model FROM agent_runs
            WHERE job_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?""",(job_id,limit+1)
     ).fetchall()]
+    # T-691: a failure is resolved once the same agent later completes (same rule as the Error Center).
+    completed_at={x["agent"]:x["at"] or "" for x in con.execute(
+        """SELECT agent,MAX(COALESCE(finished_at,started_at)) AS at FROM agent_runs
+           WHERE job_id=? AND status='completed' GROUP BY agent""",(job_id,)).fetchall()}
     truncated=len(runs)>limit
     runs=list(reversed(runs[:limit]))
     if not runs:
@@ -7481,10 +7528,17 @@ def get_job_flow(job_id, limit=40):
     hops={}
     for i,r in enumerate(runs):
         state=_flow_run_state(r["status"],r.get("error"))
+        stopped=state in ("failed","blocked")
         hops[r["id"]]={"order":i+1,"run_id":r["id"],"agent":r["agent"],"stage":r.get("stage") or "","status":r["status"],"state":state,
                        "started_at":r["started_at"],"finished_at":r.get("finished_at"),
-                       "error":(r.get("error") or "")[:160] if state in ("failed","blocked") else "",
+                       "duration_ms":r.get("duration_ms"),"cost_usd":r.get("cost_usd"),"model":r.get("model") or "",
+                       "error":(r.get("error") or "")[:600] if stopped else "",
                        "inputs":[],"outputs":[],"downstream":[]}
+        if stopped:
+            p=classify_agent_error(r.get("error"))
+            failed_at=r.get("finished_at") or r.get("started_at") or ""
+            hops[r["id"]]["policy"]={k:p[k] for k in ("code","category","severity","title","action","retryable","requires_confirmation","spend_uncertain")}
+            hops[r["id"]]["resolved"]=bool(completed_at.get(r["agent"]) and failed_at and completed_at[r["agent"]]>failed_at)
     for a in outputs:
         hops[a["run_id"]]["outputs"].append({"artifact_id":a["id"],"title":a["title"],"kind":a["kind"]})
     edges=[];sources={}
@@ -7509,6 +7563,109 @@ def get_job_flow(job_id, limit=40):
     return {"job_id":job_id,"hops":ordered,"edges":edges,"sources":list(sources.values()),"counts":counts,
             "live":counts["running"]>0,"truncated":truncated}
 
+RUN_INTERRUPTED_ERROR=("Run interrupted: the FactoryOS server restarted or the worker task stopped before this agent "
+                       "finished; no result was recorded.")
+
+# T-690: each FastAPI process owns the runs it starts and renews a heartbeat. During an overlapping Render deploy the
+# old instance keeps executing while the new one starts, so "not in my running_jobs" is not proof that a run is dead.
+PROCESS_ID=str(uuid.uuid4())
+RUN_LEASE_SECONDS=int(os.environ.get("FACTORY_RUN_LEASE_SECONDS","90"))
+RUN_HEARTBEAT_SECONDS=max(5,min(30,RUN_LEASE_SECONDS//3))
+# Runs written before leases existed (or by an older build still draining) are closed only after the longest a single
+# agent can take: every attempt at the provider timeout, plus a margin.
+LEGACY_RUN_GRACE_SECONDS=AGENT_TIMEOUT_SECONDS*max(1,AGENT_MAX_RETRIES+1)+300
+
+def beat_process_heartbeat(process_id=None):
+    con=db()
+    con.execute("INSERT OR REPLACE INTO process_heartbeats(process_id,heartbeat_at) VALUES(?,?)",(process_id or PROCESS_ID,ts()))
+    con.commit();con.close()
+
+def _heartbeat_loop():
+    while True:
+        try:beat_process_heartbeat()
+        except Exception as exc:print(json.dumps({"event":"PROCESS_HEARTBEAT_ERROR","error":str(exc)[:200]}),flush=True)
+        time.sleep(RUN_HEARTBEAT_SECONDS)
+
+def _lease_cutoff(seconds):
+    return (datetime.now(timezone.utc)-timedelta(seconds=seconds)).isoformat()
+
+def job_owned_by_live_process(job_id, lease_seconds=None):
+    """True when another process holds a fresh lease on the job (it is executing it right now)."""
+    cutoff=_lease_cutoff(RUN_LEASE_SECONDS if lease_seconds is None else lease_seconds)
+    con=db()
+    row=con.execute("""SELECT 1 FROM job_leases j JOIN process_heartbeats h ON h.process_id=j.process_id
+                       WHERE j.job_id=? AND j.process_id<>? AND h.heartbeat_at>?""",(job_id,PROCESS_ID,cutoff)).fetchone()
+    con.close()
+    return bool(row)
+
+def _run_is_orphaned(row, now_dt, lease_seconds, legacy_grace_seconds):
+    owner=row.get("process_id")
+    if owner==PROCESS_ID:
+        return row["id"] not in LIVE_RUNS  # our own run whose task is gone (no finish was recorded)
+    if owner:
+        beat=row.get("heartbeat_at")
+        return not beat or (now_dt-_parse_dt(beat)).total_seconds()>lease_seconds
+    started=row.get("started_at")
+    return bool(started) and (now_dt-_parse_dt(started)).total_seconds()>legacy_grace_seconds
+
+def close_interrupted_agent_runs(job_id=None, lease_seconds=None, legacy_grace_seconds=None):
+    """T-690: content-job runs live in a FastAPI process. After a deploy/restart (or a dead task) their agent_runs
+    row stayed 'running' forever, so the trace showed a phantom live worker and the owner could not see where the job
+    stopped. Close such rows as failed with an explicit, classified reason, but only when no live process owns them:
+    our own run whose job we no longer execute, a run whose owner's heartbeat lease expired, or a lease-less legacy
+    run older than any agent attempt can last."""
+    lease=RUN_LEASE_SECONDS if lease_seconds is None else lease_seconds
+    grace=LEGACY_RUN_GRACE_SECONDS if legacy_grace_seconds is None else legacy_grace_seconds
+    con=db()
+    sql="""SELECT r.id,r.job_id,r.agent,r.stage,r.started_at,l.process_id,h.heartbeat_at FROM agent_runs r
+           LEFT JOIN agent_run_leases l ON l.run_id=r.id LEFT JOIN process_heartbeats h ON h.process_id=l.process_id
+           WHERE r.status='running' AND r.job_id IS NOT NULL"""
+    params=[]
+    if job_id:
+        sql+=" AND r.job_id=?";params.append(job_id)
+    now_dt=datetime.now(timezone.utc)
+    rows=[dict(x) for x in con.execute(sql,params).fetchall()]
+    rows=[r for r in rows if _run_is_orphaned(r,now_dt,lease,grace)]
+    now=ts();closed=[]
+    lease_cut=_lease_cutoff(lease);legacy_cut=_lease_cutoff(grace)
+    for r in rows:
+        if r.get("process_id")==PROCESS_ID and r["id"] in LIVE_RUNS:
+            continue
+        # The ownership test is repeated inside the UPDATE, so a heartbeat renewed after the SELECT still protects the
+        # run: a foreign owner must be stale *now*, and a lease-less run must still be older than the grace window.
+        cur=con.execute("""UPDATE agent_runs SET status='failed',finished_at=?,error=? WHERE id=? AND status='running'
+                AND NOT EXISTS (SELECT 1 FROM agent_run_leases l JOIN process_heartbeats h ON h.process_id=l.process_id
+                                WHERE l.run_id=agent_runs.id AND l.process_id<>? AND h.heartbeat_at>?)
+                AND (EXISTS (SELECT 1 FROM agent_run_leases l WHERE l.run_id=agent_runs.id) OR agent_runs.started_at<?)""",
+                (now,RUN_INTERRUPTED_ERROR,r["id"],PROCESS_ID,lease_cut,legacy_cut))
+        if cur.rowcount:closed.append(r)
+    con.commit();con.close()
+    rows=closed
+    for r in rows:
+        event(r["job_id"],f"Run interrupted: {r['agent']} ({r['stage'] or 'stage unknown'}) did not finish; marked failed so it can be retried")
+    return len(rows)
+
+def get_jobs_attention(job_ids):
+    """T-690: per-job open incidents for the job list (same 'resolved' rule as get_job_error_center)."""
+    ids=[x for x in job_ids if x]
+    if not ids:
+        return {}
+    marks=",".join("?"*len(ids))
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        f"""SELECT r.job_id,r.agent,r.stage,r.error,r.id AS run_id FROM agent_runs r
+            WHERE r.job_id IN ({marks}) AND r.status='failed' AND r.error IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM agent_runs c WHERE c.job_id=r.job_id AND c.agent=r.agent AND c.status='completed'
+                              AND COALESCE(c.finished_at,c.started_at)>COALESCE(r.finished_at,r.started_at))
+            ORDER BY COALESCE(r.finished_at,r.started_at) DESC""",ids).fetchall()]
+    con.close()
+    out={}
+    for r in rows:
+        item=out.setdefault(r["job_id"],{"open":0,"agent":r["agent"],"stage":r["stage"] or "","run_id":r["run_id"],
+                                         "code":classify_agent_error(r["error"])["code"]})
+        item["open"]+=1
+    return out
+
 def classify_agent_error(message):
     raw=(message or "").strip()
     low=raw.lower()
@@ -7518,7 +7675,16 @@ def classify_agent_error(message):
         "title":"Unclassified worker failure",
         "action":"Review the failed run before retrying. The provider outcome may be uncertain.",
     }
-    if any(x in low for x in ("balance exhausted","insufficient_quota","no credits remaining")):
+    if low.startswith("run interrupted"):
+        # T-690: the in-process task died (deploy/restart) mid-run. Nothing was recorded, but a live
+        # provider call may already have been billed, so a retry stays behind the confirmation gate.
+        policy.update({
+            "code":"run_interrupted","category":"interrupted","severity":"warning",
+            "retryable":True,"auto_retry":False,"requires_confirmation":True,"spend_uncertain":True,
+            "title":"Run interrupted by a server restart",
+            "action":"No result was saved. Confirm, then retry this worker or press Run to continue from this stage.",
+        })
+    elif any(x in low for x in ("balance exhausted","insufficient_quota","no credits remaining")):
         policy.update({
             "code":"billing_exhausted","category":"billing","severity":"critical",
             "retryable":True,"auto_retry":False,"requires_confirmation":False,"spend_uncertain":False,
@@ -7732,7 +7898,7 @@ def supervisor_audit(auto_heal=False, persist=False):
                 "A pipeline stage raised an exception and the job is paused.",
                 "Open the responsible agent ledger, inspect the error, then retry from the current stage.")
 
-        if j["status"] == "running" and j["id"] not in running_jobs:
+        if j["status"] == "running" and j["id"] not in running_jobs and not job_owned_by_live_process(j["id"]):
             add("critical", "orphan_job", f"Orphaned running job: {j['title']}",
                 "The database says the job is running, but no worker task owns it.",
                 "Reset it to ready and restart from the current stage.")
@@ -7740,6 +7906,7 @@ def supervisor_audit(auto_heal=False, persist=False):
                 con = db()
                 con.execute("UPDATE jobs SET status='idle',updated_at=? WHERE id=?", (ts(), j["id"]))
                 con.commit(); con.close()
+                close_interrupted_agent_runs(j["id"])
                 event(j["id"], "Supervisor auto-heal: orphaned run reset to ready")
                 healed.append(f"Reset orphaned job '{j['title']}' to ready.")
 
@@ -7757,6 +7924,11 @@ def supervisor_audit(auto_heal=False, persist=False):
             add("warning", "progress_mismatch", f"Progress mismatch: {j['title']}",
                 f"Stage {j['stage']} and stored progress {j['progress']}% disagree.",
                 "Calculate progress from completed stage artifacts instead of storing it independently.")
+
+    if auto_heal:
+        interrupted=close_interrupted_agent_runs()
+        if interrupted:
+            healed.append(f"Closed {interrupted} agent run(s) whose process stopped before they finished.")
 
     # Reset impossible agent runtime states.
     if not running_jobs:
@@ -7898,6 +8070,15 @@ async def supervisor_loop():
     while True:
         await supervisor_cycle()
         await asyncio.sleep(60)
+
+@app.on_event("startup")
+def close_runs_interrupted_by_restart():
+    # T-690: renew this process's lease, then close only runs no live process owns (an overlapping old instance keeps
+    # its runs until its heartbeat expires; the Supervisor cycle closes them after that).
+    beat_process_heartbeat()
+    threading.Thread(target=_heartbeat_loop,daemon=True,name="run-heartbeat").start()
+    closed=close_interrupted_agent_runs()
+    if closed:print(json.dumps({"event":"AGENT_RUNS_INTERRUPTED","closed":closed}),flush=True)
 
 @app.on_event("startup")
 async def verify_builder_bridge():
@@ -11067,6 +11248,8 @@ def status(request: Request=None):
     if tenancy.current() is not None:
         return _workspace_status(identity)
     jobs=get_jobs(); sid=current_selected(jobs); selected=next((j for j in jobs if j["id"]==sid),None)
+    attention=get_jobs_attention([j["id"] for j in jobs])
+    for j in jobs:j["attention"]=attention.get(j["id"])
     con=db(); ev=[dict(x) for x in con.execute("SELECT * FROM events ORDER BY id DESC LIMIT 60").fetchall()]; con.close()
     report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
     return {
