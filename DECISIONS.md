@@ -1268,6 +1268,78 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   no longer depends on the reservation token. The brief puts the draft-only rules first so length capping can never cut
   them. Verified on a real SQLite DB: 6 concurrent/repeated creates → 1 job row, 1 workspace row, 0 publishing rows.
 
+## 2026-11-15 — T-MODS-A Vendor poteto-mode, grilling and product-film as plugins
+
+- Sources were picked by provenance, not by search rank: poteto-mode from `cursor/plugins` (pstack, by its author
+  Lauren Tan; the many `pstack` forks are ports of it), grilling from `mattpocock/skills` (the registries that list it
+  name it as the source), product-film from `display-dev/product-film`. All MIT. Commits are pinned in `mods/README.md`.
+- poteto-mode is not standalone: it routes to ~50 bundled pstack skills, playbooks, the `poteto-agent` subagent and the
+  Claude Code adapter doc. The whole pstack Claude Code harness is vendored (1.3 MB) minus the guide images and the
+  TLA+ test corpus; vendoring only `poteto-mode/SKILL.md` would leave it pointing at missing files.
+- Each mod is a Claude Code plugin folder under `mods/`, not `.claude/skills/`: nothing loads unless a run passes
+  `--plugin-dir mods/<name>`, so the dashboard switch (T-MODS-B/C) is the only way a mod becomes active, and the
+  owner's interactive sessions are not changed silently.
+- product-film: removed the prebuilt `jq` binaries (unreviewable executables) and the display.dev upload scripts.
+  Uploading a review page to a third-party site is external publishing, which FactoryOS only does through the owner
+  approval gate. The skill renders locally (Playwright + ffmpeg, no paid API), which fits ZERO ADDITIONAL SPEND.
+  Correction to the earlier chat answer: product-film does not use Remotion.
+- All three pass `claude plugin validate`.
+
+## 2026-11-15 — T-MODS-B Mods & skills section: registry, switches, numbers
+
+- One code catalog (`mods_registry.CATALOG`) and one JSON state file (`DATA_DIR/mods.json`, flock + atomic replace,
+  the brand-strategy store pattern). Module is `mods_registry.py`, not `mods.py`: the `mods/` plugin folder would
+  shadow `import mods` as a namespace package.
+- Toggleable: poteto-mode, grilling, product-film (default off) and brand-strategy (default on, so today's behaviour
+  is unchanged). Revideo, Media Finisher, explainer motion and Gemini peer review are listed as built-in and cannot be
+  switched off from here; switching core production off by one click is not something the owner asked for.
+- The brand-strategy switch is real: `_apply_workflow_prompt` adds the Master Brief only while it is on, and counts a
+  use each time a prompt actually carried it. An unreadable state file falls back to defaults so content work never
+  stops on it; the dashboard gets a 503 instead of invented numbers.
+- "Does it help": worker runs are recorded with the mods they really loaded (T-MODS-C). A comparison is shown only with
+  at least 3 runs on each side; a run whose mods could not be applied counts as "without". No other metric is
+  claimed (e.g. content approval rate per Master Brief is not measured yet).
+- Owner-only switch and read; `by` is stored as the role, not the e-mail. Viewers do not see the card.
+- Verified in Chromium against a local server (RU, 1440 px and 375 px): no horizontal overflow, no page errors, the
+  sidebar item scrolls to the card.
+
+## 2026-11-15 — T-MODS-C Claude worker applies the switched-on mods
+
+- Mechanism: `claude --plugin-dir mods/<folder>` per run (checked: `claude --plugin-dir mods/pstack plugin list` →
+  loaded; pstack = 58 skills, 2 agents, 0 hooks, 0 MCP servers). No files are copied into `.claude/`, so switching
+  off takes effect on the very next run and leaves nothing behind.
+- The worker asks `GET /api/mods/worker/plan` (worker token) before every ROADMAP and Relay run. Fail direction is
+  "run without mods": server unreachable, CLI without `--plugin-dir`, or a plugin folder missing in the checkout →
+  no plugin loaded, and the run is reported `applied: false` with the reason, so it counts as "without" in the
+  comparison instead of polluting "with".
+- ROADMAP runs load only the development mods (poteto-mode, grilling); product-film loads only for Relay tickets
+  (the video duel's B arms). Relay plugin folders come from the ticket's fresh worktree.
+- poteto-mode is `disable-model-invocation: true`, so the prompt starts with `/pstack:poteto-mode`. Its Autonomy
+  section ("external actions proceed without asking") and grilling's "wait for the user" are overridden by an
+  appended system prompt: headless, CLAUDE.md wins, grilling becomes one self-answered pass recorded in DECISIONS.md.
+- ROADMAP runs pre-allow only what a loaded mod needs (`Skill`; plus `Task`/`Agent` for poteto-mode subagents).
+  `dsp` and the display.dev CLI are on the deny-list as a second lock behind the removed upload scripts.
+- Cost note: pstack adds ~4.7k always-on tokens to every session while poteto-mode is on, and its subagents use more
+  of the Claude subscription limit. That is the price the with/without numbers have to justify. No paid API is used.
+- Every run is reported to `POST /api/mods/worker/run` with its real mod set (best effort; a lost report only drops
+  that run from the comparison).
+
+## 2026-11-15 — T-MODS-D Video duel: A1/A2 (FactoryOS tool) against B1/B2 (product-film)
+
+- Separate from the MVP A/B Tester on purpose: that one is fixed to two persona branches with no winner by design
+  (T-608). A tool duel compares production tools on one brief with four takes, and does name a winner.
+- A arms become ordinary draft jobs through the normal `create_job` (format Shorts, brief starts with "ТОЛЬКО
+  ЧЕРНОВИК"), so they follow the usual pipeline and the usual publish approval. B arms become Claude Relay tickets
+  (`source_key mods-duel:<duel>:<arm>`, deduplicated) that load product-film only through T-MODS-C; starting B is
+  refused while product-film is off. Start is idempotent (120 s reservation released on failure).
+- Rendered films stay on the worker under `/tmp/factoryos-films/` and are never committed or uploaded; the ticket's
+  final note carries the paths. The owner pastes a link and scores 1–5. There is no automatic upload path yet.
+- A take can be scored only after it was started or has a link. The verdict (A average, B average, winner tool or
+  tie) is computed by the server only when all four takes are scored; clearing a score withdraws it.
+- Not verified here: a real product-film render on the EC2 worker (Node/ffmpeg/Playwright presence there is
+  unknown). The ticket tells the worker to return BLOCKED with the missing tool instead of faking a film.
+- Verified in Chromium against a local server: create duel → A1 job created → B locked → product-film on → B1 Relay
+  ticket queued → four scores → "A 3.5 · B 4.5 → побеждает product-film"; no overflow at 375 px, no page errors.
 ## 2026-11-15 — T-611 Durable engine: DBOS Transact embedded in FactoryOS (stage 0)
 
 - DBOS Transact 3.5.0 (MIT) runs as a library inside the FastAPI process, not as a separate orchestrator service: no
@@ -1508,6 +1580,12 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   then `gemini-2.5-flash`); 429/5xx are not retried, so one search costs at most 3 calls and still counts once
   against the 100/day cap. The successful model is returned as `model`.
 
+## 2026-11-15 — Mods & skills renumbered T-611 → T-620 → T-MODS
+
+- While this branch was open, `main` merged its own T-611 (DBOS durable engine). The Mods & skills tasks are renamed
+  T-620-A…D, then `main` took T-620 too (MyCast MVP V1, #385). Final ids are the non-numeric T-MODS-A…D, so
+  parallel agents numbering T-6xx cannot collide again (the ROADMAP parser accepts `T-[A-Za-z0-9-]+`). The branch's
+  first four commit subjects still say T-611-A…D (history is not rewritten); they are T-MODS-A…D.
 ## 2026-11-15 — T-625 Agent workspace MCP tools (T-604 server slice)
 
 - **Decision:** threads, messages and handoffs live in the existing Relay JSON store (`relay.json`, key `agent_workspace`) under `RelayStore.lock`, in a new module `agent_workspace.py` wired into `/mcp` like `web_surfer.py` (TOOLS + call_tool).

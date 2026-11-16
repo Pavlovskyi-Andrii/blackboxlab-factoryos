@@ -624,6 +624,37 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner-only route creates one inbox job per branch via `create_job` (atomic claim); draft only, no publishing queue row, no provider call; publish approval stays `/api/jobs/{id}/approve` + `_publish_approval_gate`.
   DONE: tests prove one job per branch under concurrent clicks, no publish row, no provider call.
 
+## Mods & skills (owner 2026-11-15)
+
+Owner: "скачай оба скилла и выложи на ветку… Product Film добавляй… раздел «Подключенные фичи и скиллы»… включить / отключить одной кнопкой… видно, даёт ли прирост… A1/A2 против B1/B2 по видео-инструментам… пайплайн плана контента тоже туда".
+
+- [x] T-MODS-A Vendor poteto-mode (pstack), grilling and product-film as Claude Code plugins
+  Owner: claude
+  Priority: P1
+  Goal: `mods/<name>/` holds each skill as a plugin (`.claude-plugin/plugin.json` + `skills/`), with upstream commit, license and every FactoryOS change recorded in `mods/README.md`; product-film ships without the display.dev publish scripts and bundled binaries.
+  DONE: `python test_mods.py` (vendoring checks) green; `claude plugin validate mods/<name>` passes for all three.
+
+- [x] T-MODS-B Mods & skills section: registry, one-button on/off, usage and before/after numbers
+  Owner: claude
+  Priority: P1
+  Depends: T-MODS-A
+  Goal: sidebar group «Mods & skills» opens a card listing every mod (poteto-mode, grilling, product-film, brand strategy → Master Brief, plus the built-in video tools and peer review as always-on), owner-only on/off with a history, usage counters, and a with/without comparison of worker runs; switching brand strategy off really stops the Master Brief from entering agent prompts. EN/UK/RU.
+  DONE: `python test_mods.py`, navigation + locale parity tests, dashboard `node --check`, smoke.
+
+- [x] T-MODS-C Claude worker applies the switched-on mods
+  Owner: claude
+  Priority: P1
+  Depends: T-MODS-B
+  Goal: before each ROADMAP or Relay run the worker reads the enabled mods (worker token), adds `--plugin-dir mods/<name>` and a headless-safety system prompt, starts the prompt with `/pstack:poteto-mode` when poteto-mode is on, and reports the run with its mod set so the dashboard can compare. Server unreachable or CLI without `--plugin-dir` → run without mods, reported as such.
+  DONE: `python -m autopilot.test_delegation`, `python test_mods.py`, Python 3.9 import check.
+
+- [x] T-MODS-D Video tool duel: A1/A2 (Revideo / Media Finisher / explainer) against B1/B2 (product-film)
+  Owner: claude
+  Priority: P2
+  Depends: T-MODS-C
+  Goal: owner creates a duel from one brief; A arms become ordinary draft jobs, B arms become Claude Relay tickets that use product-film (refused while the mod is off); each arm shows its live job/ticket state, takes a result link and an owner score 1–5; the duel shows the A vs B average and winner only when all four are scored. Nothing is published.
+  DONE: `python test_mods.py` (duel), dashboard `node --check`, locale parity, smoke.
+
 ## MVP Factory pilots — first MVP wave (owner 2026-11-15)
 
 - [x] T-616 AI Release Guardian — read-only GitHub PR readiness board (MVP pilot `release-guardian`, Issue #189)
