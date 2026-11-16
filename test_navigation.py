@@ -53,8 +53,9 @@ BEFORE = {
     "nav.ownerHub": "document.querySelector('.ohCard').scrollIntoView()",
     "nav.strategy": "document.querySelector('.stratCard').scrollIntoView()",   # owner 2026-11-14: brand strategy
     "nav.learn": "openLearning()",   # owner 2026-11-14: one Learning section (my learning, explainers, guide)
+    "mods.nav": "document.querySelector('.modsCard').scrollIntoView()",   # owner 2026-11-15 (T-MODS): Mods & skills
 }
-GROUPS = ("overview", "create", "publish", "grow", "automation", "mvp", "learn", "system")
+GROUPS = ("overview", "create", "publish", "grow", "automation", "mvp", "mods", "learn", "system")
 # Live counters updated by other renderers must keep their ids inside the sidebar.
 COUNTERS = ("brainNavCount", "discoveryNavCount", "revideoNavCount", "variantNavCount", "packageNavState", "buildNavPct")
 
@@ -307,7 +308,7 @@ const out={runs:[],langs:{},fails};
 for(const job of [false,true])for(const id of IDS){
  const e=boot({job}),b=nav(e,id);tap(e,b.querySelector('[data-i18n]'));
  const r={id,job,calls:e.calls.slice(),toasts:e.toasts.slice(),top:e.top,current:current(e),aria:b.getAttribute('aria-current'),crumbs:crumbs(e),
-  scrolled:['pipelineCard','supervisor','errorCenterCard','jobs','brAgentCard','ohCard','stratCard'].filter(c=>$$(e,'.'+c).scrolled),studio:$$(e,'#studio').classList.contains('open')};
+  scrolled:['pipelineCard','supervisor','errorCenterCard','jobs','brAgentCard','ohCard','stratCard','modsCard'].filter(c=>$$(e,'.'+c).scrolled),studio:$$(e,'#studio').classList.contains('open')};
  if(r.studio){$$(e,'#studio').classList.remove('open');tick(e);r.after=current(e);r.afterCrumbs=crumbs(e)}
  out.runs.push(r);
 }
@@ -388,7 +389,7 @@ def dom_inputs(html, script, i18n, assigns, tr):
         re.search(r'<nav class="navCrumbs"[^>]*></nav>', html),
     ]
     require(all(markup), "sidebar, toggle, backdrop or breadcrumb markup not found for the behaviour run")
-    stubs = '<div id="studio" class="drawer"></div>' + "".join(f'<div class="{c}"></div>' for c in ("pipelineCard", "supervisor", "errorCenterCard", "jobs", "brAgentCard", "ohCard", "stratCard"))
+    stubs = '<div id="studio" class="drawer"></div>' + "".join(f'<div class="{c}"></div>' for c in ("pipelineCard", "supervisor", "errorCenterCard", "jobs", "brAgentCard", "ohCard", "stratCard", "modsCard"))
     block = re.search(r"^// --- nav:begin.*?^// --- nav:end$", script, re.S | re.M)
     require(block is not None, "nav script block markers missing")
     parts = [

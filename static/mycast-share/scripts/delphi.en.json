@@ -1,0 +1,75 @@
+{
+ "id": "delphi",
+ "language": "en",
+ "title": "Delphi: the oracle's voice",
+ "voices": "MyCast two hosts: A = Charon, B = Kore (mycast.gemini_tts_pcm)",
+ "checked": "2026-11-16: dates, numbers and names checked against the lead of en.wikipedia.org/wiki/Delphi read through the FactoryOS Surfer; the other links are the standard Wikipedia articles for the remaining facts. No invented facts or quotes.",
+ "sources": [
+  "https://en.wikipedia.org/wiki/Delphi",
+  "https://en.wikipedia.org/wiki/Pythia",
+  "https://en.wikipedia.org/wiki/Know_thyself",
+  "https://en.wikipedia.org/wiki/Croesus"
+ ],
+ "lines": [
+  {
+   "host": "A",
+   "text": "Hi! This is a MyCast demo. Today we climb to Delphi, on the slope of Mount Parnassus."
+  },
+  {
+   "host": "B",
+   "text": "Where the Greeks went to ask about the future. Why there?"
+  },
+  {
+   "host": "A",
+   "text": "The Greeks thought Delphi was the centre of the world. A stone called the omphalos, the navel, marked the spot."
+  },
+  {
+   "host": "B",
+   "text": "Lovely. And who gave the answers?"
+  },
+  {
+   "host": "A",
+   "text": "Apollo's priestess, the Pythia. People came to her with big decisions from all over the ancient world: cities, kings and ordinary people."
+  },
+  {
+   "host": "B",
+   "text": "Where does the name Pythia come from?"
+  },
+  {
+   "host": "A",
+   "text": "The place was once called Pytho. In the myth a serpent, Python, lived here until Apollo killed it. Hence the Pythia."
+  },
+  {
+   "host": "B",
+   "text": "I have heard the oracle's answers could be ambiguous."
+  },
+  {
+   "host": "A",
+   "text": "The most famous example comes from Herodotus. King Croesus of Lydia asked whether to make war on Persia. The answer: if he did, he would destroy a great empire."
+  },
+  {
+   "host": "B",
+   "text": "And he did…"
+  },
+  {
+   "host": "A",
+   "text": "His own. Ancient tradition also says the temple of Apollo bore the words: Know thyself."
+  },
+  {
+   "host": "B",
+   "text": "Advice that has not aged. And what about Delphi today?"
+  },
+  {
+   "host": "A",
+   "text": "The sanctuary declined in late antiquity, and French archaeologists excavated it from the late nineteenth century. Today it is a UNESCO World Heritage Site."
+  },
+  {
+   "host": "B",
+   "text": "And people still go there, now looking for answers of their own."
+  },
+  {
+   "host": "A",
+   "text": "That was a MyCast demo episode. You can build your own podcast at mycast.pro."
+  }
+ ]
+}

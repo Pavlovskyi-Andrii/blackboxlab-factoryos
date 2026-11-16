@@ -56,6 +56,8 @@ from mycast_accounts import ListenerStore, install_mycast_account_routes, Accoun
 from mycast_accounts import COOKIE as MYCAST_COOKIE, unsign as mycast_unsign
 from mycast_calendar import ListenerCalendar, install_calendar_routes
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
+from mycast import GeminiTTSError as MycastGeminiTTSError
+from mycast_demo_audio import DemoAudioStore, install_mycast_demo_audio_routes
 import evidence as _evidence
 from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
@@ -72,7 +74,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.7.1"
+APP_VERSION = "v5.10.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -897,6 +899,22 @@ install_mycast_demo_routes(app, MYCAST_DEMO)
 # #281 voice audition: real cached Gemini samples per prebuilt voice (owner: about 30 samples), honest unavailable states.
 install_mycast_voice_audition_routes(app, VoiceSamples(DATA_DIR / "mycast_voices", api_key=lambda: FACTORY_GEMINI_API_KEY,
                                                        tts=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice)))
+
+
+def _mycast_demo_tts_no_retry(key, episode):
+    """T-665: the MyCast two-host TTS without its 429 wait-and-retry: a 429 stops the owner's run at once."""
+    def _stop(_seconds):
+        raise MycastGeminiTTSError("rate_limited")
+    return gemini_tts_pcm(key, episode, voices=("Charon", "Kore"), sleep=_stop)
+
+
+MYCAST_DEMO_AUDIO = DemoAudioStore(DATA_DIR / "mycast_demo_audio", api_key=lambda: FACTORY_GEMINI_API_KEY,
+                                   tts=_mycast_demo_tts_no_retry, encode=lambda pcm, rate: pcm_to_mp3(pcm, rate),
+                                   qc=lambda pcm, rate, lines: mycast_check_pcm(pcm, rate, lines))
+install_mycast_demo_audio_routes(app, MYCAST_DEMO_AUDIO,
+                                 is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
+import mycast_share_page as _mycast_share_page  # noqa: E402
+_mycast_share_page.set_demo_audio_source(MYCAST_DEMO_AUDIO.approved_url)
 def _mycast_send_listener_sample(chat_id: str, job_id: str) -> None:
     """#281: one generated demo, as mp3, to the listener's own Telegram chat (delivery opt-in checked by the caller)."""
     import wave
@@ -999,6 +1017,30 @@ def _strategy_job_exists(job_id):
 
 install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft, create_job=_strategy_job,
                         job_exists=_strategy_job_exists)
+
+# Owner 2026-11-15 (T-MODS): Mods & skills — one-button on/off for skills and features, with usage and before/after.
+from mods_registry import ModsStore, install_mods_routes
+MODS = ModsStore(DATA_DIR / "mods.json")
+
+
+def _duel_job_state(job_id):
+    job = get_job(job_id)
+    return {"status": job.get("status") or "", "title": job.get("title") or ""} if job else None
+
+
+def _duel_ticket_state(ticket_id):
+    t = RELAY_STORE.get(ticket_id)
+    if not t:
+        return None
+    ex = t.get("execution") or {}
+    return {"status": t.get("status") or "", "execution": ex.get("state") or "", "note": str(ex.get("note") or "")[:400]}
+
+
+install_mods_routes(app, MODS, identity=request_identity, worker_auth=_claude_worker_authorized,
+                    create_job=_strategy_job, job_state=_duel_job_state, ticket_state=_duel_ticket_state,
+                    create_ticket=lambda title, body, key: RELAY_STORE.create(
+                        title, body, source={"channel": "mods-duel", "source_key": key, "url": ""},
+                        created_by="mods-duel", owner="claude")[0]["id"])
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
@@ -1247,7 +1289,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 MYCAST_HOSTS = {h.strip().lower() for h in os.environ.get("FACTORY_MYCAST_HOSTS", "mycast.pro,www.mycast.pro").split(",") if h.strip()}
 MYCAST_PAGE = "/static/mycast-configurator/index.html"
 MYCAST_HOST_PREFIXES = ("/static/mycast-configurator/", "/static/favicon", "/static/apple-touch-icon", "/api/mycast/",
-                        "/mycast/u/", "/mycast/e/", "/.well-known/")
+                        "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/.well-known/")
 MYCAST_HOST_PATHS = {"/privacy", "/terms", "/health", "/favicon.ico", "/mycast", "/robots.txt", "/sitemap.xml"}
 
 
@@ -1307,7 +1349,7 @@ async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
     media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)
@@ -8166,9 +8208,13 @@ def _apply_workflow_prompt(agent,system,job_id=None):
     # Stage 3 (owner 2026-11-14): jobs from a brand plan (or linked to a brand) carry that brand's Master Brief.
     try:
         from brand_strategy import agent_context, brand_for_job
-        passport,item=brand_for_job(STRATEGY,job_id)
-        brief=agent_context(passport,agent,item) if passport else ""
-        if brief:additions.append(brief)
+        # T-MODS: the "brand-strategy" mod switch decides whether the Master Brief enters agent prompts.
+        if MODS.enabled("brand-strategy"):
+            passport,item=brand_for_job(STRATEGY,job_id)
+            brief=agent_context(passport,agent,item) if passport else ""
+            if brief:
+                additions.append(brief)
+                MODS.use("brand-strategy")
     except Exception as exc:
         print(f"brand brief not added for {agent}: {type(exc).__name__}",file=__import__("sys").stderr)
     return system + (("\n" + "\n".join(additions)) if additions else "")

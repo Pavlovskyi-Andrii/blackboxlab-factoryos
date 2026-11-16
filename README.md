@@ -19,6 +19,96 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+Versioning rules (2026-11-16): `APP_VERSION` in `app.py` is the only version. The dashboard header, the sidebar badge
+and `/health` all show it, and `test_versioning.py` fails CI if this changelog's first entry, the sidebar fallback and
+`APP_VERSION` disagree. Minor = new features, patch = fixes only. A release PR bumps the version and adds its entry
+here; after it merges, `.github/workflows/release.yml` tags the merge commit and publishes the GitHub Release.
+v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their weeks: the app showed `v5.7.1`
+during that time. v5.9.0 ends at #294 (2026-11-08); #295, #297 and #298 are in v5.10.0.
+
+### v5.10.0 — Evidence, MVP Builder, Brand Strategy, Durable Engine, Mods & Skills — 2026-11-08 … 2026-11-16
+- **Version sync and releases:** the sidebar badge (was a hard-coded `v5.3`), header and `/health` now all show
+  `APP_VERSION`; changelog restarted from v5.6; git tags and an automatic GitHub Release workflow.
+- **Owner tools:** owner voice messages → Gemini transcript → text Relay ticket (#295); route audit fixes and the
+  FactoryOS Team group bridge (#297); morning brief at 08:00 Kyiv and P2 regressions (#298).
+- **Evidence Protocol** (#299, #300, #301, #303, #304, #306): No Evidence — No Done; CI read from Actions runs; deploy
+  check against Render; owner accept buttons; Proof panel in Agent Office; Gemini reviews risky or large Claude PRs.
+- **Security:** encrypted vault AES-256-GCM with Access vault UI (#302); server GitHub reads use the read-only token
+  (#301); Cookie-Editor paste for vault sessions (#355, #356).
+- **MVP Builder:** cycle Battle → Build → Promote → Learn with five agents and agent chat (#310); autonomous hand-off
+  with evidence and an owner gate before build (#311); Faceless Creator brief (#330) and Faceless Models CRM (#360);
+  A/B Tester S1–S3 (#371, #373, #376, #389); AI Release Guardian (#383); AI Decision Memory pilot (#384); MyBrief for
+  a profession (#386); Product Evolution S1 (#392).
+- **Brand strategy → Master Brief** (#357, #358, #361): 7-step passport, monthly content plan with pillar × funnel
+  matrix, plan row → job, agents follow the Master Brief.
+- **Durable engine** (#379): DBOS Transact inside FastAPI and a durable AI Media Finisher (stages 0–1).
+- **Mods & skills** (#390): sidebar section with one-button switches for poteto-mode, grilling, product-film and the
+  brand-strategy pipeline; with/without numbers for worker runs; video duel A1/A2 against B1/B2.
+- **Agents and Relay:** Claude ↔ Codex agent relay (#318, #324, #325, #326, #328, #331); browser agent task queue,
+  EC2 worker, saved vault sessions (#334, #335, #339, #349, #350); Surfer web tools for every connected agent over MCP
+  (#375, #381, #388); shared agent workspace tools on `/mcp` (#391); Gemini worker on the owner's Google login (#387);
+  verifiable Telegram acceptance `/proof` (#393); Autopilot Cycle Control for beginners (#395); Relay runs limited to
+  60 turns / 30 min (#362); blocked-task wake loop fixed (#382).
+- **Publishing:** direct YouTube publisher with Google OAuth (#377). Real posting still needs owner approval.
+- **MyCast:** episodes 1–30 min (#322), episode history (#329), mycast.pro with privacy/terms, robots and sitemap
+  (#333, #349), Google Calendar read-only (#341), header sign-in and public podcast page (#344, #345), referral +7
+  after a friend's first episode (#363), MVP V1 library and revocable public links (#385), share card (#394),
+  accurate daily reports (#315, #316, #317).
+- **Dashboard:** owner feedback round (#308), MVP Builder on the dashboard (#309), Content / Promotion rename (#320),
+  local open questions on home (#323), owner console for background modules (#336–#338), Learning section and the
+  cinematic explainer (#364, #366), Approval Studio fixes (#374).
+
+### v5.9.0 — Gemini Lane, Team Tasks, MyCast Beta, Relay Round Trip — 2026-11-03 … 2026-11-08
+- **Gemini lane:** Gemini CLI Actions with least privilege, then manual only (#131, #178); Issue → PR pipeline (#146);
+  model update, timeout, 503 backoff and Flash fallback, error detail, night shift (#143, #148, #149, #157, #158);
+  every 5 minutes on EC2 with the key kept in Render (#164); Google's real status and key check (#209, #210);
+  Gemini-written tests and guides (#162, #183–#185, #191–#193, #196, #197, #214, #224, #225, #227, #228, #230, #243,
+  #247, #250, #252, #257, #268).
+- **Team and owner tools:** Team tasks page with PR/CI status and EC2 GitHub fallback (#182, #198, #251, #253);
+  Telegram `/workers` per executor (#159); owner desk cards (#249); Queue Keeper counts (#245, #292); ChatGPT lane
+  taken over by Claude (#293).
+- **Relay:** intake through the EC2 GitHub snapshot (#254, #262); dirty-path reporting and `.autopilot/` as runtime
+  space (#276, #277); per-ticket branch + PR round trip with CI/merge back to Telegram (#294); worker sync never rebases
+  (#211).
+- **Security:** route authorization inventory (#145); publish approval gate and findings schema (#246).
+- **MyCast:** full episode by 06:00 Kyiv (#222), owner-feedback format (#226), audio QC and source/date gate (#244),
+  configurator on the site and beta batches (#263, #267, #271, #278, #279, #280), Gemini voice picker and Telegram
+  pairing (#284), 7 free days + 7 per friend (#285), sub-topics, voice history, calendar wishes (#290, #291).
+- **MVP Builder / MVP Factory:** phase 1 registry, API and overview (#271); M1A–M1D build request contract (#287,
+  #288); AI Hangout pack (#223); evidence-command visual concept (#266).
+
+### v5.8.0 — Operator Lanes, Relay Control Room, Browser Runner, Builder Autopilot Hardening — 2026-10-27 … 2026-11-02
+- **Operators:** FactoryOS roles separated from operators; live Claude and Gemini operator telemetry; Telegram Claude
+  and Gemini lanes (T-580); dependency-aware scheduler and task owner lanes (#62).
+- **Browser Action Runner** (T-560-A/B/C, #35): contracts and policy engine, isolated session registry with human
+  takeover, guarded Playwright executor with a zero-spend fixture.
+- **Workers:** zero-PAYG self-healing Runner Supervisor (T-562); per-EC2 worker credential and secure interactive
+  pairing (T-563, T-564, #44); Python 3.9 on AWS EC2 (#59); reboot-proof worker venv (#73); worker reloads runner code
+  (#84); pause the whole queue on a Claude subscription limit (#81).
+- **Relay:** Telegram live control center with status, GitHub CI and history (#42); real Claude queue, heartbeat and
+  execution history (#43); lifecycle integration (#63); Telegram worker states and `/work` retry fixes (#64, #65);
+  verified server-side ROADMAP claims and factual run events (T-599, #68–#71, #80).
+- **Dashboard:** six semantic multilingual navigation groups (#66); CI dashboard screenshots for UI tasks (#82);
+  owner desk with step-by-step HUMAN runbooks (#83, #112); UI fixes from the screenshot review (#108).
+- **Security:** security baseline (#109); Python 3.13 pin, dependency floors and pip-audit in CI (#116).
+- **MyCast:** pilot episode with zero-spend TTS (#110); daily episode script, render and Telegram audio (#117); Gemini
+  two-host voices with Piper fallback (#127).
+- **Docs:** Claude ↔ ChatGPT coordination rules (#95); OAuth provider research (#91); Metricool access audit (#90);
+  Gemini onboarding (#121); MCP handoff protocol spec (#128).
+
+### v5.7.1 — One-tap Relay Telegram Pairing — 2026-10-26
+- Mobile Relay Telegram pairing and status controls.
+- Runtime version advanced to `v5.7.1`.
+
+### v5.7 — Relay Mobile Task Inbox — 2026-10-26
+- Persistent Relay ticket journal with history and notes.
+- Telegram auto-ticketing with inline actions, a mobile board, Operator-ready metadata and startup webhook sync.
+- Zero-spend regression coverage.
+
+### v5.6 — Native Gemini Omni Video Provider — 2026-10-26
+- Native Gemini Interactions API video provider with URI delivery and durable media archival.
+- Render configuration and zero-spend regression coverage.
+
 ### v5.5.1 — Production Runtime Observability — 2026-10-26
 - Runtime version advanced to `v5.5.1`.
 - Added a non-secret `PUBLISHER_RUNTIME` startup event with publisher adapter, scheduler state, Metricool readiness, reconciliation state, analytics adapter and queue counts; credentials are never logged.

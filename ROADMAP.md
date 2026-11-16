@@ -1,3 +1,16 @@
+- [ ] [HUMAN] T-645-H Generate, listen to and approve the MyCast demo episodes (Athens, Rome, …)
+  Depends: T-645, T-665
+  Need: owner (who approved Gemini voicing within the free quota, 2026-11-16) opens the owner console `/factory/mycast-demos` on the FactoryOS host, presses "Generate" (one city or all, ≤5 per run, ≤10 per day; a Google 429 stops the run, retry the next day), listens to each track and presses "Approve". Runbook in Worker Center → «Ваши задачи».
+  DONE: at least the Athens and Rome cards play on a live `/mycast/e/<token>` page.
+
+- [x] T-665 MyCast demo audio: owner-triggered Gemini voicing of the demo cities, approve-before-public
+  Owner: claude (session MyCast demo audio)
+  Priority: P1 (owner request 2026-11-16: «Демо-аудио для городов (T-645-H) — озвучь их Gemini», free quota only)
+  Depends: T-645
+  Spec: DECISIONS.md «2026-11-16 — T-665». `mycast_demo_audio.py`; scripts `static/mycast-share/scripts/<city>.<lang>.json` (UK/RU/EN, sources).
+  Goal: fact-checked two-host scripts for the five demo cities in the repo; an owner-only console and API voice one city or all with the existing MyCast TTS (`gemini_tts_pcm`, Charon + Kore) and the server key, store MP3 under DATA_DIR (never the repo), never re-voice a finished track without an explicit "regenerate", cap 5 per run and a daily cap, stop the whole run on a Google 429 with "quota exhausted, try again tomorrow"; the shared-episode page plays only tracks the owner approved (owner-only "Approve"), served from `/mycast/demo/<city>.<lang>.mp3`. Nothing is generated or published automatically.
+  DONE: `python test_mycast_demo_audio.py` (fake TTS: scripts, idempotency, run/daily caps, 429 stop, owner-only routes, approval and its withdrawal, public route and page play approved tracks only, escaping, `node --check` of the console JS) and every `test_mycast*.py`, `python test_owner_desk.py` and the default verification pass.
+
 # FactoryOS Roadmap
 
 This file is the execution queue for the autonomous Factory Builder.
@@ -624,6 +637,37 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner-only route creates one inbox job per branch via `create_job` (atomic claim); draft only, no publishing queue row, no provider call; publish approval stays `/api/jobs/{id}/approve` + `_publish_approval_gate`.
   DONE: tests prove one job per branch under concurrent clicks, no publish row, no provider call.
 
+## Mods & skills (owner 2026-11-15)
+
+Owner: "скачай оба скилла и выложи на ветку… Product Film добавляй… раздел «Подключенные фичи и скиллы»… включить / отключить одной кнопкой… видно, даёт ли прирост… A1/A2 против B1/B2 по видео-инструментам… пайплайн плана контента тоже туда".
+
+- [x] T-MODS-A Vendor poteto-mode (pstack), grilling and product-film as Claude Code plugins
+  Owner: claude
+  Priority: P1
+  Goal: `mods/<name>/` holds each skill as a plugin (`.claude-plugin/plugin.json` + `skills/`), with upstream commit, license and every FactoryOS change recorded in `mods/README.md`; product-film ships without the display.dev publish scripts and bundled binaries.
+  DONE: `python test_mods.py` (vendoring checks) green; `claude plugin validate mods/<name>` passes for all three.
+
+- [x] T-MODS-B Mods & skills section: registry, one-button on/off, usage and before/after numbers
+  Owner: claude
+  Priority: P1
+  Depends: T-MODS-A
+  Goal: sidebar group «Mods & skills» opens a card listing every mod (poteto-mode, grilling, product-film, brand strategy → Master Brief, plus the built-in video tools and peer review as always-on), owner-only on/off with a history, usage counters, and a with/without comparison of worker runs; switching brand strategy off really stops the Master Brief from entering agent prompts. EN/UK/RU.
+  DONE: `python test_mods.py`, navigation + locale parity tests, dashboard `node --check`, smoke.
+
+- [x] T-MODS-C Claude worker applies the switched-on mods
+  Owner: claude
+  Priority: P1
+  Depends: T-MODS-B
+  Goal: before each ROADMAP or Relay run the worker reads the enabled mods (worker token), adds `--plugin-dir mods/<name>` and a headless-safety system prompt, starts the prompt with `/pstack:poteto-mode` when poteto-mode is on, and reports the run with its mod set so the dashboard can compare. Server unreachable or CLI without `--plugin-dir` → run without mods, reported as such.
+  DONE: `python -m autopilot.test_delegation`, `python test_mods.py`, Python 3.9 import check.
+
+- [x] T-MODS-D Video tool duel: A1/A2 (Revideo / Media Finisher / explainer) against B1/B2 (product-film)
+  Owner: claude
+  Priority: P2
+  Depends: T-MODS-C
+  Goal: owner creates a duel from one brief; A arms become ordinary draft jobs, B arms become Claude Relay tickets that use product-film (refused while the mod is off); each arm shows its live job/ticket state, takes a result link and an owner score 1–5; the duel shows the A vs B average and winner only when all four are scored. Nothing is published.
+  DONE: `python test_mods.py` (duel), dashboard `node --check`, locale parity, smoke.
+
 ## MVP Factory pilots — first MVP wave (owner 2026-11-15)
 
 - [x] T-616 AI Release Guardian — read-only GitHub PR readiness board (MVP pilot `release-guardian`, Issue #189)
@@ -763,6 +807,20 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Spec: owner 2026-11-16 «переведи серверные ошибки цикла на UK/RU»; follow-up to T-646; DECISIONS.md «2026-11-16 — T-647»
   Goal: every cycle error the server returns (HTTP errors of the cycle routes, the stored `last_error`, error events in the history, run/learn messages) carries a stable code + params next to its English text, and the dashboard shows it in the selected language; an unknown message is shown as "server message (not translated)" with the original text, never hidden.
   DONE: `python test_factory_cycle_controls.py` (every code translated in EN/UK/RU, real messages map to codes, failure stores the code, HTTP detail carries it) + locale parity, navigation, explainability, smoke and `node --check` green; screenshots in `docs/screenshots/t-647/`.
+
+## Versioning (owner 2026-11-16)
+
+- [x] T-VERSION One version everywhere + changelog v5.6 → v5.10.0 + automatic GitHub Releases
+  Owner: claude
+  Priority: P1
+  Goal: `APP_VERSION` is the single version shown in the dashboard header, the sidebar badge (was hard-coded v5.3) and `/health`; README changelog continued from v5.6 to v5.10.0 (204 merges since v5.7.1); `release.yml` tags each new version on main and publishes its GitHub Release from the changelog; past versions tagged and backfilled.
+  DONE: `python test_versioning.py`, smoke, dashboard `node --check`, navigation/locale tests.
+  Evidence: v5.10.0 (run 43850500408) and v5.6, v5.7, v5.7.1, v5.8.0 (run 43851658678) published. v5.9.0: the workflow token gets 403 on it, so the owner creates it in the GitHub UI (see T-VERSION-H).
+
+- [ ] [HUMAN] T-VERSION-H Create GitHub release v5.9.0 on commit b991f85 (one-time, GitHub UI)
+  Owner: owner
+  Need: GitHub → Releases → Draft a new release → tag `v5.9.0`, target commit `b991f856404196e0146d6a1ce2fbc3cee60d20d0`, title from the README `### v5.9.0` heading, notes = that entry's bullets, not marked Latest → Publish. The workflow token is refused (HTTP 403) for this commit.
+  DONE: https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/releases/tag/v5.9.0 exists.
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 

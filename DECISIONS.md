@@ -1268,6 +1268,78 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   no longer depends on the reservation token. The brief puts the draft-only rules first so length capping can never cut
   them. Verified on a real SQLite DB: 6 concurrent/repeated creates → 1 job row, 1 workspace row, 0 publishing rows.
 
+## 2026-11-15 — T-MODS-A Vendor poteto-mode, grilling and product-film as plugins
+
+- Sources were picked by provenance, not by search rank: poteto-mode from `cursor/plugins` (pstack, by its author
+  Lauren Tan; the many `pstack` forks are ports of it), grilling from `mattpocock/skills` (the registries that list it
+  name it as the source), product-film from `display-dev/product-film`. All MIT. Commits are pinned in `mods/README.md`.
+- poteto-mode is not standalone: it routes to ~50 bundled pstack skills, playbooks, the `poteto-agent` subagent and the
+  Claude Code adapter doc. The whole pstack Claude Code harness is vendored (1.3 MB) minus the guide images and the
+  TLA+ test corpus; vendoring only `poteto-mode/SKILL.md` would leave it pointing at missing files.
+- Each mod is a Claude Code plugin folder under `mods/`, not `.claude/skills/`: nothing loads unless a run passes
+  `--plugin-dir mods/<name>`, so the dashboard switch (T-MODS-B/C) is the only way a mod becomes active, and the
+  owner's interactive sessions are not changed silently.
+- product-film: removed the prebuilt `jq` binaries (unreviewable executables) and the display.dev upload scripts.
+  Uploading a review page to a third-party site is external publishing, which FactoryOS only does through the owner
+  approval gate. The skill renders locally (Playwright + ffmpeg, no paid API), which fits ZERO ADDITIONAL SPEND.
+  Correction to the earlier chat answer: product-film does not use Remotion.
+- All three pass `claude plugin validate`.
+
+## 2026-11-15 — T-MODS-B Mods & skills section: registry, switches, numbers
+
+- One code catalog (`mods_registry.CATALOG`) and one JSON state file (`DATA_DIR/mods.json`, flock + atomic replace,
+  the brand-strategy store pattern). Module is `mods_registry.py`, not `mods.py`: the `mods/` plugin folder would
+  shadow `import mods` as a namespace package.
+- Toggleable: poteto-mode, grilling, product-film (default off) and brand-strategy (default on, so today's behaviour
+  is unchanged). Revideo, Media Finisher, explainer motion and Gemini peer review are listed as built-in and cannot be
+  switched off from here; switching core production off by one click is not something the owner asked for.
+- The brand-strategy switch is real: `_apply_workflow_prompt` adds the Master Brief only while it is on, and counts a
+  use each time a prompt actually carried it. An unreadable state file falls back to defaults so content work never
+  stops on it; the dashboard gets a 503 instead of invented numbers.
+- "Does it help": worker runs are recorded with the mods they really loaded (T-MODS-C). A comparison is shown only with
+  at least 3 runs on each side; a run whose mods could not be applied counts as "without". No other metric is
+  claimed (e.g. content approval rate per Master Brief is not measured yet).
+- Owner-only switch and read; `by` is stored as the role, not the e-mail. Viewers do not see the card.
+- Verified in Chromium against a local server (RU, 1440 px and 375 px): no horizontal overflow, no page errors, the
+  sidebar item scrolls to the card.
+
+## 2026-11-15 — T-MODS-C Claude worker applies the switched-on mods
+
+- Mechanism: `claude --plugin-dir mods/<folder>` per run (checked: `claude --plugin-dir mods/pstack plugin list` →
+  loaded; pstack = 58 skills, 2 agents, 0 hooks, 0 MCP servers). No files are copied into `.claude/`, so switching
+  off takes effect on the very next run and leaves nothing behind.
+- The worker asks `GET /api/mods/worker/plan` (worker token) before every ROADMAP and Relay run. Fail direction is
+  "run without mods": server unreachable, CLI without `--plugin-dir`, or a plugin folder missing in the checkout →
+  no plugin loaded, and the run is reported `applied: false` with the reason, so it counts as "without" in the
+  comparison instead of polluting "with".
+- ROADMAP runs load only the development mods (poteto-mode, grilling); product-film loads only for Relay tickets
+  (the video duel's B arms). Relay plugin folders come from the ticket's fresh worktree.
+- poteto-mode is `disable-model-invocation: true`, so the prompt starts with `/pstack:poteto-mode`. Its Autonomy
+  section ("external actions proceed without asking") and grilling's "wait for the user" are overridden by an
+  appended system prompt: headless, CLAUDE.md wins, grilling becomes one self-answered pass recorded in DECISIONS.md.
+- ROADMAP runs pre-allow only what a loaded mod needs (`Skill`; plus `Task`/`Agent` for poteto-mode subagents).
+  `dsp` and the display.dev CLI are on the deny-list as a second lock behind the removed upload scripts.
+- Cost note: pstack adds ~4.7k always-on tokens to every session while poteto-mode is on, and its subagents use more
+  of the Claude subscription limit. That is the price the with/without numbers have to justify. No paid API is used.
+- Every run is reported to `POST /api/mods/worker/run` with its real mod set (best effort; a lost report only drops
+  that run from the comparison).
+
+## 2026-11-15 — T-MODS-D Video duel: A1/A2 (FactoryOS tool) against B1/B2 (product-film)
+
+- Separate from the MVP A/B Tester on purpose: that one is fixed to two persona branches with no winner by design
+  (T-608). A tool duel compares production tools on one brief with four takes, and does name a winner.
+- A arms become ordinary draft jobs through the normal `create_job` (format Shorts, brief starts with "ТОЛЬКО
+  ЧЕРНОВИК"), so they follow the usual pipeline and the usual publish approval. B arms become Claude Relay tickets
+  (`source_key mods-duel:<duel>:<arm>`, deduplicated) that load product-film only through T-MODS-C; starting B is
+  refused while product-film is off. Start is idempotent (120 s reservation released on failure).
+- Rendered films stay on the worker under `/tmp/factoryos-films/` and are never committed or uploaded; the ticket's
+  final note carries the paths. The owner pastes a link and scores 1–5. There is no automatic upload path yet.
+- A take can be scored only after it was started or has a link. The verdict (A average, B average, winner tool or
+  tie) is computed by the server only when all four takes are scored; clearing a score withdraws it.
+- Not verified here: a real product-film render on the EC2 worker (Node/ffmpeg/Playwright presence there is
+  unknown). The ticket tells the worker to return BLOCKED with the missing tool instead of faking a film.
+- Verified in Chromium against a local server: create duel → A1 job created → B locked → product-film on → B1 Relay
+  ticket queued → four scores → "A 3.5 · B 4.5 → побеждает product-film"; no overflow at 375 px, no page errors.
 ## 2026-11-15 — T-611 Durable engine: DBOS Transact embedded in FactoryOS (stage 0)
 
 - DBOS Transact 3.5.0 (MIT) runs as a library inside the FastAPI process, not as a separate orchestrator service: no
@@ -1372,6 +1444,34 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   (MyCast, Surfer, the older `tools/gemini_ec2_loop.sh` issue→PR loop). Other key variables stay refused; keys are redacted
   from evidence. `FACTORY_GEMINI_MODEL` optionally pins the model (`--model`). Preflight also accepts the newer
   `~/.gemini/gemini-credentials.json` login file.
+## 2026-11-16 — T-665 MyCast demo audio: Gemini voicing by the owner's button, approve before public
+
+- Owner request 2026-11-16: voice the T-645 demo cities with Gemini, free Google quota only. The key exists only on
+  Render, so the voicing runs on the server, started by the owner; this session generated nothing.
+- Scripts are reviewed files in the repo (`static/mycast-share/scripts/<city>.<lang>.json`, UK/RU/EN, ~180–250 words,
+  1–1.5 min). Facts were checked against the Wikipedia leads read through the FactoryOS Surfer (Parthenon, Colosseum,
+  Delphi, Ancient Olympic Games, Pompeii); uncertain points are said as such (Pompeii's exact day, "by tradition" 776 BC).
+  No model writes text at generation time. Each script fits one TTS chunk: one request per city.
+- Voices: the existing MyCast pair Charon + Kore through `mycast.gemini_tts_pcm`, plus the episode QC (`check_pcm`).
+  The app adapter passes a `sleep` that raises, so the built-in 429 wait-and-retry is off here: the first 429 stops the
+  whole run ("квота Google исчерпана, повторите завтра"), records the time and voices nothing more. Every attempt counts
+  toward the daily cap (default 10, `MYCAST_DEMO_AUDIO_DAILY_CAP`), failed ones too; ≤5 cities per run; ~21 s pause
+  between cities (free-tier per-minute limit). One run at a time, in a background thread; the console polls.
+- Storage: `DATA_DIR/mycast_demo_audio/<city>.<lang>.mp3` + `state.json` (generated_at, script hash, approval). The
+  repo's static folder stays read-only. Idempotent: an existing track is skipped ("cached") unless the owner asks for
+  "regenerate", which also withdraws the approval (new audio is unheard). A changed script shows "stale" but the approved
+  audio keeps playing until the owner regenerates.
+- Public: `/mycast/demo/<city>.<lang>.mp3` serves an approved track only (404 otherwise, strict name regex), `max-age=600`,
+  so withdrawing an approval takes up to 10 minutes in caches. The share page asks the store through
+  `mycast_share_page.set_demo_audio_source`; it prefers the page language and otherwise plays another approved language
+  with the language marked on the card ("· UK"). The older repo-file path (`approved_by_owner` in demos.json) still works.
+- Owner console: `/factory/mycast-demos` on the FactoryOS host (owner role, Russian UI, as the owner desk), JSON API under
+  `/api/factory/mycast/demo-audio` (owner role; POSTs require `application/json`, so no cross-site form can trigger a
+  generation). Owner task T-645-H now reads: generate → listen → approve.
+- Free-only is guaranteed by the key's Google project, not by this code (Codex review on #403): on a billing-enabled
+  project calls are charged before any 429. The code only caps requests and stops on 429; the runbook makes the owner
+  confirm Billing Tier "Free tier" before the first generation, and the 429 message no longer claims "nothing was paid".
+
 ## 2026-11-16 — T-645 MyCast share card (owner voice request): coverflow, demo cities, public DNA
 
 - New module `mycast_share_page.py` renders `/mycast/e/<token>`; `mycast_public.render_episode_page` stays as the
@@ -1508,6 +1608,12 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   then `gemini-2.5-flash`); 429/5xx are not retried, so one search costs at most 3 calls and still counts once
   against the 100/day cap. The successful model is returned as `model`.
 
+## 2026-11-15 — Mods & skills renumbered T-611 → T-620 → T-MODS
+
+- While this branch was open, `main` merged its own T-611 (DBOS durable engine). The Mods & skills tasks are renamed
+  T-620-A…D, then `main` took T-620 too (MyCast MVP V1, #385). Final ids are the non-numeric T-MODS-A…D, so
+  parallel agents numbering T-6xx cannot collide again (the ROADMAP parser accepts `T-[A-Za-z0-9-]+`). The branch's
+  first four commit subjects still say T-611-A…D (history is not rewritten); they are T-MODS-A…D.
 ## 2026-11-15 — T-625 Agent workspace MCP tools (T-604 server slice)
 
 - **Decision:** threads, messages and handoffs live in the existing Relay JSON store (`relay.json`, key `agent_workspace`) under `RelayStore.lock`, in a new module `agent_workspace.py` wired into `/mcp` like `web_surfer.py` (TOOLS + call_tool).
@@ -1598,3 +1704,43 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   **Reason:** no change to shared functions or their callers; API clients still get the English message. A message without a known pattern is shown labelled "not translated" with the original text, so nothing is hidden or invented.
 - **Decision:** only the cycle screen uses the new `cycleApi()` wrapper (parses the structured detail); the global `api()` helper is unchanged.
 - **Decision:** informational history lines (e.g. "handoff completed") stay in English for now; only errors and warnings are translated.
+## 2026-11-16 — T-VERSION One version everywhere, changelog and GitHub Releases
+
+- Found: `APP_VERSION` stuck at `v5.7.1` since 2026-10-26 (204 merges since), the sidebar badge hard-coded `v5.3`, the
+  README changelog ending at v5.5.1, and no git tags or GitHub Releases at all.
+- New current version `v5.10.0`. The weeks in between got retroactive entries v5.8.0 (10-27…11-02) and v5.9.0
+  (11-03…11-09) grouped by area with PR numbers, labelled as written on 2026-11-16; v5.10.0 covers 11-10…11-16. One
+  entry per week instead of one per PR keeps the changelog readable; every merged PR number is listed.
+- Single source: the sidebar badge and header read `S.version` from `/api/status`; the static fallback must equal
+  `APP_VERSION` (`test_versioning.py`, in CI), as must the README's first changelog entry and the smoke pin.
+- Releases are cut by release PRs, not per feature PR: many agents merge in parallel, and a per-PR bump of one line
+  in `app.py` and the README top would conflict constantly. Claude, now the merger, cuts a release at least daily.
+- GitHub Releases need an API this session's GitHub tools do not offer, so `.github/workflows/release.yml` does it
+  with the workflow's own token (`contents: write`), only on pushes to main that touch `app.py` or `README.md`
+  (seconds of runner time). It skips existing releases; `workflow_dispatch` backfills a release for an existing tag.
+- Past versions are tagged by the same workflow, because this session's git proxy refuses tag pushes and the GitHub
+  integration may not dispatch workflows (403 `Resource not accessible by integration`): they are listed in
+  `.github/release-backfill.txt` and released on their own commits by the next push run (`--latest=false`, so the
+  current version stays Latest): v5.6 → `04f87ca`, v5.7 → `f1e5daf`, v5.7.1 → `f4fee78`, and the
+  retroactive weeks on the last merge of each week, v5.8.0 → `b6b4523`, v5.9.0 → `3c8c9ea`.
+- Evidence 2026-11-16: #396 merged as `e3b62f8`; Release run 43850500408 succeeded and published
+  https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/releases/tag/v5.10.0 (the first tag and release ever).
+- Backfill run 43851658678 published v5.6, v5.7, v5.7.1 and v5.8.0 on their own commits; v5.9.0 failed with
+  `HTTP 403: Resource not accessible by integration` because `3c8c9ea` (#298) edits `.github/workflows/ci.yml`, and
+  the workflow token may not create a ref on such a commit. v5.9.0 moves to `b991f85` (#294), the week's last merge
+  without a workflow edit; #295, #297 and #298 move to the v5.10.0 entry (the already published v5.10.0 release notes
+  were written before this move). `test_versioning.py` now refuses a backfill commit that edits workflows.
+- Correction: the "workflow-editing commit" explanation was wrong. Run 43852619083 got the same 403 for `b991f85`,
+  whose own diff touches no workflow, while v5.6…v5.8.0 (whose trees also differ from main in `.github/workflows`)
+  and v5.10.0 worked. The only shared trait of the two refused commits is that their tree has `gemini-coder.yml`,
+  which no earlier tag has; GitHub does not document the rule, so it is not encoded in a test. The guard added to
+  `test_versioning.py` on that wrong premise is removed, v5.9.0 leaves the backfill list (so pushes stop failing),
+  and the owner creates v5.9.0 once in the GitHub UI on `b991f85` with the README entry as notes (owner credentials
+  are not limited like the workflow token). Answers the two minor Codex findings on #398 by removing that check.
+
+
+## 2026-11-16 — Gemini search: flash-lite fallback, 429 tries the next model
+
+- Production after the daily reset: `gemini-2.5-flash` 404, `gemini-flash-latest` 429 RESOURCE_EXHAUSTED. Owner asked to try
+  `gemini-flash-lite-latest`. It is added to the fallback list, and a 429 now moves to the next model (quotas are per
+  model); network errors and 5xx still stop. At most 3 Gemini calls per search (`GEMINI_MAX_ATTEMPTS`: the resolved model first, then the fallbacks in order), still one count against the 100/day cap.

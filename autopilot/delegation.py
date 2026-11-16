@@ -72,6 +72,9 @@ DISALLOWED_TOOLS = (
     "Bash(render:*)",
     "Bash(gh workflow run:*)",
     "Bash(gh pr merge:*)",
+    # T-MODS: product-film's upstream upload path (display.dev) is removed; block it here too.
+    "Bash(dsp:*)",
+    "Bash(npx -y @displaydev/cli:*)",
 )
 # Headless `claude -p` cannot ask for approval, so anything not pre-allowed is denied.
 # The verification loop from CLAUDE.md (edit, run python tests, node --check, local commit)
@@ -99,6 +102,11 @@ ALLOWED_TOOLS = (
 VENV_DIR = ".venv"
 VENV_TIMEOUT_SECONDS = 900
 TASK_ID_RE = re.compile(r"^T-[A-Za-z0-9-]+$")
+
+try:
+    from . import mods_runtime
+except ImportError:
+    import mods_runtime
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -226,8 +234,12 @@ def build_delegation(
     timeout_seconds: int = 3600,
     skip_permissions: bool = False,
     agent: str = "claude",
+    mods: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Return a pinned, bounded delegation spec for exactly one roadmap task."""
+    """Return a pinned, bounded delegation spec for exactly one roadmap task.
+
+    ``mods`` (from ``mods_runtime.prepare``) adds the owner's switched-on Claude Code plugins for this run only;
+    they are Claude plugins, so a Gemini run never carries them."""
     agent = str(agent or "claude").strip().lower()
     if agent not in AGENTS:
         raise ValueError(f"unsupported agent: {agent!r}")
@@ -244,16 +256,21 @@ def build_delegation(
         raise ValueError("delegation refuses to run on main/master or a detached HEAD")
     turns = _clamp(max_turns, MAX_TURNS_RANGE)
     timeout = _clamp(timeout_seconds, TIMEOUT_RANGE)
+    if agent != "claude" or not mods:
+        mods = {"mods": [], "plugins": [], "applied": False,
+                "note": "mods not requested" if agent == "claude" else "mods are Claude plugins"}
     cmd = [
         "claude",
         "-p",
-        task_prompt(task),
+        mods_runtime.prompt_prefix(mods) + task_prompt(task),
         "--output-format",
         "json",
         "--max-turns",
         str(turns),
+        *mods_runtime.cli_args(mods, repo),
         "--allowedTools",
         *ALLOWED_TOOLS,
+        *mods_runtime.extra_tools(mods),
         "--disallowedTools",
         *DISALLOWED_TOOLS,
     ]
@@ -281,6 +298,7 @@ def build_delegation(
         "gemini_auth": gemini_auth_mode() if agent == "gemini" else "",
         "auth_mode": ({"google": "google_account", GEMINI_KEY_AUTH: GEMINI_KEY_AUTH}[gemini_auth_mode()]
                       if agent == "gemini" else "subscription"),
+        "mods": mods,
     }
 
 
