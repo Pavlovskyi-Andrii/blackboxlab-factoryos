@@ -26,7 +26,9 @@ MAX_ACTIVE = 20                      # queued + running; new tasks are refused b
 LEASE_SECONDS = 600
 MAX_SELECTORS = 5
 MAX_SHOT_BYTES = 2 * 1024 * 1024
-MAX_TEXT = 6000
+MAX_TEXT = 6000                      # per selector in the task record (dashboard); the full text is in browser_pages/
+MAX_PAGE_TEXT = 100_000              # T-670: full text kept per task, read in chunks (web_task offset)
+MAX_LINKS = 150
 AGENT_DAILY_CAP = 200                # read tasks Claude may queue per 24 h with the browser-agent token (owner 2026-11-13)
 ID_RE = re.compile(r"^bt_[0-9a-f]{16}$")
 SELECTOR_RE = re.compile(r"^[^\x00-\x1f<>{};]{1,200}$")
@@ -57,6 +59,7 @@ class BrowserTaskStore:
     def __init__(self, data_dir: Path, *, clock: Callable[[], float] = time.time):
         self.path = Path(data_dir) / "browser_tasks.json"
         self.shots = Path(data_dir) / "browser_shots"
+        self.pages = Path(data_dir) / "browser_pages"
         self.clock, self.lock = clock, threading.Lock()
 
     def _load(self) -> list:
@@ -71,8 +74,9 @@ class BrowserTaskStore:
         finished = [t for t in items if t["status"] not in ("queued", "running")]
         drop = {t["id"] for t in finished[:-MAX_TASKS]} if len(finished) > MAX_TASKS else set()
         keep = [t for t in items if t["id"] not in drop]       # queued/running tasks are never evicted
-        for task_id in drop:                                   # old screenshots go with their task
+        for task_id in drop:                                   # old screenshots and page texts go with their task
             (self.shots / f"{task_id}.png").unlink(missing_ok=True)
+            (self.pages / f"{task_id}.json").unlink(missing_ok=True)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(keep, ensure_ascii=False, indent=1), encoding="utf-8")
         tmp.replace(self.path)
@@ -88,7 +92,9 @@ class BrowserTaskStore:
         wait_for = str(wait_for or "").strip()
         if wait_for and not SELECTOR_RE.fullmatch(wait_for):
             raise HTTPException(400, "Некоректний CSS-селектор")
-        sel = [str(s).strip() for s in (selectors or []) if str(s).strip()][:MAX_SELECTORS] or ["body"]
+        # T-670: no selectors = "the main text of the page" (the worker picks the content, drops menus); an older worker
+        # reads the whole body for an empty list, as it did for the former default ["body"].
+        sel = [str(s).strip() for s in (selectors or []) if str(s).strip()][:MAX_SELECTORS]
         if not all(SELECTOR_RE.fullmatch(s) for s in sel):
             raise HTTPException(400, "Некоректний CSS-селектор")
         task = {"id": "bt_" + secrets.token_hex(8), "url": url, "selectors": sel, "note": str(note or "")[:300],
@@ -101,7 +107,8 @@ class BrowserTaskStore:
         with self.lock:
             items = self._load()
             if sum(t["status"] in ("queued", "running") for t in items) >= MAX_ACTIVE:
-                raise HTTPException(429, "Забагато завдань у черзі — дочекайтеся виконання")
+                raise HTTPException(429, f"Забагато завдань у черзі — дочекайтеся виконання / queue full: {MAX_ACTIVE} "
+                                         "tasks are queued or running; retry in about a minute")
             if source != "owner" and sum(t.get("source") == source and t.get("created", 0) > self.clock() - 86400
                                          for t in items) >= AGENT_DAILY_CAP:
                 raise HTTPException(429, "daily cap for agent tasks reached")
@@ -128,11 +135,25 @@ class BrowserTaskStore:
         status = str(body.get("status") or "")
         if status not in STATUSES[2:]:
             raise HTTPException(400, "bad status")
-        texts = []
+        texts, full = [], []
         for row in (body.get("texts") or [])[:MAX_SELECTORS]:
             if isinstance(row, dict):
-                texts.append(dict({"selector": str(row.get("selector") or "")[:200], "text": str(row.get("text") or "")[:MAX_TEXT]},
+                text = str(row.get("text") or "")[:MAX_PAGE_TEXT]
+                full.append({"selector": str(row.get("selector") or "")[:200], "text": text})
+                texts.append(dict({"selector": full[-1]["selector"], "text": text[:MAX_TEXT], "chars": len(text)},
                                   **({"missing": True} if row.get("missing") else {})))
+        page = body.get("page") if isinstance(body.get("page"), dict) else {}
+        links = []
+        for link in (page.get("links") or [])[:MAX_LINKS] if isinstance(page.get("links"), list) else []:
+            url = str((link or {}).get("url") or "") if isinstance(link, dict) else ""
+            if url.startswith("https://") and len(url) <= 500:
+                links.append({"text": str(link.get("text") or "")[:120], "url": url})
+        try:
+            http_status = int(body.get("http_status") or 0)
+        except (TypeError, ValueError):
+            http_status = 0
+        redirect_to = str(body.get("redirect_to") or "")
+        redirect_to = redirect_to[:500] if redirect_to.startswith("https://") else ""
         shot = body.get("screenshot_png_b64") or ""
         with self.lock:
             items = self._load()
@@ -148,16 +169,44 @@ class BrowserTaskStore:
                     raise HTTPException(400, "bad screenshot")
                 self.shots.mkdir(parents=True, exist_ok=True)
                 (self.shots / f"{task_id}.png").write_bytes(raw)
-            task.update(status=status, lease_until=0, finished=int(self.clock()), result={
-                "final_url": str(body.get("final_url") or "")[:500], "texts": texts,
-                "blocker": str(body.get("blocker") or "")[:120], "steps": int(body.get("steps") or 0),
-                "screenshot": bool(shot)})
+            if page:
+                document = str(page.get("text") or "")[:MAX_PAGE_TEXT]
+            elif len(full) == 1:
+                document = full[0]["text"]
+            else:
+                document = "\n\n".join(f"### {row['selector']}\n{row['text']}" for row in full)
+            self.pages.mkdir(parents=True, exist_ok=True)
+            tmp = self.pages / f"{task_id}.tmp"
+            tmp.write_text(json.dumps({"text": document[:MAX_PAGE_TEXT], "links": links}, ensure_ascii=False),
+                           encoding="utf-8")
+            tmp.replace(self.pages / f"{task_id}.json")
+            result = {"final_url": str(body.get("final_url") or "")[:500], "texts": texts,
+                      "blocker": str(body.get("blocker") or "")[:120], "steps": int(body.get("steps") or 0),
+                      "screenshot": bool(shot), "total_chars": len(document[:MAX_PAGE_TEXT]), "links_total": len(links)}
+            if page:
+                result.update(mode="main_content", title=str(page.get("title") or "")[:300],
+                              description=str(page.get("description") or "")[:500], main=str(page.get("main") or "")[:80])
+            if http_status:
+                result["http_status"] = http_status
+            if redirect_to:
+                result["redirect_to"] = redirect_to
+            task.update(status=status, lease_until=0, finished=int(self.clock()), result=result)
             self._save(items)
             return task
 
     def get(self, task_id: str) -> Optional[dict]:
         with self.lock:
             return next((t for t in self._load() if t["id"] == task_id), None)
+
+    def page(self, task_id: str) -> dict:
+        """The full text and links the worker returned ({} for tasks finished before T-670)."""
+        if not ID_RE.fullmatch(task_id):
+            return {}
+        try:
+            value = json.loads((self.pages / f"{task_id}.json").read_text(encoding="utf-8"))
+            return value if isinstance(value, dict) else {}
+        except (OSError, ValueError):
+            return {}
 
     def screenshot(self, task_id: str) -> Path:
         path = self.shots / f"{task_id}.png"
@@ -232,12 +281,18 @@ def install_browser_task_routes(app, store: BrowserTaskStore, *, identity: Calla
         return {"task": task}
 
     @app.get("/api/factory/browser/agent/tasks/{task_id}")
-    def browser_agent_task(task_id: str, request: Request):
+    def browser_agent_task(task_id: str, request: Request, offset: Optional[int] = None, max_chars: int = 8000,
+                           links: int = 40):
         agent(request)
         task = store.get(task_id) if ID_RE.fullmatch(task_id) else None
         if not task or task.get("source") != "claude":
             raise HTTPException(404, "unknown task")
-        return {"task": task}
+        # T-670: "view" is what MCP agents see (text chunk + next_offset, links, hints); "task" stays as before.
+        import web_surfer
+        args = {"task_id": task_id, "max_chars": max_chars, "links": links}
+        if offset is not None:
+            args["offset"] = offset
+        return {"task": task, "view": web_surfer.web_task(store, args, source="claude")}
 
     @app.get("/api/factory/browser/agent/tasks/{task_id}/screenshot")
     def browser_agent_screenshot(task_id: str, request: Request):

@@ -263,6 +263,8 @@ jobs:
           python test_browser_tasks.py
           python -m py_compile web_surfer.py test_web_surfer.py
           python test_web_surfer.py
+          python -m py_compile test_browser_reading.py
+          python test_browser_reading.py
           python -m py_compile agent_workspace.py test_agent_workspace.py
           python test_agent_workspace.py
           node --check tools/gemini_issue_pr.cjs

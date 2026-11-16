@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 
 ALLOWED_STEPS = frozenset(
-    {"navigate", "click", "fill", "select", "upload", "wait_for", "extract", "screenshot", "submit"}
+    {"navigate", "click", "fill", "select", "upload", "wait_for", "extract", "read_page", "screenshot", "submit"}
 )
 ACTION_CLASSES = frozenset({"read", "draft", "upload", "publish", "send", "destructive"})
 IRREVERSIBLE_ACTIONS = frozenset({"publish", "send", "destructive"})

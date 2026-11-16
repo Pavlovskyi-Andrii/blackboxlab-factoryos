@@ -33,9 +33,12 @@ from .core import (
     approval_matches, canonical_payload_hash, validate_plan,
 )
 from .core import redact
-from .sessions import challenge_checkpoint
+from .sessions import CHALLENGE_REASONS, challenge_checkpoint
 
 EXTRACT_TEXT_LIMIT = 6000
+PAGE_TEXT_LIMIT = 100_000             # read_page (T-670): the server pages through it, the agent reads it in chunks
+PAGE_LINKS_LIMIT = 150
+RENDER_WAIT_MS = 5000                 # read_page waits up to this for the network to go idle (JS-rendered pages)
 
 
 _SAFE_CLASSES = frozenset({"read", "draft", "upload"})
@@ -49,7 +52,12 @@ _UNSAFE_WORDS = re.compile(
 )
 READ_SELECTOR_WAIT_MS = 8000          # how long a read task waits for a selector before reporting it missing
 _CHALLENGE_MARKERS = (
-    ("captcha", 'iframe[src*="recaptcha"],iframe[src*="hcaptcha"],.h-captcha,.g-recaptcha'),
+    # An invisible reCAPTCHA (v3 / size=invisible, e.g. on fastapi.tiangolo.com) is not a challenge to a reader.
+    ("captcha", 'iframe[src*="recaptcha"]:not([src*="size=invisible"]),iframe[src*="hcaptcha"],.h-captcha,'
+                '.g-recaptcha:not([data-size="invisible"])'),
+    # Anti-bot interstitials (Cloudflare "Just a moment...", npm "Performing security verification"): never bypassed.
+    ("bot_challenge", 'iframe[src*="challenges.cloudflare.com"],.cf-turnstile,#challenge-running,'
+                      '#cf-challenge-running,#challenge-stage,#cf-please-wait'),
     ("2fa", 'input[autocomplete="one-time-code"],input[name="otp"],input[name="totp"]'),
     ("security_challenge", 'form[id="challenge-form"],[data-security-challenge]'),
 )
@@ -62,7 +70,53 @@ _SCHEMA = {
     "wait_for": frozenset({"type", "selector"}),
     "extract": frozenset({"type", "selector"}),
     "screenshot": frozenset({"type"}),
+    "read_page": frozenset({"type"}),
 }
+
+# T-670 (Surfer benchmark 2026-11-16): a read task without selectors returned the whole <body> cut at 6000 chars, so
+# docs pages came back as language menus and version pickers. read_page runs this FIXED script (no task input reaches
+# it): it picks the main content element, hides navigation/cookie banners only while it reads innerText, puts them
+# back, and lists the page's https links for the agent's next step. It changes nothing on the site.
+_READ_PAGE_JS = r"""() => {
+  const MAIN = ['main article', '[role=main] article', 'article.markdown-body', '.markdown-body', 'article',
+    'main', '[role=main]', '#mw-content-text', '#bodyContent', '#main-content', '#content', '.content',
+    '.document', '#main', '.main'];
+  const len = el => ((el && el.innerText) || '').trim().length;
+  let root = null;
+  for (const sel of MAIN) {
+    const el = document.querySelector(sel);
+    if (el && len(el) >= 200) { root = el; break; }
+  }
+  if (!root) root = document.body || document.documentElement;
+  const JUNK = 'nav,aside,script,style,noscript,template,svg,dialog,[role=navigation],[role=complementary],' +
+    '[role=search],[aria-hidden=true],[hidden],[id*=cookie i],[class*=cookie i],[id*=consent i],' +
+    '[class*=consent i],[id*=gdpr i],[class*=gdpr i],.sidebar,#sidebar,.toc,#toc,.breadcrumb,.breadcrumbs,' +
+    '.skip-link,.visually-hidden,.sr-only';
+  const hidden = [];
+  const hide = el => { if (el !== root && !el.contains(root)) { hidden.push([el, el.style.display]); el.style.display = 'none'; } };
+  root.querySelectorAll(JUNK).forEach(hide);
+  root.querySelectorAll('header,footer,[role=banner],[role=contentinfo]').forEach(el => {
+    if (!el.parentElement || !el.parentElement.closest('article,main,[role=main]')) hide(el);
+  });
+  let text = '';
+  try { text = root.innerText || ''; } finally { hidden.forEach(([el, d]) => { el.style.display = d; }); }
+  text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const links = [], seen = new Set();
+  const add = a => {
+    let href = '';
+    try { const u = new URL(a.href, location.href); if (u.protocol !== 'https:') return; u.hash = ''; href = u.href; }
+    catch (e) { return; }
+    if (seen.has(href)) return;
+    seen.add(href);
+    links.push({text: (a.innerText || a.getAttribute('aria-label') || a.title || '').trim().replace(/\s+/g, ' ').slice(0, 120), url: href});
+  };
+  root.querySelectorAll('a[href]').forEach(add);
+  document.querySelectorAll('a[href]').forEach(add);
+  const desc = document.querySelector('meta[name=description]');
+  return {title: (document.title || '').trim().slice(0, 300), text: text, links: links.slice(0, %d),
+          description: desc ? (desc.content || '').trim().slice(0, 500) : '',
+          main: root === document.body ? 'body' : root.tagName.toLowerCase() + (root.id ? '#' + root.id : '')};
+}""" % PAGE_LINKS_LIMIT
 
 
 @dataclass(frozen=True)
@@ -141,6 +195,32 @@ def _safe_report_url(url: str) -> str:
         return ""
 
 
+def _redirect_report_url(url: str) -> str:
+    """Where a read task's page tried to go: public https origin + path only (query and fragment dropped)."""
+    try:
+        origin = _origin(url, allow_loopback_fixture=False)
+        path = urlsplit(url).path or "/"
+    except (PolicyError, ValueError):
+        return ""
+    if not origin.startswith("https://") or any(ord(c) < 33 for c in path):
+        return ""
+    return (origin + path)[:500]
+
+
+def _clean_links(raw: Any) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "")
+        if not url.startswith("https://") or len(url) > 500 or any(ord(c) < 33 for c in url):
+            continue
+        out.append({"text": str(redact(str(item.get("text") or "")))[:120], "url": url})
+        if len(out) >= PAGE_LINKS_LIMIT:
+            break
+    return out
+
+
 def _selector(step: dict[str, Any]) -> str:
     selector = step.get("selector")
     if not isinstance(selector, str) or not selector.strip() or len(selector) > 300:
@@ -214,6 +294,9 @@ def validate_runtime(plan: BrowserActionPlan, policy: BrowserRuntimePolicy) -> f
                 raise PolicyError("off_allowlist_navigation")
             if _UNSAFE_WORDS.search(urlsplit(url).path):
                 raise PolicyError("irreversible_navigation_path_disallowed")
+        elif kind == "read_page":
+            if plan.action_class != "read":
+                raise PolicyError("read_page_is_read_only")
         elif kind not in {"screenshot"}:
             _selector(step)
         if kind in {"fill", "select"} and (
@@ -225,9 +308,29 @@ def validate_runtime(plan: BrowserActionPlan, policy: BrowserRuntimePolicy) -> f
     return frozenset(origins)
 
 
-def _challenge(page: Any) -> str:
+_BOT_TITLE_RE = re.compile(r"^(just a moment|attention required|performing security verification|"
+                           r"verifying you are human|checking your browser|ddos-guard|access denied\s*$)", re.I)
+READ_CAPTCHA_TEXT_FLOOR = 1500        # a read page with this much text is content with a captcha widget on it
+
+
+def _challenge(page: Any, *, reading: bool = False) -> str:
+    try:
+        title = str(page.title() or "").strip()
+    except Exception:
+        title = ""
+    if _BOT_TITLE_RE.match(title):
+        return "bot_challenge"
     for reason, selector in _CHALLENGE_MARKERS:
         if page.locator(selector).count():
+            if reading and reason == "captcha":
+                # T-670: a read task does not stop on a captcha widget (a comment form, a newsletter box) when the
+                # page itself is readable; it is reported as a warning instead. A real gate shows little text.
+                try:
+                    body_chars = int(page.evaluate("() => ((document.body && document.body.innerText) || '').trim().length"))
+                except Exception:
+                    body_chars = 0
+                if body_chars >= READ_CAPTCHA_TEXT_FLOOR:
+                    continue
             return reason
     return ""
 
@@ -298,6 +401,7 @@ def run_playwright(
     artifacts: list[str] = []
     blocked_requests: list[str] = []
     quietly_aborted: list[str] = []
+    redirect_to: list[str] = []
     completed = 0
     final_url = ""
     status = "done"
@@ -334,6 +438,12 @@ def run_playwright(
                 quietly_aborted.append(str(exc))
                 return
             blocked_requests.append(str(exc))
+            # T-670: a read task whose page redirects to another site (pypi.python.org -> pypi.org) is still stopped
+            # here, but the agent is told where it went so it can queue that page itself (origin + path, no query).
+            if plan.action_class == "read" and str(exc) == "off_allowlist_network_request" and not redirect_to:
+                target = _redirect_report_url(request.url)
+                if target:
+                    redirect_to.append(target)
             return
         route.continue_()
 
@@ -363,7 +473,7 @@ def run_playwright(
                             status, blocker = "blocked", blocked_requests[0]
                             break
                         if completed:
-                            challenge = _challenge(page)
+                            challenge = _challenge(page, reading=plan.action_class == "read")
                             if challenge:
                                 status, blocker = "waiting_human", challenge
                                 break
@@ -371,8 +481,26 @@ def run_playwright(
                         kind = step["type"]
                         missing = False
                         ms = min(time_left(), 20000)
+                        page_data: dict[str, Any] = {}
+                        http_status = 0
                         if kind == "navigate":
-                            page.goto(step["url"], wait_until="domcontentloaded", timeout=ms)
+                            response = page.goto(step["url"], wait_until="domcontentloaded", timeout=ms)
+                            try:
+                                http_status = int(getattr(response, "status", 0) or 0)
+                            except (TypeError, ValueError):
+                                http_status = 0
+                        elif kind == "read_page":
+                            # JS-rendered pages (SPA): give the page a few seconds to finish loading; a page that
+                            # keeps polling is read as it is after the wait.
+                            try:
+                                page.wait_for_load_state("networkidle", timeout=min(ms, RENDER_WAIT_MS))
+                            except Exception as exc:
+                                if type(exc).__name__ != "TimeoutError":
+                                    raise
+                            page_data = page.evaluate(_READ_PAGE_JS) or {}
+                            if not isinstance(page_data, dict):
+                                page_data = {}
+                            text = str(page_data.get("text") or "")
                         elif kind == "screenshot":
                             root = policy.artifact_root.resolve()
                             root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -426,19 +554,30 @@ def run_playwright(
                         record: dict[str, Any] = {
                             "index": index, "type": kind, "status": "done"
                         }
+                        if kind == "navigate" and http_status:
+                            record["http_status"] = http_status
+                        if kind == "read_page":
+                            record["text_chars"] = len(text)
+                            record["text_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+                            if policy.return_extracted_text:
+                                record["text"] = str(redact(text))[:PAGE_TEXT_LIMIT]
+                                record["title"] = str(redact(str(page_data.get("title") or "")))[:300]
+                                record["description"] = str(redact(str(page_data.get("description") or "")))[:500]
+                                record["main"] = str(page_data.get("main") or "")[:80]
+                                record["links"] = _clean_links(page_data.get("links"))
                         if kind == "extract":
                             record["text_chars"] = len(text)
                             record["text_sha256"] = hashlib.sha256(text.encode()).hexdigest()
                             if missing:
                                 record["missing"] = True
                             if policy.return_extracted_text and plan.action_class == "read":
-                                record["text"] = str(redact(text))[:EXTRACT_TEXT_LIMIT]
+                                record["text"] = str(redact(text))[:PAGE_TEXT_LIMIT]
                         if kind == "screenshot":
                             record["artifact_ref"] = artifacts[-1]
                         log.append(record)
                         final_url = _safe_report_url(page.url)
                     if status == "done":
-                        challenge = _challenge(page)
+                        challenge = _challenge(page, reading=plan.action_class == "read")
                         if challenge:
                             status, blocker = "waiting_human", challenge
                     if blocked_requests:
@@ -454,13 +593,21 @@ def run_playwright(
     except Exception as exc:
         # No raw Playwright errors (may contain secret-bearing URLs/DOM).
         status, blocker = "failed", f"browser_runtime_{type(exc).__name__}"
+        # T-670: Chromium's network error code (net::ERR_NAME_NOT_RESOLVED, ...) carries no URL or page content and
+        # tells the agent what went wrong; nothing else of the message is kept.
+        net = re.search(r"net::(ERR_[A-Z_]{3,60})", str(exc))
+        if net:
+            blocker = "net_" + net.group(1).lower()
         if blocked_requests:
             status, blocker = "blocked", blocked_requests[0]
 
+    if redirect_to and status == "blocked":
+        log.append({"type": "redirect", "status": "blocked", "url": redirect_to[0]})
     if status == "waiting_human":
         cp = challenge_checkpoint(
             plan.plan_id, plan.workspace_id, plan.account_binding_id,
-            completed, canonical_payload_hash(plan), blocker,
+            completed, canonical_payload_hash(plan),
+            blocker if blocker in CHALLENGE_REASONS else "security_challenge",   # bot_challenge is one kind of it
         )
         log.append({
             "type": "checkpoint", "status": "waiting_human",

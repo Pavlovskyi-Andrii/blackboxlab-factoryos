@@ -1704,3 +1704,44 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   and the owner creates v5.9.0 once in the GitHub UI on `b991f85` with the README entry as notes (owner credentials
   are not limited like the workflow token). Answers the two minor Codex findings on #398 by removing that check.
 
+
+## 2026-11-16 — T-671 Surfer reading for AI agents (benchmark-driven)
+- Trigger: the T-670 benchmark (`docs/verification/surfer-benchmark-2026-11-16.md`). A read without selectors returned
+  `<body>` cut at 6000 chars: Python docs, playwright.dev, docs.github.com, pip's changelog and react.dev came back as
+  language menus, version pickers and sidebars, and the actual content was cut off. Other findings: a false `captcha`
+  stop on fastapi.tiangolo.com (an invisible reCAPTCHA iframe; the article had already been read), Cloudflare/npm
+  anti-bot pages reported as `done` with "Just a moment...", a 404 page reported as a plain `done`, and blockers with no
+  hint for an AI about what to do next.
+- Main text: a new read-only step `read_page` (schema has only `type`; refused for non-read plans) runs ONE fixed script
+  — no task input reaches it. It picks the first of `main article, article, .markdown-body, main, [role=main],
+  #mw-content-text, #content, …` with ≥ 200 chars of text, else `body`; hides `nav, aside`, cookie/consent/GDPR boxes,
+  sidebars and the page header/footer (but not an article's own header) only while reading `innerText`, then restores
+  them (the screenshot sees the page as the site made it). Reason: `innerText` keeps line breaks and table cells, which
+  a detached clone does not; no new dependency (no readability library on the worker). Mozilla Readability would be
+  better on article pages but needs shipping JS to EC2; reversible later.
+- Sizes: the worker returns ≤ 100 000 chars and ≤ 150 https links; the server keeps them per task in
+  `DATA_DIR/browser_pages/<id>.json` (evicted with the task, like screenshots) while the task record keeps ≤ 6000 chars
+  per selector for the dashboard. Agents read chunks: `web_task {task_id, offset, max_chars ≤ 20000}` → `next_offset`.
+  Default chunk 8000 chars and 40 links, so one MCP answer stays small.
+- Empty selectors now mean "main content"; the stored default changes from `["body"]` to `[]`. An explicit `body`
+  still reads everything. An older EC2 worker treats `[]` as `body`, so mixed versions keep working.
+- JS-rendered pages: `read_page` waits for `networkidle` ≤ 5 s and reads whatever is there after it (pages that poll
+  never go idle). `wait_for` stays the precise tool.
+- Captcha in read tasks: an iframe with `size=invisible` / `data-size="invisible"` is not a challenge, and a read page
+  with ≥ 1500 chars of visible text is not stopped by a captcha widget (comment form, newsletter). Draft/upload plans
+  keep the strict rule. A real gate shows little text and still stops as `waiting_human`.
+- Anti-bot interstitials (title "Just a moment...", "Performing security verification", …, or Cloudflare challenge
+  markers) stop as `waiting_human` with blocker `bot_challenge` (checkpoint reason `security_challenge`). Nothing is
+  bypassed: no stealth, no user-agent games; the hint tells the agent to use another source (API, raw GitHub, mirror).
+- Errors: Chromium's `net::ERR_*` code becomes the blocker (`net_err_name_not_resolved`); the rest of the message (it
+  can hold the URL) is still dropped. The navigation's HTTP status is reported (`http_status`).
+- Redirects: HTTP redirects already work (Chromium follows them inside one request; python.org → www.python.org and
+  pypi.python.org → pypi.org passed). A JavaScript move of the main frame to another site is still blocked by the
+  origin fence; the worker reports `redirect_to` (origin + path, no query/fragment, public https only) and
+  `web_read` follows it ONCE with a new task through the same `check_url` rules. The task's origin is never widened.
+- Hints: every blocked/failed/odd answer carries `hints` in plain English (bad domain, HTTP ≥ 400, missing selector
+  with the `[id="a.b"]` tip for ids with dots, little text → `wait_for`, anti-bot, timeout, redirect). A queued task
+  shows `queue_ahead`. The agent REST `GET /api/factory/browser/agent/tasks/<id>` returns the same `view` next to the
+  raw task, with `offset`, `max_chars`, `links` query parameters.
+- Deployment: Render gets the server part on merge. The EC2 worker merges `main` itself (`autopilot.sync_branch`) and
+  restarts on new runner code; T-672 makes `browser_runner/` count as runner code, so no manual EC2 step is needed.
