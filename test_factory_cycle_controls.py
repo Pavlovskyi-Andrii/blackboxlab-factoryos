@@ -1,4 +1,4 @@
-"""T-645 Autopilot Cycle Control for beginners: cycle target, stop/resume, readiness. Offline, zero-spend.
+"""T-646 Autopilot Cycle Control for beginners: cycle target, stop/resume, readiness. Offline, zero-spend.
 
 Calls the app functions and route handlers directly (no TestClient: CI has no httpx). Demo mode only:
 FACTORY_LLM_API_KEY is empty, so nothing here can reach a paid provider.
@@ -27,7 +27,7 @@ def signal(title, topic=""):
 
 def idea(title="Cycle controls idea"):
     return app.create_content_idea(app.IdeaCreate(title=title, topic="factory", angle="explain the loop", audience="beginners",
-                                                  why_now="T-645", score=0.8))
+                                                  why_now="T-646", score=0.8))
 
 
 class CycleControls(unittest.TestCase):

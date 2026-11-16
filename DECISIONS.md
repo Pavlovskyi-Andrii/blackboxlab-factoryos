@@ -1556,7 +1556,7 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   T-591, T-591-A, T-592 and T-593 stay unchecked until those runs are verified.
 
 
-## 2026-11-16 — T-645 Autopilot Cycle Control for beginners
+## 2026-11-16 — T-646 Autopilot Cycle Control for beginners
 
 - **Decision:** store the cycle target inside `factory_cycles.meta_json` (`meta.target = {brand, topic, platform, audience}`), no schema migration.
   **Reason:** smallest safe change; old cycles read as "target not set".

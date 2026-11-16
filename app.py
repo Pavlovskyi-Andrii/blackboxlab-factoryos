@@ -3209,7 +3209,7 @@ class FactoryCycleCreate(BaseModel):
     idea_id: Optional[str] = None
     language: str = "English"
     parent_cycle_id: Optional[str] = None
-    target: Optional[dict] = None   # T-645: what the cycle aims at {brand, topic, platform, audience}
+    target: Optional[dict] = None   # T-646: what the cycle aims at {brand, topic, platform, audience}
 
 class FactoryCycleTarget(BaseModel):
     brand: str = ""
@@ -9434,7 +9434,7 @@ def _new_signal_ids(limit=None):
                                  ORDER BY created_at DESC LIMIT ?""",(int(limit or FACTORY_CYCLE_MAX_SIGNALS),)).fetchall();con.close()
     return [x["id"] for x in rows]
 
-# T-645: the owner can say what a cycle aims at. All four fields are optional and only steer existing steps:
+# T-646: the owner can say what a cycle aims at. All four fields are optional and only steer existing steps:
 # topic narrows which new signals are attached, brand links the production job to that brand's Master Brief,
 # platform/audience are written into the production brief. None of them publishes or spends anything.
 FACTORY_CYCLE_TARGET_PLATFORMS=("",)+PUBLISH_DRY_RUN_PLATFORMS
@@ -9534,7 +9534,7 @@ def set_factory_cycle_target(cycle_id,raw):
         cycle_event(cycle_id,"signals",f"No signal mentions the target topic '{target['topic']}'; all available signals are kept")
     return get_factory_cycle(cycle_id,True)
 
-# T-645: stop/resume. A stop is a flag the coordinator reads between handoffs; it never cancels a provider call
+# T-646: stop/resume. A stop is a flag the coordinator reads between handoffs; it never cancels a provider call
 # mid-flight and never touches the approval gate. Resume returns the cycle to `ready` and re-syncs from its job.
 CYCLE_STOPPABLE=("ready","running","failed")
 
@@ -10342,7 +10342,7 @@ def record_performance_snapshot(payload):
     return {"id":snapshot_id,"publish_id":pub["id"],"metrics":metrics,"captured_at":captured,"meta":snapshot_meta}
 
 def factory_cycle_readiness():
-    """T-645: what a beginner needs before the first cycle — real counts only, nothing estimated."""
+    """T-646: what a beginner needs before the first cycle — real counts only, nothing estimated."""
     con=db()
     new_signals=con.execute("SELECT COUNT(*) n FROM source_signals WHERE status='new'").fetchone()["n"]
     # Ideas a cycle can start from: not rejected and not yet in production (live mode verifies them first).

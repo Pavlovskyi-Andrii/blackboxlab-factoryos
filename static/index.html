@@ -178,7 +178,7 @@
 .flowSummary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}.flowStat{padding:10px;border:1px solid #21445f;background:#0a1a29;border-radius:11px}.flowStat b{display:block;font-size:16px;color:#dcf7ff}.flowStat span{font-size:7px;color:#7891a5}
 .flowGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.flowCard{border:1px solid #21445e;background:linear-gradient(180deg,#0b1c2b,#081723);border-radius:12px;padding:11px;min-width:0}.flowCard h3{font-size:10px;margin:0 0 7px}.flowCard p,.flowCard pre{font:7px/1.5 Inter,system-ui;color:#9fb1bf;white-space:pre-wrap;word-break:break-word}.flowMeta{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}.flowPill{font-size:6px;padding:3px 5px;border:1px solid #2c4d65;border-radius:999px;color:#8aa2b5}.flowPill.good{border-color:#246746;color:#75e1a2}.flowPill.warn{border-color:#765721;color:#efca70}.flowPill.bad{border-color:#743441;color:#ff9cad}.flowActions{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.flowActions .btn{font-size:7px;padding:6px 8px}.flowTable{display:grid;gap:6px}.flowRow{display:grid;grid-template-columns:1.2fr .8fr .8fr .8fr;gap:6px;padding:8px;border:1px solid #17354b;border-radius:8px;background:#07131e;font-size:7px}.flowEmpty{padding:28px;border:1px dashed #24445b;border-radius:10px;color:#71899d;font-size:8px;text-align:center}
 @media(max-width:800px){.flowPage{inset:0;border-radius:0}.flowBody{padding:9px 9px 24px}.flowGrid{grid-template-columns:1fr}.flowSummary{grid-template-columns:1fr 1fr}.flowRow{grid-template-columns:1fr 1fr}.flowActions .btn{flex:1 1 auto}}
-/* T-645 Cycle Control for beginners: readable sizes, step map, target, now-box */
+/* T-646 Cycle Control for beginners: readable sizes, step map, target, now-box */
 #cycleBody .cycPanel,#cycleBody .cycCard,#cycleBody .cycEmpty{border:1px solid #21445e;background:linear-gradient(180deg,#0b1c2b,#081723);border-radius:12px;padding:12px;margin-top:10px;min-width:0;font-size:12px;line-height:1.45;color:#b6c8d6}
 #cycleBody h3{margin:0 0 8px;font-size:14px;color:#e4f7ff}#cycleBody h4{margin:12px 0 4px;font-size:12px;color:#dcefff}
 #cycleBody .btn{font-size:11.5px;padding:7px 10px}
@@ -3787,7 +3787,7 @@ async function openAutonomousFactory(){_openFlow('cycle');const root=$('#cycleBo
 function closeAutonomousFactory(){clearInterval(cyclePollTimer);cyclePollTimer=null;_closeFlow('cycle')}
 function cycleStatusClass(x){return x==='learning_ready'?'good':(['waiting_approval','scheduled','published','measured','stopped'].includes(x)?'warn':(['failed','rejected'].includes(x)?'bad':''))}
 function cycleMetricText(c){const m=(((c.performance||{}).latest||{}).metrics)||{},a=[];if(m.views!=null)a.push('views '+m.views);if(m.retention_pct!=null)a.push('ret '+m.retention_pct+'%');if(m.completion_rate_pct!=null)a.push('completion '+m.completion_rate_pct+'%');return a.join(' · ')||'—'}
-// T-645: Cycle Control for beginners — step map, plain-language explanations, cycle target, stop/resume.
+// T-646: Cycle Control for beginners — step map, plain-language explanations, cycle target, stop/resume.
 const CYCLE_STEPS=['signals','ideas','production','approval','publishing','analytics','learning'];
 const CYCLE_STEP_ACTOR={signals:'agent',ideas:'agent',production:'agent',approval:'you',publishing:'you',analytics:'both',learning:'agent'};
 const CYCLE_PLATFORMS={youtube_shorts:'YouTube Shorts',tiktok:'TikTok',instagram_reels:'Instagram Reels'};
