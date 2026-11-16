@@ -24,11 +24,14 @@ and `/health` all show it, and `test_versioning.py` fails CI if this changelog's
 `APP_VERSION` disagree. Minor = new features, patch = fixes only. A release PR bumps the version and adds its entry
 here; after it merges, `.github/workflows/release.yml` tags the merge commit and publishes the GitHub Release.
 v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their weeks: the app showed `v5.7.1`
-during that time.
+during that time. v5.9.0 is tagged on #294: GitHub's workflow token cannot tag a commit that edits
+`.github/workflows`, which #295, #297 and #298 do, so those three belong to v5.10.0.
 
-### v5.10.0 — Evidence, MVP Builder, Brand Strategy, Durable Engine, Mods & Skills — 2026-11-10 … 2026-11-16
+### v5.10.0 — Evidence, MVP Builder, Brand Strategy, Durable Engine, Mods & Skills — 2026-11-08 … 2026-11-16
 - **Version sync and releases:** the sidebar badge (was a hard-coded `v5.3`), header and `/health` now all show
   `APP_VERSION`; changelog restarted from v5.6; git tags and an automatic GitHub Release workflow.
+- **Owner tools:** owner voice messages → Gemini transcript → text Relay ticket (#295); route audit fixes and the
+  FactoryOS Team group bridge (#297); morning brief at 08:00 Kyiv and P2 regressions (#298).
 - **Evidence Protocol** (#299, #300, #301, #303, #304, #306): No Evidence — No Done; CI read from Actions runs; deploy
   check against Render; owner accept buttons; Proof panel in Agent Office; Gemini reviews risky or large Claude PRs.
 - **Security:** encrypted vault AES-256-GCM with Access vault UI (#302); server GitHub reads use the read-only token
@@ -56,20 +59,19 @@ during that time.
   local open questions on home (#323), owner console for background modules (#336–#338), Learning section and the
   cinematic explainer (#364, #366), Approval Studio fixes (#374).
 
-### v5.9.0 — Gemini Lane, Team Tasks, MyCast Beta, Relay Round Trip — 2026-11-03 … 2026-11-09
+### v5.9.0 — Gemini Lane, Team Tasks, MyCast Beta, Relay Round Trip — 2026-11-03 … 2026-11-08
 - **Gemini lane:** Gemini CLI Actions with least privilege, then manual only (#131, #178); Issue → PR pipeline (#146);
   model update, timeout, 503 backoff and Flash fallback, error detail, night shift (#143, #148, #149, #157, #158);
   every 5 minutes on EC2 with the key kept in Render (#164); Google's real status and key check (#209, #210);
   Gemini-written tests and guides (#162, #183–#185, #191–#193, #196, #197, #214, #224, #225, #227, #228, #230, #243,
   #247, #250, #252, #257, #268).
 - **Team and owner tools:** Team tasks page with PR/CI status and EC2 GitHub fallback (#182, #198, #251, #253);
-  Telegram `/workers` per executor (#159); owner desk cards (#249); Queue Keeper counts (#245, #292); morning brief at
-  08:00 Kyiv (#298); FactoryOS Team group bridge (#297); owner voice messages → Gemini transcript → Relay ticket (#295);
-  ChatGPT lane taken over by Claude (#293).
+  Telegram `/workers` per executor (#159); owner desk cards (#249); Queue Keeper counts (#245, #292); ChatGPT lane
+  taken over by Claude (#293).
 - **Relay:** intake through the EC2 GitHub snapshot (#254, #262); dirty-path reporting and `.autopilot/` as runtime
   space (#276, #277); per-ticket branch + PR round trip with CI/merge back to Telegram (#294); worker sync never rebases
   (#211).
-- **Security:** route authorization inventory and fixes (#145, #297); publish approval gate and findings schema (#246).
+- **Security:** route authorization inventory (#145); publish approval gate and findings schema (#246).
 - **MyCast:** full episode by 06:00 Kyiv (#222), owner-feedback format (#226), audio QC and source/date gate (#244),
   configurator on the site and beta batches (#263, #267, #271, #278, #279, #280), Gemini voice picker and Telegram
   pairing (#284), 7 free days + 7 per friend (#285), sub-topics, voice history, calendar wishes (#290, #291).

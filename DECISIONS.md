@@ -1691,4 +1691,9 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   retroactive weeks on the last merge of each week, v5.8.0 → `b6b4523`, v5.9.0 → `3c8c9ea`.
 - Evidence 2026-11-16: #396 merged as `e3b62f8`; Release run 43850500408 succeeded and published
   https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/releases/tag/v5.10.0 (the first tag and release ever).
+- Backfill run 43851658678 published v5.6, v5.7, v5.7.1 and v5.8.0 on their own commits; v5.9.0 failed with
+  `HTTP 403: Resource not accessible by integration` because `3c8c9ea` (#298) edits `.github/workflows/ci.yml`, and
+  the workflow token may not create a ref on such a commit. v5.9.0 moves to `b991f85` (#294), the week's last merge
+  without a workflow edit; #295, #297 and #298 move to the v5.10.0 entry (the already published v5.10.0 release notes
+  were written before this move). `test_versioning.py` now refuses a backfill commit that edits workflows.
 
