@@ -9460,12 +9460,24 @@ def _signal_ids_for_topic(signal_ids,topic):
     picked=[x for x in signal_ids if x in keep]
     return (picked,True) if picked else (signal_ids,False)
 
+def _new_signal_ids_for_topic(topic):
+    """Newest *new* signals that mention the topic, searched across all new signals before the limit is applied.
+    Returns (ids, matched); with no topic or no match it falls back to the newest new signals."""
+    topic=(topic or "").strip().lower()
+    if not topic:return _new_signal_ids(),None
+    # Matched in Python (SQLite lower() only folds ASCII; topics are often Cyrillic). Bounded scan of new signals.
+    con=db();rows=con.execute("""SELECT id,title,topic FROM source_signals WHERE status='new'
+                                 ORDER BY created_at DESC LIMIT 2000""").fetchall();con.close()
+    rows=[x for x in rows if topic in (x["topic"] or "").lower() or topic in (x["title"] or "").lower()][:FACTORY_CYCLE_MAX_SIGNALS]
+    ids=[x["id"] for x in rows]
+    return (ids,True) if ids else (_new_signal_ids(),False)
+
 def create_factory_cycle(payload,source="owner"):
     target=_cycle_target(payload.target)
     signal_ids=list(dict.fromkeys(str(x).strip() for x in (payload.signal_ids or []) if str(x).strip()))
     topic_matched=None
     if not signal_ids and not payload.idea_id:
-        signal_ids,topic_matched=_signal_ids_for_topic(_new_signal_ids(),target["topic"])
+        signal_ids,topic_matched=_new_signal_ids_for_topic(target["topic"])
     con=db()
     if signal_ids:
         placeholders=",".join("?" for _ in signal_ids)
@@ -9508,8 +9520,10 @@ def set_factory_cycle_target(cycle_id,raw):
     fields={}
     # Signals the cycle picked by itself follow the new topic; signals or an idea chosen by the owner stay as chosen.
     if meta.get("signals_auto") and not cycle.get("idea_id") and target["topic"]!=old_topic:
-        pool=list(dict.fromkeys((cycle.get("source_signal_ids") or [])+_new_signal_ids()))
-        ids,matched=_signal_ids_for_topic(pool,target["topic"])
+        ids,matched=_new_signal_ids_for_topic(target["topic"])
+        if matched is not True:   # no new signal matches: keep any already attached signal that does
+            kept,kept_match=_signal_ids_for_topic(cycle.get("source_signal_ids") or [],target["topic"])
+            if kept_match:ids,matched=kept,True
         if matched is not None:meta["target_topic_matched"]=matched
         fields["source_signal_ids_json"]=json.dumps(ids)
     _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False),**fields)
@@ -9559,15 +9573,37 @@ def resume_factory_cycle(cycle_id):
     cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle resumed by the owner")
     return sync_factory_cycle(cycle_id,True)
 
+CYCLE_TARGET_MARK="CYCLE TARGET (owner): "
+
+def _cycle_target_line(target):
+    target=target or {}
+    lines=[f"{label}: {target[key]}" for key,label in (("brand","BRAND"),("topic","TOPIC"),("platform","TARGET PLATFORM"),("audience","TARGET AUDIENCE")) if target.get(key)]
+    return "; ".join(lines)
+
+def _job_target_line(brief):
+    for line in reversed((brief or "").splitlines()):
+        if line.startswith(CYCLE_TARGET_MARK):return line[len(CYCLE_TARGET_MARK):]
+    return ""
+
+def _check_existing_job_target(cycle_id,idea_id):
+    """An idea has at most one production job. Reusing it is only honest when it was made for the same target."""
+    con=db();row=con.execute("""SELECT j.id,j.brief FROM job_idea_links l JOIN jobs j ON j.id=l.job_id
+                                WHERE l.idea_id=? ORDER BY l.created_at DESC LIMIT 1""",(idea_id,)).fetchone();con.close()
+    if not row:return
+    want=_cycle_target_line(((get_factory_cycle(cycle_id) or {}).get("meta") or {}).get("target"))
+    have=_job_target_line(row["brief"])
+    if want!=have:
+        raise RuntimeError(f"This idea already has production job {row['id'][:8]} made for a different target "
+                           f"({have or 'no target'}). Start the cycle from another idea, or set the same target.")
+
 def _apply_cycle_target_to_job(cycle_id,job_id,created):
     """Write the cycle target into a freshly created production job and link the brand (Master Brief)."""
     target=((get_factory_cycle(cycle_id) or {}).get("meta") or {}).get("target") or {}
     if not created or not any(target.values()):return
-    lines=[f"{label}: {target[key]}" for key,label in (("brand","BRAND"),("topic","TOPIC"),("platform","TARGET PLATFORM"),("audience","TARGET AUDIENCE")) if target.get(key)]
     con=db();row=con.execute("SELECT brief FROM jobs WHERE id=?",(job_id,)).fetchone()
     if row:
         con.execute("UPDATE jobs SET brief=?,updated_at=? WHERE id=?",
-                    ((row["brief"] or "")+"\nCYCLE TARGET (owner): "+"; ".join(lines),ts(),job_id));con.commit()
+                    ((row["brief"] or "")+"\n"+CYCLE_TARGET_MARK+_cycle_target_line(target),ts(),job_id));con.commit()
     con.close()
     if target.get("brand"):
         try:
@@ -9715,6 +9751,7 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
                 con=db();con.execute("UPDATE content_ideas SET status='selected',updated_at=? WHERE id=?",(ts(),idea_id));con.commit();con.close()
 
         _cycle_checkpoint(cycle_id,"production")
+        _check_existing_job_target(cycle_id,idea_id)
         bridge=create_job_from_idea(idea_id,language)
         _apply_cycle_target_to_job(cycle_id,bridge["job"]["id"],bridge.get("created"))
         job=bridge["job"];workflow=_workflow_context(job["id"],lock=True)["version"]
@@ -9741,6 +9778,12 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
         cycle_event(cycle_id,str(stop) or "signals","Autopilot stopped by the owner before this step; nothing was skipped or published")
         await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
     except Exception as exc:
+        if _cycle_stop_requested(cycle_id):
+            # The owner asked to stop while this step was running: honour the stop, keep the error visible.
+            _cycle_update(cycle_id,status="stopped",last_error=str(exc)[:1200])
+            cycle_event(cycle_id,"error",f"Step failed after a stop was requested; the cycle stays stopped: {str(exc)[:500]}")
+            await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
+            return
         _cycle_update(cycle_id,status="failed",last_error=str(exc)[:1200])
         cycle_event(cycle_id,"error",f"Autopilot failed: {str(exc)[:500]}")
         await broadcast({"type":"factory_cycle","action":"failed","cycleId":cycle_id,"error":str(exc)[:500]})

@@ -160,6 +160,50 @@ class CycleControls(unittest.TestCase):
         self.assertIn("another brand", after["meta"]["brand_link_error"])
         self.assertTrue(any(e["message"].startswith("WARNING: brand mycast was NOT linked") for e in after["events"]))
 
+    def test_same_idea_with_a_different_target_is_refused(self):
+        shared = idea("Shared idea")
+        first = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=shared["id"], target={"topic": "alpha", "audience": "kids"}))
+        run(app._run_factory_cycle_to_review(first["id"], 1, "English"))
+        self.assertEqual(app.get_factory_cycle(first["id"])["status"], "waiting_approval")
+        other = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=shared["id"], target={"topic": "beta"}))
+        run(app._run_factory_cycle_to_review(other["id"], 1, "English"))
+        after = app.get_factory_cycle(other["id"], True)
+        self.assertEqual(after["status"], "failed")
+        self.assertIn("different target", after["last_error"])
+        self.assertIsNone(after["job_id"], "a job made for another target must not be reused")
+        same = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=shared["id"], target={"topic": "alpha", "audience": "kids"}))
+        run(app._run_factory_cycle_to_review(same["id"], 1, "English"))
+        self.assertEqual(app.get_factory_cycle(same["id"])["job_id"], app.get_factory_cycle(first["id"])["job_id"])
+
+    def test_topic_change_finds_matches_beyond_the_newest_batch(self):
+        old_match = signal("Volcano eruption footage", "geology")
+        for n in range(app.FACTORY_CYCLE_MAX_SIGNALS + 2):
+            signal(f"Unrelated newer signal {n}", "misc")
+        c = app.create_factory_cycle(app.FactoryCycleCreate(target={"topic": "unrelated"}))
+        out = app.set_factory_cycle_target(c["id"], {"topic": "volcano"})
+        self.assertEqual(out["source_signal_ids"], [old_match["id"]])
+        self.assertTrue(out["meta"]["target_topic_matched"])
+        cyr = signal("Новости вулканов", "Вулканы")
+        out = app.set_factory_cycle_target(c["id"], {"topic": "вулкан"})
+        self.assertEqual(out["source_signal_ids"], [cyr["id"]], "Cyrillic topics must match case-insensitively")
+
+    def test_stop_during_a_production_step_that_then_fails_stays_stopped(self):
+        c = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=idea("Stop then fail")["id"]))
+        original = app.run_until_review
+
+        async def stop_then_fail(job_id):
+            app.stop_factory_cycle(c["id"])
+            raise RuntimeError("provider exploded")
+        app.run_until_review = stop_then_fail
+        try:
+            run(app._run_factory_cycle_to_review(c["id"], 1, "English"))
+        finally:
+            app.run_until_review = original
+        after = app.get_factory_cycle(c["id"], True)
+        self.assertEqual(after["status"], "stopped")
+        self.assertIn("provider exploded", after["last_error"])
+        self.assertEqual(app.sync_factory_cycle(c["id"])["status"], "stopped", "stays stopped until resumed")
+
     def test_next_cycle_inherits_target(self):
         parent = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=idea()["id"], target={"topic": "kept", "audience": "parents"}))
         child = run(app.next_factory_cycle(parent["id"]))["cycle"]
