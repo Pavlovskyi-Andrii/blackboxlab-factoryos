@@ -610,15 +610,18 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
     _NOINDEX = {"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "no-referrer"}
 
     @app.get("/mycast/e/{token}", include_in_schema=False)
-    def mycast_public_episode(token: str):
-        """A revocable public episode page: player + title/date/length/first name only. no-store, so unpublishing
-        takes effect at once (no CDN copy keeps serving it)."""
+    def mycast_public_episode(token: str, request: Request = None, lang: str = ""):
+        """A revocable public episode page (T-645 share card: coverflow with demo cards, player, public DNA). no-store,
+        so unpublishing takes effect at once (no CDN copy keeps serving it)."""
         import mycast_public
+        import mycast_share_page
         found = store.public_episode(token)
         if not found:
             return HTMLResponse(mycast_public.render_episode_missing(), status_code=404, headers=_NOINDEX)
         rec, day, entry = found
-        return HTMLResponse(mycast_public.render_episode_page(rec, day, entry, token=token, page=PAGE), headers=_NOINDEX)
+        accept = request.headers.get("accept-language", "") if request is not None else ""
+        body = mycast_share_page.render(rec, day, entry, token=token, page=PAGE, lang=str(lang or "")[:5], accept=accept)
+        return HTMLResponse(body, headers={**_NOINDEX, "Vary": "Accept-Language"})
 
     @app.get("/mycast/e/{token}/audio.mp3", include_in_schema=False)
     def mycast_public_episode_audio(token: str):
