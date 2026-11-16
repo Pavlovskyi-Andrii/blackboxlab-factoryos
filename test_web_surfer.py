@@ -158,13 +158,19 @@ class SearchTest(unittest.TestCase):
         out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "x"})
         self.assertEqual((out["provider"], out["model"]), ("gemini_google_search", "gemini-flash-latest"))
         self.assertIn("/models/gemini-2.5-flash:", opener.requests[0].full_url)   # resolved model first
-        opener = Opener(http_error(429, "RESOURCE_EXHAUSTED", "quota secret"), WIKI)
+        opener = Opener(http_error(429, "RESOURCE_EXHAUSTED", "quota secret"), GEMINI)
         out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "y"})
+        self.assertEqual((out["provider"], out["model"]), ("gemini_google_search", "gemini-flash-latest"))  # 429 → next model
+        opener = Opener(*[http_error(429, "RESOURCE_EXHAUSTED", "quota secret") for _ in range(3)], WIKI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "y2"})
         self.assertEqual(out["provider"], "wikipedia")
-        self.assertIn("HTTP 429 RESOURCE_EXHAUSTED", out["note"])
+        self.assertIn("gemini-flash-lite-latest: HTTP 429 RESOURCE_EXHAUSTED", out["note"])
         self.assertNotIn("secret", json.dumps(out))
-        self.assertEqual(len(opener.requests), 2)                  # 429 is not retried on another model
-        opener = Opener(*[http_error(400, "bad status!", "m") for _ in range(2)], WIKI)
+        self.assertEqual(len(opener.requests), 4)                  # 3 distinct models + Wikipedia
+        opener = Opener(OSError("down"), WIKI)
+        out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "y3"})
+        self.assertEqual(len(opener.requests), 2)                  # a network error is not retried on another model
+        opener = Opener(*[http_error(400, "bad status!", "m") for _ in range(3)], WIKI)
         out = search(self.tmp.name, provider="gemini", key="k", opener=opener, cap=10).search({"query": "z"})
         self.assertIn("gemini-2.5-flash: HTTP 400;", out["note"])  # non-enum status text is dropped
         self.assertNotIn("bad status", out["note"])

@@ -212,7 +212,7 @@ def search_gemini(query: str, limit: int, *, api_key: str, model: str, opener=No
     return {"answer": answer.strip()[:4000], "results": results[:limit]}
 
 
-GEMINI_FALLBACK_MODELS = ("gemini-flash-latest", "gemini-2.5-flash")
+GEMINI_FALLBACK_MODELS = ("gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash")
 _GOOGLE_STATUS_RE = re.compile(r"^[A-Z_]{1,40}$")
 
 
@@ -271,7 +271,9 @@ class WebSearch:
                         return {"provider": "gemini_google_search", "model": model, "query": query, **found}
                     except Exception as exc:
                         errors.append(f"{model}: {gemini_error(exc)}")
-                        if getattr(exc, "code", None) not in (400, 404):
+                        # 400/404: model without Search grounding; 429: that model's own quota is spent (owner
+                        # 2026-11-16: flash-latest answered 429 after the daily reset, try flash-lite) → next model.
+                        if getattr(exc, "code", None) not in (400, 404, 429):
                             break
                 reason = "; ".join(errors)
                 if wanted == "gemini":
