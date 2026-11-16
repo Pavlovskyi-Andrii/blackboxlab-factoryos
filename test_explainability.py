@@ -28,9 +28,10 @@ CANONICAL = ["hook", "script", "caption", "voice", "cycle", "idea", "job", "revi
 # T-597 surface help: each concept carries a factual mini flow and a not-yet-supported tutorial note.
 SURFACES = ["relay", "worker", "connector", "stage", "approval", "video", "brain", "discovery"]
 # Static headings get a mounted tip (applyLanguage); JS-rendered headings call helpTip() directly.
-MOUNTS = {"dc.title": "relay", "worker.title": "worker", "connections.title": "connector", "pipeline.title": "stage",
+MOUNTS = {"dc.title": "relay", "worker.title": "worker", "connections.title": "connector",
           "approval.title": "approval", "finisher.title": "video", "brain.title": "brain", "discovery.title": "discovery"}
-RENDERED = {"lb.title": "relay", "wo.title": "worker"}
+# T-691: the pipeline heading now renders inside the expanded content row ("making of").
+RENDERED = {"lb.title": "relay", "wo.title": "worker", "pipeline.title": "stage"}
 LOCALES = ("en", "uk", "ru")
 
 
