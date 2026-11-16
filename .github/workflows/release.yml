@@ -14,16 +14,15 @@ on:
         required: false
         default: ""
       target:
-        description: "Full commit SHA to tag when the tag does not exist yet (backfill); empty = this run's commit"
+        description: "Full commit SHA on main to tag when the tag does not exist yet; required with tag (backfill)"
         required: false
         default: ""
 
 permissions:
   contents: write
 
-concurrency:
-  group: release
-  cancel-in-progress: false
+# No concurrency group: GitHub keeps only one pending run per group and drops the rest, which could skip a version.
+# Each run releases only its own version and treats "already exists" as done, so parallel runs are safe.
 
 jobs:
   release:
@@ -59,6 +58,7 @@ jobs:
           TAG: ${{ steps.v.outputs.tag }}
           TITLE: ${{ steps.v.outputs.title }}
           TARGET: ${{ github.event.inputs.target }}
+          MANUAL_TAG: ${{ github.event.inputs.tag }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists"; exit 0
@@ -66,9 +66,14 @@ jobs:
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             gh release create "$TAG" --verify-tag --title "$TITLE" --notes-file release-notes.md
           else
+            # A manually named past version must say which commit it was: never tag history on today's main.
+            if [ -n "$MANUAL_TAG" ] && [ -z "$TARGET" ]; then
+              echo "tag $TAG does not exist: pass target (the full SHA of that version's commit)"; exit 1
+            fi
             target="${TARGET:-$GITHUB_SHA}"
             case "$target" in *[!0-9a-f]*|"") echo "target must be a full commit SHA"; exit 1;; esac
             [ "${#target}" -eq 40 ] || { echo "target must be a full 40-char SHA"; exit 1; }
             git merge-base --is-ancestor "$target" origin/main || { echo "target is not on main"; exit 1; }
-            gh release create "$TAG" --target "$target" --title "$TITLE" --notes-file release-notes.md
+            gh release create "$TAG" --target "$target" --title "$TITLE" --notes-file release-notes.md \
+              || gh release view "$TAG" >/dev/null   # a parallel run published it first: done
           fi

@@ -63,6 +63,11 @@ def test_smoke_and_release_workflow_follow_app_version():
     wf = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     for needle in ("branches: [main]", "contents: write", "APP_VERSION", "gh release create", "Product changelog"):
         require(needle in wf, f"release workflow lost: {needle}")
+    # Codex review on #396: a manual backfill must never tag a past version on today's main, and no run may be
+    # dropped by a concurrency group (GitHub keeps one pending run per group).
+    require('if [ -n "$MANUAL_TAG" ] && [ -z "$TARGET" ]' in wf and "exit 1" in wf, "backfill without target must fail")
+    require("git merge-base --is-ancestor" in wf, "backfill target must be on main")
+    require("\nconcurrency:" not in wf, "a concurrency group can drop a pending release run")
 
 
 TESTS = [test_version_is_semver, test_readme_changelog_leads_with_app_version, test_dashboard_shows_app_version,
