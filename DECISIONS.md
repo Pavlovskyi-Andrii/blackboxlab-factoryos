@@ -1575,3 +1575,19 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   card gained 🔄 Refresh (`relay:ticket:<id>`), which now shows the same factual detail as `/task`.
 - Live acceptance stays with the owner as [HUMAN] T-591-H / T-592-H / T-593-H with Owner-desk runbooks; T-590,
   T-591, T-591-A, T-592 and T-593 stay unchecked until those runs are verified.
+
+
+## 2026-11-16 — T-646 Autopilot Cycle Control for beginners
+
+- **Decision:** store the cycle target inside `factory_cycles.meta_json` (`meta.target = {brand, topic, platform, audience}`), no schema migration.
+  **Reason:** smallest safe change; old cycles read as "target not set".
+- **Decision:** the target only steers existing steps — topic narrows which *new* signals attach (if none match, all new signals are used and a cycle event says so); brand links the production job to that brand's strategy (agents get its Master Brief via `brand_for_job`); platform/audience are appended to the job brief as `CYCLE TARGET (owner)`. The real publishing platform is still chosen in Publishing.
+  **Reason:** honest, visible effect without inventing a new targeting engine; nothing publishes or spends.
+- **Decision:** the target is editable only before production (status ready/stopped/failed and no job) — 409 otherwise.
+  **Reason:** once the job exists the brief has been written; changing the label afterwards would misrepresent what was produced.
+- **Decision:** Stop is a flag read at the handoffs (before signals, ideas, production, and after production). It never cancels a provider call mid-flight. A stop requested during production lets the job finish to the approval gate (nothing published) and then marks the cycle `stopped`. Stop is allowed only for ready/running/failed; later statuses already wait for the owner. `stopped` is excluded from the reconcile loop and preserved by sync; Resume returns to `ready` and re-syncs. A stale flag from an ended run is cleared when Run starts.
+  **Reason:** pausing must be safe with durable/idempotent steps and must not touch the approval gate.
+- **Decision:** `GET /api/factory-cycles` adds `readiness` (new signal count, feeds configured, whether paid calls are possible, startable ideas, brands, platforms). `get_factory_cycles()` (used by the dashboard summary) keeps its shape.
+- **Decision:** in demo mode (no LLM key) the form defaults to "start from a ready idea" and says why: idea generation from signals needs a live model, so a signals-only cycle fails honestly with "Live LLM provider is not configured".
+- **Decision (Codex review on #395):** when the owner changes the topic before production, signals the cycle selected by itself are re-selected for the new topic (signals or an idea chosen explicitly stay as chosen); the run-time signal collection records the same "no signal matched the topic" event as creation; a failed brand link is stored as `meta.brand_link_error`, logged as a WARNING event and shown in red on the card (production still reaches the approval gate, where the owner can reject).
+- **Decision (second Codex review on #395):** an idea has one production job; a cycle reuses it only if the job was made for the same target (compared with the `CYCLE TARGET (owner):` line in its brief), otherwise the run fails before production with an actionable error. Topic selection now scans all new signals (bounded to 2000, matched in Python so Cyrillic is case-insensitive) before the per-cycle limit. A step that fails after the owner requested a stop leaves the cycle `stopped` (error kept) rather than `failed`.

@@ -249,6 +249,8 @@ jobs:
           python test_mycast_share_page.py
           python -m py_compile brand_strategy.py brand_strategy_seeds.py test_brand_strategy.py
           python test_brand_strategy.py
+          python -m py_compile test_factory_cycle_controls.py
+          python test_factory_cycle_controls.py
           python -m py_compile test_builder_recovery.py
           python test_builder_recovery.py
           python -m py_compile test_mycast_domain.py
