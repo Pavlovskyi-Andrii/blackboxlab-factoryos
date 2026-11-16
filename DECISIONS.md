@@ -1704,3 +1704,9 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   and the owner creates v5.9.0 once in the GitHub UI on `b991f85` with the README entry as notes (owner credentials
   are not limited like the workflow token). Answers the two minor Codex findings on #398 by removing that check.
 
+
+## 2026-11-16 — Gemini search: flash-lite fallback, 429 tries the next model
+
+- Production after the daily reset: `gemini-2.5-flash` 404, `gemini-flash-latest` 429 RESOURCE_EXHAUSTED. Owner asked to try
+  `gemini-flash-lite-latest`. It is added to the fallback list, and a 429 now moves to the next model (quotas are per
+  model); network errors and 5xx still stop. At most 3 Gemini calls per search (`GEMINI_MAX_ATTEMPTS`: the resolved model first, then the fallbacks in order), still one count against the 100/day cap.
