@@ -803,6 +803,14 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Need: GitHub → Releases → Draft a new release → tag `v5.9.0`, target commit `b991f856404196e0146d6a1ce2fbc3cee60d20d0`, title from the README `### v5.9.0` heading, notes = that entry's bullets, not marked Latest → Publish. The workflow token is refused (HTTP 403) for this commit.
   DONE: https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/releases/tag/v5.9.0 exists.
 
+## Learning guides in three languages (owner 2026-11-16)
+
+- [ ] T-667 /learn: more "how the product works" guides, every guide in RU / UK / EN
+  Owner: claude (session Guides)
+  Spec: owner 2026-11-16 «Добавляй ещё гайды по тому, как работает наш продукт, и переведи их на украинский и русский — часть на английском»; the RU viewer showed the English `docs/guides/browser-agent.md`. DECISIONS.md «2026-11-16 — T-667».
+  Goal: each Markdown guide on the /learn shelf has `<stem>.<lang>.md` translations next to its original; `/learn/view/{id}?lang=` serves the chosen language and falls back to the original with a visible "only in X" note; card titles/descriptions in all three languages; the language parameter never selects a path outside the fixed catalog. Seven new beginner guides from the actual code: Surfer, Claude↔ChatGPT shared workspace, MVP Factory pilots, MyCast library and public links, Autopilot / Cycle Control, Telegram Relay and /proof, owner desk «Ваши задачи».
+  DONE: `python test_learn_center.py` (all guides in 3 languages, right-language letters, fallback with note, `?lang=` cannot reach other files, new guides on the shelf) + `test_locale_parity.py` + default verification; screenshots of /learn in RU and UK in `docs/screenshots/t-667/`.
+
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
 - [ ] T-607 Gemini Worker — third authenticated engineering operator via existing Relay

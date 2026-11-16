@@ -22,7 +22,7 @@ button,select,a{font:inherit;color:inherit}:focus-visible{outline:3px solid var(
 .card:hover{background:#121d35}.card[aria-current="true"]{border-color:var(--cyan)}
 .card b{display:block;font-size:15px}.card span{display:block;color:var(--muted);font-size:13px;margin-top:4px}
 .card i{font-style:normal;font:700 10px/1 ui-monospace,monospace;letter-spacing:.08em;color:#081018;background:var(--amber);border-radius:5px;padding:3px 6px;margin-right:6px}
-.card i.md{background:var(--violet)}.card i.steps{background:var(--cyan)}
+.card i.md{background:var(--violet)}.card i.lg{background:#33415c;color:var(--ink)}.card i.steps{background:var(--cyan)}
 .card.off{opacity:.55;cursor:default}
 .viewer{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#04070f;min-height:70vh;display:flex;flex-direction:column}
 .vbar{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);background:#0a1120;font-size:13px;color:var(--muted)}
@@ -54,15 +54,15 @@ const T = {
   ru: {h1: 'Обучение', back: '← FactoryOS', open: 'Открыть в новой вкладке', pick: 'Выберите материал слева.', missing: 'Пока нет в этой версии',
        err: 'Не удалось загрузить список.',
        tabs: {mine: ['Моё обучение', 'что вы проходили и настраивали'], explainers: ['Обучалки по системе', 'ролики и интерактивные HTML'], guide: ['Как это работает', 'гайд по проекту FactoryOS']},
-       kind: {html: 'HTML', md: 'ГАЙД', steps: 'МЕТОД'}},
+       only: 'только', kind: {html: 'HTML', md: 'ГАЙД', steps: 'МЕТОД'}},
   uk: {h1: 'Навчання', back: '← FactoryOS', open: 'Відкрити в новій вкладці', pick: 'Оберіть матеріал ліворуч.', missing: 'Поки немає в цій версії',
        err: 'Не вдалося завантажити список.',
        tabs: {mine: ['Моє навчання', 'що ви проходили й налаштовували'], explainers: ['Навчалки по системі', 'ролики та інтерактивні HTML'], guide: ['Як це працює', 'гайд по проєкту FactoryOS']},
-       kind: {html: 'HTML', md: 'ГАЙД', steps: 'МЕТОД'}},
+       only: 'лише', kind: {html: 'HTML', md: 'ГАЙД', steps: 'МЕТОД'}},
   en: {h1: 'Learning', back: '← FactoryOS', open: 'Open in a new tab', pick: 'Pick an item on the left.', missing: 'Not in this build yet',
        err: 'Could not load the list.',
        tabs: {mine: ['My learning', 'what you studied and set up'], explainers: ['System explainers', 'films and interactive HTML'], guide: ['How it works', 'FactoryOS project guide']},
-       kind: {html: 'HTML', md: 'GUIDE', steps: 'METHOD'}}};
+       only: 'only', kind: {html: 'HTML', md: 'GUIDE', steps: 'METHOD'}}};
 const $ = id => document.getElementById(id);
 let data = null, lang = 'ru', section = 'mine', current = '';
 try { const l = localStorage.getItem('factoryos_lang'); if (T[l]) lang = l; } catch (e) {}
@@ -91,7 +91,11 @@ function render() {
     const c = document.createElement('button'); c.type = 'button'; c.className = 'card' + (it.available ? '' : ' off');
     c.setAttribute('aria-current', String(it.id === current));
     const b = document.createElement('b'); const k = document.createElement('i'); k.className = it.kind; k.textContent = t.kind[it.kind] || it.kind;
-    b.append(k, document.createTextNode(txt(it.title)));
+    b.append(k);
+    if (it.langs && !it.langs.includes(lang)) {   // no translation yet: show the guide's own language
+      const lg = document.createElement('i'); lg.className = 'lg'; lg.textContent = (it.lang || '').toUpperCase(); b.append(lg);
+    }
+    b.append(document.createTextNode(txt(it.title)));
     const d = document.createElement('span'); d.textContent = it.available ? txt(it.desc) : t.missing;
     c.append(b, d);
     if (it.available) c.onclick = () => { current = it.id; sync(); render(); };
@@ -100,10 +104,11 @@ function render() {
   const item = data.items.find(i => i.id === current && i.section === section && i.available);
   const frame = $('frame'), open = $('vopen');
   if (item) {
-    const src = '/learn/view/' + encodeURIComponent(item.id);
+    const src = '/learn/view/' + encodeURIComponent(item.id) + '?lang=' + encodeURIComponent(lang);
     if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
     frame.hidden = false; $('empty').hidden = true; frame.title = txt(item.title);
-    $('vtitle').textContent = txt(item.title); open.hidden = false; open.href = src; open.textContent = t.open;
+    $('vtitle').textContent = txt(item.title) + (item.langs && !item.langs.includes(lang) ? ` · ${t.only} ${(item.lang || '').toUpperCase()}` : '');
+    open.hidden = false; open.href = src; open.textContent = t.open;
   } else {
     frame.removeAttribute('src'); frame.hidden = true; $('empty').hidden = false; $('empty').textContent = t.pick;
     $('vtitle').textContent = ''; open.hidden = true;

@@ -1704,3 +1704,16 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   and the owner creates v5.9.0 once in the GitHub UI on `b991f85` with the README entry as notes (owner credentials
   are not limited like the workflow token). Answers the two minor Codex findings on #398 by removing that check.
 
+
+## 2026-11-16 — T-667 /learn guides in RU / UK / EN
+
+- Translations live next to the original as `<stem>.<lang>.md` (`docs/guide/mycast.uk.md`, `docs/RELAY.ru.md`). Each catalog
+  entry records the language of its original (`"lang"`); the served file is derived only from the catalog path and a
+  language from `LANGS` (`ru`, `uk`, `en`). Unknown `?lang=` values fall back to the default (`ru`), so the parameter can
+  never name a file. Originals keep their paths, so links from other docs and agents stay valid.
+- When a translation is missing the original is served with a visible note («пока есть только на английском») and the
+  card shows the original's language badge; `Content-Language` and `<html lang>` follow the language actually served.
+- New "how it works" guides are written in Russian first (`docs/guide/<name>.md`) with UK/EN siblings, based on the
+  current code; planned or owner-setup-only parts are labelled as such. `docs/guides/surfer-mcp.md` (owned by the Surfer
+  session) is not edited — the beginner Surfer guide is a separate file, `docs/guide/surfer.md`.
+- HTML prototypes stay single-language (Russian); the brand method page renders its intro and step titles per language.
