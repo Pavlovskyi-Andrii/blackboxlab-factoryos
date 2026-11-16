@@ -789,6 +789,14 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Goal: the `cycle` screen shows a 7-step map (who acts: agent or you; what is needed from you) with each cycle's current position, a collapsible plain-language «How does Autopilot work?», a demo/live cost line, a beginner empty state, a new-cycle form (start from newest signals or a ready idea) with an optional target (brand / topic / platform / audience) visible on every card, Stop / Resume / Retry, «Change target» before production, and buttons that open each step's real result. Safety unchanged: the cycle still stops at human approval, publishing stays a separate explicit action, paid runs still need the cost confirmation; nothing paid is enabled.
   DONE: `python test_factory_cycle_controls.py` (target validation and use, topic filter, stop/resume incl. pending stop before production, approval gate, cost confirmation, readiness) + `test_locale_parity.py`, `test_navigation.py`, `test_explainability.py`, smoke suite and inline-JS `node --check` green; screenshots at 1280/390 px in `docs/screenshots/t-646/` with no horizontal scroll.
 
+## Content making-of (owner voice note 2026-11-16, items 5–6)
+
+- [x] T-690 Content runs: close runs interrupted by a restart, show where each content item stopped
+  Owner: claude (session Content making-of)
+  Spec: owner voice note 2026-11-16 «Контент / Продвижение — оно не работает… непонятно, кто на чём остановился, почему ошибка, почему стопнулось»; DECISIONS.md «2026-11-16 — T-690»
+  Goal: content-job agent runs live in the FastAPI process; a Render deploy/restart left their `agent_runs` row `running` forever (phantom live worker in the trace) and the Supervisor silently reset the job to idle, which the list labelled «готово». Orphaned runs are now closed as failed with a classified `run_interrupted` reason (manual retry behind the paid-retry confirmation) at startup and in the orphan auto-heal; the job list carries per-job open incidents (same «resolved» rule as the Error Center); idle reads «ready to run / очікує запуску / ожидает запуска»; the flow read model carries per-run duration, cost, model, policy and resolved flag.
+  DONE: `python test_content_making_of.py` (interrupted runs, running-job exclusion, orphan heal, flow enrichment, attention == Error Center) + smoke suite green.
+
 ## Versioning (owner 2026-11-16)
 
 - [x] T-VERSION One version everywhere + changelog v5.6 → v5.10.0 + automatic GitHub Releases

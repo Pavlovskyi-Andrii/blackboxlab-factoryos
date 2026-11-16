@@ -1704,3 +1704,28 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   and the owner creates v5.9.0 once in the GitHub UI on `b991f85` with the README entry as notes (owner credentials
   are not limited like the workflow token). Answers the two minor Codex findings on #398 by removing that check.
 
+
+## 2026-11-16 — T-690 interrupted content runs
+- Diagnosis of «Контент / Продвижение не работает»: reproduced locally by restarting the server mid-run (what every
+  Render deploy does). The run's `agent_runs` row stayed `running` forever, so the trace showed a live worker that did
+  not exist, while the Supervisor reset the job to `idle`, which the list showed as «готово» with 25–50 % progress.
+- Orphaned rows are closed as `failed` with `RUN_INTERRUPTED_ERROR` at startup (no content task survives a restart)
+  and when the Supervisor heals an orphaned job; runs of jobs still in `running_jobs` are never touched.
+- The new `run_interrupted` policy is retryable but not auto-retried and requires confirmation with spend uncertain:
+  a live provider call may already have been billed. The job itself stays `idle` (ready to resume) rather than
+  `failed`, so the Supervisor does not raise a critical alarm for a deploy; the open incident carries the signal.
+- The content pipeline is not made durable (DBOS) here: that changes step order/recovery semantics and deserves its
+  own task; this change only makes the stop visible and recoverable.
+- `idle` is labelled «ready to run / очікує запуску / ожидает запуска» instead of «ready / готово», which read as
+  finished. `approved` gets its own label.
+
+## 2026-11-16 — T-691 content making-of
+- The making-of opens inline under the clicked row (not a drawer): the owner asked for a «раскрывающаяся плашка», and
+  inline keeps the list context. Expanded = the server-side selected job, so the panel reuses `selectedJobFlow` and
+  the Error Center data already in `/api/status`; no new endpoint and no invented data.
+- The free-floating pipeline card is removed; its stage strip and the live trace render inside the panel under the
+  heading «Контент-конвейер: <title>». The sidebar «Pipeline» entry now opens the selected item's making-of.
+- Actions are only the existing safe ones: rerun through `/agents/{name}/rerun` with `expected_run_id` and the
+  confirmation flow, open agent log, run from stage, review. Editing an input/result is not offered: the backend has
+  no artifact edit endpoint outside Variant Studio's partial reruns (reachable from the selected-job panel).
+- Hop details stay collapsed except unresolved failures; open/closed state survives the frequent WebSocket re-renders.

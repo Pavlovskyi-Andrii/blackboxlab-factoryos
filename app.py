@@ -7440,9 +7440,13 @@ def get_job_flow(job_id, limit=40):
         return empty
     con=db()
     runs=[dict(x) for x in con.execute(
-        """SELECT id,agent,stage,status,started_at,finished_at,error FROM agent_runs
+        """SELECT id,agent,stage,status,started_at,finished_at,error,duration_ms,cost_usd,model FROM agent_runs
            WHERE job_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?""",(job_id,limit+1)
     ).fetchall()]
+    # T-691: a failure is resolved once the same agent later completes (same rule as the Error Center).
+    completed_at={x["agent"]:x["at"] or "" for x in con.execute(
+        """SELECT agent,MAX(COALESCE(finished_at,started_at)) AS at FROM agent_runs
+           WHERE job_id=? AND status='completed' GROUP BY agent""",(job_id,)).fetchall()}
     truncated=len(runs)>limit
     runs=list(reversed(runs[:limit]))
     if not runs:
@@ -7463,10 +7467,17 @@ def get_job_flow(job_id, limit=40):
     hops={}
     for i,r in enumerate(runs):
         state=_flow_run_state(r["status"],r.get("error"))
+        stopped=state in ("failed","blocked")
         hops[r["id"]]={"order":i+1,"run_id":r["id"],"agent":r["agent"],"stage":r.get("stage") or "","status":r["status"],"state":state,
                        "started_at":r["started_at"],"finished_at":r.get("finished_at"),
-                       "error":(r.get("error") or "")[:160] if state in ("failed","blocked") else "",
+                       "duration_ms":r.get("duration_ms"),"cost_usd":r.get("cost_usd"),"model":r.get("model") or "",
+                       "error":(r.get("error") or "")[:600] if stopped else "",
                        "inputs":[],"outputs":[],"downstream":[]}
+        if stopped:
+            p=classify_agent_error(r.get("error"))
+            failed_at=r.get("finished_at") or r.get("started_at") or ""
+            hops[r["id"]]["policy"]={k:p[k] for k in ("code","category","severity","title","action","retryable","requires_confirmation","spend_uncertain")}
+            hops[r["id"]]["resolved"]=bool(completed_at.get(r["agent"]) and failed_at and completed_at[r["agent"]]>failed_at)
     for a in outputs:
         hops[a["run_id"]]["outputs"].append({"artifact_id":a["id"],"title":a["title"],"kind":a["kind"]})
     edges=[];sources={}
@@ -7491,6 +7502,50 @@ def get_job_flow(job_id, limit=40):
     return {"job_id":job_id,"hops":ordered,"edges":edges,"sources":list(sources.values()),"counts":counts,
             "live":counts["running"]>0,"truncated":truncated}
 
+RUN_INTERRUPTED_ERROR=("Run interrupted: the FactoryOS server restarted or the worker task stopped before this agent "
+                       "finished; no result was recorded.")
+
+def close_interrupted_agent_runs(job_id=None):
+    """T-690: content-job runs live in this process. After a deploy/restart (or a dead task) their agent_runs row
+    stayed 'running' forever, so the trace showed a phantom live worker and the owner could not see where the job
+    stopped. Close such rows as failed with an explicit, classified reason. Runs of a job this process is still
+    executing are never touched."""
+    con=db()
+    sql="SELECT id,job_id,agent,stage FROM agent_runs WHERE status='running' AND job_id IS NOT NULL"
+    params=[]
+    if job_id:
+        sql+=" AND job_id=?";params.append(job_id)
+    rows=[dict(x) for x in con.execute(sql,params).fetchall() if x["job_id"] not in running_jobs]
+    now=ts()
+    for r in rows:
+        con.execute("UPDATE agent_runs SET status='failed',finished_at=?,error=? WHERE id=? AND status='running'",
+                    (now,RUN_INTERRUPTED_ERROR,r["id"]))
+    con.commit();con.close()
+    for r in rows:
+        event(r["job_id"],f"Run interrupted: {r['agent']} ({r['stage'] or 'stage unknown'}) did not finish; marked failed so it can be retried")
+    return len(rows)
+
+def get_jobs_attention(job_ids):
+    """T-690: per-job open incidents for the job list (same 'resolved' rule as get_job_error_center)."""
+    ids=[x for x in job_ids if x]
+    if not ids:
+        return {}
+    marks=",".join("?"*len(ids))
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        f"""SELECT r.job_id,r.agent,r.stage,r.error,r.id AS run_id FROM agent_runs r
+            WHERE r.job_id IN ({marks}) AND r.status='failed' AND r.error IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM agent_runs c WHERE c.job_id=r.job_id AND c.agent=r.agent AND c.status='completed'
+                              AND COALESCE(c.finished_at,c.started_at)>COALESCE(r.finished_at,r.started_at))
+            ORDER BY COALESCE(r.finished_at,r.started_at) DESC""",ids).fetchall()]
+    con.close()
+    out={}
+    for r in rows:
+        item=out.setdefault(r["job_id"],{"open":0,"agent":r["agent"],"stage":r["stage"] or "","run_id":r["run_id"],
+                                         "code":classify_agent_error(r["error"])["code"]})
+        item["open"]+=1
+    return out
+
 def classify_agent_error(message):
     raw=(message or "").strip()
     low=raw.lower()
@@ -7500,7 +7555,16 @@ def classify_agent_error(message):
         "title":"Unclassified worker failure",
         "action":"Review the failed run before retrying. The provider outcome may be uncertain.",
     }
-    if any(x in low for x in ("balance exhausted","insufficient_quota","no credits remaining")):
+    if low.startswith("run interrupted"):
+        # T-690: the in-process task died (deploy/restart) mid-run. Nothing was recorded, but a live
+        # provider call may already have been billed, so a retry stays behind the confirmation gate.
+        policy.update({
+            "code":"run_interrupted","category":"interrupted","severity":"warning",
+            "retryable":True,"auto_retry":False,"requires_confirmation":True,"spend_uncertain":True,
+            "title":"Run interrupted by a server restart",
+            "action":"No result was saved. Confirm, then retry this worker or press Run to continue from this stage.",
+        })
+    elif any(x in low for x in ("balance exhausted","insufficient_quota","no credits remaining")):
         policy.update({
             "code":"billing_exhausted","category":"billing","severity":"critical",
             "retryable":True,"auto_retry":False,"requires_confirmation":False,"spend_uncertain":False,
@@ -7722,6 +7786,7 @@ def supervisor_audit(auto_heal=False, persist=False):
                 con = db()
                 con.execute("UPDATE jobs SET status='idle',updated_at=? WHERE id=?", (ts(), j["id"]))
                 con.commit(); con.close()
+                close_interrupted_agent_runs(j["id"])
                 event(j["id"], "Supervisor auto-heal: orphaned run reset to ready")
                 healed.append(f"Reset orphaned job '{j['title']}' to ready.")
 
@@ -7880,6 +7945,12 @@ async def supervisor_loop():
     while True:
         await supervisor_cycle()
         await asyncio.sleep(60)
+
+@app.on_event("startup")
+def close_runs_interrupted_by_restart():
+    # T-690: no content-job task survives a restart, so every 'running' content run left in the DB is orphaned.
+    closed=close_interrupted_agent_runs()
+    if closed:print(json.dumps({"event":"AGENT_RUNS_INTERRUPTED","closed":closed}),flush=True)
 
 @app.on_event("startup")
 async def verify_builder_bridge():
@@ -11049,6 +11120,8 @@ def status(request: Request=None):
     if tenancy.current() is not None:
         return _workspace_status(identity)
     jobs=get_jobs(); sid=current_selected(jobs); selected=next((j for j in jobs if j["id"]==sid),None)
+    attention=get_jobs_attention([j["id"] for j in jobs])
+    for j in jobs:j["attention"]=attention.get(j["id"])
     con=db(); ev=[dict(x) for x in con.execute("SELECT * FROM events ORDER BY id DESC LIMIT 60").fetchall()]; con.close()
     report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
     return {
