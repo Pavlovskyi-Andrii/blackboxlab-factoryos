@@ -93,8 +93,10 @@ async function research(model, task) {
   for (const url of urls) {
     try {
       const r = await surfer('web_read', {url, wait_seconds:45});
-      if (r.status === 'done') out.push('PAGE '+url+'\n'+(r.texts||[]).map(t=>t.text).join('\n').slice(0,5000));
-      else console.log('read '+url+': '+r.status+' '+(r.blocker||''));
+      // T-670: 'text' is the page's main text (menus removed); 'texts' is what older servers / selector reads return.
+      const body = typeof r.text === 'string' ? r.text : (r.texts||[]).map(t=>t.text).join('\n');
+      if (r.status === 'done') out.push('PAGE '+url+(r.title ? ' — '+String(r.title).slice(0,200) : '')+'\n'+body.slice(0,5000));
+      else console.log('read '+url+': '+r.status+' '+(r.blocker||'')+(r.hints&&r.hints[0] ? ' — '+String(r.hints[0]).slice(0,160) : ''));
     } catch (e) { console.log('read failed: '+e.message); }
   }
   console.log('Surfer research: '+queries.length+' searches, '+urls.length+' pages');

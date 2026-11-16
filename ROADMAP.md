@@ -344,6 +344,26 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Need: owner generates a key (`python -c "from browser_runner.vault import generate_key; print(generate_key())"`) and stores it only in the Render secret environment (and the browser runner host), never in Git or chat.
   DONE: owner-only `GET /api/factory/vault/status` reports `configured: true`.
 
+- [x] T-670 Surfer benchmark: 28 real tasks an AI needs mid-project, report with problems found
+  Owner: claude (session Surfer)
+  Depends: T-560-H
+  Spec: owner 2026-11-16 «доведи работу до идеала, чтобы любой ИИ мог им пользоваться в середине проекта. Дай ему задания и проверь, как он справляется»
+  Goal: run real read tasks through the agent REST on production (docs, README, releases, changelog, PyPI, Wikipedia, SPA, redirects, a very long page, cookie banner, missing selector, 404, slow page, table, bad domain, anti-bot pages), measure status/queue time/blocker/completeness, and write before/after honestly.
+  DONE: `docs/verification/surfer-benchmark-2026-11-16.md` lists every task → result → problem with the numbers; `python test_verification_docs.py` green.
+
+- [x] T-671 Surfer reads like an AI needs: main text, links, chunks, hints
+  Owner: claude (session Surfer)
+  Depends: T-670
+  Spec: docs/verification/surfer-benchmark-2026-11-16.md, DECISIONS.md «2026-11-16 — T-671»
+  Goal: a read without selectors returns the page's main text (menus, sidebars, cookie banners removed), title, description and up to 150 https links instead of `<body>` cut at 6000 chars; up to 100 000 chars are kept and read in chunks (`offset` → `next_offset`); every answer carries `hints` for the next step (bad domain, HTTP 4xx/5xx, missing selector incl. ids with dots, JS-rendered page, anti-bot page, timeout, redirect); the worker waits for network idle (≤5 s), reports the HTTP status and Chromium's `net::ERR_*` code (no URL/message), recognises anti-bot interstitials as `waiting_human/bot_challenge` and no longer stops a readable page on an invisible reCAPTCHA; a JavaScript redirect to another site is followed once by `web_read` (same URL rules); MCP tool descriptions carry examples. Read-only, public https only, egress proxy, GET-only and no anti-bot bypass are unchanged.
+  DONE: `python test_browser_reading.py` (also with `RUN_BROWSER_FIXTURE=1` on real Chromium), `python test_web_surfer.py`, `python test_browser_tasks.py`, `python test_browser_playwright.py`, `node tools/test_gemini_research.cjs` green.
+
+- [x] T-672 Browser executor: private IP literals refused by the origin check; worker reloads on browser_runner changes
+  Owner: claude (session Surfer)
+  Depends: T-560-C
+  Goal: `_origin()` swallowed its own `local_network_disallowed` (PolicyError is a ValueError), so `https://10.0.0.5/` passed the executor's origin check and only the egress proxy refused it; and the EC2 worker restarted for new `autopilot/*.py` only, so a `browser_runner/` fix sat on disk unloaded.
+  DONE: `python test_browser_reading.py` (private/loopback/link-local IP literals refused, loopback fixture still allowed) and `python -m autopilot.test_autopilot` (a `browser_runner/*.py` change returns `code_updated`, a docs change does not) green.
+
 
 ## v5.1 — Viral Discovery Loop
 
