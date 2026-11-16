@@ -1,0 +1,8 @@
+# Past FactoryOS versions released by .github/workflows/release.yml on its next push to main (T-VERSION).
+# One "tag full-commit-sha" per line; the notes come from the README "Product changelog" entry of that tag.
+# A version that is already released is skipped, so this list can stay as the record of what was backfilled.
+v5.6 04f87ca122b306cfda4fb2bfb10e54cc77ee354f
+v5.7 f1e5dafae20c2d116f6156fe80225f159eac15ef
+v5.7.1 f4fee787256da2fbb9de1dcc997d4e5d0ec979c2
+v5.8.0 b6b4523894645d3634b927aa1af78db11410e1c2
+v5.9.0 3c8c9eaaa72a1d686d599b31d3e17aef80997155

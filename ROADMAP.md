@@ -796,7 +796,7 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Priority: P1
   Goal: `APP_VERSION` is the single version shown in the dashboard header, the sidebar badge (was hard-coded v5.3) and `/health`; README changelog continued from v5.6 to v5.10.0 (204 merges since v5.7.1); `release.yml` tags each new version on main and publishes its GitHub Release from the changelog; past versions tagged and backfilled.
   DONE: `python test_versioning.py`, smoke, dashboard `node --check`, navigation/locale tests.
-  Pending (evidence after merge): the first `release.yml` run publishing tag + release v5.10.0, and the v5.6…v5.9.0 backfill runs; recorded in DECISIONS.md once seen on GitHub.
+  Evidence: release v5.10.0 published by run 43850500408 (DECISIONS.md). Pending: the v5.6…v5.9.0 backfill from `.github/release-backfill.txt`.
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 
