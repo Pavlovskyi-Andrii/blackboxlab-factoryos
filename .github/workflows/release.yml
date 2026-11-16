@@ -7,7 +7,7 @@ name: Release
 on:
   push:
     branches: [main]
-    paths: [app.py, README.md, .github/release-backfill.txt, .github/workflows/release.yml]
+    paths: [app.py, README.md, .github/release-backfill.txt, .github/workflows/release.yml, tools/release_publish.sh]
   workflow_dispatch:
     inputs:
       tag:
@@ -61,22 +61,12 @@ jobs:
           TARGET: ${{ github.event.inputs.target }}
           MANUAL_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists"; exit 0
-          fi
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            gh release create "$TAG" --verify-tag --title "$TITLE" --notes-file release-notes.md
-          else
+          if [ -n "$MANUAL_TAG" ]; then
             # A manually named past version must say which commit it was: never tag history on today's main.
-            if [ -n "$MANUAL_TAG" ] && [ -z "$TARGET" ]; then
-              echo "tag $TAG does not exist: pass target (the full SHA of that version's commit)"; exit 1
-            fi
-            target="${TARGET:-$GITHUB_SHA}"
-            case "$target" in *[!0-9a-f]*|"") echo "target must be a full commit SHA"; exit 1;; esac
-            [ "${#target}" -eq 40 ] || { echo "target must be a full 40-char SHA"; exit 1; }
-            git merge-base --is-ancestor "$target" origin/main || { echo "target is not on main"; exit 1; }
-            gh release create "$TAG" --target "$target" --title "$TITLE" --notes-file release-notes.md \
-              || gh release view "$TAG" >/dev/null   # a parallel run published it first: done
+            [ -n "$TARGET" ] || { echo "pass target: the full SHA of $TAG's commit"; exit 1; }
+            bash tools/release_publish.sh strict "$TAG" "$TARGET" "$TITLE" release-notes.md
+          else
+            bash tools/release_publish.sh current "$TAG" "$GITHUB_SHA" "$TITLE" release-notes.md
           fi
       - name: Backfill past versions listed in .github/release-backfill.txt (each on its own commit)
         if: github.event_name == 'push' && hashFiles('.github/release-backfill.txt') != ''
@@ -104,13 +94,5 @@ jobs:
           PY
           while IFS=$'\t' read -r tag sha title; do
             [ -n "$tag" ] || continue
-            if gh release view "$tag" >/dev/null 2>&1; then echo "Release $tag already exists"; continue; fi
-            git merge-base --is-ancestor "$sha" origin/main || { echo "$sha ($tag) is not on main"; exit 1; }
-            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-              [ "$(git rev-parse "$tag^{commit}")" = "$sha" ] || { echo "tag $tag exists on another commit"; exit 1; }
-              gh release create "$tag" --verify-tag --title "$title" --notes-file "backfill/$tag.md" --latest=false
-            else
-              gh release create "$tag" --target "$sha" --title "$title" --notes-file "backfill/$tag.md" --latest=false \
-                || gh release view "$tag" >/dev/null
-            fi
+            bash tools/release_publish.sh strict "$tag" "$sha" "$title" "backfill/$tag.md"
           done < backfill/list.tsv
