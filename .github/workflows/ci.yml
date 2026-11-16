@@ -374,6 +374,10 @@ jobs:
         run: |
           python -m py_compile test_pipeline_flow.py
           python test_pipeline_flow.py
+      - name: Content making-of (interrupted runs, agent chain, row expansion)
+        run: |
+          python -m py_compile test_content_making_of.py
+          python test_content_making_of.py
       - name: Explainability tooltip fixtures
         env:
           FACTORYOS_REQUIRE_NODE: "1"

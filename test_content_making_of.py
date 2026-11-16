@@ -126,7 +126,25 @@ def test_flow_enrichment_and_attention():
     require(row["attention"]["open"] == 1, "status jobs must carry attention")
 
 
+def test_static_ui_contract():
+    html = HTML.read_text(encoding="utf-8")
+    script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+    workmain = html[html.index('<div class="workMain">'):html.index('<aside class="card selected">')]
+    require('id="pipeline"' not in workmain, "the global pipeline card must not hang separately above the content list")
+    require("function moPanel(" in script and "function toggleMakingOf(" in script, "making-of panel renderer and toggle missing")
+    require("onclick=\"toggleMakingOf(" in script, "clicking a content row must expand its making-of")
+    require("renderPipelineFlow(S.selectedJobFlow" in script, "the agent chain renders the selected job's flow")
+    require("aria-expanded" in script[script.index("function jobs("):script.index("function detail(")], "row must expose its expanded state")
+    for key in ("mo.title", "mo.stop.failed", "mo.stop.interrupted", "mo.stop.running", "mo.stop.approval", "mo.stop.paused",
+                "mo.stop.done", "mo.attention", "mo.retry", "mo.openLog", "mo.cost", "mo.duration", "mo.whatToDo",
+                "error.policy.run_interrupted.title", "error.policy.run_interrupted.action", "error.category.interrupted"):
+        require(html.count(f'"{key}":') == 3, f"i18n key {key} must exist in EN/UK/RU")
+    require(re.search(r'"status\.ready":"ready to run"', html), "idle must not read as finished ('ready'/'готово')")
+    require('"status.ready":"готово"' not in html, "RU/UK idle label must not say 'готово'")
+
+
 if __name__ == "__main__":
     test_interrupted_runs_are_closed()
     test_flow_enrichment_and_attention()
+    test_static_ui_contract()
     print("test_content_making_of: OK")
