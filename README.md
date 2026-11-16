@@ -26,6 +26,20 @@ here; after it merges, `.github/workflows/release.yml` tags the merge commit and
 v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their weeks: the app showed `v5.7.1`
 during that time. v5.9.0 ends at #294 (2026-11-08); #295, #297 and #298 are in v5.10.0.
 
+### v5.11.0 — Surfer for AI agents, Content making-of, guides in RU/UK, MyCast demo voices — 2026-11-16
+- **Surfer:** live benchmark of 33 real read tasks and fixes so any AI can use it mid-project: main page text without
+  menus, links, HTTP status, long pages in chunks, hints for every blocker, anti-bot pages reported as needing a
+  human, private IP literals refused in the executor too (#405). Web search tries `gemini-flash-lite-latest` and
+  moves to the next model on 429, at most 3 calls (#400).
+- **Content / Promotion:** runs interrupted by a restart are closed; clicking a content row opens its own pipeline,
+  where it stopped and the agent chain with errors and next steps (#404).
+- **Guides:** /learn guides in RU/UK/EN and 7 new "how it works" guides (#402).
+- **Autopilot:** server error and status messages of Cycle Control in EN/UK/RU (#401).
+- **MyCast:** owner-triggered Gemini voicing of the demo cities on the share page, played only after owner approval
+  (#403).
+- **Releases:** release workflow can backfill past versions; owner runbook for the one-time v5.9.0 release
+  (#396, #397, #398, #399).
+
 ### v5.10.0 — Evidence, MVP Builder, Brand Strategy, Durable Engine, Mods & Skills — 2026-11-08 … 2026-11-16
 - **Version sync and releases:** the sidebar badge (was a hard-coded `v5.3`), header and `/health` now all show
   `APP_VERSION`; changelog restarted from v5.6; git tags and an automatic GitHub Release workflow.
