@@ -3209,6 +3209,13 @@ class FactoryCycleCreate(BaseModel):
     idea_id: Optional[str] = None
     language: str = "English"
     parent_cycle_id: Optional[str] = None
+    target: Optional[dict] = None   # T-645: what the cycle aims at {brand, topic, platform, audience}
+
+class FactoryCycleTarget(BaseModel):
+    brand: str = ""
+    topic: str = ""
+    platform: str = ""
+    audience: str = ""
 
 class FactoryCycleRunRequest(BaseModel):
     confirm_cost: bool = False
@@ -9427,10 +9434,38 @@ def _new_signal_ids(limit=None):
                                  ORDER BY created_at DESC LIMIT ?""",(int(limit or FACTORY_CYCLE_MAX_SIGNALS),)).fetchall();con.close()
     return [x["id"] for x in rows]
 
+# T-645: the owner can say what a cycle aims at. All four fields are optional and only steer existing steps:
+# topic narrows which new signals are attached, brand links the production job to that brand's Master Brief,
+# platform/audience are written into the production brief. None of them publishes or spends anything.
+FACTORY_CYCLE_TARGET_PLATFORMS=("",)+PUBLISH_DRY_RUN_PLATFORMS
+CYCLE_TARGET_EDITABLE=("ready","stopped","failed")
+
+def _cycle_target(raw):
+    raw=dict(raw or {})
+    target={k:re.sub(r"\s+"," ",str(raw.get(k) or "")).strip()[:120] for k in ("brand","topic","platform","audience")}
+    if target["platform"] not in FACTORY_CYCLE_TARGET_PLATFORMS:
+        raise ValueError("Unknown target platform: "+target["platform"])
+    if target["brand"]:
+        known={b["brand"] for b in STRATEGY.brands()}
+        if target["brand"] not in known:raise ValueError("Unknown brand: "+target["brand"])
+    return target
+
+def _signal_ids_for_topic(signal_ids,topic):
+    """Keep only signals whose topic or title mentions the target topic. Returns (ids, matched)."""
+    topic=(topic or "").strip().lower()
+    if not topic or not signal_ids:return signal_ids,None
+    placeholders=",".join("?" for _ in signal_ids)
+    con=db();rows=con.execute(f"SELECT id,title,topic FROM source_signals WHERE id IN ({placeholders})",signal_ids).fetchall();con.close()
+    keep={x["id"] for x in rows if topic in (x["topic"] or "").lower() or topic in (x["title"] or "").lower()}
+    picked=[x for x in signal_ids if x in keep]
+    return (picked,True) if picked else (signal_ids,False)
+
 def create_factory_cycle(payload,source="owner"):
+    target=_cycle_target(payload.target)
     signal_ids=list(dict.fromkeys(str(x).strip() for x in (payload.signal_ids or []) if str(x).strip()))
+    topic_matched=None
     if not signal_ids and not payload.idea_id:
-        signal_ids=_new_signal_ids()
+        signal_ids,topic_matched=_signal_ids_for_topic(_new_signal_ids(),target["topic"])
     con=db()
     if signal_ids:
         placeholders=",".join("?" for _ in signal_ids)
@@ -9445,7 +9480,8 @@ def create_factory_cycle(payload,source="owner"):
         con.close();raise ValueError("Parent cycle not found")
     cycle_id=str(uuid.uuid4());now=ts();active=_active_workflow_version()
     meta={"created_by":source,"language":(payload.language or "English").strip(),"approval_gate":"required",
-          "publisher_execution":"explicit","paid_generation":"confirmation_required"}
+          "publisher_execution":"explicit","paid_generation":"confirmation_required","target":target}
+    if topic_matched is not None:meta["target_topic_matched"]=topic_matched
     con.execute("""INSERT INTO factory_cycles(
         id,parent_cycle_id,status,phase,source_signal_ids_json,idea_id,job_id,publish_id,workflow_version_id,
         created_at,updated_at,started_at,completed_at,last_error,learning_json,meta_json
@@ -9455,8 +9491,77 @@ def create_factory_cycle(payload,source="owner"):
     ))
     con.commit();con.close()
     cycle_event(cycle_id,"signals",f"Factory cycle created with {len(signal_ids)} signal(s)"+(" and a preselected idea" if idea_id else ""),
-                {"workflow_version_id":active["id"],"source":source})
+                {"workflow_version_id":active["id"],"source":source,"target":target})
+    if topic_matched is False:
+        cycle_event(cycle_id,"signals",f"No new signal mentions the target topic '{target['topic']}'; all new signals were attached")
     return get_factory_cycle(cycle_id,True)
+
+def set_factory_cycle_target(cycle_id,raw):
+    cycle=get_factory_cycle(cycle_id)
+    if not cycle:raise LookupError("Factory cycle not found")
+    if cycle["status"] not in CYCLE_TARGET_EDITABLE or cycle.get("job_id") or cycle_id in active_factory_cycles:
+        raise PermissionError("The target can change only before production starts (ready, stopped or failed, no job yet)")
+    target=_cycle_target(raw)
+    meta=dict(cycle.get("meta") or {});meta["target"]=target;meta.pop("target_topic_matched",None)
+    _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+    cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle target changed by the owner",{"target":target})
+    return get_factory_cycle(cycle_id,True)
+
+# T-645: stop/resume. A stop is a flag the coordinator reads between handoffs; it never cancels a provider call
+# mid-flight and never touches the approval gate. Resume returns the cycle to `ready` and re-syncs from its job.
+CYCLE_STOPPABLE=("ready","running","failed")
+
+class _CycleStopped(Exception):
+    pass
+
+def _cycle_stop_requested(cycle_id):
+    cycle=get_factory_cycle(cycle_id)
+    return bool(cycle and (cycle.get("meta") or {}).get("stop_requested"))
+
+def _cycle_checkpoint(cycle_id,step):
+    if _cycle_stop_requested(cycle_id):raise _CycleStopped(step)
+
+def stop_factory_cycle(cycle_id):
+    cycle=get_factory_cycle(cycle_id)
+    if not cycle:raise LookupError("Factory cycle not found")
+    if cycle["status"]=="stopped":return {"cycle":get_factory_cycle(cycle_id,True),"pending":False}
+    if cycle["status"] not in CYCLE_STOPPABLE:
+        raise PermissionError("Only a ready, running or failed cycle can be stopped. Later steps already wait for you.")
+    meta=dict(cycle.get("meta") or {});meta["stop_requested"]=True
+    pending=cycle_id in active_factory_cycles
+    if pending:
+        _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+        cycle_event(cycle_id,cycle.get("phase") or "signals","Stop requested; Autopilot stops at the next handoff")
+    else:
+        _cycle_update(cycle_id,status="stopped",meta_json=json.dumps(meta,ensure_ascii=False))
+        cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle stopped by the owner")
+    return {"cycle":get_factory_cycle(cycle_id,True),"pending":pending}
+
+def resume_factory_cycle(cycle_id):
+    cycle=get_factory_cycle(cycle_id)
+    if not cycle:raise LookupError("Factory cycle not found")
+    if cycle["status"]!="stopped":raise PermissionError("Only a stopped cycle can be resumed")
+    meta=dict(cycle.get("meta") or {});meta.pop("stop_requested",None)
+    _cycle_update(cycle_id,status="ready",meta_json=json.dumps(meta,ensure_ascii=False),last_error="")
+    cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle resumed by the owner")
+    return sync_factory_cycle(cycle_id,True)
+
+def _apply_cycle_target_to_job(cycle_id,job_id,created):
+    """Write the cycle target into a freshly created production job and link the brand (Master Brief)."""
+    target=((get_factory_cycle(cycle_id) or {}).get("meta") or {}).get("target") or {}
+    if not created or not any(target.values()):return
+    lines=[f"{label}: {target[key]}" for key,label in (("brand","BRAND"),("topic","TOPIC"),("platform","TARGET PLATFORM"),("audience","TARGET AUDIENCE")) if target.get(key)]
+    con=db();row=con.execute("SELECT brief FROM jobs WHERE id=?",(job_id,)).fetchone()
+    if row:
+        con.execute("UPDATE jobs SET brief=?,updated_at=? WHERE id=?",
+                    ((row["brief"] or "")+"\nCYCLE TARGET (owner): "+"; ".join(lines),ts(),job_id));con.commit()
+    con.close()
+    if target.get("brand"):
+        try:
+            STRATEGY.link_job(target["brand"],job_id)
+            cycle_event(cycle_id,"production",f"Production job linked to brand {target['brand']}; agents get its Master Brief")
+        except Exception as exc:
+            cycle_event(cycle_id,"production",f"Brand link skipped: {str(getattr(exc,'detail',exc))[:200]}")
 
 def _cycle_update(cycle_id,**fields):
     allowed={"status","phase","idea_id","job_id","publish_id","workflow_version_id","started_at","completed_at","last_error","learning_json","meta_json","source_signal_ids_json"}
@@ -9551,16 +9656,19 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
             return
         _cycle_update(cycle_id,status="running",started_at=cycle.get("started_at") or ts(),last_error="")
         cycle_event(cycle_id,cycle.get("phase") or "signals","Autopilot run started",{"language":language})
+        _cycle_checkpoint(cycle_id,"signals")
 
         signal_ids=cycle.get("source_signal_ids") or []
         if not signal_ids and not cycle.get("idea_id"):
             collected=await asyncio.to_thread(collect_configured_signals,FACTORY_CYCLE_MAX_SIGNALS) if FACTORY_SIGNAL_FEEDS else {"created":[]}
             signal_ids=[x["id"] for x in collected.get("created") or []] or _new_signal_ids()
+            signal_ids,_=_signal_ids_for_topic(signal_ids,((cycle.get("meta") or {}).get("target") or {}).get("topic"))
             if not signal_ids:raise RuntimeError("No source signals are available. Add a signal or configure RSS feeds.")
             _cycle_update(cycle_id,source_signal_ids_json=json.dumps(signal_ids),phase="ideas")
             cycle_event(cycle_id,"signals",f"Attached {len(signal_ids)} available signal(s)")
 
         idea_id=cycle.get("idea_id")
+        _cycle_checkpoint(cycle_id,"ideas")
         if not idea_id:
             _cycle_update(cycle_id,phase="ideas")
             generated=await generate_ideas_from_signals(IdeaGenerateRequest(signal_ids=signal_ids,max_ideas=max_ideas,language=language))
@@ -9584,7 +9692,9 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
                 if not chosen:raise RuntimeError("Preselected idea did not pass verification")
                 con=db();con.execute("UPDATE content_ideas SET status='selected',updated_at=? WHERE id=?",(ts(),idea_id));con.commit();con.close()
 
+        _cycle_checkpoint(cycle_id,"production")
         bridge=create_job_from_idea(idea_id,language)
+        _apply_cycle_target_to_job(cycle_id,bridge["job"]["id"],bridge.get("created"))
         job=bridge["job"];workflow=_workflow_context(job["id"],lock=True)["version"]
         _cycle_update(cycle_id,job_id=job["id"],workflow_version_id=workflow["id"],phase="production")
         cycle_event(cycle_id,"production","Content Brain → production handoff completed",
@@ -9594,10 +9704,20 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
         job=get_job(job["id"])
         if not job or job.get("status")!="waiting_approval":
             raise RuntimeError("Production did not reach the human approval gate")
+        if _cycle_stop_requested(cycle_id):
+            _cycle_update(cycle_id,status="stopped",phase="approval",last_error="")
+            cycle_event(cycle_id,"approval","Stopped as requested after production; the package waits at the approval gate, nothing was published",
+                        {"job_id":job["id"]})
+            await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
+            return
         _cycle_update(cycle_id,status="waiting_approval",phase="approval",last_error="")
         cycle_event(cycle_id,"approval","Production package is ready; Autopilot stopped at the human approval gate",
                     {"job_id":job["id"]})
         await broadcast({"type":"factory_cycle","action":"waiting_approval","cycleId":cycle_id,"jobId":job["id"]})
+    except _CycleStopped as stop:
+        _cycle_update(cycle_id,status="stopped",last_error="")
+        cycle_event(cycle_id,str(stop) or "signals","Autopilot stopped by the owner before this step; nothing was skipped or published")
+        await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
     except Exception as exc:
         _cycle_update(cycle_id,status="failed",last_error=str(exc)[:1200])
         cycle_event(cycle_id,"error",f"Autopilot failed: {str(exc)[:500]}")
@@ -9684,6 +9804,9 @@ def sync_factory_cycle(cycle_id,derive_learning_if_possible=True):
         if row:
             publish=_publish_item(row);_cycle_update(cycle_id,publish_id=publish["id"])
     status=cycle.get("status");phase=cycle.get("phase")
+    if status=="stopped":
+        _cycle_update(cycle_id,publish_id=(publish or {}).get("id") or cycle.get("publish_id"))
+        return get_factory_cycle(cycle_id,True)
     if job:
         if job.get("status")=="waiting_approval":status,phase="waiting_approval","approval"
         elif job.get("status")=="approved":status,phase="approved","publishing"
@@ -9913,7 +10036,7 @@ async def factory_cycle_reconcile_loop():
     while True:
         try:
             con=db();rows=con.execute("""SELECT id FROM factory_cycles
-                                        WHERE status NOT IN ('failed','rejected','learning_ready','completed')
+                                        WHERE status NOT IN ('failed','rejected','learning_ready','completed','stopped')
                                         ORDER BY updated_at DESC LIMIT 100""").fetchall();con.close()
             for row in rows:sync_factory_cycle(row["id"],True)
         except Exception as exc:
@@ -10153,9 +10276,27 @@ def record_performance_snapshot(payload):
     sync_cycle_for_publish(pub["id"])
     return {"id":snapshot_id,"publish_id":pub["id"],"metrics":metrics,"captured_at":captured,"meta":snapshot_meta}
 
+def factory_cycle_readiness():
+    """T-645: what a beginner needs before the first cycle — real counts only, nothing estimated."""
+    con=db()
+    new_signals=con.execute("SELECT COUNT(*) n FROM source_signals WHERE status='new'").fetchone()["n"]
+    # Ideas a cycle can start from: not rejected and not yet in production (live mode verifies them first).
+    ideas=[dict(x) for x in con.execute("""SELECT id,title,score,status,verified_at FROM content_ideas
+                                          WHERE status IN ('selected','shortlisted','generated')
+                                          ORDER BY CASE status WHEN 'selected' THEN 0 WHEN 'shortlisted' THEN 1 ELSE 2 END,
+                                                   updated_at DESC LIMIT 20""").fetchall()]
+    con.close()
+    try:brands=[{"brand":b["brand"],"name":b.get("name") or b["brand"]} for b in STRATEGY.brands()]
+    except Exception:brands=[]
+    return {"new_signals":int(new_signals),"feeds_configured":bool(FACTORY_SIGNAL_FEEDS),
+            "paid_calls_possible":bool(FACTORY_LLM_API_KEY),"ideas":ideas,"brands":brands,
+            "platforms":[x for x in FACTORY_CYCLE_TARGET_PLATFORMS if x]}
+
 @app.get("/api/factory-cycles")
 def factory_cycles(limit:int=80):
-    return get_factory_cycles(limit)
+    data=get_factory_cycles(limit)
+    data["readiness"]=factory_cycle_readiness()
+    return data
 
 @app.get("/api/factory-cycles/{cycle_id}")
 def factory_cycle_detail(cycle_id:str):
@@ -10180,12 +10321,16 @@ def factory_cycle_quote(cycle_id:str,max_ideas:int=3):
 async def run_factory_cycle_api(cycle_id:str,payload:FactoryCycleRunRequest):
     cycle=get_factory_cycle(cycle_id,True)
     if not cycle:raise HTTPException(404,"Factory cycle not found")
+    if cycle["status"]=="stopped":raise HTTPException(409,"This cycle is stopped. Resume it first.")
     if cycle_id in active_factory_cycles:return {"ok":True,"message":"Factory cycle is already running"}
     try:quote=estimate_factory_cycle_cost(cycle_id,payload.max_ideas)
     except ValueError as exc:raise HTTPException(400,str(exc))
     if quote["paid_calls_possible"] and not payload.confirm_cost:
         return {"ok":False,"requiresCostConfirmation":True,"quote":quote,
                 "message":"Confirm the conservative paid-work ceiling before Autopilot starts. Daily/job budgets remain hard limits."}
+    meta=dict(cycle.get("meta") or {})
+    if meta.pop("stop_requested",None):   # a stop flag left by a run that already ended is stale
+        _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
     asyncio.create_task(_run_factory_cycle_to_review(cycle_id,payload.max_ideas,payload.language))
     return {"ok":True,"started":True,"quote":quote,
             "message":"Autopilot started and will stop at the human approval gate."}
@@ -10204,11 +10349,38 @@ async def learn_factory_cycle(cycle_id:str):
     await broadcast({"type":"factory_cycle","action":"learning","cycleId":cycle_id})
     return result
 
+@app.post("/api/factory-cycles/{cycle_id}/target")
+async def factory_cycle_target_api(cycle_id:str,payload:FactoryCycleTarget):
+    try:cycle=set_factory_cycle_target(cycle_id,payload.model_dump())
+    except LookupError as exc:raise HTTPException(404,str(exc))
+    except PermissionError as exc:raise HTTPException(409,str(exc))
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    await broadcast({"type":"factory_cycle","action":"target","cycleId":cycle_id})
+    return {"ok":True,"cycle":cycle}
+
+@app.post("/api/factory-cycles/{cycle_id}/stop")
+async def factory_cycle_stop_api(cycle_id:str):
+    try:result=stop_factory_cycle(cycle_id)
+    except LookupError as exc:raise HTTPException(404,str(exc))
+    except PermissionError as exc:raise HTTPException(409,str(exc))
+    await broadcast({"type":"factory_cycle","action":"stop","cycleId":cycle_id})
+    return {"ok":True,**result}
+
+@app.post("/api/factory-cycles/{cycle_id}/resume")
+async def factory_cycle_resume_api(cycle_id:str):
+    try:cycle=resume_factory_cycle(cycle_id)
+    except LookupError as exc:raise HTTPException(404,str(exc))
+    except PermissionError as exc:raise HTTPException(409,str(exc))
+    await broadcast({"type":"factory_cycle","action":"resume","cycleId":cycle_id})
+    return {"ok":True,"cycle":cycle}
+
 @app.post("/api/factory-cycles/{cycle_id}/next")
 async def next_factory_cycle(cycle_id:str):
     parent=get_factory_cycle(cycle_id,True)
     if not parent:raise HTTPException(404,"Factory cycle not found")
-    child=create_factory_cycle(FactoryCycleCreate(language=(parent.get("meta") or {}).get("language","English"),parent_cycle_id=cycle_id))
+    try:child=create_factory_cycle(FactoryCycleCreate(language=(parent.get("meta") or {}).get("language","English"),parent_cycle_id=cycle_id,
+                                                      target=(parent.get("meta") or {}).get("target")))
+    except ValueError as exc:raise HTTPException(400,str(exc))
     cycle_event(child["id"],"signals","Next cycle created using the currently active, owner-approved workflow",
                 {"parent_cycle_id":cycle_id,"workflow_version_id":child.get("workflow_version_id")})
     await broadcast({"type":"factory_cycle","action":"next","cycleId":child["id"],"parentCycleId":cycle_id})
