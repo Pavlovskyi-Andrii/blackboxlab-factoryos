@@ -113,18 +113,22 @@ def _origin(url: str, *, allow_loopback_fixture: bool) -> str:
     host = host.lower().rstrip(".")
     if not host or host in {"localhost", "localhost.localdomain"} or host.endswith(".localhost"):
         raise PolicyError("localhost_disallowed_use_explicit_loopback_fixture")
+    # T-670: PolicyError is a ValueError, so the IP checks sit outside the try; before, "local_network_disallowed" was
+    # swallowed by `except ValueError` and a private IP literal passed this check (the egress proxy still refused it).
     try:
         ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+        # Hostnames are allowed only if trusted application configuration
+        # explicitly lists their precise origin.
+        if not re.fullmatch(r"[a-z0-9.-]+", host) or ".." in host:
+            raise PolicyError("invalid_browser_host")
+    if ip is not None:
         if ip.is_loopback:
             if not allow_loopback_fixture:
                 raise PolicyError("local_network_disallowed")
         elif not ip.is_global:
             raise PolicyError("local_network_disallowed")
-    except ValueError:
-        # Hostnames are allowed only if trusted application configuration
-        # explicitly lists their precise origin.
-        if not re.fullmatch(r"[a-z0-9.-]+", host) or ".." in host:
-            raise PolicyError("invalid_browser_host")
     suffix = f":{port}" if port is not None and port != (443 if p.scheme == "https" else 80) else ""
     return f"{p.scheme}://{host}{suffix}"
 

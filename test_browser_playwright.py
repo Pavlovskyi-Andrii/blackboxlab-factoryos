@@ -483,6 +483,21 @@ class FixtureHandler(BaseHTTPRequestHandler):
         pass
 
 
+class OriginGuardTest(unittest.TestCase):
+    """T-672: PolicyError is a ValueError; the IP checks must not be swallowed by the hostname fallback."""
+
+    def test_private_and_loopback_ip_literals_are_refused(self):
+        from browser_runner.core import PolicyError
+        from browser_runner.playwright_executor import _origin
+        for url in ("https://10.0.0.5/admin", "https://169.254.169.254/latest", "https://192.168.1.1/",
+                    "https://127.0.0.1/", "https://[::1]/", "https://[fd00::1]/"):
+            with self.assertRaises(PolicyError, msg=url) as err:
+                _origin(url, allow_loopback_fixture=False)
+            self.assertEqual(str(err.exception), "local_network_disallowed", url)
+        self.assertEqual(_origin("http://127.0.0.1:8080/x", allow_loopback_fixture=True), "http://127.0.0.1:8080")
+        self.assertEqual(_origin("https://93.184.216.34/", allow_loopback_fixture=False), "https://93.184.216.34")
+
+
 @unittest.skipUnless(os.environ.get("RUN_BROWSER_FIXTURE") == "1", "opt-in local Chromium fixture only")
 class OptionalRealChromiumFixture(unittest.TestCase):
     def test_actual_chromium_page_without_any_external_requests(self):

@@ -331,6 +331,12 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Need: owner generates a key (`python -c "from browser_runner.vault import generate_key; print(generate_key())"`) and stores it only in the Render secret environment (and the browser runner host), never in Git or chat.
   DONE: owner-only `GET /api/factory/vault/status` reports `configured: true`.
 
+- [x] T-672 Browser executor: private IP literals refused by the origin check; worker reloads on browser_runner changes
+  Owner: claude (session Surfer)
+  Depends: T-560-C
+  Goal: `_origin()` swallowed its own `local_network_disallowed` (PolicyError is a ValueError), so `https://10.0.0.5/` passed the executor's origin check and only the egress proxy refused it; and the EC2 worker restarted for new `autopilot/*.py` only, so a `browser_runner/` fix sat on disk unloaded.
+  DONE: `python test_browser_reading.py` (private/loopback/link-local IP literals refused, loopback fixture still allowed) and `python -m autopilot.test_autopilot` (a `browser_runner/*.py` change returns `code_updated`, a docs change does not) green.
+
 
 ## v5.1 — Viral Discovery Loop
 

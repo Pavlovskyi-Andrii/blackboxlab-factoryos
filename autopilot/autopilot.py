@@ -237,6 +237,9 @@ def append_answer(task: str, answer: str) -> None:
         handle.write(f"\n## {task or 'blocked-task'}\n{answer.strip()}\n")
 
 
+RUNNER_CODE_DIRS = ("autopilot/", "browser_runner/")
+
+
 def sync_branch(branch: str) -> str:
     """Pull the worker branch, then bring in main. Returns "", "code_updated", "conflict" or "offline".
 
@@ -271,7 +274,8 @@ def sync_branch(branch: str) -> str:
     if not before or after == before:
         return ""
     changed = run(["git", "diff", "--name-only", before, after], check=False, capture=True).stdout.split()
-    return "code_updated" if any(name.startswith("autopilot/") and name.endswith(".py") for name in changed) else ""
+    # T-670: the browser worker imports browser_runner/ once per process, so its changes need the same restart.
+    return "code_updated" if any(name.startswith(RUNNER_CODE_DIRS) and name.endswith(".py") for name in changed) else ""
 
 
 def push_branch(branch: str) -> bool:
