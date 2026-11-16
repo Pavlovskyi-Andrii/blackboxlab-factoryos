@@ -9475,7 +9475,8 @@ def cycle_message_info(message):
     for pattern,code in CYCLE_MESSAGE_CODES:
         m=re.match(pattern,text)
         if m:return code,{k:v for k,v in m.groupdict().items() if v is not None}
-    return "unknown",{"text":text[:500]}
+    if len(text)>500:return "unknown",{"text":text[:500]+"…","truncated":True}
+    return "unknown",{"text":text}
 
 def cycle_http_error(status,exc):
     code,params=cycle_message_info(str(exc))
@@ -9833,7 +9834,8 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
             # The owner asked to stop while this step was running: honour the stop, keep the error visible.
             _cycle_record_error(cycle_id,"stopped",exc)
             cycle_event(cycle_id,"error",f"Step failed after a stop was requested; the cycle stays stopped: {str(exc)[:500]}",
-                        {"code":"stopped_then_failed","params":{"error_code":cycle_message_info(str(exc))[0]}})
+                        {"code":"stopped_then_failed","params":{},"cause":{"code":cycle_message_info(str(exc))[0],
+                         "params":cycle_message_info(str(exc))[1],"text":str(exc)[:1200]}})
             await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
             return
         code,params=_cycle_record_error(cycle_id,"failed",exc)

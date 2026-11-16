@@ -3865,7 +3865,7 @@ function cycleCard(c){
  if(c.performance)results.push(cycleBtn(cycleMetricText(c),tr('cycle.tip.performance'),'openPerformanceStudio()'));
  const editable=['ready','stopped','failed'].includes(c.status)&&!c.job_id;
  const edit=editable?'<details class="cycEdit" data-keep="edit-'+id+'"><summary>'+esc(tr('cycle.target.edit'))+'</summary>'+cycleTargetFields('cycT'+id.slice(0,8),(c.meta||{}).target,cycleReadiness)+'<div class="cycActions">'+cycleBtn(tr('cycle.target.save'),tr('cycle.target.hint'),"saveCycleTarget('"+id+"')",'primary')+'</div></details>':(c.job_id?'<p class="cycHint">'+esc(tr('cycle.target.locked'))+'</p>':'');
- const events=(c.events||[]).slice(0,8).map(e=>safeDate(e.ts).slice(11,19)+' · '+cyclePhaseLabel(e.phase)+' · '+((e.meta||{}).code?cycleMsg(e.meta.code,e.meta.params,e.message):textValue(e.message))).join('\n')||'—';
+ const events=(c.events||[]).slice(0,8).map(e=>safeDate(e.ts).slice(11,19)+' · '+cyclePhaseLabel(e.phase)+' · '+((e.meta||{}).code?cycleMsg(e.meta.code,e.meta.params,e.message)+(e.meta.cause?' — '+cycleMsg(e.meta.cause.code,e.meta.cause.params,e.meta.cause.text):''):textValue(e.message))).join('\n')||'—';
  return '<article class="cycCard"><div class="cycCardTop"><h3>'+esc(idea.title||job.title||(tr('cycle.title').split(' / ').pop()+' '+textValue(id).slice(0,8)))+'</h3><span class="flowPill '+cycleStatusClass(c.status)+'">'+esc(cycleStateLabel(c.status))+'</span></div>'
   +cycleTargetChips(c)+cycleStepper(c)+now
   +'<div class="cycActions">'+actions+'</div>'

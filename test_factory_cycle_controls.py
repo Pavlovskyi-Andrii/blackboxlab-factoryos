@@ -202,6 +202,9 @@ class CycleControls(unittest.TestCase):
         after = app.get_factory_cycle(c["id"], True)
         self.assertEqual(after["status"], "stopped")
         self.assertIn("provider exploded", after["last_error"])
+        ev = next(e for e in after["events"] if (e["meta"] or {}).get("code") == "stopped_then_failed")
+        self.assertEqual(ev["meta"]["cause"]["code"], "unknown")
+        self.assertEqual(ev["meta"]["cause"]["text"], "provider exploded")
         self.assertEqual(app.sync_factory_cycle(c["id"])["status"], "stopped", "stays stopped until resumed")
 
     # T-647: server messages carry a code so the dashboard can show them in EN/UK/RU.
@@ -239,6 +242,10 @@ class CycleControls(unittest.TestCase):
                                                "(TOPIC: alpha). Start the cycle from another idea, or set the same target.")
         self.assertEqual((code, params), ("job_other_target", {"job": "abcd1234", "have": "TOPIC: alpha"}))
         self.assertEqual(app.cycle_message_info("boom"), ("unknown", {"text": "boom"}))
+        code, params = app.cycle_message_info("x" * 900)
+        self.assertEqual(code, "unknown")
+        self.assertTrue(params["truncated"])
+        self.assertTrue(params["text"].endswith("…"))
 
     def test_failure_stores_code_and_http_errors_carry_it(self):
         signal("Error codes fixture signal", "codes")
@@ -257,6 +264,22 @@ class CycleControls(unittest.TestCase):
         app.resume_factory_cycle(c["id"])
         out = run(app.run_factory_cycle_api(c["id"], app.FactoryCycleRunRequest()))
         self.assertEqual(out["message_code"], "started")
+
+    def test_stop_then_parameterized_failure_keeps_cause_params(self):
+        c = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=idea("Stop then param fail")["id"]))
+        original = app.run_until_review
+
+        async def stop_then_fail(job_id):
+            app.stop_factory_cycle(c["id"])
+            raise RuntimeError("Unknown target platform: fax")
+        app.run_until_review = stop_then_fail
+        try:
+            run(app._run_factory_cycle_to_review(c["id"], 1, "English"))
+        finally:
+            app.run_until_review = original
+        ev = next(e for e in app.get_factory_cycle(c["id"], True)["events"] if (e["meta"] or {}).get("code") == "stopped_then_failed")
+        self.assertEqual(ev["meta"]["cause"]["code"], "bad_platform")
+        self.assertEqual(ev["meta"]["cause"]["params"], {"value": "fax"})
 
     def test_next_cycle_inherits_target(self):
         parent = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=idea()["id"], target={"topic": "kept", "audience": "parents"}))
