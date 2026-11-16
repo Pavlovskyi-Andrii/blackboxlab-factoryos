@@ -1684,7 +1684,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - GitHub Releases need an API this session's GitHub tools do not offer, so `.github/workflows/release.yml` does it
   with the workflow's own token (`contents: write`), only on pushes to main that touch `app.py` or `README.md`
   (seconds of runner time). It skips existing releases; `workflow_dispatch` backfills a release for an existing tag.
-- Past versions are tagged by the same workflow (`workflow_dispatch` with `tag` + full `target` SHA on main), because
-  this session's git proxy refuses tag pushes: v5.6 → `04f87ca`, v5.7 → `f1e5daf`, v5.7.1 → `f4fee78`, and the
+- Past versions are tagged by the same workflow, because this session's git proxy refuses tag pushes and the GitHub
+  integration may not dispatch workflows (403 `Resource not accessible by integration`): they are listed in
+  `.github/release-backfill.txt` and released on their own commits by the next push run (`--latest=false`, so the
+  current version stays Latest): v5.6 → `04f87ca`, v5.7 → `f1e5daf`, v5.7.1 → `f4fee78`, and the
   retroactive weeks on the last merge of each week, v5.8.0 → `b6b4523`, v5.9.0 → `3c8c9ea`.
+- Evidence 2026-11-16: #396 merged as `e3b62f8`; Release run 43850500408 succeeded and published
+  https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/releases/tag/v5.10.0 (the first tag and release ever).
 

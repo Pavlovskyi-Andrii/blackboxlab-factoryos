@@ -70,7 +70,24 @@ def test_smoke_and_release_workflow_follow_app_version():
     require("\nconcurrency:" not in wf, "a concurrency group can drop a pending release run")
 
 
-TESTS = [test_version_is_semver, test_readme_changelog_leads_with_app_version, test_dashboard_shows_app_version,
+def test_backfill_list_matches_changelog():
+    """Every version in .github/release-backfill.txt has a changelog entry and a full SHA (the workflow releases it)."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8").split("## Product changelog", 1)[1]
+    versions = set(HEADING.findall(readme))
+    path = ROOT / ".github" / "release-backfill.txt"
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        tag, sha = line.split()
+        require(tag in versions, f"backfill {tag} has no README changelog entry")
+        require(re.fullmatch(r"[0-9a-f]{40}", sha), f"backfill {tag} needs a full commit SHA")
+        require(tag != app_version(), "the current version is released by the push run, not the backfill list")
+    wf = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    require(".github/release-backfill.txt" in wf and "--latest=false" in wf, "release workflow lost the backfill step")
+
+
+TESTS = [test_backfill_list_matches_changelog, test_version_is_semver, test_readme_changelog_leads_with_app_version, test_dashboard_shows_app_version,
          test_smoke_and_release_workflow_follow_app_version]
 
 if __name__ == "__main__":
