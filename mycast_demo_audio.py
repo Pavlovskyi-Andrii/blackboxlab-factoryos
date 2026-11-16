@@ -42,9 +42,9 @@ PAUSE_SECONDS = 21.0          # between two voicings: stays under the free tier'
 MAX_SCRIPT_CHARS = 2600       # one TTS chunk (mycast.CHUNK_CHARS is 2800): one request per city
 MAX_LINES = 40
 QUOTA_MESSAGE = {
-    "ru": "Квота Google (бесплатный уровень) исчерпана: Google ответил 429. Генерация остановлена, ничего не оплачено. Повторите завтра.",
-    "uk": "Квоту Google (безкоштовний рівень) вичерпано: Google відповів 429. Генерацію зупинено, нічого не сплачено. Повторіть завтра.",
-    "en": "The Google free-tier quota is used up: Google answered 429. Generation stopped, nothing was paid. Try again tomorrow.",
+    "ru": "Квота Google исчерпана: Google ответил 429. Генерация остановлена, новых запросов не отправлено. Повторите завтра.",
+    "uk": "Квоту Google вичерпано: Google відповів 429. Генерацію зупинено, нових запитів не надіслано. Повторіть завтра.",
+    "en": "The Google quota is used up: Google answered 429. Generation stopped and no further requests were sent. Try again tomorrow.",
 }
 
 
@@ -67,7 +67,9 @@ def load_script(city: str, lang: str, scripts_dir: Path = SCRIPTS_DIR) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise DemoAudioRefused("no_script", 404) from None
-    lines = data.get("lines") if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        raise DemoAudioRefused("bad_script", 422)
+    lines = data.get("lines")
     if data.get("id") != city or data.get("language") != lang or not isinstance(lines, list) or not 2 <= len(lines) <= MAX_LINES:
         raise DemoAudioRefused("bad_script", 422)
     out = []
@@ -313,8 +315,9 @@ class DemoAudioStore:
 # ---- owner console ------------------------------------------------------------------------------------------------
 CONSOLE_COPY = {
     "title": "MyCast · демо-аудио городов",
-    "intro": "Сценарии лежат в репозитории (static/mycast-share/scripts). Генерация — через Gemini TTS сервера, только "
-             "в бесплатной квоте Google. Сгенерированное не публикуется: публично играет только то, что вы прослушали "
+    "intro": "Сценарии лежат в репозитории (static/mycast-share/scripts). Генерация — через Gemini TTS сервера. "
+             "Бесплатность гарантирует только проект ключа без оплаты (Free tier в Google AI Studio): код лишь "
+             "ограничивает число запросов и останавливается на 429. Сгенерированное не публикуется: публично играет только то, что вы прослушали "
              "и одобрили.",
 }
 

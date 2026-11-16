@@ -1468,6 +1468,9 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Owner console: `/factory/mycast-demos` on the FactoryOS host (owner role, Russian UI, as the owner desk), JSON API under
   `/api/factory/mycast/demo-audio` (owner role; POSTs require `application/json`, so no cross-site form can trigger a
   generation). Owner task T-645-H now reads: generate → listen → approve.
+- Free-only is guaranteed by the key's Google project, not by this code (Codex review on #403): on a billing-enabled
+  project calls are charged before any 429. The code only caps requests and stops on 429; the runbook makes the owner
+  confirm Billing Tier "Free tier" before the first generation, and the 429 message no longer claims "nothing was paid".
 
 ## 2026-11-16 — T-645 MyCast share card (owner voice request): coverflow, demo cities, public DNA
 

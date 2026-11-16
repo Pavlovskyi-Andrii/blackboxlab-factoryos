@@ -97,6 +97,10 @@ class ScriptsTest(unittest.TestCase):
                     mda.load_script(name, "uk", d)
             with self.assertRaises(mda.DemoAudioRefused):
                 mda.load_script("athens", "de", d)
+            for raw in ("[]", "null", '"text"', "7", "{bad"):                  # non-object or broken JSON
+                (d / "x.uk.json").write_text(raw)
+                with self.assertRaises(mda.DemoAudioRefused, msg=raw):
+                    mda.load_script("x", "uk", d)
             (d / "x.uk.json").write_text(json.dumps({"id": "x", "language": "uk", "lines": [{"host": "C", "text": "a"}] * 2}))
             with self.assertRaisesRegex(mda.DemoAudioRefused, "bad_script"):
                 mda.load_script("x", "uk", d)
