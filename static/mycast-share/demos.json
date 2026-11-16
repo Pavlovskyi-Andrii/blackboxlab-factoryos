@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "T-645: demo cards on the shared-episode page (/mycast/e/<token>). A card plays only when `audio` points to a file in static/mycast-share/audio/ and `approved_by_owner` is true (T-645-H). Pictures are generative SVG drawn by mycast_share_page.py (motif + palette); no external images.",
+  "note": "T-645: demo cards on the shared-episode page (/mycast/e/<token>). A card plays only when `audio` points to a file in static/mycast-share/audio/ and `approved_by_owner` is true (T-645-H). T-665: a card also plays an owner-approved track the owner generated with Gemini in /factory/mycast-demos (kept under DATA_DIR, served from /mycast/demo/). Pictures are generative SVG drawn by mycast_share_page.py (motif + palette); no external images.",
   "demos": [
     {"id": "athens", "motif": "temple", "palette": ["#ffb37a", "#8b7bff"],
      "name": {"uk": "Афіни", "ru": "Афины", "en": "Athens"},
