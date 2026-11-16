@@ -213,6 +213,7 @@ def search_gemini(query: str, limit: int, *, api_key: str, model: str, opener=No
 
 
 GEMINI_FALLBACK_MODELS = ("gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash")
+GEMINI_MAX_ATTEMPTS = 3        # Gemini calls per search, whatever model the key resolves to
 _GOOGLE_STATUS_RE = re.compile(r"^[A-Z_]{1,40}$")
 
 
@@ -263,7 +264,7 @@ class WebSearch:
                 notes.append(f"daily Gemini search cap ({self.cap.cap}) reached; Wikipedia used instead")
             else:
                 key = self.gemini_key()
-                models = list(dict.fromkeys([self.gemini_model(key), *GEMINI_FALLBACK_MODELS]))
+                models = list(dict.fromkeys([self.gemini_model(key), *GEMINI_FALLBACK_MODELS]))[:GEMINI_MAX_ATTEMPTS]
                 errors = []
                 for model in models:          # a model without Search grounding answers 400/404: try the next Flash
                     try:

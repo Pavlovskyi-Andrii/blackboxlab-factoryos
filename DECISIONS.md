@@ -1709,4 +1709,4 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 
 - Production after the daily reset: `gemini-2.5-flash` 404, `gemini-flash-latest` 429 RESOURCE_EXHAUSTED. Owner asked to try
   `gemini-flash-lite-latest`. It is added to the fallback list, and a 429 now moves to the next model (quotas are per
-  model); network errors and 5xx still stop. At most 3 Gemini calls per search, still one count against the 100/day cap.
+  model); network errors and 5xx still stop. At most 3 Gemini calls per search (`GEMINI_MAX_ATTEMPTS`: the resolved model first, then the fallbacks in order), still one count against the 100/day cap.
