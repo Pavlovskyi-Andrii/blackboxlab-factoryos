@@ -115,6 +115,51 @@ class CycleControls(unittest.TestCase):
             run(app.factory_cycle_target_api("missing", app.FactoryCycleTarget()))
         self.assertEqual(ctx.exception.status_code, 404)
 
+    def test_topic_change_reselects_auto_signals(self):
+        a = signal("Mars rover finds ice", "space")
+        b = signal("Sourdough starter guide", "baking")
+        c = app.create_factory_cycle(app.FactoryCycleCreate(target={"topic": "mars"}))
+        self.assertIn(a["id"], c["source_signal_ids"])
+        self.assertNotIn(b["id"], c["source_signal_ids"])
+        out = app.set_factory_cycle_target(c["id"], {"topic": "sourdough"})
+        self.assertIn(b["id"], out["source_signal_ids"], "signals picked by the cycle must follow the new topic")
+        self.assertNotIn(a["id"], out["source_signal_ids"])
+        self.assertTrue(out["meta"]["target_topic_matched"])
+        # signals chosen explicitly by the owner stay as chosen
+        manual = app.create_factory_cycle(app.FactoryCycleCreate(signal_ids=[a["id"]], target={"topic": "mars"}))
+        kept = app.set_factory_cycle_target(manual["id"], {"topic": "sourdough"})
+        self.assertEqual(kept["source_signal_ids"], [a["id"]])
+
+    def test_run_time_topic_fallback_is_explained(self):
+        con = app.db()
+        con.execute("UPDATE source_signals SET status='used'")
+        con.commit()
+        con.close()
+        c = app.create_factory_cycle(app.FactoryCycleCreate(target={"topic": "nothing-matches-this"}))
+        self.assertEqual(c["source_signal_ids"], [])
+        late = signal("Late arriving signal", "misc")
+        run(app._run_factory_cycle_to_review(c["id"], 1, "English"))   # demo: fails at idea generation, after attaching
+        after = app.get_factory_cycle(c["id"], True)
+        self.assertIn(late["id"], after["source_signal_ids"])
+        self.assertFalse(after["meta"]["target_topic_matched"])
+        self.assertTrue(any("nothing-matches-this" in e["message"] for e in after["events"]))
+
+    def test_brand_link_failure_is_surfaced(self):
+        c = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=idea("Brand link failure")["id"], target={"brand": "mycast"}))
+        original = app.STRATEGY.link_job
+
+        def refuse(brand, job_id):
+            raise HTTPException(409, "this job belongs to another brand's content plan")
+        app.STRATEGY.link_job = refuse
+        try:
+            run(app._run_factory_cycle_to_review(c["id"], 1, "English"))
+        finally:
+            app.STRATEGY.link_job = original
+        after = app.get_factory_cycle(c["id"], True)
+        self.assertEqual(after["status"], "waiting_approval")
+        self.assertIn("another brand", after["meta"]["brand_link_error"])
+        self.assertTrue(any(e["message"].startswith("WARNING: brand mycast was NOT linked") for e in after["events"]))
+
     def test_next_cycle_inherits_target(self):
         parent = app.create_factory_cycle(app.FactoryCycleCreate(idea_id=idea()["id"], target={"topic": "kept", "audience": "parents"}))
         child = run(app.next_factory_cycle(parent["id"]))["cycle"]

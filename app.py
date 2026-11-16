@@ -9482,6 +9482,7 @@ def create_factory_cycle(payload,source="owner"):
     meta={"created_by":source,"language":(payload.language or "English").strip(),"approval_gate":"required",
           "publisher_execution":"explicit","paid_generation":"confirmation_required","target":target}
     if topic_matched is not None:meta["target_topic_matched"]=topic_matched
+    if not payload.signal_ids and not idea_id:meta["signals_auto"]=True
     con.execute("""INSERT INTO factory_cycles(
         id,parent_cycle_id,status,phase,source_signal_ids_json,idea_id,job_id,publish_id,workflow_version_id,
         created_at,updated_at,started_at,completed_at,last_error,learning_json,meta_json
@@ -9502,9 +9503,21 @@ def set_factory_cycle_target(cycle_id,raw):
     if cycle["status"] not in CYCLE_TARGET_EDITABLE or cycle.get("job_id") or cycle_id in active_factory_cycles:
         raise PermissionError("The target can change only before production starts (ready, stopped or failed, no job yet)")
     target=_cycle_target(raw)
-    meta=dict(cycle.get("meta") or {});meta["target"]=target;meta.pop("target_topic_matched",None)
-    _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+    meta=dict(cycle.get("meta") or {});old_topic=(meta.get("target") or {}).get("topic","")
+    meta["target"]=target;meta.pop("target_topic_matched",None)
+    fields={}
+    # Signals the cycle picked by itself follow the new topic; signals or an idea chosen by the owner stay as chosen.
+    if meta.get("signals_auto") and not cycle.get("idea_id") and target["topic"]!=old_topic:
+        pool=list(dict.fromkeys((cycle.get("source_signal_ids") or [])+_new_signal_ids()))
+        ids,matched=_signal_ids_for_topic(pool,target["topic"])
+        if matched is not None:meta["target_topic_matched"]=matched
+        fields["source_signal_ids_json"]=json.dumps(ids)
+    _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False),**fields)
     cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle target changed by the owner",{"target":target})
+    if fields:
+        cycle_event(cycle_id,"signals",f"Signals re-selected for the new topic: {len(json.loads(fields['source_signal_ids_json']))}")
+    if meta.get("target_topic_matched") is False:
+        cycle_event(cycle_id,"signals",f"No signal mentions the target topic '{target['topic']}'; all available signals are kept")
     return get_factory_cycle(cycle_id,True)
 
 # T-645: stop/resume. A stop is a flag the coordinator reads between handoffs; it never cancels a provider call
@@ -9561,7 +9574,10 @@ def _apply_cycle_target_to_job(cycle_id,job_id,created):
             STRATEGY.link_job(target["brand"],job_id)
             cycle_event(cycle_id,"production",f"Production job linked to brand {target['brand']}; agents get its Master Brief")
         except Exception as exc:
-            cycle_event(cycle_id,"production",f"Brand link skipped: {str(getattr(exc,'detail',exc))[:200]}")
+            reason=str(getattr(exc,'detail',exc))[:200]
+            cur=get_factory_cycle(cycle_id) or {};meta=dict(cur.get("meta") or {});meta["brand_link_error"]=reason
+            _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+            cycle_event(cycle_id,"production",f"WARNING: brand {target['brand']} was NOT linked, agents do not get its Master Brief: {reason}")
 
 def _cycle_update(cycle_id,**fields):
     allowed={"status","phase","idea_id","job_id","publish_id","workflow_version_id","started_at","completed_at","last_error","learning_json","meta_json","source_signal_ids_json"}
@@ -9662,7 +9678,13 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
         if not signal_ids and not cycle.get("idea_id"):
             collected=await asyncio.to_thread(collect_configured_signals,FACTORY_CYCLE_MAX_SIGNALS) if FACTORY_SIGNAL_FEEDS else {"created":[]}
             signal_ids=[x["id"] for x in collected.get("created") or []] or _new_signal_ids()
-            signal_ids,_=_signal_ids_for_topic(signal_ids,((cycle.get("meta") or {}).get("target") or {}).get("topic"))
+            run_topic=((cycle.get("meta") or {}).get("target") or {}).get("topic")
+            signal_ids,matched=_signal_ids_for_topic(signal_ids,run_topic)
+            if matched is not None:
+                meta=dict((get_factory_cycle(cycle_id) or {}).get("meta") or {});meta["target_topic_matched"]=matched
+                _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+            if matched is False:
+                cycle_event(cycle_id,"signals",f"No collected signal mentions the target topic '{run_topic}'; all collected signals were used")
             if not signal_ids:raise RuntimeError("No source signals are available. Add a signal or configure RSS feeds.")
             _cycle_update(cycle_id,source_signal_ids_json=json.dumps(signal_ids),phase="ideas")
             cycle_event(cycle_id,"signals",f"Attached {len(signal_ids)} available signal(s)")
