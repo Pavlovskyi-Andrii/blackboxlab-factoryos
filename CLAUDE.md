@@ -76,6 +76,19 @@ SQLite file, `DATA_DIR/dbos_system.sqlite`; after a crash, restart or deploy a w
 - One module per durable flow, e.g. `durable_media_finisher.py` (T-612: AI Media Finisher submit → callback/poll).
 - Tests: `python test_durable_engine.py` and `python test_durable_media_finisher.py`.
 
+## Versioning and releases (owner 2026-11-16)
+
+- `APP_VERSION` in `app.py` is the only FactoryOS version; the dashboard header, the sidebar badge (`#appVersion`) and
+  `/health` show it. `python test_versioning.py` fails if the README "Product changelog" does not start with it.
+- Minor (`v5.11.0`) for new features, patch (`v5.10.1`) for fixes only.
+- Release cut: a release PR bumps `APP_VERSION` (plus the sidebar fallback and the pinned value in `smoke_tests.py`)
+  and adds a `### vX.Y.Z — Title — date range` entry listing the merged PRs since the last release. Cut one at least
+  daily while work is merging, and with any PR whose user-visible change should ship as its own version.
+- After a release PR merges, `.github/workflows/release.yml` tags the merge commit and publishes the GitHub Release
+  from that changelog entry. Never hand-edit or move an existing tag.
+- The owner lets Claude merge its own PRs once CI is green on the current head and there is no conflict
+  (`.autopilot/answers.md`, 2026-11-01 and 2026-11-16).
+
 ## Default verification
 
 For Python/backend changes:
