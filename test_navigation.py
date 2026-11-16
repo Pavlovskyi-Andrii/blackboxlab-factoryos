@@ -40,7 +40,7 @@ BEFORE = {
     "nav.agents": "openAgentDirectory()",
     "nav.supervisor": "document.querySelector('.supervisor').scrollIntoView()",
     "nav.errors": "document.querySelector('.errorCenterCard').scrollIntoView()",
-    "nav.pipeline": "document.querySelector('.pipelineCard').scrollIntoView()",
+    "nav.pipeline": "openMakingOf()",
     "nav.build": "openBuildProgress()",
     "dc.nav": "openDelegationCenter()",
     "nav.outputs": "S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))",

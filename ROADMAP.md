@@ -808,6 +808,20 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Goal: every cycle error the server returns (HTTP errors of the cycle routes, the stored `last_error`, error events in the history, run/learn messages) carries a stable code + params next to its English text, and the dashboard shows it in the selected language; an unknown message is shown as "server message (not translated)" with the original text, never hidden.
   DONE: `python test_factory_cycle_controls.py` (every code translated in EN/UK/RU, real messages map to codes, failure stores the code, HTTP detail carries it) + locale parity, navigation, explainability, smoke and `node --check` green; screenshots in `docs/screenshots/t-647/`.
 
+## Content making-of (owner voice note 2026-11-16, items 5–6)
+
+- [x] T-690 Content runs: close runs interrupted by a restart, show where each content item stopped
+  Owner: claude (session Content making-of)
+  Spec: owner voice note 2026-11-16 «Контент / Продвижение — оно не работает… непонятно, кто на чём остановился, почему ошибка, почему стопнулось»; DECISIONS.md «2026-11-16 — T-690»
+  Goal: content-job agent runs live in the FastAPI process; a Render deploy/restart left their `agent_runs` row `running` forever (phantom live worker in the trace) and the Supervisor silently reset the job to idle, which the list labelled «готово». Orphaned runs are now closed as failed with a classified `run_interrupted` reason (manual retry behind the paid-retry confirmation) at startup and in the orphan auto-heal; the job list carries per-job open incidents (same «resolved» rule as the Error Center); idle reads «ready to run / очікує запуску / ожидает запуска»; the flow read model carries per-run duration, cost, model, policy and resolved flag.
+  DONE: `python test_content_making_of.py` (interrupted runs, running-job exclusion, orphan heal, flow enrichment, attention == Error Center) + smoke suite green.
+
+- [x] T-691 Content row «making of»: pipeline, stop reason and agent chain open under the clicked content
+  Owner: claude (session Content making-of)
+  Spec: owner voice note 2026-11-16 «нет выдвигающегося меню при нажатии на каждый контент… конвейер должен открываться, когда ты зашёл в конкретный контент»; DECISIONS.md «2026-11-16 — T-691»
+  Goal: clicking a row in Content / Promotion expands it (click again collapses; Enter/Space; `aria-expanded`); the panel «Контент-конвейер: <title>» shows the stage strip of that item (failed stage in red), a «Where it is now» box (running / stopped at agent X with the Error Center reason and action / interrupted / waiting for approval / paused / done) with existing safe actions only (retry via the existing rerun API with the paid-retry confirmation, open the agent log, run from the stage, review), and the agent chain: each hop input → run → output → downstream with an expandable details block (time, cost, model, error text, actions). The separate global pipeline card above the list is removed; the sidebar «Pipeline» entry opens the selected item's making-of. Approval gate, budget guards and idempotency fences unchanged.
+  DONE: `test_content_making_of.py`, `test_pipeline_flow.py`, `test_locale_parity.py`, `test_navigation.py`, `test_explainability.py`, `test_drawers.py`, `test_delegation_*.py`, smoke, inline-JS `node --check` green; screenshots at 1280/390 px in `docs/screenshots/t-691/` with no horizontal page scroll.
+
 ## Versioning (owner 2026-11-16)
 
 - [x] T-VERSION One version everywhere + changelog v5.6 → v5.10.0 + automatic GitHub Releases
