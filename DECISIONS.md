@@ -1444,6 +1444,34 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   (MyCast, Surfer, the older `tools/gemini_ec2_loop.sh` issue→PR loop). Other key variables stay refused; keys are redacted
   from evidence. `FACTORY_GEMINI_MODEL` optionally pins the model (`--model`). Preflight also accepts the newer
   `~/.gemini/gemini-credentials.json` login file.
+## 2026-11-16 — T-665 MyCast demo audio: Gemini voicing by the owner's button, approve before public
+
+- Owner request 2026-11-16: voice the T-645 demo cities with Gemini, free Google quota only. The key exists only on
+  Render, so the voicing runs on the server, started by the owner; this session generated nothing.
+- Scripts are reviewed files in the repo (`static/mycast-share/scripts/<city>.<lang>.json`, UK/RU/EN, ~180–250 words,
+  1–1.5 min). Facts were checked against the Wikipedia leads read through the FactoryOS Surfer (Parthenon, Colosseum,
+  Delphi, Ancient Olympic Games, Pompeii); uncertain points are said as such (Pompeii's exact day, "by tradition" 776 BC).
+  No model writes text at generation time. Each script fits one TTS chunk: one request per city.
+- Voices: the existing MyCast pair Charon + Kore through `mycast.gemini_tts_pcm`, plus the episode QC (`check_pcm`).
+  The app adapter passes a `sleep` that raises, so the built-in 429 wait-and-retry is off here: the first 429 stops the
+  whole run ("квота Google исчерпана, повторите завтра"), records the time and voices nothing more. Every attempt counts
+  toward the daily cap (default 10, `MYCAST_DEMO_AUDIO_DAILY_CAP`), failed ones too; ≤5 cities per run; ~21 s pause
+  between cities (free-tier per-minute limit). One run at a time, in a background thread; the console polls.
+- Storage: `DATA_DIR/mycast_demo_audio/<city>.<lang>.mp3` + `state.json` (generated_at, script hash, approval). The
+  repo's static folder stays read-only. Idempotent: an existing track is skipped ("cached") unless the owner asks for
+  "regenerate", which also withdraws the approval (new audio is unheard). A changed script shows "stale" but the approved
+  audio keeps playing until the owner regenerates.
+- Public: `/mycast/demo/<city>.<lang>.mp3` serves an approved track only (404 otherwise, strict name regex), `max-age=600`,
+  so withdrawing an approval takes up to 10 minutes in caches. The share page asks the store through
+  `mycast_share_page.set_demo_audio_source`; it prefers the page language and otherwise plays another approved language
+  with the language marked on the card ("· UK"). The older repo-file path (`approved_by_owner` in demos.json) still works.
+- Owner console: `/factory/mycast-demos` on the FactoryOS host (owner role, Russian UI, as the owner desk), JSON API under
+  `/api/factory/mycast/demo-audio` (owner role; POSTs require `application/json`, so no cross-site form can trigger a
+  generation). Owner task T-645-H now reads: generate → listen → approve.
+- Free-only is guaranteed by the key's Google project, not by this code (Codex review on #403): on a billing-enabled
+  project calls are charged before any 429. The code only caps requests and stops on 429; the runbook makes the owner
+  confirm Billing Tier "Free tier" before the first generation, and the 429 message no longer claims "nothing was paid".
+
 ## 2026-11-16 — T-645 MyCast share card (owner voice request): coverflow, demo cities, public DNA
 
 - New module `mycast_share_page.py` renders `/mycast/e/<token>`; `mycast_public.render_episode_page` stays as the
@@ -1745,3 +1773,8 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   raw task, with `offset`, `max_chars`, `links` query parameters.
 - Deployment: Render gets the server part on merge. The EC2 worker merges `main` itself (`autopilot.sync_branch`) and
   restarts on new runner code; T-672 makes `browser_runner/` count as runner code, so no manual EC2 step is needed.
+## 2026-11-16 — Gemini search: flash-lite fallback, 429 tries the next model
+
+- Production after the daily reset: `gemini-2.5-flash` 404, `gemini-flash-latest` 429 RESOURCE_EXHAUSTED. Owner asked to try
+  `gemini-flash-lite-latest`. It is added to the fallback list, and a 429 now moves to the next model (quotas are per
+  model); network errors and 5xx still stop. At most 3 Gemini calls per search (`GEMINI_MAX_ATTEMPTS`: the resolved model first, then the fallbacks in order), still one count against the 100/day cap.

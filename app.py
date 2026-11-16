@@ -56,6 +56,8 @@ from mycast_accounts import ListenerStore, install_mycast_account_routes, Accoun
 from mycast_accounts import COOKIE as MYCAST_COOKIE, unsign as mycast_unsign
 from mycast_calendar import ListenerCalendar, install_calendar_routes
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
+from mycast import GeminiTTSError as MycastGeminiTTSError
+from mycast_demo_audio import DemoAudioStore, install_mycast_demo_audio_routes
 import evidence as _evidence
 from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
@@ -897,6 +899,22 @@ install_mycast_demo_routes(app, MYCAST_DEMO)
 # #281 voice audition: real cached Gemini samples per prebuilt voice (owner: about 30 samples), honest unavailable states.
 install_mycast_voice_audition_routes(app, VoiceSamples(DATA_DIR / "mycast_voices", api_key=lambda: FACTORY_GEMINI_API_KEY,
                                                        tts=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice)))
+
+
+def _mycast_demo_tts_no_retry(key, episode):
+    """T-665: the MyCast two-host TTS without its 429 wait-and-retry: a 429 stops the owner's run at once."""
+    def _stop(_seconds):
+        raise MycastGeminiTTSError("rate_limited")
+    return gemini_tts_pcm(key, episode, voices=("Charon", "Kore"), sleep=_stop)
+
+
+MYCAST_DEMO_AUDIO = DemoAudioStore(DATA_DIR / "mycast_demo_audio", api_key=lambda: FACTORY_GEMINI_API_KEY,
+                                   tts=_mycast_demo_tts_no_retry, encode=lambda pcm, rate: pcm_to_mp3(pcm, rate),
+                                   qc=lambda pcm, rate, lines: mycast_check_pcm(pcm, rate, lines))
+install_mycast_demo_audio_routes(app, MYCAST_DEMO_AUDIO,
+                                 is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
+import mycast_share_page as _mycast_share_page  # noqa: E402
+_mycast_share_page.set_demo_audio_source(MYCAST_DEMO_AUDIO.approved_url)
 def _mycast_send_listener_sample(chat_id: str, job_id: str) -> None:
     """#281: one generated demo, as mp3, to the listener's own Telegram chat (delivery opt-in checked by the caller)."""
     import wave
@@ -1271,7 +1289,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 MYCAST_HOSTS = {h.strip().lower() for h in os.environ.get("FACTORY_MYCAST_HOSTS", "mycast.pro,www.mycast.pro").split(",") if h.strip()}
 MYCAST_PAGE = "/static/mycast-configurator/index.html"
 MYCAST_HOST_PREFIXES = ("/static/mycast-configurator/", "/static/favicon", "/static/apple-touch-icon", "/api/mycast/",
-                        "/mycast/u/", "/mycast/e/", "/.well-known/")
+                        "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/.well-known/")
 MYCAST_HOST_PATHS = {"/privacy", "/terms", "/health", "/favicon.ico", "/mycast", "/robots.txt", "/sitemap.xml"}
 
 
@@ -1331,7 +1349,7 @@ async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
     media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)
