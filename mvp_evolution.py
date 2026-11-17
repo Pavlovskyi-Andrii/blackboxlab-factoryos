@@ -485,6 +485,35 @@ class EvolutionStore:
                 return {"proposal": copy.deepcopy(prop)}
             return self._idem(data, str(body.get("idempotency_key") or ""), scope, go)
 
+    def policy_handoff(self, pid: str, prop_id: str, *, policy: str, evidence: dict[str, Any],
+                       create_ticket: Callable[..., dict], lane: str = "claude") -> dict[str, Any]:
+        """T-634: the owner's standing rule ("hand a theme to Builder once enough people ask for it") approves and hands
+        off one proposal. Only an agent-made proposal on real data, still `proposed`, qualifies; the threshold numbers
+        are kept in the proposal history. Owners and members keep the manual path; nothing here merges or releases."""
+        if lane not in LANES:
+            raise EvolutionError("bad_lane")
+        with self._lock:
+            data = self._load()
+            proj = self._project(data, pid)
+            prop = next((p for p in proj["proposals"] if p["id"] == prop_id), None)
+            if not prop:
+                raise EvolutionError("unknown_proposal", 404)
+            if prop.get("synthetic"):
+                raise EvolutionError("synthetic_not_handed_off", 409)
+            if prop["state"] != "proposed" or prop.get("proposed_by") != "agent":
+                raise EvolutionError("bad_transition", 409)
+            ticket = create_ticket(title=f"MVP {pid} {prop['target_version']}: {prop['title']}"[:180],
+                                   body=ticket_body(prop) + f"\nApproved by the owner's standing rule `{policy}`: "
+                                   + json.dumps(evidence, sort_keys=True), key=f"mvp-evolution:{pid}:{prop['id']}", lane=lane)
+            now = self._now()
+            prop["decided_by"] = f"policy:{policy}"
+            prop["history"].append({"at": now, "state": "approved", "by": f"policy:{policy}", "note": json.dumps(evidence, sort_keys=True)[:300]})
+            prop["state"], prop["ticket_id"], prop["lane"] = "handed_off", str(ticket.get("id") or ""), lane
+            prop["history"].append({"at": now, "state": "handed_off", "by": f"policy:{policy}", "note": ""})
+            self._log(proj, f"policy:{policy}", "policy_handoff", prop_id)
+            self._save(data)
+            return {"proposal": copy.deepcopy(prop)}
+
     def release(self, pid: str, body: dict[str, Any], *, actor_role: str, actor: str = "") -> dict[str, Any]:
         """Owner only: the next version exists once at least one proposal for it shipped. Not a public release."""
         if actor_role != "owner":
