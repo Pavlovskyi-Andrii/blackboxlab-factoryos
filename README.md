@@ -24,7 +24,8 @@ and `/health` all show it, and `test_versioning.py` fails CI if this changelog's
 `APP_VERSION` disagree. Minor = new features, patch = fixes only. A release PR bumps the version and adds its entry
 here; after it merges, `.github/workflows/release.yml` tags the merge commit and publishes the GitHub Release.
 v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their weeks: the app showed `v5.7.1`
-during that time. v5.9.0 ends at #294 (2026-11-08); #295, #297 and #298 are in v5.10.0.
+during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
+#297, #298 are in v5.10.0.
 
 ### v5.11.0 — Surfer for AI agents, Content making-of, guides in RU/UK, MyCast demo voices — 2026-11-16
 - **Surfer:** live benchmark of 33 real read tasks and fixes so any AI can use it mid-project: main page text without
@@ -44,7 +45,11 @@ during that time. v5.9.0 ends at #294 (2026-11-08); #295, #297 and #298 are in v
 - **Version sync and releases:** the sidebar badge (was a hard-coded `v5.3`), header and `/health` now all show
   `APP_VERSION`; changelog restarted from v5.6; git tags and an automatic GitHub Release workflow.
 - **Owner tools:** owner voice messages → Gemini transcript → text Relay ticket (#295); route audit fixes and the
-  FactoryOS Team group bridge (#297); morning brief at 08:00 Kyiv and P2 regressions (#298).
+  FactoryOS Team group bridge (#297); morning brief at 08:00 Kyiv and P2 regressions (#298); Queue Keeper reads
+  "Depends: none" (#292); ChatGPT lane taken over by Claude (#293).
+- **Relay:** per-ticket branch + PR round trip with CI/merge back to Telegram (#294).
+- **MVP Builder M1B–M1D** build request (#288); evidence-command visual concept (#266); MyCast sub-topics, voice
+  history and calendar wishes (#290, #291).
 - **Evidence Protocol** (#299, #300, #301, #303, #304, #306): No Evidence — No Done; CI read from Actions runs; deploy
   check against Render; owner accept buttons; Proof panel in Agent Office; Gemini reviews risky or large Claude PRs.
 - **Security:** encrypted vault AES-256-GCM with Access vault UI (#302); server GitHub reads use the read-only token
@@ -79,17 +84,15 @@ during that time. v5.9.0 ends at #294 (2026-11-08); #295, #297 and #298 are in v
   Gemini-written tests and guides (#162, #183–#185, #191–#193, #196, #197, #214, #224, #225, #227, #228, #230, #243,
   #247, #250, #252, #257, #268).
 - **Team and owner tools:** Team tasks page with PR/CI status and EC2 GitHub fallback (#182, #198, #251, #253);
-  Telegram `/workers` per executor (#159); owner desk cards (#249); Queue Keeper counts (#245, #292); ChatGPT lane
-  taken over by Claude (#293).
+  Telegram `/workers` per executor (#159); owner desk cards (#249); Queue Keeper counts (#245).
 - **Relay:** intake through the EC2 GitHub snapshot (#254, #262); dirty-path reporting and `.autopilot/` as runtime
-  space (#276, #277); per-ticket branch + PR round trip with CI/merge back to Telegram (#294); worker sync never rebases
-  (#211).
+  space (#276, #277); worker sync never rebases (#211).
 - **Security:** route authorization inventory (#145); publish approval gate and findings schema (#246).
 - **MyCast:** full episode by 06:00 Kyiv (#222), owner-feedback format (#226), audio QC and source/date gate (#244),
   configurator on the site and beta batches (#263, #267, #271, #278, #279, #280), Gemini voice picker and Telegram
-  pairing (#284), 7 free days + 7 per friend (#285), sub-topics, voice history, calendar wishes (#290, #291).
-- **MVP Builder / MVP Factory:** phase 1 registry, API and overview (#271); M1A–M1D build request contract (#287,
-  #288); AI Hangout pack (#223); evidence-command visual concept (#266).
+  pairing (#284), 7 free days + 7 per friend (#285).
+- **MVP Builder / MVP Factory:** phase 1 registry, API and overview (#271); M1A build request contract (#287); AI
+  Hangout pack (#223).
 
 ### v5.8.0 — Operator Lanes, Relay Control Room, Browser Runner, Builder Autopilot Hardening — 2026-10-27 … 2026-11-02
 - **Operators:** FactoryOS roles separated from operators; live Claude and Gemini operator telemetry; Telegram Claude

@@ -5,6 +5,7 @@ v5.6 04f87ca122b306cfda4fb2bfb10e54cc77ee354f
 v5.7 f1e5dafae20c2d116f6156fe80225f159eac15ef
 v5.7.1 f4fee787256da2fbb9de1dcc997d4e5d0ec979c2
 v5.8.0 b6b4523894645d3634b927aa1af78db11410e1c2
-# v5.9.0 (#294, b991f856404196e0146d6a1ce2fbc3cee60d20d0) is NOT listed: the workflow token got
-# "HTTP 403: Resource not accessible by integration" for it twice (runs 43851658678 on 3c8c9ea, 43852619083 on
-# b991f85), while v5.6…v5.8.0 and v5.10.0 worked. The owner creates it in the GitHub UI (DECISIONS.md, T-VERSION).
+# v5.9.0 is on #252 (043460d), the week's last merge whose .github/workflows tree already exists on another branch:
+# the workflow token gets HTTP 403 creating a tag on a commit whose workflow files no existing ref has (runs
+# 43851658678 on 3c8c9ea and 43852619083 on b991f85; 7 of 7 observed cases fit this rule, DECISIONS.md T-VERSION).
+v5.9.0 043460ddb16f90318bcae042cd33027b2ea287c1
