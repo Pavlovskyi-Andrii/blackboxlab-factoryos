@@ -474,6 +474,9 @@ def run_one(repo: pathlib.Path, *, status_fn=None) -> bool:
                  run_id=str((ticket.get("execution") or {}).get("run_id") or ""))
         except Exception:
             pass
+    note = mods_runtime.upload_duel_video(ticket)   # video duel: the runner uploads the B take's render
+    if note:
+        print("relay:", note, flush=True)
     mods_runtime.report_run(mods, run_id=str((ticket.get("execution") or {}).get("run_id") or ""),
                             task=str(ticket.get("id") or ""), kind="relay", result=str(outcome.get("status") or ""),
                             duration_seconds=time.time() - started)

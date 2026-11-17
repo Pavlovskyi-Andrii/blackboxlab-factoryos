@@ -1856,3 +1856,17 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Evidence 2026-11-17: Release run 44073441058 published v5.9.0 on `043460d` (8 of 8 cases now fit the pattern).
   T-VERSION-H is closed without an owner step. All versions v5.6 … v5.11.0 now have a GitHub Release.
 
+## 2026-11-17 — T-MODS-E Video duel takes are real files you watch and score in the card
+
+- Owner: the takes looked simulated and could not be watched from the phone. A take is now an MP4 stored on the
+  FactoryOS disk (`DATA_DIR/mods_media/<duel>-<arm>.mp4`) and served only to the owner session; the card plays it
+  inline. Only files with an ISO-BMFF `ftyp` box up to 80 MB are accepted; size, sha256, date and uploader
+  (worker / owner) are shown under the player, so a placeholder or text file cannot pass as a take.
+- The worker token is scrubbed from the agent's environment on purpose, so the agent never uploads. The Relay
+  runner does it after a `mods-duel` ticket: it takes `/tmp/factoryos-films/<duel>-<arm>/final.mp4` (the ticket now
+  names this exact path), or the largest real MP4 in that folder for tickets created earlier (R-0084), and posts it
+  with the worker token; the server checks the ticket belongs to that B take. A missing render is logged as such.
+- The owner can upload any take (e.g. an A take finished in Media Finisher); a take with a video can be scored even
+  if it was never started here. Stars 1–5 replace the select; the link field moved under «Ссылка вместо файла».
+- Not verified: a real product-film render on the EC2 worker (Node/ffmpeg/Playwright there are still unchecked).
+

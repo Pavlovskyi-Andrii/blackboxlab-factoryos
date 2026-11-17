@@ -152,3 +152,57 @@ def report_run(ctx: dict, *, run_id: str, task: str, kind: str, result: str, dur
         return 200 <= int(getattr(r, "status_code", 0)) < 300
     except Exception:
         return False
+
+
+FILM_ROOT = pathlib.Path("/tmp/factoryos-films")
+MAX_VIDEO = 80 * 1024 * 1024
+DUEL_KEY_RE = r"^mods-duel:(D-\d{4}):(b[12])$"
+
+
+def pick_film(folder: pathlib.Path) -> Optional[pathlib.Path]:
+    """final.mp4 if the run wrote it, else the largest real MP4 under the film folder (older tickets)."""
+    if not folder.is_dir():
+        return None
+    final = folder / "final.mp4"
+    candidates = [final] if final.is_file() else sorted(folder.rglob("*.mp4"), key=lambda p: p.stat().st_size, reverse=True)
+    for path in candidates:
+        try:
+            size = path.stat().st_size
+            with open(path, "rb") as fh:
+                head = fh.read(16)
+        except OSError:
+            continue
+        if 0 < size <= MAX_VIDEO and len(head) >= 12 and head[4:8] == b"ftyp":
+            return path
+    return None
+
+
+def upload_duel_video(ticket: dict, *, post: Optional[Callable[..., Any]] = None,
+                      root: pathlib.Path = FILM_ROOT) -> str:
+    """After a video-duel B ticket, the runner (which holds the worker token; the agent never does) uploads the
+    rendered MP4 so the owner can watch and score it in FactoryOS. Returns a short note; never raises."""
+    import re
+    key = str((ticket.get("source") or {}).get("source_key") or "")
+    m = re.match(DUEL_KEY_RE, key)
+    if not m:
+        return ""
+    duel, arm = m.groups()
+    film = pick_film(pathlib.Path(root) / f"{duel}-{arm}")
+    if film is None:
+        return f"duel {duel} {arm}: no MP4 render found to upload"
+    url, token = endpoint()
+    if not url or not token:
+        return "duel upload skipped: worker connection missing"
+    if post is None:
+        import requests
+        post = requests.post
+    try:
+        r = post(f"{url}/api/mods/worker/duels/{duel}/arms/{arm}/video",
+                 params={"ticket": str(ticket.get("id") or "")}, data=film.read_bytes(),
+                 headers={"Authorization": f"Bearer {token}", "Content-Type": "video/mp4"}, timeout=120)
+        code = int(getattr(r, "status_code", 0))
+    except Exception as exc:
+        return f"duel upload failed: {type(exc).__name__}"
+    return f"duel {duel} {arm}: video uploaded ({film.stat().st_size} bytes)" if 200 <= code < 300 \
+        else f"duel upload refused: HTTP {code}"
+

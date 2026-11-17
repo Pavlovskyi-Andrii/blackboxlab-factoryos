@@ -336,7 +336,103 @@ def test_video_duel():
     require("starting" not in store2.read()["duels"]["D-0001"]["arms"]["a1"], "failed start must release the arm")
 
 
-TESTS = [test_video_duel, test_runtime_resolve_fails_closed, test_runtime_flags_prompt_and_tools, test_runtime_reports_runs,
+MP4 = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64
+
+
+class Upload:
+    def __init__(self, data):
+        self.data = data
+
+    async def read(self, n=-1):
+        out, self.data = self.data[:n], self.data[n:]
+        return out
+
+
+class VReq(Req):
+    def __init__(self, *, data=b"", form=None, **kw):
+        super().__init__(**kw)
+        self._data, self._form = data, form
+
+    async def stream(self):
+        for i in range(0, len(self._data), 7):
+            yield self._data[i:i + 7]
+
+    async def form(self):
+        return self._form or {}
+
+
+def test_duel_video_takes():
+    tickets = []
+    media = Path(tempfile.mkdtemp(prefix="factoryos-duel-media-"))
+    store, h = make(create_ticket=lambda t, b, k: tickets.append((t, b, k)) or f"R-{len(tickets):04d}",
+                    ticket_state=lambda t: {"execution": "running"}, media_dir=media)
+    run(h[("POST", "/api/factory/mods/{mod_id}")]("product-film", Req({"enabled": True})))
+    run(h[("POST", "/api/factory/mods/duels")](Req({"title": "T", "brief": "B"})))
+    run(h[("POST", "/api/factory/mods/duels/{duel_id}/arms/{arm}/start")]("D-0001", "b1", Req()))
+    require("/tmp/factoryos-films/D-0001-b1/final.mp4" in tickets[0][1] and "настоящим рендером" in tickets[0][1],
+            "B ticket must name the exact file the runner uploads")
+    wup = h[("POST", "/api/mods/worker/duels/{duel_id}/arms/{arm}/video")]
+    oup = h[("POST", "/api/factory/mods/duels/{duel_id}/arms/{arm}/video")]
+    get = h[("GET", "/api/factory/mods/duels/{duel_id}/arms/{arm}/video")]
+    require(status_of(wup, "D-0001", "b1", VReq(data=MP4), "R-0001") == 401, "worker upload without token")
+    require(status_of(wup, "D-0001", "b1", VReq(data=MP4, worker=True), "R-0009") == 409, "upload for a foreign ticket")
+    require(status_of(wup, "D-0001", "a1", VReq(data=MP4, worker=True), "R-0001") == 422, "worker uploads only B takes")
+    require(status_of(wup, "D-0001", "b1", VReq(data=b"not a video at all, just text", worker=True), "R-0001") == 422,
+            "a non-MP4 must be refused (no fake takes)")
+    import mods_registry
+    big = MP4 + b"\x00" * (mods_registry.MAX_VIDEO)
+    require(status_of(wup, "D-0001", "b1", VReq(data=big, worker=True), "R-0001") == 413, "over 80 MB accepted")
+    require(not (media / "D-0001-b1.mp4").exists(), "a refused upload left a file")
+    run(wup("D-0001", "b1", VReq(data=MP4, worker=True), "R-0001"))
+    v = h[("GET", "/api/factory/mods")](Req())
+    b1 = next(a for a in v["duels"][0]["arms"] if a["id"] == "b1")
+    import hashlib
+    require(b1["video"] == {"size": len(MP4), "sha256": hashlib.sha256(MP4).hexdigest(), "at": b1["video"]["at"], "by": "worker"}
+            and b1["video_url"].startswith("/api/factory/mods/duels/D-0001/arms/b1/video?v="), b1)
+    require(status_of(get, "D-0001", "b1", Req(role="viewer")) == 403, "viewer can fetch a take")
+    resp = get("D-0001", "b1", Req())
+    require(resp.media_type == "video/mp4" and Path(resp.path).read_bytes() == MP4, "served bytes differ")
+    require(status_of(get, "D-0001", "a2", Req()) == 404, "missing take must 404")
+    # Owner uploads an A take made elsewhere and can score it although it was never started here.
+    require(status_of(oup, "D-0001", "a2", VReq(form={"file": Upload(MP4)}, role="member")) == 403, "member uploaded")
+    require(status_of(oup, "D-0001", "a2", VReq(form={})) == 422, "upload without a file accepted")
+    v = run(oup("D-0001", "a2", VReq(form={"file": Upload(MP4)})))
+    require(next(a for a in v["duels"][0]["arms"] if a["id"] == "a2")["video"]["by"] == "owner", "owner upload not recorded")
+    v = run(h[("POST", "/api/factory/mods/duels/{duel_id}/arms/{arm}")]("D-0001", "a2", Req({"score": 4})))
+    require(next(a for a in v["duels"][0]["arms"] if a["id"] == "a2")["score"] == 4, "a take with a video cannot be scored")
+
+
+def test_runner_uploads_duel_render():
+    root = Path(tempfile.mkdtemp(prefix="factoryos-films-"))
+    folder = root / "D-0001-b2"
+    (folder / "out").mkdir(parents=True)
+    (folder / "out" / "small.mp4").write_bytes(MP4)
+    (folder / "out" / "web.mp4").write_bytes(MP4 + b"\x00" * 100)
+    (folder / "fake.mp4").write_bytes(b"x" * 500)                      # largest file, but not an MP4
+    require(rt.pick_film(folder).name == "web.mp4", "picked a non-MP4 or the smaller cut")
+    (folder / "final.mp4").write_bytes(MP4)
+    require(rt.pick_film(folder).name == "final.mp4", "final.mp4 must win")
+    sent = []
+
+    class R:
+        status_code = 200
+    ticket = {"id": "R-0007", "source": {"channel": "mods-duel", "source_key": "mods-duel:D-0001:b2"}}
+    os.environ.update(FACTORYOS_URL="https://factory.example", FACTORY_CLAUDE_WORKER_TOKEN="t" * 40)
+    try:
+        note = rt.upload_duel_video(ticket, post=lambda url, **k: sent.append((url, k)) or R(), root=root)
+        url, k = sent[0]
+        require(url == "https://factory.example/api/mods/worker/duels/D-0001/arms/b2/video" and k["params"] == {"ticket": "R-0007"}
+                and k["data"] == MP4 and "uploaded" in note, (url, note))
+        require(rt.upload_duel_video({"id": "R-1", "source": {"source_key": "roadmap:T-1"}}, root=root) == "",
+                "non-duel tickets must be ignored")
+        require("no MP4" in rt.upload_duel_video({"id": "R-2", "source": {"source_key": "mods-duel:D-0002:b1"}}, root=root),
+                "a missing render must be reported, not faked")
+    finally:
+        os.environ.pop("FACTORYOS_URL", None)
+        os.environ.pop("FACTORY_CLAUDE_WORKER_TOKEN", None)
+
+
+TESTS = [test_duel_video_takes, test_runner_uploads_duel_render, test_video_duel, test_runtime_resolve_fails_closed, test_runtime_flags_prompt_and_tools, test_runtime_reports_runs,
          test_vendored_plugins, test_no_binaries_or_external_publishing, test_pstack_bundle_is_complete,
          test_defaults_and_owner_only, test_toggle_history_and_worker_plan, test_runs_compare_and_uses,
          test_unreadable_state_fails_safe, test_dashboard_wiring]
