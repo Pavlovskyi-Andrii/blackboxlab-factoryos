@@ -1900,3 +1900,12 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   ask to finish and close sessions, not to merge this PR; per this session's brief («НЕ мержи») the PR is left for
   the owner to merge.
 
+## 2026-11-17 — T-673 Worker sync auto-resolves ROADMAP-only conflicts
+- Trigger: after #405 merged, the EC2 worker kept running 2026-11-15 code. Merging `main` into `autopilot/aws-worker`
+  conflicted only on ROADMAP.md (two T-590 status notes written the same day on both sides); `sync_branch` aborted the
+  merge on every pass, so no runner fix reached the worker until a person merged by hand (#410). Owner chose the fix.
+- Rule: only when the sole conflicted path is `ROADMAP.md`. Inside each conflict block the worker's lines come first,
+  then main's, duplicates dropped; a task header (`- [ ]`/`- [x] T-…`) present on main's side wins and the worker's
+  version of that header is dropped, so a task never appears twice with different checkbox states (main is where
+  tasks are reviewed and checked). A diff3 base section is discarded. Malformed markers → the merge is aborted as before.
+- Anything else conflicted (code, docs, tests) still aborts and reports `conflict`: those need a human or a session.
