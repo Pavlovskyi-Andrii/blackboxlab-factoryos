@@ -12,7 +12,7 @@ import re
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
@@ -1171,6 +1171,17 @@ def _relay_history_text(store: RelayStore, github: Optional[Callable[[], dict]] 
     return "\n".join(lines)[:3900]
 
 
+def _send_detail(telegram_api: Callable, chat_id: Any, view: dict, view_log=None) -> None:
+    """Send the ticket detail; once the Bot API accepted it, log the facts it showed (T-592, no chat id, no text)."""
+    text = _task_detail_text(view)
+    telegram_api("sendMessage", {"chat_id": chat_id, "text": text, "reply_markup": _ticket_keyboard(view.get("id"))})
+    if view_log is not None:
+        try:
+            view_log.record(view, "detail", text)
+        except Exception:
+            pass
+
+
 def _task_detail_text(ticket: dict) -> str:
     """`/task R-0001` and the 🔄 refresh button: card, brief, factual stages and the last history events."""
     lines = [_ticket_card(ticket), ("ТЗ: " + str(ticket.get("body") or "")[:450]) if ticket.get("body") else "",
@@ -1318,6 +1329,7 @@ def relay_handle_telegram_update(
     operator_lanes_provider: Optional[Callable[[], list]] = None,
     battle_controls=None,
     roadmap_provider: Optional[Callable[[], str]] = None,
+    view_log=None,
 ) -> Optional[dict]:
     """Handle Relay-specific Telegram traffic.
 
@@ -1334,6 +1346,9 @@ def relay_handle_telegram_update(
 
     ``roadmap_provider`` (T-591) returns ROADMAP.md text for ``/roadmap``; by default the file deployed
     next to this module is read. ``/proof R-0001`` answers with the relay_acceptance verdict for one ticket.
+
+    ``view_log`` (T-592) is a ``telegram_web_compare.TelegramViewLog``: after the Bot API accepts a ticket detail
+    (🔄 Refresh or ``/task R-…``) the facts it carried are logged so the server can compare them with the website.
     """
     if not isinstance(update, dict):
         return None
@@ -1449,8 +1464,7 @@ def relay_handle_telegram_update(
                 telegram_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Тикет не найден"})
                 return {"handled": True}
             telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
-            telegram_api("sendMessage", {"chat_id": chat_id, "text": _task_detail_text(queue.view(ticket) if queue else ticket),
-                                         "reply_markup": _ticket_keyboard(ticket_id)})
+            _send_detail(telegram_api, chat_id, queue.view(ticket) if queue else ticket, view_log)
             return {"handled": True, "action": "ticket", "ticket_id": ticket_id}
         match = re.fullmatch(r"relay:status:(R-\d{4,8}):(inbox|in_progress|need_you|done|archived)", data)
         if match:
@@ -1541,8 +1555,7 @@ def relay_handle_telegram_update(
         if not ticket:
             telegram_api("sendMessage", {"chat_id": chat_id, "text": "Задача не найдена. Пример: /task R-0001"})
             return {"handled": True}
-        telegram_api("sendMessage", {"chat_id": chat_id, "text": _task_detail_text(queue.view(ticket) if queue else ticket),
-                                     "reply_markup": _ticket_keyboard(ticket_id)})
+        _send_detail(telegram_api, chat_id, queue.view(ticket) if queue else ticket, view_log)
         return {"handled": True, "action": "detail", "ticket_id": ticket_id}
     if command == "/issue":
         parts = text.split(maxsplit=1)
@@ -1711,7 +1724,7 @@ def worker_event_text(ticket: dict, stage: str) -> str:
 
 
 def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, queue=None, authorize_worker=None, notify_owner=None,
-                         authorize_gemini_worker=None) -> None:
+                         authorize_gemini_worker=None, view_log=None) -> None:
     @app.get("/api/relay")
     def relay_list(request: Request, status: str = "", limit: int = 200):
         _owner_guard(request, request_identity)
@@ -1878,8 +1891,11 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
             raise HTTPException(409, str(exc))
         if payload.stage not in {"heartbeat", "checkpoint"} and notify_owner and not ticket.get("replayed"):
             try:
-                if notify_owner(worker_event_text(ticket, payload.stage)) is True:
+                notice = worker_event_text(ticket, payload.stage)
+                if notify_owner(notice) is True:
                     store.record_owner_notice(payload.ticket_id, payload.stage, (ticket.get("execution") or {}).get("run_id") or "")
+                    if view_log is not None:
+                        view_log.record(ticket, "notice", notice)
             except Exception:
                 pass
         return {"ok": True, "ticket": ticket}

@@ -704,28 +704,20 @@ RUNBOOKS: list[dict[str, Any]] = [
     },
     {
         "id": "T-592-H",
-        "title": "Сверить Telegram и сайт по одной задаче (скриншоты)",
-        "why": "T-592 требует доказательства глазами: одна и та же задача и этап в Telegram и на сайте, без «призрачного running», на телефоне и компьютере. Автотесты это проверяют, а скриншот вашего настоящего Telegram может сделать только владелец.",
-        "time": "≈10 минут",
+        "title": "Сверить Telegram и сайт по одной задаче (одна кнопка)",
+        "why": "Сервер сам сравнивает, что бот последним показал в Telegram по задаче (этап, run_id, последняя связь), с тем, что показывает сайт. От вас нужно только посмотреть на телефон и подтвердить.",
+        "time": "≈2 минуты",
         "steps": [
-            {"id": "same", "title": "Сравните одну задачу в двух местах",
-             "do": ["Возьмите тикет из T-591-H (или любой свежий) и в Telegram нажмите 🔄 Обновить под его карточкой.",
-                    "На сайте откройте /relay и ту же задачу, затем Worker Center → строка Claude."],
-             "check": "Этап (например done), run_id и время последней связи совпадают.",
-             "if": [{"when": "На сайте этап новее, чем в Telegram", "then": "Нажмите 🔄 Обновить ещё раз: Telegram показывает снимок на момент сообщения."},
-                    {"when": "Сайт показывает «работает», а /workers — простаивает", "then": "Это и есть «призрачный running». Сделайте скриншоты обоих экранов и задайте мне вопрос по этому шагу."}]},
-            {"id": "screens", "title": "Сделайте 4 скриншота",
-             "do": ["Телефон: Telegram с карточкой тикета и сайт Worker Center.",
-                    "Компьютер: сайт /relay с этой задачей и Worker Center.",
-                    "Проверьте, что колонки Planned / In Progress / Completed / Blocked в Build Progress видны целиком, без горизонтальной прокрутки."],
-             "check": "4 скриншота, на всех одна и та же задача и этап.",
-             "if": [{"when": "Колонки обрезаны или есть горизонтальная прокрутка", "then": "Приложите этот скриншот: это ошибка T-592, я исправлю."}]},
-            {"id": "report", "title": "Передайте скриншоты",
-             "do": ["Закройте на скриншотах номер чата и имена, если они видны, приложите их к Issue #56 и напишите мне «T-592 скриншоты готовы»."],
-             "check": "Скриншоты в Issue #56.",
-             "if": [{"when": "Не хотите выкладывать в публичный репозиторий", "then": "Напишите мне, совпало ли всё; закрою T-592 по вашему подтверждению с пометкой, что скриншоты у владельца."}]},
+            {"id": "confirm", "title": "Откройте задачу в Telegram и нажмите «Совпадает» или «Не совпадает»",
+             "do": ["В Telegram на телефоне откройте задачу из карточки сравнения ниже (/task R-… или 🔄 Обновить под её карточкой).",
+                    "Вернитесь сюда: карточка сравнения покажет «Telegram и сайт совпадают ✓» или что именно расходится.",
+                    "Нажмите «Совпадает», если всё так и на этом экране нет горизонтальной прокрутки и обрезанного текста; иначе — «Не совпадает»."],
+             "check": "Под задачей T-592-H стоит «Готово: вы подтвердили совпадение».",
+             "if": [{"when": "Карточка пишет «Telegram ещё не показывал эту задачу»", "then": "Откройте задачу в Telegram (/task R-… или 🔄) и обновите эту страницу."},
+                    {"when": "Карточка пишет «Telegram показывает устаревшее»", "then": "Задача изменилась после сообщения. Нажмите 🔄 Обновить в Telegram и обновите страницу."},
+                    {"when": "Что-то расходится или обрезано", "then": "Нажмите «Не совпадает» — я получу это вместе с данными сервера и исправлю. Скриншоты не нужны."}]},
         ],
-        "done": "Одна задача показывает одинаковый этап в Telegram и на сайте на телефоне и компьютере; скриншоты приложены.",
+        "done": "Сервер показывает «Telegram и сайт совпадают», и вы нажали «Совпадает».",
     },
     {
         "id": "T-593-H",
@@ -959,12 +951,47 @@ class WorkerAnswerRequest(BaseModel):
     answer: str = ""
 
 
+ROADMAP_FILE = Path(__file__).resolve().parent / "ROADMAP.md"
+_ROADMAP_TASK = re.compile(r"^- \[([ xX])\]\s+(?:\[HUMAN\]\s+)?(T-[A-Za-z0-9-]+)\b")
+
+
+def roadmap_states(roadmap_fn: Optional[Callable[[], str]] = None) -> dict[str, bool]:
+    """{task id: done?} from ROADMAP.md checkboxes; a task listed twice counts as done only if every line is checked."""
+    try:
+        text = roadmap_fn() if roadmap_fn else ROADMAP_FILE.read_text(encoding="utf-8")
+    except Exception:
+        return {}
+    out: dict[str, bool] = {}
+    for line in (text or "").splitlines():
+        m = _ROADMAP_TASK.match(line.strip())
+        if m:
+            out[m.group(2)] = out.get(m.group(2), True) and m.group(1) != " "
+    return out
+
+
+def _fallback_status(task_id: str, roadmap: dict[str, bool]) -> dict[str, Any]:
+    """No live fact: the ROADMAP checkbox decides. The owner never sees an "unknown" state for an open task."""
+    if roadmap.get(task_id) is True:
+        return {"state": "done", "detail": ""}
+    return {"state": "todo", "detail": ""}
+
+
+def _merged_status(live: Optional[dict[str, Any]], task_id: str, roadmap: dict[str, bool]) -> dict[str, Any]:
+    """A checked ROADMAP line closes the task even if the live fact still says todo/blocked (owner-approved close)."""
+    if not live:
+        return _fallback_status(task_id, roadmap)
+    if roadmap.get(task_id) is True and live.get("state") in ("todo", "blocked", "unknown"):
+        return {"state": "done", "detail": ""}
+    return live
+
+
 def install_owner_desk_routes(app, store: QuestionStore, identity_fn: Callable[[Request], Any], *,
                               authorize_worker: Callable[[Request], bool],
                               status_fn: Callable[[], dict[str, dict[str, str]]],
                               redact_fn: Callable[[str], str] = lambda s: s,
                               notify_owner: Optional[Callable[[str], Any]] = None,
-                              route_answer: Optional[Callable[[dict], bool]] = None) -> None:
+                              route_answer: Optional[Callable[[dict], bool]] = None,
+                              roadmap_fn: Optional[Callable[[], str]] = None) -> None:
     def require_owner(request: Request) -> None:
         if (identity_fn(request) or {}).get("role") != "owner":
             raise HTTPException(403, "Owner access required")
@@ -981,7 +1008,8 @@ def install_owner_desk_routes(app, store: QuestionStore, identity_fn: Callable[[
             status = status_fn() or {}
         except Exception:
             status = {}
-        books = [{**localize_runbook(r, lang), "status": status_detail(status.get(r["id"]) or {"state": "unknown", "detail": ""}, lang)}
+        roadmap = roadmap_states(roadmap_fn)
+        books = [{**localize_runbook(r, lang), "status": status_detail(_merged_status(status.get(r["id"]), r["id"], roadmap), lang)}
                  for r in RUNBOOKS]
         return {"runbooks": books, "lang": lang, "questions": store.list(), "answer_mode": "worker_between_tasks"}
 

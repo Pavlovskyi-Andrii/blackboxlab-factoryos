@@ -220,7 +220,10 @@ def test_routes_and_auth():
         assert exc.status_code == 401
     data = desk(owner)
     by_id = {b["id"]: b for b in data["runbooks"]}
-    assert by_id["T-506"]["status"]["state"] == "done" and by_id["T-520"]["status"]["state"] == "unknown"
+    # 2026-11-17: no live fact -> the ROADMAP checkbox decides; an open task is "todo", never "unknown".
+    assert by_id["T-506"]["status"]["state"] == "done" and by_id["T-520"]["status"]["state"] == "todo"
+    assert od._fallback_status("T-591-H", od.roadmap_states(lambda: "- [x] [HUMAN] T-591-H Live")) == {"state": "done", "detail": ""}
+    assert od.roadmap_states(lambda: "- [x] [HUMAN] T-9-H a\n- [ ] [HUMAN] T-9-H b") == {"T-9-H": False}
     assert data["lang"] == "ru" and by_id["T-506"]["title"] == od.RUNBOOK_BY_ID["T-506"]["title"]
     assert by_id["T-521"]["status"] == {"state": "blocked", "detail": "Ждёт T-520"}
     for lang, title in (("en", "Connect the owner's Telegram bot"), ("uk", "Підключити Telegram-бота власника"), ("xx", od.RUNBOOK_BY_ID["T-506"]["title"])):
@@ -244,7 +247,7 @@ def test_routes_and_auth():
     app2 = _FakeApp()
     od.install_owner_desk_routes(app2, store, lambda r: {"role": "owner"}, authorize_worker=lambda r: False,
                                  status_fn=lambda: 1 / 0)
-    assert app2.routes[("GET", "/api/factory/owner-desk")](owner)["runbooks"][0]["status"]["state"] == "unknown"
+    assert app2.routes[("GET", "/api/factory/owner-desk")](owner)["runbooks"][0]["status"]["state"] in ("todo", "done")  # status_fn failed: ROADMAP fallback, never "unknown"
 
 
 def test_selftest_round_trip():

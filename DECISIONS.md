@@ -1942,3 +1942,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   session gets HTTP 401 on owner APIs and therefore did not re-read R-0087 itself; the owner's screen is the evidence.
 - **Duplicate T-645-H.** Two open lines had the same id (the older "owner provides MP3s" and the newer "Gemini voicing,
   owner approves"). The older one is superseded by the owner's 2026-11-16 Gemini decision and was removed.
+- **T-592 without manual comparison.** `telegram_web_compare.TelegramViewLog` (`DATA_DIR/telegram_views.json`) records,
+  after the Bot API accepted a ticket detail (🔄 / `/task`) or a worker notice, only: ticket id, UTC time, kind, stage,
+  run_id, last contact and whether each value literally appears in the sent text. No chat id, no text. The comparison
+  uses detail views only (notices do not print run_id). A difference caused by a ticket change after the message is
+  `outdated` (press 🔄 again), not a bug; a difference for an unchanged ticket, or a value missing from the Telegram
+  text, is `mismatch`. T-592-H is done only when the server says `match` and the owner pressed «Совпадает».
+- **Owner desk never shows "unknown".** A runbook without a live fact takes its state from the ROADMAP checkbox
+  (open → todo, «Ждёт вас»), and a checked ROADMAP line closes a task even if the live fact still says todo.
