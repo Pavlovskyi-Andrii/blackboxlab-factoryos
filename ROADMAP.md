@@ -802,7 +802,7 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Need: owner picks the pilot and the outreach channel, talks to people personally (FactoryOS sends nothing), records 10 substantive consented feedback records, approves or declines the first V2 proposal and, after the merged PR, releases v2 and asks the original participants to retest. Runbook in Worker Center → «Ваши задачи».
   DONE: `/api/mvp-evolution/<pilot>` shows `cohort.first_target_met: true` on real data and an owner decision on a proposal.
 
-- [ ] T-631 Product Evolution S2 — versioned worker contracts for the 13 logical roles of #270 §2
+- [x] T-631 Product Evolution S2 — versioned worker contracts for the 13 logical roles of #270 §2
   Owner: claude (session MVP beta)
   Priority: P2
   Depends: T-630

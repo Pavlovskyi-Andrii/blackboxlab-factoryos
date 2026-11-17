@@ -1724,6 +1724,32 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - `mybrief.FeedbackStore.consented_entries()` was added for the import (entries without withdraw hashes); the app now
   keeps the MyBrief store in `MYBRIEF_FEEDBACK` so both use one instance.
 
+## 2026-11-17 — T-631 Product Evolution S2: worker contracts for the 13 logical roles (#270 §2)
+
+- The role list in #270 §2 could not be read from the EC2 worker (`gh` and the FactoryOS `web_read` are denied there).
+  The 13 roles are reconstructed from the ROADMAP goal ("Idea/Research … Product Manager"), the T-630 envelope
+  ("Product Manager" → "UI/Builder Worker") and the `mvp_factory.ROLE` / `mvp_cycle.AGENTS` stages: idea_research,
+  market_analyst, spec_writer, ux_designer, architect, ui_builder, backend_builder, qa_tester, security_reviewer,
+  release_manager, promoter, feedback_synthesis, product_manager. Reversible: if #270 §2 names them differently, rename
+  the ids and bump each changed contract's `version`; the tests check shape and gates, not the names (except the first
+  and last role and the two T-630 envelope labels).
+- One pure module, `mvp_contracts.py` (`schema: mvp-worker-contract/1`). Every role maps to one of the five existing
+  `mvp_cycle.AGENTS` (engine copied from there and checked), so no runtime process, store, route or paid service is added.
+  `module` names the existing code that does the work today (e.g. `mvp_evolution.synthesize`).
+- Gates: no contract may hold an owner-only action (approve/decline/release/verdict/publish/spend/delete feedback) or
+  an owner/member action (hand-off, ship, queue build, open preview); `authorize` refuses them with 403 even if a role
+  asks. `owner_gate` (spec_writer, release_manager, promoter, product_manager) blocks every downstream role until the
+  owner's approval is recorded. This mirrors `mvp_factory.AGENT_FORBIDDEN_TARGETS` and the T-630 owner gates.
+- The V2 loop would make Depends cyclic (PM → builder → … → PM), so Depends stays a DAG for V1 and builder roles carry
+  `loop_from: [product_manager]`, used from iteration 2: a V2 build needs a done and owner-approved PM proposal.
+- `ContractRun` is an in-memory state machine for one task; the caller (Relay, T-632) keeps persistence. One active claim;
+  the same worker + run_id re-claiming is idempotent; anything else is `duplicate_claim` (409). A failed run_id can't come
+  back (`stale_run`). Failure, invalid output, invalid evidence and timeout are all failed attempts: back to `queued`
+  while attempts ≤ `retries`, then the contract's `error_state`. `done` needs a valid output and valid audit evidence,
+  and `relay_run` evidence must equal the claiming run_id. As in `mvp_factory`, only the evidence link shape is checked.
+- Defaults: retries 2, timeout 1 h (research 30 min, builders 4 h, synthesis 10 min), error state `blocked` (QA/security
+  `failed`, owner-gated roles `needs_owner`).
+
 ## 2026-11-15 — T-590 / T-591 / T-592 / T-593 P0 tails: verifiable live acceptance
 
 - The live DONE of T-590/T-591 ("real Telegram message → claim → running → evidence → owner reply") is judged by
