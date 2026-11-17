@@ -54,6 +54,8 @@ ARMS = ("a1", "a2", "b1", "b2")
 DUEL_ID_RE = re.compile(r"^D-\d{4}$")
 MAX_DUELS = 30
 START_HOLD = 120
+MAX_VIDEO = 80 * 1024 * 1024   # one take; product-film's 1080p web cut is a few MB
+FILM_ROOT = "/tmp/factoryos-films"   # where the worker's product-film run leaves its film (never committed)
 URL_RE = re.compile(r"^(https?://[^\s<>\"']{3,500}|/[A-Za-z0-9/_.?=&%-]{1,300})$")
 
 
@@ -193,7 +195,10 @@ def ticket_body(duel: dict, arm: str) -> str:
             "/product-film:product-film (он загружен в этот запуск).\n"
             f"Это вариант {arm[-1]} из 2: второй дубль B должен отличаться маршрутом или подачей "
             "(например, B1 — walkthrough в kinetic-стиле, B2 — reel или paper collage).\n"
-            f"Папка фильма: /tmp/factoryos-films/{duel['id']}-{arm}/. Видео в git не коммитить.\n"
+            f"Папка фильма: {FILM_ROOT}/{duel['id']}-{arm}/. Готовый ролик сохрани ровно как "
+            f"{FILM_ROOT}/{duel['id']}-{arm}/final.mp4 (H.264 MP4, 9:16, до 80 МБ): воркер сам загрузит его в "
+            "FactoryOS, где владелец смотрит и оценивает дубль. Видео в git не коммитить.\n"
+            "Ролик должен быть настоящим рендером: не подставляй заглушки, пустые кадры или чужие видео.\n"
             "Ничего не публиковать и не загружать во внешние сервисы, платные API и покупки запрещены.\n"
             "Если нет Node 18+, ffmpeg или Playwright — верни BLOCKED и назови, чего не хватает.\n"
             "В итоговом ответе: пути к MP4, постеру и review-странице.\n\n"
@@ -239,6 +244,12 @@ def view(data: dict) -> dict:
     return {"mods": mods, "runs_total": len(runs), "recent_runs": last}
 
 
+def check_video(data: bytes) -> dict:
+    """Watchable MP4 only: whole-file box structure, a video track and a positive duration (autopilot/mp4_check)."""
+    from autopilot.mp4_check import inspect
+    return inspect(data)
+
+
 def duel_view(duel: dict, live: Callable[[str, str], Optional[dict]]) -> dict:
     arms = []
     for a in ARMS:
@@ -246,6 +257,10 @@ def duel_view(duel: dict, live: Callable[[str, str], Optional[dict]]) -> dict:
         ref = row.get("job_id") or row.get("ticket_id") or ""
         row.update(id=a, tool=arm_tool(duel, a), live=live(a, ref) if ref else None)
         row.pop("starting", None)
+        video = row.get("video")
+        if isinstance(video, dict):
+            row["video"] = {k: video.get(k) for k in ("size", "sha256", "duration", "at", "by")}
+            row["video_url"] = f"/api/factory/mods/duels/{duel['id']}/arms/{a}/video?v={str(video.get('sha256'))[:12]}"
         arms.append(row)
     return {"id": duel["id"], "title": duel["title"], "brief": duel["brief"], "factory_tool": duel["factory_tool"],
             "created_at": duel["created_at"], "arms": arms, "verdict": verdict(duel)}
@@ -286,7 +301,8 @@ def worker_plan(store: ModsStore) -> dict:
 def install_mods_routes(app, store: ModsStore, *, identity: Callable, worker_auth: Callable[[Request], bool],
                         create_job: Optional[Callable] = None, create_ticket: Optional[Callable] = None,
                         job_state: Optional[Callable[[str], Optional[dict]]] = None,
-                        ticket_state: Optional[Callable[[str], Optional[dict]]] = None) -> None:
+                        ticket_state: Optional[Callable[[str], Optional[dict]]] = None,
+                        media_dir: Optional[Path] = None) -> None:
     """create_job(title, brief, fmt) -> awaitable job id; create_ticket(title, body, source_key) -> ticket id.
     job_state / ticket_state(id) -> small dict or None, shown live on each duel arm."""
     def owner(request: Request) -> str:
@@ -428,11 +444,117 @@ def install_mods_routes(app, store: ModsStore, *, identity: Callable, worker_aut
         def fn(data):
             row = duel_or_404(data, duel_id)["arms"][arm]
             after = {**row, **patch}
-            if after.get("score") is not None and not (after.get("job_id") or after.get("ticket_id") or after.get("result_url")):
+            if after.get("score") is not None and not (after.get("job_id") or after.get("ticket_id") or after.get("result_url")
+                                                       or after.get("video")):
                 raise HTTPException(409, "start the take or add its link before scoring it")
             row.update(patch)
         store.change(fn)
         return full_view()
+
+    def media_root() -> Path:
+        if media_dir is None:
+            raise HTTPException(503, "this server stores no duel videos")
+        return Path(media_dir)
+
+    async def read_capped(stream) -> bytes:
+        chunks, size = [], 0
+        async for chunk in stream:
+            size += len(chunk)
+            if size > MAX_VIDEO:
+                raise HTTPException(413, "video larger than 80 MB")
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    def store_video(duel_id: str, arm: str, data: bytes, by: str, ticket: str = "") -> None:
+        """Each upload is an immutable file named by its sha256; the take switches to it in one locked metadata
+        write. Concurrent uploads therefore never pair one file with another's hash, and a failed metadata write
+        leaves the previous take intact (Codex review on #409)."""
+        import hashlib
+        info = check_video(data)
+        if not info["ok"]:
+            raise HTTPException(422, info["reason"])
+
+        def check(data_):
+            row = duel_or_404(data_, duel_id)["arms"][arm_ok(arm)]
+            if ticket and row.get("ticket_id") != ticket:
+                raise HTTPException(409, "ticket does not belong to this take")
+            return row
+        store.change(check)
+        sha = hashlib.sha256(data).hexdigest()
+        name = f"{duel_id}-{arm}-{sha[:16]}.mp4"
+        root = media_root()
+        root.mkdir(parents=True, exist_ok=True)
+        final = root / name
+        if not final.exists():
+            tmp = root / f".{name}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+            tmp.write_bytes(data)
+            os.replace(tmp, final)
+        meta = {"size": len(data), "sha256": sha, "duration": info["duration"], "at": _now(), "by": by, "file": name}
+        old = {}
+
+        def switch(data_):
+            row = check(data_)
+            old.update(row.get("video") or {})
+            row["video"] = meta
+        store.change(switch)
+        stale = old.get("file")
+        if stale and stale != name:
+            try:
+                (root / stale).unlink()
+            except OSError:
+                pass
+
+    @app.post("/api/factory/mods/duels/{duel_id}/arms/{arm}/video")
+    async def duel_video_owner_upload(duel_id: str, arm: str, request: Request):
+        """Owner uploads a take made anywhere (e.g. an A take from Media Finisher) as one MP4 file."""
+        owner(request)
+        arm_ok(arm)
+        try:   # refuse before the multipart parser spools anything to disk
+            length = int(request.headers.get("content-length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            raise HTTPException(411, "content-length required")
+        if length > MAX_VIDEO + 64 * 1024:
+            raise HTTPException(413, "video larger than 80 MB")
+        try:
+            form = await request.form(max_files=1, max_fields=5, max_part_size=MAX_VIDEO)
+        except TypeError:   # test doubles without parser limits
+            form = await request.form()
+        upload = form.get("file")
+        if upload is None or not hasattr(upload, "read"):
+            raise HTTPException(422, "file required")
+        data = b""
+        while True:
+            chunk = await upload.read(1024 * 1024)
+            if not chunk:
+                break
+            data += chunk
+            if len(data) > MAX_VIDEO:
+                raise HTTPException(413, "video larger than 80 MB")
+        store_video(duel_id, arm, data, "owner")
+        return full_view()
+
+    @app.get("/api/factory/mods/duels/{duel_id}/arms/{arm}/video")
+    def duel_video(duel_id: str, arm: str, request: Request):
+        owner(request)
+        arm_ok(arm)
+        video = duel_or_404(store.read(), duel_id)["arms"][arm].get("video") or {}
+        name = str(video.get("file") or "")
+        path = media_root() / name if re.fullmatch(r"D-\d{4}-[ab][12]-[0-9a-f]{16}\.mp4", name) else None
+        if path is None or not path.is_file():
+            raise HTTPException(404, "no video for this take")
+        from fastapi.responses import FileResponse
+        return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=86400"})
+
+    @app.post("/api/mods/worker/duels/{duel_id}/arms/{arm}/video")
+    async def duel_video_worker_upload(duel_id: str, arm: str, request: Request, ticket: str = ""):
+        """The worker's runner (not the agent) uploads the product-film render of a B take it ran."""
+        worker(request)
+        if arm_ok(arm)[0] != "b" or not re.fullmatch(r"R-\d{4,}", ticket or ""):
+            raise HTTPException(422, "a B take and its Relay ticket are required")
+        store_video(duel_id, arm, await read_capped(request.stream()), "worker", ticket)
+        return {"ok": True}
 
     @app.get("/api/mods/worker/plan")
     def mods_worker_plan(request: Request):

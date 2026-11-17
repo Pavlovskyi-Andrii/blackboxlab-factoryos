@@ -336,7 +336,171 @@ def test_video_duel():
     require("starting" not in store2.read()["duels"]["D-0001"]["arms"]["a1"], "failed start must release the arm")
 
 
-TESTS = [test_video_duel, test_runtime_resolve_fails_closed, test_runtime_flags_prompt_and_tools, test_runtime_reports_runs,
+def _box(kind, payload=b""):
+    import struct
+    return struct.pack(">I", 8 + len(payload)) + kind + payload
+
+
+def make_mp4(handler=b"vide", seconds=2, media=b"\x00" * 32, salt=b""):
+    """A minimal but structurally real MP4: ftyp, moov (mvhd + trak/mdia/hdlr) and a non-empty mdat."""
+    import struct
+    mvhd = b"\x00" * 12 + struct.pack(">II", 1000, seconds * 1000) + b"\x00" * 80
+    hdlr = b"\x00" * 8 + handler + b"\x00" * 12 + b"\x00"
+    moov = _box(b"moov", _box(b"mvhd", mvhd) + _box(b"trak", _box(b"mdia", _box(b"hdlr", hdlr))))
+    return _box(b"ftyp", b"isom\x00\x00\x00\x00isom") + moov + _box(b"mdat", media + salt)
+
+
+MP4 = make_mp4()
+
+
+class Upload:
+    def __init__(self, data):
+        self.data = data
+
+    async def read(self, n=-1):
+        out, self.data = self.data[:n], self.data[n:]
+        return out
+
+
+class VReq(Req):
+    def __init__(self, *, data=b"", form=None, length=None, **kw):
+        super().__init__(**kw)
+        self._data, self._form = data, form
+        self.headers = {} if length is None else {"content-length": str(length)}
+
+    async def stream(self):
+        for i in range(0, len(self._data), 7):
+            yield self._data[i:i + 7]
+
+    async def form(self, **limits):
+        return self._form or {}
+
+
+def test_mp4_check():
+    from autopilot.mp4_check import inspect
+    require(inspect(MP4) == {"ok": True, "reason": "", "duration": 2.0}, inspect(MP4))
+    for name, data in (("forged header", b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64),
+                       ("truncated", MP4[:-10]), ("audio only", make_mp4(b"soun")), ("no duration", make_mp4(seconds=0)),
+                       ("no media", make_mp4(media=b"")), ("text", b"definitely not a video"),
+                       ("trailing garbage", MP4 + b"\x01\x02\x03")):
+        require(not inspect(data)["ok"], f"{name} accepted as a watchable MP4")
+
+
+def test_duel_video_takes():
+    import hashlib
+    import mods_registry
+    tickets = []
+    media = Path(tempfile.mkdtemp(prefix="factoryos-duel-media-"))
+    store, h = make(create_ticket=lambda t, b, k: tickets.append((t, b, k)) or f"R-{len(tickets):04d}",
+                    ticket_state=lambda t: {"execution": "running"}, media_dir=media)
+    run(h[("POST", "/api/factory/mods/{mod_id}")]("product-film", Req({"enabled": True})))
+    run(h[("POST", "/api/factory/mods/duels")](Req({"title": "T", "brief": "B"})))
+    run(h[("POST", "/api/factory/mods/duels/{duel_id}/arms/{arm}/start")]("D-0001", "b1", Req()))
+    require("/tmp/factoryos-films/D-0001-b1/final.mp4" in tickets[0][1] and "настоящим рендером" in tickets[0][1],
+            "B ticket must name the exact file the runner uploads")
+    wup = h[("POST", "/api/mods/worker/duels/{duel_id}/arms/{arm}/video")]
+    oup = h[("POST", "/api/factory/mods/duels/{duel_id}/arms/{arm}/video")]
+    get = h[("GET", "/api/factory/mods/duels/{duel_id}/arms/{arm}/video")]
+    require(status_of(wup, "D-0001", "b1", VReq(data=MP4), "R-0001") == 401, "worker upload without token")
+    require(status_of(wup, "D-0001", "b1", VReq(data=MP4, worker=True), "R-0009") == 409, "upload for a foreign ticket")
+    require(status_of(wup, "D-0001", "a1", VReq(data=MP4, worker=True), "R-0001") == 422, "worker uploads only B takes")
+    for bad in (b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64, MP4[:-10], make_mp4(b"soun")):
+        require(status_of(wup, "D-0001", "b1", VReq(data=bad, worker=True), "R-0001") == 422,
+                "a forged, truncated or audio-only file must be refused (no fake takes)")
+    big = MP4 + b"\x00" * mods_registry.MAX_VIDEO
+    require(status_of(wup, "D-0001", "b1", VReq(data=big, worker=True), "R-0001") == 413, "over 80 MB accepted")
+    require(not any(media.iterdir()) if media.exists() else True, "a refused upload left a file")
+    run(wup("D-0001", "b1", VReq(data=MP4, worker=True), "R-0001"))
+    b1 = next(a for a in h[("GET", "/api/factory/mods")](Req())["duels"][0]["arms"] if a["id"] == "b1")
+    require(b1["video"]["sha256"] == hashlib.sha256(MP4).hexdigest() and b1["video"]["by"] == "worker"
+            and b1["video"]["duration"] == 2.0 and "file" not in b1["video"], b1)
+    require(status_of(get, "D-0001", "b1", Req(role="viewer")) == 403, "viewer can fetch a take")
+    require(Path(get("D-0001", "b1", Req()).path).read_bytes() == MP4, "served bytes differ")
+    # A second take replaces the first as one switch: served bytes always match the recorded hash; the old file goes.
+    second = make_mp4(salt=b"second take")
+    run(wup("D-0001", "b1", VReq(data=second, worker=True), "R-0001"))
+    meta = store.read()["duels"]["D-0001"]["arms"]["b1"]["video"]
+    served = Path(get("D-0001", "b1", Req()).path).read_bytes()
+    require(served == second and hashlib.sha256(served).hexdigest() == meta["sha256"], "file and metadata disagree")
+    require(sorted(p.name for p in media.iterdir()) == [meta["file"]], "the replaced take's file was not removed")
+    # A failed metadata write leaves the previous take intact.
+    real_change = store.change
+
+    def failing_change(fn):
+        if fn.__name__ == "switch":
+            raise OSError("disk full")
+        return real_change(fn)
+    store.change = failing_change
+    try:
+        failed = False
+        try:
+            run(wup("D-0001", "b1", VReq(data=make_mp4(salt=b"third"), worker=True), "R-0001"))
+        except OSError:
+            failed = True
+        require(failed, "a failed metadata write must surface as an error")
+    finally:
+        store.change = real_change
+    require(Path(get("D-0001", "b1", Req()).path).read_bytes() == second, "a failed switch broke the current take")
+    require(status_of(get, "D-0001", "a2", Req()) == 404, "missing take must 404")
+    # Owner upload: size is refused before parsing; a take with a video can be scored without being started.
+    require(status_of(oup, "D-0001", "a2", VReq(form={"file": Upload(MP4)}, role="member", length=len(MP4))) == 403,
+            "member uploaded")
+    require(status_of(oup, "D-0001", "a2", VReq(form={"file": Upload(MP4)})) == 411, "upload without length accepted")
+    require(status_of(oup, "D-0001", "a2", VReq(form={"file": Upload(MP4)}, length=mods_registry.MAX_VIDEO * 2)) == 413,
+            "oversized multipart body parsed")
+    require(status_of(oup, "D-0001", "a2", VReq(form={}, length=10)) == 422, "upload without a file accepted")
+    v = run(oup("D-0001", "a2", VReq(form={"file": Upload(MP4)}, length=len(MP4) + 200)))
+    require(next(a for a in v["duels"][0]["arms"] if a["id"] == "a2")["video"]["by"] == "owner", "owner upload not recorded")
+    v = run(h[("POST", "/api/factory/mods/duels/{duel_id}/arms/{arm}")]("D-0001", "a2", Req({"score": 4})))
+    require(next(a for a in v["duels"][0]["arms"] if a["id"] == "a2")["score"] == 4, "a take with a video cannot be scored")
+
+
+def test_runner_uploads_duel_render():
+    import time as _t
+    root = Path(tempfile.mkdtemp(prefix="factoryos-films-"))
+    folder = root / "D-0001-b2"
+    (folder / "out").mkdir(parents=True)
+    (folder / "out" / "small.mp4").write_bytes(MP4)
+    (folder / "out" / "web.mp4").write_bytes(make_mp4(salt=b"bigger cut " * 10))
+    (folder / "fake.mp4").write_bytes(b"x" * 5000)                      # largest file, but not an MP4
+    (folder / "audio.mp4").write_bytes(make_mp4(b"soun", salt=b"a" * 3000))   # large, but no video track
+    require(rt.pick_film(folder).name == "web.mp4", "picked a non-video or the smaller cut")
+    (folder / "final.mp4").write_bytes(MP4)
+    require(rt.pick_film(folder).name == "final.mp4", "final.mp4 must win")
+    sent = []
+
+    class R:
+        status_code = 200
+    ticket = {"id": "R-0007", "source": {"channel": "mods-duel", "source_key": "mods-duel:D-0001:b2"}}
+    os.environ.update(FACTORYOS_URL="https://factory.example", FACTORY_CLAUDE_WORKER_TOKEN="t" * 40)
+    try:
+        post = lambda url, **k: sent.append((url, k)) or R()
+        since = _t.time() - 60
+        note = rt.upload_duel_video(ticket, status="done", since=since, post=post, root=root)
+        url, k = sent[0]
+        require(url == "https://factory.example/api/mods/worker/duels/D-0001/arms/b2/video" and k["params"] == {"ticket": "R-0007"}
+                and k["data"] == MP4 and "uploaded" in note, (url, note))
+        # A failed retry, or a run that started after the render was written, uploads nothing.
+        sent.clear()
+        require("nothing uploaded" in rt.upload_duel_video(ticket, status="failed", since=since, post=post, root=root)
+                and not sent, "a failed ticket uploaded a take")
+        require("no watchable MP4" in rt.upload_duel_video(ticket, status="done", since=_t.time() + 60, post=post, root=root)
+                and not sent, "an earlier render was uploaded as this run's take")
+        require(rt.upload_duel_video({"id": "R-1", "source": {"source_key": "roadmap:T-1"}}, root=root) == "",
+                "non-duel tickets must be ignored")
+        orig = rt.pick_film
+        rt.pick_film = lambda *a, **k: (_ for _ in ()).throw(PermissionError("gone"))
+        try:
+            require("failed: PermissionError" in rt.upload_duel_video(ticket, since=since, post=post, root=root),
+                    "an unreadable film must not raise into the runner")
+        finally:
+            rt.pick_film = orig
+    finally:
+        os.environ.pop("FACTORYOS_URL", None)
+        os.environ.pop("FACTORY_CLAUDE_WORKER_TOKEN", None)
+
+
+TESTS = [test_mp4_check, test_duel_video_takes, test_runner_uploads_duel_render, test_video_duel, test_runtime_resolve_fails_closed, test_runtime_flags_prompt_and_tools, test_runtime_reports_runs,
          test_vendored_plugins, test_no_binaries_or_external_publishing, test_pstack_bundle_is_complete,
          test_defaults_and_owner_only, test_toggle_history_and_worker_plan, test_runs_compare_and_uses,
          test_unreadable_state_fails_safe, test_dashboard_wiring]

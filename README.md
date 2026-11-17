@@ -27,6 +27,14 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.12.0 — Watchable video duel, releases for every version, main restored — 2026-11-17
+- **Video duel** (T-MODS-E): every take plays in its card (9:16 player); the worker's runner uploads the product-film
+  render of a B take, the owner can upload any take; only a real MP4 up to 80 MB is kept, with size, sha256 and
+  uploader shown under the player; 1–5 stars to score.
+- **Releases:** v5.9.0 published on #252, so every version from v5.6 to v5.11.0 has a GitHub Release (#407, #408).
+- **Repository:** `main` restored to v5.11.0 after an activity-generator overwrite; `main` is now protected against
+  force pushes and deletion (owner ruleset, 2026-11-17).
+
 ### v5.11.0 — Surfer for AI agents, Content making-of, guides in RU/UK, MyCast demo voices — 2026-11-16
 - **Surfer:** live benchmark of 33 real read tasks and fixes so any AI can use it mid-project: main page text without
   menus, links, HTTP status, long pages in chunks, hints for every blocker, anti-bot pages reported as needing a

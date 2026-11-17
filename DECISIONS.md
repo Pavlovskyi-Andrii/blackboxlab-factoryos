@@ -1936,4 +1936,17 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   imports the class under `__main__`, so no workflow edit is needed (same route as T-596).
 - The "CI-gated PR" part of DONE is the normal `autopilot/aws-worker` → `main` PR. This worker has no `gh`, so the
   commit reaches CI there. The checkbox is set because the code and test parts of DONE are green locally.
+## 2026-11-17 — T-MODS-E Video duel takes are real files you watch and score in the card
+
+- Owner: the takes looked simulated and could not be watched from the phone. A take is now an MP4 stored on the
+  FactoryOS disk (`DATA_DIR/mods_media/<duel>-<arm>.mp4`) and served only to the owner session; the card plays it
+  inline. Only files with an ISO-BMFF `ftyp` box up to 80 MB are accepted; size, sha256, date and uploader
+  (worker / owner) are shown under the player, so a placeholder or text file cannot pass as a take.
+- The worker token is scrubbed from the agent's environment on purpose, so the agent never uploads. The Relay
+  runner does it after a `mods-duel` ticket: it takes `/tmp/factoryos-films/<duel>-<arm>/final.mp4` (the ticket now
+  names this exact path), or the largest real MP4 in that folder for tickets created earlier (R-0084), and posts it
+  with the worker token; the server checks the ticket belongs to that B take. A missing render is logged as such.
+- The owner can upload any take (e.g. an A take finished in Media Finisher); a take with a video can be scored even
+  if it was never started here. Stars 1–5 replace the select; the link field moved under «Ссылка вместо файла».
+- Not verified: a real product-film render on the EC2 worker (Node/ffmpeg/Playwright there are still unchecked).
 
