@@ -8,7 +8,8 @@ Rules
 - The quiz is optional and asks for consent; without `consent: true` nothing is stored.
 - One answer per participant per quiz version: a signed-in listener counts once; an anonymous visitor is keyed by a
   per-day hash of the client address (never stored in clear). Per-client and global daily caps.
-- Only answers from people who actually used the product count toward a theme (`q_use` != "not_yet").
+- Only signed-in listeners who actually used the product count toward a theme (`q_use` != "not_yet"): an anonymous
+  identity rotates daily and cannot be a unique person for the threshold. Anonymous answers are kept as feedback.
 - Threshold (owner default): at least MIN_PEOPLE unique people support the theme, at least MIN_SHARE of the version's
   sample, and contrary answers below half the support. Synthetic data never counts and never reaches Relay.
 - Auto hand-off is on by default and has a kill switch (FACTORY_QUIZ_AUTO_V2=0): then proposals wait for the owner.
@@ -248,7 +249,9 @@ class QuizService:
         if email and (not contact or not EMAIL_RE.match(email)):
             raise QuizError("bad_email" if contact else "contact_consent_required")
         themes, contra = [], []
-        used = chosen.get("q_use", [""])[0] != "not_yet"
+        # Codex review #412: an anonymous identity rotates daily, so one person could count as many. Only signed-in
+        # listeners (one stable identity per quiz version) and people who actually used MyCast shape themes.
+        used = bool(listener) and chosen.get("q_use", [""])[0] != "not_yet"
         if used:
             for q in quiz["questions"]:
                 for oid in chosen.get(q["id"], []):
@@ -298,7 +301,8 @@ class QuizService:
                                        "status": "held_flag_off" if not _flag("FACTORY_QUIZ_MAIL") else "held_no_provider"})
             self._save(data)
         actions = self.analyze(pid)
-        return {"id": sid, "counted": used, "reward": reward, "analyst": actions,
+        return {"id": sid, "counted": used, "reason": "" if used else ("sign_in_to_count" if not listener else "not_used_yet"),
+                "reward": reward, "analyst": actions,
                 "stored": ["answers", "free_text"] + (["email"] if email else [])}
 
     def _reward(self, data: dict, sid: str, listener: str) -> dict[str, Any]:
@@ -322,6 +326,16 @@ class QuizService:
         version = view["current_version"]
         taken = {p.get("theme") for p in view["proposals"] if p["state"] != "declined" and p["from_version"] == version}
         actions = []
+        if cfg["auto_handoff"] and self.create_ticket:  # retry a hand-off that failed earlier (e.g. Relay down)
+            for p in view["proposals"]:
+                if p["state"] == "proposed" and p.get("proposed_by") == "agent" and p.get("theme") in THEMES \
+                        and p["from_version"] == version and not p.get("synthetic"):
+                    try:
+                        done = self.evo.policy_handoff(pid, p["id"], policy=POLICY, evidence={"retry": True, "theme": p["theme"]},
+                                                       create_ticket=self.create_ticket)["proposal"]
+                        actions.append({"theme": p["theme"], "proposal": p["id"], "handoff": "handed_off", "ticket": done["ticket_id"], "retry": True})
+                    except EvolutionError as exc:
+                        actions.append({"theme": p["theme"], "proposal": p["id"], "error": exc.code, "retry": True})
         for th in view["themes"].get(version, []):
             name = th["theme"]
             if name not in THEMES or name in taken:

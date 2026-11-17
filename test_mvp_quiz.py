@@ -124,6 +124,35 @@ class QuizTest(Base):
         self.t[0] += 86400
         self.answer(9, client="shared")
 
+    def test_anonymous_repeats_across_days_never_reach_the_threshold(self):
+        # Codex review #412: an anonymous id rotates daily, so one person on 12 days must not become 12 supporters.
+        for day in range(12):
+            out = self.svc.submit("mycast", body(), client="same-person", listener="")
+            self.assertEqual((out["counted"], out["reason"]), (False, "sign_in_to_count"))
+            self.t[0] += 86400
+        view = self.evo.view("mycast")
+        self.assertEqual(len(view["feedback"]), 12)
+        self.assertEqual(view["themes"]["v1"], [])
+        self.assertEqual(self.relay.tickets, {})
+        self.assertEqual(self.svc.analyze("mycast"), [])
+
+    def test_malformed_relay_answer_is_not_saved_as_a_handoff(self):
+        for i in range(9):
+            self.answer(i)
+        good = self.svc.create_ticket
+        self.svc.create_ticket = lambda **kw: {"status": "inbox"}  # no id
+        out = self.answer(9)
+        self.assertEqual(out["analyst"][0]["error"], "relay_failed")
+        prop = self.evo.view("mycast")["proposals"][0]
+        self.assertEqual((prop["state"], prop["ticket_id"]), ("proposed", None))
+        self.svc.create_ticket = good  # Relay is back: the next analyst pass retries the same proposal once
+        retry = self.answer(10)["analyst"]
+        self.assertEqual((retry[0]["retry"], retry[0]["handoff"], retry[0]["ticket"]), (True, "handed_off", "R-0001"))
+        self.assertEqual(self.answer(11)["analyst"], [])
+        self.assertEqual(len(self.relay.tickets), 1)
+        with self.assertRaises(EvolutionError):
+            self.evo.decide("mycast", "pr-404", {"action": "handoff"}, actor_role="owner", create_ticket=lambda **kw: {})
+
     # --- analyst ---------------------------------------------------------------------------------------------------
     def test_threshold_creates_one_proposal_and_one_ticket(self):
         for i in range(9):
@@ -298,7 +327,10 @@ class PageAndWiringTest(unittest.TestCase):
     def test_app_wiring(self):
         app = (ROOT / "app.py").read_text(encoding="utf-8")
         self.assertIn("install_mvp_quiz_routes(", app)
-        self.assertIn('"/api/mycast/quiz")', app)
+        # Codex review #412: exactly one public path, not a prefix that would also open /api/mycast/quiz-admin
+        prefixes = re.search(r"public_prefixes = \((.*?)\)", app).group(1)
+        self.assertNotIn("/api/mycast/quiz", prefixes)
+        self.assertIn('public_paths = {"/api/mycast/quiz", ', app)
         self.assertIn("grant_days=MYCAST_LISTENERS.grant_bonus", app)
         self.assertIn("create_ticket=_mvp_evolution_ticket", app)
 

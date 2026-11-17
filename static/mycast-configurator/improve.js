@@ -8,15 +8,15 @@
   if (!root) return;
   var KEY = 'mycast:improve';
   var UI = {
-    uk: {h: 'Допоможіть покращити MyCast', lead: 'Хвилинний квіз: що додати, що прибрати, що змінити. Необов’язково — лише якщо маєте бажання.', start: 'Пройти квіз (1 хв)', next: 'Далі', back: 'Назад', skip: 'Пропустити', send: 'Надіслати', yes: 'Так', no: 'Ні', upTo: 'до двох варіантів',
+    uk: {anon: 'Щоб ваш голос врахувався у рішеннях, увійдіть у MyCast і пройдіть квіз ще раз.', h: 'Допоможіть покращити MyCast', lead: 'Хвилинний квіз: що додати, що прибрати, що змінити. Необов’язково — лише якщо маєте бажання.', start: 'Пройти квіз (1 хв)', next: 'Далі', back: 'Назад', skip: 'Пропустити', send: 'Надіслати', yes: 'Так', no: 'Ні', upTo: 'до двох варіантів',
       consent: 'Погоджуюсь, щоб мої відповіді зберегли для покращення MyCast', email: 'E-mail (необов’язково) — щоб сказати, коли ваше побажання з’явиться', contact: 'Можна написати мені на цей e-mail про MyCast', free: 'Ваші слова (необов’язково)',
       thanks: 'Дякуємо! Ваші відповіді вже в роботі.', gift: 'Вам нараховано {n} днів у подарунок.', signin: 'Увійдіть у MyCast, щоб отримати подарунок за квіз.', giftNote: 'Подарунок за квіз: +{n} днів MyCast для тих, хто увійшов.',
       done: 'Ви вже пройшли цей квіз — дякуємо!', err: 'Не вдалося надіслати. Спробуйте пізніше.', limit: 'Забагато відповідей сьогодні. Спробуйте завтра.', nudge: 'Допоможіть покращити MyCast · 1 хв', close: 'Закрити', step: 'Крок {a} з {b}', changed: 'Квіз оновився — відкрийте його ще раз.'},
-    ru: {h: 'Помогите улучшить MyCast', lead: 'Минутный квиз: что добавить, что убрать, что изменить. Необязательно — только если есть желание.', start: 'Пройти квиз (1 мин)', next: 'Далее', back: 'Назад', skip: 'Пропустить', send: 'Отправить', yes: 'Да', no: 'Нет', upTo: 'до двух вариантов',
+    ru: {anon: 'Чтобы ваш голос учитывался в решениях, войдите в MyCast и пройдите квиз ещё раз.', h: 'Помогите улучшить MyCast', lead: 'Минутный квиз: что добавить, что убрать, что изменить. Необязательно — только если есть желание.', start: 'Пройти квиз (1 мин)', next: 'Далее', back: 'Назад', skip: 'Пропустить', send: 'Отправить', yes: 'Да', no: 'Нет', upTo: 'до двух вариантов',
       consent: 'Согласен(на), чтобы мои ответы сохранили для улучшения MyCast', email: 'E-mail (необязательно) — чтобы сообщить, когда ваше пожелание появится', contact: 'Можно написать мне на этот e-mail о MyCast', free: 'Ваши слова (необязательно)',
       thanks: 'Спасибо! Ваши ответы уже в работе.', gift: 'Вам начислено {n} дней в подарок.', signin: 'Войдите в MyCast, чтобы получить подарок за квиз.', giftNote: 'Подарок за квиз: +{n} дней MyCast для вошедших.',
       done: 'Вы уже прошли этот квиз — спасибо!', err: 'Не удалось отправить. Попробуйте позже.', limit: 'Слишком много ответов сегодня. Попробуйте завтра.', nudge: 'Помогите улучшить MyCast · 1 мин', close: 'Закрыть', step: 'Шаг {a} из {b}', changed: 'Квиз обновился — откройте его ещё раз.'},
-    en: {h: 'Help us improve MyCast', lead: 'A one-minute quiz: what to add, remove or change. Optional — only if you feel like it.', start: 'Take the quiz (1 min)', next: 'Next', back: 'Back', skip: 'Skip', send: 'Send', yes: 'Yes', no: 'No', upTo: 'up to two',
+    en: {anon: 'To have your vote count in decisions, sign in to MyCast and take the quiz again.', h: 'Help us improve MyCast', lead: 'A one-minute quiz: what to add, remove or change. Optional — only if you feel like it.', start: 'Take the quiz (1 min)', next: 'Next', back: 'Back', skip: 'Skip', send: 'Send', yes: 'Yes', no: 'No', upTo: 'up to two',
       consent: 'I agree that my answers are kept to improve MyCast', email: 'E-mail (optional) — so we can tell you when your wish ships', contact: 'You may e-mail me about MyCast at this address', free: 'In your own words (optional)',
       thanks: 'Thank you! Your answers are already in the queue.', gift: '{n} free days were added to your account.', signin: 'Sign in to MyCast to get the quiz gift.', giftNote: 'Quiz gift: +{n} MyCast days for signed-in listeners.',
       done: 'You have already taken this quiz — thank you!', err: 'Could not send. Please try later.', limit: 'Too many answers today. Please try tomorrow.', nudge: 'Help improve MyCast · 1 min', close: 'Close', step: 'Step {a} of {b}', changed: 'The quiz changed — please open it again.'}
@@ -32,7 +32,7 @@
     '@keyframes iqIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(max-width:760px){.iqNudge{bottom:calc(84px + env(safe-area-inset-bottom))}}@media(prefers-reduced-motion:reduce){.iqNudge{animation:none}}';
   var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
 
-  var quiz = null, step = -1, answers = {}, validateAnswer = '', state = 'intro', note = '', reward = null;
+  var lastReason = '', quiz = null, step = -1, answers = {}, validateAnswer = '', state = 'intro', note = '', reward = null;
   function lang() { var l = (document.documentElement.lang || 'uk').slice(0, 2); return UI[l] ? l : 'en'; }
   function u() { return UI[lang()]; }
   function tr(obj) { return (obj && (obj[lang()] || obj.en)) || ''; }
@@ -47,6 +47,7 @@
     var box = el('div', {class: 'iq'}); root.appendChild(box);
     if (state === 'done') {
       box.appendChild(el('p', {class: 'ok', role: 'status'}, note || x.thanks));
+      if (lastReason === 'sign_in_to_count') box.appendChild(el('p', {class: 'meta'}, x.anon));
       if (reward && reward.status === 'granted') box.appendChild(el('p', null, fmt(x.gift, {n: reward.days})));
       else if (reward && reward.status === 'none' && quiz && quiz.rewards_enabled) box.appendChild(el('p', {class: 'meta'}, x.signin));
       return;
@@ -105,7 +106,7 @@
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return {ok: r.ok, status: r.status, j: j}; }); })
         .then(function (res) {
           if (res.ok || res.j.detail === 'already_answered') {
-            reward = res.ok ? res.j.reward : null; note = res.ok ? '' : u().done; state = 'done';
+            reward = res.ok ? res.j.reward : null; lastReason = res.ok ? (res.j.reason || '') : ''; note = res.ok ? '' : u().done; state = 'done';
             mem({done: quiz.version, closed: true}); hideNudge(); render(); return;
           }
           if (res.j.detail === 'quiz_changed') { state = 'intro'; note = u().changed; load(); return; }

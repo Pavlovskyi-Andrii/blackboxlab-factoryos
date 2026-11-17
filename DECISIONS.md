@@ -1909,3 +1909,8 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   version of that header is dropped, so a task never appears twice with different checkbox states (main is where
   tasks are reviewed and checked). A diff3 base section is discarded. Malformed markers → the merge is aborted as before.
 - Anything else conflicted (code, docs, tests) still aborts and reports `conflict`: those need a human or a session.
+- Codex review on #412 (all three fixed): (1) anonymous identities rotate daily, so only signed-in listeners shape
+  themes and the threshold; anonymous answers stay as feedback and the page asks them to sign in for their vote to
+  count. (2) `/api/mycast/quiz` is public as an exact path, not a prefix. (3) a hand-off is saved only with a real
+  Relay id (`R-…`); otherwise nothing changes and the next analyst pass retries it once Relay answers.
+

@@ -143,6 +143,14 @@ def synthesize(feedback: list[dict[str, Any]], version: str) -> list[dict[str, A
     return out
 
 
+def _ticket_id(ticket: Any) -> str:
+    """A hand-off is recorded only with a real Relay id; otherwise nothing is saved and the call can be retried."""
+    tid = str((ticket or {}).get("id") or "") if isinstance(ticket, dict) else ""
+    if not re.fullmatch(r"R-\d{1,8}", tid):
+        raise EvolutionError("relay_failed", 502)
+    return tid
+
+
 def handoff_status(proposal: dict[str, Any], ticket: Optional[dict[str, Any]], verified: bool) -> dict[str, Any]:
     """The #270 task envelope for a handed-off proposal, from Relay facts only."""
     ex = (ticket or {}).get("execution") or {}
@@ -475,7 +483,7 @@ class EvolutionStore:
                         raise EvolutionError("relay_unavailable", 503)
                     ticket = create_ticket(title=f"MVP {pid} {prop['target_version']}: {prop['title']}"[:180],
                                            body=ticket_body(prop), key=f"mvp-evolution:{pid}:{prop['id']}", lane=lane)
-                    prop["state"], prop["ticket_id"], prop["lane"] = "handed_off", str(ticket.get("id") or ""), lane
+                    prop["state"], prop["ticket_id"], prop["lane"] = "handed_off", _ticket_id(ticket), lane
                 elif action == "ship":
                     if not evidence or any(not SHIP_RE.match(e) for e in evidence):
                         raise EvolutionError("ship_evidence_required")
@@ -508,7 +516,7 @@ class EvolutionStore:
             now = self._now()
             prop["decided_by"] = f"policy:{policy}"
             prop["history"].append({"at": now, "state": "approved", "by": f"policy:{policy}", "note": json.dumps(evidence, sort_keys=True)[:300]})
-            prop["state"], prop["ticket_id"], prop["lane"] = "handed_off", str(ticket.get("id") or ""), lane
+            prop["state"], prop["ticket_id"], prop["lane"] = "handed_off", _ticket_id(ticket), lane
             prop["history"].append({"at": now, "state": "handed_off", "by": f"policy:{policy}", "note": ""})
             self._log(proj, f"policy:{policy}", "policy_handoff", prop_id)
             self._save(data)
