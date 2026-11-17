@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import time
 from typing import Any
@@ -240,6 +241,66 @@ def append_answer(task: str, answer: str) -> None:
 RUNNER_CODE_DIRS = ("autopilot/", "browser_runner/")
 
 
+_TASK_HEADER_RE = re.compile(r"^\s*- \[[ xX]\] (?:\[HUMAN\] )?(T-[A-Za-z0-9-]+)")
+
+
+def merge_roadmap_text(text: str) -> str | None:
+    """Resolve conflict blocks in ROADMAP.md: keep both sides' lines (worker notes first, then main's), but a task
+    header (`- [ ] T-…`) that both sides changed is taken from main only, so a task never appears twice with two
+    checkbox states. Returns None when the markers are malformed."""
+    out: list[str] = []
+    lines = text.splitlines(keepends=True)
+    i = 0
+    while i < len(lines):
+        if not lines[i].startswith("<<<<<<< "):
+            out.append(lines[i])
+            i += 1
+            continue
+        ours: list[str] = []
+        theirs: list[str] = []
+        section = ours
+        i += 1
+        while i < len(lines) and not lines[i].startswith(">>>>>>> "):
+            line = lines[i]
+            if line.startswith("||||||| "):
+                section = []                       # diff3 base section: not kept
+            elif line.rstrip("\r\n") == "=======":
+                section = theirs
+            elif line.startswith("<<<<<<< "):
+                return None
+            else:
+                section.append(line)
+            i += 1
+        if i >= len(lines):
+            return None
+        i += 1
+        main_ids = {m.group(1) for m in map(_TASK_HEADER_RE.match, theirs) if m}
+        kept = [line for line in ours if not ((m := _TASK_HEADER_RE.match(line)) and m.group(1) in main_ids)]
+        out.extend(line for line in kept if line not in theirs)
+        out.extend(theirs)
+    return "".join(out)
+
+
+def resolve_roadmap_only_conflict() -> bool:
+    """Owner 2026-11-17: a merge whose only conflict is ROADMAP.md (status notes written on both sides) is resolved
+    automatically and committed; any other conflicted file leaves the merge to be aborted as before. 2026-11-16: two
+    T-590 notes kept the EC2 worker on day-old code (36 commits behind main) until a human merged by hand."""
+    conflicted = run(["git", "diff", "--name-only", "--diff-filter=U"], check=False, capture=True).stdout.split()
+    if conflicted != ["ROADMAP.md"]:
+        return False
+    path = pathlib.Path(REPO) / "ROADMAP.md"
+    try:
+        merged = merge_roadmap_text(path.read_text(encoding="utf-8"))
+    except OSError:
+        return False
+    if merged is None or any(line.startswith(("<<<<<<< ", ">>>>>>> ")) for line in merged.splitlines()):
+        return False
+    path.write_text(merged, encoding="utf-8")
+    if run(["git", "add", "ROADMAP.md"], check=False).returncode != 0:
+        return False
+    return run(["git", "commit", "--no-edit", "--no-verify"], check=False, capture=True).returncode == 0
+
+
 def sync_branch(branch: str) -> str:
     """Pull the worker branch, then bring in main. Returns "", "code_updated", "conflict" or "offline".
 
@@ -261,15 +322,17 @@ def sync_branch(branch: str) -> str:
         remote = f"origin/{branch}"
         if run(["git", "merge", "--ff-only", remote], check=False, capture=True).returncode != 0:
             if run(["git", "merge", "--no-edit", remote], check=False, capture=True).returncode != 0:
-                run(["git", "merge", "--abort"], check=False)
-                return "conflict"
+                if not resolve_roadmap_only_conflict():
+                    run(["git", "merge", "--abort"], check=False)
+                    return "conflict"
     if run(["git", "fetch", "origin", BASE_BRANCH], check=False, timeout=GIT_NET_TIMEOUT).returncode != 0:
         return "offline"
     target = f"origin/{BASE_BRANCH}"
     if run(["git", "merge", "--ff-only", target], check=False, capture=True).returncode != 0:
         if run(["git", "merge", "--no-edit", target], check=False, capture=True).returncode != 0:
-            run(["git", "merge", "--abort"], check=False)
-            return "conflict"
+            if not resolve_roadmap_only_conflict():
+                run(["git", "merge", "--abort"], check=False)
+                return "conflict"
     after = git_head()
     if not before or after == before:
         return ""

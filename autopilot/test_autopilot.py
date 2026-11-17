@@ -160,11 +160,62 @@ def dependency_and_owner_regression():
     roadmap_owner_lint()
     claim_gate_regression()
     follow_main_regression()
+    roadmap_autoresolve_regression()
     sync_safety_regression()
     restart_survival_regression()
     git_timeout_regression()
     subscription_limit_regression()
     milestone_report_regression()
+
+
+def roadmap_autoresolve_regression():
+    # Owner 2026-11-17: a merge whose ONLY conflict is ROADMAP.md is resolved and committed (both sides' notes kept,
+    # a task header both sides changed comes from main), so the worker keeps following main's runner code.
+    assert ap.merge_roadmap_text("a\n<<<<<<< HEAD\nworker note\n=======\nmain note\n>>>>>>> origin/main\nz\n") == \
+        "a\nworker note\nmain note\nz\n"
+    diff3 = ("<<<<<<< HEAD\n- [x] T-1 Task\n  Note: w\n||||||| base\n- [ ] T-1 Task\n=======\n- [ ] T-1 Task\n"
+             "  Note: m\n>>>>>>> origin/main\n")
+    assert ap.merge_roadmap_text(diff3) == "  Note: w\n- [ ] T-1 Task\n  Note: m\n"   # one header, main's state
+    assert ap.merge_roadmap_text("<<<<<<< HEAD\nsame\n=======\nsame\n>>>>>>> x\n") == "same\n"
+    assert ap.merge_roadmap_text("<<<<<<< HEAD\nno end\n=======\n") is None
+    import subprocess
+
+    def git(cwd, *args):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+    root = Path(tempfile.mkdtemp(prefix="factoryos-roadmap-merge-"))
+    origin, seed, worker = root / "origin.git", root / "seed", root / "worker"
+    git(root, "init", "--bare", "-b", "main", str(origin))
+    git(root, "clone", str(origin), str(seed))
+    git(seed, "config", "user.email", "t@example.com"); git(seed, "config", "user.name", "t")
+    base = "# Roadmap\n- [ ] T-590 Acceptance\n  Re-check: base\n\n- [ ] T-591 Next\n"
+    (seed / "ROADMAP.md").write_text(base, encoding="utf-8")
+    (seed / "app.txt").write_text("one\n", encoding="utf-8")
+    git(seed, "add", "."); git(seed, "commit", "-m", "init"); git(seed, "push", "origin", "main")
+    git(seed, "push", "origin", "main:autopilot/w")
+    git(root, "clone", "-b", "autopilot/w", str(origin), str(worker))
+    git(worker, "config", "user.email", "w@example.com"); git(worker, "config", "user.name", "w")
+    saved = (ap.REPO, ap.BASE_BRANCH)
+    ap.REPO, ap.BASE_BRANCH = worker, "main"
+    try:
+        (worker / "ROADMAP.md").write_text(base.replace("  Re-check: base\n", "  Re-check: base\n  Re-check: worker run\n"),
+                                           encoding="utf-8")
+        git(worker, "commit", "-am", "worker note")
+        (seed / "ROADMAP.md").write_text(base.replace("- [ ] T-590", "- [x] T-590").replace(
+            "  Re-check: base\n", "  Re-check: base\n  Progress: main session\n"), encoding="utf-8")
+        (seed / "app.txt").write_text("two\n", encoding="utf-8")
+        git(seed, "commit", "-am", "main progress"); git(seed, "push", "origin", "main")
+        assert ap.sync_branch("autopilot/w") == ""
+        merged = (worker / "ROADMAP.md").read_text(encoding="utf-8")
+        assert "Re-check: worker run" in merged and "Progress: main session" in merged, merged
+        assert merged.count("T-590") == 1 and "- [x] T-590" in merged, merged
+        assert (worker / "app.txt").read_text(encoding="utf-8") == "two\n"           # main's other changes arrived
+        assert git(worker, "status", "--porcelain").strip() == ""
+        assert len(git(worker, "log", "-1", "--format=%P").split()) == 2            # a real merge commit
+        assert not (worker / ".git" / "MERGE_HEAD").exists()
+    finally:
+        ap.REPO, ap.BASE_BRANCH = saved
+    print("Autopilot ROADMAP-only conflict auto-resolve tests passed")
 
 
 def claim_gate_regression():
@@ -282,11 +333,14 @@ def follow_main_regression():
         (seed / "docs.md").write_text("only docs\n", encoding="utf-8")
         git(seed, "add", "."); git(seed, "commit", "-m", "docs"); git(seed, "push", "origin", "main")
         assert ap.sync_branch("autopilot/w") == ""
-        # Conflict: both sides edit the same line; merge is aborted and the tree stays clean.
+        # Conflict: both sides edit the same line of a non-ROADMAP file (ROADMAP.md conflicts too); the merge is
+        # aborted and the tree stays clean. A ROADMAP-only conflict is resolved: roadmap_autoresolve_regression.
         (worker / "ROADMAP.md").write_text("worker\n", encoding="utf-8")
-        git(worker, "commit", "-am", "worker edit")
+        (worker / "conf.txt").write_text("worker\n", encoding="utf-8")
+        git(worker, "add", "."); git(worker, "commit", "-m", "worker edit")
         (seed / "ROADMAP.md").write_text("main\n", encoding="utf-8")
-        git(seed, "commit", "-am", "main edit"); git(seed, "push", "origin", "main")
+        (seed / "conf.txt").write_text("main\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "main edit"); git(seed, "push", "origin", "main")
         assert ap.sync_branch("autopilot/w") == "conflict"
         status = subprocess.run(["git", "status", "--porcelain"], cwd=worker, capture_output=True, text=True).stdout
         assert status.strip() == "", status
