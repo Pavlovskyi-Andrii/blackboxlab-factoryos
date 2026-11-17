@@ -164,12 +164,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Need: owner generates three different random tokens (`python -c "import secrets;print(secrets.token_urlsafe(32))"`, one per lane) and adds them in Render → Environment: `FACTORY_MCP_LANE_TOKEN_CLAUDE`, `FACTORY_MCP_LANE_TOKEN_CHATGPT`, optionally `FACTORY_MCP_LANE_TOKEN_GEMINI`; plus `FACTORY_MCP_LANE_URL_KEY=chatgpt` because the ChatGPT connector cannot send headers. Then reconnects ChatGPT with `…/mcp?key=<CHATGPT lane token>` and Claude Code with the Claude lane token as Bearer. Runbook: docs/guides/agent-workspace-mcp.md. Agents never see or set these values.
   DONE: `GET /api/factory/agent-workspace` (signed in) shows `lanes.claude.enabled` and `lanes.chatgpt.enabled` true; `GET /mcp` with each connector reports its own `lane`.
 
-- [ ] T-626 Worker Center panel for the shared agent workspace
+- [x] T-626 Worker Center panel for the shared agent workspace
   Owner: claude
   Priority: P2
   Depends: T-625
   Goal: read-only Worker Center card from `GET /api/factory/agent-workspace`: lanes enabled/disabled (reason, never token values), latest threads with attributed messages, handoffs by state with run_id, Relay ticket link and PR link; EN/UK/RU.
   DONE: test covering empty / disabled-lane / active-handoff states, dashboard `node --check`, CI-gated PR.
+  Done 2026-11-17: `renderAgentWorkspace` in the Workers center, `recent_messages` in the overview, `test_agent_workspace_ui.py` (run in CI by `test_agent_workspace.py`); DECISIONS.md T-626. It reaches CI through the `autopilot/aws-worker` → main PR.
 
 - [ ] T-602 UI fixes from the 2026-11-01 screenshot review
   Owner: claude

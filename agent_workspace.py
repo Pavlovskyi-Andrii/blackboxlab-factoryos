@@ -52,6 +52,7 @@ MAX_HANDOFFS = 500
 MAX_WRITES_PER_HOUR = 120
 LEDGER_RETENTION = timedelta(days=14)
 LEASE = timedelta(hours=6)
+OVERVIEW_MESSAGES = 5
 ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,120}$")
 SCOPE_RE = re.compile(r"^[A-Za-z0-9_./*-]{1,200}$")
 MESSAGE_KINDS = ("comment", "proposal", "answer", "status", "question")
@@ -549,17 +550,24 @@ class AgentWorkspace:
         state["agent_workspace"] = ws
 
     def overview(self) -> dict:
-        """Owner read view (Worker Center): counts plus the latest threads and handoffs."""
+        """Owner read view (Worker Center): counts plus the latest threads (with their last messages) and handoffs."""
         with self.store.lock:
             ws = self._ws(self.store._load_unlocked())
             threads = [dict(t) for t in ws["threads"]]
             handoffs = [self._public_handoff(h) for h in ws["handoffs"]]
+            by_thread = {}
+            for m in ws["messages"]:
+                by_thread.setdefault(m.get("thread_id"), []).append(m)
         threads.sort(key=lambda t: t.get("updated_at") or t.get("created_at") or "", reverse=True)
+        threads = threads[:20]
+        for t in threads:  # T-626: attributed messages; bodies were secret-checked and redacted when written
+            t["recent_messages"] = [{k: m.get(k) for k in ("message_id", "from", "kind", "body", "reply_to", "at")}
+                                    for m in by_thread.get(t.get("thread_id"), [])[-OVERVIEW_MESSAGES:]]
         handoffs.sort(key=lambda h: h.get("updated_at") or "", reverse=True)
         states = {}
         for h in handoffs:
             states[h.get("state")] = states.get(h.get("state"), 0) + 1
-        return {"threads": threads[:20], "handoffs": handoffs[:30], "handoff_states": states}
+        return {"threads": threads, "handoffs": handoffs[:30], "handoff_states": states}
 
 
 # -- MCP surface -------------------------------------------------------------------------------------------------
@@ -673,12 +681,16 @@ def call_tool(workspace: AgentWorkspace, name: str, args: dict, lane: str) -> di
         return {"error": {"code": "INVALID_ARGUMENT", "message": str(exc)[:200], "retryable": False}}
 
 
+def owner_view(workspace: AgentWorkspace, status: dict, environ=None) -> dict:
+    """Body of GET /api/factory/agent-workspace (Worker Center panel, T-626). Lane problems name env vars, never values."""
+    return {**workspace.overview(),
+            "lanes": {lane: {"enabled": not problem, "problem": problem} for lane, problem in status.items()},
+            "url_key_lanes": sorted(url_key_lanes(environ)), "policy_sha": workspace.policy()}
+
+
 def install_routes(app, workspace: AgentWorkspace, lanes_status) -> None:
     """Owner read view for Worker Center; the session middleware already requires a signed-in owner for /api/."""
 
     @app.get("/api/factory/agent-workspace")
     def agent_workspace_overview():
-        status = lanes_status()
-        return {**workspace.overview(),
-                "lanes": {lane: {"enabled": not problem, "problem": problem} for lane, problem in status.items()},
-                "url_key_lanes": sorted(url_key_lanes()), "policy_sha": workspace.policy()}
+        return owner_view(workspace, lanes_status())

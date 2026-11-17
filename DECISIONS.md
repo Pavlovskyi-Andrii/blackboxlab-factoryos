@@ -1918,3 +1918,22 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Evidence 2026-11-17: Release run 44073441058 published v5.9.0 on `043460d` (8 of 8 cases now fit the pattern).
   T-VERSION-H is closed without an owner step. All versions v5.6 … v5.11.0 now have a GitHub Release.
 
+## 2026-11-17 — T-626 Worker Center panel for the shared agent workspace
+
+- The card sits in the Worker / Delegation Control Center (Automation & team → Workers), right after the T-596 worker
+  overview, and reuses its `woRoot`/`woPanel`/`woBadge` styles. It is a pure renderer (`renderAgentWorkspace`,
+  marked `agent-workspace:begin/end`) fed only by `GET /api/factory/agent-workspace`. It has no buttons and makes no
+  writes, so owner actions such as re-queue or reassignment are out of scope.
+- `AgentWorkspace.overview()` now adds `recent_messages` (last 5, `OVERVIEW_MESSAGES`) to each of the 20 latest threads,
+  with `from`/`kind`/`body`/`at`. Bodies are the stored ones, already secret-checked and redacted on write. The endpoint
+  body moved into `agent_workspace.owner_view()` so the tests render the real payload.
+- Lane cards show only on/off plus the `lane_status` reason. The reason names the env var, never its value. The test
+  asserts that no lane token appears in the payload or the HTML.
+- Relay ticket link: `/api/relay/<id>` (owner-guarded JSON), because the Relay UI has no per-ticket page. PR/result
+  links are shown only for `https://github.com/` URLs; the server already accepts only this repository's URLs.
+- Tests: `test_agent_workspace_ui.py` covers the empty, disabled-lane and active-handoff (claimed + review with a PR)
+  states, rendered in node for EN/UK/RU. CI runs it through the existing `python test_agent_workspace.py` step, which
+  imports the class under `__main__`, so no workflow edit is needed (same route as T-596).
+- The "CI-gated PR" part of DONE is the normal `autopilot/aws-worker` → `main` PR. This worker has no `gh`, so the
+  commit reaches CI there. The checkbox is set because the code and test parts of DONE are green locally.
+
