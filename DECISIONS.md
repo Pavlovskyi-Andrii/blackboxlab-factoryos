@@ -1847,9 +1847,12 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   `main` with `git push --force-with-lease=refs/heads/main:01ba766… origin 2f3c93c:refs/heads/main` (the lease made
   sure only the junk tip was replaced). Recommended to the owner: branch protection on `main` (no force-push, no
   deletion) and pointing the generator at a separate repository.
-- v5.9.0: the rule behind the workflow token's HTTP 403 fits all 7 observed tag creations: a tag is allowed only when
-  some existing ref already has the exact `.github/workflows` tree of the target commit (v5.6…v5.8.0 had matching old
+- v5.9.0: an observed pattern, not documented GitHub behaviour and not a controlled reproduction (Codex review on
+  #407): in all 7 tag creations seen so far the workflow token succeeded exactly when some existing ref already had
+  the target commit's `.github/workflows` tree (v5.6…v5.8.0 had matching old
   branches, v5.10.0 was main itself; `3c8c9ea` and `b991f85` matched nothing). The latest commit of that week with a
   matching branch is `043460d` (#252), so v5.9.0 is cut there; the later merges of 2026-11-08 (#266, #288, #290–#295)
   move to the v5.10.0 entry together with #297 and #298. No owner UI step is needed any more.
+- Evidence 2026-11-17: Release run 44073441058 published v5.9.0 on `043460d` (8 of 8 cases now fit the pattern).
+  T-VERSION-H is closed without an owner step. All versions v5.6 … v5.11.0 now have a GitHub Release.
 
