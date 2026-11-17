@@ -1950,3 +1950,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   text, is `mismatch`. T-592-H is done only when the server says `match` and the owner pressed «Совпадает».
 - **Owner desk never shows "unknown".** A runbook without a live fact takes its state from the ROADMAP checkbox
   (open → todo, «Ждёт вас»), and a checked ROADMAP line closes a task even if the live fact still says todo.
+- **Worker Center simple mode (mobile-first).** Top: «Нужно от вас: N» — open HUMAN runbooks (interface language,
+  deduplicated by id, ROADMAP-only HUMAN tasks appended), each one row with «Как сделать» opening the runbook; T-592-H
+  and its comparison card go first while open; done and optional/info tasks fold into «Сделано (k)» /
+  «Необязательно (m)». Then «Сейчас работают»: one row per Claude / ChatGPT / Gemini lane. Everything technical (worker
+  signals, branch/commit/CI, heatmap, timeline, progress, operators/roles, lanes, kanban) sits in one «Технические
+  детали» `<details>`, closed by default; inside it healthy signals collapse into «Воркер в порядке ✓» and only
+  problem signals stay open; the HUMAN-blocker panel there shows ids only (no English titles). Status pills read
+  «Ждёт вас» / «Позже» instead of «Сделать» / «Ждёт», and «Неизвестно» is never shown.
