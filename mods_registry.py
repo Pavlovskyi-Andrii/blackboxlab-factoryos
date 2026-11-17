@@ -244,9 +244,10 @@ def view(data: dict) -> dict:
     return {"mods": mods, "runs_total": len(runs), "recent_runs": last}
 
 
-def is_mp4(head: bytes) -> bool:
-    """ISO base media (MP4/MOV) files start with a box whose type at bytes 4..8 is 'ftyp'."""
-    return len(head) >= 12 and head[4:8] == b"ftyp"
+def check_video(data: bytes) -> dict:
+    """Watchable MP4 only: whole-file box structure, a video track and a positive duration (autopilot/mp4_check)."""
+    from autopilot.mp4_check import inspect
+    return inspect(data)
 
 
 def duel_view(duel: dict, live: Callable[[str, str], Optional[dict]]) -> dict:
@@ -258,7 +259,7 @@ def duel_view(duel: dict, live: Callable[[str, str], Optional[dict]]) -> dict:
         row.pop("starting", None)
         video = row.get("video")
         if isinstance(video, dict):
-            row["video"] = {k: video.get(k) for k in ("size", "sha256", "at", "by")}
+            row["video"] = {k: video.get(k) for k in ("size", "sha256", "duration", "at", "by")}
             row["video_url"] = f"/api/factory/mods/duels/{duel['id']}/arms/{a}/video?v={str(video.get('sha256'))[:12]}"
         arms.append(row)
     return {"id": duel["id"], "title": duel["title"], "brief": duel["brief"], "factory_tool": duel["factory_tool"],
@@ -450,10 +451,10 @@ def install_mods_routes(app, store: ModsStore, *, identity: Callable, worker_aut
         store.change(fn)
         return full_view()
 
-    def video_path(duel_id: str, arm: str) -> Path:
+    def media_root() -> Path:
         if media_dir is None:
             raise HTTPException(503, "this server stores no duel videos")
-        return Path(media_dir) / f"{duel_id}-{arm}.mp4"
+        return Path(media_dir)
 
     async def read_capped(stream) -> bytes:
         chunks, size = [], 0
@@ -465,11 +466,13 @@ def install_mods_routes(app, store: ModsStore, *, identity: Callable, worker_aut
         return b"".join(chunks)
 
     def store_video(duel_id: str, arm: str, data: bytes, by: str, ticket: str = "") -> None:
-        """Only a real MP4 is kept; the arm records size, sha256 and who uploaded it, so a take is never fake."""
+        """Each upload is an immutable file named by its sha256; the take switches to it in one locked metadata
+        write. Concurrent uploads therefore never pair one file with another's hash, and a failed metadata write
+        leaves the previous take intact (Codex review on #409)."""
         import hashlib
-        if not is_mp4(data[:16]):
-            raise HTTPException(422, "not an MP4 video")
-        path = video_path(duel_id, arm)
+        info = check_video(data)
+        if not info["ok"]:
+            raise HTTPException(422, info["reason"])
 
         def check(data_):
             row = duel_or_404(data_, duel_id)["arms"][arm_ok(arm)]
@@ -477,19 +480,47 @@ def install_mods_routes(app, store: ModsStore, *, identity: Callable, worker_aut
                 raise HTTPException(409, "ticket does not belong to this take")
             return row
         store.change(check)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + f".{os.getpid()}.{secrets.token_hex(4)}.tmp")
-        tmp.write_bytes(data)
-        os.replace(tmp, path)
-        meta = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "at": _now(), "by": by}
-        store.change(lambda data_: check(data_).update(video=meta))
+        sha = hashlib.sha256(data).hexdigest()
+        name = f"{duel_id}-{arm}-{sha[:16]}.mp4"
+        root = media_root()
+        root.mkdir(parents=True, exist_ok=True)
+        final = root / name
+        if not final.exists():
+            tmp = root / f".{name}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+            tmp.write_bytes(data)
+            os.replace(tmp, final)
+        meta = {"size": len(data), "sha256": sha, "duration": info["duration"], "at": _now(), "by": by, "file": name}
+        old = {}
+
+        def switch(data_):
+            row = check(data_)
+            old.update(row.get("video") or {})
+            row["video"] = meta
+        store.change(switch)
+        stale = old.get("file")
+        if stale and stale != name:
+            try:
+                (root / stale).unlink()
+            except OSError:
+                pass
 
     @app.post("/api/factory/mods/duels/{duel_id}/arms/{arm}/video")
     async def duel_video_owner_upload(duel_id: str, arm: str, request: Request):
         """Owner uploads a take made anywhere (e.g. an A take from Media Finisher) as one MP4 file."""
         owner(request)
         arm_ok(arm)
-        form = await request.form()
+        try:   # refuse before the multipart parser spools anything to disk
+            length = int(request.headers.get("content-length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            raise HTTPException(411, "content-length required")
+        if length > MAX_VIDEO + 64 * 1024:
+            raise HTTPException(413, "video larger than 80 MB")
+        try:
+            form = await request.form(max_files=1, max_fields=5, max_part_size=MAX_VIDEO)
+        except TypeError:   # test doubles without parser limits
+            form = await request.form()
         upload = form.get("file")
         if upload is None or not hasattr(upload, "read"):
             raise HTTPException(422, "file required")
@@ -508,12 +539,13 @@ def install_mods_routes(app, store: ModsStore, *, identity: Callable, worker_aut
     def duel_video(duel_id: str, arm: str, request: Request):
         owner(request)
         arm_ok(arm)
-        duel_or_404(store.read(), duel_id)
-        path = video_path(duel_id, arm)
-        if not path.is_file():
+        video = duel_or_404(store.read(), duel_id)["arms"][arm].get("video") or {}
+        name = str(video.get("file") or "")
+        path = media_root() / name if re.fullmatch(r"D-\d{4}-[ab][12]-[0-9a-f]{16}\.mp4", name) else None
+        if path is None or not path.is_file():
             raise HTTPException(404, "no video for this take")
         from fastapi.responses import FileResponse
-        return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=3600"})
+        return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=86400"})
 
     @app.post("/api/mods/worker/duels/{duel_id}/arms/{arm}/video")
     async def duel_video_worker_upload(duel_id: str, arm: str, request: Request, ticket: str = ""):

@@ -159,50 +159,58 @@ MAX_VIDEO = 80 * 1024 * 1024
 DUEL_KEY_RE = r"^mods-duel:(D-\d{4}):(b[12])$"
 
 
-def pick_film(folder: pathlib.Path) -> Optional[pathlib.Path]:
-    """final.mp4 if the run wrote it, else the largest real MP4 under the film folder (older tickets)."""
+def pick_film(folder: pathlib.Path, *, since: float = 0.0) -> Optional[pathlib.Path]:
+    """final.mp4 if this run wrote it, else the largest watchable MP4 in the film folder (older tickets). Only files
+    modified at or after `since` (the run's start) count, so a failed retry never re-uploads an earlier render."""
+    try:
+        from .mp4_check import inspect
+    except ImportError:
+        from mp4_check import inspect
     if not folder.is_dir():
         return None
     final = folder / "final.mp4"
     candidates = [final] if final.is_file() else sorted(folder.rglob("*.mp4"), key=lambda p: p.stat().st_size, reverse=True)
     for path in candidates:
         try:
-            size = path.stat().st_size
-            with open(path, "rb") as fh:
-                head = fh.read(16)
+            st = path.stat()
+            if st.st_mtime < since or not 0 < st.st_size <= MAX_VIDEO:
+                continue
+            if inspect(path.read_bytes())["ok"]:
+                return path
         except OSError:
             continue
-        if 0 < size <= MAX_VIDEO and len(head) >= 12 and head[4:8] == b"ftyp":
-            return path
     return None
 
 
-def upload_duel_video(ticket: dict, *, post: Optional[Callable[..., Any]] = None,
-                      root: pathlib.Path = FILM_ROOT) -> str:
-    """After a video-duel B ticket, the runner (which holds the worker token; the agent never does) uploads the
-    rendered MP4 so the owner can watch and score it in FactoryOS. Returns a short note; never raises."""
+def upload_duel_video(ticket: dict, *, status: str = "done", since: float = 0.0,
+                      post: Optional[Callable[..., Any]] = None, root: pathlib.Path = FILM_ROOT) -> str:
+    """After a video-duel B ticket that finished as done, the runner (which holds the worker token; the agent never
+    does) uploads the MP4 this run rendered, so the owner can watch and score it. Returns a short note; never raises."""
     import re
-    key = str((ticket.get("source") or {}).get("source_key") or "")
-    m = re.match(DUEL_KEY_RE, key)
-    if not m:
-        return ""
-    duel, arm = m.groups()
-    film = pick_film(pathlib.Path(root) / f"{duel}-{arm}")
-    if film is None:
-        return f"duel {duel} {arm}: no MP4 render found to upload"
-    url, token = endpoint()
-    if not url or not token:
-        return "duel upload skipped: worker connection missing"
-    if post is None:
-        import requests
-        post = requests.post
     try:
+        key = str((ticket.get("source") or {}).get("source_key") or "")
+        m = re.match(DUEL_KEY_RE, key)
+        if not m:
+            return ""
+        duel, arm = m.groups()
+        if status != "done":
+            return f"duel {duel} {arm}: ticket ended {status or 'unknown'}, nothing uploaded"
+        film = pick_film(pathlib.Path(root) / f"{duel}-{arm}", since=since)
+        if film is None:
+            return f"duel {duel} {arm}: no watchable MP4 rendered by this run"
+        url, token = endpoint()
+        if not url or not token:
+            return "duel upload skipped: worker connection missing"
+        if post is None:
+            import requests
+            post = requests.post
+        data = film.read_bytes()
         r = post(f"{url}/api/mods/worker/duels/{duel}/arms/{arm}/video",
-                 params={"ticket": str(ticket.get("id") or "")}, data=film.read_bytes(),
+                 params={"ticket": str(ticket.get("id") or "")}, data=data,
                  headers={"Authorization": f"Bearer {token}", "Content-Type": "video/mp4"}, timeout=120)
         code = int(getattr(r, "status_code", 0))
-    except Exception as exc:
+        return f"duel {duel} {arm}: video uploaded ({len(data)} bytes)" if 200 <= code < 300 \
+            else f"duel upload refused: HTTP {code}"
+    except Exception as exc:   # never let an upload problem stop the runner's own reporting
         return f"duel upload failed: {type(exc).__name__}"
-    return f"duel {duel} {arm}: video uploaded ({film.stat().st_size} bytes)" if 200 <= code < 300 \
-        else f"duel upload refused: HTTP {code}"
 
