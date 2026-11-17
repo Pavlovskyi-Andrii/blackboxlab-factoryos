@@ -688,6 +688,13 @@ Owner: "скачай оба скилла и выложи на ветку… Prod
   Goal: owner creates a duel from one brief; A arms become ordinary draft jobs, B arms become Claude Relay tickets that use product-film (refused while the mod is off); each arm shows its live job/ticket state, takes a result link and an owner score 1–5; the duel shows the A vs B average and winner only when all four are scored. Nothing is published.
   DONE: `python test_mods.py` (duel), dashboard `node --check`, locale parity, smoke.
 
+- [x] T-MODS-E Video duel: watch, upload and score real takes in the card
+  Owner: claude
+  Priority: P1
+  Depends: T-MODS-D
+  Goal: owner 2026-11-17 «видео сымитировалось… чтобы честно можно было смотреть, ставить оценки и выбирать»: each take plays inline (9:16 player); the worker's runner (never the agent) uploads the product-film render of a B take; the owner can upload any take; only real MP4 (ftyp) up to 80 MB is stored, with size, sha256 and uploader shown; 1–5 stars instead of a select.
+  DONE: `python test_mods.py` (upload auth, foreign ticket, non-MP4, size cap, serving, runner pick/upload), locale parity, dashboard `node --check`, Chromium check at 390 px.
+
 ## MVP Factory pilots — first MVP wave (owner 2026-11-15)
 
 - [x] T-616 AI Release Guardian — read-only GitHub PR readiness board (MVP pilot `release-guardian`, Issue #189)

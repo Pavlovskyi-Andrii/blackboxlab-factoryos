@@ -474,6 +474,10 @@ def run_one(repo: pathlib.Path, *, status_fn=None) -> bool:
                  run_id=str((ticket.get("execution") or {}).get("run_id") or ""))
         except Exception:
             pass
+    # Video duel: the runner uploads the render of this run only, and only when the ticket finished as done.
+    note = mods_runtime.upload_duel_video(ticket, status=str(outcome.get("status") or ""), since=started)
+    if note:
+        print("relay:", note, flush=True)
     mods_runtime.report_run(mods, run_id=str((ticket.get("execution") or {}).get("run_id") or ""),
                             task=str(ticket.get("id") or ""), kind="relay", result=str(outcome.get("status") or ""),
                             duration_seconds=time.time() - started)

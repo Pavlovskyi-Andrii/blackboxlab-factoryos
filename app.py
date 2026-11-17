@@ -74,7 +74,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.11.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.12.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -1040,7 +1040,8 @@ install_mods_routes(app, MODS, identity=request_identity, worker_auth=_claude_wo
                     create_job=_strategy_job, job_state=_duel_job_state, ticket_state=_duel_ticket_state,
                     create_ticket=lambda title, body, key: RELAY_STORE.create(
                         title, body, source={"channel": "mods-duel", "source_key": key, "url": ""},
-                        created_by="mods-duel", owner="claude")[0]["id"])
+                        created_by="mods-duel", owner="claude")[0]["id"],
+                    media_dir=DATA_DIR / "mods_media")
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
