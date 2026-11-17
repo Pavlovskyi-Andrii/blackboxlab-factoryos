@@ -175,6 +175,17 @@ class StoreTest(unittest.TestCase):
         except ev.EvolutionError as exc:
             return exc.code
 
+    def test_handoff_needs_a_real_relay_id(self):
+        p = self.proposal([self.add(1)["id"]])
+        self.decide(p["id"], "approve")
+        bad = lambda **kw: {"status": "inbox"}
+        with self.assertRaises(ev.EvolutionError) as ctx:
+            self.store.decide(PID, p["id"], {"action": "handoff"}, actor_role="owner", create_ticket=bad)
+        self.assertEqual(ctx.exception.code, "relay_failed")
+        self.assertEqual(self.store.view(PID)["proposals"][0]["state"], "approved")  # retry stays possible
+        self.decide(p["id"], "handoff")
+        self.assertEqual(self.store.view(PID)["proposals"][0]["ticket_id"], "R-0001")
+
     def test_idempotency_replay_and_conflict(self):
         body = fb(1, idempotency_key="k-1")
         a = self.store.add_feedback(PID, dict(body), actor_role="owner")

@@ -1235,12 +1235,18 @@ install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidenc
 MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
 install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
 from mvp_evolution import EvolutionStore, install_mvp_evolution_routes  # noqa: E402
+MVP_EVOLUTION = EvolutionStore(DATA_DIR / "mvp_evolution.json", project_exists=lambda pid: _mvp_project(pid) is not None)
+_mvp_evolution_ticket = lambda title, body, key, lane: RELAY_STORE.create(  # noqa: E731
+    title, body, source={"channel": "mvp-evolution", "source_key": key, "url": ""}, created_by="mvp-evolution", owner=lane)[0]
 install_mvp_evolution_routes(  # T-630 #270: consented feedback -> themes -> owner-approved V2 proposal -> one Relay ticket
-    app, EvolutionStore(DATA_DIR / "mvp_evolution.json", project_exists=lambda pid: _mvp_project(pid) is not None),
-    request_identity, ticket_lookup=RELAY_STORE.get, ticket_verified=_mvp_ticket_done,
-    mybrief_entries=MYBRIEF_FEEDBACK.consented_entries,
-    create_ticket=lambda title, body, key, lane: RELAY_STORE.create(
-        title, body, source={"channel": "mvp-evolution", "source_key": key, "url": ""}, created_by="mvp-evolution", owner=lane)[0])
+    app, MVP_EVOLUTION, request_identity, ticket_lookup=RELAY_STORE.get, ticket_verified=_mvp_ticket_done,
+    mybrief_entries=MYBRIEF_FEEDBACK.consented_entries, create_ticket=_mvp_evolution_ticket)
+from mvp_quiz import QuizService, install_mvp_quiz_routes  # noqa: E402
+install_mvp_quiz_routes(  # T-634 #270: optional MyCast quiz -> analyst -> V2 task via Relay; gifts/mail held behind flags
+    app, QuizService(DATA_DIR / "mvp_quiz.json", MVP_EVOLUTION, create_ticket=_mvp_evolution_ticket,
+                     grant_days=MYCAST_LISTENERS.grant_bonus), request_identity,
+    listener_fn=lambda request: mycast_unsign(FACTORY_SECRET, request.cookies.get(MYCAST_COOKIE, ""), time.time()) or "",
+    client_fn=_mycast_client_id)
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
 async def _ab_content_job(title, brief, job_id):
     """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
@@ -1347,7 +1353,7 @@ async def auth_middleware(request: Request, call_next):
     mycast_redirect = _mycast_host_response(request)
     if mycast_redirect is not None:
         return mycast_redirect
-    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
+    public_paths = {"/api/mycast/quiz", "/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts

@@ -801,11 +801,40 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Goal: `mvp_evolution.py` + `static/mvp-factory/evolution.html` (EN/UK/RU, linked from every MVP card): feedback stored only with explicit consent and a consent reference, participant label hashed per project, free text redacted; synthetic data only when marked and never counted; cohort 10 → 100 against real unique substantive records; funnel steps unknown until recorded with a source; deterministic themes with contrary evidence and confidence; proposals cite feedback ids and an acceptance test; only the owner approves/declines/releases; hand-off creates exactly one Relay ticket and reads VERIFIED only from Relay facts (done + run_id + accepted evidence); shipped needs a merged PR/commit link; retest by original participants; privacy delete; MyBrief consented import; one deterministic synthetic V1→V2 loop for the demo.
   DONE: `python test_mvp_evolution.py` passes (consent, redaction, hashing, synthetic marking/mixing, cohort, funnel, themes, owner gates, concurrent one-ticket hand-off, idempotency, hand-off truth table, full real V1→V2 loop with retest and untouched registry, privacy delete, MyBrief import, synthetic demo, handler auth, page/i18n/wiring), the MVP/pilot suites, `test_owner_desk.py`, the default verification and `node --check` of the page pass.
 
-- [ ] [HUMAN] T-630-H Product Evolution: first cohort of 10 consented feedback records and the first V2 decision
+- [x] [HUMAN] T-630-H Product Evolution: first cohort of 10 consented feedback records and the first V2 decision
+  Superseded 2026-11-17 by T-634 / T-634-H (owner: no manual interviews; the loop runs through an automatic quiz). Kept for history.
   Owner: owner
   Depends: T-630 merged and deployed
   Need: owner picks the pilot and the outreach channel, talks to people personally (FactoryOS sends nothing), records 10 substantive consented feedback records, approves or declines the first V2 proposal and, after the merged PR, releases v2 and asks the original participants to retest. Runbook in Worker Center → «Ваши задачи».
   DONE: `/api/mvp-evolution/<pilot>` shows `cohort.first_target_met: true` on real data and an owner decision on a proposal.
+
+- [x] T-634 MyCast «Help us improve» quiz + analyst agent (automatic V1→V2 loop, step 1–2 of the owner's 2026-11-16 plan)
+  Owner: claude (session MVP beta)
+  Priority: P1
+  Depends: T-630, MyCast accounts (#305)
+  Spec: DECISIONS.md «2026-11-17 — T-634»; owner 2026-11-16 «максимально убираем человека»; first product MyCast (gift days already exist)
+  Goal: optional quiz at the bottom of the MyCast page (EN/UK/RU, this-or-that cards, adaptive validation question, nudge on a repeat visit) → consented in-product feedback in the T-630 ledger (one answer per person and quiz version, daily caps, never-used answers do not shape themes) → analyst agent: a theme with ≥ 10 people, ≥ 40 % of the sample and contrary < half of support becomes one V2 proposal and one Relay ticket under the owner's standing rule (kill switch `FACTORY_QUIZ_AUTO_V2=0`); gifts (`FACTORY_QUIZ_REWARDS`) and e-mails (`FACTORY_QUIZ_MAIL`) recorded but held while off; privacy delete.
+  DONE: `python test_mvp_quiz.py`, `python test_mvp_evolution.py`, the MyCast suites, `test_owner_desk.py`, the default verification and `node --check` of `improve.js` and the configurator page pass.
+
+- [ ] [HUMAN] T-634-H MyCast quiz: approve the gift terms and connect a mail service
+  Owner: owner
+  Depends: T-634 merged and deployed
+  Need: owner approves the gift rule (+7 MyCast days once per signed-in listener per quiz version) and sets `FACTORY_QUIZ_REWARDS=1` in Render; creates a free Resend account, verifies mycast.pro and stores `FACTORY_MAIL_API_KEY` in Render (never in chat). Runbook in Worker Center → «Ваши задачи».
+  DONE: `/api/mycast/quiz` reports `rewards_enabled: true` and the mail key exists in Render (owner confirms; Claude never reads it).
+
+- [ ] T-635 Quiz e-mails: «thank you + gift» and «your wish shipped in V2, does it help?»
+  Owner: claude (session MVP beta)
+  Priority: P2
+  Depends: T-634-H (mail key), T-634
+  Goal: a sender for the held outbox (Resend HTTP API, idempotent per message id, bounded retries, unsubscribe link) and a «V2 shipped» message to participants of a shipped proposal with a link to a one-question retest; only with contact consent; `FACTORY_QUIZ_MAIL=1` switches it on.
+  DONE: tests for no-consent → no mail, idempotent send, retry cap, unsubscribe, retest link records `retest_of`.
+
+- [ ] T-636 The same quiz on the other MVPs (MyBrief, Decision Memory) with product-specific questions
+  Owner: claude (session MVP beta)
+  Priority: P3
+  Depends: T-634
+  Goal: per-product quiz definitions in `mvp_quiz.QUIZZES`; the widget reused; gifts only where the product has accounts.
+  DONE: quiz tests per product pass.
 
 - [ ] T-631 Product Evolution S2 — versioned worker contracts for the 13 logical roles of #270 §2
   Owner: claude (session MVP beta)

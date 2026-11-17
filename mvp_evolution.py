@@ -143,6 +143,14 @@ def synthesize(feedback: list[dict[str, Any]], version: str) -> list[dict[str, A
     return out
 
 
+def _ticket_id(ticket: Any) -> str:
+    """A hand-off is recorded only with a real Relay id; otherwise nothing is saved and the call can be retried."""
+    tid = str((ticket or {}).get("id") or "") if isinstance(ticket, dict) else ""
+    if not re.fullmatch(r"R-\d{1,8}", tid):
+        raise EvolutionError("relay_failed", 502)
+    return tid
+
+
 def handoff_status(proposal: dict[str, Any], ticket: Optional[dict[str, Any]], verified: bool) -> dict[str, Any]:
     """The #270 task envelope for a handed-off proposal, from Relay facts only."""
     ex = (ticket or {}).get("execution") or {}
@@ -475,7 +483,7 @@ class EvolutionStore:
                         raise EvolutionError("relay_unavailable", 503)
                     ticket = create_ticket(title=f"MVP {pid} {prop['target_version']}: {prop['title']}"[:180],
                                            body=ticket_body(prop), key=f"mvp-evolution:{pid}:{prop['id']}", lane=lane)
-                    prop["state"], prop["ticket_id"], prop["lane"] = "handed_off", str(ticket.get("id") or ""), lane
+                    prop["state"], prop["ticket_id"], prop["lane"] = "handed_off", _ticket_id(ticket), lane
                 elif action == "ship":
                     if not evidence or any(not SHIP_RE.match(e) for e in evidence):
                         raise EvolutionError("ship_evidence_required")
@@ -484,6 +492,35 @@ class EvolutionStore:
                 self._log(proj, actor or actor_role, action, prop_id, note)
                 return {"proposal": copy.deepcopy(prop)}
             return self._idem(data, str(body.get("idempotency_key") or ""), scope, go)
+
+    def policy_handoff(self, pid: str, prop_id: str, *, policy: str, evidence: dict[str, Any],
+                       create_ticket: Callable[..., dict], lane: str = "claude") -> dict[str, Any]:
+        """T-634: the owner's standing rule ("hand a theme to Builder once enough people ask for it") approves and hands
+        off one proposal. Only an agent-made proposal on real data, still `proposed`, qualifies; the threshold numbers
+        are kept in the proposal history. Owners and members keep the manual path; nothing here merges or releases."""
+        if lane not in LANES:
+            raise EvolutionError("bad_lane")
+        with self._lock:
+            data = self._load()
+            proj = self._project(data, pid)
+            prop = next((p for p in proj["proposals"] if p["id"] == prop_id), None)
+            if not prop:
+                raise EvolutionError("unknown_proposal", 404)
+            if prop.get("synthetic"):
+                raise EvolutionError("synthetic_not_handed_off", 409)
+            if prop["state"] != "proposed" or prop.get("proposed_by") != "agent":
+                raise EvolutionError("bad_transition", 409)
+            ticket = create_ticket(title=f"MVP {pid} {prop['target_version']}: {prop['title']}"[:180],
+                                   body=ticket_body(prop) + f"\nApproved by the owner's standing rule `{policy}`: "
+                                   + json.dumps(evidence, sort_keys=True), key=f"mvp-evolution:{pid}:{prop['id']}", lane=lane)
+            now = self._now()
+            prop["decided_by"] = f"policy:{policy}"
+            prop["history"].append({"at": now, "state": "approved", "by": f"policy:{policy}", "note": json.dumps(evidence, sort_keys=True)[:300]})
+            prop["state"], prop["ticket_id"], prop["lane"] = "handed_off", _ticket_id(ticket), lane
+            prop["history"].append({"at": now, "state": "handed_off", "by": f"policy:{policy}", "note": ""})
+            self._log(proj, f"policy:{policy}", "policy_handoff", prop_id)
+            self._save(data)
+            return {"proposal": copy.deepcopy(prop)}
 
     def release(self, pid: str, body: dict[str, Any], *, actor_role: str, actor: str = "") -> dict[str, Any]:
         """Owner only: the next version exists once at least one proposal for it shipped. Not a public release."""

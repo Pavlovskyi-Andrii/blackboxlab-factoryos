@@ -214,7 +214,8 @@ def credit(data: dict, rec: dict, now: int) -> bool:
 def free_days(rec: dict) -> int:
     friend_bonus = bool(rec.get("referred_by")) and not rec.get("referral_rejected") and (
         friend_bonus_at() == "signup" or bool(rec.get("referral_granted")))
-    return FREE_DAYS + (FRIEND_DAYS if friend_bonus else 0) + FRIEND_DAYS * int(rec.get("referrals", 0))
+    # T-634: + quiz gift days, granted only while FACTORY_QUIZ_REWARDS=1 (ListenerStore.grant_bonus, idempotent)
+    return FREE_DAYS + (FRIEND_DAYS if friend_bonus else 0) + FRIEND_DAYS * int(rec.get("referrals", 0)) + int(rec.get("bonus_days", 0))
 
 
 def _started(rec: dict) -> Optional[int]:

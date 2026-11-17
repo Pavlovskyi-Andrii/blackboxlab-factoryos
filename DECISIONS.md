@@ -1871,6 +1871,35 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Not verified: a real product-film render on the EC2 worker (Node/ffmpeg/Playwright there are still unchecked).
 
 
+## 2026-11-17 — T-634 MyCast improve-quiz + analyst agent (#270)
+
+- Owner 2026-11-16: no manual interviews; feedback comes from an optional quiz on the MVP site, an agent decides
+  when enough people want a change and sends it to V2, thanks and gifts go out automatically. Coordinator answer
+  2026-11-17 (relayed from the owner's coordination session): start with MyCast, because gift days already exist
+  there. Reversible: the quiz definition is per product in `mvp_quiz.QUIZZES`.
+- T-630-H (owner interviews 10 people) is superseded by T-634-H (gift terms + mail key). The T-630 ledger and the
+  Product Evolution page stay as the store and the owner's view; the quiz writes `source: in_product` records to it.
+- Threshold defaults (owner): ≥ 10 unique people and ≥ 40 % of the version's sample, plus contrary answers below
+  half of the support (`FACTORY_QUIZ_MIN_PEOPLE`, `FACTORY_QUIZ_MIN_SHARE`). The share is over everyone who answered
+  the quiz version, including people who never used MyCast (conservative); only people who used it shape themes.
+- Standing rule instead of a per-proposal click: `EvolutionStore.policy_handoff` approves and hands off one
+  agent-made proposal on real data and writes the threshold numbers into the proposal history (`decided_by:
+  policy:quiz-threshold`). Kill switch `FACTORY_QUIZ_AUTO_V2=0` returns to the T-630 owner approval. A hand-off is a
+  Relay task only: code still goes through branch → PR → CI, and merge/release stay with the owner.
+- Adaptive question: once a theme has ≥ 3 people and no proposal, the quiz asks the next visitors whether they would
+  use it; "no" counts as contrary evidence, so the agent tests a theme instead of just counting votes.
+- One answer per participant and quiz version: a signed-in listener (MyCast cookie) or, if anonymous, a per-day hash
+  of the client address (stored hashed only). Caps: 3 per client per day, 500 per day. Free text is redacted.
+- Gift: +7 days, signed-in listeners only, once per quiz version, through `ListenerStore.grant_bonus` (idempotent by
+  reward id) and `mycast_library.free_days` counting `bonus_days`. Held (`held_flag_off`) until the owner sets
+  `FACTORY_QUIZ_REWARDS=1`; the page mentions a gift only when the server says it is on.
+- E-mail: optional, stored only with a separate contact consent, deletable with the submission (owner route). The
+  outbox is recorded as `held_flag_off` / `held_no_provider`; no sender exists until T-634-H gives a mail key (T-635).
+  Provider default: Resend (free plan, simple HTTP API); reversible.
+- Merge: the relayed message also said a merge was permitted, but the owner's own words in the coordinator session
+  ask to finish and close sessions, not to merge this PR; per this session's brief («НЕ мержи») the PR is left for
+  the owner to merge.
+
 ## 2026-11-17 — T-673 Worker sync auto-resolves ROADMAP-only conflicts
 - Trigger: after #405 merged, the EC2 worker kept running 2026-11-15 code. Merging `main` into `autopilot/aws-worker`
   conflicted only on ROADMAP.md (two T-590 status notes written the same day on both sides); `sync_branch` aborted the
@@ -1880,3 +1909,8 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   version of that header is dropped, so a task never appears twice with different checkbox states (main is where
   tasks are reviewed and checked). A diff3 base section is discarded. Malformed markers → the merge is aborted as before.
 - Anything else conflicted (code, docs, tests) still aborts and reports `conflict`: those need a human or a session.
+- Codex review on #412 (all three fixed): (1) anonymous identities rotate daily, so only signed-in listeners shape
+  themes and the threshold; anonymous answers stay as feedback and the page asks them to sign in for their vote to
+  count. (2) `/api/mycast/quiz` is public as an exact path, not a prefix. (3) a hand-off is saved only with a real
+  Relay id (`R-…`); otherwise nothing changes and the next analyst pass retries it once Relay answers.
+
