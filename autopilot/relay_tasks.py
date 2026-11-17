@@ -20,8 +20,10 @@ import requests
 
 try:
     from .delegation import delegated_env, DISALLOWED_TOOLS
+    from . import mods_runtime
 except ImportError:
     from delegation import delegated_env, DISALLOWED_TOOLS
+    import mods_runtime
 
 
 def lane() -> str:
@@ -214,7 +216,7 @@ def summarize_result(output: str, code: int, timed_out: bool) -> str:
 
 
 def execute(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=None,
-            status_fn=None, push_fn=None) -> dict:
+            status_fn=None, push_fn=None, mods=None) -> dict:
     """One bounded invocation; all stage transitions come from real commands."""
     ticket_id = str(ticket.get("id") or "")
     repo = pathlib.Path(repo)
@@ -242,11 +244,11 @@ def execute(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=None,
         report(ticket_id, "failed", "Cannot read repository HEAD")
         return {"status": "failed", "id": ticket_id}
 
-    prompt = build_prompt(ticket, branch)
+    prompt = mods_runtime.prompt_prefix(mods or {}) + build_prompt(ticket, branch)
     turns = max(4, min(150, int(os.environ.get("RELAY_CLAUDE_MAX_TURNS", "60"))))
     timeout = max(60, min(3600, int(os.environ.get("RELAY_CLAUDE_TIMEOUT_SECONDS", "1800"))))
     cmd = ["claude", "-p", prompt, "--output-format", "json", "--max-turns", str(turns),
-           "--disallowedTools", *DISALLOWED_TOOLS]
+           *mods_runtime.cli_args(mods or {}, repo), "--disallowedTools", *DISALLOWED_TOOLS]
     reporter_stop = threading.Event()
 
     def heartbeat():
@@ -342,7 +344,7 @@ def open_pr(workdir: pathlib.Path, branch: str, ticket: dict, run_id: str) -> tu
 
 
 def execute_isolated(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=None, status_fn=None,
-                     git_fn=None, pr_fn=None, push_fn=None) -> dict:
+                     git_fn=None, pr_fn=None, push_fn=None, mods=None) -> dict:
     """#289 round trip: the ticket gets its own branch from fresh origin/main in a separate git worktree.
 
     The runner's own checkout and branch are never touched (no dirty-tree block, no shared branch). A commit is
@@ -391,7 +393,9 @@ def execute_isolated(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=
         hb.start()
         turns = max(4, min(150, int(os.environ.get("RELAY_CLAUDE_MAX_TURNS", "60"))))
         timeout = max(60, min(3600, int(os.environ.get("RELAY_CLAUDE_TIMEOUT_SECONDS", "1800"))))
-        cmd = ["claude", "-p", build_prompt(ticket, branch), "--output-format", "json", "--max-turns", str(turns),
+        # T-MODS-C: plugin folders come from the fresh worktree, so a mod runs from the same commit as the ticket.
+        cmd = ["claude", "-p", mods_runtime.prompt_prefix(mods or {}) + build_prompt(ticket, branch), "--output-format",
+               "json", "--max-turns", str(turns), *mods_runtime.cli_args(mods or {}, workdir),
                "--disallowedTools", *DISALLOWED_TOOLS]
         code, output, timed_out = -1, "", False
         try:
@@ -458,8 +462,10 @@ def run_one(repo: pathlib.Path, *, status_fn=None) -> bool:
         return False
     if ticket is None:
         return False
+    mods = mods_runtime.prepare(repo, "relay")   # T-MODS-C: owner's switched-on mods, this run only
+    started, outcome = time.time(), {"status": "failed"}
     try:
-        (execute_isolated if isolated_mode() else execute)(ticket, repo, status_fn=status_fn)
+        outcome = (execute_isolated if isolated_mode() else execute)(ticket, repo, status_fn=status_fn, mods=mods) or outcome
     except Exception as exc:
         # Avoid printing confidential payloads or raw tracebacks in logs.
         try:
@@ -468,4 +474,7 @@ def run_one(repo: pathlib.Path, *, status_fn=None) -> bool:
                  run_id=str((ticket.get("execution") or {}).get("run_id") or ""))
         except Exception:
             pass
+    mods_runtime.report_run(mods, run_id=str((ticket.get("execution") or {}).get("run_id") or ""),
+                            task=str(ticket.get("id") or ""), kind="relay", result=str(outcome.get("status") or ""),
+                            duration_seconds=time.time() - started)
     return True

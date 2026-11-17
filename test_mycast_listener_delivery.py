@@ -177,6 +177,8 @@ class GateTest(unittest.TestCase):
                          ("Андрій", "2026-11-13", "sent", 1))
         self.assertEqual(view["listeners"][0]["slug"], s2)                     # due first
         text = json.dumps(view, ensure_ascii=False)
+        for r in view["listeners"]:   # random public slugs may contain digits like "777": only private data counts
+            text = text.replace(r["slug"], "")
         for private in ("777", "778", "olena@example.com", "tg-file-1", CODE[:20], "Тест"):
             self.assertNotIn(private, text)
 
@@ -254,7 +256,10 @@ class RouteTest(unittest.TestCase):
         status, body = asgi_get("/api/factory/mycast/worker/listeners/due", WORKER)
         due = json.loads(body)["listeners"]
         self.assertEqual((status, [d["slug"] for d in due]), (200, [s]))
-        self.assertNotIn("777", body.decode())
+        public = body.decode()
+        for d in due:                 # the random public slug may contain "777"; the chat id must not appear
+            public = public.replace(d["slug"], "")
+        self.assertNotIn("777", public)
         self.assertEqual(asgi_get("/api/factory/mycast/worker/listeners/due", "wrong")[0], 401)
 
         def tts(key, ep, voices, **kw):

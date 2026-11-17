@@ -88,7 +88,12 @@ def build_plan(task: dict) -> BrowserActionPlan:
     steps = [{"type": "navigate", "url": task["url"]}]
     if task.get("wait_for"):
         steps.append({"type": "wait_for", "selector": task["wait_for"]})
-    steps += [{"type": "extract", "selector": s} for s in task.get("selectors") or ["body"]]
+    selectors = task.get("selectors") or []
+    if selectors:
+        steps += [{"type": "extract", "selector": s} for s in selectors]
+    else:
+        # T-670: no selectors → the main text of the page, its title and links (an explicit "body" still reads it all).
+        steps.append({"type": "read_page"})
     steps.append({"type": "screenshot"})
     session = task.get("session") or {}
     return BrowserActionPlan(plan_id=task["id"], workspace_id="owner", provider=session.get("provider") or "web",
@@ -124,17 +129,27 @@ def execute(task: dict, *, runner=run_playwright, artifact_root: pathlib.Path, r
                                       proxy_server=proxy.url, allow_same_origin_xhr=bool(session_store))
         result = runner(build_plan(task), policy=policy, **({"session_store": session_store} if session_store else {}))
     task.pop("storage_state", None)                       # cookies leave memory with the task
-    selectors = task.get("selectors") or ["body"]
+    plan_steps = [dict(s) for s in build_plan(task).steps]
+    selectors = [s["selector"] for s in plan_steps if s["type"] == "extract"]
     extracts = [row for row in result.action_log if row.get("type") == "extract"]
     texts = [dict({"selector": selectors[i], "text": row.get("text", "")}, **({"missing": True} if row.get("missing") else {}))
              for i, row in enumerate(extracts[:len(selectors)])]
+    extra = {}
+    for row in result.action_log:
+        if row.get("type") == "navigate" and row.get("http_status"):
+            extra["http_status"] = int(row["http_status"])
+        elif row.get("type") == "read_page":
+            extra["page"] = {k: row[k] for k in ("title", "description", "text", "links", "main") if k in row}
+            texts = [{"selector": "(main content)", "text": row.get("text", "")}]
+        elif row.get("type") == "redirect" and row.get("url"):
+            extra["redirect_to"] = row["url"]
     shot = ""
     for ref in result.artifacts[:1]:
         path = artifact_root / ref.rsplit("/", 1)[-1]
         if path.is_file():
             shot = base64.b64encode(path.read_bytes()).decode()
     return {"status": result.status, "final_url": result.final_url, "blocker": result.blocker_reason,
-            "steps": result.completed_steps, "texts": texts, "screenshot_png_b64": shot}
+            "steps": result.completed_steps, "texts": texts, "screenshot_png_b64": shot, **extra}
 
 
 def run_one(*, http=None, runner=run_playwright, available=playwright_available, resolve=socket.getaddrinfo) -> str:

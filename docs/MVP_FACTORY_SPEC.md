@@ -56,3 +56,6 @@ A. Static prototype: superseded by `static/mvp-factory/` (the preview file from 
 B. Done: the panel is integrated in the dashboard sidebar (phase 1, #186).
 C. Partly done: registry, API and Builder contracts are in place with tests. Wiring real Relay claims into the Builder is still open (M2, #186).
 D. Open: an end-to-end pilot (#189 or #187), then an optional Content Factory handoff.
+E. Started (T-630, #270): Product Evolution — consented feedback, themes and owner-approved V2 proposals handed to
+   Builder through one Relay ticket; page `static/mvp-factory/evolution.html`, module `mvp_evolution.py`.
+

@@ -249,6 +249,12 @@ class FeedbackStore:
             self._save(data)
         return {"withdrawn": True}
 
+    def consented_entries(self) -> list[dict[str, Any]]:
+        """T-630: stored (consented) entries without withdraw hashes, for the Product Evolution import."""
+        with self._lock:
+            entries = self._load()["entries"]
+        return [{k: v for k, v in e.items() if k != "withdraw_hash"} for e in entries]
+
     def summary(self) -> dict[str, Any]:
         with self._lock:
             entries = self._load()["entries"]

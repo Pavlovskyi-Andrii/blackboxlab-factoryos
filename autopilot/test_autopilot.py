@@ -274,6 +274,14 @@ def follow_main_regression():
         assert ap.sync_branch("autopilot/w") == "code_updated"
         assert (worker / "autopilot" / "y.py").exists()
         git(seed, "push", "origin", "main")
+        # T-670: the browser executor (browser_runner/) is loaded once per worker process too.
+        (seed / "browser_runner").mkdir()
+        (seed / "browser_runner" / "z.py").write_text("Z = 1\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "executor fix"); git(seed, "push", "origin", "main")
+        assert ap.sync_branch("autopilot/w") == "code_updated"
+        (seed / "docs.md").write_text("only docs\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "docs"); git(seed, "push", "origin", "main")
+        assert ap.sync_branch("autopilot/w") == ""
         # Conflict: both sides edit the same line; merge is aborted and the tree stays clean.
         (worker / "ROADMAP.md").write_text("worker\n", encoding="utf-8")
         git(worker, "commit", "-am", "worker edit")

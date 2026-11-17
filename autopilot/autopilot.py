@@ -15,10 +15,12 @@ try:
     from . import relay_tasks
     from . import owner_questions
     from . import browser_tasks, codex_review, mycast_daily, mycast_listeners
+    from . import mods_runtime
 except ImportError:
     from delegation import agent_preflight, build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
+    import mods_runtime
     import control
     import relay_tasks
     import owner_questions
@@ -198,6 +200,8 @@ def done_status_is_consistent(status: dict[str, Any], expected_task: dict[str, A
 
 
 def run_agent(target: dict[str, Any]) -> dict[str, Any]:
+    # Owner's switched-on mods, this run only. They are Claude Code plugins: the Gemini lane never loads them.
+    mods = mods_runtime.prepare(REPO, "roadmap") if AGENT == "claude" else None
     try:
         spec = build_delegation(
             target,
@@ -206,6 +210,7 @@ def run_agent(target: dict[str, Any]) -> dict[str, Any]:
             timeout_seconds=TASK_TIMEOUT_SECONDS,
             skip_permissions=SKIP_PERMISSIONS,
             agent=AGENT,
+            mods=mods,
         )
     except ValueError as exc:
         return {"task": target.get("id"), "status": "failed", "summary": f"delegation refused: {exc}"}
@@ -216,6 +221,9 @@ def run_agent(target: dict[str, Any]) -> dict[str, Any]:
     write_evidence(REPO, evidence)
     if AGENT == "claude":
         report_result(evidence)   # /api/claude-worker/task-result is the Claude lane's own record
+        mods_runtime.report_run(spec["mods"], run_id=str(evidence.get("run_id") or ""), task=str(target.get("id") or ""),
+                                kind="roadmap", result=str(evidence.get("result") or ""),
+                                duration_seconds=evidence.get("duration_seconds") or 0)
     status = dict(evidence["status"])
     status["status"] = evidence["result"]
     if evidence["violations"]:
@@ -227,6 +235,9 @@ def append_answer(task: str, answer: str) -> None:
     ANSWERS.parent.mkdir(parents=True, exist_ok=True)
     with ANSWERS.open("a", encoding="utf-8") as handle:
         handle.write(f"\n## {task or 'blocked-task'}\n{answer.strip()}\n")
+
+
+RUNNER_CODE_DIRS = ("autopilot/", "browser_runner/")
 
 
 def sync_branch(branch: str) -> str:
@@ -263,7 +274,8 @@ def sync_branch(branch: str) -> str:
     if not before or after == before:
         return ""
     changed = run(["git", "diff", "--name-only", before, after], check=False, capture=True).stdout.split()
-    return "code_updated" if any(name.startswith("autopilot/") and name.endswith(".py") for name in changed) else ""
+    # T-670: the browser worker imports browser_runner/ once per process, so its changes need the same restart.
+    return "code_updated" if any(name.startswith(RUNNER_CODE_DIRS) and name.endswith(".py") for name in changed) else ""
 
 
 def push_branch(branch: str) -> bool:

@@ -1,0 +1,73 @@
+{
+ "id": "olympia",
+ "language": "en",
+ "title": "Olympia: the first Games",
+ "voices": "MyCast two hosts: A = Charon, B = Kore (mycast.gemini_tts_pcm)",
+ "checked": "2026-11-16: dates, numbers and names checked against the lead of en.wikipedia.org/wiki/Ancient_Olympic_Games read through the FactoryOS Surfer; the other links are the standard Wikipedia articles for the remaining facts. No invented facts or quotes.",
+ "sources": [
+  "https://en.wikipedia.org/wiki/Ancient_Olympic_Games",
+  "https://en.wikipedia.org/wiki/Statue_of_Zeus_at_Olympia"
+ ],
+ "lines": [
+  {
+   "host": "A",
+   "text": "Hi! This is a MyCast demo, and we are in Olympia, where the Olympic Games were born."
+  },
+  {
+   "host": "B",
+   "text": "When was that?"
+  },
+  {
+   "host": "A",
+   "text": "Tradition dates the first Games to 776 BC. They were held at a sanctuary in honour of Zeus every four years."
+  },
+  {
+   "host": "B",
+   "text": "And that four-year cycle became a way to measure time, right?"
+  },
+  {
+   "host": "A",
+   "text": "Yes, the Olympiad became a unit of dating. Years were even named after the winner of the stadion, a sprint the length of the stadium."
+  },
+  {
+   "host": "B",
+   "text": "What did the winner get? A gold medal?"
+  },
+  {
+   "host": "A",
+   "text": "No, a wreath of olive leaves. But the fame was huge: victors were honoured and their names recorded for later generations."
+  },
+  {
+   "host": "B",
+   "text": "How did people travel to the Games if their cities were at war?"
+  },
+  {
+   "host": "A",
+   "text": "A truce, the ekecheiria, was announced for the Games, so athletes and pilgrims could reach Olympia safely."
+  },
+  {
+   "host": "B",
+   "text": "Who could compete?"
+  },
+  {
+   "host": "A",
+   "text": "For a long time only freeborn Greek men. But there were women victors too, as owners of chariots in the races."
+  },
+  {
+   "host": "B",
+   "text": "Clever. What else was at Olympia?"
+  },
+  {
+   "host": "A",
+   "text": "The statue of Zeus, counted among the seven wonders of the ancient world. The last recorded Games were held in AD 393, under Emperor Theodosius."
+  },
+  {
+   "host": "B",
+   "text": "So the Games ran for more than a thousand years. Amazing."
+  },
+  {
+   "host": "A",
+   "text": "That was a MyCast demo episode. You can build your own podcast at mycast.pro."
+  }
+ ]
+}

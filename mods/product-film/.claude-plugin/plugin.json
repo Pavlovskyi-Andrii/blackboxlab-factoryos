@@ -1,0 +1,9 @@
+{
+  "name": "product-film",
+  "version": "0.2.0",
+  "description": "Short product films from the product's real UI: HTML timeline, Playwright frames, ffmpeg cut. FactoryOS build without external publishing.",
+  "author": {"name": "display.dev"},
+  "homepage": "https://github.com/display-dev/product-film",
+  "repository": "https://github.com/display-dev/product-film",
+  "license": "MIT"
+}
