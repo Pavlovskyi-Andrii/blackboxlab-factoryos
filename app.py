@@ -88,9 +88,9 @@ if GITHUB_READ_TOKEN:
     # Evidence Tier 2.1: only Render's own GitHub read counts as "checked" once the read-only token exists.
     import evidence as _evidence
     _evidence.set_trusted_sources({"github:render","delivery_log","telegram_api","gemini:review"})
-# T-599-E: owner Issue auto-intake; never polls more often than every 5 minutes.
+# T-599-E / #369: poll no more often than every 120 seconds; this is not a worker-start SLA.
 FACTORY_GITHUB_ISSUE_INTAKE_ENABLED = os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE", "1").strip().lower() not in ("0","false","no","off")
-FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC = max(300, int(os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC", "300") or 300))
+FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC = max(120, int(os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC", "120") or 120))
 BUILDER_WORKFLOW = os.environ.get("FACTORY_BUILDER_WORKFLOW", "factory-builder.yml")
 FACTORY_MCP_TOKEN = os.environ.get("FACTORY_MCP_TOKEN", "").strip()
 
