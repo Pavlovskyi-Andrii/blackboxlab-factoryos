@@ -371,7 +371,9 @@ jobs:
       - name: Worker / Delegation Control Center UI fixtures
         env:
           FACTORYOS_REQUIRE_NODE: "1"
-        run: python test_delegation_ui.py
+        run: |
+          python test_delegation_ui.py
+          python test_worker_center_simple.py
       - name: Role / operator API and operator assignment UI fixtures
         env:
           FACTORYOS_REQUIRE_NODE: "1"
@@ -406,6 +408,8 @@ jobs:
           python -m py_compile owner_desk.py test_owner_desk.py autopilot/owner_questions.py autopilot/test_owner_questions.py
           python test_owner_desk.py
           python -m autopilot.test_owner_questions
+          python -m py_compile telegram_web_compare.py test_telegram_web_compare.py
+          python test_telegram_web_compare.py
           python -m py_compile mycast.py test_mycast.py autopilot/mycast_daily.py autopilot/test_mycast_daily.py
           python test_mycast.py
           python -m autopilot.test_mycast_daily

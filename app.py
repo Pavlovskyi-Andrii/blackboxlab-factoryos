@@ -36,7 +36,8 @@ from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as 
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from relay_acceptance import latest_telegram_acceptance
-from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
+from telegram_web_compare import StaleComparison, TelegramViewLog, compare as telegram_web_compare, confirmation_for, owner_status as telegram_compare_status
+from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes, roadmap_states
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from mybrief import FeedbackStore as MyBriefFeedback, install_mybrief_routes, load_catalog as mybrief_catalog
 from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_mvp_project_once
@@ -753,8 +754,59 @@ class TelegramBridgeNotify(BaseModel):
     task_id: Optional[str] = None
 
 
+# T-592: facts (never text or chat ids) of every ticket view the bot delivered, for the server-side Telegram ↔ website check.
+TELEGRAM_VIEWS = TelegramViewLog(DATA_DIR / "telegram_views.json")
 install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send,
-                     authorize_gemini_worker=_gemini_worker_authorized)
+                     authorize_gemini_worker=_gemini_worker_authorized, view_log=TELEGRAM_VIEWS)
+
+
+def _telegram_web_report(ticket_id: str = "") -> dict:
+    """T-592 card: the newest ticket the bot showed in detail (or the T-591 acceptance ticket) vs the website now."""
+    tid = str(ticket_id or "").strip().upper()
+    if not tid:
+        latest = TELEGRAM_VIEWS.latest()
+        if latest:
+            tid = latest["ticket_id"]
+        else:
+            acc = latest_telegram_acceptance(RELAY_STORE.list(limit=100000))
+            tid = (acc or {}).get("ticket_id") or ""
+    ticket = RELAY_STORE.get(tid) if tid else None
+    view = RELAY_QUEUE.view(ticket) if ticket else None
+    report = telegram_web_compare(TELEGRAM_VIEWS.latest(tid) if tid else None, view)
+    report["ticket_id"] = tid or report.get("ticket_id") or ""
+    report["ticket_title"] = str((ticket or {}).get("title") or "")[:120]
+    report["confirmation"] = confirmation_for(TELEGRAM_VIEWS.latest_confirmation(), report)
+    return report
+
+
+class TelegramWebConfirm(BaseModel):
+    ticket_id: str
+    verdict: str
+    key: str = ""  # report_key of the card the owner saw
+
+
+@app.get("/api/factory/telegram-web-compare")
+def telegram_web_compare_view(request: Request, ticket_id: str = ""):
+    if (request_identity(request) or {}).get("role") != "owner":
+        raise HTTPException(403, "Owner access required")
+    return _telegram_web_report(ticket_id)
+
+
+@app.post("/api/factory/telegram-web-compare/confirm")
+def telegram_web_compare_confirm(payload: TelegramWebConfirm, request: Request):
+    """The owner's one action for T-592-H: «Совпадает» / «Не совпадает» next to the server verdict."""
+    if (request_identity(request) or {}).get("role") != "owner":
+        raise HTTPException(403, "Owner access required")
+    report = _telegram_web_report(payload.ticket_id)
+    if not report["ticket_id"]:
+        raise HTTPException(404, "No Relay ticket to compare")
+    try:
+        entry = TELEGRAM_VIEWS.confirm(report["ticket_id"], payload.verdict, report, payload.key)
+    except StaleComparison as exc:
+        raise HTTPException(409, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "confirmation": entry, "report": {**report, "confirmation": entry}}
 
 def _agent_relay_forbidden_tokens():
     """PR #314 review B4: the agent relay tokens must not reuse any broader FactoryOS credential."""
@@ -789,7 +841,13 @@ def _owner_desk_status():
         out["T-591-H"]={"state":"todo","detail_key":"accept_partial","args":{"ticket":acc["ticket_id"],"missing":", ".join(acc["missing"]) or (acc["problems"][0][:80] if acc["problems"] else "—")}}
     else:
         out["T-591-H"]={"state":"todo","detail_key":"accept_none"} if tg.get("paired") else {"state":"blocked","detail_key":"waits","args":{"task":"T-506"}}
-    out["T-592-H"]={"state":"todo","detail_key":"can_start"} if out["T-591-H"]["state"]=="done" else {"state":"blocked","detail_key":"waits","args":{"task":"T-591-H"}}
+    confirmation=TELEGRAM_VIEWS.latest_confirmation()
+    try:
+        current=_telegram_web_report((confirmation or {}).get("ticket_id") or "")
+    except Exception:
+        current=None
+    out["T-592-H"]=telegram_compare_status(confirmation,
+                                           out["T-591-H"]["state"]=="done" or roadmap_states().get("T-591-H") is True,current)
     out["T-593-H"]={"state":"todo","detail_key":"t593_live"}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
@@ -1642,7 +1700,7 @@ async def telegram_webhook(request: Request):
             _telegram_send_to(chat,"🎙 Не удалось распознать голосовое ("+VOICE_REASONS.get(reason,reason)+").\n"
                               "Задачу не создаю: без текста исполнителю нечего делать. Отправь её текстом или голосом ещё раз.")
             return {"ok":True,"action":"voice_not_transcribed","reason":reason}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,_github_read_token()),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,_github_read_token()),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES,view_log=TELEGRAM_VIEWS)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}

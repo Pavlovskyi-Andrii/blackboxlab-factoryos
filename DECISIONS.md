@@ -1932,3 +1932,34 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   approval stores the SHA-256 of the exact text; any edit drops it; publish claims the draft atomically
   (approved → publishing); a timeout, 5xx or 201 without an id → `uncertain`, which only the owner resolves
   (paste the post URL or "not published"). Dark until `FACTORY_LINKEDIN_ENABLED=1`.
+
+
+## 2026-11-17 — T-591-H closed, T-592 compared by the server, simpler Worker Center
+
+- **T-591-H [x].** The owner's Worker Center showed «Готово, підтверджено сервером: R-0087 · run-351295eb0d92». That line
+  is rendered only from `latest_telegram_acceptance()` with status VERIFIED (Telegram intake, one ticket, claim + run_id,
+  running, done, result, Bot API delivery receipt), so it is the server's own verdict, not a model claim. This cloud
+  session gets HTTP 401 on owner APIs and therefore did not re-read R-0087 itself; the owner's screen is the evidence.
+  The DONE line also asked for the transcript in Issue #41; the owner's 2026-11-17 task said to close T-591-H on the
+  server verdict, so that part of the criterion is dropped (`/proof R-0087` still prints the transcript on demand).
+- **Duplicate T-645-H.** Two open lines had the same id (the older "owner provides MP3s" and the newer "Gemini voicing,
+  owner approves"). The older one is superseded by the owner's 2026-11-16 Gemini decision and was removed.
+- **T-592 without manual comparison.** `telegram_web_compare.TelegramViewLog` (`DATA_DIR/telegram_views.json`) records,
+  after the Bot API accepted a ticket detail (🔄 / `/task`) or a worker notice, only: ticket id, UTC time, kind, stage,
+  run_id, last contact and whether each value literally appears in the sent text. No chat id, no text. The comparison
+  uses detail views only (notices do not print run_id). A difference caused by a ticket change after the message is
+  `outdated` (press 🔄 again), not a bug; a difference for an unchanged ticket, or a value missing from the Telegram
+  text, is `mismatch`. T-592-H is done only when the server says `match` and the owner pressed «Совпадает».
+  Codex review #416: the owner's answer carries `report_key` (hash of ticket, verdict, Telegram facts + time, site
+  facts) of the card they saw; a different current key → 409 and the card reloads. T-592-H stays done only while the
+  current comparison still has the confirmed key and says match, and a report carries only its own ticket's answer.
+- **Owner desk never shows "unknown".** A runbook without a live fact takes its state from the ROADMAP checkbox
+  (open → todo, «Ждёт вас»), and a checked ROADMAP line closes a task even if the live fact still says todo.
+- **Worker Center simple mode (mobile-first).** Top: «Нужно от вас: N» — open HUMAN runbooks (interface language,
+  deduplicated by id, ROADMAP-only HUMAN tasks appended), each one row with «Как сделать» opening the runbook; T-592-H
+  and its comparison card go first while open; done and optional/info tasks fold into «Сделано (k)» /
+  «Необязательно (m)». Then «Сейчас работают»: one row per Claude / ChatGPT / Gemini lane. Everything technical (worker
+  signals, branch/commit/CI, heatmap, timeline, progress, operators/roles, lanes, kanban) sits in one «Технические
+  детали» `<details>`, closed by default; inside it healthy signals collapse into «Воркер в порядке ✓» and only
+  problem signals stay open; the HUMAN-blocker panel there shows ids only (no English titles). Status pills read
+  «Ждёт вас» / «Позже» instead of «Сделать» / «Ждёт», and «Неизвестно» is never shown.

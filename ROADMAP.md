@@ -100,14 +100,16 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Progress 2026-10-30: first live claimed runs on EC2 blocked because the agent's Python lived in /tmp/fos-venv (wiped on reboot) and headless `claude -p` denied python3. Delegation now keeps a persistent gitignored `<repo>/.venv` rebuilt only when requirements.txt changes, puts it first on PATH, and pre-allows the CLAUDE.md verification loop (Read/Edit/Write, python, node --check, local git add/commit) while push/deploy stay disallowed.
   Progress (2026-11-15): the deterministic parts are covered on main (T-599 claims/parking, T-598 persisted retries, T-600 usage-limit hold, `autopilot.test_autopilot`, `autopilot.test_delegation`). Not provable from a cloud session: the live EC2 sequence (next safe task after a verified commit) and a day without direct-main pushes or paid spend — **[HUMAN] T-593-H**.
 
-- [ ] [HUMAN] T-591-H Live Telegram acceptance: one test task end to end (closes the live part of T-590 / T-591 / T-591-A)
+- [x] [HUMAN] T-591-H Live Telegram acceptance: one test task end to end (closes the live part of T-590 / T-591 / T-591-A)
   Need: owner sends one plain test message in the paired chat, waits for the worker's 🏁 notice, then `/proof R-…`; runbook in Owner desk (RU/EN/UK).
   DONE: `/proof` shows "VERIFIED by the server" (Telegram intake, one ticket, claim + run_id, running, done, delivery receipt) and the transcript is in Issue #41.
+  Progress (2026-11-17): done — the Owner desk shows the server verdict «Готово, підтверджено сервером: R-0087 · run-351295eb0d92» (`latest_telegram_acceptance` VERIFIED: all seven stages incl. the Telegram delivery receipt). The owner's screen is the evidence; the cloud session gets 401 on owner APIs, so it did not re-read the ticket itself. Acceptance change: the owner (task of 2026-11-17 via the coordinator session) asked to close T-591-H on that server verdict, so the Issue #41 transcript is no longer required; `/proof R-0087` reproduces it on demand (DECISIONS.md 2026-11-17).
 
-- [ ] [HUMAN] T-592-H Compare Telegram and the web for one task (phone + desktop screenshots)
+- [ ] [HUMAN] T-592-H Compare Telegram and the web for one task (one button, the server compares)
   Depends: T-591-H
-  Need: owner screenshots the same ticket in Telegram (🔄 Refresh) and on /relay + Worker Center; runbook in Owner desk.
-  DONE: same stage/run_id/last-contact in both, no ghost running, Build Progress columns fully visible; screenshots in Issue #56 or confirmed by the owner.
+  Need: owner opens the task in Telegram on the phone (/task R-… or 🔄 Refresh) and presses «Совпадает» / «Не совпадает» on the Worker Center comparison card; runbook in Owner desk (RU/UK/EN). No screenshots, no Issue.
+  DONE: `/api/factory/telegram-web-compare` says `match` (same stage / run_id / last contact as the last view the bot delivered; no ghost running) and the owner pressed «Совпадает» on that card (which also confirms the screen has no cut-off columns).
+  Progress (2026-11-17): server side done — `telegram_web_compare.py` logs the facts of every delivered ticket view (no chat id, no text) and compares them with `RelayQueue.view`; `test_telegram_web_compare.py`.
 
 - [ ] [HUMAN] T-593-H Confirm the EC2 worker moves on to the next safe task by itself
   Need: owner checks main CI, `/workers` + Worker Center after a verified commit, and a day later main history (PRs only) and bills (no new paid spend); runbook in Owner desk.
@@ -770,11 +772,6 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   Spec: DECISIONS.md «2026-11-16 — T-645». `mycast_share_page.py` renders `/mycast/e/<token>`; demo cards from `static/mycast-share/demos.json`.
   Goal: a recipient of a shared episode (no login) sees a swipeable glass coverflow: the author's episode in the centre with the configurator's own generative DNA cover, title, date, length and its own player; demo cards (Athens, Rome, Delphi, Olympia, Pompeii) around it, playing only owner-approved local audio and otherwise marked "soon" with no play button; a glass player bar; "About this podcast" with topics, category mix, Ukraine/world geography, schedule and voice only (no chat id, contact, slug, share code, file id, follows, own free-text topics or custom city). T-620 guarantees kept: noindex/no-store, revocable link, every model/manifest string escaped. UK/RU/EN by `?lang`, browser, author.
   DONE: `python test_mycast_share_page.py` (escaping, no private fields, honest demo manifest, language, cover byte-identical to the configurator via node, `node --check` of the inline JS) and every `test_mycast*.py`, `python test_owner_desk.py` and the default verification pass; Playwright screenshots at 390 and 1280 px in `docs/screenshots/t645/`.
-
-- [ ] [HUMAN] T-645-H Make and approve the MyCast demo episodes (Athens, Rome, …)
-  Depends: T-645
-  Need: owner provides 1–2 minute two-host MP3s per city (own files, or explicitly confirms Gemini voicing within the free quota / accepted spend) and approves each; Claude then adds them to `static/mycast-share/audio/` with `approved_by_owner: true`. Runbook in Worker Center → «Ваши задачи».
-  DONE: at least the Athens and Rome cards play on a live `/mycast/e/<token>` page.
 
 ## MVP Factory pilots (owner 2026-11-15: first MVP wave — #305, #187, #188, #189)
 
