@@ -1914,3 +1914,21 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   count. (2) `/api/mycast/quiz` is public as an exact path, not a prefix. (3) a hand-off is saved only with a real
   Relay id (`R-…`); otherwise nothing changes and the next analyst pass retries it once Relay answers.
 
+
+## 2026-11-17 — T-700 LinkedIn posts via the official API
+
+- Owner asked to «вести LinkedIn, отправлять посты, писать сообщения, искать людей». A live Surfer check: OLX answers the
+  EC2 runner with HTTP 403 (CloudFront), LinkedIn with 403 + an anti-bot page; both sites' terms forbid automation, and
+  FactoryOS never bypasses anti-bot checks or logs in through a browser. So: posts via the official API (this task);
+  OLX via the OLX Partner API next (T-701, no code until partner access); LinkedIn messaging API is partner-only →
+  drafts the owner sends by hand; people search has no public API and scraping is forbidden → not built.
+- Products: «Sign In with LinkedIn using OpenID Connect» (`openid profile` → `/v2/userinfo` `sub` → `urn:li:person:…`)
+  and «Share on LinkedIn» (`w_member_social`) → `POST /rest/posts` with `LinkedIn-Version` (default `202510`,
+  override with `FACTORY_LINKEDIN_API_VERSION=YYYYMM` when LinkedIn sunsets it: the API answers 426) and
+  `X-Restli-Protocol-Version: 2.0.0`. The post URN comes from the `x-restli-id` header. Commentary uses LinkedIn's
+  "little text" format, so `\ | { } @ [ ] ( ) < > # * _ ~` are backslash-escaped to stay literal.
+- LinkedIn gives standard apps a 60-day access token without a refresh token: on 401 the owner reconnects.
+- Separate owner-only flow (not the video publish queue, which is built around approved media snapshots):
+  approval stores the SHA-256 of the exact text; any edit drops it; publish claims the draft atomically
+  (approved → publishing); a timeout, 5xx or 201 without an id → `uncertain`, which only the owner resolves
+  (paste the post URL or "not published"). Dark until `FACTORY_LINKEDIN_ENABLED=1`.

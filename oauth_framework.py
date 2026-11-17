@@ -74,6 +74,16 @@ PROVIDERS = {
         client_id_env="FACTORY_OAUTH_META_APP_ID", client_secret_env="FACTORY_OAUTH_META_APP_SECRET",
         scope_separator=",",
     ),
+    # T-700 (owner 2026-11-17): member text posts through Share on LinkedIn + Sign In with LinkedIn (OpenID).
+    "linkedin": OAuthProvider(
+        id="linkedin", label="LinkedIn", integration="LinkedIn",
+        authorize_url="https://www.linkedin.com/oauth/v2/authorization",
+        token_url="https://www.linkedin.com/oauth/v2/accessToken",
+        revoke_url="https://www.linkedin.com/oauth/v2/revoke",
+        scopes=("openid", "profile", "w_member_social"),
+        pkce=False,
+        client_id_env="FACTORY_OAUTH_LINKEDIN_CLIENT_ID", client_secret_env="FACTORY_OAUTH_LINKEDIN_CLIENT_SECRET",
+    ),
     "hubspot": OAuthProvider(
         id="hubspot", label="HubSpot", integration="HubSpot",
         authorize_url="https://app.hubspot.com/oauth/authorize",

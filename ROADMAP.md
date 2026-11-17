@@ -339,6 +339,23 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Need: owner decides whether Google Search grounding on the existing Gemini key may be used (free daily quota, billed beyond it on a paid project); if yes, set `FACTORY_WEB_SEARCH_PROVIDER=gemini` in Render. Without it `web_search` answers from Wikipedia only.
   DONE: `web_search` returns `"provider": "gemini_google_search"`.
 
+- [x] T-700 LinkedIn text posts through the official API (draft → owner approval → publish)
+  Owner: claude
+  Spec: owner 2026-11-17 «вести LinkedIn, отправлять посты» — official API only, no browser login (Surfer check: LinkedIn and OLX block the EC2 runner, and their terms forbid automation); DECISIONS.md «2026-11-17 — T-700»
+  Goal: `linkedin_publisher.py` + `static/linkedin/`: OAuth provider `linkedin` (OpenID + Share on LinkedIn, `w_member_social`), owner-only drafts; approval freezes the exact text hash; publish only when `FACTORY_LINKEDIN_ENABLED=1`, the text still matches and nothing was sent before; timeout/5xx → «unknown outcome» that only the owner can resolve; fixed error codes, no token or provider body stored.
+  DONE: `python test_linkedin_publisher.py` (adapter, escaping, fixed codes, approval fence, edit drops approval, one publish, no blind retry, owner-only, flag off → no network) + default verification.
+
+- [ ] [HUMAN] T-700-H Create the LinkedIn app and connect the account
+  Depends: T-700, T-560-G
+  Need: owner creates an app on developer.linkedin.com with «Share on LinkedIn» + «Sign In with LinkedIn using OpenID Connect», adds the redirect URL, puts FACTORY_OAUTH_LINKEDIN_CLIENT_ID / _SECRET and FACTORY_LINKEDIN_ENABLED=1 in Render, connects on /static/linkedin/ and publishes one approved test post. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
+  DONE: a test post published from /static/linkedin/ with its LinkedIn URL saved.
+
+- [ ] T-701 OLX adverts through the OLX Partner API (planned, no code yet)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Depends: T-700
+  Goal: same draft → owner approval → publish pattern as T-700 for OLX adverts via the official OLX Partner API (developer.olx.ua, OAuth), never browser automation (the Surfer gets HTTP 403 from OLX on EC2). Needs the owner's partner registration first; check API access and terms before writing code.
+  DONE: to be specified when the owner has partner API access.
+
 - [ ] [HUMAN] T-560-G Configure FACTORY_VAULT_KEY
   Depends: T-560-F
   Need: owner generates a key (`python -c "from browser_runner.vault import generate_key; print(generate_key())"`) and stores it only in the Render secret environment (and the browser runner host), never in Git or chat.
