@@ -1932,3 +1932,13 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   approval stores the SHA-256 of the exact text; any edit drops it; publish claims the draft atomically
   (approved → publishing); a timeout, 5xx or 201 without an id → `uncertain`, which only the owner resolves
   (paste the post URL or "not published"). Dark until `FACTORY_LINKEDIN_ENABLED=1`.
+
+
+## 2026-11-17 — T-591-H closed, T-592 compared by the server, simpler Worker Center
+
+- **T-591-H [x].** The owner's Worker Center showed «Готово, підтверджено сервером: R-0087 · run-351295eb0d92». That line
+  is rendered only from `latest_telegram_acceptance()` with status VERIFIED (Telegram intake, one ticket, claim + run_id,
+  running, done, result, Bot API delivery receipt), so it is the server's own verdict, not a model claim. This cloud
+  session gets HTTP 401 on owner APIs and therefore did not re-read R-0087 itself; the owner's screen is the evidence.
+- **Duplicate T-645-H.** Two open lines had the same id (the older "owner provides MP3s" and the newer "Gemini voicing,
+  owner approves"). The older one is superseded by the owner's 2026-11-16 Gemini decision and was removed.
