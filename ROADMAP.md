@@ -338,6 +338,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Depends: T-560-H
   Need: owner decides whether Google Search grounding on the existing Gemini key may be used (free daily quota, billed beyond it on a paid project); if yes, set `FACTORY_WEB_SEARCH_PROVIDER=gemini` in Render. Without it `web_search` answers from Wikipedia only.
   DONE: `web_search` returns `"provider": "gemini_google_search"`.
+  Progress 2026-11-17: owner opted in (owner checklist, 19:14 UTC). A live `web_search` through the FactoryOS MCP at 19:30 UTC tried Gemini first, so the setting is on, but fell back to Wikipedia: `gemini-2.5-flash` 404, `gemini-flash-latest` and `gemini-flash-lite-latest` 429 RESOURCE_EXHAUSTED (free daily quota used up). Re-check after the quota resets; no owner action needed.
 
 - [x] T-700 LinkedIn text posts through the official API (draft → owner approval → publish)
   Owner: claude
@@ -356,10 +357,11 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: same draft → owner approval → publish pattern as T-700 for OLX adverts via the official OLX Partner API (developer.olx.ua, OAuth), never browser automation (the Surfer gets HTTP 403 from OLX on EC2). Needs the owner's partner registration first; check API access and terms before writing code.
   DONE: to be specified when the owner has partner API access.
 
-- [ ] [HUMAN] T-560-G Configure FACTORY_VAULT_KEY
+- [x] [HUMAN] T-560-G Configure FACTORY_VAULT_KEY
   Depends: T-560-F
   Need: owner generates a key (`python -c "from browser_runner.vault import generate_key; print(generate_key())"`) and stores it only in the Render secret environment (and the browser runner host), never in Git or chat.
   DONE: owner-only `GET /api/factory/vault/status` reports `configured: true`.
+  Done 2026-11-17: owner confirmed in the owner checklist (19:10 UTC) after checking the owner-only status endpoint; the key was set in Render earlier (answers.md 2026-11-15). Agents cannot read that endpoint without the owner's sign-in.
 
 - [x] T-670 Surfer benchmark: 28 real tasks an AI needs mid-project, report with problems found
   Owner: claude (session Surfer)
