@@ -364,6 +364,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: `_origin()` swallowed its own `local_network_disallowed` (PolicyError is a ValueError), so `https://10.0.0.5/` passed the executor's origin check and only the egress proxy refused it; and the EC2 worker restarted for new `autopilot/*.py` only, so a `browser_runner/` fix sat on disk unloaded.
   DONE: `python test_browser_reading.py` (private/loopback/link-local IP literals refused, loopback fixture still allowed) and `python -m autopilot.test_autopilot` (a `browser_runner/*.py` change returns `code_updated`, a docs change does not) green.
 
+- [x] T-673 Worker sync resolves ROADMAP-only merge conflicts by itself
+  Owner: claude (session Surfer)
+  Depends: T-672
+  Spec: owner answer 2026-11-17 (via the coordinator session): auto-resolve conflicts that touch only ROADMAP.md, with tests
+  Goal: 2026-11-16 the EC2 worker stayed on 2026-11-15 code (36 commits behind main, T-671 included) because merging main into `autopilot/aws-worker` conflicted on two T-590 status notes in ROADMAP.md; `sync_branch` aborted every pass. Now a merge whose only conflicted file is ROADMAP.md keeps both sides' lines (worker notes, then main's), takes a task header that both sides changed from main (no duplicate task with two checkbox states), and commits the merge; any other conflicted file is aborted and reported as before. No rebase, reset or force.
+  DONE: `python -m autopilot.test_autopilot` (unit cases incl. diff3 and malformed markers; a real git ROADMAP-only conflict is merged with both notes, one T-590 header from main and main's other files; a ROADMAP + code conflict still returns `conflict` with a clean tree) green.
+
 
 ## v5.1 — Viral Discovery Loop
 
