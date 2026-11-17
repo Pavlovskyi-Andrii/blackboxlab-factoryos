@@ -265,6 +265,8 @@ jobs:
           python test_browser_tasks.py
           python -m py_compile web_surfer.py test_web_surfer.py
           python test_web_surfer.py
+          python -m py_compile linkedin_publisher.py test_linkedin_publisher.py
+          python test_linkedin_publisher.py
           python -m py_compile test_browser_reading.py tools/surfer_benchmark.py
           python test_browser_reading.py
           python -m py_compile agent_workspace.py test_agent_workspace.py
