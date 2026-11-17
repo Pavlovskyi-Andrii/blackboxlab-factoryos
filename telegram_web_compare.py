@@ -18,6 +18,7 @@ Nothing here calls Telegram.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from datetime import datetime, timezone
@@ -84,8 +85,22 @@ def ticket_changed_at(view: dict) -> Optional[float]:
     return max(stamps) if stamps else None
 
 
+def report_key(report: dict) -> str:
+    """Fingerprint of exactly what the owner sees on the card; a confirmation is bound to it."""
+    tg = report.get("telegram") or {}
+    material = {"ticket": report.get("ticket_id") or "", "verdict": report.get("verdict") or "", "site": report.get("site") or {},
+                "telegram": {k: tg.get(k) for k in FIELDS + ("at",)}}
+    return hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:24]
+
+
 def compare(snapshot: Optional[dict], view: Optional[dict]) -> dict:
-    """One verdict for the owner card; see the module docstring."""
+    """One verdict for the owner card (see the module docstring), with `key` = report_key()."""
+    report = _compare(snapshot, view)
+    report["key"] = report_key(report)
+    return report
+
+
+def _compare(snapshot: Optional[dict], view: Optional[dict]) -> dict:
     site = ticket_facts(view or {})
     if not snapshot:
         return {"verdict": "no_view", "ticket_id": site["ticket_id"], "site": site, "telegram": None, "rows": [], "problems": []}
@@ -112,6 +127,17 @@ def compare(snapshot: Optional[dict], view: Optional[dict]) -> dict:
         verdict = "mismatch"
     return {"verdict": verdict, "ticket_id": site["ticket_id"], "site": site, "telegram": {**tg, "at": snapshot.get("at"),
             "kind": snapshot.get("kind")}, "rows": rows, "problems": problems}
+
+
+class StaleComparison(ValueError):
+    """The owner answered a card that no longer matches the server's current comparison."""
+
+
+def confirmation_for(confirmation: Optional[dict], report: dict) -> Optional[dict]:
+    """The confirmation only if it was given for this very ticket."""
+    if confirmation and confirmation.get("ticket_id") == str(report.get("ticket_id") or "").upper():
+        return confirmation
+    return None
 
 
 class TelegramViewLog:
@@ -155,11 +181,16 @@ class TelegramViewLog:
             views = self._load()["views"]
         return next((v for v in reversed(views) if v.get("kind") == kind and (not tid or v.get("ticket_id") == tid)), None)
 
-    def confirm(self, ticket_id: str, owner_verdict: str, server: dict) -> dict:
+    def confirm(self, ticket_id: str, owner_verdict: str, server: dict, shown_key: str) -> dict:
+        """Store the owner's answer for the card they saw. `shown_key` must equal the current report's key:
+        if Telegram or the ticket changed after the card was rendered, the answer is refused (StaleComparison)."""
         if owner_verdict not in OWNER_VERDICTS:
             raise ValueError("verdict must be match or mismatch")
+        if not shown_key or shown_key != server.get("key"):
+            raise StaleComparison("the comparison changed since it was shown; reload and answer again")
         entry = {"ticket_id": str(ticket_id or "").upper()[:20], "at": _now(), "owner": owner_verdict,
-                 "server": str(server.get("verdict") or ""), "telegram_at": str((server.get("telegram") or {}).get("at") or "")}
+                 "server": str(server.get("verdict") or ""), "key": str(server.get("key") or ""),
+                 "telegram_at": str((server.get("telegram") or {}).get("at") or "")}
         with self.lock:
             data = self._load()
             data["confirmations"] = (data["confirmations"] + [entry])[-MAX_CONFIRMATIONS:]
@@ -172,12 +203,18 @@ class TelegramViewLog:
         return items[-1] if items else None
 
 
-def owner_status(confirmation: Optional[dict], prerequisite_done: bool) -> dict:
-    """Owner-desk status for T-592-H (detail keys localized in owner_desk_i18n.STATUS_DETAILS)."""
+def owner_status(confirmation: Optional[dict], prerequisite_done: bool, current: Optional[dict] = None) -> dict:
+    """Owner-desk status for T-592-H (detail keys localized in owner_desk_i18n.STATUS_DETAILS).
+
+    Done only while the owner's «Совпадает» still describes the present: same ticket, the server still says match
+    and the comparison is the one the owner confirmed (same key). A later ticket change reopens the task."""
     if not prerequisite_done:
         return {"state": "blocked", "detail_key": "waits", "args": {"task": "T-591-H"}}
-    if confirmation and confirmation.get("owner") == "match" and confirmation.get("server") == "match":
+    current = current or {}
+    if confirmation and confirmation.get("owner") == "match" and confirmation.get("server") == "match" \
+            and current.get("verdict") == "match" and confirmation.get("key") == current.get("key") \
+            and confirmation.get("ticket_id") == current.get("ticket_id"):
         return {"state": "done", "detail_key": "compare_confirmed", "args": {"ticket": confirmation.get("ticket_id") or "—"}}
-    if confirmation and confirmation.get("owner") == "mismatch":
+    if confirmation and confirmation.get("owner") == "mismatch" and confirmation.get("ticket_id") == current.get("ticket_id"):
         return {"state": "todo", "detail_key": "compare_owner_mismatch", "args": {"ticket": confirmation.get("ticket_id") or "—"}}
     return {"state": "todo", "detail_key": "compare_ready"}

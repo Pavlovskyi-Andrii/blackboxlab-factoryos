@@ -125,14 +125,67 @@ class TestTelegramWebCompare(unittest.TestCase):
         self.click("relay:ticket:" + tid)
         report = twc.compare(self.log.latest(tid), self.site(tid))
         with self.assertRaises(ValueError):
-            self.log.confirm(tid, "maybe", report)
-        self.log.confirm(tid, "mismatch", report)
-        self.assertEqual(twc.owner_status(self.log.latest_confirmation(), True)["detail_key"], "compare_owner_mismatch")
-        self.log.confirm(tid, "match", {"verdict": "outdated"})
-        self.assertEqual(twc.owner_status(self.log.latest_confirmation(), True)["state"], "todo")  # server must agree
-        self.log.confirm(tid, "match", report)
-        status = twc.owner_status(self.log.latest_confirmation(), True)
+            self.log.confirm(tid, "maybe", report, report["key"])
+        self.log.confirm(tid, "mismatch", report, report["key"])
+        self.assertEqual(twc.owner_status(self.log.latest_confirmation(), True, report)["detail_key"], "compare_owner_mismatch")
+        outdated = {**report, "verdict": "outdated"}
+        outdated["key"] = twc.report_key(outdated)
+        self.log.confirm(tid, "match", outdated, outdated["key"])
+        self.assertEqual(twc.owner_status(self.log.latest_confirmation(), True, outdated)["state"], "todo")  # server must agree
+        self.log.confirm(tid, "match", report, report["key"])
+        status = twc.owner_status(self.log.latest_confirmation(), True, report)
         self.assertEqual((status["state"], status["args"]["ticket"]), ("done", tid))
+
+    def test_stale_card_answer_is_refused(self):
+        """Codex review #416: the answer is bound to the card the owner saw."""
+        ticket, _ = self.store.create("running task", "x")
+        tid = ticket["id"]
+        run = self.queue.claim("claude-ec2")["execution"]["run_id"]
+        self.queue.event(tid, "claude-ec2", "running", "started", run_id=run)
+        self.click("relay:ticket:" + tid)
+        shown = twc.compare(self.log.latest(tid), self.site(tid))
+        self.assertEqual(shown["verdict"], "match")
+        time.sleep(1.1)
+        self.queue.event(tid, "claude-ec2", "done", "finished", run_id=run)  # ticket changes before the owner clicks
+        current = twc.compare(self.log.latest(tid), self.site(tid))
+        self.assertNotEqual(shown["key"], current["key"])
+        with self.assertRaises(twc.StaleComparison):
+            self.log.confirm(tid, "match", current, shown["key"])
+        with self.assertRaises(twc.StaleComparison):
+            self.log.confirm(tid, "match", current, "")
+        self.assertIsNone(self.log.latest_confirmation())
+        self.click("relay:ticket:" + tid)  # Telegram refreshed too: also a new card
+        self.assertNotEqual(twc.compare(self.log.latest(tid), self.site(tid))["key"], current["key"])
+
+    def test_confirmed_match_reopens_after_ticket_change(self):
+        """Codex review #416: a confirmed match no longer counts once the comparison changes."""
+        ticket, _ = self.store.create("running task", "x")
+        tid = ticket["id"]
+        run = self.queue.claim("claude-ec2")["execution"]["run_id"]
+        self.queue.event(tid, "claude-ec2", "running", "started", run_id=run)
+        self.click("relay:ticket:" + tid)
+        shown = twc.compare(self.log.latest(tid), self.site(tid))
+        self.log.confirm(tid, "match", shown, shown["key"])
+        self.assertEqual(twc.owner_status(self.log.latest_confirmation(), True, shown)["state"], "done")
+        time.sleep(1.1)
+        self.queue.event(tid, "claude-ec2", "done", "finished", run_id=run)
+        now = twc.compare(self.log.latest(tid), self.site(tid))
+        self.assertEqual(now["verdict"], "outdated")
+        self.assertEqual(twc.owner_status(self.log.latest_confirmation(), True, now)["state"], "todo")
+        self.assertEqual(twc.owner_status(self.log.latest_confirmation(), True, None)["state"], "todo")
+
+    def test_confirmation_is_scoped_to_its_ticket(self):
+        """Codex review #416: a report for ticket B never carries ticket A's confirmation."""
+        a, _ = self.finished_ticket()
+        b, _ = self.finished_ticket()
+        self.click("relay:ticket:" + a)
+        self.click("relay:ticket:" + b)
+        ra = twc.compare(self.log.latest(a), self.site(a))
+        rb = twc.compare(self.log.latest(b), self.site(b))
+        conf = self.log.confirm(a, "match", ra, ra["key"])
+        self.assertEqual(twc.confirmation_for(conf, ra), conf)
+        self.assertIsNone(twc.confirmation_for(conf, rb))
+        self.assertEqual(twc.owner_status(conf, True, rb)["state"], "todo")
 
     def test_log_is_bounded_and_survives_garbage(self):
         path = Path(self.tmp.name) / "telegram_views.json"

@@ -1940,6 +1940,8 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   is rendered only from `latest_telegram_acceptance()` with status VERIFIED (Telegram intake, one ticket, claim + run_id,
   running, done, result, Bot API delivery receipt), so it is the server's own verdict, not a model claim. This cloud
   session gets HTTP 401 on owner APIs and therefore did not re-read R-0087 itself; the owner's screen is the evidence.
+  The DONE line also asked for the transcript in Issue #41; the owner's 2026-11-17 task said to close T-591-H on the
+  server verdict, so that part of the criterion is dropped (`/proof R-0087` still prints the transcript on demand).
 - **Duplicate T-645-H.** Two open lines had the same id (the older "owner provides MP3s" and the newer "Gemini voicing,
   owner approves"). The older one is superseded by the owner's 2026-11-16 Gemini decision and was removed.
 - **T-592 without manual comparison.** `telegram_web_compare.TelegramViewLog` (`DATA_DIR/telegram_views.json`) records,
@@ -1948,6 +1950,9 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   uses detail views only (notices do not print run_id). A difference caused by a ticket change after the message is
   `outdated` (press 🔄 again), not a bug; a difference for an unchanged ticket, or a value missing from the Telegram
   text, is `mismatch`. T-592-H is done only when the server says `match` and the owner pressed «Совпадает».
+  Codex review #416: the owner's answer carries `report_key` (hash of ticket, verdict, Telegram facts + time, site
+  facts) of the card they saw; a different current key → 409 and the card reloads. T-592-H stays done only while the
+  current comparison still has the confirmed key and says match, and a report carries only its own ticket's answer.
 - **Owner desk never shows "unknown".** A runbook without a live fact takes its state from the ROADMAP checkbox
   (open → todo, «Ждёт вас»), and a checked ROADMAP line closes a task even if the live fact still says todo.
 - **Worker Center simple mode (mobile-first).** Top: «Нужно от вас: N» — open HUMAN runbooks (interface language,

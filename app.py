@@ -36,7 +36,7 @@ from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as 
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from relay_acceptance import latest_telegram_acceptance
-from telegram_web_compare import TelegramViewLog, compare as telegram_web_compare, owner_status as telegram_compare_status
+from telegram_web_compare import StaleComparison, TelegramViewLog, compare as telegram_web_compare, confirmation_for, owner_status as telegram_compare_status
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes, roadmap_states
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from mybrief import FeedbackStore as MyBriefFeedback, install_mybrief_routes, load_catalog as mybrief_catalog
@@ -775,13 +775,14 @@ def _telegram_web_report(ticket_id: str = "") -> dict:
     report = telegram_web_compare(TELEGRAM_VIEWS.latest(tid) if tid else None, view)
     report["ticket_id"] = tid or report.get("ticket_id") or ""
     report["ticket_title"] = str((ticket or {}).get("title") or "")[:120]
-    report["confirmation"] = TELEGRAM_VIEWS.latest_confirmation()
+    report["confirmation"] = confirmation_for(TELEGRAM_VIEWS.latest_confirmation(), report)
     return report
 
 
 class TelegramWebConfirm(BaseModel):
     ticket_id: str
     verdict: str
+    key: str = ""  # report_key of the card the owner saw
 
 
 @app.get("/api/factory/telegram-web-compare")
@@ -800,7 +801,9 @@ def telegram_web_compare_confirm(payload: TelegramWebConfirm, request: Request):
     if not report["ticket_id"]:
         raise HTTPException(404, "No Relay ticket to compare")
     try:
-        entry = TELEGRAM_VIEWS.confirm(report["ticket_id"], payload.verdict, report)
+        entry = TELEGRAM_VIEWS.confirm(report["ticket_id"], payload.verdict, report, payload.key)
+    except StaleComparison as exc:
+        raise HTTPException(409, str(exc))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return {"ok": True, "confirmation": entry, "report": {**report, "confirmation": entry}}
@@ -838,8 +841,13 @@ def _owner_desk_status():
         out["T-591-H"]={"state":"todo","detail_key":"accept_partial","args":{"ticket":acc["ticket_id"],"missing":", ".join(acc["missing"]) or (acc["problems"][0][:80] if acc["problems"] else "—")}}
     else:
         out["T-591-H"]={"state":"todo","detail_key":"accept_none"} if tg.get("paired") else {"state":"blocked","detail_key":"waits","args":{"task":"T-506"}}
-    out["T-592-H"]=telegram_compare_status(TELEGRAM_VIEWS.latest_confirmation(),
-                                           out["T-591-H"]["state"]=="done" or roadmap_states().get("T-591-H") is True)
+    confirmation=TELEGRAM_VIEWS.latest_confirmation()
+    try:
+        current=_telegram_web_report((confirmation or {}).get("ticket_id") or "")
+    except Exception:
+        current=None
+    out["T-592-H"]=telegram_compare_status(confirmation,
+                                           out["T-591-H"]["state"]=="done" or roadmap_states().get("T-591-H") is True,current)
     out["T-593-H"]={"state":"todo","detail_key":"t593_live"}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})

@@ -103,7 +103,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
 - [x] [HUMAN] T-591-H Live Telegram acceptance: one test task end to end (closes the live part of T-590 / T-591 / T-591-A)
   Need: owner sends one plain test message in the paired chat, waits for the worker's 🏁 notice, then `/proof R-…`; runbook in Owner desk (RU/EN/UK).
   DONE: `/proof` shows "VERIFIED by the server" (Telegram intake, one ticket, claim + run_id, running, done, delivery receipt) and the transcript is in Issue #41.
-  Progress (2026-11-17): done — the Owner desk shows the server verdict «Готово, підтверджено сервером: R-0087 · run-351295eb0d92» (`latest_telegram_acceptance` VERIFIED: all seven stages incl. the Telegram delivery receipt). The owner's screen is the evidence; the cloud session gets 401 on owner APIs, so it did not re-read the ticket itself (DECISIONS.md 2026-11-17).
+  Progress (2026-11-17): done — the Owner desk shows the server verdict «Готово, підтверджено сервером: R-0087 · run-351295eb0d92» (`latest_telegram_acceptance` VERIFIED: all seven stages incl. the Telegram delivery receipt). The owner's screen is the evidence; the cloud session gets 401 on owner APIs, so it did not re-read the ticket itself. Acceptance change: the owner (task of 2026-11-17 via the coordinator session) asked to close T-591-H on that server verdict, so the Issue #41 transcript is no longer required; `/proof R-0087` reproduces it on demand (DECISIONS.md 2026-11-17).
 
 - [ ] [HUMAN] T-592-H Compare Telegram and the web for one task (one button, the server compares)
   Depends: T-591-H
