@@ -1837,3 +1837,19 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Production after the daily reset: `gemini-2.5-flash` 404, `gemini-flash-latest` 429 RESOURCE_EXHAUSTED. Owner asked to try
   `gemini-flash-lite-latest`. It is added to the fallback list, and a 429 now moves to the next model (quotas are per
   model); network errors and 5xx still stop. At most 3 Gemini calls per search (`GEMINI_MAX_ATTEMPTS`: the resolved model first, then the fallbacks in order), still one count against the 100/day cap.
+
+## 2026-11-17 — Incident: `main` overwritten by an activity generator; v5.9.0 on #252
+
+- Found 2026-11-17 ~11:07 UTC: `refs/heads/main` pointed at `01ba766`, an unrelated history of 1214 commits
+  "Intense commit 2026-10-12…" by the owner's account with only `activity_log.txt` (a contribution-graph generator run
+  against this repository). The last real `main` was `2f3c93c` (v5.11.0, CI green, tag `v5.11.0`). Render kept serving
+  v5.11.0 because nothing ran on the junk history. With the owner's explicit permission for this task, Claude restored
+  `main` with `git push --force-with-lease=refs/heads/main:01ba766… origin 2f3c93c:refs/heads/main` (the lease made
+  sure only the junk tip was replaced). Recommended to the owner: branch protection on `main` (no force-push, no
+  deletion) and pointing the generator at a separate repository.
+- v5.9.0: the rule behind the workflow token's HTTP 403 fits all 7 observed tag creations: a tag is allowed only when
+  some existing ref already has the exact `.github/workflows` tree of the target commit (v5.6…v5.8.0 had matching old
+  branches, v5.10.0 was main itself; `3c8c9ea` and `b991f85` matched nothing). The latest commit of that week with a
+  matching branch is `043460d` (#252), so v5.9.0 is cut there; the later merges of 2026-11-08 (#266, #288, #290–#295)
+  move to the v5.10.0 entry together with #297 and #298. No owner UI step is needed any more.
+
