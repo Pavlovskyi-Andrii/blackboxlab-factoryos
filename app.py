@@ -35,6 +35,7 @@ from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compac
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
+from relay_acceptance import latest_telegram_acceptance
 from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from mybrief import FeedbackStore as MyBriefFeedback, install_mybrief_routes, load_catalog as mybrief_catalog
@@ -42,6 +43,7 @@ from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
 import web_surfer
+import agent_workspace
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
 from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
@@ -54,6 +56,8 @@ from mycast_accounts import ListenerStore, install_mycast_account_routes, Accoun
 from mycast_accounts import COOKIE as MYCAST_COOKIE, unsign as mycast_unsign
 from mycast_calendar import ListenerCalendar, install_calendar_routes
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
+from mycast import GeminiTTSError as MycastGeminiTTSError
+from mycast_demo_audio import DemoAudioStore, install_mycast_demo_audio_routes
 import evidence as _evidence
 from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
@@ -70,7 +74,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.7.1"
+APP_VERSION = "v5.11.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -723,6 +727,7 @@ async def sync_telegram_relay_webhook():
             {"command":"tasks","description":"Задачи Relay и GitHub"},
             {"command":"task","description":"Детали задачи Relay: /task R-0001"},
             {"command":"history","description":"История действий Relay"},
+            {"command":"proof","description":"Приёмка задачи по фактам: /proof R-0001"},
             {"command":"github","description":"GitHub PR, коммиты и CI"},
             {"command":"roadmap","description":"Roadmap и открытые задачи"},
             {"command":"new","description":"Создать новую задачу"},
@@ -757,6 +762,14 @@ def _agent_relay_forbidden_tokens():
 
 AGENT_MESSAGES = install_agent_message_routes(app, RELAY_STORE, _agent_relay_forbidden_tokens)
 
+def _mcp_lane_forbidden_tokens():
+    """T-604: a per-lane MCP token must not reuse the shared MCP token or any other FactoryOS credential."""
+    return _agent_relay_forbidden_tokens()+(os.environ.get("FACTORY_CLAUDE_RELAY_TOKEN",""),os.environ.get("FACTORY_CODEX_RELAY_TOKEN",""))
+
+AGENT_WORKSPACE = agent_workspace.AgentWorkspace(RELAY_STORE, RELAY_QUEUE, known_secrets=_mcp_lane_forbidden_tokens)
+agent_workspace.install_routes(app, AGENT_WORKSPACE, lambda: agent_workspace.lane_status(forbidden=_mcp_lane_forbidden_tokens()))
+agent_workspace.install_access_log_redaction()
+
 def _owner_desk_status():
     """Live facts for the owner runbooks; never calls a provider. Lines are keys localized by owner_desk_i18n."""
     out={}
@@ -768,6 +781,15 @@ def _owner_desk_status():
     else:
         out["T-506"]={"state":"todo","detail_key":"tg_no_token"}
     out["T-590-H"]={"state":"info","detail_key":"prod_sha","args":{"sha":BUILD_SHA[:12]}}
+    acc=latest_telegram_acceptance(RELAY_STORE.list(limit=100000))
+    if acc and acc["status"]=="VERIFIED":
+        out["T-591-H"]={"state":"done","detail_key":"accept_verified","args":{"ticket":acc["ticket_id"],"run":acc["run_id"]}}
+    elif acc:
+        out["T-591-H"]={"state":"todo","detail_key":"accept_partial","args":{"ticket":acc["ticket_id"],"missing":", ".join(acc["missing"]) or (acc["problems"][0][:80] if acc["problems"] else "—")}}
+    else:
+        out["T-591-H"]={"state":"todo","detail_key":"accept_none"} if tg.get("paired") else {"state":"blocked","detail_key":"waits","args":{"task":"T-506"}}
+    out["T-592-H"]={"state":"todo","detail_key":"can_start"} if out["T-591-H"]["state"]=="done" else {"state":"blocked","detail_key":"waits","args":{"task":"T-591-H"}}
+    out["T-593-H"]={"state":"todo","detail_key":"t593_live"}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
     youtube=next((a for a in reg.get("adapters") or [] if a.get("kind")=="youtube"),{})
@@ -877,6 +899,22 @@ install_mycast_demo_routes(app, MYCAST_DEMO)
 # #281 voice audition: real cached Gemini samples per prebuilt voice (owner: about 30 samples), honest unavailable states.
 install_mycast_voice_audition_routes(app, VoiceSamples(DATA_DIR / "mycast_voices", api_key=lambda: FACTORY_GEMINI_API_KEY,
                                                        tts=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice)))
+
+
+def _mycast_demo_tts_no_retry(key, episode):
+    """T-665: the MyCast two-host TTS without its 429 wait-and-retry: a 429 stops the owner's run at once."""
+    def _stop(_seconds):
+        raise MycastGeminiTTSError("rate_limited")
+    return gemini_tts_pcm(key, episode, voices=("Charon", "Kore"), sleep=_stop)
+
+
+MYCAST_DEMO_AUDIO = DemoAudioStore(DATA_DIR / "mycast_demo_audio", api_key=lambda: FACTORY_GEMINI_API_KEY,
+                                   tts=_mycast_demo_tts_no_retry, encode=lambda pcm, rate: pcm_to_mp3(pcm, rate),
+                                   qc=lambda pcm, rate, lines: mycast_check_pcm(pcm, rate, lines))
+install_mycast_demo_audio_routes(app, MYCAST_DEMO_AUDIO,
+                                 is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
+import mycast_share_page as _mycast_share_page  # noqa: E402
+_mycast_share_page.set_demo_audio_source(MYCAST_DEMO_AUDIO.approved_url)
 def _mycast_send_listener_sample(chat_id: str, job_id: str) -> None:
     """#281: one generated demo, as mp3, to the listener's own Telegram chat (delivery opt-in checked by the caller)."""
     import wave
@@ -979,6 +1017,30 @@ def _strategy_job_exists(job_id):
 
 install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft, create_job=_strategy_job,
                         job_exists=_strategy_job_exists)
+
+# Owner 2026-11-15 (T-MODS): Mods & skills — one-button on/off for skills and features, with usage and before/after.
+from mods_registry import ModsStore, install_mods_routes
+MODS = ModsStore(DATA_DIR / "mods.json")
+
+
+def _duel_job_state(job_id):
+    job = get_job(job_id)
+    return {"status": job.get("status") or "", "title": job.get("title") or ""} if job else None
+
+
+def _duel_ticket_state(ticket_id):
+    t = RELAY_STORE.get(ticket_id)
+    if not t:
+        return None
+    ex = t.get("execution") or {}
+    return {"status": t.get("status") or "", "execution": ex.get("state") or "", "note": str(ex.get("note") or "")[:400]}
+
+
+install_mods_routes(app, MODS, identity=request_identity, worker_auth=_claude_worker_authorized,
+                    create_job=_strategy_job, job_state=_duel_job_state, ticket_state=_duel_ticket_state,
+                    create_ticket=lambda title, body, key: RELAY_STORE.create(
+                        title, body, source={"channel": "mods-duel", "source_key": key, "url": ""},
+                        created_by="mods-duel", owner="claude")[0]["id"])
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
 MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
@@ -1169,7 +1231,15 @@ install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, autho
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
-install_mybrief_routes(app, MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog()), request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
+MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
+install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
+from mvp_evolution import EvolutionStore, install_mvp_evolution_routes  # noqa: E402
+install_mvp_evolution_routes(  # T-630 #270: consented feedback -> themes -> owner-approved V2 proposal -> one Relay ticket
+    app, EvolutionStore(DATA_DIR / "mvp_evolution.json", project_exists=lambda pid: _mvp_project(pid) is not None),
+    request_identity, ticket_lookup=RELAY_STORE.get, ticket_verified=_mvp_ticket_done,
+    mybrief_entries=MYBRIEF_FEEDBACK.consented_entries,
+    create_ticket=lambda title, body, key, lane: RELAY_STORE.create(
+        title, body, source={"channel": "mvp-evolution", "source_key": key, "url": ""}, created_by="mvp-evolution", owner=lane)[0])
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
 async def _ab_content_job(title, brief, job_id):
     """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
@@ -1219,7 +1289,7 @@ install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_work
 MYCAST_HOSTS = {h.strip().lower() for h in os.environ.get("FACTORY_MYCAST_HOSTS", "mycast.pro,www.mycast.pro").split(",") if h.strip()}
 MYCAST_PAGE = "/static/mycast-configurator/index.html"
 MYCAST_HOST_PREFIXES = ("/static/mycast-configurator/", "/static/favicon", "/static/apple-touch-icon", "/api/mycast/",
-                        "/mycast/u/", "/mycast/e/", "/.well-known/")
+                        "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/.well-known/")
 MYCAST_HOST_PATHS = {"/privacy", "/terms", "/health", "/favicon.ico", "/mycast", "/robots.txt", "/sitemap.xml"}
 
 
@@ -1279,7 +1349,7 @@ async def auth_middleware(request: Request, call_next):
     public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
     # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
     media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)
@@ -1765,13 +1835,14 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS
+]+web_surfer.TOOLS+agent_workspace.TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
     if not FACTORY_MCP_TOKEN:
         return JSONResponse({"jsonrpc":"2.0","id":None,"error":{"code":-32001,"message":"FactoryOS MCP connector is disabled until FACTORY_MCP_TOKEN is configured."}},status_code=503)
-    if not _factory_mcp_authorized(request):
+    mcp_lane=agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
+    if not (mcp_lane or _factory_mcp_authorized(request)):
         return JSONResponse({"jsonrpc":"2.0","id":None,"error":{"code":-32000,"message":"Unauthorized"}},status_code=401)
     try:
         payload=await request.json()
@@ -1807,6 +1878,11 @@ async def factory_mcp(request: Request):
                     "status":x["status"],"progress":x.get("execution_progress",0),
                     "priority":x["priority"],"owner":x["owner"]
                 } for x in rows])
+            elif name in agent_workspace.TOOL_NAMES:
+                data=agent_workspace.call_tool(AGENT_WORKSPACE,name,args,mcp_lane)
+                if "error" in data:
+                    return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,**_factory_mcp_text(data["error"])}})
+                result=_factory_mcp_text(data)
             elif name in web_surfer.TOOL_NAMES:
                 result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH))
             elif name=="submit_design_review":
@@ -1826,9 +1902,10 @@ async def factory_mcp(request: Request):
 def factory_mcp_info(request: Request):
     if not FACTORY_MCP_TOKEN:
         return JSONResponse({"enabled":False,"detail":"Set FACTORY_MCP_TOKEN in Render to enable the Claude/remote MCP connector."},status_code=503)
-    if not _factory_mcp_authorized(request):
+    lane=agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
+    if not (lane or _factory_mcp_authorized(request)):
         return JSONResponse({"enabled":True,"detail":"Authentication required: Bearer token or ?key= token."},status_code=401)
-    return {"enabled":True,"server":"Blackbox Lab FactoryOS","version":APP_VERSION,"tools":[x["name"] for x in FACTORY_MCP_TOOLS]}
+    return {"enabled":True,"server":"Blackbox Lab FactoryOS","version":APP_VERSION,"lane":lane or None,"tools":[x["name"] for x in FACTORY_MCP_TOOLS]}
 
 @app.get("/health")
 def health(request: Request):
@@ -1858,8 +1935,32 @@ def health_details():
 
 clients: set[WebSocket] = set()
 member_clients: set[WebSocket] = set()
-running_jobs: set[str] = set()
+class _LeasedJobSet(set):
+    """T-690: the in-process job registry also writes a job lease, so another process (an overlapping deploy) can
+    see that this process is executing the job and must not reset it."""
+    def add(self, job_id):
+        super().add(job_id)
+        _write_job_lease(job_id, True)
+    def discard(self, job_id):
+        super().discard(job_id)
+        _write_job_lease(job_id, False)
+
+def _write_job_lease(job_id, held):
+    try:
+        con=db()
+        if held:
+            con.execute("INSERT OR REPLACE INTO job_leases(job_id,process_id,created_at) VALUES(?,?,?)",(job_id,PROCESS_ID,ts()))
+        else:
+            con.execute("DELETE FROM job_leases WHERE job_id=? AND process_id=?",(job_id,PROCESS_ID))
+        con.commit();con.close()
+    except Exception as exc:
+        print(json.dumps({"event":"JOB_LEASE_ERROR","error":str(exc)[:200]}),flush=True)
+
+running_jobs: set[str] = _LeasedJobSet()
 package_building: set[str] = set()
+# T-690: runs this process started and has not finished yet (content pipeline, variant reruns, Content Packager,
+# media QA …). A run of ours is orphaned only when it is not here, whatever registry its caller used.
+LIVE_RUNS: set[str] = set()
 selected_job_id: Optional[str] = None
 selected_job_by_workspace: dict = {}
 agent_runtime = {name: "idle" for name in AGENTS}
@@ -2209,6 +2310,20 @@ def init_db():
       meta_json TEXT DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent, started_at DESC);
+    CREATE TABLE IF NOT EXISTS agent_run_leases(
+      run_id TEXT PRIMARY KEY,
+      process_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS job_leases(
+      job_id TEXT PRIMARY KEY,
+      process_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS process_heartbeats(
+      process_id TEXT PRIMARY KEY,
+      heartbeat_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_agent_runs_job ON agent_runs(job_id, started_at DESC);
     CREATE TABLE IF NOT EXISTS artifacts(
       id TEXT PRIMARY KEY,
@@ -3174,6 +3289,13 @@ class FactoryCycleCreate(BaseModel):
     idea_id: Optional[str] = None
     language: str = "English"
     parent_cycle_id: Optional[str] = None
+    target: Optional[dict] = None   # T-646: what the cycle aims at {brand, topic, platform, audience}
+
+class FactoryCycleTarget(BaseModel):
+    brand: str = ""
+    topic: str = ""
+    platform: str = ""
+    audience: str = ""
 
 class FactoryCycleRunRequest(BaseModel):
     confirm_cost: bool = False
@@ -4091,10 +4213,14 @@ def get_factory_tasks():
 def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
     run_id=str(uuid.uuid4())
     con=db()
+    now=ts()
     con.execute("""INSERT INTO agent_runs(id,job_id,agent,stage,status,started_at,model)
                    VALUES(?,?,?,?,?,?,?)""",
-                (run_id,job_id,agent,stage,"running",ts(),model))
+                (run_id,job_id,agent,stage,"running",now,model))
+    # T-690: the run belongs to this process; another process may close it only after our heartbeat lease expires.
+    con.execute("INSERT OR REPLACE INTO agent_run_leases(run_id,process_id,created_at) VALUES(?,?,?)",(run_id,PROCESS_ID,now))
     con.commit(); con.close()
+    LIVE_RUNS.add(run_id)
     return run_id
 
 def attach_run_inputs(run_id, inputs):
@@ -4107,6 +4233,7 @@ def attach_run_inputs(run_id, inputs):
     con.commit(); con.close()
 
 def finish_agent_run(run_id, status="completed", input_tokens=0, output_tokens=0, cost_usd=0.0, error=None, meta=None):
+    LIVE_RUNS.discard(run_id)
     con=db(); row=con.execute("SELECT started_at FROM agent_runs WHERE id=?",(run_id,)).fetchone()
     finished=ts()
     duration_ms=0
@@ -7374,9 +7501,13 @@ def get_job_flow(job_id, limit=40):
         return empty
     con=db()
     runs=[dict(x) for x in con.execute(
-        """SELECT id,agent,stage,status,started_at,finished_at,error FROM agent_runs
+        """SELECT id,agent,stage,status,started_at,finished_at,error,duration_ms,cost_usd,model FROM agent_runs
            WHERE job_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?""",(job_id,limit+1)
     ).fetchall()]
+    # T-691: a failure is resolved once the same agent later completes (same rule as the Error Center).
+    completed_at={x["agent"]:x["at"] or "" for x in con.execute(
+        """SELECT agent,MAX(COALESCE(finished_at,started_at)) AS at FROM agent_runs
+           WHERE job_id=? AND status='completed' GROUP BY agent""",(job_id,)).fetchall()}
     truncated=len(runs)>limit
     runs=list(reversed(runs[:limit]))
     if not runs:
@@ -7397,10 +7528,17 @@ def get_job_flow(job_id, limit=40):
     hops={}
     for i,r in enumerate(runs):
         state=_flow_run_state(r["status"],r.get("error"))
+        stopped=state in ("failed","blocked")
         hops[r["id"]]={"order":i+1,"run_id":r["id"],"agent":r["agent"],"stage":r.get("stage") or "","status":r["status"],"state":state,
                        "started_at":r["started_at"],"finished_at":r.get("finished_at"),
-                       "error":(r.get("error") or "")[:160] if state in ("failed","blocked") else "",
+                       "duration_ms":r.get("duration_ms"),"cost_usd":r.get("cost_usd"),"model":r.get("model") or "",
+                       "error":(r.get("error") or "")[:600] if stopped else "",
                        "inputs":[],"outputs":[],"downstream":[]}
+        if stopped:
+            p=classify_agent_error(r.get("error"))
+            failed_at=r.get("finished_at") or r.get("started_at") or ""
+            hops[r["id"]]["policy"]={k:p[k] for k in ("code","category","severity","title","action","retryable","requires_confirmation","spend_uncertain")}
+            hops[r["id"]]["resolved"]=bool(completed_at.get(r["agent"]) and failed_at and completed_at[r["agent"]]>failed_at)
     for a in outputs:
         hops[a["run_id"]]["outputs"].append({"artifact_id":a["id"],"title":a["title"],"kind":a["kind"]})
     edges=[];sources={}
@@ -7425,6 +7563,109 @@ def get_job_flow(job_id, limit=40):
     return {"job_id":job_id,"hops":ordered,"edges":edges,"sources":list(sources.values()),"counts":counts,
             "live":counts["running"]>0,"truncated":truncated}
 
+RUN_INTERRUPTED_ERROR=("Run interrupted: the FactoryOS server restarted or the worker task stopped before this agent "
+                       "finished; no result was recorded.")
+
+# T-690: each FastAPI process owns the runs it starts and renews a heartbeat. During an overlapping Render deploy the
+# old instance keeps executing while the new one starts, so "not in my running_jobs" is not proof that a run is dead.
+PROCESS_ID=str(uuid.uuid4())
+RUN_LEASE_SECONDS=int(os.environ.get("FACTORY_RUN_LEASE_SECONDS","90"))
+RUN_HEARTBEAT_SECONDS=max(5,min(30,RUN_LEASE_SECONDS//3))
+# Runs written before leases existed (or by an older build still draining) are closed only after the longest a single
+# agent can take: every attempt at the provider timeout, plus a margin.
+LEGACY_RUN_GRACE_SECONDS=AGENT_TIMEOUT_SECONDS*max(1,AGENT_MAX_RETRIES+1)+300
+
+def beat_process_heartbeat(process_id=None):
+    con=db()
+    con.execute("INSERT OR REPLACE INTO process_heartbeats(process_id,heartbeat_at) VALUES(?,?)",(process_id or PROCESS_ID,ts()))
+    con.commit();con.close()
+
+def _heartbeat_loop():
+    while True:
+        try:beat_process_heartbeat()
+        except Exception as exc:print(json.dumps({"event":"PROCESS_HEARTBEAT_ERROR","error":str(exc)[:200]}),flush=True)
+        time.sleep(RUN_HEARTBEAT_SECONDS)
+
+def _lease_cutoff(seconds):
+    return (datetime.now(timezone.utc)-timedelta(seconds=seconds)).isoformat()
+
+def job_owned_by_live_process(job_id, lease_seconds=None):
+    """True when another process holds a fresh lease on the job (it is executing it right now)."""
+    cutoff=_lease_cutoff(RUN_LEASE_SECONDS if lease_seconds is None else lease_seconds)
+    con=db()
+    row=con.execute("""SELECT 1 FROM job_leases j JOIN process_heartbeats h ON h.process_id=j.process_id
+                       WHERE j.job_id=? AND j.process_id<>? AND h.heartbeat_at>?""",(job_id,PROCESS_ID,cutoff)).fetchone()
+    con.close()
+    return bool(row)
+
+def _run_is_orphaned(row, now_dt, lease_seconds, legacy_grace_seconds):
+    owner=row.get("process_id")
+    if owner==PROCESS_ID:
+        return row["id"] not in LIVE_RUNS  # our own run whose task is gone (no finish was recorded)
+    if owner:
+        beat=row.get("heartbeat_at")
+        return not beat or (now_dt-_parse_dt(beat)).total_seconds()>lease_seconds
+    started=row.get("started_at")
+    return bool(started) and (now_dt-_parse_dt(started)).total_seconds()>legacy_grace_seconds
+
+def close_interrupted_agent_runs(job_id=None, lease_seconds=None, legacy_grace_seconds=None):
+    """T-690: content-job runs live in a FastAPI process. After a deploy/restart (or a dead task) their agent_runs
+    row stayed 'running' forever, so the trace showed a phantom live worker and the owner could not see where the job
+    stopped. Close such rows as failed with an explicit, classified reason, but only when no live process owns them:
+    our own run whose job we no longer execute, a run whose owner's heartbeat lease expired, or a lease-less legacy
+    run older than any agent attempt can last."""
+    lease=RUN_LEASE_SECONDS if lease_seconds is None else lease_seconds
+    grace=LEGACY_RUN_GRACE_SECONDS if legacy_grace_seconds is None else legacy_grace_seconds
+    con=db()
+    sql="""SELECT r.id,r.job_id,r.agent,r.stage,r.started_at,l.process_id,h.heartbeat_at FROM agent_runs r
+           LEFT JOIN agent_run_leases l ON l.run_id=r.id LEFT JOIN process_heartbeats h ON h.process_id=l.process_id
+           WHERE r.status='running' AND r.job_id IS NOT NULL"""
+    params=[]
+    if job_id:
+        sql+=" AND r.job_id=?";params.append(job_id)
+    now_dt=datetime.now(timezone.utc)
+    rows=[dict(x) for x in con.execute(sql,params).fetchall()]
+    rows=[r for r in rows if _run_is_orphaned(r,now_dt,lease,grace)]
+    now=ts();closed=[]
+    lease_cut=_lease_cutoff(lease);legacy_cut=_lease_cutoff(grace)
+    for r in rows:
+        if r.get("process_id")==PROCESS_ID and r["id"] in LIVE_RUNS:
+            continue
+        # The ownership test is repeated inside the UPDATE, so a heartbeat renewed after the SELECT still protects the
+        # run: a foreign owner must be stale *now*, and a lease-less run must still be older than the grace window.
+        cur=con.execute("""UPDATE agent_runs SET status='failed',finished_at=?,error=? WHERE id=? AND status='running'
+                AND NOT EXISTS (SELECT 1 FROM agent_run_leases l JOIN process_heartbeats h ON h.process_id=l.process_id
+                                WHERE l.run_id=agent_runs.id AND l.process_id<>? AND h.heartbeat_at>?)
+                AND (EXISTS (SELECT 1 FROM agent_run_leases l WHERE l.run_id=agent_runs.id) OR agent_runs.started_at<?)""",
+                (now,RUN_INTERRUPTED_ERROR,r["id"],PROCESS_ID,lease_cut,legacy_cut))
+        if cur.rowcount:closed.append(r)
+    con.commit();con.close()
+    rows=closed
+    for r in rows:
+        event(r["job_id"],f"Run interrupted: {r['agent']} ({r['stage'] or 'stage unknown'}) did not finish; marked failed so it can be retried")
+    return len(rows)
+
+def get_jobs_attention(job_ids):
+    """T-690: per-job open incidents for the job list (same 'resolved' rule as get_job_error_center)."""
+    ids=[x for x in job_ids if x]
+    if not ids:
+        return {}
+    marks=",".join("?"*len(ids))
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        f"""SELECT r.job_id,r.agent,r.stage,r.error,r.id AS run_id FROM agent_runs r
+            WHERE r.job_id IN ({marks}) AND r.status='failed' AND r.error IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM agent_runs c WHERE c.job_id=r.job_id AND c.agent=r.agent AND c.status='completed'
+                              AND COALESCE(c.finished_at,c.started_at)>COALESCE(r.finished_at,r.started_at))
+            ORDER BY COALESCE(r.finished_at,r.started_at) DESC""",ids).fetchall()]
+    con.close()
+    out={}
+    for r in rows:
+        item=out.setdefault(r["job_id"],{"open":0,"agent":r["agent"],"stage":r["stage"] or "","run_id":r["run_id"],
+                                         "code":classify_agent_error(r["error"])["code"]})
+        item["open"]+=1
+    return out
+
 def classify_agent_error(message):
     raw=(message or "").strip()
     low=raw.lower()
@@ -7434,7 +7675,16 @@ def classify_agent_error(message):
         "title":"Unclassified worker failure",
         "action":"Review the failed run before retrying. The provider outcome may be uncertain.",
     }
-    if any(x in low for x in ("balance exhausted","insufficient_quota","no credits remaining")):
+    if low.startswith("run interrupted"):
+        # T-690: the in-process task died (deploy/restart) mid-run. Nothing was recorded, but a live
+        # provider call may already have been billed, so a retry stays behind the confirmation gate.
+        policy.update({
+            "code":"run_interrupted","category":"interrupted","severity":"warning",
+            "retryable":True,"auto_retry":False,"requires_confirmation":True,"spend_uncertain":True,
+            "title":"Run interrupted by a server restart",
+            "action":"No result was saved. Confirm, then retry this worker or press Run to continue from this stage.",
+        })
+    elif any(x in low for x in ("balance exhausted","insufficient_quota","no credits remaining")):
         policy.update({
             "code":"billing_exhausted","category":"billing","severity":"critical",
             "retryable":True,"auto_retry":False,"requires_confirmation":False,"spend_uncertain":False,
@@ -7648,7 +7898,7 @@ def supervisor_audit(auto_heal=False, persist=False):
                 "A pipeline stage raised an exception and the job is paused.",
                 "Open the responsible agent ledger, inspect the error, then retry from the current stage.")
 
-        if j["status"] == "running" and j["id"] not in running_jobs:
+        if j["status"] == "running" and j["id"] not in running_jobs and not job_owned_by_live_process(j["id"]):
             add("critical", "orphan_job", f"Orphaned running job: {j['title']}",
                 "The database says the job is running, but no worker task owns it.",
                 "Reset it to ready and restart from the current stage.")
@@ -7656,6 +7906,7 @@ def supervisor_audit(auto_heal=False, persist=False):
                 con = db()
                 con.execute("UPDATE jobs SET status='idle',updated_at=? WHERE id=?", (ts(), j["id"]))
                 con.commit(); con.close()
+                close_interrupted_agent_runs(j["id"])
                 event(j["id"], "Supervisor auto-heal: orphaned run reset to ready")
                 healed.append(f"Reset orphaned job '{j['title']}' to ready.")
 
@@ -7673,6 +7924,11 @@ def supervisor_audit(auto_heal=False, persist=False):
             add("warning", "progress_mismatch", f"Progress mismatch: {j['title']}",
                 f"Stage {j['stage']} and stored progress {j['progress']}% disagree.",
                 "Calculate progress from completed stage artifacts instead of storing it independently.")
+
+    if auto_heal:
+        interrupted=close_interrupted_agent_runs()
+        if interrupted:
+            healed.append(f"Closed {interrupted} agent run(s) whose process stopped before they finished.")
 
     # Reset impossible agent runtime states.
     if not running_jobs:
@@ -7814,6 +8070,15 @@ async def supervisor_loop():
     while True:
         await supervisor_cycle()
         await asyncio.sleep(60)
+
+@app.on_event("startup")
+def close_runs_interrupted_by_restart():
+    # T-690: renew this process's lease, then close only runs no live process owns (an overlapping old instance keeps
+    # its runs until its heartbeat expires; the Supervisor cycle closes them after that).
+    beat_process_heartbeat()
+    threading.Thread(target=_heartbeat_loop,daemon=True,name="run-heartbeat").start()
+    closed=close_interrupted_agent_runs()
+    if closed:print(json.dumps({"event":"AGENT_RUNS_INTERRUPTED","closed":closed}),flush=True)
 
 @app.on_event("startup")
 async def verify_builder_bridge():
@@ -8124,9 +8389,13 @@ def _apply_workflow_prompt(agent,system,job_id=None):
     # Stage 3 (owner 2026-11-14): jobs from a brand plan (or linked to a brand) carry that brand's Master Brief.
     try:
         from brand_strategy import agent_context, brand_for_job
-        passport,item=brand_for_job(STRATEGY,job_id)
-        brief=agent_context(passport,agent,item) if passport else ""
-        if brief:additions.append(brief)
+        # T-MODS: the "brand-strategy" mod switch decides whether the Master Brief enters agent prompts.
+        if MODS.enabled("brand-strategy"):
+            passport,item=brand_for_job(STRATEGY,job_id)
+            brief=agent_context(passport,agent,item) if passport else ""
+            if brief:
+                additions.append(brief)
+                MODS.use("brand-strategy")
     except Exception as exc:
         print(f"brand brief not added for {agent}: {type(exc).__name__}",file=__import__("sys").stderr)
     return system + (("\n" + "\n".join(additions)) if additions else "")
@@ -9392,10 +9661,92 @@ def _new_signal_ids(limit=None):
                                  ORDER BY created_at DESC LIMIT ?""",(int(limit or FACTORY_CYCLE_MAX_SIGNALS),)).fetchall();con.close()
     return [x["id"] for x in rows]
 
+# T-646: the owner can say what a cycle aims at. All four fields are optional and only steer existing steps:
+# topic narrows which new signals are attached, brand links the production job to that brand's Master Brief,
+# platform/audience are written into the production brief. None of them publishes or spends anything.
+FACTORY_CYCLE_TARGET_PLATFORMS=("",)+PUBLISH_DRY_RUN_PLATFORMS
+CYCLE_TARGET_EDITABLE=("ready","stopped","failed")
+
+# T-647: stable codes for cycle error/status messages, so the dashboard can show them in EN/UK/RU.
+# The English text stays the source of truth (logs, API clients); the code and params only drive translation.
+CYCLE_MESSAGE_CODES=(
+    (r"^Factory cycle not found","not_found"),
+    (r"^Unknown target platform: (?P<value>.*)$","bad_platform"),
+    (r"^Unknown brand: (?P<value>.*)$","bad_brand"),
+    (r"^(?:One or more source signal ids are unknown|Unknown source signal id\(s\): (?P<value>.*))$","bad_signals"),
+    (r"^(?:Idea not found|Cycle idea no longer exists)","idea_missing"),
+    (r"^Parent cycle not found","parent_missing"),
+    (r"^The target can change only before production","target_locked"),
+    (r"^Only a ready, running or failed cycle can be stopped","not_stoppable"),
+    (r"^Only a stopped cycle can be resumed","not_resumable"),
+    (r"^This cycle is stopped","stopped_resume_first"),
+    (r"^This idea already has production job (?P<job>\S+) made for a different target \((?P<have>.*)\)\.","job_other_target"),
+    (r"^Rejected idea cannot enter production","idea_rejected"),
+    (r"^Live-mode idea must pass Content Brain verification","idea_not_verified"),
+    (r"^No source signals","no_signals"),
+    (r"^Content Brain generated no usable ideas","no_ideas"),
+    (r"^Idea Verifier did not shortlist","no_shortlist"),
+    (r"^Preselected idea did not pass verification","idea_failed_verification"),
+    (r"^Production did not reach the human approval gate","production_not_at_gate"),
+    (r"^Live LLM provider is not configured","llm_not_configured"),
+    (r"^Daily provider budget would be exceeded","daily_budget"),
+    (r"^No real performance snapshot","no_metrics"),
+    (r"^Factory cycle is already running","already_running"),
+    (r"^Confirm the conservative paid-work ceiling","confirm_cost"),
+    (r"^Autopilot started and will stop","started"),
+)
+
+def cycle_message_info(message):
+    """(code, params) for a known cycle message; ('unknown', {'text': message}) otherwise."""
+    text=str(message or "").strip()
+    for pattern,code in CYCLE_MESSAGE_CODES:
+        m=re.match(pattern,text)
+        if m:return code,{k:v for k,v in m.groupdict().items() if v is not None}
+    if len(text)>500:return "unknown",{"text":text[:500]+"…","truncated":True}
+    return "unknown",{"text":text}
+
+def cycle_http_error(status,exc):
+    code,params=cycle_message_info(str(exc))
+    return HTTPException(status,{"message":str(exc),"code":code,"params":params})
+
+def _cycle_target(raw):
+    raw=dict(raw or {})
+    target={k:re.sub(r"\s+"," ",str(raw.get(k) or "")).strip()[:120] for k in ("brand","topic","platform","audience")}
+    if target["platform"] not in FACTORY_CYCLE_TARGET_PLATFORMS:
+        raise ValueError("Unknown target platform: "+target["platform"])
+    if target["brand"]:
+        known={b["brand"] for b in STRATEGY.brands()}
+        if target["brand"] not in known:raise ValueError("Unknown brand: "+target["brand"])
+    return target
+
+def _signal_ids_for_topic(signal_ids,topic):
+    """Keep only signals whose topic or title mentions the target topic. Returns (ids, matched)."""
+    topic=(topic or "").strip().lower()
+    if not topic or not signal_ids:return signal_ids,None
+    placeholders=",".join("?" for _ in signal_ids)
+    con=db();rows=con.execute(f"SELECT id,title,topic FROM source_signals WHERE id IN ({placeholders})",signal_ids).fetchall();con.close()
+    keep={x["id"] for x in rows if topic in (x["topic"] or "").lower() or topic in (x["title"] or "").lower()}
+    picked=[x for x in signal_ids if x in keep]
+    return (picked,True) if picked else (signal_ids,False)
+
+def _new_signal_ids_for_topic(topic):
+    """Newest *new* signals that mention the topic, searched across all new signals before the limit is applied.
+    Returns (ids, matched); with no topic or no match it falls back to the newest new signals."""
+    topic=(topic or "").strip().lower()
+    if not topic:return _new_signal_ids(),None
+    # Matched in Python (SQLite lower() only folds ASCII; topics are often Cyrillic). Bounded scan of new signals.
+    con=db();rows=con.execute("""SELECT id,title,topic FROM source_signals WHERE status='new'
+                                 ORDER BY created_at DESC LIMIT 2000""").fetchall();con.close()
+    rows=[x for x in rows if topic in (x["topic"] or "").lower() or topic in (x["title"] or "").lower()][:FACTORY_CYCLE_MAX_SIGNALS]
+    ids=[x["id"] for x in rows]
+    return (ids,True) if ids else (_new_signal_ids(),False)
+
 def create_factory_cycle(payload,source="owner"):
+    target=_cycle_target(payload.target)
     signal_ids=list(dict.fromkeys(str(x).strip() for x in (payload.signal_ids or []) if str(x).strip()))
+    topic_matched=None
     if not signal_ids and not payload.idea_id:
-        signal_ids=_new_signal_ids()
+        signal_ids,topic_matched=_new_signal_ids_for_topic(target["topic"])
     con=db()
     if signal_ids:
         placeholders=",".join("?" for _ in signal_ids)
@@ -9410,7 +9761,9 @@ def create_factory_cycle(payload,source="owner"):
         con.close();raise ValueError("Parent cycle not found")
     cycle_id=str(uuid.uuid4());now=ts();active=_active_workflow_version()
     meta={"created_by":source,"language":(payload.language or "English").strip(),"approval_gate":"required",
-          "publisher_execution":"explicit","paid_generation":"confirmation_required"}
+          "publisher_execution":"explicit","paid_generation":"confirmation_required","target":target}
+    if topic_matched is not None:meta["target_topic_matched"]=topic_matched
+    if not payload.signal_ids and not idea_id:meta["signals_auto"]=True
     con.execute("""INSERT INTO factory_cycles(
         id,parent_cycle_id,status,phase,source_signal_ids_json,idea_id,job_id,publish_id,workflow_version_id,
         created_at,updated_at,started_at,completed_at,last_error,learning_json,meta_json
@@ -9420,8 +9773,117 @@ def create_factory_cycle(payload,source="owner"):
     ))
     con.commit();con.close()
     cycle_event(cycle_id,"signals",f"Factory cycle created with {len(signal_ids)} signal(s)"+(" and a preselected idea" if idea_id else ""),
-                {"workflow_version_id":active["id"],"source":source})
+                {"workflow_version_id":active["id"],"source":source,"target":target})
+    if topic_matched is False:
+        cycle_event(cycle_id,"signals",f"No new signal mentions the target topic '{target['topic']}'; all new signals were attached")
     return get_factory_cycle(cycle_id,True)
+
+def set_factory_cycle_target(cycle_id,raw):
+    cycle=get_factory_cycle(cycle_id)
+    if not cycle:raise LookupError("Factory cycle not found")
+    if cycle["status"] not in CYCLE_TARGET_EDITABLE or cycle.get("job_id") or cycle_id in active_factory_cycles:
+        raise PermissionError("The target can change only before production starts (ready, stopped or failed, no job yet)")
+    target=_cycle_target(raw)
+    meta=dict(cycle.get("meta") or {});old_topic=(meta.get("target") or {}).get("topic","")
+    meta["target"]=target;meta.pop("target_topic_matched",None)
+    fields={}
+    # Signals the cycle picked by itself follow the new topic; signals or an idea chosen by the owner stay as chosen.
+    if meta.get("signals_auto") and not cycle.get("idea_id") and target["topic"]!=old_topic:
+        ids,matched=_new_signal_ids_for_topic(target["topic"])
+        if matched is not True:   # no new signal matches: keep any already attached signal that does
+            kept,kept_match=_signal_ids_for_topic(cycle.get("source_signal_ids") or [],target["topic"])
+            if kept_match:ids,matched=kept,True
+        if matched is not None:meta["target_topic_matched"]=matched
+        fields["source_signal_ids_json"]=json.dumps(ids)
+    _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False),**fields)
+    cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle target changed by the owner",{"target":target})
+    if fields:
+        cycle_event(cycle_id,"signals",f"Signals re-selected for the new topic: {len(json.loads(fields['source_signal_ids_json']))}")
+    if meta.get("target_topic_matched") is False:
+        cycle_event(cycle_id,"signals",f"No signal mentions the target topic '{target['topic']}'; all available signals are kept")
+    return get_factory_cycle(cycle_id,True)
+
+# T-646: stop/resume. A stop is a flag the coordinator reads between handoffs; it never cancels a provider call
+# mid-flight and never touches the approval gate. Resume returns the cycle to `ready` and re-syncs from its job.
+CYCLE_STOPPABLE=("ready","running","failed")
+
+class _CycleStopped(Exception):
+    pass
+
+def _cycle_stop_requested(cycle_id):
+    cycle=get_factory_cycle(cycle_id)
+    return bool(cycle and (cycle.get("meta") or {}).get("stop_requested"))
+
+def _cycle_checkpoint(cycle_id,step):
+    if _cycle_stop_requested(cycle_id):raise _CycleStopped(step)
+
+def stop_factory_cycle(cycle_id):
+    cycle=get_factory_cycle(cycle_id)
+    if not cycle:raise LookupError("Factory cycle not found")
+    if cycle["status"]=="stopped":return {"cycle":get_factory_cycle(cycle_id,True),"pending":False}
+    if cycle["status"] not in CYCLE_STOPPABLE:
+        raise PermissionError("Only a ready, running or failed cycle can be stopped. Later steps already wait for you.")
+    meta=dict(cycle.get("meta") or {});meta["stop_requested"]=True
+    pending=cycle_id in active_factory_cycles
+    if pending:
+        _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+        cycle_event(cycle_id,cycle.get("phase") or "signals","Stop requested; Autopilot stops at the next handoff")
+    else:
+        _cycle_update(cycle_id,status="stopped",meta_json=json.dumps(meta,ensure_ascii=False))
+        cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle stopped by the owner")
+    return {"cycle":get_factory_cycle(cycle_id,True),"pending":pending}
+
+def resume_factory_cycle(cycle_id):
+    cycle=get_factory_cycle(cycle_id)
+    if not cycle:raise LookupError("Factory cycle not found")
+    if cycle["status"]!="stopped":raise PermissionError("Only a stopped cycle can be resumed")
+    meta=dict(cycle.get("meta") or {});meta.pop("stop_requested",None)
+    _cycle_update(cycle_id,status="ready",meta_json=json.dumps(meta,ensure_ascii=False),last_error="")
+    cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle resumed by the owner")
+    return sync_factory_cycle(cycle_id,True)
+
+CYCLE_TARGET_MARK="CYCLE TARGET (owner): "
+
+def _cycle_target_line(target):
+    target=target or {}
+    lines=[f"{label}: {target[key]}" for key,label in (("brand","BRAND"),("topic","TOPIC"),("platform","TARGET PLATFORM"),("audience","TARGET AUDIENCE")) if target.get(key)]
+    return "; ".join(lines)
+
+def _job_target_line(brief):
+    for line in reversed((brief or "").splitlines()):
+        if line.startswith(CYCLE_TARGET_MARK):return line[len(CYCLE_TARGET_MARK):]
+    return ""
+
+def _check_existing_job_target(cycle_id,idea_id):
+    """An idea has at most one production job. Reusing it is only honest when it was made for the same target."""
+    con=db();row=con.execute("""SELECT j.id,j.brief FROM job_idea_links l JOIN jobs j ON j.id=l.job_id
+                                WHERE l.idea_id=? ORDER BY l.created_at DESC LIMIT 1""",(idea_id,)).fetchone();con.close()
+    if not row:return
+    want=_cycle_target_line(((get_factory_cycle(cycle_id) or {}).get("meta") or {}).get("target"))
+    have=_job_target_line(row["brief"])
+    if want!=have:
+        raise RuntimeError(f"This idea already has production job {row['id'][:8]} made for a different target "
+                           f"({have or 'no target'}). Start the cycle from another idea, or set the same target.")
+
+def _apply_cycle_target_to_job(cycle_id,job_id,created):
+    """Write the cycle target into a freshly created production job and link the brand (Master Brief)."""
+    target=((get_factory_cycle(cycle_id) or {}).get("meta") or {}).get("target") or {}
+    if not created or not any(target.values()):return
+    con=db();row=con.execute("SELECT brief FROM jobs WHERE id=?",(job_id,)).fetchone()
+    if row:
+        con.execute("UPDATE jobs SET brief=?,updated_at=? WHERE id=?",
+                    ((row["brief"] or "")+"\n"+CYCLE_TARGET_MARK+_cycle_target_line(target),ts(),job_id));con.commit()
+    con.close()
+    if target.get("brand"):
+        try:
+            STRATEGY.link_job(target["brand"],job_id)
+            cycle_event(cycle_id,"production",f"Production job linked to brand {target['brand']}; agents get its Master Brief")
+        except Exception as exc:
+            reason=str(getattr(exc,'detail',exc))[:200]
+            cur=get_factory_cycle(cycle_id) or {};meta=dict(cur.get("meta") or {});meta["brand_link_error"]=reason
+            _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+            cycle_event(cycle_id,"production",f"WARNING: brand {target['brand']} was NOT linked, agents do not get its Master Brief: {reason}",
+                        {"code":"brand_not_linked","params":{"brand":target["brand"],"reason":reason}})
 
 def _cycle_update(cycle_id,**fields):
     allowed={"status","phase","idea_id","job_id","publish_id","workflow_version_id","started_at","completed_at","last_error","learning_json","meta_json","source_signal_ids_json"}
@@ -9506,6 +9968,13 @@ def _select_cycle_idea(candidates):
     usable.sort(key=lambda x:(float(x.get("score") or 0),x.get("verified_at") or ""),reverse=True)
     return usable[0]
 
+def _cycle_record_error(cycle_id,status,exc):
+    code,params=cycle_message_info(str(exc))
+    meta=dict((get_factory_cycle(cycle_id) or {}).get("meta") or {})
+    meta["last_error_code"]=code;meta["last_error_params"]=params
+    _cycle_update(cycle_id,status=status,last_error=str(exc)[:1200],meta_json=json.dumps(meta,ensure_ascii=False))
+    return code,params
+
 async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
     active_factory_cycles.add(cycle_id)
     try:
@@ -9514,18 +9983,29 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
         if cycle.get("job") and cycle["job"].get("status")=="waiting_approval":
             _cycle_update(cycle_id,status="waiting_approval",phase="approval",last_error="")
             return
-        _cycle_update(cycle_id,status="running",started_at=cycle.get("started_at") or ts(),last_error="")
+        meta=dict(cycle.get("meta") or {});meta.pop("last_error_code",None);meta.pop("last_error_params",None)
+        _cycle_update(cycle_id,status="running",started_at=cycle.get("started_at") or ts(),last_error="",
+                      meta_json=json.dumps(meta,ensure_ascii=False))
         cycle_event(cycle_id,cycle.get("phase") or "signals","Autopilot run started",{"language":language})
+        _cycle_checkpoint(cycle_id,"signals")
 
         signal_ids=cycle.get("source_signal_ids") or []
         if not signal_ids and not cycle.get("idea_id"):
             collected=await asyncio.to_thread(collect_configured_signals,FACTORY_CYCLE_MAX_SIGNALS) if FACTORY_SIGNAL_FEEDS else {"created":[]}
             signal_ids=[x["id"] for x in collected.get("created") or []] or _new_signal_ids()
+            run_topic=((cycle.get("meta") or {}).get("target") or {}).get("topic")
+            signal_ids,matched=_signal_ids_for_topic(signal_ids,run_topic)
+            if matched is not None:
+                meta=dict((get_factory_cycle(cycle_id) or {}).get("meta") or {});meta["target_topic_matched"]=matched
+                _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+            if matched is False:
+                cycle_event(cycle_id,"signals",f"No collected signal mentions the target topic '{run_topic}'; all collected signals were used")
             if not signal_ids:raise RuntimeError("No source signals are available. Add a signal or configure RSS feeds.")
             _cycle_update(cycle_id,source_signal_ids_json=json.dumps(signal_ids),phase="ideas")
             cycle_event(cycle_id,"signals",f"Attached {len(signal_ids)} available signal(s)")
 
         idea_id=cycle.get("idea_id")
+        _cycle_checkpoint(cycle_id,"ideas")
         if not idea_id:
             _cycle_update(cycle_id,phase="ideas")
             generated=await generate_ideas_from_signals(IdeaGenerateRequest(signal_ids=signal_ids,max_ideas=max_ideas,language=language))
@@ -9549,7 +10029,10 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
                 if not chosen:raise RuntimeError("Preselected idea did not pass verification")
                 con=db();con.execute("UPDATE content_ideas SET status='selected',updated_at=? WHERE id=?",(ts(),idea_id));con.commit();con.close()
 
+        _cycle_checkpoint(cycle_id,"production")
+        _check_existing_job_target(cycle_id,idea_id)
         bridge=create_job_from_idea(idea_id,language)
+        _apply_cycle_target_to_job(cycle_id,bridge["job"]["id"],bridge.get("created"))
         job=bridge["job"];workflow=_workflow_context(job["id"],lock=True)["version"]
         _cycle_update(cycle_id,job_id=job["id"],workflow_version_id=workflow["id"],phase="production")
         cycle_event(cycle_id,"production","Content Brain → production handoff completed",
@@ -9559,13 +10042,31 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
         job=get_job(job["id"])
         if not job or job.get("status")!="waiting_approval":
             raise RuntimeError("Production did not reach the human approval gate")
+        if _cycle_stop_requested(cycle_id):
+            _cycle_update(cycle_id,status="stopped",phase="approval",last_error="")
+            cycle_event(cycle_id,"approval","Stopped as requested after production; the package waits at the approval gate, nothing was published",
+                        {"job_id":job["id"]})
+            await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
+            return
         _cycle_update(cycle_id,status="waiting_approval",phase="approval",last_error="")
         cycle_event(cycle_id,"approval","Production package is ready; Autopilot stopped at the human approval gate",
                     {"job_id":job["id"]})
         await broadcast({"type":"factory_cycle","action":"waiting_approval","cycleId":cycle_id,"jobId":job["id"]})
+    except _CycleStopped as stop:
+        _cycle_update(cycle_id,status="stopped",last_error="")
+        cycle_event(cycle_id,str(stop) or "signals","Autopilot stopped by the owner before this step; nothing was skipped or published")
+        await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
     except Exception as exc:
-        _cycle_update(cycle_id,status="failed",last_error=str(exc)[:1200])
-        cycle_event(cycle_id,"error",f"Autopilot failed: {str(exc)[:500]}")
+        if _cycle_stop_requested(cycle_id):
+            # The owner asked to stop while this step was running: honour the stop, keep the error visible.
+            _cycle_record_error(cycle_id,"stopped",exc)
+            cycle_event(cycle_id,"error",f"Step failed after a stop was requested; the cycle stays stopped: {str(exc)[:500]}",
+                        {"code":"stopped_then_failed","params":{},"cause":{"code":cycle_message_info(str(exc))[0],
+                         "params":cycle_message_info(str(exc))[1],"text":str(exc)[:1200]}})
+            await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
+            return
+        code,params=_cycle_record_error(cycle_id,"failed",exc)
+        cycle_event(cycle_id,"error",f"Autopilot failed: {str(exc)[:500]}",{"code":code,"params":params})
         await broadcast({"type":"factory_cycle","action":"failed","cycleId":cycle_id,"error":str(exc)[:500]})
     finally:
         active_factory_cycles.discard(cycle_id)
@@ -9649,6 +10150,9 @@ def sync_factory_cycle(cycle_id,derive_learning_if_possible=True):
         if row:
             publish=_publish_item(row);_cycle_update(cycle_id,publish_id=publish["id"])
     status=cycle.get("status");phase=cycle.get("phase")
+    if status=="stopped":
+        _cycle_update(cycle_id,publish_id=(publish or {}).get("id") or cycle.get("publish_id"))
+        return get_factory_cycle(cycle_id,True)
     if job:
         if job.get("status")=="waiting_approval":status,phase="waiting_approval","approval"
         elif job.get("status")=="approved":status,phase="approved","publishing"
@@ -9878,7 +10382,7 @@ async def factory_cycle_reconcile_loop():
     while True:
         try:
             con=db();rows=con.execute("""SELECT id FROM factory_cycles
-                                        WHERE status NOT IN ('failed','rejected','learning_ready','completed')
+                                        WHERE status NOT IN ('failed','rejected','learning_ready','completed','stopped')
                                         ORDER BY updated_at DESC LIMIT 100""").fetchall();con.close()
             for row in rows:sync_factory_cycle(row["id"],True)
         except Exception as exc:
@@ -10118,62 +10622,113 @@ def record_performance_snapshot(payload):
     sync_cycle_for_publish(pub["id"])
     return {"id":snapshot_id,"publish_id":pub["id"],"metrics":metrics,"captured_at":captured,"meta":snapshot_meta}
 
+def factory_cycle_readiness():
+    """T-646: what a beginner needs before the first cycle — real counts only, nothing estimated."""
+    con=db()
+    new_signals=con.execute("SELECT COUNT(*) n FROM source_signals WHERE status='new'").fetchone()["n"]
+    # Ideas a cycle can start from: not rejected and not yet in production (live mode verifies them first).
+    ideas=[dict(x) for x in con.execute("""SELECT id,title,score,status,verified_at FROM content_ideas
+                                          WHERE status IN ('selected','shortlisted','generated')
+                                          ORDER BY CASE status WHEN 'selected' THEN 0 WHEN 'shortlisted' THEN 1 ELSE 2 END,
+                                                   updated_at DESC LIMIT 20""").fetchall()]
+    con.close()
+    try:brands=[{"brand":b["brand"],"name":b.get("name") or b["brand"]} for b in STRATEGY.brands()]
+    except Exception:brands=[]
+    return {"new_signals":int(new_signals),"feeds_configured":bool(FACTORY_SIGNAL_FEEDS),
+            "paid_calls_possible":bool(FACTORY_LLM_API_KEY),"ideas":ideas,"brands":brands,
+            "platforms":[x for x in FACTORY_CYCLE_TARGET_PLATFORMS if x]}
+
 @app.get("/api/factory-cycles")
 def factory_cycles(limit:int=80):
-    return get_factory_cycles(limit)
+    data=get_factory_cycles(limit)
+    data["readiness"]=factory_cycle_readiness()
+    return data
 
 @app.get("/api/factory-cycles/{cycle_id}")
 def factory_cycle_detail(cycle_id:str):
     # #114 B-1: a GET (viewers included) only reads; reconciliation and learning run through POST /sync and /learn.
     cycle=get_factory_cycle(cycle_id,True)
-    if not cycle:raise HTTPException(404,"Factory cycle not found")
+    if not cycle:raise cycle_http_error(404,"Factory cycle not found")
     return cycle
 
 @app.post("/api/factory-cycles")
 async def new_factory_cycle(payload:FactoryCycleCreate):
     try:cycle=create_factory_cycle(payload)
-    except ValueError as exc:raise HTTPException(400,str(exc))
+    except ValueError as exc:raise cycle_http_error(400,exc)
     await broadcast({"type":"factory_cycle","action":"created","cycleId":cycle["id"]})
     return {"ok":True,"cycle":cycle}
 
 @app.get("/api/factory-cycles/{cycle_id}/quote")
 def factory_cycle_quote(cycle_id:str,max_ideas:int=3):
     try:return estimate_factory_cycle_cost(cycle_id,max_ideas)
-    except ValueError as exc:raise HTTPException(400,str(exc))
+    except ValueError as exc:raise cycle_http_error(400,exc)
 
 @app.post("/api/factory-cycles/{cycle_id}/run")
 async def run_factory_cycle_api(cycle_id:str,payload:FactoryCycleRunRequest):
     cycle=get_factory_cycle(cycle_id,True)
-    if not cycle:raise HTTPException(404,"Factory cycle not found")
-    if cycle_id in active_factory_cycles:return {"ok":True,"message":"Factory cycle is already running"}
+    if not cycle:raise cycle_http_error(404,"Factory cycle not found")
+    if cycle["status"]=="stopped":raise cycle_http_error(409,"This cycle is stopped. Resume it first.")
+    if cycle_id in active_factory_cycles:return {"ok":True,"message":"Factory cycle is already running","message_code":"already_running"}
     try:quote=estimate_factory_cycle_cost(cycle_id,payload.max_ideas)
-    except ValueError as exc:raise HTTPException(400,str(exc))
+    except ValueError as exc:raise cycle_http_error(400,exc)
     if quote["paid_calls_possible"] and not payload.confirm_cost:
         return {"ok":False,"requiresCostConfirmation":True,"quote":quote,
-                "message":"Confirm the conservative paid-work ceiling before Autopilot starts. Daily/job budgets remain hard limits."}
+                "message":"Confirm the conservative paid-work ceiling before Autopilot starts. Daily/job budgets remain hard limits.",
+                "message_code":"confirm_cost"}
+    meta=dict(cycle.get("meta") or {})
+    if meta.pop("stop_requested",None):   # a stop flag left by a run that already ended is stale
+        _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
     asyncio.create_task(_run_factory_cycle_to_review(cycle_id,payload.max_ideas,payload.language))
     return {"ok":True,"started":True,"quote":quote,
-            "message":"Autopilot started and will stop at the human approval gate."}
+            "message":"Autopilot started and will stop at the human approval gate.","message_code":"started"}
 
 @app.post("/api/factory-cycles/{cycle_id}/sync")
 async def sync_factory_cycle_api(cycle_id:str):
     cycle=sync_factory_cycle(cycle_id,True)
-    if not cycle:raise HTTPException(404,"Factory cycle not found")
+    if not cycle:raise cycle_http_error(404,"Factory cycle not found")
     await broadcast({"type":"factory_cycle","action":"synced","cycleId":cycle_id})
     return {"ok":True,"cycle":cycle}
 
 @app.post("/api/factory-cycles/{cycle_id}/learn")
 async def learn_factory_cycle(cycle_id:str):
     try:result=derive_cycle_learning(cycle_id)
-    except ValueError as exc:raise HTTPException(400,str(exc))
+    except ValueError as exc:raise cycle_http_error(400,exc)
+    if not result.get("ready"):result["reason_code"]=cycle_message_info(result.get("reason"))[0]
     await broadcast({"type":"factory_cycle","action":"learning","cycleId":cycle_id})
     return result
+
+@app.post("/api/factory-cycles/{cycle_id}/target")
+async def factory_cycle_target_api(cycle_id:str,payload:FactoryCycleTarget):
+    try:cycle=set_factory_cycle_target(cycle_id,payload.model_dump())
+    except LookupError as exc:raise cycle_http_error(404,exc)
+    except PermissionError as exc:raise cycle_http_error(409,exc)
+    except ValueError as exc:raise cycle_http_error(400,exc)
+    await broadcast({"type":"factory_cycle","action":"target","cycleId":cycle_id})
+    return {"ok":True,"cycle":cycle}
+
+@app.post("/api/factory-cycles/{cycle_id}/stop")
+async def factory_cycle_stop_api(cycle_id:str):
+    try:result=stop_factory_cycle(cycle_id)
+    except LookupError as exc:raise cycle_http_error(404,exc)
+    except PermissionError as exc:raise cycle_http_error(409,exc)
+    await broadcast({"type":"factory_cycle","action":"stop","cycleId":cycle_id})
+    return {"ok":True,**result}
+
+@app.post("/api/factory-cycles/{cycle_id}/resume")
+async def factory_cycle_resume_api(cycle_id:str):
+    try:cycle=resume_factory_cycle(cycle_id)
+    except LookupError as exc:raise cycle_http_error(404,exc)
+    except PermissionError as exc:raise cycle_http_error(409,exc)
+    await broadcast({"type":"factory_cycle","action":"resume","cycleId":cycle_id})
+    return {"ok":True,"cycle":cycle}
 
 @app.post("/api/factory-cycles/{cycle_id}/next")
 async def next_factory_cycle(cycle_id:str):
     parent=get_factory_cycle(cycle_id,True)
-    if not parent:raise HTTPException(404,"Factory cycle not found")
-    child=create_factory_cycle(FactoryCycleCreate(language=(parent.get("meta") or {}).get("language","English"),parent_cycle_id=cycle_id))
+    if not parent:raise cycle_http_error(404,"Factory cycle not found")
+    try:child=create_factory_cycle(FactoryCycleCreate(language=(parent.get("meta") or {}).get("language","English"),parent_cycle_id=cycle_id,
+                                                      target=(parent.get("meta") or {}).get("target")))
+    except ValueError as exc:raise cycle_http_error(400,exc)
     cycle_event(child["id"],"signals","Next cycle created using the currently active, owner-approved workflow",
                 {"parent_cycle_id":cycle_id,"workflow_version_id":child.get("workflow_version_id")})
     await broadcast({"type":"factory_cycle","action":"next","cycleId":child["id"],"parentCycleId":cycle_id})
@@ -10749,6 +11304,8 @@ def status(request: Request=None):
     if tenancy.current() is not None:
         return _workspace_status(identity)
     jobs=get_jobs(); sid=current_selected(jobs); selected=next((j for j in jobs if j["id"]==sid),None)
+    attention=get_jobs_attention([j["id"] for j in jobs])
+    for j in jobs:j["attention"]=attention.get(j["id"])
     con=db(); ev=[dict(x) for x in con.execute("SELECT * FROM events ORDER BY id DESC LIMIT 60").fetchall()]; con.close()
     report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
     return {

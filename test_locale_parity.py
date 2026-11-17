@@ -39,6 +39,11 @@ SAME_AS_EN = {
     # glossary / technical terms
     "approval.hook", "build.workflow", "dc.cpu", "dc.doneCriteria", "dc.state.human", "dc.tl.push",
     "discovery.short", "finisher.routeQa", "package.cta", "qa.roadmap", "stage.qa",
+    # T-MODS mod names are product names (owner 2026-11-15)
+    "mods.m.poteto-mode.name", "mods.m.grilling.name", "mods.m.product-film.name", "mods.m.revideo.name",
+    "mods.m.media-finisher.name", "mods.m.explainer-motion.name",
+    # T-MODS-D duel: symbols, arm letters and the Relay product name only
+    "duel.noScore", "duel.result", "duel.ticket",
 }
 
 # English UI strings that used to be hardcoded outside tr(). They must stay localized.

@@ -1,0 +1,72 @@
+{
+ "id": "rome",
+ "language": "en",
+ "title": "Colosseum: arena of an empire",
+ "voices": "MyCast two hosts: A = Charon, B = Kore (mycast.gemini_tts_pcm)",
+ "checked": "2026-11-16: dates, numbers and names checked against the lead of en.wikipedia.org/wiki/Colosseum read through the FactoryOS Surfer; the other links are the standard Wikipedia articles for the remaining facts. No invented facts or quotes.",
+ "sources": [
+  "https://en.wikipedia.org/wiki/Colosseum"
+ ],
+ "lines": [
+  {
+   "host": "A",
+   "text": "Hi! This is a MyCast demo, and we are in Rome, next to the Colosseum."
+  },
+  {
+   "host": "B",
+   "text": "The largest amphitheatre ever built in the ancient world. Who built it?"
+  },
+  {
+   "host": "A",
+   "text": "Emperor Vespasian started construction around AD 72, and his son Titus completed it in AD 80. Later Domitian modified it further."
+  },
+  {
+   "host": "B",
+   "text": "All three were Flavians, which is why scholars call it the Flavian Amphitheatre."
+  },
+  {
+   "host": "A",
+   "text": "Exactly. The name Colosseum came later, most likely from a colossal bronze statue of Nero that stood nearby."
+  },
+  {
+   "host": "B",
+   "text": "How many people did it hold?"
+  },
+  {
+   "host": "A",
+   "text": "An estimated fifty to eighty thousand spectators. It was built of travertine, tuff and Roman concrete."
+  },
+  {
+   "host": "B",
+   "text": "And what did they watch?"
+  },
+  {
+   "host": "A",
+   "text": "Gladiator fights, animal hunts, executions, dramas based on myths, and even, briefly, mock sea battles."
+  },
+  {
+   "host": "B",
+   "text": "Sea battles in the middle of a city sounds incredible. When did it all stop?"
+  },
+  {
+   "host": "A",
+   "text": "The shows ended in the early Middle Ages. Later the Colosseum served as housing, workshops, a fortress and even a quarry."
+  },
+  {
+   "host": "B",
+   "text": "So Romans took it apart for building stone?"
+  },
+  {
+   "host": "A",
+   "text": "They did, and earthquakes damaged it too. Yet it is still the symbol of Imperial Rome, and it appears on the Italian five euro cent coin."
+  },
+  {
+   "host": "B",
+   "text": "Next time you hold that coin, think of eighty thousand spectators."
+  },
+  {
+   "host": "A",
+   "text": "That was a MyCast demo episode. You can build your own podcast at mycast.pro."
+  }
+ ]
+}

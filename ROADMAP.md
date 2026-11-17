@@ -1,3 +1,16 @@
+- [ ] [HUMAN] T-645-H Generate, listen to and approve the MyCast demo episodes (Athens, Rome, …)
+  Depends: T-645, T-665
+  Need: owner (who approved Gemini voicing within the free quota, 2026-11-16) opens the owner console `/factory/mycast-demos` on the FactoryOS host, presses "Generate" (one city or all, ≤5 per run, ≤10 per day; a Google 429 stops the run, retry the next day), listens to each track and presses "Approve". Runbook in Worker Center → «Ваши задачи».
+  DONE: at least the Athens and Rome cards play on a live `/mycast/e/<token>` page.
+
+- [x] T-665 MyCast demo audio: owner-triggered Gemini voicing of the demo cities, approve-before-public
+  Owner: claude (session MyCast demo audio)
+  Priority: P1 (owner request 2026-11-16: «Демо-аудио для городов (T-645-H) — озвучь их Gemini», free quota only)
+  Depends: T-645
+  Spec: DECISIONS.md «2026-11-16 — T-665». `mycast_demo_audio.py`; scripts `static/mycast-share/scripts/<city>.<lang>.json` (UK/RU/EN, sources).
+  Goal: fact-checked two-host scripts for the five demo cities in the repo; an owner-only console and API voice one city or all with the existing MyCast TTS (`gemini_tts_pcm`, Charon + Kore) and the server key, store MP3 under DATA_DIR (never the repo), never re-voice a finished track without an explicit "regenerate", cap 5 per run and a daily cap, stop the whole run on a Google 429 with "quota exhausted, try again tomorrow"; the shared-episode page plays only tracks the owner approved (owner-only "Approve"), served from `/mycast/demo/<city>.<lang>.mp3`. Nothing is generated or published automatically.
+  DONE: `python test_mycast_demo_audio.py` (fake TTS: scripts, idempotency, run/daily caps, 429 stop, owner-only routes, approval and its withdrawal, public route and page play approved tracks only, escaping, `node --check` of the console JS) and every `test_mycast*.py`, `python test_owner_desk.py` and the default verification pass.
+
 # FactoryOS Roadmap
 
 This file is the execution queue for the autonomous Factory Builder.
@@ -55,6 +68,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Re-check (2026-10-31, run-20261031162233-a7b938): deterministic stages green again at `62ffd5e`. The branch is still 10 commits ahead of main (not merged), and the live stages remain blocked on GitHub access plus HUMAN T-506.
   Re-check (2026-11-01): `autopilot/aws-worker` == `origin/main` == `c2879b9`, so the T-590 slice is merged into main. Deterministic stages are green again (smoke, planner, relay 74, telegram 9, token binding, delegation, autopilot). This run was denied network/`gh`/`curl`, so CI on `c2879b9`, Render `build_sha`, Telegram pairing (HUMAN T-506), the live `/new` trace and the Issue #41 evidence are still unverified.
   Re-check (2026-11-15, run-20261115093856-a5105e): T-506 pairing is done, and the #289 round trip plus Evidence Tiers 1–2.6 are on main. Deterministic stages are green again (smoke, planner, relay 111, telegram 25). This run had no GitHub/Render/network access, so one owner ticket traced end to end (claim → run_id → PR → CI → merge → deployed → Telegram `/task`) with Issue #41 evidence is still unobserved. The task stays open.
+  Progress (2026-11-15, P0 tails session): T-506 pairing is done (checked). The live trace is now provable from server facts alone: `relay_acceptance.py` + `/proof R-…` + owner-only `GET /api/relay/{id}/acceptance` judge Telegram intake → one ticket → claim/run_id → running → done → Telegram delivery receipt (the server now records `owner_notified` when the Bot API accepts a worker notice). The remaining live stages are the owner's run in **[HUMAN] T-591-H**; production `/health` answered 502 during this session, so `build_sha` was not compared (T-590-H).
 
 - [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
   Owner: claude
@@ -62,11 +76,13 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; Issue #41 and #51.
   Goal: verify actual owner Telegram chat pairing/webhook and tested /status, /tasks, /task <id>, /history, /roadmap, /github; callbacks for refresh/detail/retry; preserve event history; RU/UK/EN. Only verified ChatGPT actions visible, not fictional live ChatGPT sessions.
   DONE: real test message in paired owner chat -> one ticket -> authenticated Claude claim -> running -> final evidence -> owner reply with exact IDs and GitHub links, redacted transcript and timestamps. If needs owner 2FA, mark HUMAN with exact ask and do not claim done.
+  Progress (2026-11-15): code side done and tested (`test_relay_acceptance.py`, run in CI via `test_relay_execution.py`): `/roadmap` is now a real ROADMAP.md view (P0 / HUMAN / next agent tasks; it used to repeat `/tasks`), `/history` is RU/UK/EN, the ticket card has 🔄 Refresh → factual stages + history, `/proof R-…` gives the copyable acceptance transcript (IDs, run_id, UTC times, branch/PR, PR/CI/merge/deploy "not verified" until reconciled). Live part: **[HUMAN] T-591-H**; Owner desk shows its status from the newest Telegram ticket's verdict.
 
 - [ ] T-591-A Telegram Relay P0 status/queue/stale hotfix (ChatGPT owner, Claude follow-up acceptance)
   Owner: claude. Depends: T-590 (implementation merged in #63; final live acceptance remains T-591).
   Scope: truthful heartbeat vs active task, claimable queue counts, stale-claim handling without auto-rerun, owner retry instructions.
   Test: test_relay_livefix.py and existing Relay suites; CI before merge, then Render and owner live E2E. Never mark T-591 done until actual Telegram task executes.
+  Progress (2026-11-15): the hotfix scope is covered by test_relay_livefix.py (in the CI relay suite); a stale or blocked run is never counted by the new acceptance verdict and Retry is the only way back. Closes together with T-591 after **[HUMAN] T-591-H**.
 
 - [ ] T-592 Fix Build Progress / Worker Center factual status and UI freeze
   Owner: claude
@@ -74,6 +90,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Spec: Issues #55, #56, #54, #52 and docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md.
   Goal: reconcile 87% vs 49% metric scopes; distinguish EC2/SSM/systemd/subscription auth/heartbeat/claim/task; fix race for .autopilot/status.json, stale/offline, huge overflow; make owner HUMAN blockers actionable.
   DONE: deterministic tests + screenshot evidence showing same task/stage in Telegram and Web; no ghost running/false progress; columns usable mobile+desktop and consistent stale timestamps; non-main PR/CI.
+  Progress (2026-11-15): code is on main via T-596 (separate signals, one read model for web and Telegram, `test_worker_observability.py`), T-595 (columns/overflow, `test_drawers.py`) and the 87%/49% denominators (DECISIONS.md). The Telegram ticket card now has 🔄 Refresh with the same factual stages as `/relay`. What is left is evidence only the owner can produce (a screenshot of the real Telegram next to the web view): **[HUMAN] T-592-H**.
 
 - [ ] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
   Owner: claude
@@ -82,6 +99,20 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Goal: reproducible restricted permission profile, safe tests and dependency boot (Python 3.9), non-spinning retry, durable worker errors, GitHub/ROADMAP task dedupe, automated safe backlog sequence and concise verified owner reporting.
   DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
   Progress 2026-10-30: first live claimed runs on EC2 blocked because the agent's Python lived in /tmp/fos-venv (wiped on reboot) and headless `claude -p` denied python3. Delegation now keeps a persistent gitignored `<repo>/.venv` rebuilt only when requirements.txt changes, puts it first on PATH, and pre-allows the CLAUDE.md verification loop (Read/Edit/Write, python, node --check, local git add/commit) while push/deploy stay disallowed.
+  Progress (2026-11-15): the deterministic parts are covered on main (T-599 claims/parking, T-598 persisted retries, T-600 usage-limit hold, `autopilot.test_autopilot`, `autopilot.test_delegation`). Not provable from a cloud session: the live EC2 sequence (next safe task after a verified commit) and a day without direct-main pushes or paid spend — **[HUMAN] T-593-H**.
+
+- [ ] [HUMAN] T-591-H Live Telegram acceptance: one test task end to end (closes the live part of T-590 / T-591 / T-591-A)
+  Need: owner sends one plain test message in the paired chat, waits for the worker's 🏁 notice, then `/proof R-…`; runbook in Owner desk (RU/EN/UK).
+  DONE: `/proof` shows "VERIFIED by the server" (Telegram intake, one ticket, claim + run_id, running, done, delivery receipt) and the transcript is in Issue #41.
+
+- [ ] [HUMAN] T-592-H Compare Telegram and the web for one task (phone + desktop screenshots)
+  Depends: T-591-H
+  Need: owner screenshots the same ticket in Telegram (🔄 Refresh) and on /relay + Worker Center; runbook in Owner desk.
+  DONE: same stage/run_id/last-contact in both, no ghost running, Build Progress columns fully visible; screenshots in Issue #56 or confirmed by the owner.
+
+- [ ] [HUMAN] T-593-H Confirm the EC2 worker moves on to the next safe task by itself
+  Need: owner checks main CI, `/workers` + Worker Center after a verified commit, and a day later main history (PRs only) and bills (no new paid spend); runbook in Owner desk.
+  DONE: next safe ROADMAP task claimed after a verified commit, main green, no direct pushes, no paid spend.
 
 - [x] T-600 Fail-closed Claude CLI error diagnostics / retry classification
   Live EC2 re-test 2026-11-01: at 12:01 UTC T-551-A hit `usage_limit_reached` ("resets 4:20pm (UTC)"); the worker held the whole queue (no task parked or failed) and resumed T-551-A at 16:22 UTC (reset + 120 s grace).
@@ -119,6 +150,26 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Spec: Issue #94, docs/handoff/CLAUDE_CHATGPT_COORDINATION.md. The FactoryOS MCP server (`/mcp` in app.py, already used by ChatGPT: list_build_tasks, get_design_context, submit_design_review) is ours, so ChatGPT can get authenticated tools without a new service.
   Goal: MCP tools for a shared thread and handoffs backed by the existing Relay store: post_message / read_thread (brainstorm between agents, visible to the owner in Worker Center), list_handoffs / claim_handoff / submit_handoff_result (one claim per task, run_id, files_scope), with Claude reviewing results before merge.
   DONE: a live round-trip — Claude posts a handoff, ChatGPT claims it via MCP and submits a PR link, Claude reviews and merges — visible in Worker Center; tests for auth, single claim, replay and secret scrubbing.
+  Progress 2026-11-15 (session T-604): the server slice is T-625 below — workspace tools on `/mcp` (`agent_workspace.py`), per-lane auth, single claim through the Relay ROADMAP ticket, replay, secret scrubbing; guide `docs/guides/agent-workspace-mcp.md`. Still open for DONE: owner sets the lane tokens (T-624), then the live round-trip (Claude create_handoff → ChatGPT claim + PR link → Claude review/merge) and a Worker Center panel on `GET /api/factory/agent-workspace` (T-626). Telegram group chat (`/discuss`, `/decision`) stays with the T-590–T-593 Relay/Telegram work.
+
+- [x] T-625 Agent workspace MCP tools: threads and handoffs behind per-lane tokens (T-604 server slice)
+  Owner: claude (session T-604)
+  Priority: P1
+  Spec: docs/handoff/T-604_MCP_TOOLS_SPEC.md; DECISIONS.md 2026-11-15 T-625.
+  Goal: `post_message`, `list_threads`, `read_thread`, `create_handoff`, `list_handoffs`, `claim_handoff`, `submit_handoff_result`, `release_handoff`, `review_handoff` on `/mcp`, stored in the Relay store; sender derived from a per-lane credential (`FACTORY_MCP_LANE_TOKEN_CLAUDE/_CHATGPT/_GEMINI`), the shared `FACTORY_MCP_TOKEN` only reads threads; claim goes through `RelayQueue.claim_roadmap` (run_id, one claim per task, EC2 worker fenced out); idempotency keys; no owner decisions by agents; credential-shaped text refused; `?key=` query values redacted from the access log.
+  DONE: `python test_agent_workspace.py` (lane auth, single claim, replay, secret scrubbing, Relay fencing, lease/release, /mcp handler) plus test_web_surfer.py, test_relay*.py and the default verification green. Done 2026-11-15.
+
+- [ ] [HUMAN] T-624 Per-lane FactoryOS MCP tokens in Render (Claude / ChatGPT / Gemini)
+  Depends: T-625
+  Need: owner generates three different random tokens (`python -c "import secrets;print(secrets.token_urlsafe(32))"`, one per lane) and adds them in Render → Environment: `FACTORY_MCP_LANE_TOKEN_CLAUDE`, `FACTORY_MCP_LANE_TOKEN_CHATGPT`, optionally `FACTORY_MCP_LANE_TOKEN_GEMINI`; plus `FACTORY_MCP_LANE_URL_KEY=chatgpt` because the ChatGPT connector cannot send headers. Then reconnects ChatGPT with `…/mcp?key=<CHATGPT lane token>` and Claude Code with the Claude lane token as Bearer. Runbook: docs/guides/agent-workspace-mcp.md. Agents never see or set these values.
+  DONE: `GET /api/factory/agent-workspace` (signed in) shows `lanes.claude.enabled` and `lanes.chatgpt.enabled` true; `GET /mcp` with each connector reports its own `lane`.
+
+- [ ] T-626 Worker Center panel for the shared agent workspace
+  Owner: claude
+  Priority: P2
+  Depends: T-625
+  Goal: read-only Worker Center card from `GET /api/factory/agent-workspace`: lanes enabled/disabled (reason, never token values), latest threads with attributed messages, handoffs by state with run_id, Relay ticket link and PR link; EN/UK/RU.
+  DONE: test covering empty / disabled-lane / active-handoff states, dashboard `node --check`, CI-gated PR.
 
 - [ ] T-602 UI fixes from the 2026-11-01 screenshot review
   Owner: claude
@@ -293,6 +344,26 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Depends: T-560-F
   Need: owner generates a key (`python -c "from browser_runner.vault import generate_key; print(generate_key())"`) and stores it only in the Render secret environment (and the browser runner host), never in Git or chat.
   DONE: owner-only `GET /api/factory/vault/status` reports `configured: true`.
+
+- [x] T-670 Surfer benchmark: 28 real tasks an AI needs mid-project, report with problems found
+  Owner: claude (session Surfer)
+  Depends: T-560-H
+  Spec: owner 2026-11-16 «доведи работу до идеала, чтобы любой ИИ мог им пользоваться в середине проекта. Дай ему задания и проверь, как он справляется»
+  Goal: run real read tasks through the agent REST on production (docs, README, releases, changelog, PyPI, Wikipedia, SPA, redirects, a very long page, cookie banner, missing selector, 404, slow page, table, bad domain, anti-bot pages), measure status/queue time/blocker/completeness, and write before/after honestly.
+  DONE: `docs/verification/surfer-benchmark-2026-11-16.md` lists every task → result → problem with the numbers; `python test_verification_docs.py` green.
+
+- [x] T-671 Surfer reads like an AI needs: main text, links, chunks, hints
+  Owner: claude (session Surfer)
+  Depends: T-670
+  Spec: docs/verification/surfer-benchmark-2026-11-16.md, DECISIONS.md «2026-11-16 — T-671»
+  Goal: a read without selectors returns the page's main text (menus, sidebars, cookie banners removed), title, description and up to 150 https links instead of `<body>` cut at 6000 chars; up to 100 000 chars are kept and read in chunks (`offset` → `next_offset`); every answer carries `hints` for the next step (bad domain, HTTP 4xx/5xx, missing selector incl. ids with dots, JS-rendered page, anti-bot page, timeout, redirect); the worker waits for network idle (≤5 s), reports the HTTP status and Chromium's `net::ERR_*` code (no URL/message), recognises anti-bot interstitials as `waiting_human/bot_challenge` and no longer stops a readable page on an invisible reCAPTCHA; a JavaScript redirect to another site is followed once by `web_read` (same URL rules); MCP tool descriptions carry examples. Read-only, public https only, egress proxy, GET-only and no anti-bot bypass are unchanged.
+  DONE: `python test_browser_reading.py` (also with `RUN_BROWSER_FIXTURE=1` on real Chromium), `python test_web_surfer.py`, `python test_browser_tasks.py`, `python test_browser_playwright.py`, `node tools/test_gemini_research.cjs` green.
+
+- [x] T-672 Browser executor: private IP literals refused by the origin check; worker reloads on browser_runner changes
+  Owner: claude (session Surfer)
+  Depends: T-560-C
+  Goal: `_origin()` swallowed its own `local_network_disallowed` (PolicyError is a ValueError), so `https://10.0.0.5/` passed the executor's origin check and only the egress proxy refused it; and the EC2 worker restarted for new `autopilot/*.py` only, so a `browser_runner/` fix sat on disk unloaded.
+  DONE: `python test_browser_reading.py` (private/loopback/link-local IP literals refused, loopback fixture still allowed) and `python -m autopilot.test_autopilot` (a `browser_runner/*.py` change returns `code_updated`, a docs change does not) green.
 
 
 ## v5.1 — Viral Discovery Loop
@@ -587,6 +658,37 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: owner-only route creates one inbox job per branch via `create_job` (atomic claim); draft only, no publishing queue row, no provider call; publish approval stays `/api/jobs/{id}/approve` + `_publish_approval_gate`.
   DONE: tests prove one job per branch under concurrent clicks, no publish row, no provider call.
 
+## Mods & skills (owner 2026-11-15)
+
+Owner: "скачай оба скилла и выложи на ветку… Product Film добавляй… раздел «Подключенные фичи и скиллы»… включить / отключить одной кнопкой… видно, даёт ли прирост… A1/A2 против B1/B2 по видео-инструментам… пайплайн плана контента тоже туда".
+
+- [x] T-MODS-A Vendor poteto-mode (pstack), grilling and product-film as Claude Code plugins
+  Owner: claude
+  Priority: P1
+  Goal: `mods/<name>/` holds each skill as a plugin (`.claude-plugin/plugin.json` + `skills/`), with upstream commit, license and every FactoryOS change recorded in `mods/README.md`; product-film ships without the display.dev publish scripts and bundled binaries.
+  DONE: `python test_mods.py` (vendoring checks) green; `claude plugin validate mods/<name>` passes for all three.
+
+- [x] T-MODS-B Mods & skills section: registry, one-button on/off, usage and before/after numbers
+  Owner: claude
+  Priority: P1
+  Depends: T-MODS-A
+  Goal: sidebar group «Mods & skills» opens a card listing every mod (poteto-mode, grilling, product-film, brand strategy → Master Brief, plus the built-in video tools and peer review as always-on), owner-only on/off with a history, usage counters, and a with/without comparison of worker runs; switching brand strategy off really stops the Master Brief from entering agent prompts. EN/UK/RU.
+  DONE: `python test_mods.py`, navigation + locale parity tests, dashboard `node --check`, smoke.
+
+- [x] T-MODS-C Claude worker applies the switched-on mods
+  Owner: claude
+  Priority: P1
+  Depends: T-MODS-B
+  Goal: before each ROADMAP or Relay run the worker reads the enabled mods (worker token), adds `--plugin-dir mods/<name>` and a headless-safety system prompt, starts the prompt with `/pstack:poteto-mode` when poteto-mode is on, and reports the run with its mod set so the dashboard can compare. Server unreachable or CLI without `--plugin-dir` → run without mods, reported as such.
+  DONE: `python -m autopilot.test_delegation`, `python test_mods.py`, Python 3.9 import check.
+
+- [x] T-MODS-D Video tool duel: A1/A2 (Revideo / Media Finisher / explainer) against B1/B2 (product-film)
+  Owner: claude
+  Priority: P2
+  Depends: T-MODS-C
+  Goal: owner creates a duel from one brief; A arms become ordinary draft jobs, B arms become Claude Relay tickets that use product-film (refused while the mod is off); each arm shows its live job/ticket state, takes a result link and an owner score 1–5; the duel shows the A vs B average and winner only when all four are scored. Nothing is published.
+  DONE: `python test_mods.py` (duel), dashboard `node --check`, locale parity, smoke.
+
 ## MVP Factory pilots — first MVP wave (owner 2026-11-15)
 
 - [x] T-616 AI Release Guardian — read-only GitHub PR readiness board (MVP pilot `release-guardian`, Issue #189)
@@ -629,6 +731,19 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   Need: owner signs off the rule (+7 days to each side once, at the friend's first real episode; cap 50; no self/duplicate credit), sets `FACTORY_MYCAST_REFERRALS=1` in Render, and runs one live invite with a second Telegram account. Enforcing the end of free days (`FACTORY_MYCAST_ENFORCE_TRIAL=1`) is a separate later business decision.
   DONE: `/api/mycast/account/config` returns `"referrals_enabled": true` and the live check gave both accounts +7 days exactly once.
 
+- [x] T-645 MyCast share card — glass coverflow on the public episode page with demo city cards and the public podcast DNA
+  Owner: claude (session MyCast share page)
+  Priority: P1 (owner voice request 2026-11-16)
+  Depends: T-620
+  Spec: DECISIONS.md «2026-11-16 — T-645». `mycast_share_page.py` renders `/mycast/e/<token>`; demo cards from `static/mycast-share/demos.json`.
+  Goal: a recipient of a shared episode (no login) sees a swipeable glass coverflow: the author's episode in the centre with the configurator's own generative DNA cover, title, date, length and its own player; demo cards (Athens, Rome, Delphi, Olympia, Pompeii) around it, playing only owner-approved local audio and otherwise marked "soon" with no play button; a glass player bar; "About this podcast" with topics, category mix, Ukraine/world geography, schedule and voice only (no chat id, contact, slug, share code, file id, follows, own free-text topics or custom city). T-620 guarantees kept: noindex/no-store, revocable link, every model/manifest string escaped. UK/RU/EN by `?lang`, browser, author.
+  DONE: `python test_mycast_share_page.py` (escaping, no private fields, honest demo manifest, language, cover byte-identical to the configurator via node, `node --check` of the inline JS) and every `test_mycast*.py`, `python test_owner_desk.py` and the default verification pass; Playwright screenshots at 390 and 1280 px in `docs/screenshots/t645/`.
+
+- [ ] [HUMAN] T-645-H Make and approve the MyCast demo episodes (Athens, Rome, …)
+  Depends: T-645
+  Need: owner provides 1–2 minute two-host MP3s per city (own files, or explicitly confirms Gemini voicing within the free quota / accepted spend) and approves each; Claude then adds them to `static/mycast-share/audio/` with `approved_by_owner: true`. Runbook in Worker Center → «Ваши задачи».
+  DONE: at least the Athens and Rome cards play on a live `/mycast/e/<token>` page.
+
 ## MVP Factory pilots (owner 2026-11-15: first MVP wave — #305, #187, #188, #189)
 
 - [x] T-615 MyBrief for a profession — web MVP pilot `mybrief-pro` (#188)
@@ -659,6 +774,96 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   Depends: T-614 merged and deployed
   Need: owner opens the preview, fills expected outcome / review date for a few real decisions, contacts 5 people (external contact = owner action) with the interview script, and records build/preview/verdict steps in MVP Builder (agents may not move a pilot past spec review).
   DONE: MVP Builder shows the `decision-memory` pilot at `validated` or `rejected` with an owner event citing the aggregate interview result.
+
+## MVP Factory — self-improving Beta V1→V2 (#270, epic #186)
+
+Incremental loop for the existing MVP Factory (`mvp_factory.py` stays the only registry; this never moves a stage).
+Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to stay clear of the parallel second-wave sessions.
+
+- [x] T-630 Product Evolution S1 — consented feedback ledger, themes, owner-approved V2 proposals, one Relay hand-off, retest
+  Owner: claude (session MVP beta)
+  Priority: P1
+  Depends: #186 registry, Relay (`RelayStore.create`), T-615 MyBrief feedback store
+  Spec: Issue #270 §1, §3, §4, §6 (M2 + first M3 vertical slice); DECISIONS.md «2026-11-15 — T-630»
+  Goal: `mvp_evolution.py` + `static/mvp-factory/evolution.html` (EN/UK/RU, linked from every MVP card): feedback stored only with explicit consent and a consent reference, participant label hashed per project, free text redacted; synthetic data only when marked and never counted; cohort 10 → 100 against real unique substantive records; funnel steps unknown until recorded with a source; deterministic themes with contrary evidence and confidence; proposals cite feedback ids and an acceptance test; only the owner approves/declines/releases; hand-off creates exactly one Relay ticket and reads VERIFIED only from Relay facts (done + run_id + accepted evidence); shipped needs a merged PR/commit link; retest by original participants; privacy delete; MyBrief consented import; one deterministic synthetic V1→V2 loop for the demo.
+  DONE: `python test_mvp_evolution.py` passes (consent, redaction, hashing, synthetic marking/mixing, cohort, funnel, themes, owner gates, concurrent one-ticket hand-off, idempotency, hand-off truth table, full real V1→V2 loop with retest and untouched registry, privacy delete, MyBrief import, synthetic demo, handler auth, page/i18n/wiring), the MVP/pilot suites, `test_owner_desk.py`, the default verification and `node --check` of the page pass.
+
+- [ ] [HUMAN] T-630-H Product Evolution: first cohort of 10 consented feedback records and the first V2 decision
+  Owner: owner
+  Depends: T-630 merged and deployed
+  Need: owner picks the pilot and the outreach channel, talks to people personally (FactoryOS sends nothing), records 10 substantive consented feedback records, approves or declines the first V2 proposal and, after the merged PR, releases v2 and asks the original participants to retest. Runbook in Worker Center → «Ваши задачи».
+  DONE: `/api/mvp-evolution/<pilot>` shows `cohort.first_target_met: true` on real data and an owner decision on a proposal.
+
+- [ ] T-631 Product Evolution S2 — versioned worker contracts for the 13 logical roles of #270 §2
+  Owner: claude (session MVP beta)
+  Priority: P2
+  Depends: T-630
+  Goal: one schema module (role, permissions, trigger, input/output schema, acceptance, Depends, retries, timeout, error state, audit evidence) for Idea/Research … Product Manager, mapped onto the existing `mvp_cycle.AGENTS` engines; contract tests for schema validation, duplicate claim, retry, failed evidence and approval gates. No new runtime process or paid service per role.
+  DONE: contract tests pass; `mvp_cycle`/`mvp_pipeline` suites still pass.
+
+- [ ] T-632 Product Evolution S3 — consumer-side claim of hand-offs through Relay events (M4)
+  Owner: claude (session MVP beta)
+  Priority: P2
+  Depends: T-630, T-604 (shared MCP/Relay interface, other session), T-590–T-593 statuses
+  Goal: the Builder consumer validates the T-630 envelope before claiming, the claim/finish/failure of the Relay ticket is mirrored into the proposal history with the same run_id, a stale or failed run shows BLOCKED with its reason; no double claim. Uses only the Relay interfaces T-604 settles on.
+  DONE: tests for validate-before-claim, duplicate claim refused, stale → blocked, finish → VERIFIED only with evidence.
+
+- [ ] T-633 Product Evolution S4 — consent-aware in-product usage events and export (M5)
+  Owner: claude (session MVP beta)
+  Priority: P2
+  Depends: T-630, T-630-H (owner-approved channel and wording)
+  Goal: pilot pages emit only consented, minimal events (activated / used / returned) into the funnel with per-participant export and delete; no third-party analytics, no outbound invitations.
+  DONE: tests for no-consent → no event, export, delete; funnel counts come from events, not manual entry.
+
+## Autopilot Cycle Control for beginners (owner 2026-11-16, voice note)
+
+- [x] T-646 Autopilot / Cycle Control: explain the mechanism, cycle target, stop/resume, step results
+  Owner: claude (session Autopilot UX)
+  Spec: owner voice note 2026-11-16 «не совсем понятно, как ей работать… объяснить, добавить недостающие кнопки, циклы, выбор того, на что она нацелена»; DECISIONS.md «2026-11-16 — T-646»
+  Goal: the `cycle` screen shows a 7-step map (who acts: agent or you; what is needed from you) with each cycle's current position, a collapsible plain-language «How does Autopilot work?», a demo/live cost line, a beginner empty state, a new-cycle form (start from newest signals or a ready idea) with an optional target (brand / topic / platform / audience) visible on every card, Stop / Resume / Retry, «Change target» before production, and buttons that open each step's real result. Safety unchanged: the cycle still stops at human approval, publishing stays a separate explicit action, paid runs still need the cost confirmation; nothing paid is enabled.
+  DONE: `python test_factory_cycle_controls.py` (target validation and use, topic filter, stop/resume incl. pending stop before production, approval gate, cost confirmation, readiness) + `test_locale_parity.py`, `test_navigation.py`, `test_explainability.py`, smoke suite and inline-JS `node --check` green; screenshots at 1280/390 px in `docs/screenshots/t-646/` with no horizontal scroll.
+
+- [x] T-647 Cycle Control: server error and status messages in EN/UK/RU
+  Owner: claude (session Autopilot UX)
+  Spec: owner 2026-11-16 «переведи серверные ошибки цикла на UK/RU»; follow-up to T-646; DECISIONS.md «2026-11-16 — T-647»
+  Goal: every cycle error the server returns (HTTP errors of the cycle routes, the stored `last_error`, error events in the history, run/learn messages) carries a stable code + params next to its English text, and the dashboard shows it in the selected language; an unknown message is shown as "server message (not translated)" with the original text, never hidden.
+  DONE: `python test_factory_cycle_controls.py` (every code translated in EN/UK/RU, real messages map to codes, failure stores the code, HTTP detail carries it) + locale parity, navigation, explainability, smoke and `node --check` green; screenshots in `docs/screenshots/t-647/`.
+
+## Content making-of (owner voice note 2026-11-16, items 5–6)
+
+- [x] T-690 Content runs: close runs interrupted by a restart, show where each content item stopped
+  Owner: claude (session Content making-of)
+  Spec: owner voice note 2026-11-16 «Контент / Продвижение — оно не работает… непонятно, кто на чём остановился, почему ошибка, почему стопнулось»; DECISIONS.md «2026-11-16 — T-690»
+  Goal: content-job agent runs live in the FastAPI process; a Render deploy/restart left their `agent_runs` row `running` forever (phantom live worker in the trace) and the Supervisor silently reset the job to idle, which the list labelled «готово». Orphaned runs are now closed as failed with a classified `run_interrupted` reason (manual retry behind the paid-retry confirmation) at startup and in the orphan auto-heal; the job list carries per-job open incidents (same «resolved» rule as the Error Center); idle reads «ready to run / очікує запуску / ожидает запуска»; the flow read model carries per-run duration, cost, model, policy and resolved flag.
+  DONE: `python test_content_making_of.py` (interrupted runs, running-job exclusion, orphan heal, flow enrichment, attention == Error Center) + smoke suite green.
+
+- [x] T-691 Content row «making of»: pipeline, stop reason and agent chain open under the clicked content
+  Owner: claude (session Content making-of)
+  Spec: owner voice note 2026-11-16 «нет выдвигающегося меню при нажатии на каждый контент… конвейер должен открываться, когда ты зашёл в конкретный контент»; DECISIONS.md «2026-11-16 — T-691»
+  Goal: clicking a row in Content / Promotion expands it (click again collapses; Enter/Space; `aria-expanded`); the panel «Контент-конвейер: <title>» shows the stage strip of that item (failed stage in red), a «Where it is now» box (running / stopped at agent X with the Error Center reason and action / interrupted / waiting for approval / paused / done) with existing safe actions only (retry via the existing rerun API with the paid-retry confirmation, open the agent log, run from the stage, review), and the agent chain: each hop input → run → output → downstream with an expandable details block (time, cost, model, error text, actions). The separate global pipeline card above the list is removed; the sidebar «Pipeline» entry opens the selected item's making-of. Approval gate, budget guards and idempotency fences unchanged.
+  DONE: `test_content_making_of.py`, `test_pipeline_flow.py`, `test_locale_parity.py`, `test_navigation.py`, `test_explainability.py`, `test_drawers.py`, `test_delegation_*.py`, smoke, inline-JS `node --check` green; screenshots at 1280/390 px in `docs/screenshots/t-691/` with no horizontal page scroll.
+
+## Versioning (owner 2026-11-16)
+
+- [x] T-VERSION One version everywhere + changelog v5.6 → v5.10.0 + automatic GitHub Releases
+  Owner: claude
+  Priority: P1
+  Goal: `APP_VERSION` is the single version shown in the dashboard header, the sidebar badge (was hard-coded v5.3) and `/health`; README changelog continued from v5.6 to v5.10.0 (204 merges since v5.7.1); `release.yml` tags each new version on main and publishes its GitHub Release from the changelog; past versions tagged and backfilled.
+  DONE: `python test_versioning.py`, smoke, dashboard `node --check`, navigation/locale tests.
+  Evidence: v5.10.0 (run 43850500408) and v5.6, v5.7, v5.7.1, v5.8.0 (run 43851658678) published. v5.9.0: the workflow token gets 403 on it, so the owner creates it in the GitHub UI (see T-VERSION-H).
+
+- [x] [HUMAN] T-VERSION-H Create GitHub release v5.9.0 (done by Claude on 043460d, no owner step needed)
+  Owner: owner
+  Need: GitHub → Releases → Draft a new release → tag `v5.9.0`, target commit `b991f856404196e0146d6a1ce2fbc3cee60d20d0`, title from the README `### v5.9.0` heading, notes = that entry's bullets, not marked Latest → Publish. The workflow token is refused (HTTP 403) for this commit.
+  DONE: https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/releases/tag/v5.9.0 exists (published 2026-11-17 by Release run 44073441058 on 043460d, #407).
+
+## Learning guides in three languages (owner 2026-11-16)
+
+- [x] T-667 /learn: more "how the product works" guides, every guide in RU / UK / EN
+  Owner: claude (session Guides)
+  Spec: owner 2026-11-16 «Добавляй ещё гайды по тому, как работает наш продукт, и переведи их на украинский и русский — часть на английском»; the RU viewer showed the English `docs/guides/browser-agent.md`. DECISIONS.md «2026-11-16 — T-667».
+  Goal: each Markdown guide on the /learn shelf has `<stem>.<lang>.md` translations next to its original; `/learn/view/{id}?lang=` serves the chosen language and falls back to the original with a visible "only in X" note; card titles/descriptions in all three languages; the language parameter never selects a path outside the fixed catalog. Seven new beginner guides from the actual code: Surfer, Claude↔ChatGPT shared workspace, MVP Factory pilots, MyCast library and public links, Autopilot / Cycle Control, Telegram Relay and /proof, owner desk «Ваши задачи».
+  DONE: `python test_learn_center.py` (all guides in 3 languages, right-language letters, fallback with note, `?lang=` cannot reach other files, new guides on the shelf) + `test_locale_parity.py` + default verification; screenshots of /learn in RU and UK in `docs/screenshots/t-667/`.
 
 ## Optional least-privilege owner grants (T-598, non-blocking)
 

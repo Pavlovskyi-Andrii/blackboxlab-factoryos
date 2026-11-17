@@ -46,7 +46,7 @@ class StoreTest(unittest.TestCase):
             self.s.create("https://shop.example/", ["<script>"])
         task = self.s.create("https://shop.example/item", [".price", " ", "h1", "a", "b", "c", "d"])
         self.assertEqual((task["status"], task["action"], len(task["selectors"])), ("queued", "read", 5))
-        self.assertEqual(self.s.create("https://shop.example/", [])["selectors"], ["body"])
+        self.assertEqual(self.s.create("https://shop.example/", [])["selectors"], [])   # T-670: main content
 
     def test_claim_lease_finish_and_screenshot(self):
         task = self.s.create("https://shop.example/item", [".price"])
@@ -166,6 +166,12 @@ class RoutesTest(unittest.TestCase):
             self.assertEqual((task["source"], task["action"]), ("claude", "read"))
             read = h[("GET", "/api/factory/browser/agent/tasks/{task_id}")]
             self.assertEqual(read(task["id"], Req(agent=True))["task"]["status"], "queued")
+            # T-670: the same view MCP agents get (chunk + next_offset, hints) rides along with the raw task.
+            store.claim()
+            store.finish(task["id"], {"status": "done", "texts": [{"selector": "loc", "text": "x" * 9000}]})
+            got = read(task["id"], Req(agent=True), offset=8000, max_chars=1000, links=0)
+            self.assertEqual((got["view"]["text"], got["view"]["next_offset"]), ("x" * 1000, None))
+            self.assertEqual(got["view"]["texts"][0]["truncated"], True)
             owner_task = store.create("https://example.com/", [])                # the owner's own tasks stay private
             with self.assertRaises(HTTPException) as e:
                 read(owner_task["id"], Req(agent=True))
