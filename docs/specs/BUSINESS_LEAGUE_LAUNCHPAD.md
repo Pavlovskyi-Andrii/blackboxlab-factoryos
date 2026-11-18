@@ -1,6 +1,7 @@
 # Business League · Launchpad protocol
 
-**Status:** spec. L1 is queued as ROADMAP **T-704**. L2–L4 are described here and are not queued.
+**Status:** spec. L1 is queued as ROADMAP **T-704** and L2 as **T-705** (after T-704). L3–L4 wait for the owner's
+decisions T-707-H, T-708-H and T-709-H.
 **Owner request:** 2026-11-18, in chat with Claude. The owner uploaded the *Product Launchpad 2027* curriculum
 (Growth Factory), asked what FactoryOS can take from it, approved this spec and the ROADMAP entry. The owner also
 relayed ChatGPT's analysis of the same curriculum; the points adopted from it are marked *(ChatGPT)*.
@@ -184,10 +185,13 @@ tab), `DECISIONS.md` and `.github/workflows/ci.yml` (the new test step, which th
 
 **DONE:** see ROADMAP T-704.
 
-## Later slices (not queued)
+## Later slices
 
-- **L2 Discovery agents:** Researcher and Analyst fill D1–D3 from public sources with the existing free tools
-  (FactoryOS `web_search` / `web_read`, Content Brain signals); maximum level `linked`.
+- **L2 Discovery agents, queued as T-705 (after T-704):** Researcher and Analyst fill D1–D3 from public sources with
+  the existing free tools (FactoryOS `web_search` / `web_read`, Content Brain signals); maximum level `linked`. Their
+  benchmark is the manual MyCast run of 2026-11-19 (`docs/business_experiments/mycast_launchpad/`: 6 ideas, 18 facts,
+  13 signals, G1/G2 only proposed; the owner decides in T-706-H). `web_search` covers Wikipedia only until the owner
+  opts in to Google search through Gemini (T-560-I), which can be billed beyond the free tier.
 - **L3 MVP + Promote:** the 7-day MVP checklist with an API cost limit; channel journals fed by the analytics loop;
   Approval Studio extended from approve-publish to approve outreach, spend and payment.
 - **L4 League:** `battle_runs` kind `business`. Two or three teams of mixed operators (ChatGPT + Claude, Claude +
@@ -195,9 +199,10 @@ tab), `DECISIONS.md` and `.github/workflows/ci.yml` (the new test step, which th
   `accepted` metrics, net-revenue scoring with penalties for false "done" claims (Evidence Protocol T2.5) and a season
   long enough for real market tests (ads, communities, SEO).
 
-### Owner decisions before L3/L4 (future `[HUMAN]` tasks)
+### Owner decisions before L3/L4 (`[HUMAN]` tasks with runbooks in Your tasks)
 
-- The League budget and who approves each spend.
-- Which real channels agents may act in, and from which accounts.
-- The payment provider for the owner's country and business form.
-- Season length and team compositions.
+Options, sources and labelled recommendations: `docs/business_experiments/LEAGUE_OWNER_DECISIONS.md`.
+
+- **T-707-H:** the League budget, who approves each spend, season length, team compositions and the judge.
+- **T-708-H:** which real channels agents may act in, and from which accounts.
+- **T-709-H:** the payment provider for the owner's country and business form.
