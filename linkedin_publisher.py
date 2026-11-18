@@ -291,6 +291,34 @@ class PostStore:
             return draft
 
 
+def readiness(flow, workspace_id: str, env=None) -> tuple:
+    """(blockers, tokens) for publishing as the connected member. Shared by the draft routes and the T-702 adapter."""
+    from oauth_framework import get_provider
+    spec = get_provider("linkedin")
+    blockers = list(flow.blockers(spec))
+    tokens = None
+    if "vault_unavailable" not in blockers:
+        try:
+            tokens = flow.vault.get(workspace_id, "linkedin")
+        except Exception:
+            blockers.append("vault_unreadable")
+    if not tokens and not blockers:
+        blockers.append("linkedin_not_connected")
+    if not enabled(env):
+        blockers.append("linkedin_publishing_off")
+    return blockers, tokens
+
+
+def send_text(flow, workspace_id: str, text: str, *, http: Http | None = None, env=None) -> dict:
+    """The one LinkedIn publish path: re-checks readiness, then creates the post. Raises LinkedInError.
+    Callers own the approval fence and the claim-before-send (PostStore here, social_autopilot for T-702)."""
+    blockers, tokens = readiness(flow, workspace_id, env)
+    if blockers:
+        raise LinkedInError("linkedin_not_ready")
+    transport = http or getattr(flow.adapters.get("linkedin"), "http", urllib_http)
+    return create_post(transport, tokens.access_token, tokens.account_id, text, api_version(env))
+
+
 def install_routes(app, *, store: PostStore, flow, identity: Callable, workspace: Callable[[], str],
                    http: Http | None = None, env=None) -> None:
     def owner(request: Request):
@@ -307,17 +335,7 @@ def install_routes(app, *, store: PostStore, flow, identity: Callable, workspace
     def state() -> dict:
         from oauth_framework import get_provider
         spec = get_provider("linkedin")
-        blockers = list(flow.blockers(spec))
-        tokens = None
-        if "vault_unavailable" not in blockers:
-            try:
-                tokens = flow.vault.get(workspace(), "linkedin")
-            except Exception:
-                blockers.append("vault_unreadable")
-        if not tokens and not blockers:
-            blockers.append("linkedin_not_connected")
-        if not enabled(env):
-            blockers.append("linkedin_publishing_off")
+        blockers, tokens = readiness(flow, workspace(), env)
         return {"enabled": enabled(env), "ready": not blockers, "blockers": blockers,
                 "account": (tokens.account_label if tokens else ""), "connected": bool(tokens),
                 "api_version": api_version(env), "redirect_uri": flow.redirect_uri(spec), "text_max": TEXT_MAX}
@@ -358,11 +376,9 @@ def install_routes(app, *, store: PostStore, flow, identity: Callable, workspace
         current = state()
         if not current["ready"]:
             raise HTTPException(409, "LinkedIn is not ready: " + ", ".join(current["blockers"]))
-        tokens = flow.vault.get(workspace(), "linkedin")
         draft = store.claim_for_publish(draft_id)
-        transport = http or getattr(flow.adapters.get("linkedin"), "http", urllib_http)
         try:
-            result = create_post(transport, tokens.access_token, tokens.account_id, draft["text"], api_version(env))
+            result = send_text(flow, workspace(), draft["text"], http=http, env=env)
         except LinkedInError as exc:
             store.finish(draft_id, "uncertain" if exc.uncertain else "failed", {"code": exc.code})
             raise HTTPException(409 if exc.uncertain else 502, exc.code) from None
