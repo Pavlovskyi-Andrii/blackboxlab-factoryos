@@ -93,7 +93,7 @@ def callback(provider, query, cookie=""):
 
 
 def check_registry_and_pkce():
-    require(list(oauth.PROVIDERS) == ["youtube", "tiktok", "instagram", "linkedin", "hubspot"], "provider set")
+    require(list(oauth.PROVIDERS) == ["youtube", "tiktok", "instagram", "linkedin", "olx", "hubspot"], "provider set")
     for spec in oauth.PROVIDERS.values():
         require(spec.integration in factory.PORTABLE_INTEGRATIONS, f"{spec.id} maps to a portable integration slot")
         require(oauth.get_provider(spec.id.upper()) is spec, "provider selection is case-insensitive")
@@ -126,8 +126,8 @@ def check_production_default_is_fenced():
         require(status == 200 and SECRET_SENTINEL not in body, "registry must not expose secrets")
         providers = json.loads(body)["providers"]
         for p in providers:
-            # T-552-YT / T-700: YouTube and LinkedIn ship real adapters; every other provider still has none.
-            expected = {"client_not_configured", "vault_unavailable"} | (set() if p["id"] in ("youtube", "linkedin") else {"adapter_missing"})
+            # T-552-YT / T-700 / T-701: YouTube, LinkedIn and OLX ship real adapters; every other provider still has none.
+            expected = {"client_not_configured", "vault_unavailable"} | (set() if p["id"] in ("youtube", "linkedin", "olx") else {"adapter_missing"})
             require(not p["ready"] and set(p["blockers"]) == expected, f"{p['id']} blockers")
             require(p["redirect_uri"] == f"{factory.FACTORY_PUBLIC_BASE_URL}/api/oauth/{p['id']}/callback", "redirect")
             status, _, body = call("POST", f"/api/oauth/{p['id']}/authorize")
@@ -317,8 +317,8 @@ def main():
             check_disconnect(mocks)
             check_auth_boundaries()
         require(isinstance(factory.OAUTH_FLOW.vault, oauth.UnavailableTokenVault)
-                and set(factory.OAUTH_FLOW.adapters) == {"youtube", "linkedin"},
-                "production defaults restored (only the real YouTube and LinkedIn adapters are registered)")
+                and set(factory.OAUTH_FLOW.adapters) == {"youtube", "linkedin", "olx"},
+                "production defaults restored (only the real YouTube, LinkedIn and OLX adapters are registered)")
         check_no_leakage()
     logging.getLogger().removeHandler(handler)
     print("T-551-A OAuth framework scaffold: PASS (zero secrets, zero network)")

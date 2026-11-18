@@ -84,14 +84,16 @@ _READ_PAGE_JS = r"""() => {
   const len = el => ((el && el.innerText) || '').trim().length;
   let root = null;
   for (const sel of MAIN) {
-    const el = document.querySelector(sel);
-    if (el && len(el) >= 200) { root = el; break; }
+    // T-674: a selector that matches several blocks (a releases or blog list with one .markdown-body / article per
+    // entry) is a list item, not the page's main content; skip it so the shared container (main) is read instead.
+    const all = document.querySelectorAll(sel);
+    if (all.length === 1 && len(all[0]) >= 200) { root = all[0]; break; }
   }
   if (!root) root = document.body || document.documentElement;
   const JUNK = 'nav,aside,script,style,noscript,template,svg,dialog,[role=navigation],[role=complementary],' +
     '[role=search],[aria-hidden=true],[hidden],[id*=cookie i],[class*=cookie i],[id*=consent i],' +
     '[class*=consent i],[id*=gdpr i],[class*=gdpr i],.sidebar,#sidebar,.toc,#toc,.breadcrumb,.breadcrumbs,' +
-    '.skip-link,.visually-hidden,.sr-only';
+    '.skip-link,.visually-hidden,.sr-only,include-fragment';
   const hidden = [];
   const hide = el => { if (el !== root && !el.contains(root)) { hidden.push([el, el.style.display]); el.style.display = 'none'; } };
   root.querySelectorAll(JUNK).forEach(hide);
@@ -117,6 +119,37 @@ _READ_PAGE_JS = r"""() => {
           description: desc ? (desc.content || '').trim().slice(0, 500) : '',
           main: root === document.body ? 'body' : root.tagName.toLowerCase() + (root.id ? '#' + root.id : '')};
 }""" % PAGE_LINKS_LIMIT
+
+
+# T-674: a selector match read for an AI. Sphinx/Python docs put the id on a <dt> holding only the signature (66 chars
+# for #os.path.join); the description is the following <dd>, so a <dt> is read together with its <dd>. An empty anchor
+# (<span id="x"></span>) is read as the section it labels. Fixed script, no task input; it changes nothing on the page.
+_READ_MATCHES_JS = r"""els => els.map(el => {
+  const txt = e => ((e && e.innerText) || '').trim();
+  let t = txt(el);
+  if (el.tagName === 'DT') {
+    const dd = el.nextElementSibling;
+    if (dd && dd.tagName === 'DD') t = (t + '\n' + txt(dd)).trim();
+  } else if (!t && el.id) {
+    const box = el.parentElement && el.parentElement.closest('section,article');
+    t = box ? txt(box) : txt(el.nextElementSibling);
+  }
+  return t;
+})"""
+
+# T-674: `#os.path.join` is CSS for id "os" with classes "path" and "join", so ids with dots (Python docs, Sphinx) or
+# colons never matched. A read selector that is exactly one such #id also tries the literal id via [id="..."]; the
+# CSS meaning is kept (selector list), so pages where it was right still match. Characters are limited to
+# [A-Za-z0-9_.:-], so the quoted value needs no escaping.
+_DOTTED_ID = re.compile(r"#([A-Za-z_][\w\-]*(?:[.:][\w\-]+)+)", re.ASCII)
+
+
+def read_selector(selector: str) -> str:
+    """CSS selector a read task actually uses for `selector` (an id with dots or colons also matches literally)."""
+    match = _DOTTED_ID.fullmatch(selector.strip())
+    if not match:
+        return selector
+    return f'{selector.strip()}, [id="{match.group(1)}"]'
 
 
 @dataclass(frozen=True)
@@ -520,6 +553,8 @@ def run_playwright(
                             artifacts.append(ref)
                         else:
                             selector = _selector(step)
+                            if kind == "extract" and plan.action_class == "read":
+                                selector = read_selector(selector)
                             locator = page.locator(selector)
                             if kind == "click":
                                 if not _safe_click(locator):
@@ -540,7 +575,8 @@ def run_playwright(
                                 # reported as missing and the run goes on to the remaining steps and screenshot.
                                 try:
                                     locator.first.wait_for(state="attached", timeout=min(ms, READ_SELECTOR_WAIT_MS))
-                                    text = "\n".join(t.strip() for t in locator.all_inner_texts() if t.strip())
+                                    texts = locator.evaluate_all(_READ_MATCHES_JS) or []
+                                    text = "\n".join(str(t).strip() for t in texts if str(t).strip())
                                 except Exception as exc:
                                     if isinstance(exc, TimeoutError) or type(exc).__name__ != "TimeoutError":
                                         raise

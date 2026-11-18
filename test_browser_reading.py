@@ -18,7 +18,7 @@ import test_browser_playwright as fx
 from autopilot import browser_tasks as worker
 from browser_runner.core import BrowserActionPlan
 from browser_runner.playwright_executor import (
-    PAGE_LINKS_LIMIT, BrowserRuntimePolicy, run_playwright,
+    _READ_MATCHES_JS, _READ_PAGE_JS, PAGE_LINKS_LIMIT, BrowserRuntimePolicy, read_selector, run_playwright,
 )
 
 ORIGIN = "https://docs.example"
@@ -179,6 +179,40 @@ class ReadPageTest(unittest.TestCase):
         self.assertEqual(result.status, "waiting_human")       # only read tasks get the text-length allowance
 
 
+class DottedIdAndListPageTest(unittest.TestCase):
+    """T-674 (benchmark weak spots): ids with dots, Sphinx <dt>/<dd>, list pages such as GitHub releases."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.policy = BrowserRuntimePolicy(allowed_origins=(ORIGIN,), artifact_root=Path(self.tmp.name),
+                                           return_extracted_text=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_read_selector_accepts_ids_with_dots_and_colons(self):
+        self.assertEqual(read_selector("#os.path.join"), '#os.path.join, [id="os.path.join"]')
+        self.assertEqual(read_selector(" #module-os.path "), '#module-os.path, [id="module-os.path"]')
+        self.assertEqual(read_selector("#fn:1"), '#fn:1, [id="fn:1"]')
+        for unchanged in ("#main", "h1", ".a.b", "#a.b p", "main #x.y", "#a::before", '[id="a.b"]',
+                          '#a.b"],x', "#a.b, h1", "#ä.b"):
+            self.assertEqual(read_selector(unchanged), unchanged)
+
+    def test_read_task_reads_dotted_id_literally_and_draft_does_not(self):
+        factory = browser(data={"text": "x", "title": "t"})
+        result = run_playwright(read_plan("#os.path.join", "h1"), policy=self.policy, playwright_factory=factory)
+        self.assertEqual(result.status, "done", result.blocker_reason)
+        self.assertEqual(factory.page.state["read_selectors"], ['#os.path.join, [id="os.path.join"]', "h1"])
+        extract = [r for r in result.action_log if r["type"] == "extract"]
+        self.assertEqual(extract[0]["text"], "Synthetic fixture heading")
+
+    def test_fixed_scripts_read_definitions_and_skip_repeated_blocks(self):
+        # Offline guard for the browser-side rules; the real-Chromium fixture below runs them on pages.
+        self.assertIn("el.tagName === 'DT'", _READ_MATCHES_JS)
+        self.assertIn("all.length === 1", _READ_PAGE_JS)
+        self.assertIn("include-fragment", _READ_PAGE_JS)
+
+
 PAGES = {
     "/docs": """<!doctype html><html><head><title>Guide - Docs</title><meta name="description" content="How to use it">
 <script>window.__x = 1</script></head><body>
@@ -194,6 +228,21 @@ fetch('/data').then(r => r.text()).then(t => { document.getElementById('root').i
     "/invisible-captcha": """<!doctype html><html><head><title>Docs with a widget</title></head><body><main>
 <h1>Real content</h1><p>%s</p></main><iframe src="/recaptcha/api2/anchor?size=invisible" width="0" height="0">
 </iframe></body></html>""" % ("Text worth reading. " * 150),
+    "/releases": """<!doctype html><html><head><title>Releases - acme/tool</title></head><body>
+<header><nav>Product Solutions Pricing Sign in</nav></header>
+<main><div class="repo-head">acme / tool</div><h1>Releases</h1>
+%s
+<include-fragment><p>Sorry, something went wrong.</p></include-fragment></main><footer>Footer links</footer>
+</body></html>""" % "\n".join(
+        f'<section><h2>v1.{n}.0</h2><relative-time datetime="2026-11-{10 + n}">Nov {10 + n}</relative-time>'
+        f'<div class="markdown-body"><p>Release notes {n}: {"Fixed a thing and improved another. " * 8}</p></div>'
+        '</section>' for n in (3, 2, 1)),
+    "/pydoc": """<!doctype html><html><head><title>os.path</title></head><body><main>
+<section id="module-os.path"><h1>os.path — Common pathname manipulations</h1><p>%s</p>
+<dl class="py function"><dt class="sig sig-object py" id="os.path.join"><span>os.path.join(path, *paths)</span></dt>
+<dd><p>Join one or more path segments intelligently.</p></dd></dl>
+<dl><dt id="os.path.sep-anchor"></dt></dl><span id="empty.target"></span><p>Text after the anchor.</p>
+</section></main></body></html>""" % ("This module implements some useful functions on pathnames. " * 10),
     "/moment": """<!doctype html><html><head><title>Just a moment...</title></head><body>
 <div id="challenge-running">Checking your browser</div></body></html>""",
 }
@@ -284,6 +333,28 @@ class RealChromiumReading(unittest.TestCase):
         self.assertEqual(self.read("/invisible-captcha").status, "done")
         moment = self.read("/moment")
         self.assertEqual((moment.status, moment.blocker_reason), ("waiting_human", "bot_challenge"))
+
+    def test_list_page_reads_every_release_not_only_the_first(self):
+        # T-674: GitHub releases gave ~296 chars (the first release's .markdown-body). All releases, newest first.
+        row = self.page_row(self.read("/releases"))
+        self.assertEqual(row["main"], "main")
+        for n in (3, 2, 1):
+            self.assertIn(f"v1.{n}.0", row["text"])
+            self.assertIn(f"Release notes {n}", row["text"])
+        self.assertLess(row["text"].index("v1.3.0"), row["text"].index("v1.1.0"))
+        self.assertNotIn("Sorry, something went wrong", row["text"])
+        self.assertNotIn("Pricing", row["text"])
+
+    def test_dotted_ids_read_signature_with_description_and_honest_miss(self):
+        result = self.read("/pydoc", selectors=["#os.path.join", "#module-os.path", "#os.path.nothing",
+                                                "#empty.target"])
+        self.assertEqual(result.status, "done", result.blocker_reason)
+        rows = [r for r in result.action_log if r["type"] == "extract"]
+        self.assertIn("os.path.join(path, *paths)", rows[0]["text"])
+        self.assertIn("Join one or more path segments", rows[0]["text"])
+        self.assertTrue(rows[1]["text"].startswith("os.path — Common pathname manipulations"), rows[1]["text"][:80])
+        self.assertTrue(rows[2].get("missing"))
+        self.assertIn("Common pathname manipulations", rows[3]["text"])      # an empty anchor reads its section
 
 
 if __name__ == "__main__":

@@ -1982,3 +1982,62 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Telegram channel: plain-text `sendMessage` (no `parse_mode`, so the text is literal) with the existing `FACTORY_TELEGRAM_BOT_TOKEN`; the channel comes from `FACTORY_TELEGRAM_CHANNEL_ID` (`@name` or `-100…`). Post link: `t.me/<username>/<id>` or `t.me/c/<id>/<msg>` for private channels. The token lives only in the request URL and is never logged, stored or returned. «Проверить канал» calls `getMe` + `getChatMember` (no post). `browser_runner/social.py` (web drafts up to the submit boundary) is not used: the Bot API is the official path.
 - Daily summary once per Kyiv day after 21:00 to the owner's paired chat (`_telegram_send`), only when the autopilot is on and the plan is not empty; the day is marked before sending, so a Telegram error never causes repeats.
 - No release entry: CLAUDE.md asks for a release cut at least daily while work merges; this PR is a feature PR, and the next release PR picks it up.
+## 2026-11-18 — T-701 OLX adverts via the OLX Partner API
+- Owner delegated the OLX advert routine. olx.ua blocks the EC2 runner (CloudFront 403) and forbids automation, so only
+  the official OLX Partner API is used. `developer.olx.ua` also answers the cloud session and the FactoryOS server
+  browser with CloudFront 403; the docs were read from the Internet Archive copy (2025). Sources, endpoint table and
+  open questions: `docs/guides/olx-partner-api.md`. The live API host was not called.
+- OAuth: `https://www.olx.ua/oauth/authorize/` + `POST https://www.olx.ua/api/open/oauth/token`, scopes
+  `read write v2`, no PKCE. The token request body is form-encoded (`application/x-www-form-urlencoded`, as
+  RFC 6749 §4.1.3/§6 requires; the OLX docs list the fields as a JSON-looking object but name no content type — Codex
+  review #421). If the owner's first connect fails with `exchange_failed`, JSON is the alternative to try. `redirect_uri` is sent in
+  both steps (mandatory in the exchange once sent in authorize). No revoke endpoint is documented: disconnect deletes
+  the tokens locally and reports `revoke_failed`; access then lapses (24 h / 30 days) unless revoked in the OLX account.
+- Access tokens last 24 h, refresh tokens 30 days and may rotate, so every write refreshes first (OLX returns the same
+  token while valid) and stores the result back in the token vault. A refresh failure leaves the draft `approved`
+  (refresh happens before the claim) with `olx_reconnect_required`.
+- Idempotency: the draft id goes out as OLX `external_id`. An unknown outcome (timeout, 5xx, reply without id) is never
+  resent; «Проверить на OLX» does a read-only `GET /adverts?external_id=` and marks the draft published only on exactly
+  one match; otherwise the owner confirms (advert URL or «not published»).
+- Validation copies the documented rules (title 16–70, description 80–9000, ≤ 50 % capitals, no triple punctuation,
+  no e-mail/www/phone) so a draft fails before approval instead of at OLX; OLX moderation stays the judge. The phone
+  check (≥ 9 digits in a row, separators allowed) can flag long model/serial numbers; the owner then rewrites them.
+  Images: https URLs only, local cap 20 (OLX enforces the category's `photos_limit`).
+- Paid endpoints (packets, paid features, balance, billing) are not wrapped at all; a `limited` advert (free limit
+  used up) is shown as «нужен платный пакет — решите в OLX» and FactoryOS stops. Deactivate is owner-only, needs
+  `confirm: true` and the publishing flag. Editing a live advert (`PUT /adverts/{id}`), statistics, moderation reason
+  and messages are left for later tasks.
+- Reference pickers (categories, suggestion, attributes, regions, cities, districts) are read-only owner calls with
+  the user token; they work while the publishing flag is off (no write happens) and return only whitelisted fields.
+- The owner page link is `/static/olx/index.html`: `/static` is mounted without `html=True`, so a directory URL such as
+  `/static/linkedin/` (used by the T-700-H runbook) returns 404. That LinkedIn link is a separate fix.
+- Codex review #421: the flag gates OLX *writes* only (publish, deactivate); read-only reference/status calls with the
+  owner's token work while it is off. Approval stores the connected OLX account id and publish refuses another account
+  (`olx_account_changed_approve_again`), so a reconnect between approval and publish cannot post elsewhere. A
+  `publishing` claim older than 5 minutes (process died after the POST) counts as an unknown outcome: reconcile or owner
+  confirmation, never a second POST. Reconcile accepts only adverts that echo the exact `external_id`.
+- Refresh vs disconnect/reconnect (Codex review #421, blocking): `OAuthFlow.lock` serialises vault writes in
+  connect/disconnect, and the OLX refresh write-back is a compare-and-set under it (the vault must still hold the exact
+  tokens the refresh started from). A disconnect during a refresh → `olx_not_connected`, vault stays empty; a reconnect
+  → `olx_connection_changed`, the new account's tokens stay. The lock is per process; a second worker/instance would
+  need a vault-level CAS (same constraint as the DBOS SQLite note in CLAUDE.md).
+- T-702 (social autopilot core, another session) plugs in through `olx_publisher.publish_approved(...)`; no T-702 file
+  was touched.
+## 2026-11-18 — T-674 Surfer: list pages and ids with dots
+
+- **Repeated main-content candidates are skipped.** `_READ_PAGE_JS` used the first `.markdown-body`/`article` with
+  ≥ 200 chars. On a GitHub releases page that is one release's notes (~296 chars). A candidate that matches more than
+  one element is a list item, so the picker moves on (usually to `main`). Generic, no GitHub rule; single-article
+  docs pages and READMEs are unchanged (same fixture tests). `include-fragment` (lazy widgets; the ones still on the
+  page are loading or failed: "Sorry, something went wrong") is hidden like navigation.
+- **`#a.b` is read both ways, not rewritten.** CSS `#os.path.join` means id `os` + classes. A read selector that is
+  exactly one `#id` with dots/colons becomes the selector list `#a.b, [id="a.b"]`: pages where the CSS meaning was
+  intended still match, no extra 8 s wait, and the id characters are limited to `[A-Za-z0-9_.:-]` so no escaping is
+  needed. Compound selectors (`#a.b p`) are left as written and keep the `[id="a.b"]` hint. Only read tasks; draft
+  plans run selectors exactly as given.
+- **`<dt>` + `<dd>`, empty anchors.** Sphinx puts the id on a `<dt>` with just the signature (the benchmark's 66
+  chars); a matched `<dt>` is read with its following `<dd>`. An empty anchor (`<span id>`) reads its enclosing
+  section/article. Fixed script, no task input.
+- Not verified on the live GitHub/Python sites from this session (no outbound access to them); the EC2 worker picks
+  the change up when `autopilot/aws-worker` syncs main.
+

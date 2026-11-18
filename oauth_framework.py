@@ -11,6 +11,7 @@ import base64
 import hashlib
 import logging
 import secrets
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Callable
@@ -83,6 +84,17 @@ PROVIDERS = {
         scopes=("openid", "profile", "w_member_social"),
         pkce=False,
         client_id_env="FACTORY_OAUTH_LINKEDIN_CLIENT_ID", client_secret_env="FACTORY_OAUTH_LINKEDIN_CLIENT_SECRET",
+    ),
+    # T-701 (owner 2026-11-17): OLX adverts through the OLX Partner API (developer.olx.ua). No revoke endpoint is
+    # documented, so revoke_url is empty and disconnect only forgets the tokens. Scopes per the OLX docs.
+    "olx": OAuthProvider(
+        id="olx", label="OLX", integration="OLX",
+        authorize_url="https://www.olx.ua/oauth/authorize/",
+        token_url="https://www.olx.ua/api/open/oauth/token",
+        revoke_url="",
+        scopes=("read", "write", "v2"),
+        pkce=False,
+        client_id_env="FACTORY_OAUTH_OLX_CLIENT_ID", client_secret_env="FACTORY_OAUTH_OLX_CLIENT_SECRET",
     ),
     "hubspot": OAuthProvider(
         id="hubspot", label="HubSpot", integration="HubSpot",
@@ -280,6 +292,9 @@ class OAuthFlow:
         self.vault = vault
         self.adapters = dict(adapters or {})
         self.states = state_store or StateStore()
+        # Serialises vault writes: connect/disconnect here and token refresh write-backs (olx_publisher), so an
+        # in-flight refresh can never restore tokens after a disconnect or overwrite a reconnect (T-701).
+        self.lock = threading.RLock()
 
     def redirect_uri(self, spec: OAuthProvider) -> str:
         return f"{self.redirect_base}/api/oauth/{spec.id}/callback"
@@ -355,7 +370,8 @@ class OAuthFlow:
             raise OAuthError("exchange_failed")
         if not isinstance(tokens, TokenSet) or not tokens.access_token:
             raise OAuthError("exchange_failed")
-        self.vault.put(record["workspace"], spec.id, tokens)
+        with self.lock:
+            self.vault.put(record["workspace"], spec.id, tokens)
         log.info("oauth connected provider=%s workspace=%s", spec.id, record["workspace"])
         return {"ok": True, "provider": spec.id, "integration": spec.integration,
                 "workspace": record["workspace"], "account_id": tokens.account_id[:180],
@@ -378,7 +394,8 @@ class OAuthFlow:
                 except Exception:
                     log.warning("oauth revoke failed provider=%s", spec.id)
                     revoke = "revoke_failed"
-        deleted = self.vault.delete(workspace, spec.id)
+        with self.lock:
+            deleted = self.vault.delete(workspace, spec.id)
         log.info("oauth disconnected provider=%s workspace=%s revoke=%s", spec.id, workspace, revoke)
         return {"ok": True, "provider": spec.id, "integration": spec.integration, "revoke": revoke,
                 "tokens_deleted": deleted, "history_preserved": True}

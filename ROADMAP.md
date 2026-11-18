@@ -360,11 +360,17 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Need: owner creates an app on developer.linkedin.com with «Share on LinkedIn» + «Sign In with LinkedIn using OpenID Connect», adds the redirect URL, puts FACTORY_OAUTH_LINKEDIN_CLIENT_ID / _SECRET and FACTORY_LINKEDIN_ENABLED=1 in Render, connects on /static/linkedin/ and publishes one approved test post. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
   DONE: a test post published from /static/linkedin/ with its LinkedIn URL saved.
 
-- [ ] T-701 OLX adverts through the OLX Partner API (planned, no code yet)
+- [x] T-701 OLX adverts through the OLX Partner API (draft → owner approval → publish)
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Depends: T-700
-  Goal: same draft → owner approval → publish pattern as T-700 for OLX adverts via the official OLX Partner API (developer.olx.ua, OAuth), never browser automation (the Surfer gets HTTP 403 from OLX on EC2). Needs the owner's partner registration first; check API access and terms before writing code.
-  DONE: to be specified when the owner has partner API access.
+  Spec: owner 2026-11-17/18 «OLX routine to FactoryOS» — official OLX Partner API only (developer.olx.ua, OAuth 2.0), never browser automation (CloudFront 403 on EC2, ToS); research with sources in `docs/guides/olx-partner-api.md`; DECISIONS.md «2026-11-18 — T-701»
+  Goal: `olx_publisher.py` + `static/olx/index.html`: OAuth provider `olx` (`authorization_code`, scopes `v2 read write`, refresh before each write, rotated tokens stored back in the token vault), owner-only advert drafts validated against the documented OLX rules; approval freezes the SHA-256 of the exact advert and the connected OLX account; `FACTORY_OLX_ENABLED=1` gates every OLX write (publish, deactivate) — read-only reference/status calls with the owner's token still work while it is off; publish only when the flag is on, the advert and account still match and nothing was sent before; each advert carries `external_id` = draft id, so timeout/5xx («unknown outcome») or a publish claim left by a crashed process (> 5 min) is resolved by a read-only lookup (exact `external_id` match only) or the owner, never by a resend; read-only category/attribute/city pickers, status refresh and owner-confirmed deactivate; no paid endpoint (packets, paid features) is reachable; fixed error codes, no token or OLX body stored. `publish_approved(...)` is the entry point for T-702.
+  DONE: `python test_olx_publisher.py` (adapter + refresh, documented validation rules, fixed codes, approval fence, edit drops approval, one publish, no blind retry, reconcile by exact external_id, stale claim, approval bound to the account, owner-only, flag off → no OLX write, no paid endpoint) + `python test_oauth_framework.py` + default verification.
+
+- [ ] [HUMAN] T-701-H Register the OLX Partner API app and connect the account
+  Depends: T-701, T-560-G
+  Need: owner reads the developer portal terms (not readable from FactoryOS: 403), signs in to developer.olx.ua with the OLX account that will own the adverts, submits «Підключити додаток» and waits for OLX's e-mail approval, adds the callback URL `https://blackboxlab-factoryos.onrender.com/api/oauth/olx/callback`, puts FACTORY_OAUTH_OLX_CLIENT_ID / _SECRET and FACTORY_OLX_ENABLED=1 in Render, connects on /static/olx/index.html and publishes one approved test advert. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
+  DONE: a test advert published from /static/olx/index.html with its OLX id and status saved.
 
 - [x] T-702 Social autopilot core: weekly plan → owner approval → exactly-once scheduled publishing (Telegram channel, LinkedIn)
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -411,6 +417,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Spec: owner answer 2026-11-17 (via the coordinator session): auto-resolve conflicts that touch only ROADMAP.md, with tests
   Goal: 2026-11-16 the EC2 worker stayed on 2026-11-15 code (36 commits behind main, T-671 included) because merging main into `autopilot/aws-worker` conflicted on two T-590 status notes in ROADMAP.md; `sync_branch` aborted every pass. Now a merge whose only conflicted file is ROADMAP.md keeps both sides' lines (worker notes, then main's), takes a task header that both sides changed from main (no duplicate task with two checkbox states), and commits the merge; any other conflicted file is aborted and reported as before. No rebase, reset or force.
   DONE: `python -m autopilot.test_autopilot` (unit cases incl. diff3 and malformed markers; a real git ROADMAP-only conflict is merged with both notes, one T-590 header from main and main's other files; a ROADMAP + code conflict still returns `conflict` with a clean tree) green.
+
+- [x] T-674 Surfer: GitHub releases pages and ids with dots read in full
+  Owner: claude (session Surfer)
+  Depends: T-671
+  Spec: owner 2026-11-18 (two weak read cases from the T-670 benchmark); DECISIONS.md «2026-11-18 — T-674»
+  Goal: a releases page read without selectors returned ~296 chars because the main-text picker took the first of several `.markdown-body` blocks (one release's notes); a candidate that matches more than one element is now skipped, so the shared `main` with every visible release (title, date, notes) is read, and failed lazy `include-fragment` widgets ("Sorry, something went wrong") are dropped. A read selector that is one `#id` with dots/colons (`#os.path.join`, `#module-os.path`) also matches the literal id (`#a.b, [id="a.b"]`, CSS meaning kept); a `<dt>` is read with its `<dd>` description, an empty anchor as its section; a miss says the literal id was tried. No site-specific rules.
+  DONE: `python test_browser_reading.py` (also `RUN_BROWSER_FIXTURE=1` on real Chromium: releases list + Python-docs fixture), `python test_web_surfer.py`, `python test_browser_playwright.py`, `python test_browser_tasks.py` green.
 
 
 ## v5.1 — Viral Discovery Loop
