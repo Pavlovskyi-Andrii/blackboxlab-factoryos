@@ -399,6 +399,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: 2026-11-16 the EC2 worker stayed on 2026-11-15 code (36 commits behind main, T-671 included) because merging main into `autopilot/aws-worker` conflicted on two T-590 status notes in ROADMAP.md; `sync_branch` aborted every pass. Now a merge whose only conflicted file is ROADMAP.md keeps both sides' lines (worker notes, then main's), takes a task header that both sides changed from main (no duplicate task with two checkbox states), and commits the merge; any other conflicted file is aborted and reported as before. No rebase, reset or force.
   DONE: `python -m autopilot.test_autopilot` (unit cases incl. diff3 and malformed markers; a real git ROADMAP-only conflict is merged with both notes, one T-590 header from main and main's other files; a ROADMAP + code conflict still returns `conflict` with a clean tree) green.
 
+- [x] T-674 Surfer: GitHub releases pages and ids with dots read in full
+  Owner: claude (session Surfer)
+  Depends: T-671
+  Spec: owner 2026-11-18 (two weak read cases from the T-670 benchmark); DECISIONS.md «2026-11-18 — T-674»
+  Goal: a releases page read without selectors returned ~296 chars because the main-text picker took the first of several `.markdown-body` blocks (one release's notes); a candidate that matches more than one element is now skipped, so the shared `main` with every visible release (title, date, notes) is read, and failed lazy `include-fragment` widgets ("Sorry, something went wrong") are dropped. A read selector that is one `#id` with dots/colons (`#os.path.join`, `#module-os.path`) also matches the literal id (`#a.b, [id="a.b"]`, CSS meaning kept); a `<dt>` is read with its `<dd>` description, an empty anchor as its section; a miss says the literal id was tried. No site-specific rules.
+  DONE: `python test_browser_reading.py` (also `RUN_BROWSER_FIXTURE=1` on real Chromium: releases list + Python-docs fixture), `python test_web_surfer.py`, `python test_browser_playwright.py`, `python test_browser_tasks.py` green.
+
 
 ## v5.1 — Viral Discovery Loop
 
