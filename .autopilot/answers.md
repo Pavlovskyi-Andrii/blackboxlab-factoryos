@@ -33,4 +33,4 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 
 ## T-702 (owner 2026-11-18, relayed from the owner task page)
 - Approval mode: A — the owner approves the whole weekly plan with one action, then approved items publish by themselves. A is the default; B (rules) and C (each post) stay opt-in settings.
-- Platform order still pending: Telegram channel first, then LinkedIn.
+- Platform order (owner 2026-11-18): Telegram channel → LinkedIn → Instagram/TikTok → OLX.
