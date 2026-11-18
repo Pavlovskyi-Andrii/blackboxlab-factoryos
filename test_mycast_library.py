@@ -247,5 +247,21 @@ class AccessTest(Base):
         self.assertEqual([r["date"] for r in lib.episode_rows(rec)], ["2026-11-10"])
 
 
+class FindMyPodcastsTest(unittest.TestCase):
+    """T-703: "My podcasts" is one tap away — a header button and a button in the share step, in UK/RU/EN."""
+
+    def test_header_and_share_step_lead_to_my_podcasts(self):
+        page = (pathlib.Path(__file__).parent / "static" / "mycast-configurator" / "index.html").read_text(encoding="utf-8")
+        header = page[page.index('<header class="top">'):page.index("</header>")]
+        self.assertIn('id="hdrPods"', header)
+        self.assertLess(header.index('id="hdrPods"'), header.index('id="hdrAuth"'))
+        self.assertIn("go(listener ? '#myPods' : '#stepAccount')", page)      # signed out: the sign-in step instead
+        self.assertIn("p.hidden = b.hidden", page)                            # shown exactly when the sign-in button is
+        self.assertIn('id="pubMore"', page)
+        self.assertIn("e.target.closest('#pubMore')", page)
+        for key in ("hdr_pods:", "pub_more:", "pub_more_hint:"):
+            self.assertEqual(page.count(key), 3, key)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

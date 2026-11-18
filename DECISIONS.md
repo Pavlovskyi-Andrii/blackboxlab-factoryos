@@ -2041,3 +2041,13 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Not verified on the live GitHub/Python sites from this session (no outbound access to them); the EC2 worker picks
   the change up when `autopilot/aws-worker` syncs main.
 
+## 2026-11-18 — T-703 MyCast: finding "My podcasts", glass profile mock-ups
+
+- **Decision:** the header "My podcasts" button is shown under the same condition as the sign-in/out button; signed in it scrolls to the library (`#myPods`), signed out to the sign-in step.
+  **Reason:** the library only exists for a signed-in listener; a signed-out visitor still gets a path to it instead of a dead button.
+- **Decision:** "Share my other episodes" in step 08 leads to the library, where each episode has its own "Public link" switch; it does not list or publish episodes itself.
+  **Reason:** every episode stays private until the listener opens it (T-620); a share button must not weaken that.
+- **Decision:** the three glass variants of `/mycast/u/<slug>` are static mock-ups built from `mycast_share_page` styles (A coverflow, B cover hero, C tiles); the live page stays as is until the owner chooses.
+  **Reason:** the owner asked to approve one of three; shipping an unapproved redesign of a public page is not a default to take.
+- **Decision:** demo city audio is not generated from this session.
+  **Reason:** generation and approval are owner-only by design (T-665, T-645-H: the owner listens before a track is public); this session has no owner access to the console.
