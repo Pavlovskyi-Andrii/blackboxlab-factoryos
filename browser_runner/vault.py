@@ -197,6 +197,17 @@ class _EncryptedFile:
             return None
         return self._keyring.decrypt(item["envelope"], _aad(self._namespace, record_id, scope))
 
+    def update_meta(self, record_id: str, scope: Tuple[str, ...], updates: Mapping[str, Any]) -> bool:
+        """Changes plaintext labels only; the ciphertext and its AAD are untouched."""
+        with self._lock:
+            items = self._load()
+            item = items.get(record_id)
+            if item is None or tuple(item.get("scope") or ()) != scope:
+                return False
+            item["meta"] = {**dict(item.get("meta") or {}), **dict(updates)}
+            _atomic_write_json(self._path, items)
+            return True
+
     def delete(self, record_id: str, scope: Tuple[str, ...]) -> bool:
         with self._lock:
             items = self._load()
@@ -440,6 +451,18 @@ class EncryptedSessionStore:
         except VaultError:
             return {"ok": False, "reason": "not_decryptable"}
         return {"ok": True, **_state_summary(state)}
+
+    def set_agent_use(self, *, workspace_id: str, provider: str, account_binding_id: str, allowed: bool) -> bool:
+        """T-560-L: owner switch. Off by default and again after every re-capture (new cookies = new consent)."""
+        scope = _scope(workspace_id, provider, account_binding_id)
+        ref = self._registry.resolve(*scope)
+        return bool(ref and self._file.update_meta(ref, scope, {"agent_use": bool(allowed)}))
+
+    def agent_use(self, *, workspace_id: str, provider: str, account_binding_id: str) -> bool:
+        scope = _scope(workspace_id, provider, account_binding_id)
+        ref = self._registry.resolve(*scope)
+        return any(e["id"] == ref and e["scope"] == scope and e["meta"].get("agent_use") is True
+                   for e in self._file.entries()) if ref else False
 
     def disconnect(self, *, workspace_id: str, provider: str, account_binding_id: str) -> bool:
         scope = _scope(workspace_id, provider, account_binding_id)
