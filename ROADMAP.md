@@ -1,3 +1,10 @@
+- [x] T-703 MyCast: "My podcasts" one tap away (header + share step) and three glass profile-page mock-ups
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-18: «ссылку на мои подкасты надо вывести в верхнем меню… еле нашёл», «в разделе поделиться кнопку поделиться другими моими подкастами», «страницу профиля в том же стеклянном стиле, 3 варианта на утверждение»)
+  Spec: DECISIONS.md «2026-11-18 — T-703». `static/mycast-configurator/index.html`; mock-ups in `docs/prototypes/mycast/profile-glass/` (not served by the app).
+  Goal: a "My podcasts" button in the configurator header next to sign-in/out and a "Share my other episodes" button in step 08, both leading to the library (or to sign-in when signed out), UK/RU/EN; three static glass variants of `/mycast/u/<slug>` with screenshots for the owner to choose. The live profile page is not changed until the owner picks one.
+  DONE: `python test_mycast_library.py` (buttons, handlers, three locales) + inline-JS `node --check` + default verification; `docs/prototypes/mycast/profile-glass/screens/{a,b,c}.png` at 390 px with no horizontal scroll.
+
 - [ ] [HUMAN] T-645-H Generate, listen to and approve the MyCast demo episodes (Athens, Rome, …)
   Depends: T-645, T-665
   Need: owner (who approved Gemini voicing within the free quota, 2026-11-16) opens the owner console `/factory/mycast-demos` on the FactoryOS host, presses "Generate" (one city or all, ≤5 per run, ≤10 per day; a Google 429 stops the run, retry the next day), listens to each track and presses "Approve". Runbook in Worker Center → «Ваши задачи».
