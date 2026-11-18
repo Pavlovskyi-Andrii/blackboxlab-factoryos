@@ -2012,3 +2012,21 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   need a vault-level CAS (same constraint as the DBOS SQLite note in CLAUDE.md).
 - T-702 (social autopilot core, another session) plugs in through `olx_publisher.publish_approved(...)`; no T-702 file
   was touched.
+## 2026-11-18 — T-674 Surfer: list pages and ids with dots
+
+- **Repeated main-content candidates are skipped.** `_READ_PAGE_JS` used the first `.markdown-body`/`article` with
+  ≥ 200 chars. On a GitHub releases page that is one release's notes (~296 chars). A candidate that matches more than
+  one element is a list item, so the picker moves on (usually to `main`). Generic, no GitHub rule; single-article
+  docs pages and READMEs are unchanged (same fixture tests). `include-fragment` (lazy widgets; the ones still on the
+  page are loading or failed: "Sorry, something went wrong") is hidden like navigation.
+- **`#a.b` is read both ways, not rewritten.** CSS `#os.path.join` means id `os` + classes. A read selector that is
+  exactly one `#id` with dots/colons becomes the selector list `#a.b, [id="a.b"]`: pages where the CSS meaning was
+  intended still match, no extra 8 s wait, and the id characters are limited to `[A-Za-z0-9_.:-]` so no escaping is
+  needed. Compound selectors (`#a.b p`) are left as written and keep the `[id="a.b"]` hint. Only read tasks; draft
+  plans run selectors exactly as given.
+- **`<dt>` + `<dd>`, empty anchors.** Sphinx puts the id on a `<dt>` with just the signature (the benchmark's 66
+  chars); a matched `<dt>` is read with its following `<dd>`. An empty anchor (`<span id>`) reads its enclosing
+  section/article. Fixed script, no task input.
+- Not verified on the live GitHub/Python sites from this session (no outbound access to them); the EC2 worker picks
+  the change up when `autopilot/aws-worker` syncs main.
+

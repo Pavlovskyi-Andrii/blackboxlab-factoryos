@@ -43,6 +43,9 @@ USER_AGENT = "FactoryOS-Surfer/1.0 (read-only research tool)"
 AGENT_RE = re.compile(r"^[A-Za-z0-9 ._-]{1,40}$")
 LANG_RE = re.compile(r"^[a-z]{2,3}$")
 _TAG_RE = re.compile(r"<[^>]+>")
+# Same shape as browser_runner.playwright_executor._DOTTED_ID (T-674): one #id with dots/colons, which the worker also
+# reads literally as [id="..."]. Kept here so the server does not import the browser executor.
+_DOTTED_ID = re.compile(r"#([A-Za-z_][\w\-]*(?:[.:][\w\-]+)+)", re.ASCII)
 
 READ_CHUNK_DEFAULT = 8000
 READ_CHUNK_MAX = 20000
@@ -87,7 +90,8 @@ TOOLS = [
                        "{\"url\": \"https://docs.python.org/3/library/pathlib.html\"}; "
                        "{\"url\": \"https://pypi.org/project/requests/\", \"selectors\": [\"h1\", \".package-description__summary\"]}; "
                        "{\"url\": \"https://react.dev/learn\", \"wait_for\": \"article h1\"} for pages that render "
-                       "with JavaScript. An id with dots is written [id=\"pathlib.Path.glob\"], not #pathlib.Path.glob.",
+                       "with JavaScript. Ids with dots work as written (#os.path.join reads the signature and its description); "
+                       "[id=\"os.path.join\"] works too.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -195,7 +199,13 @@ def _hints(task: dict, result: dict, document_chars: int) -> list:
     if missing:
         hint = (f"Selector(s) {', '.join(missing)} matched nothing. Call web_read without selectors to get the "
                 "page's main text and links, then pick selectors that exist.")
-        if any(sel.startswith("#") and any(c in sel[1:] for c in ".:") for sel in missing):
+        dotted = [sel for sel in missing if _DOTTED_ID.fullmatch(sel.strip())]
+        if dotted:
+            # T-674: the worker already tried such ids literally ([id="a.b"]) as well as CSS (#a + class .b).
+            hint += (f" No element has the id {', '.join(sel.strip()[1:] for sel in dotted)} (tried both as a "
+                     "literal id and as CSS #id.class); the page may use another id - read it without selectors "
+                     "and look at its links (#anchors) for the right one.")
+        elif any(sel.startswith("#") and any(c in sel[1:] for c in ".:") for sel in missing):
             hint += " An id that contains dots or colons is written [id=\"a.b\"], not #a.b."
         hints.append(hint)
     if status == "done" and not task.get("selectors") and document_chars < 200:
