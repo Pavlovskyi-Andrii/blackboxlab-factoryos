@@ -2051,3 +2051,16 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   **Reason:** the owner asked to approve one of three; shipping an unapproved redesign of a public page is not a default to take.
 - **Decision:** demo city audio is not generated from this session.
   **Reason:** generation and approval are owner-only by design (T-665, T-645-H: the owner listens before a track is public); this session has no owner access to the console.
+
+## 2026-11-18 — T-704 Business League L1 queued (owner request)
+
+- **Decision:** the Business League protocol extends MVP Builder (registry, Battle → Build → Promote → Learn, A/B Tester, Evidence Protocol levels, Battle Runs) instead of adding a League subsystem; L1 is data, validators, gates and a board only.
+  **Reason:** MVP Builder already owns stages, evidence and owner gates; a second registry would split the truth (the same rule as T-608).
+- **Decision:** T-704 sits at the top of ROADMAP.md with Owner: claude and P1.
+  **Reason:** a direct owner instruction comes first (`docs/handoff/CLAUDE_CHATGPT_COORDINATION.md` §5); the owner can move it down.
+- **Decision:** the spec lives in `docs/specs/BUSINESS_LEAGUE_LAUNCHPAD.md`; Build Progress task `44c85c4a-0853-42c2-a8b1-4902c4da39c4` (Design Partner MCP channel) is only a mirror.
+  **Reason:** the EC2 autopilot executes ROADMAP.md tasks, while starting a Build Progress task only runs the GitHub preflight (`factory-builder.yml`, `/api/factory/builder`).
+- **Decision:** from ChatGPT's analysis of the same curriculum (relayed by the owner) the spec adopts the G5 verdict continue/iterate/pivot/kill, segment tests as existing A/B Tester branches and MyCast as the first real project on the board. It does not adopt a per-fact credibility score set by the producing agent.
+  **Reason:** the first three fit existing modules; a self-assessed score is still only `claimed`, so the evidence level, `source_kind` and `independent` express source quality instead.
+- **Decision:** L2–L4 are described in the spec but not queued.
+  **Reason:** each later slice needs owner decisions first (budget and spend approval, allowed channels and accounts, payment provider, season length).
