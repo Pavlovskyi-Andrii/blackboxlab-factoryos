@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FactoryOS · OLX</title>
+<style>
+:root{--bg:#0b1020;--card:#131a30;--line:#26304f;--text:#e7ecff;--mute:#9aa6c9;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--acc:#60a5fa}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:16px}h1{font-size:22px;margin:8px 0 4px}p.sub{color:var(--mute);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}button{background:#1f2a4a;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+button.primary{background:var(--acc);color:#071022;border-color:var(--acc);font-weight:600}button:disabled{opacity:.45;cursor:not-allowed}
+textarea,input[type=text],input[type=number]{width:100%;background:#0d1328;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit}
+textarea{min-height:120px}label{display:block;margin:10px 0 4px;color:var(--mute);font-size:13px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+@media (max-width:600px){.grid{grid-template-columns:1fr}}
+.chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;border:1px solid var(--line)}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.draft{border-top:1px solid var(--line);padding:12px 0}.draft:first-child{border-top:0}.text{white-space:pre-wrap;word-break:break-word;margin:6px 0}
+small{color:var(--mute)}a{color:var(--acc)}select{background:#1f2a4a;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px;max-width:100%}
+.pick{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:10px;margin-top:6px}.pick div{padding:4px 10px;cursor:pointer}.pick div:hover{background:#1f2a4a}
+</style>
+</head>
+<body>
+<main>
+<div class="row" style="justify-content:space-between"><h1 data-t="title"></h1><select id="lang"><option value="ru">RU</option><option value="uk">UK</option><option value="en">EN</option></select></div>
+<p class="sub" data-t="sub"></p>
+<section class="card" id="status"></section>
+<section class="card"><b id="formTitle"></b>
+<label data-t="fTitle"></label><input type="text" id="f_title" maxlength="70"><small id="c_title"></small>
+<label data-t="fDesc"></label><textarea id="f_desc" maxlength="9000"></textarea><small id="c_desc"></small>
+<label data-t="fCat"></label><div class="row"><input type="number" id="f_cat" style="max-width:180px"><button id="suggest" data-t="suggest"></button><button id="attrs" data-t="loadAttrs"></button></div>
+<div class="pick" id="catPick" hidden></div><div id="attrBox"></div>
+<div class="grid">
+<div><label data-t="fCity"></label><div class="row"><input type="number" id="f_city" style="max-width:180px"><input type="text" id="cityQ" style="max-width:200px"><button id="findCity" data-t="findCity"></button></div><div class="pick" id="cityPick" hidden></div></div>
+<div><label data-t="fDistrict"></label><input type="number" id="f_district"></div>
+<div><label data-t="fName"></label><input type="text" id="f_name" maxlength="100"></div>
+<div><label data-t="fPhone"></label><input type="text" id="f_phone" maxlength="20"></div>
+<div><label data-t="fPrice"></label><div class="row"><input type="number" id="f_price" style="max-width:180px"> UAH <label style="margin:0"><input type="checkbox" id="f_neg"> <span data-t="negotiable"></span></label></div></div>
+<div><label data-t="fType"></label><select id="f_type"><option value="private"></option><option value="business"></option></select></div>
+</div>
+<label data-t="fImages"></label><textarea id="f_images" style="min-height:70px"></textarea>
+<div class="row" style="justify-content:flex-end;margin-top:10px"><button id="cancel" data-t="cancel" hidden></button><button class="primary" id="save" data-t="save"></button></div></section>
+<section class="card"><b data-t="drafts"></b><div id="list"></div></section>
+</main>
+<script>
+const T={
+ru:{title:"OLX · объявления",sub:"Черновик → ваше одобрение → публикация через официальный OLX Partner API. Без одобрения ничего не публикуется; платные пакеты FactoryOS не покупает.",newDraft:"Новое объявление",editDraft:"Изменить объявление",save:"Сохранить черновик",cancel:"Отмена",drafts:"Черновики и объявления",connect:"Подключить OLX",disconnect:"Отключить",connected:"Подключён аккаунт",notConnected:"Аккаунт не подключён",approve:"Одобрить это объявление",publish:"Опубликовать",del:"Удалить",edit:"Изменить",check:"Проверить на OLX",refresh:"Обновить статус",deactivate:"Снять с публикации",confirmYes:"Объявление есть (вставить ссылку)",confirmNo:"Объявления нет",empty:"Черновиков пока нет.",blockers:"Что мешает публикации",ready:"Готово к публикации",askUrl:"Вставьте ссылку на объявление OLX",askPublish:"Опубликовать объявление на OLX? Оно станет видно всем после модерации OLX.",askDeactivate:"Снять объявление с OLX?",askSold:"Товар продан? (OK — да, Отмена — нет)",notFound:"По этому черновику на OLX ничего не найдено. Проверьте вручную и подтвердите.",
+ fTitle:"Заголовок (16–70 символов)",fDesc:"Описание (80–9000 символов, без телефонов, e-mail и ссылок)",fCat:"Категория OLX (id конечной категории)",suggest:"Подобрать по заголовку",loadAttrs:"Параметры категории",fCity:"Город (id)",findCity:"Найти",fDistrict:"Район (id, необязательно)",fName:"Контактное имя",fPhone:"Телефон (необязательно)",fPrice:"Цена",negotiable:"торг",fType:"Продавец",private:"частное лицо",business:"бизнес",fImages:"Фото: https-ссылки, по одной в строке",required:"обязательно",
+ st:{draft:"черновик",approved:"одобрено",publishing:"отправляется",published:"отправлено на OLX",failed:"не отправлено",uncertain:"исход неизвестен — проверьте OLX",deactivated:"снято"},
+ ost:{new:"на модерации",active:"активно",limited:"нужен платный пакет — решите в OLX",removed_by_user:"снято вами",outdated:"истёк срок",moderated:"отклонено модерацией",blocked:"заблокировано",unknown:"статус неизвестен"},
+ b:{client_not_configured:"нет ключей приложения OLX (задача T-701-H)",client_secret_missing:"нет секрета приложения (T-701-H)",adapter_missing:"нет адаптера",vault_unavailable:"хранилище токенов выключено (нужен FACTORY_VAULT_KEY, T-560-G)",vault_unreadable:"хранилище токенов не читается",olx_not_connected:"аккаунт OLX не подключён",olx_publishing_off:"публикация выключена (FACTORY_OLX_ENABLED)"}},
+uk:{title:"OLX · оголошення",sub:"Чернетка → ваше схвалення → публікація через офіційний OLX Partner API. Без схвалення нічого не публікується; платні пакети FactoryOS не купує.",newDraft:"Нове оголошення",editDraft:"Змінити оголошення",save:"Зберегти чернетку",cancel:"Скасувати",drafts:"Чернетки й оголошення",connect:"Підключити OLX",disconnect:"Відключити",connected:"Підключено акаунт",notConnected:"Акаунт не підключено",approve:"Схвалити це оголошення",publish:"Опублікувати",del:"Видалити",edit:"Змінити",check:"Перевірити на OLX",refresh:"Оновити статус",deactivate:"Зняти з публікації",confirmYes:"Оголошення є (вставити посилання)",confirmNo:"Оголошення немає",empty:"Чернеток поки немає.",blockers:"Що заважає публікації",ready:"Готово до публікації",askUrl:"Вставте посилання на оголошення OLX",askPublish:"Опублікувати оголошення на OLX? Воно стане видимим усім після модерації OLX.",askDeactivate:"Зняти оголошення з OLX?",askSold:"Товар продано? (OK — так, Скасувати — ні)",notFound:"За цією чернеткою на OLX нічого не знайдено. Перевірте вручну й підтвердьте.",
+ fTitle:"Заголовок (16–70 символів)",fDesc:"Опис (80–9000 символів, без телефонів, e-mail і посилань)",fCat:"Категорія OLX (id кінцевої категорії)",suggest:"Підібрати за заголовком",loadAttrs:"Параметри категорії",fCity:"Місто (id)",findCity:"Знайти",fDistrict:"Район (id, необов'язково)",fName:"Контактне ім'я",fPhone:"Телефон (необов'язково)",fPrice:"Ціна",negotiable:"торг",fType:"Продавець",private:"приватна особа",business:"бізнес",fImages:"Фото: https-посилання, по одному в рядку",required:"обов'язково",
+ st:{draft:"чернетка",approved:"схвалено",publishing:"надсилається",published:"надіслано на OLX",failed:"не надіслано",uncertain:"результат невідомий — перевірте OLX",deactivated:"знято"},
+ ost:{new:"на модерації",active:"активне",limited:"потрібен платний пакет — вирішіть в OLX",removed_by_user:"знято вами",outdated:"минув термін",moderated:"відхилено модерацією",blocked:"заблоковано",unknown:"статус невідомий"},
+ b:{client_not_configured:"немає ключів застосунку OLX (задача T-701-H)",client_secret_missing:"немає секрету застосунку (T-701-H)",adapter_missing:"немає адаптера",vault_unavailable:"сховище токенів вимкнене (потрібен FACTORY_VAULT_KEY, T-560-G)",vault_unreadable:"сховище токенів не читається",olx_not_connected:"акаунт OLX не підключено",olx_publishing_off:"публікацію вимкнено (FACTORY_OLX_ENABLED)"}},
+en:{title:"OLX · adverts",sub:"Draft → your approval → publish through the official OLX Partner API. Nothing is published without approval; FactoryOS never buys paid packets.",newDraft:"New advert",editDraft:"Edit advert",save:"Save draft",cancel:"Cancel",drafts:"Drafts and adverts",connect:"Connect OLX",disconnect:"Disconnect",connected:"Connected account",notConnected:"No account connected",approve:"Approve this advert",publish:"Publish",del:"Delete",edit:"Edit",check:"Check on OLX",refresh:"Refresh status",deactivate:"Deactivate",confirmYes:"Advert exists (paste link)",confirmNo:"No advert",empty:"No drafts yet.",blockers:"What blocks publishing",ready:"Ready to publish",askUrl:"Paste the OLX advert URL",askPublish:"Publish this advert on OLX? Everyone will see it after OLX moderation.",askDeactivate:"Deactivate the advert on OLX?",askSold:"Was the item sold? (OK = yes, Cancel = no)",notFound:"Nothing found on OLX for this draft. Check by hand and confirm.",
+ fTitle:"Title (16–70 characters)",fDesc:"Description (80–9000 characters, no phones, e-mails or links)",fCat:"OLX category (id of a leaf category)",suggest:"Suggest from title",loadAttrs:"Category attributes",fCity:"City (id)",findCity:"Find",fDistrict:"District (id, optional)",fName:"Contact name",fPhone:"Phone (optional)",fPrice:"Price",negotiable:"negotiable",fType:"Seller",private:"private person",business:"business",fImages:"Photos: https links, one per line",required:"required",
+ st:{draft:"draft",approved:"approved",publishing:"sending",published:"sent to OLX",failed:"not sent",uncertain:"unknown outcome — check OLX",deactivated:"deactivated"},
+ ost:{new:"in moderation",active:"active",limited:"needs a paid packet — decide in OLX",removed_by_user:"removed by you",outdated:"expired",moderated:"rejected by moderation",blocked:"blocked",unknown:"status unknown"},
+ b:{client_not_configured:"no OLX app keys (task T-701-H)",client_secret_missing:"no app secret (T-701-H)",adapter_missing:"adapter missing",vault_unavailable:"token vault off (needs FACTORY_VAULT_KEY, T-560-G)",vault_unreadable:"token vault unreadable",olx_not_connected:"no OLX account connected",olx_publishing_off:"publishing off (FACTORY_OLX_ENABLED)"}}};
+let L=(()=>{try{return localStorage.getItem('olx_lang')}catch(e){return null}})()||((navigator.language||'ru').slice(0,2));if(!T[L])L='ru';
+const t=k=>T[L][k]||T.en[k]||k;const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path,opt){const o=opt||{};const h=o.body?{'content-type':'application/json'}:{};const r=await fetch(path,{credentials:'same-origin',headers:h,...o});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));return d}
+let S={drafts:[],blockers:[]},editing=null,attrDefs=[];
+function counts(){$('#c_title').textContent=$('#f_title').value.length+' / 16–70';$('#c_desc').textContent=$('#f_desc').value.length+' / 80–9000'}
+function paint(){document.querySelectorAll('[data-t]').forEach(e=>e.textContent=t(e.dataset.t));$('#lang').value=L;
+ $('#formTitle').textContent=t(editing?'editDraft':'newDraft');$('#cancel').hidden=!editing;
+ $('#f_type').options[0].textContent=t('private');$('#f_type').options[1].textContent=t('business');counts();
+ const b=S.blockers||[];$('#status').innerHTML=(S.connected?`<div class="row"><span class="chip ok">●</span> ${esc(t('connected'))}: <b>${esc(S.account)}</b> <button id="disc">${esc(t('disconnect'))}</button></div>`:`<div class="row"><span class="chip warn">●</span> ${esc(t('notConnected'))} <button class="primary" id="conn">${esc(t('connect'))}</button></div>`)+
+ (b.length?`<p><small>${esc(t('blockers'))}:</small></p><ul>${b.map(x=>`<li class="warn">${esc((T[L].b||{})[x]||x)}</li>`).join('')}</ul>`:`<p class="ok">${esc(t('ready'))}</p>`);
+ const c=$('#conn');if(c)c.onclick=async()=>{try{const o=await api('/api/oauth/olx/authorize',{method:'POST'});if(o.authorize_url)location.assign(o.authorize_url);else alert(o.reason||'not ready')}catch(e){alert(e.message)}};
+ const dc=$('#disc');if(dc)dc.onclick=async()=>{await api('/api/oauth/olx/disconnect',{method:'POST'}).catch(e=>alert(e.message));load()};
+ const box=$('#list');if(!S.drafts.length){box.innerHTML=`<p><small>${esc(t('empty'))}</small></p>`;return}
+ box.innerHTML=S.drafts.map(d=>{const a=d.advert||{},st=(T[L].st||{})[d.status]||d.status,cls=d.status==='published'?'ok':(d.status==='failed'||d.status==='uncertain')?'bad':'warn';
+  const r=d.result||{};const B=(k,cl)=>`<button ${cl?'class="primary"':''} data-a="${k}" data-id="${d.id}" ${k==='publish'&&!S.ready?'disabled':''}>${esc(t(k))}</button>`;let btn='';
+  if(d.status==='draft'||d.status==='failed')btn=B('approve')+B('edit')+B('del');
+  if(d.status==='approved')btn=B('publish',1)+B('edit')+B('del');
+  if(d.status==='uncertain'||(d.status==='publishing'&&Date.now()/1000-(d.claimed_at||0)>300))btn=B('check')+B('confirmYes')+B('confirmNo');
+  if(d.status==='published'&&r.advert_id)btn=B('refresh')+B('deactivate');
+  const os=r.olx_status?` <span class="chip ${r.olx_status==='active'?'ok':'warn'}">OLX: ${esc((T[L].ost||{})[r.olx_status]||r.olx_status)}</span>`:'';
+  return `<div class="draft"><span class="chip ${cls}">${esc(st)}</span>${os} <small>${new Date(d.created*1000).toLocaleString()}</small><div><b>${esc(a.title)}</b>${a.price?` · ${esc(a.price.value)} ${esc(a.price.currency)}`:''}</div><div class="text">${esc(a.description)}</div><small>cat ${esc(a.category_id)} · city ${esc((a.location||{}).city_id)} · ${esc((a.images||[]).length)} img</small><br>${r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`:''}${r.code?`<small class="bad"> ${esc(r.code)}${r.fields?' ('+esc(r.fields.join(', '))+')':''}</small>`:''}<div class="row">${btn}</div></div>`}).join('');
+ box.querySelectorAll('button[data-a]').forEach(x=>x.onclick=()=>act(x.dataset.a,x.dataset.id));}
+function readForm(){const n=v=>v===''?null:Number(v);const attrs=[];document.querySelectorAll('[data-attr]').forEach(e=>{if(e.value!=='')attrs.push({code:e.dataset.attr,value:e.value})});
+ const adv={title:$('#f_title').value,description:$('#f_desc').value,category_id:n($('#f_cat').value),advertiser_type:$('#f_type').value,
+  contact:{name:$('#f_name').value,phone:$('#f_phone').value},location:{city_id:n($('#f_city').value),district_id:n($('#f_district').value)},
+  images:$('#f_images').value.split('\n').map(s=>s.trim()).filter(Boolean),attributes:attrs};
+ if($('#f_price').value!=='')adv.price={value:Number($('#f_price').value),currency:'UAH',negotiable:$('#f_neg').checked};return adv}
+function fillForm(a){a=a||{};$('#f_title').value=a.title||'';$('#f_desc').value=a.description||'';$('#f_cat').value=a.category_id||'';$('#f_type').value=a.advertiser_type||'private';
+ $('#f_name').value=(a.contact||{}).name||'';$('#f_phone').value=(a.contact||{}).phone||'';$('#f_city').value=(a.location||{}).city_id||'';$('#f_district').value=(a.location||{}).district_id||'';
+ $('#f_images').value=(a.images||[]).map(i=>i.url).join('\n');$('#f_price').value=a.price?a.price.value:'';$('#f_neg').checked=!!(a.price&&a.price.negotiable);
+ attrDefs=[];$('#attrBox').innerHTML='';(a.attributes||[]).forEach(x=>attrDefs.push({code:x.code,label:x.code,values:[]}));paintAttrs(a.attributes||[]);counts()}
+function paintAttrs(current){const cur={};(current||[]).forEach(x=>cur[x.code]=x.value);
+ $('#attrBox').innerHTML=attrDefs.filter(d=>d.code!=='price'&&d.code!=='salary').map(d=>{const req=d.validation&&d.validation.required;const lab=`<label>${esc(d.label||d.code)}${d.unit?' ('+esc(d.unit)+')':''}${req?' · '+esc(t('required')):''}</label>`;
+  const v=cur[d.code]||'';if(d.values&&d.values.length)return lab+`<select data-attr="${esc(d.code)}"><option value=""></option>${d.values.map(o=>`<option value="${esc(o.code)}" ${String(o.code)===String(v)?'selected':''}>${esc(o.label||o.code)}</option>`).join('')}</select>`;
+  return lab+`<input type="text" data-attr="${esc(d.code)}" value="${esc(v)}">`}).join('')}
+async function act(a,id){try{const base='/api/factory/olx/drafts/'+id+'/';
+ if(a==='edit'){const d=S.drafts.find(x=>x.id===id);editing=id;fillForm(d&&d.advert);paint();window.scrollTo(0,0);return}
+ if(a==='publish'){if(!confirm(t('askPublish')))return;await api(base+'publish',{method:'POST',body:'{}'})}
+ else if(a==='check'){const o=await api(base+'reconcile',{method:'POST',body:'{}'});if(!o.found)alert(t('notFound'))}
+ else if(a==='refresh'){await api(base+'refresh',{method:'POST',body:'{}'})}
+ else if(a==='deactivate'){if(!confirm(t('askDeactivate')))return;await api(base+'deactivate',{method:'POST',body:JSON.stringify({confirm:true,sold:confirm(t('askSold'))})})}
+ else if(a==='confirmYes'){const u=prompt(t('askUrl'));if(!u)return;await api(base+'confirm',{method:'POST',body:JSON.stringify({outcome:u})})}
+ else if(a==='confirmNo'){await api(base+'confirm',{method:'POST',body:JSON.stringify({outcome:'not_published'})})}
+ else if(a==='del'){await api(base+'delete',{method:'POST',body:'{}'})}
+ else await api(base+a,{method:'POST',body:'{}'});}catch(e){alert(e.message)}load()}
+async function load(){try{S=await api('/api/factory/olx')}catch(e){$('#status').innerHTML=`<p class="bad">${esc(e.message)}</p>`;return}paint()}
+function pick(el,items,label,onPick){el.hidden=!items.length;el.innerHTML=items.map((x,i)=>`<div data-i="${i}">${esc(label(x))}</div>`).join('');el.querySelectorAll('div').forEach(n=>n.onclick=()=>{onPick(items[n.dataset.i]);el.hidden=true})}
+$('#suggest').onclick=async()=>{try{const o=await api('/api/factory/olx/reference/suggest?q='+encodeURIComponent($('#f_title').value));pick($('#catPick'),o.items,x=>x.id+' · '+(x.path&&x.path.length?x.path.map(p=>p.name||p).join(' / ')+' / ':'')+x.name,x=>{$('#f_cat').value=x.id})}catch(e){alert(e.message)}};
+$('#attrs').onclick=async()=>{try{const id=$('#f_cat').value;if(!id)return;const o=await api('/api/factory/olx/reference/attributes?id='+encodeURIComponent(id));const cur=readForm().attributes;attrDefs=o.items;paintAttrs(cur)}catch(e){alert(e.message)}};
+$('#findCity').onclick=async()=>{const q=$('#cityQ').value.trim().toLowerCase();if(q.length<2)return;let found=[];try{for(let off=0;off<6000&&found.length<20;off+=200){const o=await api('/api/factory/olx/reference/cities?offset='+off);found=found.concat(o.items.filter(c=>String(c.name||'').toLowerCase().startsWith(q)));if(o.items.length<200)break}
+ pick($('#cityPick'),found,x=>x.id+' · '+x.name+(x.municipality?' ('+x.municipality+')':''),x=>{$('#f_city').value=x.id})}catch(e){alert(e.message)}};
+$('#save').onclick=async()=>{try{const body=JSON.stringify({advert:readForm()});if(editing)await api('/api/factory/olx/drafts/'+editing+'/edit',{method:'POST',body});else await api('/api/factory/olx/drafts',{method:'POST',body});editing=null;fillForm({})}catch(e){alert(e.message)}load()};
+$('#cancel').onclick=()=>{editing=null;fillForm({});paint()};
+$('#f_title').oninput=counts;$('#f_desc').oninput=counts;
+$('#lang').onchange=e=>{L=e.target.value;try{localStorage.setItem('olx_lang',L)}catch(_){}paint()};
+paint();load();
+</script>
+</body>
+</html>
