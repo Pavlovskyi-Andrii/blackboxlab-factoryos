@@ -336,6 +336,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: production web_search fell back to Wikipedia with only "HTTPError"; report HTTP code + Google error enum and try another Flash model on 400/404.
   DONE: `python test_web_surfer.py` proves code/status in the note without Google's message text, fallback on 400, no retry on 429.
 
+- [x] T-560-L Surfer opens pages signed in with a saved vault login (owner switch per login)
+  Owner: claude
+  Depends: T-560-F, T-560-H
+  Spec: owner 2026-11-18 «Surfer — наш браузер-агент… Go»; DECISIONS.md «2026-11-18 — T-560-L»; docs/guides/surfer-mcp.md
+  Goal: #350 let the owner's API and Claude's browser-agent token read with a vault session, but the dashboard form had no way to pick one and MCP `web_read` (ChatGPT, Claude, Gemini) could not use any. Now the browser-agent card has «Войти как…», and each vault session has an «Agents: on/off» switch (off by default, reset by a new session file); MCP `web_read` accepts `session: "site/account"` only for switched-on logins and pages on their cookie domains. Read-only, GET-only and the T-700/T-701 API-only rule for OLX/LinkedIn are unchanged.
+  DONE: `python test_vault_ui.py` (off by default, switch, domain binding, refusal lists allowed logins without cookies, worker claim keeps the binding, worker source refused, re-upload resets, viewer refused, UI picker + switch) and `python test_web_surfer.py` green.
+
 - [ ] [HUMAN] T-560-I Opt in to Google search via Gemini (optional)
   Depends: T-560-H
   Need: owner decides whether Google Search grounding on the existing Gemini key may be used (free daily quota, billed beyond it on a paid project); if yes, set `FACTORY_WEB_SEARCH_PROVIDER=gemini` in Render. Without it `web_search` answers from Wikipedia only.

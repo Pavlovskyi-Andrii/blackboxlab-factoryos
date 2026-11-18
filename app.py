@@ -1287,6 +1287,33 @@ def _browser_session_state(provider: str, account: str):
     return sessions.load(ref, workspace_id=workspace, provider=provider, account_binding_id=account).reveal()
 
 
+def _surfer_session(raw, url: str) -> dict:
+    """T-560-L: MCP web_read may use a saved vault login only if the owner switched "allow agents" on for it and the
+    page is on one of its cookie domains. The refusal lists the allowed logins (site/account only, no secrets)."""
+    from urllib.parse import urlsplit
+    from browser_runner.sessions import VaultError
+    if isinstance(raw,dict):provider,account=str(raw.get("provider") or ""),str(raw.get("account") or "")
+    else:provider,_,account=str(raw or "").strip().partition("/")
+    provider,account=provider.strip().lower(),(account.strip() or "default")
+    parts=_vault_parts(required=False)
+    workspace=tenancy.binding_workspace()
+    allowed=[e for e in (parts[1].entries(workspace) if parts else []) if e.get("agent_use") is True]
+    listing=", ".join(f"{e['provider']}/{e['account']} ({', '.join((e.get('domains') or [])[:2])})" for e in allowed[:5]) or "none"
+    if not parts or not _VAULT_SLUG.match(provider) or not _VAULT_ACCOUNT.match(account):
+        raise HTTPException(403,f"saved login not allowed for agents; allowed: {listing}")
+    try:
+        ok=parts[1].agent_use(workspace_id=workspace,provider=provider,account_binding_id=account)
+    except VaultError:
+        ok=False
+    if not ok:
+        raise HTTPException(403,f"saved login not allowed for agents; allowed: {listing}")
+    domains=_browser_session_domains(provider,account)
+    host=(urlsplit(url).hostname or "").lower()
+    if not domains or not any(host==d or host.endswith("."+d) for d in domains):
+        raise HTTPException(400,f"the page is not on a domain of {provider}/{account}: {', '.join(domains[:3]) or 'none'}")
+    return {"provider":provider,"account":account}
+
+
 install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized,
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
@@ -1950,7 +1977,7 @@ async def factory_mcp(request: Request):
                     return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,**_factory_mcp_text(data["error"])}})
                 result=_factory_mcp_text(data)
             elif name in web_surfer.TOOL_NAMES:
-                result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH))
+                result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH,sessions=_surfer_session))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -11305,6 +11332,19 @@ async def factory_vault_disconnect_session(request: Request):
     deleted=sessions.disconnect(workspace_id=workspace,provider=provider,account_binding_id=account)
     if deleted:event(None,f"Vault: browser session removed for {provider}/{account}")
     return {"ok":deleted,"provider":provider,"account":account}
+
+@app.post("/api/factory/vault/sessions/agent-use")
+async def factory_vault_session_agent_use(request: Request):
+    # T-560-L: owner lets (or stops) MCP agents (ChatGPT, Claude, Gemini via the Surfer) open pages with this login.
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    _,sessions=_vault_parts()
+    allowed=body.get("allowed") is True
+    if not sessions.set_agent_use(workspace_id=workspace,provider=provider,account_binding_id=account,allowed=allowed):
+        raise HTTPException(404,"no_session")
+    event(None,f"Vault: agents {'may' if allowed else 'may not'} use the browser session {provider}/{account}")
+    return {"ok":True,"provider":provider,"account":account,"agent_use":allowed}
 
 @app.post("/api/factory/vault/check")
 async def factory_vault_check(request: Request):

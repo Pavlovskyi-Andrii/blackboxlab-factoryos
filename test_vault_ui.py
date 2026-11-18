@@ -141,6 +141,76 @@ def routes():
     print("Vault routes passed: save/replace/list/check/delete, session upload/disconnect, validation, owner-only, no key = refused, no secret in any response or on disk")
 
 
+def surfer_sessions():
+    """T-560-L: MCP web_read may use a saved login only after the owner allows it, only on its domains."""
+    import web_surfer
+    c = Client()
+    st = {"cookies": [{"name": "s", "value": COOKIE, "domain": ".github.com", "path": "/", "expires": 1893456000}],
+          "origins": []}
+    require(c.post("/api/factory/vault/sessions", json={"provider": "github", "account": "main", "storage_state": st}).status_code == 200,
+            "save github session")
+    call = lambda args: asyncio.run(web_surfer.call_tool("web_read", dict(args, wait_seconds=0), store=app.BROWSER_TASKS,
+                                                          search=None, sessions=app._surfer_session))
+
+    def refused(args, code):
+        try:
+            call(args)
+        except app.HTTPException as e:
+            require(e.status_code == code, f"{args} -> {e.status_code} {e.detail}")
+            require(COOKIE not in str(e.detail), "cookie in refusal")
+            return str(e.detail)
+        raise SystemExit(f"FAIL: {args} was not refused")
+
+    detail = refused({"url": "https://github.com/settings", "session": "github/main"}, 403)
+    require("allowed: none" in detail, f"refusal should list allowed logins: {detail}")
+    require(no_secret(c.post("/api/factory/vault/sessions/agent-use",
+                             json={"provider": "github", "account": "main", "allowed": True}), "agent-use").json()["agent_use"],
+            "agent-use on")
+    st_view = no_secret(c.get("/api/factory/vault/status"), "status").json()
+    require(any(x["provider"] == "github" and x.get("agent_use") is True for x in st_view["sessions"]), "status lacks agent_use")
+    detail = refused({"url": "https://evil.example/", "session": "github/main"}, 400)       # cookies only on own domains
+    require("github.com" in detail, detail)
+    refused({"url": "https://github.com/", "session": "olx/shop"}, 403)                      # unknown login
+    refused({"url": "https://github.com/", "session": "../etc"}, 403)
+
+    view = call({"url": "https://github.com/settings", "session": "github/main", "agent": "chatgpt"})
+    task = app.BROWSER_TASKS.get(view["task_id"])
+    require(task["session"] == {"provider": "github", "account": "main"} and task["source"] == "mcp", f"task {task}")
+    require("session" not in json.dumps(view) and COOKIE not in json.dumps(view) and COOKIE not in json.dumps(task),
+            "agent view or task record leaks the session")
+    worker_view = None
+    for _ in range(50):        # claim until our task (older queued tasks may come first)
+        worker_view = app.BROWSER_TASKS.claim()
+        if not worker_view or worker_view["id"] == task["id"]:
+            break
+    require(worker_view and worker_view.get("session") == task["session"], "worker claim lost the binding")
+    require(COOKIE in json.dumps(app._browser_session_state("github", "main")), "worker cannot get the state")
+
+    # Worker (Gemini coder) source never uses sessions, even if it asks.
+    try:
+        asyncio.run(web_surfer.web_read(app.BROWSER_TASKS, {"url": "https://github.com/", "session": "github/main",
+                                                             "wait_seconds": 0}, source=web_surfer.WORKER_SOURCE,
+                                        sessions=app._surfer_session))
+        raise SystemExit("FAIL: worker source used a session")
+    except app.HTTPException as e:
+        require(e.status_code == 400, "worker source refusal")
+
+    # A new session file resets the permission; switching off works; viewer cannot switch.
+    c.post("/api/factory/vault/sessions", json={"provider": "github", "account": "main", "storage_state": st})
+    refused({"url": "https://github.com/", "session": "github/main"}, 403)
+    real = app.request_identity
+    app.request_identity = lambda request: {"role": "viewer"}
+    try:
+        require(c.post("/api/factory/vault/sessions/agent-use",
+                       json={"provider": "github", "account": "main", "allowed": True}).status_code in (401, 403), "viewer toggled")
+    finally:
+        app.request_identity = real
+    require(c.post("/api/factory/vault/sessions/agent-use", json={"provider": "nope", "account": "x", "allowed": True}).status_code == 404,
+            "toggle on missing session")
+    print("Surfer sessions passed: off by default, owner switch, domain-bound, unknown/forged refused with allowed list, "
+          "no cookie in agent view/task/refusals, worker claim keeps binding, worker source refused, re-upload resets, viewer refused")
+
+
 def dashboard():
     html = Path("static/index.html").read_text(encoding="utf-8")
     script = html.split("<script>", 1)[1].split("</script>", 1)[0]
@@ -156,9 +226,12 @@ def dashboard():
     require('type="password"' in script and "autocomplete=\"new-password\"" in script, "password field not masked")
     require("$('#vaultLoginPass').value=''" in script, "password not cleared after save")
     require("readOnly?'none':''" in script and "vaultOpenBtn" in script, "vault button not hidden for viewers")
+    require('id="brSession"' in html and "body.session={provider:" in script and "function vaultAgentUse(" in script,
+            "T-560-L: session picker / agent switch missing")
     print(f"Vault drawer passed: button, 6 handlers, {len(keys)} keys x EN/UK/RU, masked password cleared after save, hidden for viewers")
 
 
 if __name__ == "__main__":
     routes()
+    surfer_sessions()
     dashboard()

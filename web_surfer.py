@@ -75,7 +75,8 @@ TOOLS = [
     {
         "name": "web_read",
         "description": "Read a public https page with the FactoryOS browser agent (real Chromium on a server; "
-                       "read-only: no logins, forms or purchases). WITHOUT selectors it returns the page's main text "
+                       "read-only: no forms, posting or purchases; with 'session' it opens signed in with a saved login "
+                       "the owner allowed for agents). WITHOUT selectors it returns the page's main text "
                        "(menus, sidebars and cookie banners removed), its title and its links - start here. The text "
                        "comes in chunks: if next_offset is set, call web_task {task_id, offset: next_offset} for the "
                        "next chunk. WITH selectors (max 5 CSS selectors) it returns every match of each selector in "
@@ -101,6 +102,11 @@ TOOLS = [
                 "max_chars": {"type": "integer", "minimum": 1000, "maximum": READ_CHUNK_MAX,
                               "description": f"Size of the text chunk returned (default {READ_CHUNK_DEFAULT})."},
                 "agent": {"type": "string", "description": "Who is asking (chatgpt, claude, gemini…); a label only."},
+                "session": {"type": "string",
+                            "description": "Optional 'site/account' of a saved login the owner allowed agents to use "
+                                           "(e.g. 'github/main'): the page opens signed in, still read-only. Works "
+                                           "only for pages on that login's domains; an unknown or not-allowed value "
+                                           "returns the list of allowed logins."},
             },
             "required": ["url"],
             "additionalProperties": False,
@@ -256,14 +262,23 @@ def task_view(task: dict, store=None, *, offset: int = 0, max_chars: int = READ_
 
 
 async def web_read(store, args: dict, *, sleep=asyncio.sleep, clock: Callable[[], float] = time.monotonic,
-                   source: str = MCP_SOURCE) -> dict:
+                   source: str = MCP_SOURCE, sessions: Optional[Callable[[object, str], dict]] = None) -> dict:
     selectors = args.get("selectors") or []
     if not isinstance(selectors, list):
         raise HTTPException(400, "selectors must be a list of CSS selectors")
     wait = _int_arg(args, "wait_seconds", READ_WAIT_DEFAULT, 0, READ_WAIT_MAX)
     max_chars = _int_arg(args, "max_chars", READ_CHUNK_DEFAULT, 1000, READ_CHUNK_MAX)
     note = f"via {'MCP' if source == MCP_SOURCE else 'worker'}, agent: {_agent_label(args)} (self-declared)"
-    task = store.create(args.get("url", ""), selectors, note, source=source, wait_for=args.get("wait_for", ""))
+    # T-560-L: a saved vault login only when the owner switched "allow agents" on for it and the page is on its
+    # domain (the resolver raises otherwise). Only MCP callers; the redirect follow below always goes anonymous.
+    session = None
+    if args.get("session"):
+        if source != MCP_SOURCE or sessions is None:
+            raise HTTPException(400, "saved logins are not available here")
+        session = sessions(args["session"], str(args.get("url") or ""))
+        note += f", signed in as {session['provider']}/{session['account']}"
+    task = store.create(args.get("url", ""), selectors, note, source=source, wait_for=args.get("wait_for", ""),
+                        **({"session": session} if session else {}))
     deadline = clock() + wait
     redirected_from = ""
     while clock() < deadline:
@@ -446,11 +461,12 @@ class WebSearch:
         return out
 
 
-async def call_tool(name: str, args: dict, *, store, search: WebSearch, source: str = MCP_SOURCE) -> dict:
+async def call_tool(name: str, args: dict, *, store, search: WebSearch, source: str = MCP_SOURCE,
+                    sessions: Optional[Callable[[object, str], dict]] = None) -> dict:
     if not isinstance(args, dict):
         raise HTTPException(400, "arguments must be an object")
     if name == "web_read":
-        return await web_read(store, args, source=source)
+        return await web_read(store, args, source=source, sessions=sessions)
     if name == "web_task":
         return web_task(store, args, source=source)
     if name == "web_search":

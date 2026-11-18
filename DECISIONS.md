@@ -1963,3 +1963,10 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   детали» `<details>`, closed by default; inside it healthy signals collapse into «Воркер в порядке ✓» and only
   problem signals stay open; the HUMAN-blocker panel there shows ids only (no English titles). Status pills read
   «Ждёт вас» / «Позже» instead of «Сделать» / «Ждёт», and «Неизвестно» is never shown.
+
+## 2026-11-18 — T-560-L Surfer signed in with a saved vault login
+- Owner: "Surfer — наш браузер-агент в Factory OS… Go". Signed-in reads already existed (#350) for the owner API and Claude's browser-agent token; the gap was the dashboard (no picker) and MCP (`web_read` had no session).
+- The MCP token is shared by ChatGPT, Claude and Gemini and the `agent` label is self-declared, so a saved login is a privilege the owner grants per login: `agent_use` in the session record's plaintext meta, default off, set only by the owner route `POST /api/factory/vault/sessions/agent-use`, and dropped whenever a new session file is captured (new cookies = new consent). Read-only, GET-only Surfer rules are unchanged, so a signed-in agent can read but not post.
+- `web_read` resolves `session` through `_surfer_session`: login must be switched on and the page must be on the session's cookie domains; a refusal lists the switched-on logins (site/account + up to 2 domains), never cookie values. The worker source (Gemini coder on EC2) never gets sessions. A JavaScript-redirect follow-up task is always anonymous.
+- Login+password autofill with a human 2FA step is not part of this task: it needs form submission and a takeover screen, both outside the read-only Surfer.
+- OLX/LinkedIn stay API-only (T-700/T-701): they block EC2 and forbid automation.
