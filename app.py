@@ -69,6 +69,7 @@ from connection_capabilities import ai_provider_catalog, worker_projection, vide
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import youtube_publisher
 import linkedin_publisher
+import olx_publisher
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
@@ -2080,6 +2081,7 @@ PORTABLE_INTEGRATIONS = {
     "TikTok": {"category":"publishing","auth_mode":"via_metricool","transport":"metricool"},
     "HubSpot": {"category":"crm","auth_mode":"oauth","transport":"direct"},
     "LinkedIn": {"category":"publishing","auth_mode":"oauth","transport":"direct"},
+    "OLX": {"category":"marketplace","auth_mode":"oauth","transport":"direct"},
 }
 CONNECTIONS = {
     "Metricool": {"state":"not_configured","detail":"Publishing workspace not configured"},
@@ -2088,6 +2090,7 @@ CONNECTIONS = {
     "TikTok": {"state":"not_configured","detail":"Connect a publishing account"},
     "HubSpot": {"state":"not_configured","detail":"CRM / Growth · direct FactoryOS login not configured"},
     "LinkedIn": {"state":"not_configured","detail":"Text posts via the official LinkedIn API · connect on /static/linkedin/"},
+    "OLX": {"state":"not_configured","detail":"Adverts via the official OLX Partner API · connect on /static/olx/index.html"},
     "vidIQ": {"state":"paused","detail":"Paused for now"},
     "LLM": {
         "state":"connected" if FACTORY_LLM_API_KEY else "demo",
@@ -11220,11 +11223,15 @@ OAUTH_FLOW = OAuthFlow(
     client_id_lookup=lambda spec: os.environ.get(spec.client_id_env,""),
     vault=_oauth_token_vault(),
     # T-552-YT: real Google transport for YouTube; other providers stay blocked until their adapters exist.
-    adapters={"youtube":youtube_publisher.GoogleOAuthAdapter(),"linkedin":linkedin_publisher.LinkedInOAuthAdapter()},
+    adapters={"youtube":youtube_publisher.GoogleOAuthAdapter(),"linkedin":linkedin_publisher.LinkedInOAuthAdapter(),
+              "olx":olx_publisher.OlxOAuthAdapter()},
 )
 # T-700: LinkedIn text posts (owner-only draft → approve → publish), off until FACTORY_LINKEDIN_ENABLED=1.
 linkedin_publisher.install_routes(app,store=linkedin_publisher.PostStore(DATA_DIR),flow=OAUTH_FLOW,
                                   identity=request_identity,workspace=tenancy.binding_workspace)
+# T-701: OLX adverts (owner-only draft → approve → publish), off until FACTORY_OLX_ENABLED=1.
+olx_publisher.install_routes(app,store=olx_publisher.AdvertStore(DATA_DIR),flow=OAUTH_FLOW,
+                             identity=request_identity,workspace=tenancy.binding_workspace)
 
 @app.get("/api/factory/vault/status")
 def factory_vault_status(request: Request):

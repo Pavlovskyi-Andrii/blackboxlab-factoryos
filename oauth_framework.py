@@ -84,6 +84,17 @@ PROVIDERS = {
         pkce=False,
         client_id_env="FACTORY_OAUTH_LINKEDIN_CLIENT_ID", client_secret_env="FACTORY_OAUTH_LINKEDIN_CLIENT_SECRET",
     ),
+    # T-701 (owner 2026-11-17): OLX adverts through the OLX Partner API (developer.olx.ua). No revoke endpoint is
+    # documented, so revoke_url is empty and disconnect only forgets the tokens. Scopes per the OLX docs.
+    "olx": OAuthProvider(
+        id="olx", label="OLX", integration="OLX",
+        authorize_url="https://www.olx.ua/oauth/authorize/",
+        token_url="https://www.olx.ua/api/open/oauth/token",
+        revoke_url="",
+        scopes=("read", "write", "v2"),
+        pkce=False,
+        client_id_env="FACTORY_OAUTH_OLX_CLIENT_ID", client_secret_env="FACTORY_OAUTH_OLX_CLIENT_SECRET",
+    ),
     "hubspot": OAuthProvider(
         id="hubspot", label="HubSpot", integration="HubSpot",
         authorize_url="https://app.hubspot.com/oauth/authorize",

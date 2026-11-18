@@ -1970,3 +1970,34 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - `web_read` resolves `session` through `_surfer_session`: login must be switched on and the page must be on the session's cookie domains; a refusal lists the switched-on logins (site/account + up to 2 domains), never cookie values. The worker source (Gemini coder on EC2) never gets sessions. A JavaScript-redirect follow-up task is always anonymous.
 - Login+password autofill with a human 2FA step is not part of this task: it needs form submission and a takeover screen, both outside the read-only Surfer.
 - OLX/LinkedIn stay API-only (T-700/T-701): they block EC2 and forbid automation.
+
+## 2026-11-18 — T-701 OLX adverts via the OLX Partner API
+- Owner delegated the OLX advert routine. olx.ua blocks the EC2 runner (CloudFront 403) and forbids automation, so only
+  the official OLX Partner API is used. `developer.olx.ua` also answers the cloud session and the FactoryOS server
+  browser with CloudFront 403; the docs were read from the Internet Archive copy (2025). Sources, endpoint table and
+  open questions: `docs/guides/olx-partner-api.md`. The live API host was not called.
+- OAuth: `https://www.olx.ua/oauth/authorize/` + `POST https://www.olx.ua/api/open/oauth/token`, scopes
+  `read write v2`, no PKCE. The token request body is sent as JSON (the docs show JSON objects but do not name a
+  content type; if the owner's first connect fails with `exchange_failed`, try form encoding). `redirect_uri` is sent in
+  both steps (mandatory in the exchange once sent in authorize). No revoke endpoint is documented: disconnect deletes
+  the tokens locally and reports `revoke_failed`; access then lapses (24 h / 30 days) unless revoked in the OLX account.
+- Access tokens last 24 h, refresh tokens 30 days and may rotate, so every write refreshes first (OLX returns the same
+  token while valid) and stores the result back in the token vault. A refresh failure leaves the draft `approved`
+  (refresh happens before the claim) with `olx_reconnect_required`.
+- Idempotency: the draft id goes out as OLX `external_id`. An unknown outcome (timeout, 5xx, reply without id) is never
+  resent; «Проверить на OLX» does a read-only `GET /adverts?external_id=` and marks the draft published only on exactly
+  one match; otherwise the owner confirms (advert URL or «not published»).
+- Validation copies the documented rules (title 16–70, description 80–9000, ≤ 50 % capitals, no triple punctuation,
+  no e-mail/www/phone) so a draft fails before approval instead of at OLX; OLX moderation stays the judge. The phone
+  check (≥ 9 digits in a row, separators allowed) can flag long model/serial numbers; the owner then rewrites them.
+  Images: https URLs only, local cap 20 (OLX enforces the category's `photos_limit`).
+- Paid endpoints (packets, paid features, balance, billing) are not wrapped at all; a `limited` advert (free limit
+  used up) is shown as «нужен платный пакет — решите в OLX» and FactoryOS stops. Deactivate is owner-only, needs
+  `confirm: true` and the publishing flag. Editing a live advert (`PUT /adverts/{id}`), statistics, moderation reason
+  and messages are left for later tasks.
+- Reference pickers (categories, suggestion, attributes, regions, cities, districts) are read-only owner calls with
+  the user token; they work while the publishing flag is off (no write happens) and return only whitelisted fields.
+- The owner page link is `/static/olx/index.html`: `/static` is mounted without `html=True`, so a directory URL such as
+  `/static/linkedin/` (used by the T-700-H runbook) returns 404. That LinkedIn link is a separate fix.
+- T-702 (social autopilot core, another session) plugs in through `olx_publisher.publish_approved(...)`; no T-702 file
+  was touched.
