@@ -69,6 +69,7 @@ from connection_capabilities import ai_provider_catalog, worker_projection, vide
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import youtube_publisher
 import linkedin_publisher
+import social_autopilot
 import olx_publisher
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
@@ -1929,7 +1930,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+agent_workspace.TOOLS
+]+web_surfer.TOOLS+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -1979,6 +1980,9 @@ async def factory_mcp(request: Request):
                 result=_factory_mcp_text(data)
             elif name in web_surfer.TOOL_NAMES:
                 result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH,sessions=_surfer_session))
+            elif name in social_autopilot.MCP_TOOL_NAMES:
+                # T-702: agents read the plan and add drafts only; approval and publishing stay owner-only.
+                result=_factory_mcp_text(social_autopilot.call_tool(SOCIAL_AUTOPILOT,name,args,mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -11232,6 +11236,36 @@ linkedin_publisher.install_routes(app,store=linkedin_publisher.PostStore(DATA_DI
 # T-701: OLX adverts (owner-only draft → approve → publish), off until FACTORY_OLX_ENABLED=1.
 olx_publisher.install_routes(app,store=olx_publisher.AdvertStore(DATA_DIR),flow=OAUTH_FLOW,
                              identity=request_identity,workspace=tenancy.binding_workspace)
+
+# T-702: social autopilot — weekly plan, owner approval (plan / rules opt-in / each), exactly-once scheduled publishing
+# to the Telegram channel and LinkedIn. Scheduler does nothing until FACTORY_SOCIAL_AUTOPILOT_ENABLED=1; «Стоп» pauses it.
+SOCIAL_TELEGRAM=social_autopilot.TelegramChannelAdapter(
+    token=lambda: FACTORY_TELEGRAM_BOT_TOKEN,
+    channel=lambda: os.environ.get("FACTORY_TELEGRAM_CHANNEL_ID","").strip())
+SOCIAL_AUTOPILOT=social_autopilot.Autopilot(
+    social_autopilot.Store(DATA_DIR),
+    {"telegram":SOCIAL_TELEGRAM,
+     "linkedin":social_autopilot.LinkedInAdapter(OAUTH_FLOW,tenancy.binding_workspace)},
+    notify=lambda text: _telegram_send(text),
+    ideas=lambda: get_content_brain(limit=200)["ideas"])
+social_autopilot.install_routes(app,pilot=SOCIAL_AUTOPILOT,identity=request_identity,telegram=SOCIAL_TELEGRAM)
+
+async def social_autopilot_loop():
+    while True:
+        try:
+            result=await asyncio.to_thread(SOCIAL_AUTOPILOT.tick)
+            if any(result.get(k) for k in ("sent","failed","uncertain","missed")):
+                print(json.dumps({"event":"SOCIAL_AUTOPILOT_TICK",**{k:len(result.get(k) or []) for k in ("sent","failed","uncertain","missed")}}),flush=True)
+            await asyncio.to_thread(SOCIAL_AUTOPILOT.maybe_send_summary)
+        except Exception as exc:
+            print(json.dumps({"event":"SOCIAL_AUTOPILOT_TICK","status":"error","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def start_social_autopilot():
+    # A claim that never finished before the restart may have been sent: it becomes «uncertain», never resent.
+    SOCIAL_AUTOPILOT.store.recover_interrupted()
+    asyncio.create_task(social_autopilot_loop())
 
 @app.get("/api/factory/vault/status")
 def factory_vault_status(request: Request):

@@ -372,6 +372,19 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Need: owner reads the developer portal terms (not readable from FactoryOS: 403), signs in to developer.olx.ua with the OLX account that will own the adverts, submits «Підключити додаток» and waits for OLX's e-mail approval, adds the callback URL `https://blackboxlab-factoryos.onrender.com/api/oauth/olx/callback`, puts FACTORY_OAUTH_OLX_CLIENT_ID / _SECRET and FACTORY_OLX_ENABLED=1 in Render, connects on /static/olx/index.html and publishes one approved test advert. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
   DONE: a test advert published from /static/olx/index.html with its OLX id and status saved.
 
+- [x] T-702 Social autopilot core: weekly plan → owner approval → exactly-once scheduled publishing (Telegram channel, LinkedIn)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-18: FactoryOS runs the social media routine with minimal owner interaction; publishing always behind an owner approval)
+  Depends: T-700
+  Spec: DECISIONS.md «2026-11-18 — T-702». `social_autopilot.py`, `static/social/`, MCP tools `social_plan_list` / `social_plan_propose`.
+  Goal: a plan per platform with Europe/Kyiv times, filled for free (Content Brain ideas through a fixed template, agents through MCP drafts, the owner on the page — no LLM or paid call); approval modes A «approve the whole plan» (default), C «each post», B «owner rules» (explicit opt-in, off by default); an edit drops the approval; a scheduler (startup hook, every minute) claims each due approved item before sending, never resends an uncertain outcome, marks >6 h overdue items «missed», caps 10 posts/platform/day; kill switch `FACTORY_SOCIAL_AUTOPILOT_ENABLED` (off by default) and an owner «Стоп»; a daily 21:00 Kyiv owner summary through the paired Telegram bot; adapters Telegram channel (Bot API sendMessage, `FACTORY_TELEGRAM_CHANNEL_ID`) and LinkedIn (`linkedin_publisher.send_text`), interface ready for Instagram/TikTok/OLX.
+  DONE: `python test_social_autopilot.py` (fake HTTP/clock: adapters and fixed codes, approval fence, modes, kill switch, Stop mid-run, exactly once, no blind retry, restart → uncertain, rules, caps, free plan generator, summary once a day, owner-only routes, MCP drafts only, page RU/UK/EN + `node --check`), `python test_linkedin_publisher.py`, `python test_owner_desk.py` and the default verification pass.
+
+- [ ] [HUMAN] T-702-H Telegram channel for the social autopilot
+  Depends: T-702
+  Need: owner creates or chooses a Telegram channel (public @name recommended), adds the existing FactoryOS bot as admin with «Post Messages», sets `FACTORY_TELEGRAM_CHANNEL_ID=@name` and `FACTORY_SOCIAL_AUTOPILOT_ENABLED=1` in Render, then on /static/social/ runs «Check the Telegram channel» and approves one test post. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
+  DONE: a test post went out in the channel at its planned time and its link is in the /static/social/ history.
+
 - [x] [HUMAN] T-560-G Configure FACTORY_VAULT_KEY
   Depends: T-560-F
   Need: owner generates a key (`python -c "from browser_runner.vault import generate_key; print(generate_key())"`) and stores it only in the Render secret environment (and the browser runner host), never in Git or chat.
