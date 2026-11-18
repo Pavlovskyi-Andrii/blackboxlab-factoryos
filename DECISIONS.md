@@ -2064,3 +2064,14 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   **Reason:** the first three fit existing modules; a self-assessed score is still only `claimed`, so the evidence level, `source_kind` and `independent` express source quality instead.
 - **Decision:** L2–L4 are described in the spec but not queued.
   **Reason:** each later slice needs owner decisions first (budget and spend approval, allowed channels and accounts, payment provider, season length).
+
+## 2026-11-19 — T-705 queued; owner tasks T-706-H…T-709-H; manual MyCast D1–D3 benchmark
+
+- **Decision:** the owner's part goes to Your tasks (Owner Desk) as `[HUMAN]` ROADMAP tasks with RU/EN/UK runbooks, and each runbook ends with a one-message reply template.
+  **Reason:** owner 2026-11-19: everything that needs him goes into his task table with clear and detailed steps; the Owner Desk is that table, and the Team tasks page reads the same tasks.
+- **Decision:** MyCast D1–D3 was run by hand in a Claude chat session as the benchmark for L2: 6 idea cards, 18 facts and 13 signals, all at level `linked` and observed on 2026-11-19; G1/G2 are only proposed and the owner decides them in T-706-H.
+  **Reason:** no agent decides a gate on its own work, and a hand-made baseline lets T-705 measure agent output instead of trusting it.
+- **Decision:** T-705 (L2) sits right after T-704 with `Depends: T-704`; search beyond Wikipedia stays behind the owner's opt-in (T-560-I).
+  **Reason:** the owner asked to queue what needs no decision from him; Google search through Gemini can be billed beyond the free tier (ZERO ADDITIONAL SPEND).
+- **Decision:** L3/L4 stay unqueued until T-707-H, T-708-H and T-709-H are answered; `docs/business_experiments/LEAGUE_OWNER_DECISIONS.md` lists the options with sources, and recommendations are labelled as such.
+  **Reason:** budget, channels and payments are owner decisions; Claude only prepares them.

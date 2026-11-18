@@ -5,6 +5,34 @@
   Goal: a Launchpad layer inside MVP Builder (`mvp_launchpad.py`, data in `projects[pid].launchpad` of `mvp_factory.json`, the `mvp_experiments.py` pattern): D1–D7 Discovery checks, the 7-day MVP, 6 channels and Learn mapped onto the `mvp_cycle` phases; gates G1–G5 (G3–G5 owner-only, no agent decides a gate on its own work, G5 = continue/iterate/pivot/kill + main channel); `mvp-launchpad/1` artifact schemas; honesty validators (source + date, unknown stays unknown, honest zero, test/synthetic excluded, forward-only status ladders with evidence); new `evidence.py` rule types (market, lead, usage, payment, outreach, spend); spend_limit 0 with owner-only spend/outreach approvals; segment tests linked to existing A/B Tester branches; a Launchpad tab in `static/mvp-factory/` (EN/UK/RU) with MyCast as the first real project (empty = unknown). No external side effects: no posts, messages, ads, payments or landing publication; never changes an `mvp_factory` stage.
   DONE: `python test_mvp_launchpad.py` (schemas, ladders, authority, synthetic exclusion, honest zero, spend/outreach approvals, no-network spy, idempotency, stage untouched, EN/UK/RU key parity) runs in CI (this task allows adding that step to `.github/workflows/ci.yml`) + inline-JS `node --check` + every existing `test_mvp_*.py` + default verification; FactoryOS CI green.
 
+- [ ] T-705 Business League L2: Discovery agents fill D1–D3 from public sources, with the manual MyCast run as the benchmark
+  Owner: claude
+  Priority: P1 (owner 2026-11-19, voice + chat: «все, що можеш зробити сам — роби сам», queue what needs no owner decision)
+  Depends: T-704
+  Spec: `docs/specs/BUSINESS_LEAGUE_LAUNCHPAD.md` (L2); benchmark `docs/business_experiments/mycast_launchpad/d1_d3.json` and `D1-D3_2026-11-19.md`; DECISIONS.md «2026-11-19 — T-705».
+  Goal: import the manual MyCast D1–D3 run into the Launchpad board as real artifacts at level linked (not synthetic, gate proposals kept as proposals); Researcher and Analyst agents produce idea_card / market_fact / signal for a project with the existing free tools only (FactoryOS web_search, which is Wikipedia unless the owner opted in through T-560-I, web_read of given URLs, Content Brain signals): every fact with a source URL and a date, unknown stays unknown, maximum level linked; a second model completes and checks the same artifacts (agent-loop events); agents may propose G1/G2 and never decide them; a comparison view shows agent output against the manual benchmark (ideas covered, facts with sources, independent signals, duplicates). No paid call without the owner's opt-in, no posting and no messages to people.
+  DONE: `python test_mvp_launchpad_agents.py` (benchmark import, schema checks on agent output, level cap, proposal-only gates, review-loop events, no paid or network call in tests, comparison counts) runs in CI + every `test_mvp_*.py` + default verification; FactoryOS CI green.
+
+- [ ] [HUMAN] T-706-H MyCast Discovery: review D1–D3 and decide G1 (3 ideas) and G2 (1–2 directions)
+  Owner: owner
+  Need: the owner reads `docs/business_experiments/mycast_launchpad/D1-D3_2026-11-19.md` (6 ideas, 18 sourced facts, 13 signals; the agent's G1/G2 proposal is only a proposal), picks 3 ideas and 1–2 directions with the main assumption for each, and sends the decision to Claude. An agent may not decide a gate on its own work.
+  DONE: the dossier and `d1_d3.json` carry gate_decision records with decided_by owner; `.autopilot/answers.md` has a T-706-H section.
+
+- [ ] [HUMAN] T-707-H League rules: season budget, spending approval, season length, teams and judge
+  Owner: owner
+  Need: the owner picks the budget (0 / small test / own amount), per-test limit and stop condition, the approval mode, season length, team line-up and judge, and answers T-560-I (search opt-in); options and sources in `docs/business_experiments/LEAGUE_OWNER_DECISIONS.md` §1. ZERO ADDITIONAL SPEND stays in force until then; L3/L4 are not queued before this.
+  DONE: `.autopilot/answers.md` has a T-707-H section with the rules.
+
+- [ ] [HUMAN] T-708-H Channels and accounts the League agents may act in
+  Owner: owner
+  Need: allowed and forbidden channels, separate brand accounts with 2FA (passwords only in the vault), the rule for messages to people (drafts by default), interviews stay with the owner; recommendations in `docs/business_experiments/LEAGUE_OWNER_DECISIONS.md` §2.
+  DONE: `.autopilot/answers.md` has a T-708-H section; the allowed channels show in Connections or the vault.
+
+- [ ] [HUMAN] T-709-H Payment provider for MyCast and the League
+  Owner: owner
+  Need: business form (FOP), where payment happens (Telegram Stars inside the bot / Ukrainian acquiring on mycast.pro / a Merchant of Record for foreign buyers), the application filed with the provider; API keys only in Render; comparison with sources in `docs/business_experiments/LEAGUE_OWNER_DECISIONS.md` §3.
+  DONE: `.autopilot/answers.md` has a T-709-H section; a provider is chosen and the application filed (or Telegram Stars only).
+
 - [x] T-703 MyCast: "My podcasts" one tap away (header + share step) and three glass profile-page mock-ups
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-18: «ссылку на мои подкасты надо вывести в верхнем меню… еле нашёл», «в разделе поделиться кнопку поделиться другими моими подкастами», «страницу профиля в том же стеклянном стиле, 3 варианта на утверждение»)
