@@ -30,3 +30,7 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 ## Owner answers 2026-11-16
 - Merging: owner confirms Claude merges its own PRs itself (after green CI on the current head, no conflicts) and then checks the Render deploy.
 - Versioning: owner wants one version shown everywhere on the site (sidebar said v5.3, header v5.7.1), the README changelog continued from v5.7 to today, a new current version on the site and on GitHub, and versioning kept up from now on. Rules: CLAUDE.md "Versioning and releases".
+
+## T-702 (owner 2026-11-18, relayed from the owner task page)
+- Approval mode: A — the owner approves the whole weekly plan with one action, then approved items publish by themselves. A is the default; B (rules) and C (each post) stay opt-in settings.
+- Platform order still pending: Telegram channel first, then LinkedIn.
