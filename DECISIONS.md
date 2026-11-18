@@ -1999,5 +1999,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   the user token; they work while the publishing flag is off (no write happens) and return only whitelisted fields.
 - The owner page link is `/static/olx/index.html`: `/static` is mounted without `html=True`, so a directory URL such as
   `/static/linkedin/` (used by the T-700-H runbook) returns 404. That LinkedIn link is a separate fix.
+- Codex review #421: the flag gates OLX *writes* only (publish, deactivate); read-only reference/status calls with the
+  owner's token work while it is off. Approval stores the connected OLX account id and publish refuses another account
+  (`olx_account_changed_approve_again`), so a reconnect between approval and publish cannot post elsewhere. A
+  `publishing` claim older than 5 minutes (process died after the POST) counts as an unknown outcome: reconcile or owner
+  confirmation, never a second POST. Reconcile accepts only adverts that echo the exact `external_id`. Not handled: a
+  refresh racing a disconnect may write the refreshed tokens back (single owner, single process; disconnect again).
 - T-702 (social autopilot core, another session) plugs in through `olx_publisher.publish_approved(...)`; no T-702 file
   was touched.

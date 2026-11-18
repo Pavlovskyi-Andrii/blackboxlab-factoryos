@@ -47,6 +47,7 @@ DESC_MIN, DESC_MAX = 80, 9000
 IMAGES_MAX = 20                                  # local cap only; OLX enforces the category's `photos_limit`
 ATTRIBUTES_MAX = 60
 MAX_DRAFTS = 200
+STALE_CLAIM_SECONDS = 300                        # a publish claim older than this died mid-request: reconcile it
 ID_RE = re.compile(r"^olx_[0-9a-f]{12}$")
 CODE_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,60}$")
 FIELD_RE = re.compile(r"^[A-Za-z0-9_.\-/\[\]]{1,60}$")
@@ -364,7 +365,10 @@ def find_by_external_id(http: Http, access_token: str, external_id: str, lang: s
     if status != 200:
         _raise_for(status, raw, write=False)
     items = _data(raw)
-    return [r for r in (_receipt(a) for a in (items if isinstance(items, list) else [])) if r]
+    # Keep only adverts that echo this exact external_id (a missing or different value is not a match).
+    mine = [a for a in (items if isinstance(items, list) else [])
+            if isinstance(a, dict) and str(a.get("external_id") or "") == external_id]
+    return [r for r in (_receipt(a) for a in mine) if r]
 
 
 def get_advert(http: Http, access_token: str, advert_id: str, lang: str = "uk") -> dict:
@@ -441,18 +445,20 @@ class AdvertStore:
             draft = self._find(items, draft_id)
             if draft["status"] not in ("draft", "approved", "failed"):
                 raise HTTPException(409, "this draft can no longer be edited")
-            draft.update(advert=advert, status="draft", approved_hash="", approved_at=0)   # an edit drops approval
+            draft.update(advert=advert, status="draft", approved_hash="", approved_at=0,  # an edit drops approval
+                         approved_account="")
             self._save(items)
             return draft
 
-    def approve(self, draft_id) -> dict:
+    def approve(self, draft_id, account_id: str = "") -> dict:
+        """Freeze the exact advert and the OLX account it was approved for (publish refuses another account)."""
         with self.lock:
             items = self._load()
             draft = self._find(items, draft_id)
             if draft["status"] not in ("draft", "failed"):
                 raise HTTPException(409, "only a draft can be approved")
             draft.update(status="approved", approved_hash=advert_hash(draft["advert"]),
-                         approved_at=int(self.clock()))
+                         approved_at=int(self.clock()), approved_account=str(account_id or ""))
             self._save(items)
             return draft
 
@@ -485,7 +491,7 @@ class AdvertStore:
             items = self._load()
             draft = self._find(items, draft_id)
             self._check(draft)
-            draft["status"] = "publishing"
+            draft.update(status="publishing", claimed_at=int(self.clock()))
             self._save(items)
             return dict(draft)
 
@@ -507,12 +513,17 @@ class AdvertStore:
             self._save(items)
             return draft
 
+    def unresolved(self, draft) -> bool:
+        """Unknown outcome, or a publish claim older than STALE_CLAIM_SECONDS (process died after the POST)."""
+        return draft["status"] == "uncertain" or (
+            draft["status"] == "publishing" and self.clock() - int(draft.get("claimed_at") or 0) > STALE_CLAIM_SECONDS)
+
     def confirm(self, draft_id, outcome) -> dict:
         """Owner checked OLX after an unknown outcome: 'not_published', or the advert URL."""
         with self.lock:
             items = self._load()
             draft = self._find(items, draft_id)
-            if draft["status"] != "uncertain":
+            if not self.unresolved(draft):
                 raise HTTPException(409, "only an unknown outcome needs confirmation")
             if outcome == "not_published":
                 draft.update(status="failed", result={"code": "owner_confirmed_not_published"})
@@ -555,6 +566,9 @@ def publish_approved(*, store: AdvertStore, flow, workspace: str, draft_id: str,
         tokens = fresh_tokens(flow, workspace)
     except OlxError as exc:
         raise HTTPException(409, exc.code) from None
+    approved_for = str(store.get(draft_id).get("approved_account") or "")
+    if not approved_for or approved_for != tokens.account_id:
+        raise HTTPException(409, "olx_account_changed_approve_again")
     draft = store.claim_for_publish(draft_id)
     transport = http or getattr(flow.adapters.get("olx"), "http", urllib_http)
     try:
@@ -686,7 +700,13 @@ def install_routes(app, *, store: AdvertStore, flow, identity: Callable, workspa
     @app.post("/api/factory/olx/drafts/{draft_id}/approve")
     def olx_approve(draft_id: str, request: Request):
         owner(request)
-        return {"draft": store.approve(draft_id)}
+        try:
+            tokens = flow.vault.get(workspace(), "olx")
+        except Exception:
+            tokens = None
+        if not tokens or not tokens.account_id:
+            raise HTTPException(409, "connect the OLX account before approving")
+        return {"draft": store.approve(draft_id, tokens.account_id)}
 
     @app.post("/api/factory/olx/drafts/{draft_id}/delete")
     def olx_delete(draft_id: str, request: Request):
@@ -712,7 +732,7 @@ def install_routes(app, *, store: AdvertStore, flow, identity: Callable, workspa
         """Unknown outcome → read-only lookup by external_id (= draft id). Found → published; else stays unknown."""
         owner(request)
         draft = store.get(draft_id)
-        if draft["status"] != "uncertain":
+        if not store.unresolved(draft):
             raise HTTPException(409, "only an unknown outcome needs reconciling")
         tokens = read_tokens()
         try:

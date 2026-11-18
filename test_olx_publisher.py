@@ -148,8 +148,12 @@ class ApiTest(unittest.TestCase):
                              (code, uncertain, fields))
 
     def test_reads_and_deactivate(self):
-        http = FakeHttp((200, {"data": [{"id": 1, "status": "active", "url": "https://www.olx.ua/d/1.html"}]}))
-        self.assertEqual(op.find_by_external_id(http, "AT", "olx_0123456789ab")[0]["advert_id"], "1")
+        http = FakeHttp((200, {"data": [{"id": 1, "status": "active", "url": "https://www.olx.ua/d/1.html",
+                                         "external_id": "olx_0123456789ab"},
+                                        {"id": 2, "status": "active", "external_id": "olx_ffffffffffff"},
+                                        {"id": 3, "status": "active"}]}))
+        found = op.find_by_external_id(http, "AT", "olx_0123456789ab")
+        self.assertEqual([f["advert_id"] for f in found], ["1"])          # mismatched / missing external_id ignored
         self.assertIn("external_id=olx_0123456789ab", http.calls[0][1])
         http = FakeHttp((204, b""))
         op.deactivate_advert(http, "AT", "1", sold=True)
@@ -200,6 +204,21 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.store.confirm(d["id"], "https://www.olx.ua/d/uk/obyavlenie/x.html")["status"], "published")
         with self.assertRaises(HTTPException):
             self.store.claim_for_publish(d["id"])                 # never twice
+
+    def test_stale_publishing_claim_can_be_resolved_without_resend(self):
+        now = [1000.0]
+        store = op.AdvertStore(pathlib.Path(self.tmp.name) / "s2", clock=lambda: now[0])
+        d = store.create(ADVERT)
+        store.approve(d["id"], "olx:user:7")
+        store.claim_for_publish(d["id"])                          # process dies here, after the POST
+        self.assertFalse(store.unresolved(store.get(d["id"])))   # a live request is not touched
+        with self.assertRaises(HTTPException):
+            store.confirm(d["id"], "not_published")
+        now[0] += op.STALE_CLAIM_SECONDS + 1
+        self.assertTrue(store.unresolved(store.get(d["id"])))
+        with self.assertRaises(HTTPException):
+            store.claim_for_publish(d["id"])                      # still never a second POST
+        self.assertEqual(store.confirm(d["id"], "https://www.olx.ua/d/9.html")["status"], "published")
 
     def test_tampered_file_is_refused(self):
         d = self.store.create(ADVERT)
@@ -304,7 +323,8 @@ class RoutesTest(unittest.TestCase):
         self.assertFalse(self.route("/api/factory/olx/drafts/{draft_id}/reconcile", d2["id"])["found"])
         self.assertEqual(self.store.get(d2["id"])["status"], "uncertain")
         self.http.answers += [(200, {"access_token": "AT3"}),
-                              (200, {"data": [{"id": 43, "status": "active", "url": "https://www.olx.ua/d/43.html"}]})]
+                              (200, {"data": [{"id": 43, "status": "active", "url": "https://www.olx.ua/d/43.html",
+                                               "external_id": d2["id"]}]})]
         rec = self.route("/api/factory/olx/drafts/{draft_id}/reconcile", d2["id"])
         self.assertEqual((rec["found"], rec["draft"]["status"], rec["draft"]["result"]["advert_id"]),
                          (True, "published", "43"))
@@ -312,6 +332,24 @@ class RoutesTest(unittest.TestCase):
         state = json.dumps(self.route("/api/factory/olx"))
         for secret in ("AT", "RT2", "csecret"):
             self.assertNotIn('"' + secret, state)
+
+    def test_approval_is_bound_to_the_connected_account(self):
+        d = self.route("/api/factory/olx/drafts", body={"advert": ADVERT})["draft"]
+        with self.assertRaises(HTTPException) as err:
+            self.route("/api/factory/olx/drafts/{draft_id}/approve", d["id"])   # not connected
+        self.assertEqual(err.exception.status_code, 409)
+        self.connect()
+        self.route("/api/factory/olx/drafts/{draft_id}/approve", d["id"])
+        self.vault.put("default", "olx", TokenSet(access_token="AT9", refresh_token="RT9", account_id="olx:user:8"))
+        self.http.answers.append((200, {"access_token": "AT9", "refresh_token": "RT9"}))
+        with self.assertRaises(HTTPException) as err:
+            self.route("/api/factory/olx/drafts/{draft_id}/publish", d["id"])
+        self.assertEqual(err.exception.detail, "olx_account_changed_approve_again")
+        self.assertFalse(any(c[1].endswith("/api/partner/adverts") for c in self.http.calls))
+        self.assertEqual(self.store.get(d["id"])["status"], "approved")
+        with self.assertRaises(HTTPException) as err:
+            op.publish_approved(store=self.store, flow=self.flow, workspace="other", draft_id=d["id"], env=self.env)
+        self.assertEqual(err.exception.detail, "olx_not_connected")      # another workspace has no tokens
 
     def test_validation_error_fields_and_reconnect(self):
         self.connect()

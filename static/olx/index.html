@@ -78,7 +78,7 @@ function paint(){document.querySelectorAll('[data-t]').forEach(e=>e.textContent=
   const r=d.result||{};const B=(k,cl)=>`<button ${cl?'class="primary"':''} data-a="${k}" data-id="${d.id}" ${k==='publish'&&!S.ready?'disabled':''}>${esc(t(k))}</button>`;let btn='';
   if(d.status==='draft'||d.status==='failed')btn=B('approve')+B('edit')+B('del');
   if(d.status==='approved')btn=B('publish',1)+B('edit')+B('del');
-  if(d.status==='uncertain')btn=B('check')+B('confirmYes')+B('confirmNo');
+  if(d.status==='uncertain'||(d.status==='publishing'&&Date.now()/1000-(d.claimed_at||0)>300))btn=B('check')+B('confirmYes')+B('confirmNo');
   if(d.status==='published'&&r.advert_id)btn=B('refresh')+B('deactivate');
   const os=r.olx_status?` <span class="chip ${r.olx_status==='active'?'ok':'warn'}">OLX: ${esc((T[L].ost||{})[r.olx_status]||r.olx_status)}</span>`:'';
   return `<div class="draft"><span class="chip ${cls}">${esc(st)}</span>${os} <small>${new Date(d.created*1000).toLocaleString()}</small><div><b>${esc(a.title)}</b>${a.price?` · ${esc(a.price.value)} ${esc(a.price.currency)}`:''}</div><div class="text">${esc(a.description)}</div><small>cat ${esc(a.category_id)} · city ${esc((a.location||{}).city_id)} · ${esc((a.images||[]).length)} img</small><br>${r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`:''}${r.code?`<small class="bad"> ${esc(r.code)}${r.fields?' ('+esc(r.fields.join(', '))+')':''}</small>`:''}<div class="row">${btn}</div></div>`}).join('');

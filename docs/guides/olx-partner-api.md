@@ -105,7 +105,8 @@ the IP is blocked for 30 minutes (FAQ #11). Unsupported API version → 404.
 - OAuth provider `olx` in `oauth_framework.py`, env `FACTORY_OAUTH_OLX_CLIENT_ID` / `FACTORY_OAUTH_OLX_CLIENT_SECRET`;
   tokens only in the encrypted token vault (needs `FACTORY_VAULT_KEY`, T-560-G). Refresh before each write; a
   rotated refresh token is stored back. Expired refresh token → `olx_reconnect_required`.
-- `FACTORY_OLX_ENABLED=1` turns publishing on (off by default). `FACTORY_OLX_LANGUAGE=uk|ru` (default `uk`).
+- `FACTORY_OLX_ENABLED=1` turns OLX writes on (publish, deactivate; off by default). Read-only reference/status calls
+  with the owner's token work while it is off. Approval is bound to the connected OLX account. `FACTORY_OLX_LANGUAGE=uk|ru` (default `uk`).
 - Draft → owner approval (SHA-256 of the exact advert JSON) → one `POST /adverts` with `external_id` = draft id.
   Timeout / 5xx / reply without id → «unknown outcome»: no resend; «Проверить на OLX» does a read-only
   `GET /adverts?external_id=…`, or the owner confirms by hand.
