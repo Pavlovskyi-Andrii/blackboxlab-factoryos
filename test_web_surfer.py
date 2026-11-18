@@ -172,6 +172,11 @@ class ReadingQualityTest(unittest.TestCase):
             self.assertTrue(any(words in h for h in view.get("hints", [])), (body, view.get("hints")))
         task = self.store.create("https://docs.example/", ["#pathlib.Path.glob"], "", source=ws.MCP_SOURCE)
         self.finish(task, {"status": "done", "texts": [{"selector": "#pathlib.Path.glob", "text": "", "missing": True}]})
+        hint = ws.web_task(self.store, {"task_id": task["id"]})["hints"][0]
+        # T-674: the worker already tried the literal id, so the hint says so instead of a tip that would not help.
+        self.assertIn("No element has the id pathlib.Path.glob (tried both as a literal id", hint)
+        task = self.store.create("https://docs.example/", ["#a.b p"], "", source=ws.MCP_SOURCE)
+        self.finish(task, {"status": "done", "texts": [{"selector": "#a.b p", "text": "", "missing": True}]})
         self.assertIn('[id="a.b"]', ws.web_task(self.store, {"task_id": task["id"]})["hints"][0])
 
     def test_queued_task_reports_its_place_in_the_queue(self):

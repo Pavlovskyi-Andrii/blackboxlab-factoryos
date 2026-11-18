@@ -20,8 +20,9 @@ Gemini CLI — gets three tools:
    100 000 chars per page are kept.
 3. **Selectors for precise parts.** `web_read {"url": "https://pypi.org/project/requests/", "selectors": ["h1"]}`
    returns `texts: [{selector, text, chars, truncated?, missing?}]` (every match, ≤ 6000 chars each in `texts`; a
-   longer selector text is read in chunks with `web_task … offset`). An id with dots is `[id="pathlib.Path.glob"]`,
-   not `#pathlib.Path.glob`.
+   longer selector text is read in chunks with `web_task … offset`). An id with dots works as written (`#os.path.join`
+   also matches the literal id, T-674; `[id="os.path.join"]` works too); a Sphinx/Python-docs `<dt>` is read with its
+   `<dd>` description.
 4. **JavaScript pages.** The worker waits up to 5 s for the network to go quiet. If the text is still nearly empty, the
    answer says so in `hints`; retry with `wait_for` (e.g. `"article h1"`).
 5. **Read `hints`.** Every answer that needs action says what to do: domain does not exist, HTTP 404, selector missing,
