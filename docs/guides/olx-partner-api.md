@@ -44,9 +44,9 @@ authorised account [S3 #6].
 | `redirect_uri` | optional with one callback URL; if sent in the authorize step it is **mandatory** in the code exchange |
 | Revoke endpoint | **none documented** |
 
-Token request fields are shown as a JSON object (`grant_type`, `client_id`, `client_secret`, `code`, `scope`,
-`redirect_uri` / `refresh_token`). The docs do not state the content type explicitly; FactoryOS sends
-`application/json` (DECISIONS T-701). Refreshing a still-valid access token returns the same token.
+Token request fields are shown as a JSON-looking object (`grant_type`, `client_id`, `client_secret`, `code`, `scope`,
+`redirect_uri` / `refresh_token`). The docs do not state the content type; FactoryOS sends
+`application/x-www-form-urlencoded`, the OAuth 2.0 standard (RFC 6749 §4.1.3), for both grant types (DECISIONS T-701). Refreshing a still-valid access token returns the same token.
 
 ## API calls [S1]
 
@@ -120,8 +120,8 @@ the IP is blocked for 30 minutes (FAQ #11). Unsupported API version → 404.
 2. Partner terms (`/terms-and-conditions`) — not readable from here; the owner should read them before approval.
 3. No documented token revoke: «Отключить» only deletes the tokens in FactoryOS; access stays valid until it expires
    (24 h access / 30 days refresh) unless revoked in the OLX account.
-4. Token request content type (JSON vs form) is not stated; JSON is used. If the first connect fails with
-   `exchange_failed`, switch to form encoding.
+4. Token request content type (JSON vs form) is not stated; form encoding (RFC 6749) is used. If the first connect
+   fails with `exchange_failed`, try JSON.
 5. `PUT /adverts/{id}` (edit a live advert), moderation reason, statistics and messages are not built yet.
 6. Image hosting: OLX downloads images from public URLs. FactoryOS media is signed/private; the owner pastes public
    https links for now.

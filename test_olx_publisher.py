@@ -7,6 +7,7 @@ import pathlib
 import tempfile
 import unittest
 from unittest import mock
+from urllib.parse import parse_qs
 
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-olx-"))
 
@@ -35,6 +36,8 @@ class FakeHttp:
     def __call__(self, method, url, headers, body, timeout):
         self.calls.append((method, url, dict(headers), body))
         answer = self.answers.pop(0)
+        if callable(answer) and not isinstance(answer, Exception):
+            answer = answer()                                     # side effect while the request is in flight
         if isinstance(answer, Exception):
             raise answer
         status, payload = answer
@@ -59,9 +62,11 @@ class AdapterTest(unittest.TestCase):
             tokens = op.OlxOAuthAdapter(http).exchange_code(spec, "CODE", "https://x/api/oauth/olx/callback", "")
         self.assertEqual((tokens.account_id, tokens.account_label, tokens.refresh_token),
                          ("olx:user:777", "Andrii", "RT"))
-        sent = json.loads(http.calls[0][3])
-        self.assertEqual((sent["grant_type"], sent["code"], sent["scope"], sent["client_secret"], sent["redirect_uri"]),
-                         ("authorization_code", "CODE", "v2 read write", "csecret", "https://x/api/oauth/olx/callback"))
+        self.assertEqual(http.calls[0][2]["Content-Type"], "application/x-www-form-urlencoded")
+        sent = {k: v[0] for k, v in parse_qs(http.calls[0][3].decode()).items()}
+        self.assertEqual(sent, {"grant_type": "authorization_code", "code": "CODE", "scope": "v2 read write",
+                                "client_id": "cid", "client_secret": "csecret",
+                                "redirect_uri": "https://x/api/oauth/olx/callback"})
         user = http.calls[1]
         self.assertEqual((user[0], user[1]), ("GET", "https://www.olx.ua/api/partner/users/me"))
         self.assertEqual((user[2]["Authorization"], user[2]["Version"]), ("Bearer AT", "2.0"))
@@ -84,7 +89,10 @@ class AdapterTest(unittest.TestCase):
         with mock.patch.dict(os.environ, ENV):
             new = op.OlxOAuthAdapter(http).refresh(spec, old)
         self.assertEqual((new.access_token, new.refresh_token, new.account_id), ("AT2", "RT2", "olx:user:1"))
-        self.assertEqual(json.loads(http.calls[0][3])["grant_type"], "refresh_token")
+        self.assertEqual(http.calls[0][2]["Content-Type"], "application/x-www-form-urlencoded")
+        self.assertEqual({k: v[0] for k, v in parse_qs(http.calls[0][3].decode()).items()},
+                         {"grant_type": "refresh_token", "refresh_token": "RT1", "client_id": "cid",
+                          "client_secret": "csecret"})
         with mock.patch.dict(os.environ, ENV), self.assertRaises(OAuthError) as err:
             op.OlxOAuthAdapter(FakeHttp((400, {"error": "invalid_grant"}))).refresh(spec, old)
         self.assertEqual(err.exception.code, "olx_reconnect_required")
@@ -350,6 +358,31 @@ class RoutesTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as err:
             op.publish_approved(store=self.store, flow=self.flow, workspace="other", draft_id=d["id"], env=self.env)
         self.assertEqual(err.exception.detail, "olx_not_connected")      # another workspace has no tokens
+
+    def test_refresh_in_flight_never_restores_tokens_after_disconnect_or_reconnect(self):
+        self.connect()
+        d = self.approved()
+
+        def disconnect_then_answer():
+            self.flow.disconnect("olx", "default")                # owner disconnects while the refresh is in flight
+            return (200, {"access_token": "AT-late", "refresh_token": "RT-late"})
+        self.http.answers.append(disconnect_then_answer)
+        with self.assertRaises(HTTPException) as err:
+            self.route("/api/factory/olx/drafts/{draft_id}/publish", d["id"])
+        self.assertEqual(err.exception.detail, "olx_not_connected")
+        self.assertIsNone(self.vault.get("default", "olx"))       # vault stays empty
+        self.assertEqual(self.store.get(d["id"])["status"], "approved")
+        self.connect()
+
+        def reconnect_then_answer():
+            self.vault.put("default", "olx", TokenSet(access_token="NEW", refresh_token="NEWRT", account_id="olx:user:8"))
+            return (200, {"access_token": "AT-late", "refresh_token": "RT-late"})
+        self.http.answers.append(reconnect_then_answer)
+        with self.assertRaises(HTTPException) as err:
+            self.route("/api/factory/olx/drafts/{draft_id}/publish", d["id"])
+        self.assertEqual(err.exception.detail, "olx_connection_changed")
+        self.assertEqual(self.vault.get("default", "olx").access_token, "NEW")   # the new account's tokens are kept
+        self.assertFalse(any(c[1].endswith("/api/partner/adverts") for c in self.http.calls))
 
     def test_validation_error_fields_and_reconnect(self):
         self.connect()

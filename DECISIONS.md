@@ -1977,8 +1977,9 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   browser with CloudFront 403; the docs were read from the Internet Archive copy (2025). Sources, endpoint table and
   open questions: `docs/guides/olx-partner-api.md`. The live API host was not called.
 - OAuth: `https://www.olx.ua/oauth/authorize/` + `POST https://www.olx.ua/api/open/oauth/token`, scopes
-  `read write v2`, no PKCE. The token request body is sent as JSON (the docs show JSON objects but do not name a
-  content type; if the owner's first connect fails with `exchange_failed`, try form encoding). `redirect_uri` is sent in
+  `read write v2`, no PKCE. The token request body is form-encoded (`application/x-www-form-urlencoded`, as
+  RFC 6749 §4.1.3/§6 requires; the OLX docs list the fields as a JSON-looking object but name no content type — Codex
+  review #421). If the owner's first connect fails with `exchange_failed`, JSON is the alternative to try. `redirect_uri` is sent in
   both steps (mandatory in the exchange once sent in authorize). No revoke endpoint is documented: disconnect deletes
   the tokens locally and reports `revoke_failed`; access then lapses (24 h / 30 days) unless revoked in the OLX account.
 - Access tokens last 24 h, refresh tokens 30 days and may rotate, so every write refreshes first (OLX returns the same
@@ -2003,7 +2004,11 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   owner's token work while it is off. Approval stores the connected OLX account id and publish refuses another account
   (`olx_account_changed_approve_again`), so a reconnect between approval and publish cannot post elsewhere. A
   `publishing` claim older than 5 minutes (process died after the POST) counts as an unknown outcome: reconcile or owner
-  confirmation, never a second POST. Reconcile accepts only adverts that echo the exact `external_id`. Not handled: a
-  refresh racing a disconnect may write the refreshed tokens back (single owner, single process; disconnect again).
+  confirmation, never a second POST. Reconcile accepts only adverts that echo the exact `external_id`.
+- Refresh vs disconnect/reconnect (Codex review #421, blocking): `OAuthFlow.lock` serialises vault writes in
+  connect/disconnect, and the OLX refresh write-back is a compare-and-set under it (the vault must still hold the exact
+  tokens the refresh started from). A disconnect during a refresh → `olx_not_connected`, vault stays empty; a reconnect
+  → `olx_connection_changed`, the new account's tokens stay. The lock is per process; a second worker/instance would
+  need a vault-level CAS (same constraint as the DBOS SQLite note in CLAUDE.md).
 - T-702 (social autopilot core, another session) plugs in through `olx_publisher.publish_approved(...)`; no T-702 file
   was touched.

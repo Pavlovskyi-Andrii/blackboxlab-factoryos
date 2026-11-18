@@ -133,9 +133,10 @@ class OlxOAuthAdapter(OAuthAdapter):
         client_id, client_secret = client_credentials(spec)
         if not (client_id and client_secret):
             raise OAuthError("client_secret_missing")
-        body = json.dumps({**fields, "client_id": client_id, "client_secret": client_secret}).encode()
+        # RFC 6749 §4.1.3 / §6: form-encoded body (the OLX docs list the fields but name no content type).
+        body = urlencode({**fields, "client_id": client_id, "client_secret": client_secret}).encode()
         try:
-            status, _, raw = self.http("POST", spec.token_url, {"Content-Type": "application/json",
+            status, _, raw = self.http("POST", spec.token_url, {"Content-Type": "application/x-www-form-urlencoded",
                                                                 "Accept": "application/json"}, body, self.timeout)
         except (TimeoutError, OSError, urlerror.URLError):
             raise OAuthError("olx_token_unreachable")
@@ -539,7 +540,11 @@ class AdvertStore:
 # --- Publishing with every fence (routes and T-702 use this) -------------------------------
 
 def fresh_tokens(flow, workspace: str) -> TokenSet:
-    """Refresh before each write (OLX returns the same token while it is still valid) and store the result."""
+    """Refresh before each write (OLX returns the same token while it is still valid) and store the result.
+
+    The HTTP refresh runs outside the flow lock; the write-back is a compare-and-set under it: the vault must still
+    hold the exact token set the refresh started from. A disconnect (empty vault) or a reconnect (other tokens)
+    during the refresh wins, and the refreshed tokens are dropped."""
     from oauth_framework import get_provider
     spec = get_provider("olx")
     tokens = flow.vault.get(workspace, "olx")
@@ -552,8 +557,21 @@ def fresh_tokens(flow, workspace: str) -> TokenSet:
         new = adapter.refresh(spec, tokens)
     except OAuthError as exc:
         raise OlxError(exc.code if exc.code.startswith("olx_") else "olx_reconnect_required") from None
-    flow.vault.put(workspace, "olx", new)
+    with _flow_lock(flow):
+        current = flow.vault.get(workspace, "olx")
+        if not current:
+            raise OlxError("olx_not_connected")
+        if (current.access_token, current.refresh_token) != (tokens.access_token, tokens.refresh_token):
+            raise OlxError("olx_connection_changed")
+        flow.vault.put(workspace, "olx", new)
     return new
+
+
+def _flow_lock(flow):
+    lock = getattr(flow, "lock", None)
+    if lock is None:
+        raise OlxError("olx_flow_lock_missing")
+    return lock
 
 
 def publish_approved(*, store: AdvertStore, flow, workspace: str, draft_id: str, http: Http | None = None,
