@@ -110,6 +110,33 @@ class ScriptsTest(unittest.TestCase):
 
 
 class StoreTest(Base):
+    def test_each_city_is_voiced_by_its_own_pair_of_hosts(self):
+        """T-711: the demos show different MyCast voices — one valid male + female pair per city, no pair twice."""
+        import mycast_voices
+        cities = mda.manifest_cities()
+        pairs = [tuple(c["voices"]) for c in cities]
+        self.assertEqual(len(set(pairs)), len(cities))
+        self.assertEqual(len({v for p in pairs for v in p}), 2 * len(cities))           # no voice is reused either
+        for pair in pairs:
+            self.assertTrue(mycast_voices.valid_voices("two_hosts", list(pair)), pair)
+        self.assertEqual(mda.city_voices({"voices": ["Kore", "Charon"]}), ["Charon", "Kore"])   # a wrong pair: the default
+        self.assertEqual(mda.city_voices({}), ["Charon", "Kore"])
+        want = dict((c["id"], c["voices"]) for c in cities)
+        self.store.start(["rome", "delphi"], "uk")
+        self.assertEqual([e["voices"] for e in self.tts.calls], [want["rome"], want["delphi"]])
+        row = next(c for c in self.store.status()["cities"] if c["id"] == "rome")
+        self.assertEqual((row["voices"], row["tracks"]["uk"]["voices"], row["tracks"]["uk"]["voices_changed"]),
+                         (want["rome"], want["rome"], False))
+        state = json.loads((self.root / "state.json").read_text(encoding="utf-8"))     # an older track: recorded before T-711
+        del state["tracks"]["rome.uk"]["voices"]
+        (self.root / "state.json").write_text(json.dumps(state), encoding="utf-8")
+        self.assertTrue(self.track("rome")["voices_changed"])                          # the console says "old voices"
+        for f in (ROOT / "static" / "mycast-share" / "scripts").glob("*.json"):
+            a, b = want[f.name.split(".")[0]]
+            self.assertIn(f"A = {a}, B = {b}", json.loads(f.read_text(encoding="utf-8"))["voices"], f.name)
+        src = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn('voices=tuple(episode.get("voices") or ("Charon", "Kore"))', src)
+
     def test_generate_is_idempotent_and_regenerate_withdraws_approval(self):
         job = self.store.start(["athens"], "uk")
         self.assertEqual((job["state"], job["results"][0]["result"]), ("done", "generated"))

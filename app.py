@@ -966,7 +966,7 @@ def _mycast_demo_tts_no_retry(key, episode):
     """T-665: the MyCast two-host TTS without its 429 wait-and-retry: a 429 stops the owner's run at once."""
     def _stop(_seconds):
         raise MycastGeminiTTSError("rate_limited")
-    return gemini_tts_pcm(key, episode, voices=("Charon", "Kore"), sleep=_stop)
+    return gemini_tts_pcm(key, episode, voices=tuple(episode.get("voices") or ("Charon", "Kore")), sleep=_stop)
 
 
 MYCAST_DEMO_AUDIO = DemoAudioStore(DATA_DIR / "mycast_demo_audio", api_key=lambda: FACTORY_GEMINI_API_KEY,
