@@ -93,6 +93,10 @@ def test_speakable_text():
     assert [mr.number_words(n) for n in ("0", "7", "15", "40", "83", "100", "375", "1000", "2026", "007", "12345")] == [
         "нуль", "сім", "п'ятнадцять", "сорок", "вісімдесят три", "сто", "триста сімдесят п'ять", "тисяча",
         "дві тисячі двадцять шість", "нуль нуль сім", "один два три чотири п'ять"]
+    for written, heard in (("1,000 доларів", "тисяча доларів"), ("3 750 000", "три сім п'ять нуль нуль нуль нуль"),
+                           ("3,5 відсотка", "три кома п'ять відсотка"), ("версія 6.2", "версія шість крапка два"),
+                           ("2,500", "дві тисячі п'ятсот"), ("у 2026, 15 разів", "у дві тисячі двадцять шість, п'ятнадцять разів")):
+        assert mr.speakable(written, UK)[0] == heard, mr.speakable(written, UK)[0]
     digits = UK | set("0123456789")
     assert mr.speakable("GPT-5 у 2026", digits)[0] == "джі пі ті -5 у 2026"  # a voice that knows digits keeps them
     assert mr.voice_alphabet({"phoneme_id_map": {"ə": [1], "a": [2]}}) is None
@@ -134,11 +138,49 @@ def test_workflow_contract():
     flow = (ROOT / ".github/workflows/mycast-render.yml").read_text(encoding="utf-8")
     assert "pull_request:" in flow and "tools/fixtures/mycast_render_fixture.json" in flow
     assert "if-no-files-found: error" in flow and "-f null -" in flow
-    assert "ls docs/prototypes/mycast/episodes/*.json | sort | tail -n 1" in flow  # never re-render the whole archive
+    assert 'tools/mycast_changed_episodes.sh "${{ github.event.before }}"' in flow and "HEAD~1" not in flow
+    assert "if: ${{ !cancelled() }}" in flow  # the transcript is uploaded even when the audio check fails
     assert "contents: read" in flow and "secrets." not in flow
 
 
+def test_changed_episodes_cover_the_whole_push():
+    import subprocess
+
+    script = ROOT / "tools/mycast_changed_episodes.sh"
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        episodes = repo / "docs/prototypes/mycast/episodes"
+        episodes.mkdir(parents=True)
+
+        def git(*args):
+            return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false",
+                                   *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+
+        def commit(name, text="{}"):
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (repo / name).write_text(text, encoding="utf-8")
+            git("add", "-A"), git("commit", "-q", "-m", name)
+            return git("rev-parse", "HEAD")
+
+        def changed(before=""):
+            out = subprocess.run(["bash", str(script), before], cwd=repo, check=True, capture_output=True, text=True).stdout
+            return [Path(line).name for line in out.split()]
+
+        git("init", "-q")
+        base = commit("docs/prototypes/mycast/episodes/2026-11-01.json")
+        commit("docs/prototypes/mycast/episodes/2026-11-02.json")
+        commit("docs/prototypes/mycast/episodes/2026-11-03.json")
+        assert changed(base) == ["2026-11-02.json", "2026-11-03.json"]  # a two-commit push renders both episodes
+        commit("README.md", "x")
+        assert changed(base) == ["2026-11-02.json", "2026-11-03.json"]  # even when the last commit has no episode
+        head = commit("tools/x.py", "x")
+        assert changed(git("rev-parse", "HEAD~1")) == ["2026-11-03.json"]  # no episode in the push: the newest one
+        assert changed("0" * 40) == ["2026-11-03.json"] and changed("") == ["2026-11-03.json"]  # new branch / manual run
+        assert changed("deadbeef" * 5) == ["2026-11-03.json"] and head  # an unknown sha falls back, never fails
+
+
 if __name__ == "__main__":
+    test_changed_episodes_cover_the_whole_push()
     test_editorial_source_without_url()
     test_speakable_text()
     test_audio_qa_refuses_bad_audio()

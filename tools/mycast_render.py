@@ -98,7 +98,9 @@ def speakable(text: str, alphabet: set | None) -> tuple[str, set]:
 
     text = re.sub(r"[A-Za-z]+", lambda m: " " + latin_word(m.group()) + " ", text)
     if not all(known(d) for d in "0123456789"):
-        text = re.sub(r"(?<=\d)[.,](?=\d)", " крапка ", text)
+        text = re.sub(r"(?<!\d)\d{1,3}(?:[,\u00a0 ]\d{3})+(?!\d)", lambda m: re.sub(r"\D", "", m.group()), text)  # 1,000
+        text = re.sub(r"(?<=\d)\.(?=\d)", " крапка ", text)
+        text = re.sub(r"(?<=\d),(?=\d)", " кома ", text)
         text = re.sub(r"\d+", lambda m: " " + number_words(m.group()) + " ", text)
     apostrophe = next((a for a in APOSTROPHES if a in alphabet), "")
     out, unvoiced = [], set()

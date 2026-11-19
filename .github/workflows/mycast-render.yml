@@ -6,9 +6,9 @@ name: MyCast render
 on:
   push:
     branches: [ "mycast/**" ]
-    paths: [ "docs/prototypes/mycast/episodes/**", "tools/mycast_render.py", ".github/workflows/mycast-render.yml" ]
+    paths: [ "docs/prototypes/mycast/episodes/**", "tools/mycast_render.py", "tools/mycast_changed_episodes.sh", ".github/workflows/mycast-render.yml" ]
   pull_request:
-    paths: [ "tools/mycast_render.py", "tools/fixtures/mycast_render_fixture.json", ".github/workflows/mycast-render.yml" ]
+    paths: [ "tools/mycast_render.py", "tools/mycast_changed_episodes.sh", "tools/fixtures/mycast_render_fixture.json", ".github/workflows/mycast-render.yml" ]
   workflow_dispatch:
 
 permissions:
@@ -39,9 +39,8 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             changed=tools/fixtures/mycast_render_fixture.json
           else
-            # Render only the episodes changed by this commit (daily runs add one); otherwise the newest one.
-            changed=$(git diff --name-only --diff-filter=AM HEAD~1 HEAD -- 'docs/prototypes/mycast/episodes/*.json' 2>/dev/null || true)
-            [ -n "$changed" ] || changed=$(ls docs/prototypes/mycast/episodes/*.json | sort | tail -n 1)
+            # Every episode changed by this push (all its commits); the newest episode when it changed none.
+            changed=$(tools/mycast_changed_episodes.sh "${{ github.event.before }}")
           fi
           for ep in $changed; do
             python tools/mycast_render.py "$ep" voices/uk_UA-ukrainian_tts-medium.onnx out 2> piper.log || { tail -n 20 piper.log; exit 1; }
@@ -60,6 +59,7 @@ jobs:
           done
           ls -la out
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}  # a failed audio check still leaves the transcript to read
         with:
           name: mycast-episodes
           path: |

@@ -177,28 +177,23 @@ def test_publish_and_wait():
     assert any("POST" in a for a in seen)
     assert any(a[-1].endswith("episodes/2026-11-03.json") or "episodes/2026-11-03.json" in " ".join(a) for a in seen)
 
-    # An existing branch is first brought up to date with main (the render workflow runs the branch's own copy of
-    # the renderer); a failed merge is logged and never stops the episode from being committed.
+    # sync_branch: an existing branch is merged with main before the episode (the render workflow runs the branch's
+    # own copy of the renderer). A conflict is reported as False, so run_daily can name it; a missing branch is fine.
     def url(args):
         return next(a for a in args if a.startswith("repos/"))
 
-    for merge_code in (0, 1):
+    for exists, merge_code, want in ((True, 0, True), (True, 1, False), (False, 0, True)):
         calls = []
 
-        def existing(*args, input_text=None, merge_code=merge_code):
+        def sync_gh(*args, input_text=None):
             calls.append(args)
-            if "PUT" in args:
-                return 0, "sha2"
             if url(args).endswith("/merges"):
                 assert "POST" in args and f"base={md.BRANCH}" in args and "head=main" in args
                 return merge_code, ""
-            if url(args).startswith(f"repos/{md.REPO_SLUG}/contents/"):
-                return 1, ""
-            return 0, "mainsha"
-        assert md.publish(ep, gh_fn=existing) == "sha2"
-        order = ["PUT" if "PUT" in a else url(a).rsplit("/", 1)[-1] for a in calls]
-        assert order.index("merges") < order.index("PUT") and "refs" not in order
-    assert not any(url(a).endswith("/merges") for a in seen)  # a branch just created from main needs no merge
+            return (0 if exists else 1), ""
+        assert md.sync_branch(gh_fn=sync_gh) is want
+        assert any(url(a).endswith("/merges") for a in calls) is exists
+    assert not any(url(a).endswith("/merges") for a in seen)  # publish itself never merges
 
     states = iter(['[{"databaseId": 7, "status": "in_progress", "conclusion": ""}]',
                    '[{"databaseId": 7, "status": "completed", "conclusion": "success"}]'])
@@ -275,12 +270,13 @@ def test_transcript_messages():
 def test_run_daily_orchestration():
     state_path = Path(tempfile.mkdtemp()) / "mycast.json"
     at = kyiv_ts(2026, 11, 3, 7, 30)
-    saved = {n: getattr(md, n) for n in ("generate_episode", "publish", "wait_render", "download_mp3", "deliver", "deliver_gemini")}
+    saved = {n: getattr(md, n) for n in ("generate_episode", "publish", "sync_branch", "wait_render", "download_mp3", "deliver", "deliver_gemini")}
     saved_conf = md.relay_tasks.configured
     try:
         md.relay_tasks.configured = lambda: True
         md.generate_episode = lambda day, run_cli=None, status_text="": ("ok", dict(good_episode(), id="mycast-2026-11-03"))
         md.publish = lambda ep: "sha1"
+        md.sync_branch = lambda: True
         md.deliver_gemini = lambda ep: "unavailable"  # no Gemini key yet → Piper path
         md.wait_render = lambda sha: "42"
         md.download_mp3 = lambda run_id, eid: b"ID3audio"
@@ -317,6 +313,16 @@ def test_run_daily_orchestration():
         assert len(notices) == 1 and "не доставлено" in notices[0] and "Текст випуску надіслано" in notices[0]
         assert sum(m.startswith("📝") for m in msgs) == 1  # transcript sent once, not per attempt
         assert md.run_daily(state_path, now=at + 9 * md.RETRY_SPACING_SECONDS, send=msgs.append) == "idle"
+        assert "конфлікт" not in notices[0]
+        # The branch could not be merged with main (conflict): the failure notice names the stale renderer.
+        state_path.unlink()
+        md.sync_branch = lambda: False
+        msgs = []
+        for n in range(md.MAX_ATTEMPTS):
+            assert md.run_daily(state_path, now=at + n * md.RETRY_SPACING_SECONDS, send=lambda t: msgs.append(t) or True) == "failed"
+        notices = [m for m in msgs if m.startswith("⚠️")]
+        assert len(notices) == 1 and "конфлікт злиття" in notices[0] and "рендер застарілий" in notices[0]
+        md.sync_branch = lambda: True
         # A broken Telegram notice never breaks the worker loop.
         assert md.notify_owner("x", send=lambda t: (_ for _ in ()).throw(RuntimeError("down"))) is False
         md.relay_tasks.configured = lambda: False
