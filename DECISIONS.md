@@ -2075,3 +2075,14 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   **Reason:** the owner asked to queue what needs no decision from him; Google search through Gemini can be billed beyond the free tier (ZERO ADDITIONAL SPEND).
 - **Decision:** L3/L4 stay unqueued until T-707-H, T-708-H and T-709-H are answered; `docs/business_experiments/LEAGUE_OWNER_DECISIONS.md` lists the options with sources, and recommendations are labelled as such.
   **Reason:** budget, channels and payments are owner decisions; Claude only prepares them.
+
+## 2026-11-19 — T-710 MyCast profile page in the glass style (owner chose variant A)
+
+- **Decision:** `/mycast/u/<slug>` reuses the CSS, JS, covers and card builder of `mycast_share_page` instead of a second copy of the style.
+  **Reason:** the owner wants both links to look like one product; one source keeps them from drifting.
+- **Decision:** the podcast card has a play button only when the listener turned on listening by link; otherwise it shows the existing "not opened yet" line and the bar's play button is disabled.
+  **Reason:** the opt-in from 2026-11-13 is unchanged; the redesign must not make audio look available when it is not.
+- **Decision:** `?lang=uk|ru|en` switches the page language; without it the page stays in the author's language (not the browser's).
+  **Reason:** the page is served with a public 5-minute cache, so the language must depend on the URL only.
+- **Decision:** catalogue topics are shown in the page language; the author's own custom topics stay as typed. The page stays indexable, with a canonical link to the address without `?lang=`.
+  **Reason:** same public data as before; the canonical link keeps the three language addresses from competing in search.

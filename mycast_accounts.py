@@ -561,7 +561,7 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
         return resp
 
     @app.get("/mycast/u/{slug}", include_in_schema=False)
-    def mycast_public_page(slug: str):
+    def mycast_public_page(slug: str, lang: str = ""):
         """Owner 2026-11-13: a shareable podcast page (DNA, optional player, "make one like this"), not the editor."""
         rec, profile = _public(slug)
         if not rec:
@@ -569,7 +569,7 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
         if profile is None:                                   # an old or damaged code: the editor still opens it
             return RedirectResponse(f"{PAGE}#p={rec['code']}&from={slug}", status_code=307)
         import mycast_public
-        return HTMLResponse(mycast_public.render_page(rec, profile, page=PAGE), headers={"Cache-Control": "public, max-age=300"})
+        return HTMLResponse(mycast_public.render_page(rec, profile, page=PAGE, lang=str(lang or "")[:5]), headers={"Cache-Control": "public, max-age=300"})
 
     def _public(slug: str):
         rec = store.get(slug) if SLUG_RE.match(slug or "") else None

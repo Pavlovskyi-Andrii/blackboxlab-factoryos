@@ -1,3 +1,11 @@
+- [x] T-710 MyCast profile page /mycast/u/<slug> in the glass style (variant A, coverflow)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-19: «Делай вариант A» — one of the three T-703 mock-ups)
+  Depends: T-703, T-645
+  Spec: DECISIONS.md «2026-11-19 — T-710». `mycast_public.render_page`, shared card builder `mycast_share_page.card_html`.
+  Goal: the profile page uses the same glass coverflow, player bar and "About" panel as `/mycast/e/<token>`: the podcast card first (plays the latest episode only when the listener allowed listening by link), the demo cities after it, UK/RU/EN by `?lang=`. Same public data as before (first name, topics, geography, follows, schedule, voice), same share card, still indexable.
+  DONE: `python test_mycast_public.py` (glass page, language switch, opt-in audio, escaping, nothing private) + `test_mycast_share_page.py`, `test_mycast_accounts.py`, `test_mycast_domain.py` and the default verification; browser check at 390 and 1280 px (no horizontal scroll, no JS errors, carousel moves), screenshots in `docs/screenshots/t-710/`.
+
 - [ ] T-704 Business League L1: Launchpad protocol in MVP Builder — stages, gates, artifact schemas, honesty validators (no external actions)
   Owner: claude
   Priority: P1 (owner 2026-11-18 in chat with Claude: asked what FactoryOS can take from the Product Launchpad 2027 curriculum, approved the Business League spec «Да давай» and this ROADMAP entry for the autopilot «Да»)
