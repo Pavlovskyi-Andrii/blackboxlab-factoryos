@@ -370,6 +370,13 @@ def publish(episode: dict, *, gh_fn=gh) -> str:
         code, _ = gh_fn("api", "-X", "POST", f"repos/{REPO_SLUG}/git/refs", "-f", f"ref=refs/heads/{BRANCH}", "-f", f"sha={main_sha}")
         if code:
             return ""
+    else:
+        # The render workflow runs the branch's own copy of the renderer, so the branch has to follow main:
+        # a fix merged to main must reach the next daily render. 409 = conflict; the episode is still committed.
+        code, _ = gh_fn("api", "-X", "POST", f"repos/{REPO_SLUG}/merges", "-f", f"base={BRANCH}", "-f", "head=main",
+                        "-f", f"commit_message=Sync {BRANCH} with main (renderer and workflow)")
+        if code:
+            log(f"could not merge main into {BRANCH}; the render may use an older renderer")
     path = f"{EPISODE_DIR}/{episode['id'][len('mycast-'):]}.json"
     code, existing = gh_fn("api", f"repos/{REPO_SLUG}/contents/{path}?ref={BRANCH}", "--jq", ".sha")
     body = {"message": f"MyCast daily episode {episode['id']}", "branch": BRANCH,

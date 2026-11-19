@@ -177,6 +177,29 @@ def test_publish_and_wait():
     assert any("POST" in a for a in seen)
     assert any(a[-1].endswith("episodes/2026-11-03.json") or "episodes/2026-11-03.json" in " ".join(a) for a in seen)
 
+    # An existing branch is first brought up to date with main (the render workflow runs the branch's own copy of
+    # the renderer); a failed merge is logged and never stops the episode from being committed.
+    def url(args):
+        return next(a for a in args if a.startswith("repos/"))
+
+    for merge_code in (0, 1):
+        calls = []
+
+        def existing(*args, input_text=None, merge_code=merge_code):
+            calls.append(args)
+            if "PUT" in args:
+                return 0, "sha2"
+            if url(args).endswith("/merges"):
+                assert "POST" in args and f"base={md.BRANCH}" in args and "head=main" in args
+                return merge_code, ""
+            if url(args).startswith(f"repos/{md.REPO_SLUG}/contents/"):
+                return 1, ""
+            return 0, "mainsha"
+        assert md.publish(ep, gh_fn=existing) == "sha2"
+        order = ["PUT" if "PUT" in a else url(a).rsplit("/", 1)[-1] for a in calls]
+        assert order.index("merges") < order.index("PUT") and "refs" not in order
+    assert not any(url(a).endswith("/merges") for a in seen)  # a branch just created from main needs no merge
+
     states = iter(['[{"databaseId": 7, "status": "in_progress", "conclusion": ""}]',
                    '[{"databaseId": 7, "status": "completed", "conclusion": "success"}]'])
     assert md.wait_render("sha", gh_fn=lambda *a, **k: (0, next(states)), sleep=lambda s: None, wait_seconds=60) == "7"
