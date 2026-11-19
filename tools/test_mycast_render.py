@@ -239,9 +239,12 @@ def test_changed_episodes_cover_the_whole_push():
             git("add", "-A"), git("commit", "-q", "-m", name)
             return git("rev-parse", "HEAD")
 
+        warnings = []
+
         def changed(before=""):
-            out = subprocess.run(["bash", str(script), before], cwd=repo, check=True, capture_output=True).stdout
-            return [Path(p).name for p in out.decode("utf-8").split("\0") if p]
+            done = subprocess.run(["bash", str(script), before], cwd=repo, check=True, capture_output=True)
+            warnings.append(done.stderr.decode("utf-8"))
+            return [Path(p).name for p in done.stdout.decode("utf-8").split("\0") if p]
 
         git("init", "-q")
         base = commit("docs/prototypes/mycast/episodes/2026-11-01.json")
@@ -253,11 +256,23 @@ def test_changed_episodes_cover_the_whole_push():
         commit("tools/x.py", "x")
         assert changed(git("rev-parse", "HEAD~1")) == ["2026-11-03.json"]  # no episode in the push: the newest one
         assert changed("0" * 40) == ["2026-11-03.json"] and changed("") == ["2026-11-03.json"]  # new branch / manual run
-        assert changed("deadbeef" * 5) == ["2026-11-03.json"]  # an unknown sha falls back, never fails
+        assert not any(warnings)
+        # An unavailable base: the last commit still decides (the morning episode is rendered), with a warning.
+        assert changed("deadbeef" * 5) == ["2026-11-03.json"] and "::warning::push base" in warnings[-1]
         before = git("rev-parse", "HEAD")
         commit("docs/prototypes/mycast/episodes/2026-11-04 special *.json")
         commit("docs/prototypes/mycast/episodes/2026-11-05 україна.json")
         assert changed(before) == ["2026-11-04 special *.json", "2026-11-05 україна.json"]  # spaces, globs, non-ASCII
+        # A renamed episode is rendered under its new name, alone or next to an edited one.
+        before = git("rev-parse", "HEAD")
+        (repo / "docs/prototypes/mycast/episodes/2026-11-01.json").write_text('{"lines": "long enough to be seen as a rename"}', encoding="utf-8")
+        git("add", "-A"), git("commit", "-q", "-m", "content")
+        before = git("rev-parse", "HEAD")
+        git("mv", "docs/prototypes/mycast/episodes/2026-11-01.json", "docs/prototypes/mycast/episodes/2026-10-31.json")
+        git("commit", "-q", "-m", "rename")
+        assert changed(before) == ["2026-10-31.json"]  # not the newest-file fallback
+        commit("docs/prototypes/mycast/episodes/2026-11-02.json", '{"edited": true}')
+        assert changed(before) == ["2026-10-31.json", "2026-11-02.json"]
         commit("tools/y.py", "x")
         assert changed(git("rev-parse", "HEAD~1")) == ["2026-11-05 україна.json"]
 

@@ -182,16 +182,20 @@ def test_publish_and_wait():
     def url(args):
         return next(a for a in args if a.startswith("repos/"))
 
-    cases = (  # (ref lookup, merge reply, expected result, merge attempted)
-        ((0, "{}"), (0, "{}"), "", True),
-        ((0, "{}"), (1, '{"message": "Merge conflict", "status": "409"}'), "conflict", True),
-        ((0, "{}"), (1, '{"message": "API rate limit exceeded", "status": "403"}'), "error", True),
-        ((0, "{}"), (1, ""), "error", True),                                        # network failure: no body
-        ((1, '{"message": "Not Found", "status": "404"}'), (0, "{}"), "", False),   # a genuinely missing branch
-        ((1, '{"message": "Bad credentials", "status": "401"}'), (0, "{}"), "error", False),
-        ((1, ""), (0, "{}"), "error", False),                                       # lookup failed, branch may exist
+    ok, missing = (0, "{}"), (1, '{"message": "Not Found", "status": "404"}')
+    cases = (  # (branch lookup, main lookup, merge reply, expected result, merge attempted)
+        (ok, ok, ok, "", True),
+        (ok, ok, (1, '{"message": "Merge conflict", "status": "409"}'), "conflict", True),
+        (ok, ok, (1, '{"message": "API rate limit exceeded", "status": "403"}'), "error", True),
+        (ok, ok, (1, '{"message": "conflict with a rule", "status": "422"}'), "error", True),  # the status decides
+        (ok, ok, (1, ""), "error", True),                                          # network failure: no body
+        (missing, ok, ok, "", False),                                              # a genuinely missing branch
+        (missing, missing, ok, "error", False),                                    # 404 that hides missing access
+        ((1, '{"message": "Bad credentials", "status": "401"}'), ok, ok, "error", False),
+        ((1, "Not Found"), ok, ok, "error", False),                                # no status: not proof of absence
+        ((1, ""), ok, ok, "error", False),                                         # lookup failed, branch may exist
     )
-    for ref, merge, want, merged in cases:
+    for ref, main_ref, merge, want, merged in cases:
         calls = []
 
         def sync_gh(*args, input_text=None):
@@ -199,8 +203,8 @@ def test_publish_and_wait():
             if url(args).endswith("/merges"):
                 assert "POST" in args and f"base={md.BRANCH}" in args and "head=main" in args
                 return merge
-            return ref
-        assert md.sync_branch(gh_fn=sync_gh) == want, (ref, merge)
+            return main_ref if url(args).endswith("/heads/main") else ref
+        assert md.sync_branch(gh_fn=sync_gh) == want, (ref, main_ref, merge)
         assert any(url(a).endswith("/merges") for a in calls) is merged
     assert not any(url(a).endswith("/merges") for a in seen)  # publish itself never merges
 
