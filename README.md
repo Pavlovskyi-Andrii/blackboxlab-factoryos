@@ -27,6 +27,18 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.13.0 — MyCast glass profile page, social publishing, Surfer signed-in reads — 2026-11-17 … 2026-11-19
+- **MyCast:** the profile page `/mycast/u/<slug>` has the same glass coverflow as the episode page, with UK/RU/EN by
+  `?lang=` (T-710); "My podcasts" is in the configurator header and in the share step (T-703, #422); each demo city
+  has its own pair of hosts for the owner's voicing (T-711); "Help us improve" quiz with an analyst loop (T-634, #412).
+- **Social publishing, always behind the owner's approval:** LinkedIn text posts (T-700, #414), OLX adverts through
+  the OLX Partner API (T-701, #421), weekly plan with exactly-once scheduled publishing (T-702, #420).
+- **Surfer:** opens pages signed in with a saved vault login (T-560-L, #418); reads GitHub release pages and ids
+  with dots in full (T-674, #419).
+- **Worker Center:** server-side Telegram ↔ site check and a simpler view (T-592, #416); worker sync resolves
+  ROADMAP-only merge conflicts by itself (T-673, #411).
+- **Planning:** Business League L1 spec queued (T-704, #423); owner tasks and MyCast discovery benchmark (T-705, #424).
+
 ### v5.12.0 — Watchable video duel, releases for every version, main restored — 2026-11-17
 - **Video duel** (T-MODS-E): every take plays in its card (9:16 player); the worker's runner uploads the product-film
   render of a B take, the owner can upload any take; only a real MP4 up to 80 MB is kept, with size, sha256 and
