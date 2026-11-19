@@ -2,7 +2,9 @@
 
 Zero spend: Piper is an open-source local TTS; this runs on a CI runner, not on the EC2 worker.
 Usage: python tools/mycast_render.py EPISODE.json MODEL.onnx OUT_DIR
-Writes OUT_DIR/<id>.md (transcript + sources) and, only when the audio passes QA, OUT_DIR/<id>.wav.
+       python tools/mycast_render.py --batch LIST MODEL.onnx OUT_DIR   (LIST = NUL-separated episode paths)
+Writes OUT_DIR/<id>.md (transcript + sources) and, only when the audio passes QA and the MP3 decodes with the
+right length, OUT_DIR/<id>.wav and OUT_DIR/<id>.mp3. Each episode is rendered on its own; ffmpeg does the MP3.
 
 The Ukrainian Piper voice reads raw characters and knows lowercase Cyrillic only: Latin words, capital letters and
 digits are dropped without an error. `speakable` rewrites the text for the voice (the transcript keeps the original),
@@ -185,7 +187,8 @@ def synthesize(voice, text: str, speaker_id: int, path: Path) -> None:
             voice.synthesize(text, wav_file, speaker_id=speaker_id)
 
 
-def main(episode_path: str, model_path: str, out_dir: str) -> int:
+def render_episode(episode_path: str, model_path: str, out_dir: str) -> Path | None:
+    """Render one episode. Returns the WAV, or None when the audio failed QA (the transcript is still written)."""
     from piper import PiperVoice
 
     episode = json.loads(Path(episode_path).read_text(encoding="utf-8"))
@@ -199,29 +202,34 @@ def main(episode_path: str, model_path: str, out_dir: str) -> int:
 
     voice = PiperVoice.load(model_path)
     parts, chunk_stats, unvoiced = [], [], set()
-    for n, (host, text) in enumerate(episode["lines"]):
-        name = episode["hosts"][host]["speaker"]
-        spoken, missing = speakable(text, alphabet)
-        unvoiced |= missing
-        part = out / f"part-{n:03d}.wav"
-        synthesize(voice, spoken, int(speakers[name]), part)
-        with wave.open(str(part), "rb") as made:
-            chunk_stats.append((len(spoken), made.getnframes() / made.getframerate()))
-        parts.append(part)
-
     final = out / f"{episode['id']}.wav"
-    with wave.open(str(parts[0]), "rb") as first:
-        params = first.getparams()
-    silence = b"\x00" * int(params.framerate * PAUSE_SECONDS) * params.sampwidth * params.nchannels
-    with wave.open(str(final), "wb") as dst:
-        dst.setparams(params)
+    try:
+        for n, (host, text) in enumerate(episode["lines"]):
+            name = episode["hosts"][host]["speaker"]
+            spoken, missing = speakable(text, alphabet)
+            unvoiced |= missing
+            part = out / f"{episode['id']}.part-{n:03d}.wav"
+            parts.append(part)
+            synthesize(voice, spoken, int(speakers[name]), part)
+            with wave.open(str(part), "rb") as made:
+                chunk_stats.append((len(spoken), made.getnframes() / made.getframerate()))
+        with wave.open(str(parts[0]), "rb") as first:
+            params = first.getparams()
+        silence = b"\x00" * int(params.framerate * PAUSE_SECONDS) * params.sampwidth * params.nchannels
+        with wave.open(str(final), "wb") as dst:
+            dst.setparams(params)
+            for part in parts:
+                with wave.open(str(part), "rb") as src:
+                    dst.writeframes(src.readframes(src.getnframes()))
+                dst.writeframes(silence)
+        with wave.open(str(final), "rb") as check:
+            report = pcm_report(check.readframes(check.getnframes()), check.getframerate())
+    except BaseException:
+        final.unlink(missing_ok=True)
+        raise
+    finally:
         for part in parts:
-            with wave.open(str(part), "rb") as src:
-                dst.writeframes(src.readframes(src.getnframes()))
-            dst.writeframes(silence)
-            part.unlink()
-    with wave.open(str(final), "rb") as check:
-        report = pcm_report(check.readframes(check.getnframes()), check.getframerate())
+            part.unlink(missing_ok=True)
 
     if unvoiced:
         print("characters the voice cannot say (skipped): " + " ".join(sorted(unvoiced)))
@@ -229,12 +237,74 @@ def main(episode_path: str, model_path: str, out_dir: str) -> int:
     if problems:
         final.unlink()  # a failed episode leaves no audio behind, so nothing can upload or deliver it
         print(f"AUDIO QA FAILED for {episode['id']}: " + "; ".join(problems))
-        return 2
+        return None
     script.write_text(transcript(episode, report["seconds"]), encoding="utf-8")
     print(f"rendered {final} ({report['seconds']:.1f} s, {len(parts)} lines, longest silence "
           f"{report['max_silence_seconds']:.1f} s, voiced {report['voiced_share']:.0%})")
-    return 0
+    return final
+
+
+def to_mp3(wav: Path, mp3: Path) -> str:
+    """Convert with ffmpeg, then decode the MP3 and compare its length with the WAV. Returns a problem or ''."""
+    import subprocess
+
+    def run(*cmd: str) -> tuple[int, str]:
+        try:
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            return 1, type(exc).__name__
+        return done.returncode, (done.stdout or "").strip()
+
+    if run("ffmpeg", "-loglevel", "error", "-y", "-i", str(wav), "-codec:a", "libmp3lame", "-b:a", "96k", str(mp3))[0]:
+        return "mp3 conversion failed"
+    if run("ffmpeg", "-v", "error", "-xerror", "-i", str(mp3), "-f", "null", "-")[0]:
+        return "mp3 does not decode"
+    code, length = run("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(mp3))
+    with wave.open(str(wav), "rb") as src:
+        seconds = src.getnframes() / src.getframerate()
+    try:
+        if code or abs(float(length) - seconds) > 1:
+            return f"mp3 length {length or '?'}s differs from the audio ({seconds:.1f}s)"
+    except ValueError:
+        return "mp3 length unreadable"
+    return ""
+
+
+def render_batch(episode_paths: list[str], model_path: str, out_dir: str, *, convert=to_mp3) -> int:
+    """Render every episode on its own: one bad episode never hides the others, and an MP3 exists in OUT_DIR only
+    after it passed every check. Returns 0 when all episodes produced a checked MP3, else 1."""
+    failed = []
+    for path in episode_paths:
+        mp3 = None
+        try:
+            wav = render_episode(path, model_path, out_dir)
+            problem = "audio QA" if wav is None else ""
+            if wav is not None:
+                mp3 = wav.with_suffix(".mp3")
+                problem = convert(wav, mp3)
+        except Exception as exc:  # a broken script must not stop the other episodes
+            problem = f"{type(exc).__name__}: {exc}"[:200]
+        if problem:
+            if mp3 is not None:
+                mp3.unlink(missing_ok=True)  # never leave an unchecked or partial MP3 for the upload step
+            failed.append(path)
+            print(f"FAILED {path}: {problem}")
+        else:
+            print(f"ok {path} -> {mp3}")
+    print(f"{len(episode_paths) - len(failed)}/{len(episode_paths)} episodes rendered")
+    return 1 if failed or not episode_paths else 0
+
+
+def main(argv: list[str]) -> int:
+    """EPISODE.json MODEL.onnx OUT_DIR, or --batch LIST MODEL.onnx OUT_DIR (LIST = NUL-separated episode paths)."""
+    if argv and argv[0] == "--batch":
+        listed, model_path, out_dir = argv[1:4]
+        paths = [p for p in Path(listed).read_bytes().decode("utf-8").split("\0") if p.strip()]
+    else:
+        episode_path, model_path, out_dir = argv[:3]
+        paths = [episode_path]
+    return render_batch(paths, model_path, out_dir)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(*sys.argv[1:4]))
+    raise SystemExit(main(sys.argv[1:]))

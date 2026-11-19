@@ -360,18 +360,24 @@ def gh(*args: str, input_text: str | None = None, runner=subprocess.run) -> tupl
     return result.returncode, (result.stdout or "").strip()
 
 
-def sync_branch(*, gh_fn=gh) -> bool:
+def sync_branch(*, gh_fn=gh) -> str:
     """Merge main into BRANCH. The render workflow runs the branch's own copy of the renderer, so a fix merged to
-    main reaches the daily render only through this merge. False = the branch could not be updated (for example a
-    merge conflict, HTTP 409): the Piper render would then use an older renderer, and the caller must say so."""
-    code, _ = gh_fn("api", f"repos/{REPO_SLUG}/git/ref/heads/{BRANCH}")
+    main reaches the daily render only through this merge. Returns "" when the branch is up to date (or does not
+    exist yet: publish creates it from main), "conflict" for a merge conflict, "error" for anything else
+    (authorization, rate limit, network). A non-empty result means the Piper render may use an older renderer."""
+    code, body = gh_fn("api", f"repos/{REPO_SLUG}/git/ref/heads/{BRANCH}")
     if code:
-        return True  # no branch yet: publish creates it from main
-    code, _ = gh_fn("api", "-X", "POST", f"repos/{REPO_SLUG}/merges", "-f", f"base={BRANCH}", "-f", "head=main",
-                    "-f", f"commit_message=Sync {BRANCH} with main (renderer and workflow)")
+        if "Not Found" in body or '"404"' in body:
+            return ""
+        log(f"could not read {BRANCH}; it may be behind main")
+        return "error"
+    code, body = gh_fn("api", "-X", "POST", f"repos/{REPO_SLUG}/merges", "-f", f"base={BRANCH}", "-f", "head=main",
+                       "-f", f"commit_message=Sync {BRANCH} with main (renderer and workflow)")
     if code:
-        log(f"could not merge main into {BRANCH}; the Piper render would use an older renderer")
-    return code == 0
+        reason = "conflict" if "conflict" in body.lower() or '"409"' in body else "error"
+        log(f"could not merge main into {BRANCH} ({reason}); the Piper render would use an older renderer")
+        return reason
+    return ""
 
 
 def publish(episode: dict, *, gh_fn=gh) -> str:
@@ -548,7 +554,7 @@ def run_daily(state_path: pathlib.Path, *, now: float | None = None, run_cli=Non
             save_state(state_path, state)
             return status
         return failed("сценарій не згенеровано")
-    synced = sync_branch()
+    stale_branch = sync_branch()
     sha = publish(episode)  # the script is kept on mycast/daily either way (history, Piper fallback)
     voice = deliver_gemini(episode)
     if voice in ("sent", "duplicate"):
@@ -564,7 +570,8 @@ def run_daily(state_path: pathlib.Path, *, now: float | None = None, run_cli=Non
     audio = download_mp3(run_id, episode["id"]) if run_id else b""
     if not audio:
         log("render or download failed")
-        stale = "" if synced else "; гілка mycast/daily не оновилась із main (конфлікт злиття), рендер застарілий"
+        why = {"conflict": "конфлікт злиття", "error": "помилка GitHub"}.get(stale_branch, "")
+        stale = f"; гілка mycast/daily не оновилась із main ({why}), рендер міг бути застарілий" if why else ""
         return failed("голоси Gemini недоступні, резервний Piper не відрендерився" + stale, episode)
     if not deliver(episode, audio):
         return failed("сервер не прийняв аудіо: перевірка якості або Telegram", episode)

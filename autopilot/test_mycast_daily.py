@@ -182,17 +182,26 @@ def test_publish_and_wait():
     def url(args):
         return next(a for a in args if a.startswith("repos/"))
 
-    for exists, merge_code, want in ((True, 0, True), (True, 1, False), (False, 0, True)):
+    cases = (  # (ref lookup, merge reply, expected result, merge attempted)
+        ((0, "{}"), (0, "{}"), "", True),
+        ((0, "{}"), (1, '{"message": "Merge conflict", "status": "409"}'), "conflict", True),
+        ((0, "{}"), (1, '{"message": "API rate limit exceeded", "status": "403"}'), "error", True),
+        ((0, "{}"), (1, ""), "error", True),                                        # network failure: no body
+        ((1, '{"message": "Not Found", "status": "404"}'), (0, "{}"), "", False),   # a genuinely missing branch
+        ((1, '{"message": "Bad credentials", "status": "401"}'), (0, "{}"), "error", False),
+        ((1, ""), (0, "{}"), "error", False),                                       # lookup failed, branch may exist
+    )
+    for ref, merge, want, merged in cases:
         calls = []
 
         def sync_gh(*args, input_text=None):
             calls.append(args)
             if url(args).endswith("/merges"):
                 assert "POST" in args and f"base={md.BRANCH}" in args and "head=main" in args
-                return merge_code, ""
-            return (0 if exists else 1), ""
-        assert md.sync_branch(gh_fn=sync_gh) is want
-        assert any(url(a).endswith("/merges") for a in calls) is exists
+                return merge
+            return ref
+        assert md.sync_branch(gh_fn=sync_gh) == want, (ref, merge)
+        assert any(url(a).endswith("/merges") for a in calls) is merged
     assert not any(url(a).endswith("/merges") for a in seen)  # publish itself never merges
 
     states = iter(['[{"databaseId": 7, "status": "in_progress", "conclusion": ""}]',
@@ -276,7 +285,7 @@ def test_run_daily_orchestration():
         md.relay_tasks.configured = lambda: True
         md.generate_episode = lambda day, run_cli=None, status_text="": ("ok", dict(good_episode(), id="mycast-2026-11-03"))
         md.publish = lambda ep: "sha1"
-        md.sync_branch = lambda: True
+        md.sync_branch = lambda: ""
         md.deliver_gemini = lambda ep: "unavailable"  # no Gemini key yet → Piper path
         md.wait_render = lambda sha: "42"
         md.download_mp3 = lambda run_id, eid: b"ID3audio"
@@ -315,14 +324,15 @@ def test_run_daily_orchestration():
         assert md.run_daily(state_path, now=at + 9 * md.RETRY_SPACING_SECONDS, send=msgs.append) == "idle"
         assert "конфлікт" not in notices[0]
         # The branch could not be merged with main (conflict): the failure notice names the stale renderer.
-        state_path.unlink()
-        md.sync_branch = lambda: False
-        msgs = []
-        for n in range(md.MAX_ATTEMPTS):
-            assert md.run_daily(state_path, now=at + n * md.RETRY_SPACING_SECONDS, send=lambda t: msgs.append(t) or True) == "failed"
-        notices = [m for m in msgs if m.startswith("⚠️")]
-        assert len(notices) == 1 and "конфлікт злиття" in notices[0] and "рендер застарілий" in notices[0]
-        md.sync_branch = lambda: True
+        for reason, words in (("conflict", "конфлікт злиття"), ("error", "помилка GitHub")):
+            state_path.unlink()
+            md.sync_branch = lambda reason=reason: reason
+            msgs = []
+            for n in range(md.MAX_ATTEMPTS):
+                assert md.run_daily(state_path, now=at + n * md.RETRY_SPACING_SECONDS, send=lambda t: msgs.append(t) or True) == "failed"
+            notices = [m for m in msgs if m.startswith("⚠️")]
+            assert len(notices) == 1 and words in notices[0] and "рендер міг бути застарілий" in notices[0]
+        md.sync_branch = lambda: ""
         # A broken Telegram notice never breaks the worker loop.
         assert md.notify_owner("x", send=lambda t: (_ for _ in ()).throw(RuntimeError("down"))) is False
         md.relay_tasks.configured = lambda: False

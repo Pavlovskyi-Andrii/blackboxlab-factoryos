@@ -43,16 +43,25 @@ def fake_piper(spoken: list, *, mode: str = "ok") -> None:
     sys.modules["piper"] = types.SimpleNamespace(PiperVoice=Voice, SynthesisConfig=SynthesisConfig)
 
 
-def render(episode: dict, mode: str = "ok") -> tuple[int, Path, list, tempfile.TemporaryDirectory]:
+def fake_mp3(wav: Path, mp3: Path) -> str:
+    mp3.write_bytes(b"ID3" + wav.read_bytes()[:64])
+    return ""
+
+
+def render(episode: dict, mode: str = "ok", convert=fake_mp3) -> tuple[int, Path, list, tempfile.TemporaryDirectory]:
     tmp = tempfile.TemporaryDirectory()
     root = Path(tmp.name)
     (root / "ep.json").write_text(json.dumps(episode, ensure_ascii=False), encoding="utf-8")
-    config = {"speaker_id_map": {"mykyta": 1, "tetiana": 2}, "phoneme_id_map": {c: [n] for n, c in enumerate(sorted(UK))}}
-    (root / "voice.onnx.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
     spoken: list = []
     fake_piper(spoken, mode=mode)
-    code = mr.main(str(root / "ep.json"), str(root / "voice.onnx"), str(root / "out"))
+    code = mr.render_batch([str(root / "ep.json")], voice_files(root), str(root / "out"), convert=convert)
     return code, root / "out", spoken, tmp
+
+
+def voice_files(root: Path) -> str:
+    config = {"speaker_id_map": {"mykyta": 1, "tetiana": 2}, "phoneme_id_map": {c: [n] for n, c in enumerate(sorted(UK))}}
+    (root / "voice.onnx.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    return str(root / "voice.onnx")
 
 
 def fixture() -> dict:
@@ -71,7 +80,8 @@ def test_editorial_source_without_url():
         assert "- [MyCast render fixture](https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos) — 2026-11-19" in text
         assert "Тривалість:" in text and "ще не відрендерено" not in text
         assert "OpenAI" in text  # the transcript keeps the original spelling
-        assert (out / "mycast-render-fixture.wav").exists() and not list(out.glob("part-*.wav"))
+        assert (out / "mycast-render-fixture.wav").exists() and not list(out.glob("*part-*.wav"))
+        assert (out / "mycast-render-fixture.mp3").exists()
         assert [speaker for _, speaker in spoken] == [1, 2, 1, 2]
     assert mr.source_line({"title": "T", "date": "2026-11-19"}) == "- T — без посилання, 2026-11-19"
     assert mr.source_line({}) == "- без назви — без посилання, без дати"
@@ -106,8 +116,8 @@ def test_audio_qa_refuses_bad_audio():
     for mode, reason in (("silent", "has sound"), ("truncated", "duration")):
         code, out, _, tmp = render(fixture(), mode)
         with tmp:
-            assert code == 2, mode
-            assert not (out / "mycast-render-fixture.wav").exists()  # nothing left to convert, upload or deliver
+            assert code == 1, mode
+            assert not list(out.glob("*.wav")) and not list(out.glob("*.mp3"))  # nothing left to upload or deliver
             assert "ще не відрендерено" in (out / "mycast-render-fixture.md").read_text(encoding="utf-8")
     lines = [["A", "слово " * 140]]
     good = {"seconds": 60.0, "max_silence_seconds": 0.5, "voiced_share": 0.9}
@@ -137,10 +147,79 @@ def test_thresholds_match_server_preflight():
 def test_workflow_contract():
     flow = (ROOT / ".github/workflows/mycast-render.yml").read_text(encoding="utf-8")
     assert "pull_request:" in flow and "tools/fixtures/mycast_render_fixture.json" in flow
-    assert "if-no-files-found: error" in flow and "-f null -" in flow
-    assert 'tools/mycast_changed_episodes.sh "${{ github.event.before }}"' in flow and "HEAD~1" not in flow
-    assert "if: ${{ !cancelled() }}" in flow  # the transcript is uploaded even when the audio check fails
+    assert "if-no-files-found: error" in flow
+    assert 'tools/mycast_changed_episodes.sh "${{ github.event.before }}" > episodes.list' in flow and "HEAD~1" not in flow
+    assert "tools/mycast_render.py --batch episodes.list" in flow and "for ep in" not in flow and "libmp3lame" not in flow
+    assert "if: ${{ !cancelled() }}" in flow  # transcripts and the checked MP3s are uploaded even when an episode fails
     assert "contents: read" in flow and "secrets." not in flow
+
+
+def test_batch_keeps_good_episodes_and_only_checked_mp3():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        good, other = fixture(), dict(fixture(), id="mycast-other one")
+        broken = dict(fixture(), id="mycast-broken", lines=[["A", "текст"], ["C", "немає такого ведучого"]])
+        bad_mp3 = dict(fixture(), id="mycast-bad-mp3")
+        paths = []
+        for name, episode in (("a broken.json", broken), ("b bad mp3.json", bad_mp3), ("c good.json", good), ("d *.json", other)):
+            (root / name).write_text(json.dumps(episode, ensure_ascii=False), encoding="utf-8")
+            paths.append(str(root / name))
+        (root / "not-json.json").write_text("{", encoding="utf-8")
+        paths.insert(0, str(root / "not-json.json"))
+
+        def convert(wav: Path, mp3: Path) -> str:
+            mp3.write_bytes(b"partial")  # ffmpeg can leave a partial file behind
+            return "mp3 does not decode" if "bad-mp3" in mp3.name else ""
+
+        fake_piper([])
+        out = root / "out"
+        assert mr.render_batch(paths, voice_files(root), str(out), convert=convert) == 1  # the run is red...
+        assert sorted(p.name for p in out.glob("*.mp3")) == ["mycast-other one.mp3", "mycast-render-fixture.mp3"]  # ...the good audio is kept
+        assert not (out / "mycast-bad-mp3.mp3").exists() and not list(out.glob("*part-*"))
+        assert not list(out.glob("mycast-broken.*"))  # a malformed script leaves nothing behind
+        assert mr.render_batch([], voice_files(root), str(out)) == 1  # nothing to render is not a success
+
+        # The command line: NUL-separated list, file names with spaces and glob characters arrive unchanged.
+        seen = []
+        real, mr.render_batch = mr.render_batch, lambda paths, model, out_dir: seen.append((paths, model, out_dir)) or 0
+        try:
+            (root / "list").write_bytes("a b.json\0c *.json\0".encode())
+            assert mr.main(["--batch", str(root / "list"), "m.onnx", "o"]) == 0 and mr.main(["one.json", "m.onnx", "o"]) == 0
+        finally:
+            mr.render_batch = real
+        assert seen == [(["a b.json", "c *.json"], "m.onnx", "o"), (["one.json"], "m.onnx", "o")]
+
+
+def test_to_mp3_checks_the_file():
+    import shutil
+
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = Path(tmp) / "x.wav"
+        with wave.open(str(wav), "wb") as w:
+            w.setnchannels(1), w.setsampwidth(2), w.setframerate(RATE)
+            w.writeframes(b"".join(struct.pack("<h", int(8000 * math.sin(i / 8))) for i in range(RATE * 3)))
+        import subprocess
+        real_run = subprocess.run
+        calls = []
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd[0])
+            step = len(calls)
+            return types.SimpleNamespace(returncode=replies[step - 1][0], stdout=replies[step - 1][1])
+
+        subprocess.run = fake_run
+        try:
+            for replies, want in (([(1, "")], "mp3 conversion failed"), ([(0, ""), (1, "")], "mp3 does not decode"),
+                                  ([(0, ""), (0, ""), (0, "9.0")], "differs"), ([(0, ""), (0, ""), (0, "")], "unreadable"),
+                                  ([(0, ""), (0, ""), (0, "3.02")], "")):
+                calls.clear()
+                got = mr.to_mp3(wav, wav.with_suffix(".mp3"))
+                assert (want in got) if want else got == "", (replies, got)
+            assert calls == ["ffmpeg", "ffmpeg", "ffprobe"]
+        finally:
+            subprocess.run = real_run
+        if shutil.which("ffmpeg") and shutil.which("ffprobe"):  # the real tools, where the machine has them
+            assert mr.to_mp3(wav, wav.with_suffix(".mp3")) == "" and wav.with_suffix(".mp3").stat().st_size > 1000
 
 
 def test_changed_episodes_cover_the_whole_push():
@@ -149,8 +228,6 @@ def test_changed_episodes_cover_the_whole_push():
     script = ROOT / "tools/mycast_changed_episodes.sh"
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)
-        episodes = repo / "docs/prototypes/mycast/episodes"
-        episodes.mkdir(parents=True)
 
         def git(*args):
             return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false",
@@ -163,8 +240,8 @@ def test_changed_episodes_cover_the_whole_push():
             return git("rev-parse", "HEAD")
 
         def changed(before=""):
-            out = subprocess.run(["bash", str(script), before], cwd=repo, check=True, capture_output=True, text=True).stdout
-            return [Path(line).name for line in out.split()]
+            out = subprocess.run(["bash", str(script), before], cwd=repo, check=True, capture_output=True).stdout
+            return [Path(p).name for p in out.decode("utf-8").split("\0") if p]
 
         git("init", "-q")
         base = commit("docs/prototypes/mycast/episodes/2026-11-01.json")
@@ -173,14 +250,22 @@ def test_changed_episodes_cover_the_whole_push():
         assert changed(base) == ["2026-11-02.json", "2026-11-03.json"]  # a two-commit push renders both episodes
         commit("README.md", "x")
         assert changed(base) == ["2026-11-02.json", "2026-11-03.json"]  # even when the last commit has no episode
-        head = commit("tools/x.py", "x")
+        commit("tools/x.py", "x")
         assert changed(git("rev-parse", "HEAD~1")) == ["2026-11-03.json"]  # no episode in the push: the newest one
         assert changed("0" * 40) == ["2026-11-03.json"] and changed("") == ["2026-11-03.json"]  # new branch / manual run
-        assert changed("deadbeef" * 5) == ["2026-11-03.json"] and head  # an unknown sha falls back, never fails
+        assert changed("deadbeef" * 5) == ["2026-11-03.json"]  # an unknown sha falls back, never fails
+        before = git("rev-parse", "HEAD")
+        commit("docs/prototypes/mycast/episodes/2026-11-04 special *.json")
+        commit("docs/prototypes/mycast/episodes/2026-11-05 україна.json")
+        assert changed(before) == ["2026-11-04 special *.json", "2026-11-05 україна.json"]  # spaces, globs, non-ASCII
+        commit("tools/y.py", "x")
+        assert changed(git("rev-parse", "HEAD~1")) == ["2026-11-05 україна.json"]
 
 
 if __name__ == "__main__":
     test_changed_episodes_cover_the_whole_push()
+    test_batch_keeps_good_episodes_and_only_checked_mp3()
+    test_to_mp3_checks_the_file()
     test_editorial_source_without_url()
     test_speakable_text()
     test_audio_qa_refuses_bad_audio()

@@ -37,27 +37,18 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            changed=tools/fixtures/mycast_render_fixture.json
+            printf '%s\0' tools/fixtures/mycast_render_fixture.json > episodes.list
           else
             # Every episode changed by this push (all its commits); the newest episode when it changed none.
-            changed=$(tools/mycast_changed_episodes.sh "${{ github.event.before }}")
+            tools/mycast_changed_episodes.sh "${{ github.event.before }}" > episodes.list
           fi
-          for ep in $changed; do
-            python tools/mycast_render.py "$ep" voices/uk_UA-ukrainian_tts-medium.onnx out 2> piper.log || { tail -n 20 piper.log; exit 1; }
-            # Piper prints one line per character it cannot say; show each such character once.
-            grep -o 'Missing phoneme from id map: .*' piper.log | sort -u | head -n 40 || true
-          done
-          for f in out/*.wav; do ffmpeg -loglevel error -y -i "$f" -codec:a libmp3lame -b:a 96k "${f%.wav}.mp3"; done
-      - name: Check every MP3 decodes and matches its WAV length
-        run: |
-          set -euo pipefail
-          for f in out/*.mp3; do
-            ffmpeg -v error -xerror -i "$f" -f null -
-            mp3=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$f")
-            wav=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "${f%.mp3}.wav")
-            python -c "import sys; m, w = float(sys.argv[1]), float(sys.argv[2]); print(f'{sys.argv[3]}: mp3 {m:.1f}s, wav {w:.1f}s'); sys.exit(0 if w > 1 and abs(m - w) <= 1 else 1)" "$mp3" "$wav" "$f"
-          done
-          ls -la out
+          # Each episode is rendered, converted and checked on its own. An MP3 stays in out/ only after it decoded
+          # with the right length, so the upload below can never carry a broken or unchecked file.
+          python tools/mycast_render.py --batch episodes.list voices/uk_UA-ukrainian_tts-medium.onnx out 2> piper.log || status=$?
+          grep -o 'Missing phoneme from id map: .*' piper.log | sort -u | head -n 40 || true
+          grep -v 'Missing phoneme' piper.log | tail -n 30 || true
+          ls -la out || true
+          exit "${status:-0}"
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}  # a failed audio check still leaves the transcript to read
         with:
