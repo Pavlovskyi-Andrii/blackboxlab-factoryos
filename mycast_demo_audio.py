@@ -6,7 +6,7 @@ quota only. Everything here is owner-triggered and owner-approved:
 * Scripts are fixed files in the repo, `static/mycast-share/scripts/<city>.<lang>.json` (two hosts, sources listed).
   Nothing is written by a model at generation time; the server only voices the reviewed text.
 * The owner presses "Generate" (one city or all) in the owner console. The server voices with the existing MyCast
-  two-host TTS (`mycast.gemini_tts_pcm`, Charon + Kore) and the server key, and keeps the MP3 under DATA_DIR, never in
+  two-host TTS (`mycast.gemini_tts_pcm`; T-711: each city has its own pair of hosts from `demos.json`) and the server key, and keeps the MP3 under DATA_DIR, never in
   the repo. A generated track is not public.
 * Idempotent: a track that exists is not voiced again unless the owner asks for "regenerate" explicitly.
 * Limits: at most RUN_CAP (5) new generations per run and DAILY_CAP per UTC day; every attempt counts, failed ones too.
@@ -38,6 +38,7 @@ LANGS = ("uk", "ru", "en")
 CITY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 RUN_CAP = 5
 DAILY_CAP = int(os.environ.get("MYCAST_DEMO_AUDIO_DAILY_CAP", "10") or 10)
+DEFAULT_VOICES = ("Charon", "Kore")
 PAUSE_SECONDS = 21.0          # between two voicings: stays under the free tier's few requests per minute
 MAX_SCRIPT_CHARS = 2600       # one TTS chunk (mycast.CHUNK_CHARS is 2800): one request per city
 MAX_LINES = 40
@@ -92,8 +93,16 @@ def manifest_cities(manifest: Path = MANIFEST) -> list[dict]:
         demos = json.loads(manifest.read_text(encoding="utf-8")).get("demos") or []
     except (OSError, ValueError, AttributeError):
         return []
-    return [{"id": d["id"], "name": d.get("name") or {}} for d in demos
+    return [{"id": d["id"], "name": d.get("name") or {}, "voices": city_voices(d)} for d in demos
             if isinstance(d, dict) and CITY_RE.match(str(d.get("id") or ""))][:12]
+
+
+def city_voices(demo: dict) -> list:
+    """T-711: each demo city has its own pair of hosts, so the demos show different MyCast voices. A pair that is not a
+    valid two-host pair of the catalogue (first male-by-ear, second female-by-ear) falls back to the default pair."""
+    import mycast_voices
+    pair = demo.get("voices")
+    return list(pair) if mycast_voices.valid_voices("two_hosts", pair) else list(DEFAULT_VOICES)
 
 
 class DemoAudioStore:
@@ -145,7 +154,7 @@ class DemoAudioStore:
         tracks = data.get("tracks") or {}
         cities = []
         for c in manifest_cities(self.manifest):
-            row = {"id": c["id"], "name": c["name"], "tracks": {}}
+            row = {"id": c["id"], "name": c["name"], "voices": c["voices"], "tracks": {}}
             for lang in LANGS:
                 key = f"{c['id']}.{lang}"
                 try:
@@ -162,6 +171,8 @@ class DemoAudioStore:
                 if exists:
                     item.update({"generated_at": rec.get("generated_at"), "seconds": rec.get("seconds"),
                                  "bytes": rec.get("bytes"), "stale": rec.get("script_sha") != script["sha"],
+                                 "voices": rec.get("voices") or list(DEFAULT_VOICES),
+                                 "voices_changed": (rec.get("voices") or list(DEFAULT_VOICES)) != c["voices"],
                                  "preview_url": f"/api/factory/mycast/demo-audio/{c['id']}/{lang}.mp3"})
                 if state == "approved":
                     item.update({"approved_at": rec.get("approved_at"), "public_url": f"/mycast/demo/{c['id']}.{lang}.mp3"})
@@ -214,6 +225,9 @@ class DemoAudioStore:
         if len(cities) > self.run_cap:
             raise DemoAudioRefused("run_limit")
         scripts = {c: load_script(c, lang, self.scripts_dir) for c in cities}
+        voices = {c["id"]: c["voices"] for c in manifest_cities(self.manifest)}
+        for c in cities:
+            scripts[c]["voices"] = voices[c]
         if not self.api_key():
             raise DemoAudioRefused("not_configured", 503)
         with self._lock:
@@ -267,7 +281,7 @@ class DemoAudioStore:
                 self.sleep(self.pause)
             script = scripts[city]
             try:
-                pcm, rate = self.tts(self.api_key(), {"language": lang, "lines": script["lines"]})
+                pcm, rate = self.tts(self.api_key(), {"language": lang, "lines": script["lines"], "voices": list(script["voices"])})
                 if self.qc:
                     self.qc(pcm, rate, script["lines"])
                 mp3 = self.encode(pcm, rate)
@@ -306,7 +320,7 @@ class DemoAudioStore:
                 data = self._load()
                 data.setdefault("tracks", {})[f"{city}.{lang}"] = {
                     "generated_at": _now_iso(self.clock()), "seconds": round(len(pcm) / 2 / max(1, rate), 1),
-                    "bytes": len(mp3), "script_sha": script["sha"], "approved": False, "approved_at": None}
+                    "bytes": len(mp3), "script_sha": script["sha"], "voices": list(script["voices"]), "approved": False, "approved_at": None}
                 self._save(data)
             self._result(city, lang, "generated")
         self._finish_job("done")
@@ -364,7 +378,7 @@ async function load(){{let s;try{{s=await api('/api/factory/mycast/demo-audio')}
 const lang=$('#lang').value;$('#quota').textContent='Сегодня: '+s.used_today+' из '+s.daily_cap+' генераций'+(s.configured?'':' · ключа Gemini нет');
 const running=s.job&&s.job.state==='running';$('#all').disabled=running||!s.configured;
 $('#list').innerHTML=s.cities.map(c=>{{const t=c.tracks[lang]||{{state:'no_script'}};const name=(c.name&&(c.name.ru||c.name.uk))||c.id;
-let h='<div class="card"><div class="row"><b>'+esc(name)+'</b><span class="tag '+esc(t.state)+'">'+esc({{none:'не сгенерировано',generated:'сгенерировано · ждёт одобрения',approved:'одобрено · играет на сайте',no_script:'нет сценария',bad_script:'сценарий повреждён'}}[t.state]||t.state)+'</span>'+(t.stale?'<span class="tag">сценарий изменился после генерации</span>':'')+'</div>';
+let h='<div class="card"><div class="row"><b>'+esc(name)+'</b><span class="tag '+esc(t.state)+'">'+esc({{none:'не сгенерировано',generated:'сгенерировано · ждёт одобрения',approved:'одобрено · играет на сайте',no_script:'нет сценария',bad_script:'сценарий повреждён'}}[t.state]||t.state)+'</span>'+(t.stale?'<span class="tag">сценарий изменился после генерации</span>':'')+(t.voices_changed?'<span class="tag">записано старыми голосами: '+esc((t.voices||[]).join(' + '))+'</span>':'')+'<span class="tag">ведущие: '+esc((c.voices||[]).join(' + '))+'</span>'+'</div>';
 if(t.state!=='no_script'&&t.state!=='bad_script'){{h+='<div class="row" style="margin-top:8px">';
 if(t.state==='none')h+='<button type="button" data-g="'+esc(c.id)+'"'+(running||!s.configured?' disabled':'')+'>Сгенерировать</button>';
 else h+='<button type="button" data-r="'+esc(c.id)+'"'+(running||!s.configured?' disabled':'')+'>Перегенерировать</button>';
