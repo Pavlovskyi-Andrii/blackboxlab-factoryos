@@ -6157,6 +6157,9 @@ MEDIA_FINISHER_EVIDENCE={
   "audio_report":("analysis","Audio finishing report"),
   "safe_zone_report":("analysis","Safe-zone / frame QA"),
   "edit_summary":("analysis","Media Finisher edit summary"),
+  "edit_decisions":("json","Edit decisions (reasons, confidence, undo)"),
+  "qa_report":("analysis","Measured QA report"),
+  "render_metrics":("analysis","Render time and resource use"),
 }
 
 def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,output_url=""):
@@ -6216,8 +6219,10 @@ def _record_media_finisher_qa_handoff(item,artifact_ids,report):
     safe=(report or {}).get("safe_zone_report") or {}
     violations=safe.get("violations") if isinstance(safe,dict) else []
     summary=(report or {}).get("edit_summary") or {}
+    worker_qa=(report or {}).get("qa_report") or {}
     qa={
       "decision":"human_review_required",
+      "worker_qa_overall":worker_qa.get("overall") if isinstance(worker_qa,dict) else None,
       "safe_zone_violations":len(violations or []),
       "caption_events":len((report or {}).get("caption_timeline") or []),
       "graphics_events":len((report or {}).get("graphics_timeline") or []),
@@ -8950,11 +8955,11 @@ def _media_review_state(job_id):
 # T-541: evidence groups shown to the operator before approval. Every finisher artifact is optional; an absent one is
 # reported as not produced instead of being hidden, so the reviewer can tell "missing" from "not looked at".
 MEDIA_FINISHER_PREVIEW_GROUPS=(
-  ("cuts",("cut_list","shorts_manifest")),
+  ("cuts",("cut_list","edit_decisions","shorts_manifest")),
   ("captions",("caption_timeline","transcript_words","transcript_corrections")),
   ("audio",("audio_report",)),
   ("graphics",("graphics_timeline","motion_timeline")),
-  ("qa",("safe_zone_report","edit_summary")),
+  ("qa",("safe_zone_report","qa_report","render_metrics","edit_summary")),
 )
 
 def _preview_media_item(item):

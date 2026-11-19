@@ -2095,3 +2095,24 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   **Reason:** the store's TTS signature and the "never re-voice without an explicit regenerate" rule (T-665) stay as they are; the free quota is spent only when the owner asks.
 - **Decision:** this session still generates and approves nothing.
   **Reason:** the owner console needs the owner's signed-in session (this session gets 401), and approval after listening is the owner's gate (T-645-H).
+
+## 2026-11-19 — R-0089 (#427) AI Video Editor v1: word-safe edit decisions and measured QA in the Media Finisher worker
+
+- **Decision:** the existing `media_finisher_worker` is extended; no second pipeline, server or orchestration layer. Audit, ranking and plan: `docs/roadmap/AI_VIDEO_EDITOR_V1_PROPOSAL.md`.
+  **Reason:** the v4.5 worker already covers most of the tutorial baseline, and #427 forbids duplicate implementation.
+- **Decision:** a silence cut never touches a transcribed word (30 ms guard), even when FFmpeg calls the stretch silent; when Whisper stretches a word into a pause, more of the pause is kept.
+  **Reason:** a lost word is worse than a longer pause. Trusting acoustics over a stretched word needs real footage to calibrate.
+- **Decision:** defaults, all overridable in the profile's `speech_cleanup`/`motion`: pause cutoff = max(profile value, speaker's median gap × 2.5), capped at 0.8 s; +0.1 s kept after the end of a sentence; filler/repeat applied only at ASR confidence ≥ 0.5; wordless sliver under 0.25 s between cuts merged; zoom only for a removal ≥ 0.25 s and ≥ 0.8 s after the previous zoom.
+  **Reason:** the tutorial's fixed numbers are starting points; these are reversible first values to tune on the pilot.
+- **Decision:** on an exact repeated phrase the second copy is still the one removed.
+  **Reason:** unchanged behaviour; "last take wins" is a taste call for the owner (listed in the proposal).
+- **Decision:** a final file that fails the decode pass fails the job and is deleted; every other QA finding (black, silence, length, safe zone, loudness) is reported and leaves the job `ready` for human review.
+  **Reason:** an undecodable file must not reach approval; the other findings can be intended and are the reviewer's call.
+- **Decision:** the new JSON artifacts stay in the worker's job directory and travel in the authenticated callback; `/files` exposes nothing new. `source-reference.json` stores the host of the input URL, not the URL.
+  **Reason:** `/files` has no auth, the transcript is private content, and the input URL can be a signed link.
+- **Decision:** Remotion vertical safe-zone offsets are now pixels of frame height (CSS percentage padding resolves against width), and the ASS margins follow the profile's zones.
+  **Reason:** by geometry the caption plate sat about 13.5 % above the bottom of a 1080×1920 frame against a 20 % zone. Not yet confirmed on a rendered frame: this host has no renderer.
+- **Decision:** `test_pipeline_contract.py` replaces FFmpeg/Whisper with stand-ins and, on a host without FastAPI, uses a minimal stand-in for it.
+  **Reason:** the agent host has neither; the test proves stage order, artifacts, undo and failure paths, and says in its docstring that it is not a render.
+- **Decision:** no real MP4, pilot or completion is claimed; the build task `v4.5-ai-media-finisher` is not marked done.
+  **Reason:** acceptance needs owner footage and the worker image (FFmpeg, faster-whisper, Remotion).
