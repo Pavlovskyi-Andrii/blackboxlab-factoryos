@@ -2117,3 +2117,9 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   **Reason:** a fragment is not sent to the server, so the secret stays out of access logs, link previews and Referer headers; a restart dropping a pending link is harmless.
 - **Decision:** on by default, `FACTORY_LOGIN_RECOVERY_ENABLED=0` removes the link, the routes and the command. The PR waits for the owner's explicit "merge" because it adds a way to sign in as owner.
   **Reason:** the owner asked for the button; anyone who controls the paired private Telegram chat can sign in as owner, which is the owner's call to accept.
+## 2026-11-20 — MyCast render workflow: setup time and voice cache (owner: «в окремий мерж»)
+
+- **Finding:** the slow part of the render job is not the voice download, as first assumed, but `apt-get update && apt-get install ffmpeg`: run 44513032045 spent 9 min 08 s there and 3 s rendering. The job limit (`timeout-minutes: 20`) and the worker's wait (`RENDER_WAIT_SECONDS = 1200`) both date from the first pilot commits of 2026-11-02 (`f217d2f`, `3013699`, written by Claude); they were sized for a render of about a minute and never revisited.
+- **Decision:** the workflow uses the runner's own FFmpeg and calls apt only when it is missing (install first, `apt-get update` only if that fails, needrestart suspended). **Reason:** removes the one step that can eat half of the 20-minute budget; the limits themselves stay, so a hung job still ends.
+- **Decision:** the voice model is kept in the Actions cache (`piper-voice-uk_UA-ukrainian_tts-medium-v1`), checked by size and JSON before use, downloaded with retries only when the cache is empty or broken. **Reason:** a morning render no longer depends on the model host being reachable. Reversible: bump the key to refresh the voice.
+- Setup is split into named steps so each run shows where its time went.

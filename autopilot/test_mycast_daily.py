@@ -288,16 +288,20 @@ def test_run_daily_orchestration():
     try:
         md.relay_tasks.configured = lambda: True
         md.generate_episode = lambda day, run_cli=None, status_text="": ("ok", dict(good_episode(), id="mycast-2026-11-03"))
-        md.publish = lambda ep: "sha1"
-        md.sync_branch = lambda: ""
+        order = []
+        md.publish = lambda ep: order.append("publish") or "sha1"
+        md.sync_branch = lambda: order.append("sync") or ""
         md.deliver_gemini = lambda ep: "unavailable"  # no Gemini key yet → Piper path
-        md.wait_render = lambda sha: "42"
+        md.wait_render = lambda sha: order.append(("wait", sha)) or "42"
         md.download_mp3 = lambda run_id, eid: b"ID3audio"
         delivered = []
         md.deliver = lambda ep, audio: delivered.append((ep["id"], audio)) or True
         msgs = []
         assert md.run_daily(state_path, now=at, send=msgs.append) == "delivered"
         assert msgs and msgs[0].startswith("📝")  # transcript + sources follow the audio
+        # The branch is brought up to date before the episode commit, and the render awaited is the one for the
+        # commit publish returned (not the sync merge, which gets a run of its own).
+        assert order == ["sync", "publish", ("wait", "sha1")]
         assert md.run_daily(state_path, now=at + 3600, send=msgs.append) == "idle" and len(msgs) == len(md.transcript_messages(good_episode()))
         assert delivered == [("mycast-2026-11-03", b"ID3audio")]
         assert md.run_daily(state_path, now=at + 3600) == "idle"  # once per day

@@ -152,6 +152,12 @@ def test_workflow_contract():
     assert "tools/mycast_render.py --batch episodes.list" in flow and "for ep in" not in flow and "libmp3lame" not in flow
     assert "if: ${{ !cancelled() }}" in flow  # transcripts and the checked MP3s are uploaded even when an episode fails
     assert "contents: read" in flow and "secrets." not in flow
+    # Setup: no unconditional apt (it once took 9 minutes of a 20-minute job), and the voice comes from the cache.
+    setup = flow[flow.index("- name: FFmpeg"):flow.index("- name: Render episodes")]
+    assert "command -v ffmpeg" in setup and setup.index("command -v ffmpeg") < setup.index("apt-get install")
+    assert "apt-get update -qq && sudo apt-get install" not in flow
+    assert "actions/cache@v4" in setup and "piper-voice-uk_UA-ukrainian_tts-medium-v1" in setup
+    assert setup.index("actions/cache@v4") < setup.index("huggingface.co") and "--retry 3" in setup
 
 
 def test_batch_keeps_good_episodes_and_only_checked_mp3():
