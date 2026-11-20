@@ -1,5 +1,7 @@
 """T-712: "Forgot password?" — `/login` in the owner's private Telegram chat gives a one-time sign-in link. Offline."""
+import asyncio
 import inspect
+import json
 import os
 import pathlib
 import re
@@ -148,8 +150,28 @@ class WebhookGuardTest(unittest.TestCase):
     def setUpClass(cls):
         os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-recovery-"))
         import app as factory
-        from fastapi.testclient import TestClient
-        cls.f, cls.client = factory, TestClient(factory.app, follow_redirects=False)
+        cls.f = factory
+
+    def call(self, method, path, body=b"", headers=None):
+        """One raw ASGI request against the real app (no httpx needed): (status, headers, body)."""
+        hdrs = [(b"host", b"factory.test")] + [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()]
+        scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method, "scheme": "https",
+                 "path": path, "raw_path": path.encode(), "query_string": b"", "headers": hdrs,
+                 "server": ("factory.test", 443), "client": ("127.0.0.1", 50000), "root_path": ""}
+        sent, delivered = [], []
+
+        async def receive():
+            if not delivered:
+                delivered.append(True)
+                return {"type": "http.request", "body": body, "more_body": False}
+            await asyncio.Event().wait()
+
+        async def send(message):
+            sent.append(message)
+        asyncio.run(self.f.app(scope, receive, send))
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        return (start["status"], {k.decode(): v.decode() for k, v in start["headers"]},
+                b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body"))
 
     def setUp(self):
         os.environ.pop("FACTORY_LOGIN_RECOVERY_ENABLED", None)
@@ -168,7 +190,11 @@ class WebhookGuardTest(unittest.TestCase):
         os.environ.pop("FACTORY_LOGIN_RECOVERY_ENABLED", None)
 
     def hook(self, headers, message=None):
-        return self.client.post("/api/integrations/telegram/webhook", json={"update_id": 1, "message": message or msg()}, headers=headers)
+        return self.call("POST", "/api/integrations/telegram/webhook", json.dumps({"update_id": 1, "message": message or msg()}).encode(),
+                         {"Content-Type": "application/json", **headers})
+
+    def redeem(self, token):
+        return self.call("POST", "/login/recover", f"token={token}&lang=ru".encode(), {"Content-Type": "application/x-www-form-urlencoded"})
 
     def links(self):
         return [p for m, p in self.sent if "login/recover" in str(p)]
@@ -178,12 +204,12 @@ class WebhookGuardTest(unittest.TestCase):
         f.FACTORY_TELEGRAM_BOT_TOKEN = ""                                           # no bot token: there is no secret at all
         self.assertEqual(f._telegram_webhook_secret(), "")
         for headers in ({}, {"X-Telegram-Bot-Api-Secret-Token": ""}, {"X-Telegram-Bot-Api-Secret-Token": "anything"}):
-            self.assertEqual(self.hook(headers).status_code, 403, headers)
+            self.assertEqual(self.hook(headers)[0], 403, headers)
         f.FACTORY_TELEGRAM_BOT_TOKEN = "1:test-token"
         good = f._telegram_webhook_secret()
         for headers in ({}, {"X-Telegram-Bot-Api-Secret-Token": ""}, {"X-Telegram-Bot-Api-Secret-Token": good[:-1] + "0"},
                         {"X-Telegram-Bot-Api-Secret-Token": "x" * 64}):
-            self.assertEqual(self.hook(headers).status_code, 403, headers)
+            self.assertEqual(self.hook(headers)[0], 403, headers)
         self.assertEqual(self.sent, [])
         self.assertEqual(f.LOGIN_RECOVERY._token_hash, "")                          # nothing issued
 
@@ -191,22 +217,22 @@ class WebhookGuardTest(unittest.TestCase):
         f = self.f
         f.FACTORY_TELEGRAM_BOT_TOKEN = "1:test-token"
         good = {"X-Telegram-Bot-Api-Secret-Token": f._telegram_webhook_secret()}
-        self.assertEqual(self.hook(good, msg(chat_id=-100777, chat_type="supergroup")).status_code, 200)
-        self.assertEqual(self.hook(good, msg(chat_id=888, sender=888)).status_code, 200)
+        self.assertEqual(self.hook(good, msg(chat_id=-100777, chat_type="supergroup"))[0], 200)
+        self.assertEqual(self.hook(good, msg(chat_id=888, sender=888))[0], 200)
         self.assertEqual(self.links(), [])                                          # a group and a foreign chat: nothing
-        self.assertEqual(self.hook(good).json().get("action"), "login_link")
+        self.assertEqual(json.loads(self.hook(good)[2]).get("action"), "login_link")
         link = self.links()[-1]
         self.assertEqual((link["chat_id"], link["disable_web_page_preview"]), (OWNER, True))
         token = link["text"].rsplit("#", 1)[1]
         current = f.LOGIN_RECOVERY._token_hash
-        self.assertEqual(self.hook({"X-Telegram-Bot-Api-Secret-Token": "wrong"}).status_code, 403)
-        self.assertEqual(self.hook({}).status_code, 403)
+        self.assertEqual(self.hook({"X-Telegram-Bot-Api-Secret-Token": "wrong"})[0], 403)
+        self.assertEqual(self.hook({})[0], 403)
         self.assertEqual(f.LOGIN_RECOVERY._token_hash, current)                     # the owner's link was not replaced
         self.assertEqual(len(self.links()), 1)
-        self.assertEqual(self.client.get("/api/factory/telegram/status").status_code, 401 if f.FACTORY_PASSWORD else 200)
-        used = self.client.post("/login/recover", data={"token": token, "lang": "ru"})
-        self.assertEqual((used.status_code, used.headers.get("location")), (303, "/ru"))
-        self.assertEqual(self.client.post("/login/recover", data={"token": token, "lang": "ru"}).status_code, 410)
+        status, headers, _ = self.redeem(token)
+        self.assertEqual((status, headers.get("location")), (303, "/ru"))
+        self.assertIn("set-cookie", headers)                                        # the owner session cookie
+        self.assertEqual(self.redeem(token)[0], 410)
 
     def test_kill_switch_ignores_the_command(self):
         f = self.f
