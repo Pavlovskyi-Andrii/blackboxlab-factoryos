@@ -29,6 +29,22 @@ The target is a deliberate cinematic pace: motivated edits, no unnecessary zoom 
 - `asset_candidates.json` — candidate Pexels source URLs and general licence policy. **All rights_status fields are candidate_unverified and allowed_to_render=false**. Before production, fetch the original page, verify author and restrictions, record authorization context, download with consent into private media storage, store SHA256, and record attribution/changes. Never treat this shotpack as the license approval step. Some photographer names were not yet confirmed.
 - Generated image/video references require their own provenance and approval; do not use model-generated scenes as evidence that the depicted business events happened.
 
+## Reproducible zero-cost motion animatic
+
+`render_previs.py` is the **actual offline synthetic previs renderer** used to generate a 45-second 960×540 / 24fps H.264 + AAC MP4 in the owner's ChatGPT session. It draws seven procedural scenes, animates them with FFmpeg zoompan and synthesizes its own low-volume ambient audio. It does **not** use the Pexels candidates, real photographic footage, voiceover, or an image-to-video provider. The result is a **technical animatic**, not the photorealistic acceptance artifact from #433.
+
+Requirements: Python 3, Pillow, NumPy, FFmpeg and FFprobe installed; `DejaVu Sans` font at the path in the script. Run from a repo checkout:
+
+```bash
+python docs/storyboards/blackbox-lab-45s/render_previs.py \
+  --storyboard docs/storyboards/blackbox-lab-45s/storyboard.json \
+  --output /tmp/blackbox_lab_previs.mp4
+ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate \
+  -of json /tmp/blackbox_lab_previs.mp4
+```
+
+Verified in the source session: output 45.000s, video H.264 960×540/24fps, audio AAC, full decode clean. The command's generated `previs_qa.json` explicitly states that these are synthetic illustrations. For actual licensed photos, see the candidates manifest and verify rights before use.
+
 ## QA / minimal acceptance for Claude
 
 1. Validate 7 unique IDs, ascending non-overlapping times and sum exactly 45.0 seconds.
