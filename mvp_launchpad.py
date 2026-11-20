@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -96,8 +97,8 @@ def _text(value: Any, limit: int, *, required: bool = False, redact: bool = Fals
         raise MvpError("personal_data")
     if len(out) > limit:
         raise MvpError("text_too_long")
-    if required and not out:
-        raise MvpError("text_required")
+    if required and (not out or out.lower() == UNKNOWN):
+        raise MvpError("text_required")              # the sentinel for "missing" is not content
     return out or UNKNOWN
 
 
@@ -105,7 +106,7 @@ def _url(value: Any, *, required: bool = True) -> str:
     text = str(value or "").strip()
     if not text and not required:
         return UNKNOWN
-    if not URL_RE.match(text) or "@" in text.split("/", 3)[2] or len(text) > 500:
+    if not URL_RE.fullmatch(text) or "@" in text.split("/", 3)[2] or len(text) > 500:
         raise MvpError("source_url_required" if required and not text else "bad_url")
     return text
 
@@ -117,7 +118,7 @@ def _date(value: Any, today: str, *, required: bool) -> str:
             raise MvpError("date_required")
         return UNKNOWN
     try:
-        if not DATE_RE.match(text):
+        if not DATE_RE.fullmatch(text):
             raise ValueError
         datetime.strptime(text, "%Y-%m-%d")
     except ValueError:
@@ -131,14 +132,14 @@ def _number(value: Any) -> Any:
     """None → "unknown"; 0 is a real result and stays 0 (honest zero)."""
     if value is None or value == UNKNOWN:
         return UNKNOWN
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 or value > 10 ** 9:
-        raise MvpError("bad_number")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0 or value > 10 ** 9:
+        raise MvpError("bad_number")                 # NaN and infinity are not measurements (and not valid JSON)
     return value
 
 
 def _refs(value: Any, *, required: bool = False) -> list[str]:
     items = value if isinstance(value, list) else ([value] if value else [])
-    if len(items) > 20 or any(not isinstance(x, str) or not REF_RE.match(x) for x in items):
+    if len(items) > 20 or any(not isinstance(x, str) or not REF_RE.fullmatch(x) for x in items):
         raise MvpError("bad_ref")
     if required and not items:
         raise MvpError("ref_required")
@@ -225,7 +226,7 @@ def validate_artifact(body: dict, today: str) -> dict:
     elif kind == "interview_note":
         _fields(b, {"consent_ref", "participant", "last_real_case", "frequency", "current_solution", "cost", "consequences",
                     "roles", "ask_made", "outcome"})
-        if not PARTICIPANT_RE.match(str(b.get("participant") or "")):
+        if not PARTICIPANT_RE.fullmatch(str(b.get("participant") or "")):
             raise MvpError("participant_hash_required")     # never a name or a contact
         if b.get("outcome") not in ("agreed", "refused", "conditions", "no_decision"):
             raise MvpError("bad_outcome")

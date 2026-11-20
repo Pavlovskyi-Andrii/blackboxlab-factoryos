@@ -159,6 +159,32 @@ class SchemaTest(LaunchpadCase):
         self.assertEqual(self.code(self.lp.add_artifact, "nope", idea(), actor_role="owner"), "unknown_project")
 
 
+    def test_review_findings_nan_sentinel_and_trailing_newline(self):
+        # Codex review of #432: none of these may be stored, and a zero still is.
+        idea_id = self.add(idea())["id"]
+        before = self.reg.path.read_text(encoding="utf-8")
+        for bad in (float("nan"), float("inf"), -float("inf")):
+            self.assertEqual(self.code(self.add, entry(leads=bad)), "bad_number")
+        for body in (fact(fact="unknown"), fact(fact=" Unknown "), signal(situation="unknown"), idea(2, problem="UNKNOWN"),
+                     idea(2, who="unknown")):
+            self.assertEqual(self.code(self.add, body), "text_required", body)
+        for body, want in ((fact(idea_ref=[idea_id + "\n"]), "bad_ref"), (fact(observed_at="2027-01-1\n0"), "bad_date"),
+                           (entry(evidence=["https://example.org/x\ny"]), "bad_url"), (fact(source_url="https://example.org/a b"), "bad_url")):
+            self.assertEqual(self.code(self.add, body), want, body)
+        note = {"type": "interview_note", "consent_ref": "on record", "participant": "p-0123abcd\n", "last_real_case": "c",
+                "ask_made": "a", "outcome": "agreed"}
+        self.assertEqual(self.code(self.add, note), "participant_hash_required")
+        self.assertEqual(self.reg.path.read_text(encoding="utf-8"), before)      # the registry is unchanged
+        self.assertEqual(self.check("D2")["actual"], UNKNOWN)                     # nothing to feed a gate
+        self.assertEqual(self.code(self.lp.gate, PID, "G1", {"action": "propose", "chosen": [idea_id], "deferred": {},
+                                                             "rationale": "unknown", "evidence_refs": [idea_id]},
+                                   actor_role="agent", actor="gpt"), "text_required")
+        self.assertEqual(self.add(entry(leads=0, payments=0.0))["fields"]["leads"], 0)
+        clean = self.add(fact(idea_id, observed_at="2027-01-10\n", source_url=" https://example.org/x\n"))["fields"]
+        self.assertEqual((clean["observed_at"], clean["source_url"]), ("2027-01-10", "https://example.org/x"))   # stored canonical
+        json.loads(self.reg.path.read_text(encoding="utf-8"), parse_constant=lambda c: self.fail("non-finite number stored: " + c))
+
+
 class CountingTest(LaunchpadCase):
     def test_test_and_synthetic_records_are_shown_but_never_counted(self):
         real_idea = self.add(idea(1))
