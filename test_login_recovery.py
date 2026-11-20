@@ -140,5 +140,82 @@ class RecoveryTest(unittest.TestCase):
         self.assertIn('sign_in=lambda lang: _auth_cookie_response(f"/{lang}","owner","")', src)
 
 
+class WebhookGuardTest(unittest.TestCase):
+    """Codex #430: the chat and sender ids in a webhook body count only behind Telegram's secret header. With the secret
+    unset, missing or wrong, nothing is issued, replaced or sent. Runs against the real app."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="factoryos-recovery-"))
+        import app as factory
+        from fastapi.testclient import TestClient
+        cls.f, cls.client = factory, TestClient(factory.app, follow_redirects=False)
+
+    def setUp(self):
+        os.environ.pop("FACTORY_LOGIN_RECOVERY_ENABLED", None)
+        f = self.f
+        self.saved = (f.FACTORY_TELEGRAM_BOT_TOKEN, f._telegram_api, f._telegram_load_state, f.LOGIN_RECOVERY._token_hash,
+                      f.LOGIN_RECOVERY._expires)
+        self.sent = []
+        f._telegram_api = lambda method, payload=None: self.sent.append((method, payload)) or {"ok": True}
+        f._telegram_load_state = lambda: {"chat_id": OWNER}
+        f.LOGIN_RECOVERY._token_hash, f.LOGIN_RECOVERY._expires = "", 0.0
+
+    def tearDown(self):
+        f = self.f
+        (f.FACTORY_TELEGRAM_BOT_TOKEN, f._telegram_api, f._telegram_load_state, f.LOGIN_RECOVERY._token_hash,
+         f.LOGIN_RECOVERY._expires) = self.saved
+        os.environ.pop("FACTORY_LOGIN_RECOVERY_ENABLED", None)
+
+    def hook(self, headers, message=None):
+        return self.client.post("/api/integrations/telegram/webhook", json={"update_id": 1, "message": message or msg()}, headers=headers)
+
+    def links(self):
+        return [p for m, p in self.sent if "login/recover" in str(p)]
+
+    def test_unset_missing_and_wrong_secrets_issue_nothing(self):
+        f = self.f
+        f.FACTORY_TELEGRAM_BOT_TOKEN = ""                                           # no bot token: there is no secret at all
+        self.assertEqual(f._telegram_webhook_secret(), "")
+        for headers in ({}, {"X-Telegram-Bot-Api-Secret-Token": ""}, {"X-Telegram-Bot-Api-Secret-Token": "anything"}):
+            self.assertEqual(self.hook(headers).status_code, 403, headers)
+        f.FACTORY_TELEGRAM_BOT_TOKEN = "1:test-token"
+        good = f._telegram_webhook_secret()
+        for headers in ({}, {"X-Telegram-Bot-Api-Secret-Token": ""}, {"X-Telegram-Bot-Api-Secret-Token": good[:-1] + "0"},
+                        {"X-Telegram-Bot-Api-Secret-Token": "x" * 64}):
+            self.assertEqual(self.hook(headers).status_code, 403, headers)
+        self.assertEqual(self.sent, [])
+        self.assertEqual(f.LOGIN_RECOVERY._token_hash, "")                          # nothing issued
+
+    def test_a_bad_secret_cannot_replace_the_owners_link_and_only_the_owner_chat_gets_one(self):
+        f = self.f
+        f.FACTORY_TELEGRAM_BOT_TOKEN = "1:test-token"
+        good = {"X-Telegram-Bot-Api-Secret-Token": f._telegram_webhook_secret()}
+        self.assertEqual(self.hook(good, msg(chat_id=-100777, chat_type="supergroup")).status_code, 200)
+        self.assertEqual(self.hook(good, msg(chat_id=888, sender=888)).status_code, 200)
+        self.assertEqual(self.links(), [])                                          # a group and a foreign chat: nothing
+        self.assertEqual(self.hook(good).json().get("action"), "login_link")
+        link = self.links()[-1]
+        self.assertEqual((link["chat_id"], link["disable_web_page_preview"]), (OWNER, True))
+        token = link["text"].rsplit("#", 1)[1]
+        current = f.LOGIN_RECOVERY._token_hash
+        self.assertEqual(self.hook({"X-Telegram-Bot-Api-Secret-Token": "wrong"}).status_code, 403)
+        self.assertEqual(self.hook({}).status_code, 403)
+        self.assertEqual(f.LOGIN_RECOVERY._token_hash, current)                     # the owner's link was not replaced
+        self.assertEqual(len(self.links()), 1)
+        self.assertEqual(self.client.get("/api/factory/telegram/status").status_code, 401 if f.FACTORY_PASSWORD else 200)
+        used = self.client.post("/login/recover", data={"token": token, "lang": "ru"})
+        self.assertEqual((used.status_code, used.headers.get("location")), (303, "/ru"))
+        self.assertEqual(self.client.post("/login/recover", data={"token": token, "lang": "ru"}).status_code, 410)
+
+    def test_kill_switch_ignores_the_command(self):
+        f = self.f
+        f.FACTORY_TELEGRAM_BOT_TOKEN = "1:test-token"
+        os.environ["FACTORY_LOGIN_RECOVERY_ENABLED"] = "0"
+        self.hook({"X-Telegram-Bot-Api-Secret-Token": f._telegram_webhook_secret()})
+        self.assertEqual(self.links(), [])
+        self.assertEqual(f.LOGIN_RECOVERY._token_hash, "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
