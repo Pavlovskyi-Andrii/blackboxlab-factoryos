@@ -216,7 +216,8 @@ class DemoAudioStore:
     def start(self, cities: Any, lang: Any, *, regenerate: bool = False) -> dict:
         if lang not in LANGS:
             raise DemoAudioRefused("bad_language")
-        known = [c["id"] for c in manifest_cities(self.manifest)]
+        voices = {c["id"]: c["voices"] for c in manifest_cities(self.manifest)}    # one manifest snapshot for both checks
+        known = list(voices)
         if cities == "all":
             cities = known
         if not isinstance(cities, list) or not cities or any(c not in known for c in cities):
@@ -225,7 +226,6 @@ class DemoAudioStore:
         if len(cities) > self.run_cap:
             raise DemoAudioRefused("run_limit")
         scripts = {c: load_script(c, lang, self.scripts_dir) for c in cities}
-        voices = {c["id"]: c["voices"] for c in manifest_cities(self.manifest)}
         for c in cities:
             scripts[c]["voices"] = voices[c]
         if not self.api_key():

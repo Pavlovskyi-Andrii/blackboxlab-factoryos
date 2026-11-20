@@ -1,3 +1,10 @@
+- [x] T-712 FactoryOS login: "Forgot password?" — a one-time sign-in link to the owner's paired Telegram chat
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-20: «добавь кнопку восстановить пароль» after not finding the password)
+  Spec: DECISIONS.md «2026-11-20 — T-712». `login_recovery.py`, login page and auth middleware in `app.py`.
+  Goal: a "Forgot password?" button on `/login` (EN/UK/RU). It sends a one-time, 10-minute sign-in link only to the Telegram chat already paired with FactoryOS; the link opens a confirmation page and only its POST signs in as owner. The page answers the same whether or not a chat is paired, says where the password itself lives (Render), limits requests (one per 2 minutes, 5 per day) and can be turned off with `FACTORY_LOGIN_RECOVERY_ENABLED=0`. The password is never shown or changed; password and Google sign-in are untouched.
+  DONE: `python test_login_recovery.py` (Telegram-only delivery, once-only, wrong/expired/replaced links, rate limit and daily cap, same answer without a chat, kill switch, three locales, app wiring) + in-process run against the real app (button on the page, routes public, cookie set, reuse refused) + default verification.
+
 - [x] T-711 MyCast demo cities: each city voiced by its own pair of hosts
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner voice note 2026-11-19: «озвучить города… разными голосами, с разными ведущими, чтобы это было как демо»)

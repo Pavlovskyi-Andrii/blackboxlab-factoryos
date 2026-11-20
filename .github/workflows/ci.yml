@@ -253,6 +253,8 @@ jobs:
           python test_mycast_share_page.py
           python -m py_compile mycast_demo_audio.py test_mycast_demo_audio.py
           python test_mycast_demo_audio.py
+          python -m py_compile login_recovery.py test_login_recovery.py
+          python test_login_recovery.py
           python -m py_compile brand_strategy.py brand_strategy_seeds.py test_brand_strategy.py
           python test_brand_strategy.py
           python -m py_compile test_factory_cycle_controls.py
