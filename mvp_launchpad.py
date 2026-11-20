@@ -109,7 +109,9 @@ def _text(value: Any, limit: int, *, required: bool = False, redact: bool = Fals
 def _url(value: Any, *, required: bool = True) -> str:
     """A public https link, parsed into parts. No user info, no e-mail address and no credential-like query
     parameter (checked after percent-decoding): the registry is shared, and a source link must be safe to show.
-    Long digit runs are allowed on purpose: post and status ids look like phone numbers."""
+    Long digit runs are allowed on purpose: post and status ids look like phone numbers.
+    Known limit: a secret that is part of the path (an unlisted share link) cannot be told from an ordinary slug;
+    the board is served to signed-in team roles only, and writers are told to cite public pages."""
     text = str(value or "").strip()
     if not text:
         if required:
@@ -129,8 +131,10 @@ def _url(value: Any, *, required: bool = True) -> str:
     decoded = unquote(unquote(parts.path + "?" + parts.query + "#" + parts.fragment))
     if EMAIL_RE.search(decoded):
         raise MvpError("personal_data")
-    if any(SECRET_PARAM_RE.search(name) for name, _ in parse_qsl(parts.query, keep_blank_values=True)):
-        raise MvpError("url_has_credential")
+    # The same check on the fragment: sign-in redirects and share links put tokens after "#".
+    for part in (parts.query, parts.fragment):
+        if any(SECRET_PARAM_RE.search(name) for name, _ in parse_qsl(part, keep_blank_values=True)):
+            raise MvpError("url_has_credential")
     return text
 
 

@@ -196,6 +196,8 @@ class SchemaTest(LaunchpadCase):
                           ("https://example.org/doc?access_token=abc123", "url_has_credential"),
                           ("https://example.org/doc?X-Amz-Signature=abc", "url_has_credential"),
                           ("https://example.org/doc?api_key=abc&page=2", "url_has_credential"),
+                          ("https://example.org/cb#access_token=abc&state=1", "url_has_credential"),
+                          ("https://example.org/doc#sig=abc", "url_has_credential"),
                           ("https://user:pw@example.org/x", "bad_url"), ("https://example.org:99999/x", "bad_url"),
                           ("https://example.org:abc/x", "bad_url"), ("ftp://example.org/x", "bad_url"),
                           ("https://localhost/x", "bad_url"), ("https://10.0.0.1/x", "bad_url"), ("https:///x", "bad_url")):
