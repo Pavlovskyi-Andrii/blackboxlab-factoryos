@@ -1,0 +1,127 @@
+{
+  "schema": "film-studio-assets/v1",
+  "project_id": "blackbox-lab-45s",
+  "version": 1,
+  "render_allowed": false,
+  "assets": [
+    {
+      "asset_id": "A01",
+      "shot_id": "S01",
+      "source_type": "original_art_proposed",
+      "source_url": null,
+      "source_reference": "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/434",
+      "author": null,
+      "license": "unknown",
+      "attribution": null,
+      "local_sha256": null,
+      "rights_status": "unverified",
+      "consent_status": "not_applicable_until_asset_selected",
+      "generation_provenance": null,
+      "render_allowed": false
+    },
+    {
+      "asset_id": "A02",
+      "shot_id": "S02",
+      "source_type": "original_art_proposed",
+      "source_url": null,
+      "source_reference": "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/434",
+      "author": null,
+      "license": "unknown",
+      "attribution": null,
+      "local_sha256": null,
+      "rights_status": "unverified",
+      "consent_status": "not_applicable_until_asset_selected",
+      "generation_provenance": null,
+      "render_allowed": false
+    },
+    {
+      "asset_id": "A03",
+      "shot_id": "S03",
+      "source_type": "original_art_proposed",
+      "source_url": null,
+      "source_reference": "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/434",
+      "author": null,
+      "license": "unknown",
+      "attribution": null,
+      "local_sha256": null,
+      "rights_status": "unverified",
+      "consent_status": "not_applicable_until_asset_selected",
+      "generation_provenance": null,
+      "render_allowed": false
+    },
+    {
+      "asset_id": "A04",
+      "shot_id": "S04",
+      "source_type": "original_art_proposed",
+      "source_url": null,
+      "source_reference": "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/434",
+      "author": null,
+      "license": "unknown",
+      "attribution": null,
+      "local_sha256": null,
+      "rights_status": "unverified",
+      "consent_status": "not_applicable_until_asset_selected",
+      "generation_provenance": null,
+      "render_allowed": false
+    },
+    {
+      "asset_id": "A05",
+      "shot_id": "S05",
+      "source_type": "original_art_proposed",
+      "source_url": null,
+      "source_reference": "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/434",
+      "author": null,
+      "license": "unknown",
+      "attribution": null,
+      "local_sha256": null,
+      "rights_status": "unverified",
+      "consent_status": "not_applicable_until_asset_selected",
+      "generation_provenance": null,
+      "render_allowed": false
+    },
+    {
+      "asset_id": "A06",
+      "shot_id": "S06",
+      "source_type": "original_art_proposed",
+      "source_url": null,
+      "source_reference": "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/434",
+      "author": null,
+      "license": "unknown",
+      "attribution": null,
+      "local_sha256": null,
+      "rights_status": "unverified",
+      "consent_status": "not_applicable_until_asset_selected",
+      "generation_provenance": null,
+      "render_allowed": false
+    },
+    {
+      "asset_id": "A07",
+      "shot_id": "S07",
+      "source_type": "original_art_proposed",
+      "source_url": null,
+      "source_reference": "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/434",
+      "author": null,
+      "license": "unknown",
+      "attribution": null,
+      "local_sha256": null,
+      "rights_status": "unverified",
+      "consent_status": "not_applicable_until_asset_selected",
+      "generation_provenance": null,
+      "render_allowed": false
+    }
+  ],
+  "candidate_research": [
+    {
+      "source_name": "Wikimedia Commons",
+      "source_url": "https://commons.wikimedia.org/",
+      "license_note": "Licenses vary per file; individual file page, creator, terms, and hash must be recorded before use.",
+      "rights_status": "unverified"
+    },
+    {
+      "source_name": "Pexels",
+      "source_url": "https://www.pexels.com/license/",
+      "license_note": "License overview only, not proof of rights to any selected photo; inspect original item and attribution requirements.",
+      "rights_status": "unverified"
+    }
+  ]
+}
