@@ -1,0 +1,47 @@
+{
+  "schema": "film-studio/v1",
+  "project_id": "blackbox-lab-45s",
+  "version": 1,
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 24,
+    "duration_seconds": 45,
+    "aspect_ratio": "16:9"
+  },
+  "language": "en",
+  "status": "preproduction_unverified",
+  "truth_policy": "All depicted agent activity is conceptual DEMO, not footage of actual users, revenue, or deployed autonomous actions.",
+  "palette": {
+    "shadows": "#071B24",
+    "cyan": "#1B7180",
+    "practical_warm": "#E9A55D"
+  },
+  "continuity": {
+    "setting": "fictional compact creative studio at night",
+    "characters": [
+      {
+        "id": "agent-a",
+        "identity": "abstract on-screen workflow visualization; not a real person",
+        "wardrobe": "n/a"
+      },
+      {
+        "id": "agent-b",
+        "identity": "abstract on-screen workflow visualization; not a real person",
+        "wardrobe": "n/a"
+      }
+    ],
+    "props": [
+      "unbranded monitor",
+      "paper prototype sketches",
+      "abstract workflow cards"
+    ],
+    "lighting": "motivated warm desk lamp, restrained cyan monitor spill",
+    "camera": "cinematic 35mm/50mm equivalents, slow purposeful movement",
+    "restrictions": [
+      "no real account screens without consent",
+      "no fake conversion or revenue metrics",
+      "no imitation of real persons"
+    ]
+  }
+}
