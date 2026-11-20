@@ -1,8 +1,10 @@
-"""T-712: "Forgot password?" — a one-time sign-in link to the owner's paired Telegram chat. Offline."""
-import json
+"""T-712: "Forgot password?" — `/login` in the owner's private Telegram chat gives a one-time sign-in link. Offline."""
+import inspect
 import os
 import pathlib
 import re
+import subprocess
+import tempfile
 import unittest
 
 from fastapi import FastAPI
@@ -10,6 +12,11 @@ from fastapi import FastAPI
 import login_recovery as lr
 
 ROOT = pathlib.Path(__file__).parent
+OWNER = "777"
+
+
+def msg(text="/login", chat_id=777, chat_type="private", sender=777, bot=False):
+    return {"text": text, "chat": {"id": chat_id, "type": chat_type}, "from": {"id": sender, "is_bot": bot}}
 
 
 class Clock:
@@ -20,118 +27,116 @@ class Clock:
         return self.t
 
 
-class Base(unittest.TestCase):
+class RecoveryTest(unittest.TestCase):
     def setUp(self):
         os.environ.pop("FACTORY_LOGIN_RECOVERY_ENABLED", None)
-        self.clock, self.sent, self.logs, self.paired = Clock(), [], [], True
-        self.rec = lr.LoginRecovery(send=self._send, base_url=lambda: "https://f.example", clock=self.clock, log=self.logs.append)
+        self.clock, self.logs = Clock(), []
+        self.rec = lr.LoginRecovery(base_url=lambda: "https://f.example", clock=self.clock, log=self.logs.append)
         app = FastAPI()
         lr.install_login_recovery_routes(app, self.rec, sign_in=lambda lang: ("SIGNED_IN", lang))
+        self.routes = [(sorted(r.methods)[0], r.path) for r in app.routes if getattr(r, "path", "").startswith("/login")]
         self.h = {(sorted(r.methods)[0], r.path): r.endpoint for r in app.routes if hasattr(r, "endpoint")}
+        self.page, self.use = self.h[("GET", "/login/recover")], self.h[("POST", "/login/recover")]
 
     def tearDown(self):
         os.environ.pop("FACTORY_LOGIN_RECOVERY_ENABLED", None)
 
-    def _send(self, text):
-        if not self.paired:
-            return False
-        self.sent.append(text)
-        return True
+    def token(self, text):
+        return re.search(r"/login/recover\?lang=\w+#([A-Za-z0-9_-]+)$", text).group(1)
 
-    def token(self):
-        return re.search(r"/login/recover/([A-Za-z0-9_-]+)\?lang=", self.sent[-1]).group(1)
+    def test_only_the_owners_private_chat_can_ask_for_a_link(self):
+        self.assertTrue(lr.owner_private_command(msg(), OWNER))
+        self.assertTrue(lr.owner_private_command(msg("/login@FactoryBot now"), OWNER))
+        for bad in (msg(chat_id=-100777, chat_type="supergroup"), msg(chat_type="group"),     # a group, even a paired one
+                    msg(chat_id=-777, sender=-777), msg(chat_id=888, sender=888),             # another private chat
+                    msg(sender=999), msg(bot=True), msg("/loginx"), msg("login"), msg("/ask /login"),
+                    {"text": "/login"}, None):
+            self.assertFalse(lr.owner_private_command(bad, OWNER), bad)
+        self.assertFalse(lr.owner_private_command(msg(), ""))                                 # nothing paired
+        self.assertFalse(lr.owner_private_command(msg(chat_id=-100777, chat_type="private", sender=-100777), "-100777"))
 
-
-class RecoveryTest(Base):
-    def test_link_goes_to_telegram_only_and_works_once(self):
-        r = self.h[("POST", "/login/recover")](lang="ru")
-        page = r.body.decode()
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(len(self.sent), 1)
-        token = self.token()
-        self.assertIn(f"https://f.example/login/recover/{token}?lang=ru", self.sent[0])
-        self.assertNotIn(token, page)                                   # never on the page
-        self.assertNotIn(token, "".join(self.logs))                     # never in the log
-        self.assertIn("FACTORY_PASSWORD", page)                         # says where the password itself lives
-        self.assertEqual(r.headers["cache-control"], "no-store")
-        opened = self.h[("GET", "/login/recover/{token}")](token, lang="ru")
-        self.assertEqual(opened.status_code, 200)
-        self.assertIn("method='post'", opened.body.decode())            # a preview that only GETs cannot sign in…
-        self.assertTrue(self.rec.valid(token))                          # …and does not use the link up
-        self.assertEqual(self.h[("POST", "/login/recover/{token}")](token, lang="ru"), ("SIGNED_IN", "ru"))
-        again = self.h[("POST", "/login/recover/{token}")](token, lang="ru")
-        self.assertEqual(again.status_code, 410)                        # once only
-        self.assertEqual(self.h[("GET", "/login/recover/{token}")](token).status_code, 410)
+    def test_link_keeps_the_secret_in_the_fragment_and_works_once(self):
+        text = self.rec.message("ru")
+        token = self.token(text)
+        self.assertIn(f"https://f.example/login/recover?lang=ru#{token}", text)     # after "#": browsers never send it
+        self.assertNotIn(token, "".join(self.logs))
+        page = self.page(lang="ru")
+        body = page.body.decode()
+        self.assertEqual(page.status_code, 200)
+        self.assertNotIn(token, body)
+        self.assertIn("/login", body)                                               # the instructions name the command
+        self.assertIn("FACTORY_PASSWORD", body)                                     # and where the password itself lives
+        self.assertIn("method='post' action='/login/recover' hidden", body)
+        self.assertEqual(page.headers["cache-control"], "no-store")
+        self.assertIn("no-referrer", body)
+        self.assertEqual(self.use(token=token, lang="ru"), ("SIGNED_IN", "ru"))
+        self.assertEqual(self.use(token=token, lang="ru").status_code, 410)         # once only
         self.assertIn("LOGIN_RECOVERY_USED", "".join(self.logs))
 
-    def test_wrong_expired_and_replaced_links_do_not_sign_in(self):
-        self.h[("POST", "/login/recover")](lang="en")
-        first = self.token()
-        use = self.h[("POST", "/login/recover/{token}")]
-        self.assertEqual(use("x" * 43).status_code, 410)
-        self.assertEqual(use("").status_code, 410)
-        self.assertEqual(use("y" * 5000).status_code, 410)
-        self.assertTrue(self.rec.valid(first))                           # wrong guesses do not burn the real link
-        self.clock.t += lr.MIN_INTERVAL_SECONDS + 1
-        self.h[("POST", "/login/recover")](lang="en")
-        self.assertEqual(use(first).status_code, 410)                    # a newer link replaces the older one
-        second = self.token()
+    def test_the_public_site_cannot_request_replace_or_use_up_a_link(self):
+        """Codex #430: no anonymous request may spam the owner's chat, spend a budget or revoke a usable link."""
+        self.assertEqual(sorted(self.routes), [("GET", "/login/recover"), ("POST", "/login/recover")])
+        self.assertEqual(list(inspect.signature(self.page).parameters), ["lang"])   # the page takes no secret
+        token = self.token(self.rec.message("en"))
+        for _ in range(50):                                                         # any amount of anonymous traffic
+            self.assertEqual(self.page(lang="en").status_code, 200)
+            self.assertEqual(self.use(token="x" * 43, lang="en").status_code, 410)
+        self.assertEqual(self.use(token="", lang="en").status_code, 410)
+        self.assertEqual(self.use(token="y" * 5000, lang="en").status_code, 410)
+        self.assertEqual(self.use(token=token, lang="en"), ("SIGNED_IN", "en"))     # the owner's link still works
+
+    def test_expired_and_replaced_links_do_not_sign_in(self):
+        first = self.token(self.rec.message("uk"))
+        second = self.token(self.rec.message("uk"))
+        self.assertEqual(self.use(token=first, lang="uk").status_code, 410)         # a newer link replaces the older one
         self.clock.t += lr.TTL_SECONDS + 1
-        self.assertEqual(use(second).status_code, 410)                   # expired
+        self.assertEqual(self.use(token=second, lang="uk").status_code, 410)        # expired
 
-    def test_rate_limit_and_daily_cap(self):
-        ask = self.h[("POST", "/login/recover")]
-        self.assertEqual(ask(lang="uk").status_code, 200)
-        self.assertEqual(ask(lang="uk").status_code, 429)                # too soon: nothing sent
-        self.assertEqual(len(self.sent), 1)
-        self.assertTrue(self.rec.valid(self.token()))                    # the first link still works
-        for _ in range(lr.DAILY_CAP - 1):
-            self.clock.t += lr.MIN_INTERVAL_SECONDS + 1
-            self.assertEqual(ask(lang="uk").status_code, 200)
-        self.clock.t += lr.MIN_INTERVAL_SECONDS + 1
-        self.assertEqual(ask(lang="uk").status_code, 429)                # daily cap
-        self.assertEqual(len(self.sent), lr.DAILY_CAP)
-        self.clock.t += 86400
-        self.assertEqual(ask(lang="uk").status_code, 200)                # next UTC day
+    def test_an_undelivered_link_is_revoked_but_never_a_newer_one(self):
+        old = self.rec.message("ru")
+        self.rec.revoke(old)
+        self.assertEqual(self.use(token=self.token(old), lang="ru").status_code, 410)
+        stale = self.rec.message("ru")
+        fresh = self.rec.message("ru")
+        self.rec.revoke(stale)                                                      # a late failure of the older send
+        self.assertEqual(self.use(token=self.token(fresh), lang="ru"), ("SIGNED_IN", "ru"))
 
-    def test_same_answer_without_a_paired_chat_and_no_usable_link(self):
-        paired_page = self.h[("POST", "/login/recover")](lang="en").body.decode()
-        other = Base()
-        other.setUp()
-        other.paired = False
-        r = other.h[("POST", "/login/recover")](lang="en")
-        self.assertEqual((r.status_code, r.body.decode()), (200, paired_page))   # does not reveal whether a chat is paired
-        self.assertEqual(other.sent, [])
-        self.assertFalse(other.rec._token_hash)
-        self.assertIn('"delivered": false', "".join(other.logs))
-        boom = lr.LoginRecovery(send=lambda text: 1 / 0, base_url=lambda: "https://f.example", clock=Clock(), log=lambda line: None)
-        self.assertEqual(boom.request("en"), "sent")                     # a Telegram failure is not shown either
-        self.assertFalse(boom._token_hash)
-
-    def test_kill_switch_hides_the_button_and_the_routes(self):
-        self.assertIn("action='/login/recover'", lr.link_html("ru"))
+    def test_kill_switch_hides_the_link_and_the_routes(self):
+        self.assertIn("href='/login/recover?lang=ru'", lr.link_html("ru"))
         self.assertIn("Забыли пароль?", lr.link_html("ru"))
         self.assertIn("Forgot password?", lr.link_html("zz"))
-        self.h[("POST", "/login/recover")](lang="en")
-        token = self.token()
+        token = self.token(self.rec.message("en"))
         os.environ["FACTORY_LOGIN_RECOVERY_ENABLED"] = "0"
         self.assertEqual(lr.link_html("ru"), "")
-        self.assertEqual(self.h[("POST", "/login/recover")](lang="en").status_code, 404)
-        self.assertEqual(self.h[("GET", "/login/recover/{token}")](token).status_code, 404)
-        self.assertEqual(self.h[("POST", "/login/recover/{token}")](token).status_code, 404)
+        self.assertEqual(self.page(lang="en").status_code, 404)
+        self.assertEqual(self.use(token=token, lang="en").status_code, 404)
 
     def test_three_languages_have_the_same_keys(self):
-        self.assertEqual(set(lr.T["en"]), set(lr.T["uk"]))
-        self.assertEqual(set(lr.T["en"]), set(lr.T["ru"]))
+        for lang in ("uk", "ru"):
+            self.assertEqual(set(lr.T["en"]), set(lr.T[lang]))
         for lang in lr.LANGS:
             self.assertIn("{url}", lr.T[lang]["message"])
+            self.assertIn("/login", lr.T[lang]["how"])
+
+    def test_page_script_parses_and_only_reads_the_fragment(self):
+        self.assertIn("location.hash", lr.PAGE_JS)
+        self.assertIn("history.replaceState", lr.PAGE_JS)                           # the secret leaves the address bar
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+            f.write(lr.PAGE_JS)
+        try:
+            self.assertEqual(subprocess.run(["node", "--check", f.name], capture_output=True).returncode, 0)
+        finally:
+            os.unlink(f.name)
 
     def test_app_wiring(self):
         src = (ROOT / "app.py").read_text(encoding="utf-8")
-        self.assertIn('"/login/recover", "/auth/google"', src)           # reachable without a session
-        self.assertIn('"/login/recover/"', src)
+        self.assertIn('"/login/recover", "/auth/google"', src)                      # reachable without a session
+        self.assertNotIn('"/login/recover/"', src)                                  # no path that carries a secret
         self.assertIn("{login_recovery.link_html(lang)}", src)
-        self.assertRegex(src, r'def _login_recovery_send[\s\S]{0,400}_telegram_load_state\(\)\.get\("chat_id"\)[\s\S]{0,300}"disable_web_page_preview":True')
+        self.assertRegex(src, r"def _login_recovery_reply[\s\S]{0,300}login_recovery\.enabled\(\) or not login_recovery\.owner_private_command\(message,owner_chat\)")
+        self.assertRegex(src, r'def _login_recovery_reply[\s\S]{0,600}"disable_web_page_preview":True[\s\S]{0,120}LOGIN_RECOVERY\.revoke\(text\)')
+        hook = src.index("if _login_recovery_reply(g_msg,owner_chat):")
+        self.assertLess(src.index("if not _telegram_webhook_authorized(request):"), hook)   # behind the webhook secret
         self.assertIn('sign_in=lambda lang: _auth_cookie_response(f"/{lang}","owner","")', src)
 
 

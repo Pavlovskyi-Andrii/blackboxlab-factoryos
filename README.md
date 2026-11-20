@@ -28,8 +28,8 @@ during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day
 #297, #298 are in v5.10.0.
 
 ### v5.14.0 — "Forgot password?" sign-in link through Telegram, MyCast daily render — 2026-11-19 … 2026-11-20
-- **Login:** a "Forgot password?" button on the FactoryOS login page sends a one-time, 10-minute sign-in link to the
-  owner's paired Telegram chat; the password itself is not shown or changed (T-712).
+- **Login:** "Forgot password?" on the FactoryOS login page: send `/login` to the FactoryOS bot from the paired private
+  Telegram chat and get a one-time, 10-minute sign-in link; the password itself is not shown or changed (T-712).
 - **MyCast daily render:** sources without a link, branch sync, speakable text and audio QA (MC-01, #426).
 - **MyCast demo voicing:** one manifest snapshot per run (follow-up to T-711).
 

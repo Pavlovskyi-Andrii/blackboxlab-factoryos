@@ -2107,11 +2107,13 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 
 ## 2026-11-20 — T-712 "Forgot password?" on the FactoryOS login page
 
-- **Decision:** recovery is a one-time sign-in link sent to the owner's paired Telegram chat; it does not show or change the password.
+- **Decision:** recovery is a one-time sign-in link the owner asks for with `/login` in the Telegram chat paired with FactoryOS; it does not show or change the password.
   **Reason:** the password is the `FACTORY_PASSWORD` secret on Render, which the app must not expose and cannot edit (production variables are owner-only). The paired chat is already the owner's trusted channel for approvals.
-- **Decision:** the link is single-use, lives 10 minutes, only its SHA-256 is kept in memory, and a newer request replaces it. Opening it shows a confirmation page; only the POST signs in. The Telegram message is sent without a link preview.
-  **Reason:** a link preview or a prefetch that only GETs must not use the link up or get a session; a restart dropping a pending link is harmless.
-- **Decision:** the page gives the same answer whether or not a chat is paired or the send worked; requests are limited to one per 2 minutes and 5 per UTC day.
-  **Reason:** the button is public, so it must not confirm that an owner chat exists or let anyone flood it.
-- **Decision:** on by default, `FACTORY_LOGIN_RECOVERY_ENABLED=0` removes the button and the routes. The session is the same owner cookie the password login sets.
-  **Reason:** the owner asked for the button; the switch is the rollback if the owner prefers password and Google only. Anyone who controls the paired Telegram chat can sign in as owner — the same trust the chat already has.
+- **Decision:** the login-page button only opens instructions; a link is made only by the command arriving through the authenticated Telegram webhook (Codex review on #430 — the first version let the public page request links).
+  **Reason:** a public trigger let anyone message the owner's chat, spend a daily budget and replace a usable link. A pull from the owner's own chat has none of that and needs no rate limit.
+- **Decision:** the command counts only from a `private` chat whose id equals the paired chat id, is not negative, and equals the sender's id; a bot sender is refused.
+  **Reason:** a group must never receive an owner link, whatever is stored as the paired chat.
+- **Decision:** the secret sits in the URL fragment; the page moves it into a hidden form field, clears the address bar and POSTs it only when the owner presses the button. Single use, 10 minutes, SHA-256 in memory, a newer link replaces the older one; an undelivered link is revoked only if it is still the current one.
+  **Reason:** a fragment is not sent to the server, so the secret stays out of access logs, link previews and Referer headers; a restart dropping a pending link is harmless.
+- **Decision:** on by default, `FACTORY_LOGIN_RECOVERY_ENABLED=0` removes the link, the routes and the command. The PR waits for the owner's explicit "merge" because it adds a way to sign in as owner.
+  **Reason:** the owner asked for the button; anyone who controls the paired private Telegram chat can sign in as owner, which is the owner's call to accept.

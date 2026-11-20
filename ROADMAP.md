@@ -1,9 +1,9 @@
-- [x] T-712 FactoryOS login: "Forgot password?" — a one-time sign-in link to the owner's paired Telegram chat
+- [x] T-712 FactoryOS login: "Forgot password?" — `/login` in the owner's private Telegram chat gives a one-time sign-in link
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-20: «добавь кнопку восстановить пароль» after not finding the password)
-  Spec: DECISIONS.md «2026-11-20 — T-712». `login_recovery.py`, login page and auth middleware in `app.py`.
-  Goal: a "Forgot password?" button on `/login` (EN/UK/RU). It sends a one-time, 10-minute sign-in link only to the Telegram chat already paired with FactoryOS; the link opens a confirmation page and only its POST signs in as owner. The page answers the same whether or not a chat is paired, says where the password itself lives (Render), limits requests (one per 2 minutes, 5 per day) and can be turned off with `FACTORY_LOGIN_RECOVERY_ENABLED=0`. The password is never shown or changed; password and Google sign-in are untouched.
-  DONE: `python test_login_recovery.py` (Telegram-only delivery, once-only, wrong/expired/replaced links, rate limit and daily cap, same answer without a chat, kill switch, three locales, app wiring) + in-process run against the real app (button on the page, routes public, cookie set, reuse refused) + default verification.
+  Spec: DECISIONS.md «2026-11-20 — T-712». `login_recovery.py`, login page, auth middleware and Telegram webhook in `app.py`.
+  Goal: a "Forgot password?" link on `/login` (EN/UK/RU) opens instructions: send `/login` to the FactoryOS bot. Only that command, arriving through the authenticated webhook from the paired private chat and its own user, makes a one-time 10-minute link; nothing on the public site can request, replace or use one up. The secret is in the URL fragment and is POSTed in the form body, so it never reaches access logs or a link preview. The password is never shown or changed; password and Google sign-in are untouched; `FACTORY_LOGIN_RECOVERY_ENABLED=0` turns it off.
+  DONE: `python test_login_recovery.py` (owner-private-chat check incl. groups and other chats, fragment-only secret, once-only, anonymous traffic cannot affect a link, expired/replaced/undelivered links, kill switch, three locales, page script `node --check`, app wiring) + in-process run against the real app (webhook secret, group and foreign chat get nothing, owner gets the link, cookie set, reuse refused) + Playwright on the page script + default verification.
 
 - [x] T-711 MyCast demo cities: each city voiced by its own pair of hosts
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)

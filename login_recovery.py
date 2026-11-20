@@ -1,15 +1,17 @@
 """T-712: "Forgot password?" on the FactoryOS login page (owner 2026-11-20: «добавь кнопку восстановить пароль»).
 
 The password is the `FACTORY_PASSWORD` secret on Render: the app cannot show it or change it. So recovery does not
-touch the password at all. It sends a one-time sign-in link to the Telegram chat the owner already paired with FactoryOS:
+touch the password at all. The owner asks for a one-time sign-in link from the Telegram chat already paired with
+FactoryOS:
 
-* the link is sent only to that paired chat, never shown on the page, in logs or in an API answer;
-* the page says the same thing whether or not a link was sent (it never confirms that a chat is paired);
+* the login page button only opens a page of instructions ("send /login to your FactoryOS bot"). Nothing on the public
+  site can request, replace or use up a link, so a visitor cannot spam the owner's chat or block recovery;
+* the link is made only when `/login` arrives through the authenticated Telegram webhook from the paired chat, and only
+  if that chat is private and the sender is the chat's own user (a group can never get a link);
+* the secret sits in the URL fragment (`/login/recover#<token>`), which browsers do not send: it never reaches access
+  logs, a link preview or a Referer. The page reads it and POSTs it in the form body after the owner presses the button;
 * one link at a time, valid TTL_SECONDS, usable once; only its SHA-256 is kept, in memory (a restart drops it);
-* opening the link shows a confirmation page; only the POST from that page signs in, so a link preview cannot use it up
-  or be signed in;
-* at most one request per MIN_INTERVAL_SECONDS and DAILY_CAP per UTC day, so the button cannot spam the owner's chat;
-* `FACTORY_LOGIN_RECOVERY_ENABLED=0` turns it off (the button disappears, the routes answer 404).
+* `FACTORY_LOGIN_RECOVERY_ENABLED=0` turns it off (the button disappears, the routes answer 404, `/login` is ignored).
 """
 from __future__ import annotations
 
@@ -27,44 +29,40 @@ from fastapi import Form
 from fastapi.responses import HTMLResponse
 
 TTL_SECONDS = 600
-MIN_INTERVAL_SECONDS = 120
-DAILY_CAP = 5
 LANGS = ("en", "uk", "ru")
+COMMAND = "/login"
 
 T = {
     "en": {"forgot": "Forgot password?", "title": "Sign in without the password",
-           "sent": "If a Telegram chat is paired with FactoryOS, a one-time sign-in link was just sent there. "
-                   "It works for 10 minutes and only once.",
-           "wait": "A link was requested a moment ago. Check Telegram, or try again in a couple of minutes.",
+           "how": "Open your FactoryOS bot chat in Telegram and send the command /login. The bot answers with a one-time "
+                  "sign-in link: it works for 10 minutes and only once. It answers only in the private chat that is "
+                  "paired with FactoryOS.",
            "password": "The password itself is stored only in Render (Environment → FACTORY_PASSWORD): it can be read or "
                        "changed there, not here. Google sign-in on the login page also works without the password.",
-           "back": "Back to sign-in", "confirm_title": "Sign in to FactoryOS", "confirm": "Sign in as the owner",
+           "back": "Back to sign-in", "confirm": "Sign in as the owner",
            "confirm_sub": "This link came from your FactoryOS Telegram chat. It works once.",
-           "bad": "This link is no longer valid: it was already used or it expired. Request a new one.",
-           "message": "FactoryOS: one-time sign-in link (valid 10 minutes, works once). "
-                      "If you did not ask for it, ignore this message — nothing changes.\n{url}"},
+           "bad": "This link is no longer valid: it was already used or it expired. Send /login to the bot again.",
+           "message": "FactoryOS: one-time sign-in link (valid 10 minutes, works once). Do not forward it.\n{url}"},
     "uk": {"forgot": "Забули пароль?", "title": "Вхід без пароля",
-           "sent": "Якщо з FactoryOS з’єднано чат у Telegram, туди щойно надіслано одноразове посилання для входу. "
-                   "Воно діє 10 хвилин і лише один раз.",
-           "wait": "Посилання вже запитували щойно. Перевірте Telegram або спробуйте ще раз за кілька хвилин.",
+           "how": "Відкрийте чат зі своїм ботом FactoryOS у Telegram і надішліть команду /login. Бот відповість "
+                  "одноразовим посиланням для входу: воно діє 10 хвилин і лише один раз. Бот відповідає тільки в "
+                  "особистому чаті, з’єднаному з FactoryOS.",
            "password": "Сам пароль зберігається лише в Render (Environment → FACTORY_PASSWORD): подивитися або змінити "
                        "його можна там, не тут. Вхід через Google на сторінці входу теж працює без пароля.",
-           "back": "Назад до входу", "confirm_title": "Вхід до FactoryOS", "confirm": "Увійти як власник",
+           "back": "Назад до входу", "confirm": "Увійти як власник",
            "confirm_sub": "Це посилання надійшло з вашого чату FactoryOS у Telegram. Воно діє один раз.",
-           "bad": "Посилання вже не діє: його використали або минув час. Запросіть нове.",
-           "message": "FactoryOS: одноразове посилання для входу (діє 10 хвилин, один раз). "
-                      "Якщо ви його не просили, просто не відкривайте — нічого не зміниться.\n{url}"},
+           "bad": "Посилання вже не діє: його використали або минув час. Надішліть боту /login ще раз.",
+           "message": "FactoryOS: одноразове посилання для входу (діє 10 хвилин, один раз). Не пересилайте його.\n{url}"},
     "ru": {"forgot": "Забыли пароль?", "title": "Вход без пароля",
-           "sent": "Если с FactoryOS связан чат в Telegram, туда только что отправлена одноразовая ссылка для входа. "
-                   "Она действует 10 минут и только один раз.",
-           "wait": "Ссылку уже запрашивали только что. Проверьте Telegram или попробуйте ещё раз через пару минут.",
+           "how": "Откройте чат со своим ботом FactoryOS в Telegram и отправьте команду /login. Бот ответит одноразовой "
+                  "ссылкой для входа: она действует 10 минут и только один раз. Бот отвечает только в личном чате, "
+                  "связанном с FactoryOS.",
            "password": "Сам пароль хранится только в Render (Environment → FACTORY_PASSWORD): посмотреть или сменить "
                        "его можно там, не здесь. Вход через Google на странице входа тоже работает без пароля.",
-           "back": "Назад ко входу", "confirm_title": "Вход в FactoryOS", "confirm": "Войти как владелец",
+           "back": "Назад ко входу", "confirm": "Войти как владелец",
            "confirm_sub": "Эта ссылка пришла из вашего чата FactoryOS в Telegram. Она действует один раз.",
-           "bad": "Ссылка больше не действует: её уже использовали или вышло время. Запросите новую.",
-           "message": "FactoryOS: одноразовая ссылка для входа (действует 10 минут, один раз). "
-                      "Если вы её не запрашивали, просто не открывайте — ничего не изменится.\n{url}"},
+           "bad": "Ссылка больше не действует: её уже использовали или вышло время. Отправьте боту /login ещё раз.",
+           "message": "FactoryOS: одноразовая ссылка для входа (действует 10 минут, один раз). Не пересылайте её.\n{url}"},
 }
 
 
@@ -77,51 +75,52 @@ def _lang(value: str) -> str:
 
 
 def link_html(lang: str) -> str:
-    """The "Forgot password?" button for the login page; empty when recovery is off."""
+    """The "Forgot password?" link for the login page; empty when recovery is off. It only opens the instructions."""
     if not enabled():
         return ""
     lang = _lang(lang)
-    return (f"<form method='post' action='/login/recover' class='forgot'><input type='hidden' name='lang' value='{lang}'>"
-            f"<button type='submit' class='linkBtn'>{html.escape(T[lang]['forgot'])}</button></form>")
+    return f"<p class='forgot'><a href='/login/recover?lang={lang}'>{html.escape(T[lang]['forgot'])}</a></p>"
+
+
+def owner_private_command(message: dict, owner_chat: str) -> bool:
+    """True only for `/login` sent in the private chat paired with FactoryOS, by that chat's own user."""
+    if not isinstance(message, dict) or not owner_chat:
+        return False
+    chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
+    sender = message.get("from") if isinstance(message.get("from"), dict) else {}
+    text = str(message.get("text") or "").strip()
+    command = text.split(maxsplit=1)[0].split("@", 1)[0].lower() if text.startswith("/") else ""
+    chat_id = str(chat.get("id") or "")
+    return (command == COMMAND and chat.get("type") == "private" and chat_id == str(owner_chat)
+            and not chat_id.startswith("-") and str(sender.get("id") or "") == chat_id and sender.get("is_bot") is not True)
 
 
 class LoginRecovery:
-    def __init__(self, *, send: Callable[[str], bool], base_url: Callable[[], str], clock: Callable[[], float] = time.time,
+    def __init__(self, *, base_url: Callable[[], str], clock: Callable[[], float] = time.time,
                  log: Callable[[str], None] = lambda line: print(line, flush=True)):
-        self.send, self.base_url, self.clock, self.log = send, base_url, clock, log
+        self.base_url, self.clock, self.log = base_url, clock, log
         self._lock = threading.Lock()
         self._token_hash = ""
         self._expires = 0.0
-        self._last = 0.0
-        self._day, self._count = "", 0
 
-    def request(self, lang: str) -> str:
-        """Ask for a link. Returns "sent" (the same whether or not a chat is paired) or "wait" (rate limited)."""
-        now = self.clock()
-        day = time.strftime("%Y-%m-%d", time.gmtime(now))
+    def issue(self, lang: str = "ru") -> str:
+        """A new one-time link (the older one stops working). Call only for a verified owner_private_command."""
+        token = secrets.token_urlsafe(32)
         with self._lock:
-            if day != self._day:
-                self._day, self._count = day, 0
-            if now - self._last < MIN_INTERVAL_SECONDS or self._count >= DAILY_CAP:
-                return "wait"
-            self._last, self._count = now, self._count + 1
-            token = secrets.token_urlsafe(32)
             self._token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-            self._expires = now + TTL_SECONDS
-        url = f"{self.base_url()}/login/recover/{token}?lang={_lang(lang)}"
-        try:
-            delivered = bool(self.send(T[_lang(lang)]["message"].format(url=url)))
-        except Exception:
-            delivered = False
-        if not delivered:                                   # no paired chat or Telegram failed: no usable link stays
-            with self._lock:
-                self._token_hash, self._expires = "", 0.0
-        self.log(json.dumps({"event": "LOGIN_RECOVERY_REQUESTED", "delivered": delivered}))
-        return "sent"
+            self._expires = self.clock() + TTL_SECONDS
+        self.log(json.dumps({"event": "LOGIN_RECOVERY_ISSUED"}))
+        return f"{self.base_url()}/login/recover?lang={_lang(lang)}#{token}"
 
-    def valid(self, token: str) -> bool:
+    def message(self, lang: str = "ru") -> str:
+        return T[_lang(lang)]["message"].format(url=self.issue(lang))
+
+    def revoke(self, url_or_token: str) -> None:
+        """Drop the link if it is still the current one (its message could not be delivered)."""
+        token = str(url_or_token or "").rsplit("#", 1)[-1].strip()
         with self._lock:
-            return self._match(token)
+            if self._match(token):
+                self._token_hash, self._expires = "", 0.0
 
     def consume(self, token: str) -> bool:
         """True once for a live link; the link is gone afterwards."""
@@ -155,6 +154,14 @@ def _page(lang: str, title: str, body: str, status: int = 200) -> HTMLResponse:
         status_code=status, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"})
 
 
+# Reads the secret from the URL fragment (never sent to the server), removes it from the address bar and history,
+# and shows the confirmation button. Without a fragment the page is just the instructions.
+PAGE_JS = ("(function(){var t=(location.hash||'').slice(1);if(!/^[A-Za-z0-9_-]{20,100}$/.test(t))return;"
+           "try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}"
+           "document.getElementById('tok').value=t;document.getElementById('use').hidden=false;"
+           "document.getElementById('how').hidden=true})();")
+
+
 def install_login_recovery_routes(app, recovery: LoginRecovery, *, sign_in: Callable[[str], object]) -> None:
     """`sign_in(lang)` returns the response that sets the owner session cookie (the same one the password login uses)."""
     def _off():
@@ -163,33 +170,23 @@ def install_login_recovery_routes(app, recovery: LoginRecovery, *, sign_in: Call
     def _back(lang: str) -> str:
         return f"<p><a href='/login?lang={lang}'>← {html.escape(T[lang]['back'])}</a></p>"
 
+    @app.get("/login/recover", include_in_schema=False)
+    def login_recover_page(lang: str = "en"):
+        if not enabled():
+            return _off()
+        lang = _lang(lang)
+        t = T[lang]
+        return _page(lang, t["title"],
+                     f"<div id='how'><p>{html.escape(t['how'])}</p><p>{html.escape(t['password'])}</p></div>"
+                     f"<form id='use' method='post' action='/login/recover' hidden><p>{html.escape(t['confirm_sub'])}</p>"
+                     f"<input type='hidden' name='lang' value='{lang}'><input type='hidden' name='token' id='tok' value=''>"
+                     f"<button type='submit'>{html.escape(t['confirm'])}</button></form>{_back(lang)}<script>{PAGE_JS}</script>")
+
     @app.post("/login/recover", include_in_schema=False)
-    def login_recover_request(lang: str = Form("en")):
-        if not enabled():
-            return _off()
-        lang = _lang(lang)
-        t = T[lang]
-        result = recovery.request(lang)
-        return _page(lang, t["title"], f"<p>{html.escape(t[result])}</p><p>{html.escape(t['password'])}</p>{_back(lang)}",
-                     status=429 if result == "wait" else 200)
-
-    @app.get("/login/recover/{token}", include_in_schema=False)
-    def login_recover_open(token: str, lang: str = "en"):
-        if not enabled():
-            return _off()
-        lang = _lang(lang)
-        t = T[lang]
-        if not recovery.valid(token):
-            return _page(lang, t["confirm_title"], f"<p>{html.escape(t['bad'])}</p>{_back(lang)}", status=410)
-        return _page(lang, t["confirm_title"],
-                     f"<p>{html.escape(t['confirm_sub'])}</p><form method='post' action='/login/recover/{html.escape(token)}'>"
-                     f"<input type='hidden' name='lang' value='{lang}'><button type='submit'>{html.escape(t['confirm'])}</button></form>{_back(lang)}")
-
-    @app.post("/login/recover/{token}", include_in_schema=False)
-    def login_recover_use(token: str, lang: str = Form("en")):
+    def login_recover_use(token: str = Form(""), lang: str = Form("en")):
         if not enabled():
             return _off()
         lang = _lang(lang)
         if not recovery.consume(token):
-            return _page(lang, T[lang]["confirm_title"], f"<p>{html.escape(T[lang]['bad'])}</p>{_back(lang)}", status=410)
+            return _page(lang, T[lang]["title"], f"<p>{html.escape(T[lang]['bad'])}</p>{_back(lang)}", status=410)
         return sign_in(lang)
