@@ -186,6 +186,32 @@ class SchemaTest(LaunchpadCase):
         json.loads(self.reg.path.read_text(encoding="utf-8"), parse_constant=lambda c: self.fail("non-finite number stored: " + c))
 
 
+    def test_review_findings_urls_and_huge_numbers(self):
+        # Second Codex review of #432.
+        self.add(idea())
+        before = self.reg.path.read_text(encoding="utf-8")
+        for url, want in (("https://example.org/u/fan@example.org", "personal_data"),
+                          ("https://example.org/p?contact=fan%40example.org", "personal_data"),
+                          ("https://example.org/p?next=%2Fu%2Ffan%2540example.org", "personal_data"),     # encoded twice
+                          ("https://example.org/doc?access_token=abc123", "url_has_credential"),
+                          ("https://example.org/doc?X-Amz-Signature=abc", "url_has_credential"),
+                          ("https://example.org/doc?api_key=abc&page=2", "url_has_credential"),
+                          ("https://user:pw@example.org/x", "bad_url"), ("https://example.org:99999/x", "bad_url"),
+                          ("https://example.org:abc/x", "bad_url"), ("ftp://example.org/x", "bad_url"),
+                          ("https://localhost/x", "bad_url"), ("https://10.0.0.1/x", "bad_url"), ("https:///x", "bad_url")):
+            self.assertEqual(self.code(self.add, fact(source_url=url)), want, url)
+        for bad in (10 ** 400, -(10 ** 400), 10 ** 9 + 1):
+            self.assertEqual(self.code(self.add, entry(leads=bad)), "bad_number")
+        self.assertEqual(self.reg.path.read_text(encoding="utf-8"), before)
+        good = ("https://example.org?utm=1", "https://example.org#reviews", "https://example.org:8443/a?page=2&sort=new",
+                "https://xn--80aswg.xn--p1ai/novosti", "https://x.com/someone/status/1859341234567890123",
+                "https://www.reddit.com/r/podcasts/comments/1abc2de/daily_digest/?keyword=news",
+                "https://forum.example.co.uk/t/topic/123456789012")
+        for url in good:
+            self.assertEqual(self.add(fact(source_url=url))["fields"]["source_url"], url)
+        self.assertEqual(self.add(entry(reach=10 ** 9))["fields"]["reach"], 10 ** 9)
+
+
 class CountingTest(LaunchpadCase):
     def test_test_and_synthetic_records_are_shown_but_never_counted(self):
         real_idea = self.add(idea(1))
@@ -452,7 +478,8 @@ class StorageTest(LaunchpadCase):
         finally:
             socket.socket = real_socket
         source = (ROOT / "mvp_launchpad.py").read_text(encoding="utf-8")
-        self.assertNotRegex(source, r"\b(import|from)\s+(requests|urllib|httpx|aiohttp|socket|subprocess|smtplib)\b")
+        self.assertNotRegex(source, r"\b(import|from)\s+(requests|urllib\.request|urllib3|httpx|aiohttp|socket|subprocess|smtplib)\b")
+        self.assertNotRegex(source, r"\bimport\s+urllib\b(?!\.parse)")      # urllib.parse only: parsing, no fetching
 
     def test_evidence_rule_types_and_cycle_facts(self):
         want = {"market": "linked", "lead": "checked", "usage": "checked", "payment": "accepted", "outreach": "accepted", "spend": "accepted"}

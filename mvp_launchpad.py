@@ -24,6 +24,7 @@ import math
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -74,7 +75,10 @@ GATE_CHECKS = {"G1": ("D1", "D2"), "G2": ("D1", "D2", "D3"), "G3": ("D4", "D5", 
 GATE_CHOICES = {"G3": ("build_minimum", "change_assumption", "back_to_idea"), "G4": ("yes", "no"),
                 "G5": ("continue", "iterate", "pivot", "kill")}
 
-URL_RE = re.compile(r"^https://(?=[^/\s]{4,253}(/|$))([a-z0-9-]+\.)+[a-z]{2,}(/[^\s<>\"']*)?$", re.I)
+HOST_RE = re.compile(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24}|xn--[a-z0-9-]{2,59})", re.I)
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# Query parameters that carry a credential: a link with one of these must not be stored in the shared registry.
+SECRET_PARAM_RE = re.compile(r"(^|[_.-])(token|key|apikey|secret|password|passwd|pwd|signature|sig|auth|session|sid|code)$", re.I)
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 REF_RE = re.compile(r"^a-\d{1,6}$")
 PARTICIPANT_RE = re.compile(r"^p-[0-9a-f]{8,32}$")
@@ -103,11 +107,30 @@ def _text(value: Any, limit: int, *, required: bool = False, redact: bool = Fals
 
 
 def _url(value: Any, *, required: bool = True) -> str:
+    """A public https link, parsed into parts. No user info, no e-mail address and no credential-like query
+    parameter (checked after percent-decoding): the registry is shared, and a source link must be safe to show.
+    Long digit runs are allowed on purpose: post and status ids look like phone numbers."""
     text = str(value or "").strip()
-    if not text and not required:
+    if not text:
+        if required:
+            raise MvpError("source_url_required")
         return UNKNOWN
-    if not URL_RE.fullmatch(text) or "@" in text.split("/", 3)[2] or len(text) > 500:
-        raise MvpError("source_url_required" if required and not text else "bad_url")
+    if len(text) > 500 or re.search(r"[\s<>\"'\x00-\x1f\x7f]", text):
+        raise MvpError("bad_url")
+    try:
+        parts = urlsplit(text)
+        port = parts.port
+    except ValueError:
+        raise MvpError("bad_url")
+    host = parts.hostname or ""
+    if parts.scheme.lower() != "https" or parts.username is not None or parts.password is not None \
+            or not HOST_RE.fullmatch(host) or (port is not None and not 0 < port < 65536):
+        raise MvpError("bad_url")
+    decoded = unquote(unquote(parts.path + "?" + parts.query + "#" + parts.fragment))
+    if EMAIL_RE.search(decoded):
+        raise MvpError("personal_data")
+    if any(SECRET_PARAM_RE.search(name) for name, _ in parse_qsl(parts.query, keep_blank_values=True)):
+        raise MvpError("url_has_credential")
     return text
 
 
@@ -132,7 +155,10 @@ def _number(value: Any) -> Any:
     """None → "unknown"; 0 is a real result and stays 0 (honest zero)."""
     if value is None or value == UNKNOWN:
         return UNKNOWN
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0 or value > 10 ** 9:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise MvpError("bad_number")
+    # Comparisons first: NaN fails both, and a huge integer never reaches a float conversion.
+    if not (0 <= value <= 10 ** 9) or (isinstance(value, float) and not math.isfinite(value)):
         raise MvpError("bad_number")                 # NaN and infinity are not measurements (and not valid JSON)
     return value
 
