@@ -103,6 +103,27 @@ class RecoveryTest(unittest.TestCase):
         self.rec.revoke(stale)                                                      # a late failure of the older send
         self.assertEqual(self.use(token=self.token(fresh), lang="ru"), ("SIGNED_IN", "ru"))
 
+    def test_two_processes_on_one_disk_share_the_single_link(self):
+        """Codex #430: a link issued by one process is redeemed by another, and a newer one replaces it everywhere."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "data" / "login_recovery.json"
+            a = lr.LoginRecovery(base_url=lambda: "https://f.example", clock=self.clock, log=self.logs.append, state_path=path)
+            b = lr.LoginRecovery(base_url=lambda: "https://f.example", clock=self.clock, log=self.logs.append, state_path=path)
+            first = self.token(a.message("ru"))
+            self.assertNotIn(first, path.read_text(encoding="utf-8"))               # only the hash is on disk
+            self.assertEqual(oct(path.stat().st_mode & 0o777), "0o600")
+            self.assertTrue(b.consume(first))                                       # issued by A, redeemed by B
+            self.assertFalse(a.consume(first))                                      # and gone for A too
+            old = self.token(a.message("ru"))
+            new = self.token(b.message("ru"))                                       # B replaces A's link
+            self.assertFalse(a.consume(old))
+            self.assertFalse(b.consume(old))
+            a.revoke(old)                                                           # a late failure of the old send
+            self.assertTrue(a.consume(new))
+            path.write_text("not json", encoding="utf-8")                           # a damaged file: no link, no crash
+            self.assertFalse(a.consume(new))
+            self.assertEqual(self.token(b.message("en")) and b.pending_hash != "", True)
+
     def test_kill_switch_hides_the_link_and_the_routes(self):
         self.assertIn("href='/login/recover?lang=ru'", lr.link_html("ru"))
         self.assertIn("Забыли пароль?", lr.link_html("ru"))
@@ -139,6 +160,7 @@ class RecoveryTest(unittest.TestCase):
         self.assertRegex(src, r'def _login_recovery_reply[\s\S]{0,600}"disable_web_page_preview":True[\s\S]{0,120}LOGIN_RECOVERY\.revoke\(text\)')
         hook = src.index("if _login_recovery_reply(g_msg,owner_chat):")
         self.assertLess(src.index("if not _telegram_webhook_authorized(request):"), hook)   # behind the webhook secret
+        self.assertIn('state_path=DATA_DIR/"login_recovery.json"', src)             # one link for every process on the disk
         self.assertIn('sign_in=lambda lang: _auth_cookie_response(f"/{lang}","owner","")', src)
 
 
@@ -176,17 +198,16 @@ class WebhookGuardTest(unittest.TestCase):
     def setUp(self):
         os.environ.pop("FACTORY_LOGIN_RECOVERY_ENABLED", None)
         f = self.f
-        self.saved = (f.FACTORY_TELEGRAM_BOT_TOKEN, f._telegram_api, f._telegram_load_state, f.LOGIN_RECOVERY._token_hash,
-                      f.LOGIN_RECOVERY._expires)
+        self.saved = (f.FACTORY_TELEGRAM_BOT_TOKEN, f._telegram_api, f._telegram_load_state)
         self.sent = []
         f._telegram_api = lambda method, payload=None: self.sent.append((method, payload)) or {"ok": True}
         f._telegram_load_state = lambda: {"chat_id": OWNER}
-        f.LOGIN_RECOVERY._token_hash, f.LOGIN_RECOVERY._expires = "", 0.0
+        f.LOGIN_RECOVERY.clear()
 
     def tearDown(self):
         f = self.f
-        (f.FACTORY_TELEGRAM_BOT_TOKEN, f._telegram_api, f._telegram_load_state, f.LOGIN_RECOVERY._token_hash,
-         f.LOGIN_RECOVERY._expires) = self.saved
+        f.FACTORY_TELEGRAM_BOT_TOKEN, f._telegram_api, f._telegram_load_state = self.saved
+        f.LOGIN_RECOVERY.clear()
         os.environ.pop("FACTORY_LOGIN_RECOVERY_ENABLED", None)
 
     def hook(self, headers, message=None):
@@ -211,7 +232,7 @@ class WebhookGuardTest(unittest.TestCase):
                         {"X-Telegram-Bot-Api-Secret-Token": "x" * 64}):
             self.assertEqual(self.hook(headers)[0], 403, headers)
         self.assertEqual(self.sent, [])
-        self.assertEqual(f.LOGIN_RECOVERY._token_hash, "")                          # nothing issued
+        self.assertEqual(f.LOGIN_RECOVERY.pending_hash, "")                          # nothing issued
 
     def test_a_bad_secret_cannot_replace_the_owners_link_and_only_the_owner_chat_gets_one(self):
         f = self.f
@@ -224,10 +245,10 @@ class WebhookGuardTest(unittest.TestCase):
         link = self.links()[-1]
         self.assertEqual((link["chat_id"], link["disable_web_page_preview"]), (OWNER, True))
         token = link["text"].rsplit("#", 1)[1]
-        current = f.LOGIN_RECOVERY._token_hash
+        current = f.LOGIN_RECOVERY.pending_hash
         self.assertEqual(self.hook({"X-Telegram-Bot-Api-Secret-Token": "wrong"})[0], 403)
         self.assertEqual(self.hook({})[0], 403)
-        self.assertEqual(f.LOGIN_RECOVERY._token_hash, current)                     # the owner's link was not replaced
+        self.assertEqual(f.LOGIN_RECOVERY.pending_hash, current)                     # the owner's link was not replaced
         self.assertEqual(len(self.links()), 1)
         status, headers, _ = self.redeem(token)
         self.assertEqual((status, headers.get("location")), (303, "/ru"))
@@ -240,7 +261,7 @@ class WebhookGuardTest(unittest.TestCase):
         os.environ["FACTORY_LOGIN_RECOVERY_ENABLED"] = "0"
         self.hook({"X-Telegram-Bot-Api-Secret-Token": f._telegram_webhook_secret()})
         self.assertEqual(self.links(), [])
-        self.assertEqual(f.LOGIN_RECOVERY._token_hash, "")
+        self.assertEqual(f.LOGIN_RECOVERY.pending_hash, "")
 
 
 if __name__ == "__main__":

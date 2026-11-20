@@ -8,13 +8,16 @@ FactoryOS:
   site can request, replace or use up a link, so a visitor cannot spam the owner's chat or block recovery;
 * the link is made only when `/login` arrives through the authenticated Telegram webhook from the paired chat, and only
   if that chat is private and the sender is the chat's own user (a group can never get a link);
-* the secret sits in the URL fragment (`/login/recover#<token>`), which browsers do not send: it never reaches access
-  logs, a link preview or a Referer. The page reads it and POSTs it in the form body after the owner presses the button;
-* one link at a time, valid TTL_SECONDS, usable once; only its SHA-256 is kept, in memory (a restart drops it);
+* the secret sits in the URL fragment (`/login/recover#<token>`), which browsers do not send: it is not in any request
+  URL, so not in access logs, a link preview or a Referer. The page POSTs it in the form body after the owner presses
+  the button; anything that records request bodies would see it there (FactoryOS runs no such tracing);
+* one link at a time, valid TTL_SECONDS, usable once; only its SHA-256 is kept, in a file under DATA_DIR that is
+  replaced and consumed under a file lock, so every process on that disk sees the same single link;
 * `FACTORY_LOGIN_RECOVERY_ENABLED=0` turns it off (the button disappears, the routes answer 404, `/login` is ignored).
 """
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import hmac
 import html
@@ -23,7 +26,8 @@ import os
 import secrets
 import threading
 import time
-from typing import Callable
+from pathlib import Path
+from typing import Callable, Optional
 
 from fastapi import Form
 from fastapi.responses import HTMLResponse
@@ -96,46 +100,81 @@ def owner_private_command(message: dict, owner_chat: str) -> bool:
 
 
 class LoginRecovery:
+    """The one pending link. With `state_path` (a file under DATA_DIR) the pending link is shared by every process on
+    that disk and replaced / consumed under a file lock; without it the state is in memory (tests)."""
+
     def __init__(self, *, base_url: Callable[[], str], clock: Callable[[], float] = time.time,
-                 log: Callable[[str], None] = lambda line: print(line, flush=True)):
+                 log: Callable[[str], None] = lambda line: print(line, flush=True), state_path: Optional[Path] = None):
         self.base_url, self.clock, self.log = base_url, clock, log
+        self.state_path = Path(state_path) if state_path else None
         self._lock = threading.Lock()
-        self._token_hash = ""
-        self._expires = 0.0
+        self._memory = {"hash": "", "expires": 0.0}
+
+    def _update(self, fn):
+        """Run fn(state) -> (result, new_state or None) atomically across threads and processes."""
+        with self._lock:
+            if not self.state_path:
+                result, new = fn(dict(self._memory))
+                if new is not None:
+                    self._memory = new
+                return result
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(str(self.state_path) + ".lock", "w") as guard:
+                fcntl.flock(guard, fcntl.LOCK_EX)
+                try:
+                    try:
+                        raw = json.loads(self.state_path.read_text(encoding="utf-8"))
+                        state = {"hash": str(raw.get("hash") or ""), "expires": float(raw.get("expires") or 0)}
+                    except (OSError, ValueError, AttributeError, TypeError):
+                        state = {"hash": "", "expires": 0.0}
+                    result, new = fn(state)
+                    if new is not None:
+                        tmp = Path(str(self.state_path) + ".tmp")
+                        tmp.write_text(json.dumps(new), encoding="utf-8")
+                        os.chmod(tmp, 0o600)
+                        os.replace(tmp, self.state_path)
+                    return result
+                finally:
+                    fcntl.flock(guard, fcntl.LOCK_UN)
+
+    @property
+    def pending_hash(self) -> str:
+        return self._update(lambda state: (state["hash"], None))
+
+    def clear(self) -> None:
+        self._update(lambda state: (None, {"hash": "", "expires": 0.0}))
 
     def issue(self, lang: str = "ru") -> str:
         """A new one-time link (the older one stops working). Call only for a verified owner_private_command."""
         token = secrets.token_urlsafe(32)
-        with self._lock:
-            self._token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-            self._expires = self.clock() + TTL_SECONDS
+        fresh = {"hash": hashlib.sha256(token.encode("utf-8")).hexdigest(), "expires": self.clock() + TTL_SECONDS}
+        self._update(lambda state: (None, fresh))
         self.log(json.dumps({"event": "LOGIN_RECOVERY_ISSUED"}))
         return f"{self.base_url()}/login/recover?lang={_lang(lang)}#{token}"
 
     def message(self, lang: str = "ru") -> str:
         return T[_lang(lang)]["message"].format(url=self.issue(lang))
 
+    def _take(self, token: str):
+        def fn(state):
+            return (True, {"hash": "", "expires": 0.0}) if self._match(state, token) else (False, None)
+        return self._update(fn)
+
     def revoke(self, url_or_token: str) -> None:
         """Drop the link if it is still the current one (its message could not be delivered)."""
-        token = str(url_or_token or "").rsplit("#", 1)[-1].strip()
-        with self._lock:
-            if self._match(token):
-                self._token_hash, self._expires = "", 0.0
+        self._take(str(url_or_token or "").rsplit("#", 1)[-1].strip())
 
     def consume(self, token: str) -> bool:
         """True once for a live link; the link is gone afterwards."""
-        with self._lock:
-            ok = self._match(token)
-            if ok:
-                self._token_hash, self._expires = "", 0.0
+        ok = self._take(token)
         if ok:
             self.log(json.dumps({"event": "LOGIN_RECOVERY_USED"}))
         return ok
 
-    def _match(self, token: str) -> bool:
-        if not self._token_hash or self.clock() > self._expires or not isinstance(token, str) or not 20 <= len(token) <= 100:
+    def _match(self, state: dict, token: str) -> bool:
+        if not state["hash"] or self.clock() > state["expires"] or not isinstance(token, str) or not 20 <= len(token) <= 100:
             return False
-        return hmac.compare_digest(hashlib.sha256(token.encode("utf-8")).hexdigest(), self._token_hash)
+        return hmac.compare_digest(hashlib.sha256(token.encode("utf-8")).hexdigest(), state["hash"])
 
 
 CSS = ("body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(700px 420px at 50% 0,#163f6255,"

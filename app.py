@@ -1565,7 +1565,7 @@ def login(username: str = Form(...), password: str = Form(...), lang: str = Form
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>{retry}</a>", status_code=401)
     return _auth_cookie_response(f"/{lang}","owner","")
 
-LOGIN_RECOVERY=login_recovery.LoginRecovery(base_url=lambda: FACTORY_PUBLIC_BASE_URL)
+LOGIN_RECOVERY=login_recovery.LoginRecovery(base_url=lambda: FACTORY_PUBLIC_BASE_URL,state_path=DATA_DIR/"login_recovery.json")
 login_recovery.install_login_recovery_routes(app,LOGIN_RECOVERY,sign_in=lambda lang: _auth_cookie_response(f"/{lang}","owner",""))
 
 def _login_recovery_reply(message: dict, owner_chat: str) -> bool:
