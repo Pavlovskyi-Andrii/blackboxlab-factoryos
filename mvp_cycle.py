@@ -48,6 +48,12 @@ def _stage_order() -> list:
     return [s for p in PHASES for s in p["stages"]]
 
 
+def _launchpad_facts(project: dict) -> dict:
+    """T-704: gate states and the Learn verdict from the Launchpad board (facts only; unknown stays unknown)."""
+    from mvp_launchpad import learn_facts
+    return learn_facts(project)
+
+
 def cycle_view(project: dict, connections: dict, chat: dict) -> dict:
     """Facts for the panel: the current phase, each agent's status, what it produced, what to connect, its chat."""
     stage = str(project.get("stage") or "idea")
@@ -82,7 +88,7 @@ def cycle_view(project: dict, connections: dict, chat: dict) -> dict:
     return {"project": project.get("id"), "stage": stage, "phase": phase, "blocked": blocked,
             "phases": [{"id": p["id"], "icon": p["icon"], "current": p["id"] == phase,
                         "done": bool(p["stages"]) and pos > max(order.index(s) for s in p["stages"])} for p in PHASES],
-            "agents": agents,
+            "agents": agents, "launchpad": _launchpad_facts(project),
             "note": "Етапи рухаються тільки через записані події з доказами; панель нічого не запускає сама."}
 
 
