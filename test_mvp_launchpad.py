@@ -6,8 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import asyncio
+
 import fastapi
-from fastapi.testclient import TestClient
 
 import evidence
 import mvp_cycle
@@ -462,6 +463,18 @@ class StorageTest(LaunchpadCase):
         self.assertTrue(mvp_cycle.cycle_view(self.project(), {}, {})["launchpad"]["started"])
 
 
+class Req:
+    """Stand-in for a Starlette request: CI has no HTTP client package, so handlers are called directly."""
+
+    def __init__(self, body):
+        self.body = body
+
+    async def json(self):
+        if self.body is None:
+            raise ValueError("not json")
+        return self.body
+
+
 class RouteTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -469,32 +482,48 @@ class RouteTest(unittest.TestCase):
         self.role = "owner"
         app = fastapi.FastAPI()
         install_mvp_launchpad_routes(app, self.reg, lambda request: {"role": self.role, "email": self.role + "@example.org"})
-        self.http = TestClient(app)
+        self.routes = {r.name: r for r in app.routes if getattr(r, "name", "").startswith("mvp_launchpad")}
 
     def tearDown(self):
         self.tmp.cleanup()
 
+    def post(self, name, body, **path):
+        out = asyncio.run(self.routes[name].endpoint(request=Req(body), project_id=PID, **path))
+        if hasattr(out, "status_code"):
+            return out.status_code, json.loads(out.body)
+        return 200, out
+
     def test_routes(self):
-        base = f"/api/mvp-factory/{PID}/launchpad"
-        self.assertEqual(self.http.get(base).json()["checks"][0]["actual"], UNKNOWN)
-        self.assertEqual(self.http.get("/api/mvp-factory/nope/launchpad").status_code, 404)
-        made = self.http.post(base + "/artifacts", json=idea()).json()["artifact"]
+        paths = {r.path for r in self.routes.values()}
+        base = "/api/mvp-factory/{project_id}/launchpad"
+        self.assertEqual(paths, {base, base + "/artifacts", base + "/artifacts/{aid}/status", base + "/artifacts/{aid}/review",
+                                 base + "/artifacts/{aid}/terms", base + "/gates/{gate}", base + "/approvals"})
+        self.assertEqual(self.routes["mvp_launchpad_board"].methods, {"GET"})
+        board_fn = self.routes["mvp_launchpad_board"].endpoint
+        self.assertEqual(board_fn(project_id=PID)["checks"][0]["actual"], UNKNOWN)
+        self.assertEqual(board_fn(project_id="nope").status_code, 404)
+        made = self.post("mvp_launchpad_artifact", idea())[1]["artifact"]
         self.assertEqual((made["id"], made["actor"]), ("a-1", "owner@example.org"))
-        self.assertEqual(self.http.post(base + "/artifacts", json=fact(source_url="")).json(), {"detail": "source_url_required"})
-        self.assertEqual(self.http.post(base + "/artifacts", content=b"{").status_code, 400)
-        use = self.http.post(base + "/artifacts", json=entry("MVP", channel="product", ladder="usage")).json()["artifact"]
-        self.assertEqual(self.http.post(f"{base}/artifacts/{use['id']}/status", json={"to": "signed_up"}).json()["artifact"]["fields"]["status"], "signed_up")
+        self.assertEqual(self.post("mvp_launchpad_artifact", fact(source_url="")), (400, {"detail": "source_url_required"}))
+        self.assertEqual(self.post("mvp_launchpad_artifact", None), (400, {"detail": "bad_body"}))
+        self.assertEqual(self.post("mvp_launchpad_artifact", ["not", "an", "object"]), (400, {"detail": "bad_body"}))
+        use = self.post("mvp_launchpad_artifact", entry("MVP", channel="product", ladder="usage"))[1]["artifact"]
+        self.assertEqual(self.post("mvp_launchpad_status", {"to": "signed_up"}, aid=use["id"])[1]["artifact"]["fields"]["status"], "signed_up")
         self.role = "viewer"
-        self.assertEqual(self.http.post(base + "/artifacts", json=idea(2)).status_code, 403)
+        self.assertEqual(self.post("mvp_launchpad_artifact", idea(2)), (403, {"detail": "forbidden"}))
+        self.role = ""
+        self.assertEqual(self.post("mvp_launchpad_artifact", idea(2))[0], 403)                 # no identity, no write
         self.role = "member"
-        c = self.http.post(base + "/artifacts", json=card(spend_limit=0)).json()["artifact"]
-        self.assertEqual(self.http.post(base + "/approvals", json={"artifact": c["id"], "kind": "outreach"}).status_code, 403)
-        self.assertEqual(self.http.post(base + "/gates/G3", json={"action": "decide", "chosen": "build_minimum", "rationale": "r",
-                                                                  "evidence_refs": ["a-1"]}).status_code, 403)
-        self.assertEqual(self.http.post(f"{base}/artifacts/a-1/review", json={"verdict": "confirmed", "note": "checked"}).status_code, 200)
-        self.assertEqual(self.http.post(f"{base}/artifacts/{c['id']}/terms", json={"period": "2 days"}).status_code, 200)
+        c = self.post("mvp_launchpad_artifact", card(spend_limit=0))[1]["artifact"]
+        self.assertEqual(self.post("mvp_launchpad_approval", {"artifact": c["id"], "kind": "outreach"}), (403, {"detail": "owner_only"}))
+        self.assertEqual(self.post("mvp_launchpad_gate", {"action": "decide", "chosen": "build_minimum", "rationale": "r",
+                                                          "evidence_refs": ["a-1"]}, gate="G3"), (403, {"detail": "owner_only"}))
+        self.assertEqual(self.post("mvp_launchpad_review", {"verdict": "confirmed", "note": "checked"}, aid="a-1")[0], 200)
+        self.assertEqual(self.post("mvp_launchpad_terms", {"period": "2 days"}, aid=c["id"])[0], 200)
         self.role = "owner"
-        self.assertEqual(self.http.post(base + "/approvals", json={"artifact": c["id"], "kind": "outreach"}).status_code, 200)
+        self.assertEqual(self.post("mvp_launchpad_approval", {"artifact": c["id"], "kind": "outreach"})[0], 200)
+        self.assertEqual(self.post("mvp_launchpad_artifact", idea(3))[0], 200)
+        self.assertEqual(self.post("mvp_launchpad_gate", {"action": "decide"}, gate="G9"), (404, {"detail": "unknown_gate"}))
 
 
 class UiTest(unittest.TestCase):
