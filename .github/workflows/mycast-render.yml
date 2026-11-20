@@ -25,21 +25,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # Setup is split into steps so the run shows where the time goes. On 2026-11-19 one run spent 9 of its
-      # 9.5 minutes in "apt-get update && apt-get install ffmpeg"; the render itself took 3 seconds.
-      - name: FFmpeg (use the runner's copy; install only when it is missing)
+      # No apt: the hosted runner has no FFmpeg, and "apt-get update && apt-get install ffmpeg" once took 9 of a
+      # run's 9.5 minutes (2026-11-19). FFmpeg comes as a binary inside the imageio-ffmpeg pip package instead;
+      # tools/mycast_render.py finds it and needs no ffprobe.
+      - name: Piper TTS and FFmpeg (pip only)
         run: |
-          set -euo pipefail
-          if command -v ffmpeg > /dev/null && command -v ffprobe > /dev/null; then
-            echo "ffmpeg is already on the runner: no apt"
-          else
-            export DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1
-            sudo -E apt-get install -y -qq --no-install-recommends ffmpeg > /dev/null \
-              || { sudo -E apt-get update -qq && sudo -E apt-get install -y -qq --no-install-recommends ffmpeg > /dev/null; }
-          fi
-          ffmpeg -hide_banner -version | head -n 1
-      - name: Piper TTS
-        run: python -m pip install --disable-pip-version-check piper-tts
+          python -m pip install --disable-pip-version-check piper-tts imageio-ffmpeg
+          python -c "import sys; sys.path.insert(0, 'tools'); import mycast_render, subprocess; exe = mycast_render.ffmpeg_exe(); print(exe); print(subprocess.run([exe, '-hide_banner', '-version'], capture_output=True, text=True).stdout.splitlines()[0])"
       - name: Voice cache
         id: voice
         uses: actions/cache@v4
