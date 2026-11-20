@@ -202,6 +202,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Progress 2026-11-02: pipeline implemented (autopilot/mycast_daily.py → branch mycast/daily via GitHub API → Piper render workflow → POST /api/factory/mycast/worker/deliver → Telegram sendAudio). Open: 7 live mornings.
   Progress 2026-11-02 (later): Piper voice judged unlistenable by the owner; Gemini two-host voices on the server added (voice-deliver), Piper stays as fallback. Needs T-605 (key in Render).
   Note 2026-11-15 (T-620 review): no code tail in the #305 files; what remains is the live part of DONE (7 consecutive delivered mornings + owner feedback), not an engineering change.
+  Progress 2026-11-19 (MC-01): the Piper fallback render failed on every run since 2026-11-08 (`KeyError: 'url'` on a host-commentary source without a link, and `mycast/daily` never followed `main`). Fixed: `tools/mycast_render.py`, `publish` syncs the branch, audio QA; see DECISIONS.md «2026-11-19 — MC-01». Open: the first green daily run on `mycast/daily` after the worker has the new code.
 
 - [ ] T-604 Shared Claude ↔ ChatGPT workspace through the FactoryOS MCP server
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)

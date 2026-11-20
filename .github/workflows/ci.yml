@@ -419,6 +419,8 @@ jobs:
           python -m py_compile mycast.py test_mycast.py autopilot/mycast_daily.py autopilot/test_mycast_daily.py
           python test_mycast.py
           python -m autopilot.test_mycast_daily
+          python -m py_compile tools/mycast_render.py tools/test_mycast_render.py
+          python -m tools.test_mycast_render
       - name: Delegation execution timeline regression
         env:
           FACTORY_PASSWORD: ""

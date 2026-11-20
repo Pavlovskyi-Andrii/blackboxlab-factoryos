@@ -177,6 +177,37 @@ def test_publish_and_wait():
     assert any("POST" in a for a in seen)
     assert any(a[-1].endswith("episodes/2026-11-03.json") or "episodes/2026-11-03.json" in " ".join(a) for a in seen)
 
+    # sync_branch: an existing branch is merged with main before the episode (the render workflow runs the branch's
+    # own copy of the renderer). A conflict is reported as False, so run_daily can name it; a missing branch is fine.
+    def url(args):
+        return next(a for a in args if a.startswith("repos/"))
+
+    ok, missing = (0, "{}"), (1, '{"message": "Not Found", "status": "404"}')
+    cases = (  # (branch lookup, main lookup, merge reply, expected result, merge attempted)
+        (ok, ok, ok, "", True),
+        (ok, ok, (1, '{"message": "Merge conflict", "status": "409"}'), "conflict", True),
+        (ok, ok, (1, '{"message": "API rate limit exceeded", "status": "403"}'), "error", True),
+        (ok, ok, (1, '{"message": "conflict with a rule", "status": "422"}'), "error", True),  # the status decides
+        (ok, ok, (1, ""), "error", True),                                          # network failure: no body
+        (missing, ok, ok, "", False),                                              # a genuinely missing branch
+        (missing, missing, ok, "error", False),                                    # 404 that hides missing access
+        ((1, '{"message": "Bad credentials", "status": "401"}'), ok, ok, "error", False),
+        ((1, "Not Found"), ok, ok, "error", False),                                # no status: not proof of absence
+        ((1, ""), ok, ok, "error", False),                                         # lookup failed, branch may exist
+    )
+    for ref, main_ref, merge, want, merged in cases:
+        calls = []
+
+        def sync_gh(*args, input_text=None):
+            calls.append(args)
+            if url(args).endswith("/merges"):
+                assert "POST" in args and f"base={md.BRANCH}" in args and "head=main" in args
+                return merge
+            return main_ref if url(args).endswith("/heads/main") else ref
+        assert md.sync_branch(gh_fn=sync_gh) == want, (ref, main_ref, merge)
+        assert any(url(a).endswith("/merges") for a in calls) is merged
+    assert not any(url(a).endswith("/merges") for a in seen)  # publish itself never merges
+
     states = iter(['[{"databaseId": 7, "status": "in_progress", "conclusion": ""}]',
                    '[{"databaseId": 7, "status": "completed", "conclusion": "success"}]'])
     assert md.wait_render("sha", gh_fn=lambda *a, **k: (0, next(states)), sleep=lambda s: None, wait_seconds=60) == "7"
@@ -252,12 +283,13 @@ def test_transcript_messages():
 def test_run_daily_orchestration():
     state_path = Path(tempfile.mkdtemp()) / "mycast.json"
     at = kyiv_ts(2026, 11, 3, 7, 30)
-    saved = {n: getattr(md, n) for n in ("generate_episode", "publish", "wait_render", "download_mp3", "deliver", "deliver_gemini")}
+    saved = {n: getattr(md, n) for n in ("generate_episode", "publish", "sync_branch", "wait_render", "download_mp3", "deliver", "deliver_gemini")}
     saved_conf = md.relay_tasks.configured
     try:
         md.relay_tasks.configured = lambda: True
         md.generate_episode = lambda day, run_cli=None, status_text="": ("ok", dict(good_episode(), id="mycast-2026-11-03"))
         md.publish = lambda ep: "sha1"
+        md.sync_branch = lambda: ""
         md.deliver_gemini = lambda ep: "unavailable"  # no Gemini key yet → Piper path
         md.wait_render = lambda sha: "42"
         md.download_mp3 = lambda run_id, eid: b"ID3audio"
@@ -294,6 +326,17 @@ def test_run_daily_orchestration():
         assert len(notices) == 1 and "не доставлено" in notices[0] and "Текст випуску надіслано" in notices[0]
         assert sum(m.startswith("📝") for m in msgs) == 1  # transcript sent once, not per attempt
         assert md.run_daily(state_path, now=at + 9 * md.RETRY_SPACING_SECONDS, send=msgs.append) == "idle"
+        assert "конфлікт" not in notices[0]
+        # The branch could not be merged with main (conflict): the failure notice names the stale renderer.
+        for reason, words in (("conflict", "конфлікт злиття"), ("error", "помилка GitHub")):
+            state_path.unlink()
+            md.sync_branch = lambda reason=reason: reason
+            msgs = []
+            for n in range(md.MAX_ATTEMPTS):
+                assert md.run_daily(state_path, now=at + n * md.RETRY_SPACING_SECONDS, send=lambda t: msgs.append(t) or True) == "failed"
+            notices = [m for m in msgs if m.startswith("⚠️")]
+            assert len(notices) == 1 and words in notices[0] and "рендер міг бути застарілий" in notices[0]
+        md.sync_branch = lambda: ""
         # A broken Telegram notice never breaks the worker loop.
         assert md.notify_owner("x", send=lambda t: (_ for _ in ()).throw(RuntimeError("down"))) is False
         md.relay_tasks.configured = lambda: False
