@@ -1,0 +1,212 @@
+{
+  "schema": "film-studio/v1",
+  "project_id": "blackbox-lab-45s",
+  "version": 1,
+  "language": "en",
+  "fps": 24,
+  "width": 1920,
+  "height": 1080,
+  "target_duration_seconds": 45,
+  "release_status": "not_approved",
+  "claims": [
+    {
+      "claim": "Agents can collaborate on research and prototypes",
+      "status": "conceptual_product_intent",
+      "source": "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/433",
+      "verified_in_live_product": false
+    }
+  ],
+  "scenes": [
+    {
+      "scene_id": "scene-1",
+      "shot_ids": [
+        "S01"
+      ]
+    },
+    {
+      "scene_id": "scene-2",
+      "shot_ids": [
+        "S02"
+      ]
+    },
+    {
+      "scene_id": "scene-3",
+      "shot_ids": [
+        "S03"
+      ]
+    },
+    {
+      "scene_id": "scene-4",
+      "shot_ids": [
+        "S04"
+      ]
+    },
+    {
+      "scene_id": "scene-5",
+      "shot_ids": [
+        "S05"
+      ]
+    },
+    {
+      "scene_id": "scene-6",
+      "shot_ids": [
+        "S06"
+      ]
+    },
+    {
+      "scene_id": "scene-7",
+      "shot_ids": [
+        "S07"
+      ]
+    }
+  ],
+  "shots": [
+    {
+      "shot_id": "S01",
+      "scene_id": "scene-1",
+      "start_seconds": 0,
+      "duration_seconds": 5,
+      "end_seconds": 5,
+      "narration": "Every idea begins with a question.",
+      "visual_intent": "Wide exterior of fictional studio at night",
+      "visual_source": "original_art_required",
+      "asset_id": "A01",
+      "image_prompt": "Original fictional cinematic concept art: Wide exterior of fictional studio at night. Dark cyan shadows, warm practical lighting, no identifiable real people, no third-party marks.",
+      "motion_prompt": "slow push-in",
+      "camera": "slow push-in",
+      "transition": "fade_in",
+      "generator": "photo_cinema",
+      "fallback": "original_authorized_still_only",
+      "state": "not_started",
+      "truth_status": "DEMO",
+      "approval_required": true,
+      "continuity_notes": "Use the shared studio palette and unbranded props; no verified real-world outcomes implied."
+    },
+    {
+      "shot_id": "S02",
+      "scene_id": "scene-2",
+      "start_seconds": 5,
+      "duration_seconds": 6,
+      "end_seconds": 11,
+      "narration": "What if a team could explore it together?",
+      "visual_intent": "Warm desk, abstract idea sketched on paper",
+      "visual_source": "original_art_required",
+      "asset_id": "A02",
+      "image_prompt": "Original fictional cinematic concept art: Warm desk, abstract idea sketched on paper. Dark cyan shadows, warm practical lighting, no identifiable real people, no third-party marks.",
+      "motion_prompt": "gentle lateral slide",
+      "camera": "gentle lateral slide",
+      "transition": "cross_dissolve",
+      "generator": "photo_cinema",
+      "fallback": "original_authorized_still_only",
+      "state": "not_started",
+      "truth_status": "DEMO",
+      "approval_required": true,
+      "continuity_notes": "Use the shared studio palette and unbranded props; no verified real-world outcomes implied."
+    },
+    {
+      "shot_id": "S03",
+      "scene_id": "scene-3",
+      "start_seconds": 11,
+      "duration_seconds": 7,
+      "end_seconds": 18,
+      "narration": "Research shapes the first hypothesis.",
+      "visual_intent": "Abstract source cards with visibly illustrative labels",
+      "visual_source": "original_art_required",
+      "asset_id": "A03",
+      "image_prompt": "Original fictional cinematic concept art: Abstract source cards with visibly illustrative labels. Dark cyan shadows, warm practical lighting, no identifiable real people, no third-party marks.",
+      "motion_prompt": "top-down slow drift",
+      "camera": "top-down slow drift",
+      "transition": "cross_dissolve",
+      "generator": "photo_cinema",
+      "fallback": "original_authorized_still_only",
+      "state": "not_started",
+      "truth_status": "DEMO",
+      "approval_required": true,
+      "continuity_notes": "Use the shared studio palette and unbranded props; no verified real-world outcomes implied."
+    },
+    {
+      "shot_id": "S04",
+      "scene_id": "scene-4",
+      "start_seconds": 18,
+      "duration_seconds": 7,
+      "end_seconds": 25,
+      "narration": "Different perspectives challenge the plan.",
+      "visual_intent": "Two contrasting workflow paths converge into a review gate",
+      "visual_source": "original_art_required",
+      "asset_id": "A04",
+      "image_prompt": "Original fictional cinematic concept art: Two contrasting workflow paths converge into a review gate. Dark cyan shadows, warm practical lighting, no identifiable real people, no third-party marks.",
+      "motion_prompt": "controlled split-screen dissolve",
+      "camera": "controlled split-screen dissolve",
+      "transition": "cross_dissolve",
+      "generator": "photo_cinema",
+      "fallback": "original_authorized_still_only",
+      "state": "not_started",
+      "truth_status": "DEMO",
+      "approval_required": true,
+      "continuity_notes": "Use the shared studio palette and unbranded props; no verified real-world outcomes implied."
+    },
+    {
+      "shot_id": "S05",
+      "scene_id": "scene-5",
+      "start_seconds": 25,
+      "duration_seconds": 7,
+      "end_seconds": 32,
+      "narration": "A prototype makes the idea tangible.",
+      "visual_intent": "Prototype wireframe on unbranded monitor marked DEMO",
+      "visual_source": "original_art_required",
+      "asset_id": "A05",
+      "image_prompt": "Original fictional cinematic concept art: Prototype wireframe on unbranded monitor marked DEMO. Dark cyan shadows, warm practical lighting, no identifiable real people, no third-party marks.",
+      "motion_prompt": "subtle monitor parallax",
+      "camera": "subtle monitor parallax",
+      "transition": "cross_dissolve",
+      "generator": "photo_cinema",
+      "fallback": "original_authorized_still_only",
+      "state": "not_started",
+      "truth_status": "DEMO",
+      "approval_required": true,
+      "continuity_notes": "Use the shared studio palette and unbranded props; no verified real-world outcomes implied."
+    },
+    {
+      "shot_id": "S06",
+      "scene_id": "scene-6",
+      "start_seconds": 32,
+      "duration_seconds": 7,
+      "end_seconds": 39,
+      "narration": "Real feedback—not imagined numbers—guides the next step.",
+      "visual_intent": "Empty evidence board with UNKNOWN placeholders and owner review",
+      "visual_source": "original_art_required",
+      "asset_id": "A06",
+      "image_prompt": "Original fictional cinematic concept art: Empty evidence board with UNKNOWN placeholders and owner review. Dark cyan shadows, warm practical lighting, no identifiable real people, no third-party marks.",
+      "motion_prompt": "slow pull-back",
+      "camera": "slow pull-back",
+      "transition": "cross_dissolve",
+      "generator": "photo_cinema",
+      "fallback": "original_authorized_still_only",
+      "state": "not_started",
+      "truth_status": "DEMO",
+      "approval_required": true,
+      "continuity_notes": "Use the shared studio palette and unbranded props; no verified real-world outcomes implied."
+    },
+    {
+      "shot_id": "S07",
+      "scene_id": "scene-7",
+      "start_seconds": 39,
+      "duration_seconds": 6,
+      "end_seconds": 45,
+      "narration": "Blackbox Lab. Build, test, learn.",
+      "visual_intent": "Minimal Blackbox Lab title on dark studio background",
+      "visual_source": "original_art_required",
+      "asset_id": "A07",
+      "image_prompt": "Original fictional cinematic concept art: Minimal Blackbox Lab title on dark studio background. Dark cyan shadows, warm practical lighting, no identifiable real people, no third-party marks.",
+      "motion_prompt": "locked title reveal",
+      "camera": "locked title reveal",
+      "transition": "cross_dissolve",
+      "generator": "photo_cinema",
+      "fallback": "original_authorized_still_only",
+      "state": "not_started",
+      "truth_status": "DEMO",
+      "approval_required": true,
+      "continuity_notes": "Use the shared studio palette and unbranded props; no verified real-world outcomes implied."
+    }
+  ]
+}
