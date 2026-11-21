@@ -151,6 +151,16 @@ class Handler(BaseHTTPRequestHandler):
             raise InvalidArchive("Request exceeds size limit or is empty")
         return self.rfile.read(n)
 
+    def do_HEAD(self):
+        # Render's edge/readiness probes may use HEAD /.
+        if self.path in ("/", "/health"):
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def do_GET(self):
         url=urllib.parse.urlparse(self.path)
         if url.path == "/health":
@@ -228,5 +238,11 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     if len(TOKEN) < 32:
         raise SystemExit("SANDBOX_ADMIN_TOKEN (>=32 chars) required")
+    # Run deterministic, network-free security checks on every fresh deploy.
+    import unittest
+    suite = unittest.defaultTestLoader.discover("sandbox", pattern="test_server.py")
+    result = unittest.TextTestRunner(verbosity=1).run(suite)
+    if not result.wasSuccessful():
+        raise SystemExit("Sandbox regression tests failed")
     print("FactoryOS Sandbox startup; static ZIP previews only",flush=True)
     ThreadingHTTPServer(("0.0.0.0",int(os.getenv("PORT","10000"))),Handler).serve_forever()
