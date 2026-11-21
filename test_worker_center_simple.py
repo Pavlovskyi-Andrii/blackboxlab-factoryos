@@ -90,7 +90,9 @@ class TestWorkerCenterSimple(unittest.TestCase):
         self.assertIn('data-match="0"', out["ru:cmp"])
         self.assertIn("disabled", out["ru:none"].split('data-compare="match"')[1].split(">")[0])
         now = out["ru:now"]
-        self.assertEqual(now.count('class="wcLane"'), 3)
+        self.assertEqual(now.count('class="wcLane"'), 4)  # claude, chatgpt, gemini + the T-714 Surfer worker
+        self.assertIn('data-lane="surfer" data-state="offline"', now)  # no Surfer heartbeat in the fixture
+        self.assertIn(">Surfer<", now)
         self.assertIn('data-lane="claude" data-state="working"', now)
         self.assertIn("T-700", now)
         self.assertIn('data-lane="chatgpt" data-state="offline"', now)

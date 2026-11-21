@@ -17,11 +17,13 @@ try:
     from . import owner_questions
     from . import browser_tasks, codex_review, mycast_daily, mycast_listeners
     from . import mods_runtime
+    from . import worker_heartbeat
 except ImportError:
     from delegation import agent_preflight, build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
     import mods_runtime
+    import worker_heartbeat
     import control
     import relay_tasks
     import owner_questions
@@ -44,6 +46,9 @@ def _default_repo() -> pathlib.Path:
 REPO = _default_repo()
 STATUS = REPO / ".autopilot" / "status.json"
 ANSWERS = REPO / ".autopilot" / "answers.md"
+# T-714: this loop's own heartbeat (read by the root supervisor's watchdog) and the dedicated Surfer worker's.
+LOOP_BEAT = worker_heartbeat.path_for(REPO, worker_heartbeat.CLAUDE_LOOP_FILE)
+SURFER_BEAT = worker_heartbeat.path_for(REPO, worker_heartbeat.SURFER_FILE)
 ROADMAP = REPO / "ROADMAP.md"
 MAX_FAILS = max(1, min(5, int(os.environ.get("AUTOPILOT_MAX_FAILS", "3"))))
 MAX_TURNS = max(10, min(160, int(os.environ.get("AUTOPILOT_MAX_TURNS", "80"))))
@@ -506,6 +511,21 @@ def idle_notice(path: pathlib.Path = ROADMAP, parked: set[str] | frozenset[str] 
     return "🏁 FactoryOS roadmap has no remaining safe tasks."
 
 
+def loop_beat(state: str = "idle", *, long_job: bool = False, task: str = "") -> None:
+    """T-714: promise the next beat within 15 min (plus the longest deliberate sleep), or within the task timeout
+    plus 15 min before a Claude CLI run. A loop that breaks the promise is restarted by the supervisor's watchdog."""
+    budget = (max(TASK_TIMEOUT_SECONDS, 3600) if long_job else max(IDLE_SECONDS, PAUSE_SECONDS)) + worker_heartbeat.STALE_AFTER_SECONDS
+    worker_heartbeat.beat(LOOP_BEAT, budget_seconds=budget, state=state, task=task)
+
+
+def run_browser_fallback() -> bool:
+    """T-560 in-loop browser task, now only a fallback (T-714): while the dedicated Surfer worker beats, it owns the
+    queue and this loop starts no second Chromium. True when a task was run."""
+    if worker_heartbeat.alive(SURFER_BEAT):
+        return False
+    return browser_tasks.run_one() == "done"
+
+
 def main() -> int:
     branch = assert_safe_branch()
     # T-599-A: a blocked or failed task is parked instead of stalling the whole queue.
@@ -536,6 +556,7 @@ def main() -> int:
     decided: dict[str, tuple[str, str]] = {}
 
     while True:
+        loop_beat()
         # Owner controls are only read here, between tasks, so a pause never interrupts a running task.
         # The owner controls queue serves the Claude runner; a Gemini runner must not ack (and so swallow) its commands.
         decision = (poll_control(paused, set(blocked) | failed_hold, decided) if CLAUDE_SIDE_JOBS
@@ -600,6 +621,8 @@ def main() -> int:
 
         # T-607: the Gemini runner skips the Claude-only jobs below (they start Claude CLI or claim Claude tickets).
         if CLAUDE_SIDE_JOBS:
+            # Owner desk questions, MyCast and Relay tickets can start Claude CLI: promise a long-job deadline.
+            loop_beat("side_jobs", long_job=True)
             # Owner desk questions are short and read-only, so they go before any long task.
             owner_questions.maybe_selftest()
             asked, hint = owner_questions.answer_one(REPO)
@@ -635,7 +658,8 @@ def main() -> int:
             # Codex answers in its own isolated service; at most one new request per pass.
             codex_review.run_once(ANSWERS.with_name("codex_review.json"))
             # T-560: the owner's read-only browser tasks (anonymous Chromium, one per pass; idle without Playwright).
-            if browser_tasks.run_one() == "done":
+            # T-714: only when the dedicated Surfer worker (autopilot.browser_worker) is not alive.
+            if run_browser_fallback():
                 continue
 
             # Relay owner tickets have priority over ordinary roadmap work. This is
@@ -694,6 +718,7 @@ def main() -> int:
             write_runtime_status("idle", task=target["id"], summary=f"{target['id']} not started: {reason}")
             continue
         report = relay_tasks.RunReporter(ticket) if ticket else (lambda *a, **k: None)
+        loop_beat("running", long_job=True, task=target["id"])
         head_before = git_head()
         if ticket:
             report("running", f"{target['id']}: Claude Code CLI started", {"branch": branch})

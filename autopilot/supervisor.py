@@ -15,11 +15,25 @@ import time
 from datetime import datetime, timezone
 from typing import NamedTuple
 
+try:
+    from . import worker_heartbeat
+except ImportError:  # pragma: no cover - run as a plain script
+    import worker_heartbeat
+
 ENV_FILE = Path("/etc/factoryos/claude-worker.env")
 STATUS_FILE = Path("/var/lib/factoryos/supervisor-status.json")
 RESTART_FILE = Path("/var/lib/factoryos/supervisor-restarts.json")
 WORKER_SERVICE = "factoryos-claude-worker.service"
 WORKER_USER = "ec2-user"
+# T-714: loop-heartbeat watchdog. The supervisor timer (every minute, root) restarts a worker whose own loop stopped
+# beating .autopilot/<file> past the deadline it promised (15 min, longer before a Claude CLI run).
+SURFER_SERVICE = "factoryos-surfer-worker.service"
+WATCHDOG_RESTART_FILE = Path("/var/lib/factoryos/watchdog-restarts.json")
+WATCHDOG_UNITS = (
+    ("claude_worker", WORKER_SERVICE, worker_heartbeat.CLAUDE_LOOP_FILE),
+    ("surfer_worker", SURFER_SERVICE, worker_heartbeat.SURFER_FILE),
+)
+STARTUP_GRACE_SECONDS = 300
 MAX_RESTARTS_PER_HOUR = 3
 MIN_RESTART_INTERVAL_SECONDS = 120
 PAID_KEYS = (
@@ -100,6 +114,44 @@ def choose_action(
     return Plan("start", "recovering", "approved_safe_restart")
 
 
+def watchdog_decision(
+    *,
+    supposed_to_run: bool,
+    service_state: str,
+    active_since: float | None,
+    beat: dict,
+    recent_attempts: list[float],
+    now: float,
+) -> Plan:
+    """T-714 pure policy: restart a running unit whose loop heartbeat broke its deadline (bounded, like choose_action).
+
+    Never acts on a unit that is not supposed to run, on a freshly started one, or on one that never beat since it
+    started (old code without the heartbeat, or a different checkout): only a broken promise counts as "hung"."""
+    if not supposed_to_run:
+        return Plan("none", "not_expected", "unit_not_expected")
+    recent = sorted(float(t) for t in recent_attempts if now - 3600 <= t <= now)
+    budget_left = len(recent) < MAX_RESTARTS_PER_HOUR
+    if service_state == "failed":
+        # systemd gave up after its own StartLimitBurst; a bounded retry here, then the owner.
+        return Plan("restart", "recovering", "unit_failed") if budget_left else Plan(
+            "none", "needs_owner", "restart_budget_exhausted")
+    if service_state != "active":
+        return Plan("none", "not_running", "service_" + (service_state or "unknown"))
+    if active_since is None or now - active_since < STARTUP_GRACE_SECONDS:
+        return Plan("none", "starting", "startup_grace")
+    if not beat:
+        return Plan("none", "unknown", "no_loop_heartbeat")
+    if beat["at"] + 5 < active_since:
+        return Plan("none", "unknown", "no_loop_heartbeat_since_start")
+    if now <= beat["deadline"]:
+        return Plan("none", "ok", "loop_heartbeat_fresh")
+    if not budget_left:
+        return Plan("none", "needs_owner", "restart_budget_exhausted")
+    if recent and now - recent[-1] < MIN_RESTART_INTERVAL_SECONDS:
+        return Plan("none", "cooldown", "waiting_before_restart")
+    return Plan("restart", "recovering", "loop_heartbeat_stale")
+
+
 def command(argv: list[str], *, timeout: int = 15) -> tuple[int, str]:
     try:
         p = subprocess.run(
@@ -172,6 +224,63 @@ def publish_report(path: Path, report: dict) -> None:
         pass
 
 
+def unit_active_since(unit: str) -> float | None:
+    """Wall-clock time the unit last became active (from systemd's monotonic stamp and /proc/uptime)."""
+    rc, raw = command(["systemctl", "show", unit, "-p", "ActiveEnterTimestampMonotonic", "--value"], timeout=10)
+    try:
+        entered = int(raw) / 1_000_000
+        uptime = float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
+    except (ValueError, OSError, IndexError):
+        return None
+    if rc or entered <= 0:
+        return None
+    return time.time() - max(0.0, uptime - entered)
+
+
+def read_watchdog_attempts(path: Path, now: float) -> dict[str, list[float]]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): [float(t) for t in v if isinstance(t, (int, float)) and now - 3600 <= float(t) <= now]
+            for k, v in raw.items() if isinstance(v, list)}
+
+
+def run_watchdog(repo: Path, claude_expected: bool, now: float, *, cmd=None, active_since=None,
+                 attempts_file: Path | None = None) -> dict[str, str]:
+    """Check both worker loops; restart a hung one. Returns {"watchdog_<name>": "<status>:<reason>"}."""
+    cmd = cmd or command
+    active_since = active_since or unit_active_since
+    attempts_file = attempts_file or WATCHDOG_RESTART_FILE
+    attempts = read_watchdog_attempts(attempts_file, now)
+    out: dict[str, str] = {}
+    for name, unit, beat_file in WATCHDOG_UNITS:
+        rc, raw_state = cmd(["systemctl", "is-active", unit], timeout=10)
+        state = raw_state if raw_state in ("active", "activating", "inactive", "failed", "deactivating") else "unknown"
+        if name == "claude_worker":
+            expected = claude_expected
+        else:
+            # The Surfer unit is optional: it is supposed to run once the owner enabled it (T-714-H).
+            expected = cmd(["systemctl", "is-enabled", unit], timeout=10)[1] == "enabled"
+        plan = watchdog_decision(
+            supposed_to_run=expected, service_state=state,
+            active_since=active_since(unit) if state == "active" else None,
+            beat=worker_heartbeat.read(worker_heartbeat.path_for(repo, beat_file)),
+            recent_attempts=attempts.get(name, []), now=now,
+        )
+        status, reason = plan.status, plan.reason
+        if plan.action == "restart":
+            attempts.setdefault(name, []).append(now)
+            save_json(attempts_file, attempts)
+            cmd(["systemctl", "reset-failed", unit], timeout=10)
+            rc, _ = cmd(["systemctl", "restart", "--no-block", unit], timeout=25)
+            status, reason = ("failed", "systemd_restart_failed") if rc else ("restart", reason)
+        out["watchdog_" + name] = f"{status}:{reason}"
+    return out
+
+
 def run_once(now: float | None = None) -> dict[str, object]:
     now = time.time() if now is None else now
     env = parse_env(ENV_FILE)
@@ -220,6 +329,10 @@ def run_once(now: float | None = None) -> dict[str, object]:
         "restart_attempts_last_hour": len(attempts),
         "recovery_action": decision.action,
     }
+    try:
+        report.update(run_watchdog(repo, decision.action == "none" and result_status == "running", now))
+    except Exception as exc:  # the watchdog must never break the subscription supervisor
+        report["watchdog_claude_worker"] = report["watchdog_surfer_worker"] = "failed:" + type(exc).__name__
     save_json(STATUS_FILE, report)
     if has_repo:
         publish_report(repo / ".autopilot" / "supervisor.json", report)

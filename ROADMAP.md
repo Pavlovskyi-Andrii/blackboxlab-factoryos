@@ -1,3 +1,16 @@
+- [x] T-714 Surfer worker: browser tasks in their own process on EC2, a Surfer lane in Worker Center, a loop-heartbeat watchdog
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-21: «да» — Surfer tasks waited 15:18→16:55 UTC behind a long Claude job and a stalled worker loop)
+  Depends: T-560, T-562
+  Spec: DECISIONS.md «2026-11-21 — T-714». `autopilot/browser_worker.py`, `autopilot/worker_heartbeat.py`, `autopilot/supervisor.py`, `autopilot/autopilot.py`, `browser_tasks.py`, `deploy/systemd/factoryos-surfer-worker.service`, `deploy/install_surfer_worker.sh`.
+  Goal: `python -m autopilot.browser_worker` claims → runs Playwright → reports in a loop (5 s poll, exponential backoff to 120 s while FactoryOS is unreachable, one Chromium, file lock against a second copy, SIGTERM finishes the task, exits on a runner-code change so systemd restarts it on the new code); its own unit (ec2-user, `/etc/factoryos/claude-worker.env`, Restart=always, MemoryMax=1200M); server heartbeat `POST /api/factory/browser/worker/heartbeat` (worker token) → lane `surfer` in Worker Center; the Claude worker runs a browser task only while the Surfer worker's local heartbeat is not alive; both loops beat `.autopilot/{claude-loop,surfer}.json` with a deadline and the existing root supervisor timer restarts a unit whose deadline passed (bounded: 3/h, 5 min start grace).
+  DONE: `python -m autopilot.test_browser_worker`, `python -m autopilot.test_supervisor`, `python -m autopilot.test_autopilot`, `python test_browser_tasks.py`, `python test_owner_desk.py`, default verification, dashboard `node --check`.
+
+- [ ] [HUMAN] T-714-H Install the Surfer worker unit on EC2 once (`sudo bash /opt/factoryos/deploy/install_surfer_worker.sh`)
+  Owner: human
+  Depends: T-714
+  Runbook: Worker Center → «Нужно от вас» → T-714-H (RU/EN/UK). EC2 Instance Connect → the one command → `systemctl status factoryos-surfer-worker.service --no-pager` → the Surfer row in Worker Center is fresh.
+
 - [x] T-713 Social autopilot: a teaser image in every post (Telegram channel and LinkedIn)
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-21: «добавлять фото в каждый пост (в фото должно отображаться небольшой визуальный тизер того, что в тексте)»)

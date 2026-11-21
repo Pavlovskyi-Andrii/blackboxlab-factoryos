@@ -13128,8 +13128,11 @@ def get_lane_board():
     team=_TEAM_TASKS_CACHE.peek() if "_TEAM_TASKS_CACHE" in globals() else None
     activity={k:{"done_7d":a.get("done_7d"),"last_activity_at":a.get("last_activity_at")}
               for k,a in ((team or {}).get("agents") or {}).items() if k in ("claude","chatgpt","gemini")}
-    return build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds,
-                            github_activity=activity)
+    board=build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds,
+                           github_activity=activity)
+    # T-714: the dedicated Surfer worker (browser tasks) beside the coding lanes; it never takes ROADMAP tasks.
+    board["lanes"]["surfer"]=BROWSER_TASKS.surfer_lane()
+    return board
 
 @app.get("/api/factory/lane-board")
 def factory_lane_board(request: Request):
