@@ -4,7 +4,8 @@ Zero spend: Piper is an open-source local TTS; this runs on a CI runner, not on 
 Usage: python tools/mycast_render.py EPISODE.json MODEL.onnx OUT_DIR
        python tools/mycast_render.py --batch LIST MODEL.onnx OUT_DIR   (LIST = NUL-separated episode paths)
 Writes OUT_DIR/<id>.md (transcript + sources) and, only when the audio passes QA and the MP3 decodes with the
-right length, OUT_DIR/<id>.wav and OUT_DIR/<id>.mp3. Each episode is rendered on its own; ffmpeg does the MP3.
+right length, OUT_DIR/<id>.wav and OUT_DIR/<id>.mp3. Each episode is rendered on its own. FFmpeg does the MP3;
+it comes from the imageio-ffmpeg pip package when that is installed (no apt, no ffprobe needed).
 
 The Ukrainian Piper voice reads raw characters and knows lowercase Cyrillic only: Latin words, capital letters and
 digits are dropped without an error. `speakable` rewrites the text for the voice (the transcript keeps the original),
@@ -244,29 +245,51 @@ def render_episode(episode_path: str, model_path: str, out_dir: str) -> Path | N
     return final
 
 
+def ffmpeg_exe() -> str:
+    """The FFmpeg to use: MYCAST_FFMPEG, else the binary shipped in the imageio-ffmpeg pip package (what the render
+    workflow installs, so the job needs no apt), else the system one. '' when there is none."""
+    import os
+    import shutil
+
+    chosen = os.environ.get("MYCAST_FFMPEG", "").strip()
+    if chosen:
+        return chosen
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # not installed, or no binary for this platform
+        return shutil.which("ffmpeg") or ""
+
+
+MP3_CHECK_RATE = 16000  # the MP3 is decoded to 16 kHz mono 16-bit PCM and its real length is counted from the bytes
+
+
 def to_mp3(wav: Path, mp3: Path) -> str:
-    """Convert with ffmpeg, then decode the MP3 and compare its length with the WAV. Returns a problem or ''."""
+    """Convert with FFmpeg, then decode the whole MP3 back to PCM and compare its real length with the WAV.
+    Returns a problem or ''. Only FFmpeg is needed (no ffprobe): the length comes from the decoded audio itself."""
     import subprocess
 
-    def run(*cmd: str) -> tuple[int, str]:
-        try:
-            done = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
-        except (OSError, subprocess.SubprocessError) as exc:
-            return 1, type(exc).__name__
-        return done.returncode, (done.stdout or "").strip()
+    ffmpeg = ffmpeg_exe()
+    if not ffmpeg:
+        return "no ffmpeg found"
 
-    if run("ffmpeg", "-loglevel", "error", "-y", "-i", str(wav), "-codec:a", "libmp3lame", "-b:a", "96k", str(mp3))[0]:
+    def run(*args: str) -> tuple[int, bytes]:
+        try:
+            done = subprocess.run([ffmpeg, *args], capture_output=True, timeout=600, check=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            return 1, type(exc).__name__.encode()
+        return done.returncode, done.stdout or b""
+
+    if run("-loglevel", "error", "-y", "-i", str(wav), "-codec:a", "libmp3lame", "-b:a", "96k", str(mp3))[0]:
         return "mp3 conversion failed"
-    if run("ffmpeg", "-v", "error", "-xerror", "-i", str(mp3), "-f", "null", "-")[0]:
+    code, pcm = run("-v", "error", "-xerror", "-i", str(mp3), "-f", "s16le", "-ac", "1", "-ar", str(MP3_CHECK_RATE), "-")
+    if code or not pcm:
         return "mp3 does not decode"
-    code, length = run("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(mp3))
     with wave.open(str(wav), "rb") as src:
         seconds = src.getnframes() / src.getframerate()
-    try:
-        if code or abs(float(length) - seconds) > 1:
-            return f"mp3 length {length or '?'}s differs from the audio ({seconds:.1f}s)"
-    except ValueError:
-        return "mp3 length unreadable"
+    decoded = len(pcm) / 2 / MP3_CHECK_RATE
+    if abs(decoded - seconds) > 1:
+        return f"mp3 length {decoded:.1f}s differs from the audio ({seconds:.1f}s)"
     return ""
 
 

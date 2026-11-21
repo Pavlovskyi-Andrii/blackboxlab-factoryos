@@ -152,10 +152,11 @@ def test_workflow_contract():
     assert "tools/mycast_render.py --batch episodes.list" in flow and "for ep in" not in flow and "libmp3lame" not in flow
     assert "if: ${{ !cancelled() }}" in flow  # transcripts and the checked MP3s are uploaded even when an episode fails
     assert "contents: read" in flow and "secrets." not in flow
-    # Setup: no unconditional apt (it once took 9 minutes of a 20-minute job), and the voice comes from the cache.
-    setup = flow[flow.index("- name: FFmpeg"):flow.index("- name: Render episodes")]
-    assert "command -v ffmpeg" in setup and setup.index("command -v ffmpeg") < setup.index("apt-get install")
-    assert "apt-get update -qq && sudo apt-get install" not in flow
+    # Setup: no apt at all (it once took 9 minutes of a 20-minute job) — FFmpeg comes from a pip package — and the
+    # voice comes from the cache.
+    setup = flow[flow.index("- uses: actions/setup-python"):flow.index("- name: Render episodes")]
+    commands = "\n".join(line for line in flow.splitlines() if not line.lstrip().startswith("#"))
+    assert "apt-get" not in commands and "ffprobe" not in commands and "imageio-ffmpeg" in setup
     assert "actions/cache@v4" in setup and "piper-voice-uk_UA-ukrainian_tts-medium-v1" in setup
     assert setup.index("actions/cache@v4") < setup.index("huggingface.co") and "--retry 3" in setup
 
@@ -197,35 +198,78 @@ def test_batch_keeps_good_episodes_and_only_checked_mp3():
 
 
 def test_to_mp3_checks_the_file():
+    import os
     import shutil
+    import subprocess
 
     with tempfile.TemporaryDirectory() as tmp:
         wav = Path(tmp) / "x.wav"
         with wave.open(str(wav), "wb") as w:
             w.setnchannels(1), w.setsampwidth(2), w.setframerate(RATE)
             w.writeframes(b"".join(struct.pack("<h", int(8000 * math.sin(i / 8))) for i in range(RATE * 3)))
-        import subprocess
-        real_run = subprocess.run
+        real_run, saved_env = subprocess.run, os.environ.get("MYCAST_FFMPEG")
         calls = []
 
+        def restore_env():
+            if saved_env is None:
+                os.environ.pop("MYCAST_FFMPEG", None)
+            else:
+                os.environ["MYCAST_FFMPEG"] = saved_env
+
         def fake_run(cmd, **kw):
-            calls.append(cmd[0])
-            step = len(calls)
-            return types.SimpleNamespace(returncode=replies[step - 1][0], stdout=replies[step - 1][1])
+            calls.append(cmd)
+            return types.SimpleNamespace(returncode=replies[len(calls) - 1][0], stdout=replies[len(calls) - 1][1])
+
+        def pcm(seconds):
+            return b"\x00\x00" * int(mr.MP3_CHECK_RATE * seconds)
 
         subprocess.run = fake_run
+        os.environ["MYCAST_FFMPEG"] = "/opt/custom/ffmpeg"
         try:
-            for replies, want in (([(1, "")], "mp3 conversion failed"), ([(0, ""), (1, "")], "mp3 does not decode"),
-                                  ([(0, ""), (0, ""), (0, "9.0")], "differs"), ([(0, ""), (0, ""), (0, "")], "unreadable"),
-                                  ([(0, ""), (0, ""), (0, "3.02")], "")):
+            for replies, want in (([(1, b"")], "mp3 conversion failed"), ([(0, b""), (1, b"")], "mp3 does not decode"),
+                                  ([(0, b""), (0, b"")], "mp3 does not decode"),           # decoded to nothing
+                                  ([(0, b""), (0, pcm(9.0))], "mp3 length 9.0s differs"),  # the real decoded length
+                                  ([(0, b""), (0, pcm(1.5))], "mp3 length 1.5s differs"),  # a truncated file
+                                  ([(0, b""), (0, pcm(3.02))], "")):
                 calls.clear()
                 got = mr.to_mp3(wav, wav.with_suffix(".mp3"))
                 assert (want in got) if want else got == "", (replies, got)
-            assert calls == ["ffmpeg", "ffmpeg", "ffprobe"]
+            assert [c[0] for c in calls] == ["/opt/custom/ffmpeg"] * 2  # one binary does both steps, no ffprobe
+            assert "libmp3lame" in calls[0] and "s16le" in calls[1] and "-xerror" in calls[1]
+            assert mr.ffmpeg_exe() == "/opt/custom/ffmpeg"
         finally:
             subprocess.run = real_run
-        if shutil.which("ffmpeg") and shutil.which("ffprobe"):  # the real tools, where the machine has them
-            assert mr.to_mp3(wav, wav.with_suffix(".mp3")) == "" and wav.with_suffix(".mp3").stat().st_size > 1000
+            restore_env()
+
+        # Without the override: the pip-packaged binary when imageio-ffmpeg is installed, else the system one.
+        os.environ.pop("MYCAST_FFMPEG", None)
+        saved_module = sys.modules.get("imageio_ffmpeg")
+        try:
+            sys.modules["imageio_ffmpeg"] = types.SimpleNamespace(get_ffmpeg_exe=lambda: "/pip/ffmpeg")
+            assert mr.ffmpeg_exe() == "/pip/ffmpeg"
+            sys.modules["imageio_ffmpeg"] = types.SimpleNamespace(get_ffmpeg_exe=lambda: 1 / 0)  # no binary for the platform
+            assert mr.ffmpeg_exe() == (shutil.which("ffmpeg") or "")
+        finally:
+            if saved_module is None:
+                sys.modules.pop("imageio_ffmpeg", None)
+            else:
+                sys.modules["imageio_ffmpeg"] = saved_module
+            restore_env()
+
+        exe = mr.ffmpeg_exe()
+        if exe:  # the real tool, where the machine has one: a true encode, decode and length check
+            mp3 = wav.with_suffix(".mp3")
+            assert mr.to_mp3(wav, mp3) == "" and mp3.stat().st_size > 1000
+            mp3.write_bytes(mp3.read_bytes()[: mp3.stat().st_size // 3])  # a file cut to a third
+            decoded = real_run([exe, "-v", "quiet", "-i", str(mp3), "-f", "s16le", "-ac", "1", "-ar", str(mr.MP3_CHECK_RATE), "-"],
+                               capture_output=True).stdout
+            assert len(decoded) / 2 / mr.MP3_CHECK_RATE < 1.6  # its decoded length is far outside the 1 s tolerance
+            os.environ["MYCAST_FFMPEG"] = "/nonexistent/ffmpeg"
+            try:
+                assert mr.to_mp3(wav, wav.with_suffix(".2.mp3")) == "mp3 conversion failed"
+            finally:
+                restore_env()
+
 
 
 def test_changed_episodes_cover_the_whole_push():

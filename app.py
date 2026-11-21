@@ -59,6 +59,7 @@ from mycast_calendar import ListenerCalendar, install_calendar_routes
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
 from mycast import GeminiTTSError as MycastGeminiTTSError
 from mycast_demo_audio import DemoAudioStore, install_mycast_demo_audio_routes
+import login_recovery
 import evidence as _evidence
 from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
@@ -78,7 +79,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.13.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.14.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -1443,7 +1444,7 @@ async def auth_middleware(request: Request, call_next):
     mycast_redirect = _mycast_host_response(request)
     if mycast_redirect is not None:
         return mycast_redirect
-    public_paths = {"/api/mycast/quiz", "/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
+    public_paths = {"/api/mycast/quiz", "/login", "/login/recover", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
@@ -1543,6 +1544,7 @@ def login_page(request: Request, lang: str = "en"):
     .langs{{display:flex;gap:5px;justify-content:flex-end;margin-bottom:14px}}.langs a{{font-size:10px;color:#8297ac;text-decoration:none;border:1px solid #294761;padding:5px 7px;border-radius:7px}}.langs a.active{{color:#fff;background:#153b63}}
     .sep{{display:flex;align-items:center;gap:10px;color:#6f8599;font-size:11px;margin:16px 0 12px}}.sep:before,.sep:after{{content:'';height:1px;background:#234158;flex:1}}
     .googleWrap{{display:flex;justify-content:center}}
+    .forgot{{margin:12px 0 0;text-align:center}}.forgot a{{color:#5cc8ff;font-weight:600}}
     </style>{google_script}</head><body><div class='box'>
     <div class='langs'><a href='/login?lang=en' class='{"active" if lang=="en" else ""}'>EN</a><a href='/login?lang=uk' class='{"active" if lang=="uk" else ""}'>УКР</a><a href='/login?lang=ru' class='{"active" if lang=="ru" else ""}'>RU</a></div>
     <div class='cube'></div><h1>Blackbox Lab — FactoryOS</h1><div class='sub'>{copy["sub"]}</div>
@@ -1552,6 +1554,7 @@ def login_page(request: Request, lang: str = "en"):
       <input name='password' type='password' placeholder='{copy["password"]}' autocomplete='current-password' required>
       <button type='submit'>{copy["enter"]}</button>
     </form>
+    {login_recovery.link_html(lang)}
     <div class='googleWrap'>{google_html}</div>
     </div></body></html>""")
 
@@ -1563,6 +1566,20 @@ def login(username: str = Form(...), password: str = Form(...), lang: str = Form
         retry={"en":"Try again","uk":"Спробувати ще раз","ru":"Попробовать снова"}[lang]
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>{retry}</a>", status_code=401)
     return _auth_cookie_response(f"/{lang}","owner","")
+
+LOGIN_RECOVERY=login_recovery.LoginRecovery(base_url=lambda: FACTORY_PUBLIC_BASE_URL,state_path=DATA_DIR/"login_recovery.json")
+login_recovery.install_login_recovery_routes(app,LOGIN_RECOVERY,sign_in=lambda lang: _auth_cookie_response(f"/{lang}","owner",""))
+
+def _login_recovery_reply(message: dict, owner_chat: str) -> bool:
+    """T-712: `/login` from the owner's private paired chat gets a one-time sign-in link, sent without a link preview."""
+    if not login_recovery.enabled() or not login_recovery.owner_private_command(message,owner_chat):
+        return False
+    text=LOGIN_RECOVERY.message("ru")
+    try:
+        _telegram_api("sendMessage",{"chat_id":str(owner_chat),"text":text,"disable_web_page_preview":True})
+    except Exception:
+        LOGIN_RECOVERY.revoke(text)                      # undelivered: the link must not stay usable
+    return True
 
 @app.post("/auth/google")
 def google_login(credential: str = Form(...), lang: str = Form("en")):
@@ -1678,6 +1695,8 @@ async def telegram_webhook(request: Request):
             try:_telegram_api("answerCallbackQuery",{"callback_query_id":g_cb["id"]})
             except Exception:pass
         return {"ok":True,**result}
+    if _login_recovery_reply(g_msg,owner_chat):
+        return {"ok":True,"action":"login_link"}
     if g_chat.get("type")=="private" and owner_chat and str(g_chat.get("id") or "")==owner_chat:
         reply=MORNING_BRIEF.handle_private(str(g_msg.get("text") or ""))
         if reply:

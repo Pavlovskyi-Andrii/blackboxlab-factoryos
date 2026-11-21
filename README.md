@@ -27,6 +27,13 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.14.0 — "Forgot password?" sign-in link through Telegram, MyCast daily render — 2026-11-19 … 2026-11-20
+- **Login:** "Forgot password?" on the FactoryOS login page: send `/login` to the FactoryOS bot from the paired private
+  Telegram chat and get a one-time, 10-minute sign-in link; the password itself is not shown or changed (T-712).
+- **MyCast daily render:** sources without a link, branch sync, speakable text and audio QA (MC-01, #426); the
+  render workflow skips the unconditional apt step, caches the voice and tests sync-before-publish (#429).
+- **MyCast demo voicing:** one manifest snapshot per run (follow-up to T-711).
+
 ### v5.13.0 — MyCast glass profile page, social publishing, Surfer signed-in reads — 2026-11-17 … 2026-11-19
 - **MyCast:** the profile page `/mycast/u/<slug>` has the same glass coverflow as the episode page, with UK/RU/EN by
   `?lang=` (T-710); "My podcasts" is in the configurator header and in the share step (T-703, #422); each demo city

@@ -62,7 +62,8 @@ def first_name(rec: dict) -> str:
 
 
 def summary(rec: dict, profile: dict, lang: str = "") -> dict:
-    """`lang` overrides the page language (the author's by default); topic names stay as the author saved them."""
+    """`lang` overrides the page language (the author's by default). Topic names here stay as the author saved them (the
+    share card uses them); render_page shows catalogue topics in the page language instead."""
     lang = lang if lang in T else (profile.get("language") if profile.get("language") in T else "uk")
     t = T[lang]
     voice_lang = profile.get("language") if profile.get("language") in T else "uk"
