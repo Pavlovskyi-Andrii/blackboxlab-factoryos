@@ -5,6 +5,7 @@ estimated from the same layout constants the renderers use, and the report says 
 readability on real frames and cut naturalness stay with the human reviewer.
 """
 import math
+import re
 
 NOT_CHECKED = ["face/object occlusion", "caption readability on real frames", "cut naturalness"]
 REMOTION_CAPTION_FONT_PX = 54
@@ -55,8 +56,19 @@ def _caption_box(text: str, zones: dict, width: int, height: int, engine: str) -
         layout = ass_layout(width, height, zones)
         font = layout["caption_font"]
         content_w = max(1.0, width - 2 * layout["margin_h"])
-        box_w = len(text) * _GLYPH_ADVANCE_EM * font + 8  # one line: the ASS style does not wrap
-        box_h = font * 1.2 + 8
+        # WrapStyle 0: libass breaks the line between words inside the side margins (a single long word cannot break).
+        advance = _GLYPH_ADVANCE_EM * font
+        rows, current = [], ""
+        for word in words:
+            candidate = (current + " " + word).strip()
+            if current and len(candidate) * advance > content_w:
+                rows.append(current)
+                current = word
+            else:
+                current = candidate
+        rows.append(current)
+        box_w = max(len(r) for r in rows) * advance + 8
+        box_h = len(rows) * font * 1.2 + 8
         bottom_y = height - layout["caption_margin_v"]
     longest = max(len(w) for w in words) * _GLYPH_ADVANCE_EM * font
     return {"x0": (width - box_w) / 2, "x1": (width + box_w) / 2, "y0": bottom_y - box_h, "y1": bottom_y,
@@ -75,7 +87,7 @@ def safe_zone_violations(captions: list, zones: dict, width: int, height: int, e
         box = _caption_box(text, zones, width, height, engine)
         found = {"top": limits["top"] - box["y0"], "bottom": box["y1"] - limits["bottom"],
                  "left": limits["left"] - box["x0"], "right": box["x1"] - limits["right"],
-                 "word_overflow": box["longest_word_px"] - box["content_px"] if engine == "remotion" else 0}
+                 "word_overflow": box["longest_word_px"] - box["content_px"]}
         for edge, overflow in found.items():
             if overflow > 1 and len(violations) < 50:
                 violations.append({"caption_index": i, "edge": edge, "overflow_px": int(round(overflow)), "text": text[:80]})
@@ -117,6 +129,15 @@ def stream_sync_check(probe: dict) -> dict:
     delta = round(video - audio, 3)
     return {"status": "pass" if abs(delta) <= .15 else "warn", "video_sec": round(video, 3), "audio_sec": round(audio, 3),
             "delta_sec": delta}
+
+
+def parse_ebur128(stderr: str) -> tuple:
+    """(integrated LUFS, true peak dBFS) from FFmpeg's ebur128 summary; None where the summary has no number."""
+    summary = stderr.rsplit("Summary:", 1)[-1] if "Summary:" in stderr else ""
+    loud = re.search(r"\bI:\s*(-?\d+(?:\.\d+)?)\s*LUFS", summary)
+    peak = re.search(r"\bPeak:\s*(-?\d+(?:\.\d+)?)\s*dBFS", summary)
+    value = float(loud.group(1)) if loud else None
+    return (None if value is not None and value <= -69.9 else value), (float(peak.group(1)) if peak else None)
 
 
 def qa_report(checks: list) -> dict:
