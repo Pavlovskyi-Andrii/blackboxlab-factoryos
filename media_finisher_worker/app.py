@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 import os
@@ -11,12 +12,15 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 from urllib import request as urlrequest, error as urlerror
+from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-APP_VERSION = "v4.5.4-worker"
+from media_finisher_worker import edit_decisions, qa_checks
+
+APP_VERSION = "v4.6.0-worker"
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("FINISHER_DATA_DIR", "/var/data/media-finisher"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -194,7 +198,37 @@ def _probe(path: Path) -> dict:
         "fps": video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/1",
         "video_codec":str(video.get("codec_name") or ""),
         "audio_codec":str(audio.get("codec_name") or ""),
+        "video_duration":_float_or_zero(video.get("duration")),
+        "audio_duration":_float_or_zero(audio.get("duration")),
+        "audio_channels":int(audio.get("channels") or 0),
     }
+
+
+def _float_or_zero(value) -> float:
+    try:return float(value)
+    except (TypeError,ValueError):return 0.0
+
+
+def _write_json(path: Path, data) -> None:
+    path.write_text(json.dumps(data,ensure_ascii=False,indent=2,default=str),encoding="utf-8")
+
+
+def _validate_source(src: Path, job_dir: Path, input_url: str) -> dict:
+    """Fail closed on a source FFprobe cannot read, and record what was received. The source file is never modified."""
+    size=src.stat().st_size
+    try:probe=_probe(src)
+    except Exception as exc:
+        raise RuntimeError("Unsupported source: FFprobe could not read the file") from exc
+    problems=qa_checks.source_problems(probe,size)
+    if problems:raise RuntimeError("Unsupported source: "+"; ".join(problems))
+    digest=hashlib.sha256()
+    with src.open("rb") as fh:
+        for chunk in iter(lambda:fh.read(1024*1024),b""):digest.update(chunk)
+    # Only the host is kept: the input URL can be a signed link.
+    reference={"sha256":digest.hexdigest(),"size_bytes":size,"probe":probe,"source_host":urlparse(input_url).hostname or "",
+               "original_modified":False}
+    _write_json(job_dir/"source-reference.json",reference)
+    return reference
 
 
 def _effective_target(profile: dict) -> dict:
@@ -266,86 +300,9 @@ def _detect_silences(src: Path, threshold: float, noise_db: float = -35.0) -> li
     return [{"start": round(s, 3), "end": round(e, 3), "reason": f"silence>{threshold:.2f}s"} for s, e in zip(starts, ends) if e > s]
 
 
-def _semantic_duplicate_cuts(words: list[dict]) -> list[dict]:
-    """Conservative exact-repeat detector: only removes an immediately repeated 2–6 word phrase."""
-    tokens = [re.sub(r"[^\w']+", "", w["word"].lower()) for w in words]
-    cuts: list[dict] = []
-    i = 0
-    while i < len(tokens):
-        matched = False
-        for n in range(6, 1, -1):
-            if i + 2 * n > len(tokens):
-                continue
-            a, b = tokens[i:i+n], tokens[i+n:i+2*n]
-            if a == b and all(a):
-                start = float(words[i+n]["start"])
-                end = float(words[i+2*n-1]["end"])
-                if 0 < end - start <= 6.0:
-                    cuts.append({"start": round(start,3), "end": round(end,3), "reason": "exact_consecutive_duplicate"})
-                    i += 2 * n
-                    matched = True
-                    break
-        if not matched:
-            i += 1
-    return cuts
-
-
-def _filler_word_cuts(words: list[dict], profile: dict) -> list[dict]:
-    """Remove isolated hesitation tokens using ASR word timings without deleting semantic words."""
-    cleanup=profile.get("speech_cleanup") or {}
-    configured=cleanup.get("filler_words")
-    fillers=set(configured or ["э","ээ","эээ","эм","эмм","мм","ммм","м-м","uh","umm","um","erm","er","eh","hmm","hm"])
-    max_duration=max(.12,float(cleanup.get("filler_max_duration_sec",1.35)))
-    cuts=[]
-    for i,item in enumerate(words):
-        raw=str(item.get("word") or "").strip().lower()
-        token=re.sub(r"[^\wа-яёіїєґ'-]+","",raw,flags=re.UNICODE)
-        if token not in fillers:
-            continue
-        start=float(item.get("start") or 0);end=float(item.get("end") or 0)
-        if end<=start or end-start>max_duration:
-            continue
-        prev_end=float(words[i-1].get("end") or start) if i>0 else start
-        next_start=float(words[i+1].get("start") or end) if i+1<len(words) else end
-        left_room=max(0.0,start-prev_end);right_room=max(0.0,next_start-end)
-        pad_before=min(.055,left_room*.48);pad_after=min(.075,right_room*.48)
-        cuts.append({"start":round(max(0,start-pad_before),3),"end":round(end+pad_after,3),
-                     "reason":"filler_word:"+token})
-    return cuts
-
-
-def _merge_ranges(ranges: list[dict], duration: float) -> list[dict]:
-    prepared = sorted([
-        {"start": max(0.0, float(x["start"])), "end": min(duration, float(x["end"])), "reason": x.get("reason","edit")}
-        for x in ranges if float(x.get("end",0)) > float(x.get("start",0))
-    ], key=lambda x: (x["start"], x["end"]))
-    merged: list[dict] = []
-    for item in prepared:
-        if not merged or item["start"] > merged[-1]["end"] + 0.02:
-            merged.append(item)
-        else:
-            merged[-1]["end"] = max(merged[-1]["end"], item["end"])
-            if item["reason"] not in merged[-1]["reason"]:
-                merged[-1]["reason"] += "+" + item["reason"]
-    return [{**x, "start":round(x["start"],3), "end":round(x["end"],3)} for x in merged if x["end"] - x["start"] >= 0.05]
-
-
 def build_cut_list(silences: list[dict], words: list[dict], duration: float, profile: dict) -> list[dict]:
-    cleanup = profile.get("speech_cleanup") or {}
-    pre = float(cleanup.get("pre_handle_sec", 0.1))
-    post = float(cleanup.get("post_handle_sec", 0.15))
-    cuts: list[dict] = []
-    if cleanup.get("silence_trim", True):
-        for silence in silences:
-            start = float(silence["start"]) + pre
-            end = float(silence["end"]) - post
-            if end - start >= 0.08:
-                cuts.append({"start": start, "end": end, "reason": silence.get("reason","silence")})
-    if cleanup.get("filler_trim", True):
-        cuts.extend(_filler_word_cuts(words,profile))
-    if cleanup.get("semantic_duplicate_planner", True):
-        cuts.extend(_semantic_duplicate_cuts(words))
-    return _merge_ranges(cuts, duration)
+    """Source ranges to remove. The decisions behind them (reason, confidence, undo) come from `edit_decisions`."""
+    return edit_decisions.plan_edits(silences,words,duration,profile)["cuts"]
 
 
 def _keep_ranges(duration: float, cuts: list[dict]) -> list[tuple[float,float]]:
@@ -429,6 +386,12 @@ def group_captions(words: list[dict], profile: dict, cut_output_times: Optional[
         if re.search(r"[.!?…]$",word["word"]):
             result.append(_caption(group));group=[]
     if group:result.append(_caption(group))
+    # The 0.08 s tail must not show two groups at once or carry a group over a cut.
+    for i,caption in enumerate(result):
+        limits=[x for x in cut_output_times if caption["start"]<x<caption["end"]]
+        if i+1<len(result):limits.append(float(result[i+1]["start"]))
+        if limits and min(limits)<caption["end"]:
+            caption["end"]=round(max(float(caption["start"])+.04,min(limits)),3)
     return result
 
 
@@ -439,7 +402,13 @@ def _cut_output_boundaries(cuts: list[dict]) -> list[float]:
 def _motion_timeline(output_duration: float, cuts: list[dict], profile: dict) -> list[dict]:
     cfg=profile.get("motion") or {};events=[]
     zmin=float(cfg.get("jump_cut_mask_zoom_min",0.07));zmax=float(cfg.get("jump_cut_mask_zoom_max",0.10))
+    # A zoom covers a jump cut only when there is a visible jump: a very short removal barely moves the speaker, and
+    # zooms closer together than `jump_cut_min_gap_sec` read as shaking.
+    min_removed=float(cfg.get("jump_cut_min_removed_sec",0.25));min_gap=float(cfg.get("jump_cut_min_gap_sec",0.8))
     for i,t in enumerate(_cut_output_boundaries(cuts)):
+        removed=float(cuts[i]["end"])-float(cuts[i]["start"])
+        if removed<min_removed or (events and t-events[-1]["start"]<min_gap):
+            continue
         zoom=1+(zmin+(zmax-zmin)*(i%3)/2)
         events.append({"start":max(0,t-0.06),"end":min(output_duration,t+0.32),"type":"jump_cut_mask_zoom","zoom":round(zoom,3)})
     deadline=float(cfg.get("opening_motion_deadline_sec",3.0))
@@ -510,14 +479,15 @@ def _ass_stamp(value: float) -> str:
 def _ass_text(value: str) -> str:
     return str(value or "").replace("\\","\\\\").replace("{","(").replace("}",")").replace("\n","\\N")
 
-def _write_ass_overlays(captions: list[dict], graphics: list[dict], path: Path, width: int, height: int) -> None:
-    cap_size=max(26,int(width*.062));gfx_size=max(22,int(width*.052))
+def _write_ass_overlays(captions: list[dict], graphics: list[dict], path: Path, width: int, height: int, zones: Optional[dict] = None) -> None:
+    layout=qa_checks.ass_layout(width,height,zones or {})
+    cap_size=layout["caption_font"];gfx_size=layout["graphic_font"];side=layout["margin_h"]
     lines=[
       "[Script Info]",f"PlayResX: {width}",f"PlayResY: {height}","WrapStyle: 2","ScaledBorderAndShadow: yes","",
       "[V4+ Styles]",
       "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-      f"Style: Caption,DejaVu Sans,{cap_size},&H00FFFFFF,&H0000FFFF,&H80000000,&H70000000,-1,0,0,0,100,100,0,0,3,2,0,2,35,35,{int(height*.18)},1",
-      f"Style: Graphic,DejaVu Sans,{gfx_size},&H00EAFBFF,&H00EAFBFF,&H80306070,&H9005121C,-1,0,0,0,100,100,1,0,3,2,0,8,42,42,{int(height*.10)},1","",
+      f"Style: Caption,DejaVu Sans,{cap_size},&H00FFFFFF,&H0000FFFF,&H80000000,&H70000000,-1,0,0,0,100,100,0,0,3,2,0,2,{side},{side},{layout['caption_margin_v']},1",
+      f"Style: Graphic,DejaVu Sans,{gfx_size},&H00EAFBFF,&H00EAFBFF,&H80306070,&H9005121C,-1,0,0,0,100,100,1,0,3,2,0,8,{side},{side},{layout['graphic_margin_v']},1","",
       "[Events]","Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text"
     ]
     for x in captions:
@@ -529,7 +499,7 @@ def _write_ass_overlays(captions: list[dict], graphics: list[dict], path: Path, 
     path.write_text("\n".join(lines),encoding="utf-8")
 
 def _render_ffmpeg_fast(job_id: str, clean: Path, dest: Path, captions: list[dict], graphics: list[dict], profile: dict, duration: float, job_dir: Path) -> None:
-    target=_effective_target(profile);ass=job_dir/"overlays.ass";_write_ass_overlays(captions,graphics,ass,target["width"],target["height"])
+    target=_effective_target(profile);ass=job_dir/"overlays.ass";_write_ass_overlays(captions,graphics,ass,target["width"],target["height"],profile.get("safe_zones") or {})
     _run_ffmpeg_progress(job_id,["ffmpeg","-y","-threads",str(CPU_THREADS),"-i",str(clean),"-vf",f"ass={ass}",
         "-c:v","libx264","-threads",str(CPU_THREADS),"-preset","ultrafast","-crf","26","-c:a","copy","-movflags","+faststart",str(dest)],
         duration,70,83,"render")
@@ -551,7 +521,8 @@ def _render_with_remotion(clean: Path, dest: Path, captions: list[dict], motion:
     cmd=["npx","remotion","render","src/index.tsx","MediaFinish",str(dest),"--props",str(props_path),"--codec","h264","--concurrency",concurrency]
     if REMOTION_BROWSER and Path(REMOTION_BROWSER).exists():
         cmd.extend(["--browser-executable",REMOTION_BROWSER])
-    _run(cmd,cwd=remotion_dir,timeout=3600)
+    try:_run(cmd,cwd=remotion_dir,timeout=3600)
+    finally:shutil.rmtree(public_jobs,ignore_errors=True)
 
 
 def _render_ffmpeg_fallback(clean: Path, dest: Path, captions_srt: Path) -> None:
@@ -609,17 +580,59 @@ def _frame_sampling_report(final: Path, cuts: list[dict], graphics: list[dict], 
     }
 
 
-def _safe_zone_report(profile: dict, captions: list[dict], graphics: list[dict], frame_sampling: Optional[dict] = None) -> dict:
+def _safe_zone_report(profile: dict, captions: list[dict], graphics: list[dict], frame_sampling: Optional[dict] = None, engine: str = "") -> dict:
     zones=profile.get("safe_zones") or {}
     frame_sampling=frame_sampling or {"method":"not_run","captured":0,"samples":[],"visual_review_required":True}
+    target=_effective_target(profile)
+    layout=qa_checks.safe_zone_violations(captions,zones,target["width"],target["height"],engine)
     return {
-        "method":"layout_contract",
+        "method":layout["method"],
         "top":float(zones.get("top",0.12)),"bottom":float(zones.get("bottom",0.20)),
         "right":float(zones.get("right",0.12)),"left":float(zones.get("left",0.0)),
-        "caption_events":len(captions),"graphics_events":len(graphics),"violations":[],
+        "caption_events":len(captions),"graphics_events":len(graphics),"violations":layout["violations"],
+        "captions_checked":layout["checked"],"graphics_checked":0,
         "frame_sampling":frame_sampling,"visual_review_required":True,
-        "note":"Overlay coordinates are deterministic; sampled frames are persisted for human review of readability and face/object obstruction."
+        "note":"Caption boxes are estimated from the renderer's layout numbers, not read from pixels; emphasis graphics are not estimated. Sampled frames are persisted for human review of readability and face/object obstruction."
     }
+
+
+def _final_media_checks(final: Path, duration: float) -> dict:
+    """Decode every frame and audio sample of the final file and look for black or silent stretches (measured, not metadata)."""
+    try:
+        proc=subprocess.run(["ffmpeg","-hide_banner","-nostats","-xerror","-i",str(final),"-vf","blackdetect=d=0.5:pix_th=0.10",
+                             "-af","silencedetect=noise=-50dB:d=2","-f","null","-"],
+                            text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False,timeout=900)
+    except Exception as exc:
+        skipped={"status":"not_run","detail":str(exc)[:240]}
+        return {"decode":skipped,"black":dict(skipped),"silence":dict(skipped)}
+    err=proc.stderr or ""
+    if proc.returncode!=0:
+        skipped={"status":"not_run","detail":"the file did not decode"}
+        return {"decode":{"status":"fail","detail":err.strip()[-300:]},"black":skipped,"silence":dict(skipped)}
+    black=[{"start":float(a),"end":float(b)} for a,b in re.findall(r"black_start:\s*([0-9.]+)\s+black_end:\s*([0-9.]+)",err)]
+    starts=[float(x) for x in re.findall(r"silence_start:\s*([0-9.]+)",err)]
+    ends=[float(x) for x in re.findall(r"silence_end:\s*([0-9.]+)",err)]
+    ends+=[round(duration,3)]*(len(starts)-len(ends))
+    silent=[{"start":s,"end":e} for s,e in zip(starts,ends)]
+    return {"decode":{"status":"pass","detail":"all video frames and audio samples decoded"},
+            "black":{"status":"warn" if black else "pass","ranges":black[:20],"rule":"black for 0.5 s or longer"},
+            "silence":{"status":"warn" if silent else "pass","ranges":silent[:20],"rule":"below -50 dB for 2 s or longer"}}
+
+
+def _children_usage() -> dict:
+    try:
+        import resource
+        usage=resource.getrusage(resource.RUSAGE_CHILDREN)
+        return {"cpu_sec":round(usage.ru_utime+usage.ru_stime,2),"peak_rss_mb":round(usage.ru_maxrss/1024,1)}
+    except Exception:
+        return {}
+
+
+def _cleanup_intermediates(job_dir: Path) -> None:
+    """Working copies are removed once the final file is verified; the downloaded source and the artifacts stay."""
+    for name in ("normalized.mp4","clean.mp4","composed.mp4","audio.wav","transcript-raw.json","source.bin.part"):
+        try:(job_dir/name).unlink()
+        except OSError:pass
 
 
 def _short_clip_windows(words: list[dict], duration: float, max_clips: int = 3) -> list[dict]:
@@ -678,7 +691,7 @@ def _callback(state: dict) -> None:
         "status":state["status"],"final_url":state.get("final_url",""),"provider_job_id":state["id"],
         "error":state.get("error",""),"report":state.get("report") or {},
         "measured_cost_usd":0.0,"measured_duration_sec":float(state.get("wall_duration_sec") or 0),
-        "raw":{"worker_version":APP_VERSION,"graphics_engine":state.get("graphics_engine")}
+        "raw":{"worker_version":APP_VERSION,"graphics_engine":state.get("graphics_engine"),"failed_stage":state.get("failed_stage","")}
     }
     headers={"Content-Type":"application/json"}
     if FACTORYOS_CALLBACK_TOKEN:headers["Authorization"]="Bearer "+FACTORYOS_CALLBACK_TOKEN
@@ -700,6 +713,8 @@ def _stage(job_id: str, stage: str, percent: Optional[int] = None, **extra) -> d
 
 def _process_one(job_id: str) -> None:
     started=time.time();state=_read_state(job_id);payload=state["request"];job_dir=_job_dir(job_id)
+    marks=[("download",started)];usage_before=_children_usage()
+    def mark(stage: str) -> None:marks.append((stage,time.time()))
     try:
         options=payload.get("options") or {}
         _write_state(job_id,{"status":"processing","stage":"download","percent":3,"error":""})
@@ -707,16 +722,21 @@ def _process_one(job_id: str) -> None:
         src=job_dir/"source.bin"
         if not src.exists() or src.stat().st_size<1024:_download(payload["input_url"],src)
         profile=(payload.get("profile") or {}).get("config") or {}
-        _stage(job_id,"normalize",10)
+        mark("validate");_stage(job_id,"validate",8)
+        source_reference=_validate_source(src,job_dir,str(payload.get("input_url") or ""))
+        mark("normalize");_stage(job_id,"normalize",10)
         normalized=job_dir/"normalized.mp4";_normalize_input(job_id,src,normalized,profile)
         before=_probe(normalized);duration=float(before["duration"])
-        _stage(job_id,"transcript",22)
+        mark("transcript");_stage(job_id,"transcript",22)
         wav=job_dir/"audio.wav";_extract_audio(normalized,wav)
         words,asr_meta=_transcribe_words(job_id,wav)
         cleanup=profile.get("speech_cleanup") or {};threshold=float(cleanup.get("pause_threshold_sec",0.4))
         silences=_detect_silences(normalized,threshold)
-        cuts=build_cut_list(silences,words,duration,profile)
-        _stage(job_id,"cleanup",42,words=len(words),cuts=len(cuts))
+        plan=edit_decisions.plan_edits(silences,words,duration,profile,options.get("edit_overrides"))
+        cuts=plan["cuts"];word_audit=edit_decisions.audit_cuts(words,cuts,plan["decisions"])
+        _write_json(job_dir/"transcript.json",{"words":words,"asr":asr_meta,"timeline":"source"})
+        _write_json(job_dir/"edit-decisions.json",{**plan,"word_audit":word_audit})
+        mark("cleanup");_stage(job_id,"cleanup",42,words=len(words),cuts=len(cuts))
         clean=job_dir/"clean.mp4";_apply_cuts(job_id,normalized,clean,duration,cuts,profile)
         after_clean=_probe(clean);out_duration=float(after_clean["duration"])
         mapped_words=map_words_after_cuts(words,cuts)
@@ -725,9 +745,9 @@ def _process_one(job_id: str) -> None:
         srt=job_dir/"captions.srt";_write_srt(captions,srt)
         motion=_motion_timeline(out_duration,cuts,profile) if options.get("add_animation",True) else []
         graphics=_graphics_timeline(payload.get("content_package") or {},out_duration,profile,mapped_words) if options.get("smart_graphics",True) else []
-        _stage(job_id,"graphics",62,captions=len(captions),motion=len(motion),graphics=len(graphics))
+        mark("graphics");_stage(job_id,"graphics",62,captions=len(captions),motion=len(motion),graphics=len(graphics))
         composed=job_dir/"composed.mp4";engine="ffmpeg_fast" if LOW_MEMORY_MODE else GRAPHICS_ENGINE
-        _stage(job_id,"render",70)
+        mark("render");_stage(job_id,"render",70)
         if engine=="ffmpeg_fast":
             _render_ffmpeg_fast(job_id,clean,composed,captions,graphics,profile,out_duration,job_dir)
         elif engine=="remotion":
@@ -738,16 +758,61 @@ def _process_one(job_id: str) -> None:
             engine="ffmpeg_captions_only" if captions else "ffmpeg_passthrough"
         else:
             raise RuntimeError("Unsupported FINISHER_GRAPHICS_ENGINE; use remotion or ffmpeg")
-        _stage(job_id,"audio",84)
+        mark("audio");_stage(job_id,"audio",84)
         final=job_dir/"final.mp4";audio_report=_audio_finish(composed,final,profile)
-        final_probe=_probe(final)
-        frame_sampling=_frame_sampling_report(final,cuts,graphics,float(final_probe["duration"]),job_dir)
-        safe=_safe_zone_report(profile,captions,graphics,frame_sampling)
+        mark("qa");_stage(job_id,"qa",90)
+        final_probe=_probe(final);final_duration=float(final_probe["duration"])
+        media_checks=_final_media_checks(final,final_duration)
+        if media_checks["decode"]["status"]=="fail":
+            final.unlink()
+            raise RuntimeError("Final render failed the decode check: "+str(media_checks["decode"].get("detail") or "")[:400])
+        frame_sampling=_frame_sampling_report(final,cuts,graphics,final_duration,job_dir)
+        safe=_safe_zone_report(profile,captions,graphics,frame_sampling,engine)
+        removed_seconds=sum(float(x["end"])-float(x["start"]) for x in cuts)
+        length=qa_checks.duration_check(duration,removed_seconds,final_duration)
+        caption_issues=qa_checks.caption_timeline_issues(captions,boundaries,final_duration)
+        loudness_ok=audio_report.get("voice_lufs") is not None and abs(float(audio_report["voice_lufs"])-float(audio_report["target_voice_lufs"]))<=1.5
+        qa=qa_checks.qa_report([
+            {"id":"source_valid","status":"pass","detail":"FFprobe read the source; video and audio streams present"},
+            {"id":"final_decodes",**media_checks["decode"]},
+            {"id":"words_at_cuts","status":"pass" if word_audit["ok"] else "fail",
+             "lost_words":word_audit["lost_words"],"clipped_words":word_audit["clipped_words"],"removed_on_purpose":len(word_audit["removed_words"])},
+            {"id":"captions_timeline","status":"fail" if caption_issues else "pass","issues":caption_issues[:50],"captions":len(captions)},
+            {"id":"length_matches_cut_list","status":"pass" if length["ok"] else "fail",**length},
+            {"id":"audio_video_streams",**qa_checks.stream_sync_check(final_probe)},
+            {"id":"black_frames",**media_checks["black"]},
+            {"id":"silent_stretches",**media_checks["silence"]},
+            {"id":"voice_loudness","status":"not_run" if audio_report.get("voice_lufs") is None else ("pass" if loudness_ok else "warn"),
+             "measured_lufs":audio_report.get("voice_lufs"),"target_lufs":audio_report.get("target_voice_lufs")},
+            {"id":"caption_safe_zones","status":"not_run" if safe["method"]=="not_estimated_for_engine" else ("warn" if safe["violations"] else "pass"),
+             "method":safe["method"],"violations":len(safe["violations"])},
+        ])
         shorts_manifest={"enabled":False,"clips":[]}
         if options.get("split_shortform",False):
-            _stage(job_id,"shorts_reels",92)
-            shorts_manifest=_render_short_clips(final,job_dir,mapped_words,float(final_probe["duration"]),int(options.get("max_short_clips") or 3))
+            mark("shorts_reels");_stage(job_id,"shorts_reels",92)
+            shorts_manifest=_render_short_clips(final,job_dir,mapped_words,final_duration,int(options.get("max_short_clips") or 3))
+        finished=time.time();usage_after=_children_usage()
+        stage_seconds={name:round((marks[i+1][1] if i+1<len(marks) else finished)-at,3) for i,(name,at) in enumerate(marks)}
+        render_metrics={
+            "wall_sec":round(finished-started,3),"stage_seconds":stage_seconds,
+            "realtime_factor":round((finished-started)/max(.001,duration),3),
+            "child_cpu_sec":round(float(usage_after.get("cpu_sec") or 0)-float(usage_before.get("cpu_sec") or 0),2) if usage_after else None,
+            "child_peak_rss_mb_since_worker_start":usage_after.get("peak_rss_mb"),
+            "source_bytes":source_reference["size_bytes"],"final_bytes":final.stat().st_size,
+            "cpu_threads":CPU_THREADS,"low_memory_mode":LOW_MEMORY_MODE,"measured_cost_usd":0.0,
+        }
+        output_cursor=0.0;keep_map=[]
+        for a,b in _keep_ranges(duration,cuts):
+            keep_map.append({"source_start":round(a,3),"source_end":round(b,3),"output_start":round(output_cursor,3)})
+            output_cursor+=b-a
+        _write_json(job_dir/"timeline.json",{"source_duration_sec":round(duration,3),"output_duration_sec":round(final_duration,3),
+                                             "keep_ranges":keep_map,"captions":captions,"engine":engine,
+                                             "motion":motion if engine=="remotion" else [],"graphics":graphics if engine=="remotion" else []})
+        qa={**qa,"word_audit":word_audit}
+        _write_json(job_dir/"qa-report.json",qa);_write_json(job_dir/"render-metrics.json",render_metrics)
         report={
+            "edit_decisions":{k:plan[k] for k in ("version","pause_threshold","decisions","summary")},
+            "qa_report":qa,"render_metrics":render_metrics,"source_reference":source_reference,
             "transcript_words":mapped_words,"transcript_corrections":[],"asr":asr_meta,"cut_list":cuts,
             "caption_timeline":captions,"motion_timeline":motion if engine=="remotion" else [],
             "graphics_timeline":graphics if engine=="remotion" else [],"shorts_manifest":shorts_manifest,
@@ -764,12 +829,13 @@ def _process_one(job_id: str) -> None:
             }
         }
         state=_write_state(job_id,{"status":"ready","stage":"done","percent":100,"final_url":_public_file(job_id,"final.mp4"),"report":report,
-                                   "graphics_engine":engine,"wall_duration_sec":round(time.time()-started,3),"error":""})
+                                   "graphics_engine":engine,"wall_duration_sec":round(time.time()-started,3),"error":"","failed_stage":""})
         print(json.dumps({"event":"MEDIA_FINISHER_DONE","job_id":job_id,"status":"ready","wall_duration_sec":state.get("wall_duration_sec"),"final_url":state.get("final_url")},ensure_ascii=False),flush=True)
+        _cleanup_intermediates(job_dir)
         _callback(state)
     except Exception as exc:
-        state=_write_state(job_id,{"status":"failed","stage":"failed","error":str(exc)[:1500],"wall_duration_sec":round(time.time()-started,3)})
-        print(json.dumps({"event":"MEDIA_FINISHER_DONE","job_id":job_id,"status":"failed","error":state.get("error"),"wall_duration_sec":state.get("wall_duration_sec")},ensure_ascii=False),flush=True)
+        state=_write_state(job_id,{"status":"failed","stage":"failed","failed_stage":marks[-1][0],"error":str(exc)[:1500],"wall_duration_sec":round(time.time()-started,3)})
+        print(json.dumps({"event":"MEDIA_FINISHER_DONE","job_id":job_id,"status":"failed","failed_stage":marks[-1][0],"error":state.get("error"),"wall_duration_sec":state.get("wall_duration_sec")},ensure_ascii=False),flush=True)
         _callback(state)
 
 

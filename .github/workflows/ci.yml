@@ -60,7 +60,11 @@ jobs:
       - name: Media Finisher planner unit tests
         env:
           FINISHER_DATA_DIR: /tmp/factoryos-finisher-ci
-        run: python -m media_finisher_worker.test_planner
+        run: |
+          python -m py_compile media_finisher_worker/edit_decisions.py media_finisher_worker/qa_checks.py media_finisher_worker/test_edit_decisions.py media_finisher_worker/test_pipeline_contract.py
+          python -m media_finisher_worker.test_planner
+          python -m media_finisher_worker.test_edit_decisions
+          python -m media_finisher_worker.test_pipeline_contract
       - name: Runtime smoke and regression suite
         env:
           DATA_DIR: /tmp/factoryos-ci
