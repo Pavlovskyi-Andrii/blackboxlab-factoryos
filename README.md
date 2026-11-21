@@ -27,6 +27,21 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.16.0 — Launchpad Discovery agents, agent workspace panel, AI Video Editor decisions, worker catch-up — 2026-11-21
+- **MVP Builder · Launchpad (Business League L2):** the manual MyCast D1–D3 run is imported as the benchmark (the
+  MyCast board no longer starts empty; its G1/G2 stay proposals), an owner-started Discovery run fills D1–D3 from
+  fetched public sources on the free Gemini key, and the Launchpad page shows a read-only comparison of agent output
+  against the benchmark (EN/UK/RU). A quote, price or date that is not in the fetched text becomes "unknown" (T-705, #439).
+- **Worker Center:** a panel for the shared agent workspace, inside the technical details (T-626, #439).
+- **MVP workers:** versioned contracts for the 13 logical roles (T-631, #439).
+- **AI Media Finisher → AI Video Editor v1:** word-safe edit decisions with reasons, confidence and undo, a measured QA
+  report and render metrics as review evidence; a final file that does not decode fails the job. No real render or
+  pilot is claimed yet (R-0089, #428).
+- **Owner Issue intake:** GitHub Issues are polled every 120 s instead of 300 s (#413).
+- **EC2 worker:** it was 50 commits behind `main` since 2026-11-17 because of a merge conflict; it is back on current
+  code, so the Surfer fix for ids with dots (T-674) now runs on production reads.
+- **Docs:** FactoryOS architecture map (#417); Film Studio 45 s storyboard package, rights-gated (#435).
+
 ### v5.15.0 — Business League Launchpad in MVP Builder, MyCast render without apt — 2026-11-20 … 2026-11-21
 - **MVP Builder · Launchpad (Business League L1):** a board per project that takes an idea to first sales through
   checks D1–D7, a 7-day MVP, channels and gates G1–G5. Facts need a source and a date, missing data stays
