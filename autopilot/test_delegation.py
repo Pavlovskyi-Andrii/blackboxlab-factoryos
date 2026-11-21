@@ -277,6 +277,20 @@ def test_persistent_venv_and_allowed_tools():
     assert "Bash(python:*)" in allowed and "Edit" in allowed and "Bash(git commit:*)" in allowed
     assert not any("push" in rule or "render" in rule for rule in allowed)
 
+    # T-593: `env VAR=… python …` was denied on the worker, so the prompt must not send the agent there,
+    # and no allow rule may let an arbitrary command hide behind `env`.
+    prompt = spec["cmd"][2]
+    assert "python -m autopilot.envrun DATA_DIR=/tmp/factoryos-autopilot" in prompt
+    assert "`env DATA_DIR=" not in prompt and not any(rule.startswith("Bash(env") for rule in allowed)
+    from autopilot import envrun
+    assert envrun.split_args(["A=1", "B=", "python", "x.py", "C=3"]) == ({"A": "1", "B": ""}, ["x.py", "C=3"])
+    assert envrun.split_args(["-m", "pkg.mod"]) == ({}, ["-m", "pkg.mod"])
+    assert envrun.main(["A=1"]) == 2  # nothing to run
+    probe = "import os,sys; sys.exit(0 if (os.environ['FOS_T593'], os.environ['FOS_EMPTY']) == ('a=b', '') else 7)"
+    assert envrun.main(["FOS_T593=a=b", "FOS_EMPTY=", "-c", probe]) == 0
+    assert "FOS_T593" not in os.environ  # the parent environment is untouched
+    assert envrun.main(["-c", "import sys; sys.exit(5)"]) == 5  # the check's exit code is the wrapper's
+
     repo = make_repo()
     assert dg.ensure_venv(repo) == (None, "no requirements.txt")
     (repo / "requirements.txt").write_text("requests\n", encoding="utf-8")

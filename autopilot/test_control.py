@@ -143,6 +143,8 @@ def main_loop_checks():
 
 
 def main():
+    from autopilot.test_autopilot import isolate_side_jobs
+    isolate_side_jobs()  # T-593: no real gh/Relay/Claude side jobs from the loop checks
     decide_checks()
     transport_checks()
     loop_checks()

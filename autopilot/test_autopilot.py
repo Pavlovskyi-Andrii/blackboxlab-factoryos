@@ -11,7 +11,32 @@ def write_roadmap(text: str) -> Path:
     return path
 
 
+SIDE_JOB_CALLS: list[str] = []
+
+
+def isolate_side_jobs() -> list[str]:
+    """T-593: the daemon loop's Claude side jobs must never run for real inside a test.
+
+    On the EC2 worker (real `gh` + Relay token in the environment) the loop tests used to list and diff
+    the open PRs and send Codex review requests to the production Relay on every simulated pass.
+    """
+    def stub(name, result):
+        def fake(*_args, **_kwargs):
+            SIDE_JOB_CALLS.append(name)
+            return result
+        return fake
+
+    ap.owner_questions.maybe_selftest = stub("owner_questions.maybe_selftest", False)
+    ap.owner_questions.answer_one = stub("owner_questions.answer_one", ("none", ""))
+    ap.mycast_daily.run_daily = stub("mycast_daily.run_daily", "idle")
+    ap.mycast_listeners.run_listeners = stub("mycast_listeners.run_listeners", "idle")
+    ap.codex_review.run_once = stub("codex_review.run_once", "off")
+    ap.browser_tasks.run_one = stub("browser_tasks.run_one", "idle")
+    return SIDE_JOB_CALLS
+
+
 def main():
+    isolate_side_jobs()
     path = write_roadmap(
         """# Roadmap
 
@@ -51,6 +76,8 @@ def main():
     assert ap.idle_notice(no_human).startswith("🏁")
     dependency_and_owner_regression()
     runtime_files_ignored_regression()
+    # The loop tests did reach the side jobs, and only the stubs answered.
+    assert "codex_review.run_once" in SIDE_JOB_CALLS and "owner_questions.answer_one" in SIDE_JOB_CALLS, SIDE_JOB_CALLS
     print("Autopilot roadmap advancement tests passed")
 
 

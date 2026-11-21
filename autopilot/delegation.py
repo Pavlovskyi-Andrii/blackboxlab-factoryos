@@ -79,6 +79,9 @@ DISALLOWED_TOOLS = (
 # Headless `claude -p` cannot ask for approval, so anything not pre-allowed is denied.
 # The verification loop from CLAUDE.md (edit, run python tests, node --check, local commit)
 # must work without a human; push/deploy stay blocked by DISALLOWED_TOOLS above.
+# No `env …` rule: `Bash(env DATA_DIR=:*)` never matched on the worker, and a rule that did
+# would let any command hide behind `env`. Checks that need variables go through
+# `python -m autopilot.envrun` (covered by `Bash(python:*)`).
 ALLOWED_TOOLS = (
     "Read",
     "Edit",
@@ -88,7 +91,6 @@ ALLOWED_TOOLS = (
     "Bash(python:*)",
     "Bash(python3:*)",
     "Bash(node --check:*)",
-    "Bash(env DATA_DIR=:*)",
     "Bash(git status:*)",
     "Bash(git diff:*)",
     "Bash(git log:*)",
@@ -146,8 +148,9 @@ def task_prompt(task: dict[str, Any]) -> str:
         "сделай один commit с ID задачи. Не трогай main и production. "
         "Python: `python`/`python3` уже указывают на подготовленное .venv с requirements.txt; "
         "не создавай свой venv и не используй /tmp для окружения. "
-        "Переменные окружения для команд задавай через `env`, например "
-        "`env DATA_DIR=/tmp/factoryos-autopilot FACTORY_PASSWORD= FACTORY_LLM_API_KEY= python smoke_tests.py`."
+        "Команды вида `env VAR=… python …` и `VAR=… python …` в этом режиме запрещены. "
+        "Переменные окружения для проверок задавай через `python -m autopilot.envrun`, например "
+        "`python -m autopilot.envrun DATA_DIR=/tmp/factoryos-autopilot FACTORY_PASSWORD= FACTORY_LLM_API_KEY= smoke_tests.py`."
     )
 
 
