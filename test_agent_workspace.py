@@ -328,4 +328,6 @@ class McpEndpointTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    # T-626: the Worker Center panel tests run in this existing CI step (no workflow edit needed).
+    from test_agent_workspace_ui import WorkspaceUiTest  # noqa: E402,F401
     unittest.main()

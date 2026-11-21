@@ -1193,6 +1193,59 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Members are denied MVP routes by the existing workspace tenancy middleware, same as all other MVP routes; the
   module itself still distinguishes owner/member for when that changes.
 
+## 2026-11-14 — T-609 A/B Tester S2: branch lanes in the MVP panel
+
+- The experiment section renders inside the existing project panel (`mvpRenderPanel`, after the agent hand-off block)
+  from `GET /api/mvp-factory/{pid}/experiments`, loaded when the panel opens and on each MVP refresh. No change to
+  `static/mvp-factory/index.html`.
+- No "create experiment" button: the S0 review lists only save draft, approve preview (owner) and record decision
+  (owner) as S2 buttons. Experiments are still created through the S1 API; the empty state says so. Add a create
+  form later only as its own task.
+- A-above-B is enforced by sorting branches by id in the renderer, not by trusting the data order.
+- Draft editing is a native `<details>` form per lane. Bullets are one per line; posts are separated by a blank line.
+  Typed text and open editors survive the panel's periodic re-render (`data-mvpx-keep`), and are dropped after a
+  successful save so the form shows the saved copy.
+- Recording a decision asks for a browser `confirm()`, because it closes the experiment.
+- The 375 px / 1440 px layout is covered only by CSS source assertions (vertical lanes, full width, wrapping chips,
+  no fixed pixel widths). No browser runs on the worker, so the real layout check is reported as NOT VERIFIED.
+
+## 2026-11-14 — T-610 A/B Tester S3: one Content Factory draft job per branch
+
+- Route `POST /api/mvp-factory/{pid}/experiments/{exp}/branches/{b}/content-job` lives in `mvp_experiments.py`
+  (installed with a `create_job(title, brief)` callback from `app.py`), not in `mvp_factory.py` as the S0 review
+  suggested: the experiment data and lock helpers are already in that module since S1.
+- Claim pattern copied from `strategy_plan_job`: the branch is claimed under the registry lock with a random token
+  before the job exists; concurrent clicks get `409 content_job_in_progress`; a failed job insert releases the claim
+  (`502 job_create_failed`); a stale claim expires after 120 s. Attach checks the token, so a job id is never
+  overwritten. A second click returns the same job (`existing: true`).
+- One job per branch, not per revision: the job records the revision it was made from (`content_job.rev`). A new
+  revision does not create a second job; the owner edits the existing job's brief if needed.
+- A saved draft (revision ≥ 1) is required; a closed experiment refuses a new job but still returns an existing one.
+  Preview approval is **not** required — the job is a draft in `inbox`; publishing still needs the job's own
+  `/api/jobs/{id}/approve` and `_publish_approval_gate`.
+- Job language is English and format "Short-form drafts"; the optional MyCast brand link
+  (`/api/factory/strategy/{brand}/jobs/{job_id}/link`) is left to the owner, not done automatically.
+- Members are refused (owner-only), matching the roadmap goal; there is still no dashboard button (S2 has none for S3).
+
+## 2026-11-15 — T-590 re-check (run-20261115093856-a5105e)
+- T-590 stays unchecked. Pairing (T-506), the #289 round trip and the Evidence Protocol are on main, and owner Telegram tickets have run live per earlier entries (R-0063, R-0074). The DONE criterion asks for evidence verified independently, though: one owner ticket traced through claim, run_id, PR, CI, merge, deployed revision and Telegram `/task`, then recorded in Issue #41. This run could not read GitHub, Render or Telegram (`gh`, fetch, `env` and `web_read` were all denied). Repo notes written by other sessions are not observed evidence, so the checkbox was not ticked from them.
+- No code change was needed. The deterministic stages are green, and stage-by-stage status is in `docs/handoff/T-590_ACCEPTANCE.md`.
+
+## 2026-11-15 — T-590 second re-check (same day)
+- The result is unchanged. `gh` and `web_read` were denied, and the deterministic suites are green (smoke, planner, relay 111, telegram 25). T-590 stays unchecked. Re-running it from a worker without GitHub/Render read access cannot close it. The next useful run needs a session that can read Issue #41, the CI run and `/api/version` (a standing-grant interactive session), or an owner-posted trace in `.autopilot/answers.md`.
+
+## 2026-11-15 — T-590 third re-check (same day)
+- The result is unchanged and T-590 stays unchecked. The run asked for DONE + checkbox, but `git fetch` and `gh` were denied, so ticking it would rest only on repo notes rather than observed evidence. The CLAUDE.md "no fabricated CI/deploy success" invariant wins. The deterministic suites are green. The status is `blocked`, and the exact ask is in `.autopilot/status.json`.
+
+## 2026-11-15 — T-590 fourth re-check (same day)
+- The result is unchanged and T-590 stays unchecked. `gh` and `web_read` were denied, so no live stage was observed. Smoke and the Relay suites were also denied, so only compile and the planner were re-run. Ticking the box would need CI, deploy and Telegram evidence that this run cannot observe (CLAUDE.md: no fabricated CI/deploy success).
+
+## 2026-11-15 — T-590 fifth re-check (same day)
+- The result is unchanged and T-590 stays unchecked. `git fetch`, `gh` and `web_read` of Issue #41 were denied, so no live stage (CI, deployed `build_sha`, Telegram `/task` trace, Issue #41 evidence) was observed. Ticking the box would fabricate CI/deploy success.
+- Run the Relay/Telegram suites one per process with their own `DATA_DIR`, as earlier runs did. When they are loaded into one unittest process, shared module state makes `test_webhook_operator_lanes` fail; it passes alone. Run the planner with `FINISHER_DATA_DIR` under `/tmp`, because the worker cannot create `/var/data`.
+
+## 2026-11-15 — T-590 sixth re-check (same day)
+- The result is unchanged and T-590 stays unchecked. All deterministic suites are green. `gh` and `web_read` were denied, and `answers.md` has no owner trace, so ticking the box would fabricate CI, deploy and Telegram evidence. Worker re-runs of T-590 cannot close it. The parent scheduler should stop re-dispatching T-590 to the worker until a session with GitHub and Render read access exists, or until the owner posts the trace.
 ## 2026-11-15 — T-560-H Surfer for every connected agent
 
 - Diagnosis on production (agent token, 9 read tasks): the EC2 runner is alive (claims within ~1 s, Wikipedia read in
@@ -1392,6 +1445,15 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   existing one-shot startup repair of recently failed manual uploads (`MEDIA_FINISHER_REAL_MEDIA_REPAIR`), which now
   runs as generation 1. Not verified: a real worker on Render/EC2 and a real Render deploy.
 
+## 2026-11-15 — `autopilot/aws-worker` re-synced with main (merge conflict resolved)
+
+- The worker branch carried its own local T-609/T-610 commits (98d27b2, e24369d); main got the reviewed PR versions
+  of the same tasks (#373, #376). Merging main conflicted in ci.yml, app.py, mvp_experiments.py, static/index.html,
+  test_mvp_experiments.py and test_mvp_experiments_ui.py, so every worker sync failed (and triggered the Telegram loop above).
+- Resolution: main's version for all six conflicting files (the merged, CI-checked implementation). The worker-only
+  `test_mvp_experiment_jobs.py` tested the superseded local T-610 API (its create-job hook no longer exists) and
+  was removed with that implementation; main's `test_mvp_experiments.py` (one job per branch under concurrent clicks,
+  no publish approval, slow creator) and `test_mvp_experiments_ui.py` cover the same DONE criteria and pass.
 ## 2026-11-15 — T-560-J Gemini coder uses the Surfer
 
 - The EC2 "Gemini" is the issue→PR script `tools/gemini_issue_pr.cjs` (one JSON generation through the FactoryOS proxy),
@@ -1662,6 +1724,32 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - `mybrief.FeedbackStore.consented_entries()` was added for the import (entries without withdraw hashes); the app now
   keeps the MyBrief store in `MYBRIEF_FEEDBACK` so both use one instance.
 
+## 2026-11-17 — T-631 Product Evolution S2: worker contracts for the 13 logical roles (#270 §2)
+
+- The role list in #270 §2 could not be read from the EC2 worker (`gh` and the FactoryOS `web_read` are denied there).
+  The 13 roles are reconstructed from the ROADMAP goal ("Idea/Research … Product Manager"), the T-630 envelope
+  ("Product Manager" → "UI/Builder Worker") and the `mvp_factory.ROLE` / `mvp_cycle.AGENTS` stages: idea_research,
+  market_analyst, spec_writer, ux_designer, architect, ui_builder, backend_builder, qa_tester, security_reviewer,
+  release_manager, promoter, feedback_synthesis, product_manager. Reversible: if #270 §2 names them differently, rename
+  the ids and bump each changed contract's `version`; the tests check shape and gates, not the names (except the first
+  and last role and the two T-630 envelope labels).
+- One pure module, `mvp_contracts.py` (`schema: mvp-worker-contract/1`). Every role maps to one of the five existing
+  `mvp_cycle.AGENTS` (engine copied from there and checked), so no runtime process, store, route or paid service is added.
+  `module` names the existing code that does the work today (e.g. `mvp_evolution.synthesize`).
+- Gates: no contract may hold an owner-only action (approve/decline/release/verdict/publish/spend/delete feedback) or
+  an owner/member action (hand-off, ship, queue build, open preview); `authorize` refuses them with 403 even if a role
+  asks. `owner_gate` (spec_writer, release_manager, promoter, product_manager) blocks every downstream role until the
+  owner's approval is recorded. This mirrors `mvp_factory.AGENT_FORBIDDEN_TARGETS` and the T-630 owner gates.
+- The V2 loop would make Depends cyclic (PM → builder → … → PM), so Depends stays a DAG for V1 and builder roles carry
+  `loop_from: [product_manager]`, used from iteration 2: a V2 build needs a done and owner-approved PM proposal.
+- `ContractRun` is an in-memory state machine for one task; the caller (Relay, T-632) keeps persistence. One active claim;
+  the same worker + run_id re-claiming is idempotent; anything else is `duplicate_claim` (409). A failed run_id can't come
+  back (`stale_run`). Failure, invalid output, invalid evidence and timeout are all failed attempts: back to `queued`
+  while attempts ≤ `retries`, then the contract's `error_state`. `done` needs a valid output and valid audit evidence,
+  and `relay_run` evidence must equal the claiming run_id. As in `mvp_factory`, only the evidence link shape is checked.
+- Defaults: retries 2, timeout 1 h (research 30 min, builders 4 h, synthesis 10 min), error state `blocked` (QA/security
+  `failed`, owner-gated roles `needs_owner`).
+
 ## 2026-11-15 — T-590 / T-591 / T-592 / T-593 P0 tails: verifiable live acceptance
 
 - The live DONE of T-590/T-591 ("real Telegram message → claim → running → evidence → owner reply") is judged by
@@ -1856,6 +1944,24 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Evidence 2026-11-17: Release run 44073441058 published v5.9.0 on `043460d` (8 of 8 cases now fit the pattern).
   T-VERSION-H is closed without an owner step. All versions v5.6 … v5.11.0 now have a GitHub Release.
 
+## 2026-11-17 — T-626 Worker Center panel for the shared agent workspace
+
+- The card sits in the Worker / Delegation Control Center (Automation & team → Workers), right after the T-596 worker
+  overview, and reuses its `woRoot`/`woPanel`/`woBadge` styles. It is a pure renderer (`renderAgentWorkspace`,
+  marked `agent-workspace:begin/end`) fed only by `GET /api/factory/agent-workspace`. It has no buttons and makes no
+  writes, so owner actions such as re-queue or reassignment are out of scope.
+- `AgentWorkspace.overview()` now adds `recent_messages` (last 5, `OVERVIEW_MESSAGES`) to each of the 20 latest threads,
+  with `from`/`kind`/`body`/`at`. Bodies are the stored ones, already secret-checked and redacted on write. The endpoint
+  body moved into `agent_workspace.owner_view()` so the tests render the real payload.
+- Lane cards show only on/off plus the `lane_status` reason. The reason names the env var, never its value. The test
+  asserts that no lane token appears in the payload or the HTML.
+- Relay ticket link: `/api/relay/<id>` (owner-guarded JSON), because the Relay UI has no per-ticket page. PR/result
+  links are shown only for `https://github.com/` URLs; the server already accepts only this repository's URLs.
+- Tests: `test_agent_workspace_ui.py` covers the empty, disabled-lane and active-handoff (claimed + review with a PR)
+  states, rendered in node for EN/UK/RU. CI runs it through the existing `python test_agent_workspace.py` step, which
+  imports the class under `__main__`, so no workflow edit is needed (same route as T-596).
+- The "CI-gated PR" part of DONE is the normal `autopilot/aws-worker` → `main` PR. This worker has no `gh`, so the
+  commit reaches CI there. The checkbox is set because the code and test parts of DONE are green locally.
 ## 2026-11-17 — T-MODS-E Video duel takes are real files you watch and score in the card
 
 - Owner: the takes looked simulated and could not be watched from the phone. A take is now an MP4 stored on the
@@ -2168,3 +2274,18 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - **Decision:** the workflow installs FFmpeg as the binary inside the `imageio-ffmpeg` pip package, next to `piper-tts`; there is no apt step left. `tools/mycast_render.ffmpeg_exe` picks `MYCAST_FFMPEG`, then that package, then a system `ffmpeg`. **Reason:** pip wheels come from one CDN in seconds and need no package index refresh or service restarts.
 - **Decision:** the MP3 check no longer uses `ffprobe` (the package has none). The MP3 is decoded in full to 16 kHz mono PCM and its length is counted from the decoded bytes. **Reason:** that is a stronger check than reading the container's duration field: a truncated file is caught by its real length.
 - Not pinned: `piper-tts` and `imageio-ffmpeg` versions, as before for Piper. Reversible.
+
+## 2026-11-21 — T-705 Business League L2: Discovery agents and the manual benchmark
+
+- **Decision:** the manual MyCast run is imported at startup (`seed_benchmark`, once, marked in `launchpad.benchmarks`) and through `POST …/launchpad/benchmark`; every record goes through `add_artifact`. **Reason:** the benchmark must pass the same honesty validators as agent output; a record they refuse is listed as skipped, never forced in.
+- **Decision:** the server sets the level on import. 36 records are `linked`; idea i6 has `where_noticed: unknown` in the file and is stored as `claimed`, although the file calls it `linked`. **Reason:** a level without a link is the author's word. `where_noticed` now accepts `unknown`.
+- **Decision:** the validators were widened by what the benchmark needed: fact verdicts `mixed` and `constraint`; publication dates as a year or a month (`2021-10`), observation dates stay full; an optional `signal_kind` (`user` / `builder`); `assumptions` on a G1/G2 record. `author_words_paraphrase` is not imported as `author_words`. **Reason:** a retelling is not a quote, and a builder of a tool is not a customer.
+- **Decision:** the benchmark's G2 proposal has no reason for the ideas it does not choose, and the board requires one. The import reuses the G1 reason ("deferred at an earlier gate: …") and for i1 writes that the dossier records none. Both gates stay proposals by `claude-session`; the owner decides in T-706-H.
+- **Decision:** a Discovery run (`mvp_launchpad_agents.DiscoveryAgents`) is in-process and owner-started (`POST …/launchpad/discovery`, owner only, one run per project at a time). Researcher and Analyst are the free-key Gemini Flash model already used by MVP Builder; the second model is `gemini-flash-lite-latest` on the same key. When both resolve to the same model, or the second one fails, nothing is marked reviewed. **Reason:** these are the only models FactoryOS can call without a paid key; the paid `FACTORY_LLM_API_KEY` is not wired to the agents. Reversible: an outside operator (ChatGPT, Claude) can review and complete through the `review` and `complete` routes.
+- **Decision:** the model never writes a link, an observation date or a level. It cites fetched sources by number and the server writes the URL; `observed_at` is the day of the run; a quote, a price or a publication date that is not in the fetched text becomes `unknown`; an encyclopedia page cannot be a signal; an idea needs a fetched source. **Reason:** "every fact with a source URL and a date, unknown stays unknown" has to hold even when the model ignores its prompt.
+- **Decision:** search is always called with provider `auto` (Wikipedia until the owner opts in through T-560-I); `web_read` opens only the URLs given in the request (at most 5); Content Brain gives its 10 newest signals with an https link.
+- **Decision:** one post is one signal and one source gives one fact per idea; a repeat is skipped and listed in the run record. **Reason:** the same page found twice must not raise the D2/D3 counts.
+- **Decision:** the second model may fill only fields that are still `unknown` (`COMPLETABLE` in `mvp_launchpad.py`), as a `completed` event on the same artifact; never a source, a verdict or a quote, and the level does not change.
+- **Decision:** anyone with a step on a gate's records (produced, reviewed, completed) is not a judge for that gate. **Reason:** before this the reviewer of a Discovery run could have decided G1/G2 as a "judge". This tightens the T-704 rule.
+- **Decision:** the comparison is part of the board response (`comparison`) and a card on the Launchpad page, which stays read-only and makes one request. A side that has not run is `unknown`. "Benchmark ideas covered" counts ideas that received an agent fact or signal, or whose source the agents found again.
+- **Not done:** no button starts a run from the page (API only, like every Launchpad write); the agents do not read search results with `web_read`, so with Wikipedia-only search D3 will mostly stay empty until the owner hands over URLs or answers T-560-I.

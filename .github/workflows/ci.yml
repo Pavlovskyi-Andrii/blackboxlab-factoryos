@@ -319,6 +319,10 @@ jobs:
           Path("/tmp/mvp-evolution-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
           PY
           node --check /tmp/mvp-evolution-ui.js
+      - name: MVP worker contracts for the 13 roles (T-631, #270 §2, offline)
+        run: |
+          python -m py_compile mvp_contracts.py test_mvp_contracts.py
+          python test_mvp_contracts.py
       - name: MyCast improve-quiz + analyst (T-634, #270, offline)
         run: |
           python -m py_compile mvp_quiz.py test_mvp_quiz.py
@@ -532,6 +536,8 @@ jobs:
           python test_mvp_experiments_ui.py
           python -m py_compile mvp_launchpad.py test_mvp_launchpad.py
           python test_mvp_launchpad.py
+          python -m py_compile mvp_launchpad_agents.py test_mvp_launchpad_agents.py
+          python test_mvp_launchpad_agents.py
           python - <<'PY'
           from pathlib import Path
           html = Path("static/mvp-factory/launchpad.html").read_text(encoding="utf-8")

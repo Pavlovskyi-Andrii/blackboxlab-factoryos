@@ -29,13 +29,14 @@
   DONE: `python test_mvp_launchpad.py` (schemas, ladders, authority, synthetic exclusion, honest zero, spend/outreach approvals, no-network spy, idempotency, stage untouched, EN/UK/RU key parity) runs in CI (this task allows adding that step to `.github/workflows/ci.yml`) + inline-JS `node --check` + every existing `test_mvp_*.py` + default verification; FactoryOS CI green.
   Done 2026-11-20: `mvp_launchpad.py` (board, seven artifact types, five ladders, gates G1–G5, owner-only spend/outreach approvals), routes under `/api/mvp-factory/{pid}/launchpad`, six `evidence.py` rule types, Launchpad facts in the cycle view, read-only page `static/mvp-factory/launchpad.html` (UK/RU/EN; MyCast opens by default and is empty = unknown). 28 tests in `test_mvp_launchpad.py`, in CI. Browser check at 390 and 1280 px: `docs/screenshots/t-704/`. Not in L1: writing from the page (API only), a synthetic demo project, server checkers for `lead`/`usage` (those stay below `checked`). See DECISIONS.md «2026-11-20 — T-704».
 
-- [ ] T-705 Business League L2: Discovery agents fill D1–D3 from public sources, with the manual MyCast run as the benchmark
+- [x] T-705 Business League L2: Discovery agents fill D1–D3 from public sources, with the manual MyCast run as the benchmark
   Owner: claude
   Priority: P1 (owner 2026-11-19, voice + chat: «все, що можеш зробити сам — роби сам», queue what needs no owner decision)
   Depends: T-704
   Spec: `docs/specs/BUSINESS_LEAGUE_LAUNCHPAD.md` (L2); benchmark `docs/business_experiments/mycast_launchpad/d1_d3.json` and `D1-D3_2026-11-19.md`; DECISIONS.md «2026-11-19 — T-705».
   Goal: import the manual MyCast D1–D3 run into the Launchpad board as real artifacts at level linked (not synthetic, gate proposals kept as proposals); Researcher and Analyst agents produce idea_card / market_fact / signal for a project with the existing free tools only (FactoryOS web_search, which is Wikipedia unless the owner opted in through T-560-I, web_read of given URLs, Content Brain signals): every fact with a source URL and a date, unknown stays unknown, maximum level linked; a second model completes and checks the same artifacts (agent-loop events); agents may propose G1/G2 and never decide them; a comparison view shows agent output against the manual benchmark (ideas covered, facts with sources, independent signals, duplicates). No paid call without the owner's opt-in, no posting and no messages to people.
   DONE: `python test_mvp_launchpad_agents.py` (benchmark import, schema checks on agent output, level cap, proposal-only gates, review-loop events, no paid or network call in tests, comparison counts) runs in CI + every `test_mvp_*.py` + default verification; FactoryOS CI green.
+  Done 2026-11-21: `mvp_launchpad_agents.py` — benchmark import (37 records: 36 `linked`, idea i6 without a source `claimed`; G1/G2 proposed, not decided), owner-started Discovery run (`POST …/launchpad/discovery`: Researcher and Analyst on the free Gemini key, a second Flash model reviews and completes), comparison in the board response and on the Launchpad page. 19 tests, in CI. Not run on the worker host: `static/mvp-factory/test_launchpad.js` (only `node --check` is permitted there) and FactoryOS CI itself; no live Discovery run was made. See DECISIONS.md «2026-11-21 — T-705».
 
 - [ ] [HUMAN] T-706-H MyCast Discovery: review D1–D3 and decide G1 (3 ideas) and G2 (1–2 directions)
   Owner: owner
@@ -133,6 +134,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Progress (2026-10-31, acceptance run): all deterministic stages re-verified on the EC2 worker. Fixed the Python 3.9 import failure in `app.py`/`media_finisher_worker/app.py`, so smoke + planner now run on the worker, with no app-level skips. Live stages are still open: PR/CI/merge/`build_sha`/Telegram/Issue #41. Exact steps: `docs/handoff/T-590_ACCEPTANCE.md`.
   Re-check (2026-10-31, run-20261031162233-a7b938): deterministic stages green again at `62ffd5e`. The branch is still 10 commits ahead of main (not merged), and the live stages remain blocked on GitHub access plus HUMAN T-506.
   Re-check (2026-11-01): `autopilot/aws-worker` == `origin/main` == `c2879b9`, so the T-590 slice is merged into main. Deterministic stages are green again (smoke, planner, relay 74, telegram 9, token binding, delegation, autopilot). This run was denied network/`gh`/`curl`, so CI on `c2879b9`, Render `build_sha`, Telegram pairing (HUMAN T-506), the live `/new` trace and the Issue #41 evidence are still unverified.
+  Re-check (2026-11-15, run-20261115093856-a5105e): T-506 pairing is done, and the #289 round trip plus Evidence Tiers 1–2.6 are on main. Deterministic stages are green again (smoke, planner, relay 111, telegram 25). This run had no GitHub/Render/network access, so one owner ticket traced end to end (claim → run_id → PR → CI → merge → deployed → Telegram `/task`) with Issue #41 evidence is still unobserved. The task stays open.
   Progress (2026-11-15, P0 tails session): T-506 pairing is done (checked). The live trace is now provable from server facts alone: `relay_acceptance.py` + `/proof R-…` + owner-only `GET /api/relay/{id}/acceptance` judge Telegram intake → one ticket → claim/run_id → running → done → Telegram delivery receipt (the server now records `owner_notified` when the Bot API accepts a worker notice). The remaining live stages are the owner's run in **[HUMAN] T-591-H**; production `/health` answered 502 during this session, so `build_sha` was not compared (T-590-H).
 
 - [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
@@ -232,12 +234,13 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Need: owner generates three different random tokens (`python -c "import secrets;print(secrets.token_urlsafe(32))"`, one per lane) and adds them in Render → Environment: `FACTORY_MCP_LANE_TOKEN_CLAUDE`, `FACTORY_MCP_LANE_TOKEN_CHATGPT`, optionally `FACTORY_MCP_LANE_TOKEN_GEMINI`; plus `FACTORY_MCP_LANE_URL_KEY=chatgpt` because the ChatGPT connector cannot send headers. Then reconnects ChatGPT with `…/mcp?key=<CHATGPT lane token>` and Claude Code with the Claude lane token as Bearer. Runbook: docs/guides/agent-workspace-mcp.md. Agents never see or set these values.
   DONE: `GET /api/factory/agent-workspace` (signed in) shows `lanes.claude.enabled` and `lanes.chatgpt.enabled` true; `GET /mcp` with each connector reports its own `lane`.
 
-- [ ] T-626 Worker Center panel for the shared agent workspace
+- [x] T-626 Worker Center panel for the shared agent workspace
   Owner: claude
   Priority: P2
   Depends: T-625
   Goal: read-only Worker Center card from `GET /api/factory/agent-workspace`: lanes enabled/disabled (reason, never token values), latest threads with attributed messages, handoffs by state with run_id, Relay ticket link and PR link; EN/UK/RU.
   DONE: test covering empty / disabled-lane / active-handoff states, dashboard `node --check`, CI-gated PR.
+  Done 2026-11-17: `renderAgentWorkspace` in the Workers center, `recent_messages` in the overview, `test_agent_workspace_ui.py` (run in CI by `test_agent_workspace.py`); DECISIONS.md T-626. It reaches CI through the `autopilot/aws-worker` → main PR.
 
 - [ ] T-602 UI fixes from the 2026-11-01 screenshot review
   Owner: claude
@@ -952,7 +955,7 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Goal: per-product quiz definitions in `mvp_quiz.QUIZZES`; the widget reused; gifts only where the product has accounts.
   DONE: quiz tests per product pass.
 
-- [ ] T-631 Product Evolution S2 — versioned worker contracts for the 13 logical roles of #270 §2
+- [x] T-631 Product Evolution S2 — versioned worker contracts for the 13 logical roles of #270 §2
   Owner: claude (session MVP beta)
   Priority: P2
   Depends: T-630

@@ -54,7 +54,7 @@ If the assignee is stuck, it calls `release_handoff` (`blocked` or `cancelled`).
 ## Where to look
 
 - The owner sees threads, handoffs, their states and whether each lane is enabled (with the reason, never the token value) at `GET /api/factory/agent-workspace` when signed in to FactoryOS.
-- There is no separate Worker Center panel yet: that is task T-626.
+- The same data is shown read-only in Worker Center (Automation & team → Workers), in the "Shared agent workspace" card: lanes on/off with the reason, the latest threads with who wrote each message, and handoffs grouped by state with the `run_id`, the Relay ticket link and the PR link (T-626).
 - Claims and results also show in that task's Relay ticket, with the `run_id` and the PR link.
 
 ## Not done yet

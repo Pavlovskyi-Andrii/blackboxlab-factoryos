@@ -37,7 +37,9 @@ Module `mvp_evolution.py`, page `static/mvp-factory/evolution.html`. It never ch
 5. The hand-off to the builder creates exactly one Relay ticket. «Shipped» requires a link to a merged PR or commit.
 6. You release V2, then the original participants retest the new version.
 
-Not built yet: contracts for the 13 roles (T-631), builder-side claiming through Relay events (T-632), in-product usage events (T-633).
+Built (T-631): versioned contracts for the 13 logical roles in `mvp_contracts.py`. Each role says what it may do, what it needs and hands over, its retries and timeout, and what evidence a finished run must carry. Every role runs on one of the five existing agents. No role may approve, release, publish or spend.
+
+Not built yet: builder-side claiming through Relay events (T-632), in-product usage events (T-633).
 
 ## A/B experiments
 
