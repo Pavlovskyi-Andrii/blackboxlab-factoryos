@@ -122,7 +122,8 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Progress 2026-10-31: T-599-E/F done. Umbrella acceptance `test_t599_acceptance.py` (spec §3 A–E, run in CI via test_relay_execution.py) joins claim → events → lane board → Telegram; refused claims are journalled as `claim_rejected`; blocked lanes show their reason in API/web/Telegram. PR/CI and Issue #67 evidence follow the worker push (not claimed by the agent).
   DONE: deterministic tests A–E pass; no open ROADMAP task lacks Owner; a blocked task no longer stalls the queue; an Owner-assigned task without a claim renders as "assigned, not claimed"; CI-gated PRs; evidence posted to Issue #67.
 
-- [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
+- [x] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
+  Closed (2026-11-21, run-20261121170154-7d08ab): the live part is closed by the owner's **T-591-H** run — server verdict VERIFIED for Telegram ticket R-0087 · run-351295eb0d92 (intake, one ticket, claim + run_id, running, done, Bot API delivery receipt; owner's screen, 2026-11-17). Deployed revision: owner-verified `/api/version` `build_sha` == main (answers.md, 2026-11-15). The slice reached main only through PRs (#63, #81, #112, …). Deterministic stages green again on the worker (smoke 8, planner, relay 127, telegram 25, acceptance 16). Not observed by this worker run (no `gh`/network): the CI runs themselves and Issue #41 — nothing was posted there; `/proof R-0087` prints the transcript on demand (same waiver the owner gave for T-591-H). Evidence table: `docs/handoff/T-590_ACCEPTANCE.md`; DECISIONS.md 2026-11-21.
   Owner: claude
   Planner: owner; Executor: Claude Code Pro (primary). P0.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; GitHub Issues #41, #51, #56, #40; PR #43, #42, #60.

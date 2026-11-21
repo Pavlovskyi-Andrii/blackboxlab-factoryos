@@ -66,7 +66,21 @@ Rule: a stage counts as verified only with evidence. Everything else is UNVERIFI
 - Green: compile, `smoke_tests.py` (8), the planner, `test_relay_execution` (111) and `test_relay_telegram` (25). Each suite ran in its own process, with env set inside Python, because `env`-prefixed commands were denied.
 - `.autopilot/answers.md` has no owner-posted trace. `gh` and FactoryOS `web_read` of `/api/version` were denied. No live stage was observed, and T-590 stays unchecked.
 
-## Exact remaining actions
+## Closure (2026-11-21, run `run-20261121170154-7d08ab`, head `8824ffa`)
+
+T-590 is checked. Each stage below names who observed the evidence; this worker run observed only the first two rows.
+
+| Stage | State | Evidence and observer |
+|---|---|---|
+| Deterministic stages (table above) | verified | this run: compile, `smoke_tests.py` (8), planner, `test_relay_execution` (127), `test_relay_telegram` (25), `test_relay_acceptance` (16), one process per suite |
+| Non-main PRs, slice on main | verified | this run, local git: `f5485a8` (#63), `c2879b9` (#81), `b06029a` (#112); `autopilot/aws-worker` == `origin/main` == `8824ffa` |
+| Paired owner chat (T-506) | verified | owner, 2026-11-02 (ROADMAP T-506 checked) |
+| Live trace: Telegram intake → one ticket → claim + run_id → running → done → delivery receipt | verified by the server | R-0087 · `run-351295eb0d92`, `latest_telegram_acceptance()` VERIFIED on the owner's Worker Center, 2026-11-17 (T-591-H checked; DECISIONS 2026-11-17). Not re-read by any agent session |
+| Deployed revision | verified | owner: `/api/version` `build_sha` `60c983bd19fd…` == latest main (`.autopilot/answers.md`, 2026-11-15) |
+| CI | not observed by this run | `gh` denied. Rests on the owner's rule that PRs merge only on green CI of the current head |
+| Issue #41 evidence comment | not posted | `gh` denied. The owner dropped the Issue #41 transcript for T-591-H (2026-11-17); `/proof R-0087` reproduces it. Optional follow-up for a session with GitHub access: post a link to this table |
+
+## Remaining actions (historical; steps 1–4 are closed as described above)
 
 1. **Session with GitHub access (Claude interactive, standing grant):** push `autopilot/aws-worker`, then open PR `autopilot/aws-worker → main`. Wait for CI on the current head; merge only when it is green.
 2. **After merge:** `GET https://blackboxlab-factoryos.onrender.com/api/version` must return `build_sha` equal to the merge commit.
