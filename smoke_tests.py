@@ -26,7 +26,7 @@ def route_exists(path, method):
 
 health=app.health_details()  # #114 A-1: the public /health only says ok; details need a session
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v5.14.0","version mismatch")
+require(health["version"]==app.APP_VERSION=="v5.15.0","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
