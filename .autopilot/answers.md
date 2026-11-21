@@ -34,3 +34,10 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 ## T-702 (owner 2026-11-18, relayed from the owner task page)
 - Approval mode: A — the owner approves the whole weekly plan with one action, then approved items publish by themselves. A is the default; B (rules) and C (each post) stay opt-in settings.
 - Platform order (owner 2026-11-18): Telegram channel → LinkedIn → Instagram/TikTok → OLX.
+
+## 2026-11-18 — owner task page answers
+- Social publishing approval: mode A (approve the weekly plan once; approved items publish by themselves).
+- Platform order: Telegram channel → LinkedIn → Instagram/TikTok → OLX.
+- Google search through Gemini: not wanted (Free tier has no grounding); FACTORY_WEB_SEARCH_PROVIDER removed in Render, Surfer search uses Wikipedia (verified on prod 10:39 UTC).
+- T-607-H Gemini worker on EC2: deferred.
+- T-624: Claude lane token works (Relay write as `claude` verified 10:46 UTC); ChatGPT lane write not yet verified.
