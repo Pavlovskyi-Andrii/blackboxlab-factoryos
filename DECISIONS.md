@@ -2111,3 +2111,10 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - **Decision:** the workflow uses the runner's own FFmpeg and calls apt only when it is missing (install first, `apt-get update` only if that fails, needrestart suspended). **Reason:** removes the one step that can eat half of the 20-minute budget; the limits themselves stay, so a hung job still ends.
 - **Decision:** the voice model is kept in the Actions cache (`piper-voice-uk_UA-ukrainian_tts-medium-v1`), checked by size and JSON before use, downloaded with retries only when the cache is empty or broken. **Reason:** a morning render no longer depends on the model host being reachable. Reversible: bump the key to refresh the voice.
 - Setup is split into named steps so each run shows where its time went.
+
+## 2026-11-20 — MyCast render workflow without apt (owner: «прибери apt окремим PR»)
+
+- **Finding from #429's own run:** the hosted runner has no FFmpeg, so the conditional apt still ran there (about a minute that time; the 9-minute case was never explained).
+- **Decision:** the workflow installs FFmpeg as the binary inside the `imageio-ffmpeg` pip package, next to `piper-tts`; there is no apt step left. `tools/mycast_render.ffmpeg_exe` picks `MYCAST_FFMPEG`, then that package, then a system `ffmpeg`. **Reason:** pip wheels come from one CDN in seconds and need no package index refresh or service restarts.
+- **Decision:** the MP3 check no longer uses `ffprobe` (the package has none). The MP3 is decoded in full to 16 kHz mono PCM and its length is counted from the decoded bytes. **Reason:** that is a stronger check than reading the container's duration field: a truncated file is caught by its real length.
+- Not pinned: `piper-tts` and `imageio-ffmpeg` versions, as before for Piper. Reversible.
