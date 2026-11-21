@@ -1,0 +1,101 @@
+{
+  "schema": "film-bible/v1",
+  "project_id": "blackbox-lab-film-studio-pilot",
+  "revision": 1,
+  "date": "2026-11-20",
+  "approved_direction": "Owner approved AI Film Studio; this is a proposed creative treatment, not an already-rendered video.",
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 24,
+    "seconds": 45,
+    "ratio": "16:9",
+    "preview_width": 1280,
+    "preview_height": 720,
+    "language": "ru"
+  },
+  "genre": "cinematic documentary / technology laboratory",
+  "palette": {
+    "background": "#061019",
+    "teal": "#39d9e9",
+    "ice": "#dcefff",
+    "warm": "#f2a96a"
+  },
+  "camera_bible": {
+    "lens_mm": [
+      35,
+      50
+    ],
+    "moves": [
+      "slow_dolly_in",
+      "subtle_pan_left",
+      "subtle_pan_right",
+      "slow_orbit_2_5d",
+      "static_with_graphic",
+      "slow_pull_out"
+    ],
+    "max_zoom": 1.08,
+    "default_shutter_style": "natural",
+    "avoid": [
+      "every-cut punch zoom",
+      "random camera shake",
+      "fast distracting transitions",
+      "fake camera movement claims for still images"
+    ]
+  },
+  "locations": [
+    {
+      "id": "city_night",
+      "description": "actual licensed night skyline; no fake specific city identification"
+    },
+    {
+      "id": "workspace_night",
+      "description": "licensed night workspace / typing hands"
+    },
+    {
+      "id": "control_room",
+      "description": "servers / technical photo; do not portray as literal FactoryOS infrastructure"
+    },
+    {
+      "id": "brand_space",
+      "description": "abstract brand treatment from code or documented licensed asset"
+    }
+  ],
+  "continuity": {
+    "characters": "No recurring invented human identity in V1; prefer hands, architecture, tools, real consented screenshots.",
+    "wardrobe": "N/A if no identified person",
+    "props": [
+      "laptop",
+      "documentation cards",
+      "workflow nodes",
+      "private preview panel"
+    ],
+    "lighting": "restrained cyan monitor spill + warm practical room light",
+    "typography": "DejaVu Sans / repo-approved font only; readable contrast and safe zones"
+  },
+  "truth_policy": {
+    "label_reenactments": "DEMO",
+    "financial_claims": "do not invent numbers",
+    "approval": "no public publish without owner confirmation",
+    "real_ui": "real permitted screenshots only; synthetic UI visibly labelled DEMO",
+    "stock_media": "visual metaphor, not evidence that a shown event actually happened"
+  },
+  "audio": {
+    "narration": "real owner-approved local voice or licensed/user-supplied recording; no paid TTS",
+    "music": "none until suitable licensed asset is recorded",
+    "target_lufs": -14
+  },
+  "output": {
+    "private_only": true,
+    "human_review_required": true,
+    "final_mp4": "H264/AAC",
+    "shot_level_edits": true
+  },
+  "related_issues": [
+    433,
+    434,
+    427,
+    428,
+    353
+  ]
+}
