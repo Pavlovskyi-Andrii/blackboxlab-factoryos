@@ -27,6 +27,17 @@ RULES: dict[str, dict] = {
     "telegram": {"required_level": "checked", "checks": ["message_sent"]},
     # publish: only the owner, through the existing approval gate.
     "publish": {"required_level": "accepted", "checks": []},
+    # T-704 Launchpad (docs/specs/BUSINESS_LEAGUE_LAUNCHPAD.md): business evidence, strictest where money moves.
+    # market: a source URL and a date.
+    "market": {"required_level": "linked", "checks": []},
+    # lead / usage: the server read a recorded form or product event (no checker yet, so these stay below checked).
+    "lead": {"required_level": "checked", "checks": ["recorded_event"]},
+    "usage": {"required_level": "checked", "checks": ["recorded_event"]},
+    # payment: the owner confirms, until a provider receipt checker exists.
+    "payment": {"required_level": "accepted", "checks": []},
+    # outreach / spend: owner approval before the action.
+    "outreach": {"required_level": "accepted", "checks": []},
+    "spend": {"required_level": "accepted", "checks": []},
     # anything else: at least one link to evidence.
     "other": {"required_level": "linked", "checks": []},
 }

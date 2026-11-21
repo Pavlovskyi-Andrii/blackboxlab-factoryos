@@ -1360,6 +1360,8 @@ async def _ab_content_job(title, brief, job_id):
 
 
 install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity, create_job=_ab_content_job)  # T-608..T-610 A/B Tester: drafts only, owner-gated
+from mvp_launchpad import install_mvp_launchpad_routes  # noqa: E402
+install_mvp_launchpad_routes(app, MVP_REGISTRY, request_identity)  # T-704 Launchpad: plans and evidence only, never changes a stage
 install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
 from decision_memory import DecisionStore, install_decision_memory_routes, sync_mvp_registry_once  # noqa: E402
 install_decision_memory_routes(app, DecisionStore(DATA_DIR / "decision_memory.json", BASE / "DECISIONS.md"), request_identity)  # T-614 #187: owner-only

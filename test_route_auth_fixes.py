@@ -97,6 +97,31 @@ class RouteAuthFixes(unittest.TestCase):
         self.assertNotEqual(status, 500)
 
 
+    def test_launchpad_board_is_behind_the_session_and_writes_behind_the_role(self):
+        # T-704 (Codex review of #432): through the real app and its auth middleware.
+        base = "/api/mvp-factory/mycast/launchpad"
+        idea = json.dumps({"type": "idea_card", "who": "w", "problem": "p", "where_noticed": ["own_experience"]}).encode()
+        for method, path in (("GET", base), ("POST", base + "/artifacts"), ("POST", base + "/approvals"), ("POST", base + "/gates/G1")):
+            status, body = call(method, path, body=idea)
+            self.assertEqual(status, 401, (method, path))                      # signed out: no board data, no write
+            self.assertNotIn(b"checks", body)
+        status, body = call("GET", base, cookie=self.viewer)
+        self.assertEqual(status, 200)                                          # a signed-in viewer may read
+        self.assertEqual(json.loads(body)["checks"][0]["actual"], "unknown")   # MyCast starts empty, nothing invented
+        self.assertEqual(call("POST", base + "/artifacts", cookie=self.viewer, body=idea)[0], 403)   # and never write
+        self.assertEqual(call("POST", base + "/approvals", cookie=self.viewer, body=b'{"artifact":"a-1","kind":"outreach"}')[0], 403)
+        status, body = call("POST", base + "/artifacts", cookie=self.owner, body=idea)
+        self.assertEqual((status, json.loads(body)["artifact"]["id"]), (200, "a-1"))
+        self.assertEqual(call("GET", "/api/mvp-factory/no-such-project/launchpad", cookie=self.owner)[0], 404)
+        # The page itself is a public static file with no data in it; it opens the project named in the link.
+        status, page = call("GET", "/static/mvp-factory/launchpad.html")
+        self.assertEqual(status, 200)
+        self.assertNotIn(b"own_experience", page)
+        self.assertIn(b"get('project')||'mycast'", page)
+        status, cards = call("GET", "/static/mvp-factory/index.html")
+        self.assertIn(b"launchpad.html?project='+encodeURIComponent(p.id)", cards)
+
+
 class BridgeTokenTest(unittest.TestCase):
     def test_c4_dedicated_bridge_token_replaces_the_mcp_token(self):
         class Req:
