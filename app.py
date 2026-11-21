@@ -71,6 +71,7 @@ from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import youtube_publisher
 import linkedin_publisher
 import social_autopilot
+import social_images
 import olx_publisher
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
@@ -11309,8 +11310,10 @@ olx_publisher.install_routes(app,store=olx_publisher.AdvertStore(DATA_DIR),flow=
 SOCIAL_TELEGRAM=social_autopilot.TelegramChannelAdapter(
     token=lambda: FACTORY_TELEGRAM_BOT_TOKEN,
     channel=lambda: os.environ.get("FACTORY_TELEGRAM_CHANNEL_ID","").strip())
+# T-713: every post carries a teaser image rendered locally (zero spend); an AI generator stays off unless the owner
+# sets FACTORY_SOCIAL_AI_IMAGES=1 and one is wired here (none is today).
 SOCIAL_AUTOPILOT=social_autopilot.Autopilot(
-    social_autopilot.Store(DATA_DIR),
+    social_autopilot.Store(DATA_DIR,images=social_images.ImageMaker(DATA_DIR,social_images.generator_from_env())),
     {"telegram":SOCIAL_TELEGRAM,
      "linkedin":social_autopilot.LinkedInAdapter(OAUTH_FLOW,tenancy.binding_workspace)},
     notify=lambda text: _telegram_send(text),
@@ -11318,6 +11321,10 @@ SOCIAL_AUTOPILOT=social_autopilot.Autopilot(
 social_autopilot.install_routes(app,pilot=SOCIAL_AUTOPILOT,identity=request_identity,telegram=SOCIAL_TELEGRAM)
 
 async def social_autopilot_loop():
+    try:
+        await asyncio.to_thread(SOCIAL_AUTOPILOT.store.ensure_images)   # T-713: images for items made before images
+    except Exception as exc:
+        print(json.dumps({"event":"SOCIAL_AUTOPILOT_IMAGES","status":"error","error":type(exc).__name__}),flush=True)
     while True:
         try:
             result=await asyncio.to_thread(SOCIAL_AUTOPILOT.tick)

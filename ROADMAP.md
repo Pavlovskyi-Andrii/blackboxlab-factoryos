@@ -1,3 +1,11 @@
+- [x] T-713 Social autopilot: a teaser image in every post (Telegram channel and LinkedIn)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-21: «добавлять фото в каждый пост (в фото должно отображаться небольшой визуальный тизер того, что в тексте)»)
+  Depends: T-702
+  Spec: DECISIONS.md «2026-11-21 — T-713». `social_images.py`, `social_autopilot.py`, `linkedin_publisher.py`, `static/social/index.html`.
+  Goal: every plan item gets a 1080×1080 teaser card rendered locally with Pillow (the post's hook as headline, next sentence, topic chip, BlackBoxLab style, DejaVu fonts; zero spend); an AI generator can be plugged in through `ImageGenerator` only behind the owner opt-in `FACTORY_SOCIAL_AI_IMAGES=1` (off, none wired); the image SHA-256 is part of the approval, editing the text redraws the image and drops the approval, older items get an image and go back to draft; images in DATA_DIR, owner-only route; preview next to every item on `/static/social/`; Telegram `sendPhoto` (long posts: photo with the headline, then the full text as a reply; a half-sent post is «uncertain», never resent); LinkedIn Images API (initializeUpload → PUT → post with `content.media.id`).
+  DONE: `python test_social_images.py` (teaser extraction, deterministic Cyrillic PNG, AI opt-in + fallback, approval covers the image, edit redraws, swapped/lost file never sent, legacy backfill, Telegram photo/caption/reply/partial failure, LinkedIn upload flow and host check, owner-only image route, page keys), `python test_social_autopilot.py`, `python test_linkedin_publisher.py`, default verification, page `node --check`; screenshots `docs/screenshots/t-713/`.
+
 - [x] T-712 FactoryOS login: "Forgot password?" — `/login` in the owner's private Telegram chat gives a one-time sign-in link
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-20: «добавь кнопку восстановить пароль» after not finding the password)

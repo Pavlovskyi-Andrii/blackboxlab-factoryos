@@ -10,6 +10,10 @@ Flow, all owner-only: draft → approve (freezes the exact text: its SHA-256 is 
   is never sent twice.
 - Errors carry fixed codes; LinkedIn response bodies and tokens are never stored, logged or returned.
 - Network goes through one injectable `http` callable, so the tests make zero network calls.
+
+T-713: a post can carry one image through the Images API (initializeUpload → PUT the bytes to the returned upload URL
+→ post with ``content.media.id``). Any failure before the post call is a plain failure (no post exists yet); the
+access token is only ever sent to a LinkedIn host.
 """
 from __future__ import annotations
 
@@ -32,6 +36,10 @@ from oauth_framework import OAuthAdapter, OAuthError, OAuthProvider, TokenSet
 
 USERINFO_URL = "https://api.linkedin.com/v2/userinfo"
 POSTS_URL = "https://api.linkedin.com/rest/posts"
+IMAGES_INIT_URL = "https://api.linkedin.com/rest/images?action=initializeUpload"
+IMAGE_URN_RE = re.compile(r"^urn:li:image:[A-Za-z0-9_-]{1,200}$")
+UPLOAD_HOST_RE = re.compile(r"^https://([a-z0-9-]+\.)*(linkedin\.com|licdn\.com)(:443)?/")
+IMAGE_MAX_BYTES = 8 * 1024 * 1024
 DEFAULT_API_VERSION = "202510"           # LinkedIn-Version header (YYYYMM); owner can override, see DECISIONS T-700
 TEXT_MAX = 3000                          # LinkedIn post commentary limit
 MAX_DRAFTS = 200
@@ -142,15 +150,57 @@ def text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def upload_image(http: Http, access_token: str, author_urn: str, png: bytes, version: str,
+                 timeout: float = 60.0) -> str:
+    """Images API: initializeUpload, then PUT the bytes. Returns the image URN. Nothing is posted here, so every
+    failure is a plain (certain) one; an orphan uploaded image is harmless."""
+    if not re.fullmatch(r"urn:li:person:[A-Za-z0-9_-]{1,100}", author_urn or ""):
+        raise LinkedInError("linkedin_author_missing")
+    if not isinstance(png, (bytes, bytearray)) or not png or len(png) > IMAGE_MAX_BYTES:
+        raise LinkedInError("linkedin_image_invalid")
+    try:
+        status, _, raw = http("POST", IMAGES_INIT_URL, {
+            "Authorization": "Bearer " + access_token, "Content-Type": "application/json",
+            "LinkedIn-Version": version, "X-Restli-Protocol-Version": "2.0.0"},
+            json.dumps({"initializeUploadRequest": {"owner": author_urn}}).encode("utf-8"), timeout)
+    except (TimeoutError, OSError, urlerror.URLError):
+        raise LinkedInError("linkedin_image_init_failed") from None
+    fixed = {401: "linkedin_auth_failed", 403: "linkedin_permission_denied", 426: "linkedin_version_unsupported",
+             429: "linkedin_rate_limited"}
+    if status in fixed:
+        raise LinkedInError(fixed[status])
+    value = _json(raw).get("value") if status == 200 else None
+    value = value if isinstance(value, dict) else {}
+    upload_url, urn = str(value.get("uploadUrl") or ""), str(value.get("image") or "")
+    if status != 200 or not IMAGE_URN_RE.fullmatch(urn) or not UPLOAD_HOST_RE.match(upload_url):
+        raise LinkedInError("linkedin_image_init_failed")
+    try:
+        status, _, _ = http("PUT", upload_url, {"Authorization": "Bearer " + access_token,
+                                                "Content-Type": "application/octet-stream"}, bytes(png), timeout)
+    except (TimeoutError, OSError, urlerror.URLError):
+        raise LinkedInError("linkedin_image_upload_failed") from None
+    if status not in (200, 201):
+        raise LinkedInError("linkedin_image_upload_failed")
+    return urn
+
+
 def create_post(http: Http, access_token: str, author_urn: str, text: str, version: str,
-                timeout: float = 30.0) -> dict:
-    """Create one public text post. Returns {post_urn, url}. Raises LinkedInError (never with tokens)."""
+                timeout: float = 30.0, image_urn: str = "", alt_text: str = "") -> dict:
+    """Create one public post (text, or text + one uploaded image). Returns {post_urn, url}. Raises LinkedInError."""
     if not re.fullmatch(r"urn:li:person:[A-Za-z0-9_-]{1,100}", author_urn or ""):
         raise LinkedInError("linkedin_author_missing")
     body = {"author": author_urn, "commentary": escape_commentary(text), "visibility": "PUBLIC",
             "distribution": {"feedDistribution": "MAIN_FEED", "targetEntities": [],
                              "thirdPartyDistributionChannels": []},
             "lifecycleState": "PUBLISHED", "isReshareDisabledByAuthor": False}
+    if image_urn:
+        if not IMAGE_URN_RE.fullmatch(image_urn):
+            raise LinkedInError("linkedin_image_invalid")
+        media = {"id": image_urn}
+        alt = clean_text(alt_text).replace("\n", " ")[:300]
+        if alt:
+            media["altText"] = alt
+        body["content"] = {"media": media}
     try:
         status, headers, _ = http("POST", POSTS_URL, {
             "Authorization": "Bearer " + access_token, "Content-Type": "application/json",
@@ -309,14 +359,19 @@ def readiness(flow, workspace_id: str, env=None) -> tuple:
     return blockers, tokens
 
 
-def send_text(flow, workspace_id: str, text: str, *, http: Http | None = None, env=None) -> dict:
-    """The one LinkedIn publish path: re-checks readiness, then creates the post. Raises LinkedInError.
-    Callers own the approval fence and the claim-before-send (PostStore here, social_autopilot for T-702)."""
+def send_text(flow, workspace_id: str, text: str, *, http: Http | None = None, env=None,
+              image: bytes | None = None, alt: str = "") -> dict:
+    """The one LinkedIn publish path: re-checks readiness, uploads the image (if any), then creates the post.
+    Raises LinkedInError. Callers own the approval fence and the claim-before-send (PostStore here,
+    social_autopilot for T-702/T-713)."""
     blockers, tokens = readiness(flow, workspace_id, env)
     if blockers:
         raise LinkedInError("linkedin_not_ready")
     transport = http or getattr(flow.adapters.get("linkedin"), "http", urllib_http)
-    return create_post(transport, tokens.access_token, tokens.account_id, text, api_version(env))
+    version = api_version(env)
+    image_urn = upload_image(transport, tokens.access_token, tokens.account_id, image, version) if image else ""
+    return create_post(transport, tokens.access_token, tokens.account_id, text, version,
+                       image_urn=image_urn, alt_text=alt)
 
 
 def install_routes(app, *, store: PostStore, flow, identity: Callable, workspace: Callable[[], str],
