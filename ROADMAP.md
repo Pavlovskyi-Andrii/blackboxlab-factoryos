@@ -955,7 +955,7 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Goal: per-product quiz definitions in `mvp_quiz.QUIZZES`; the widget reused; gifts only where the product has accounts.
   DONE: quiz tests per product pass.
 
-- [ ] T-631 Product Evolution S2 — versioned worker contracts for the 13 logical roles of #270 §2
+- [x] T-631 Product Evolution S2 — versioned worker contracts for the 13 logical roles of #270 §2
   Owner: claude (session MVP beta)
   Priority: P2
   Depends: T-630
