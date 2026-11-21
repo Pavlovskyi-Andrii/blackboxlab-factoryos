@@ -22,6 +22,10 @@ const MediaFinish:React.FC<Props>=(p)=>{
   }
   const bottom=Math.max(.20,p.safeZones?.bottom??.20);
   const top=Math.max(.12,p.safeZones?.top??.12);
+  const side=Math.max(p.safeZones?.left??0,p.safeZones?.right??.12);
+  // CSS resolves percentage padding against the frame width, so vertical safe-zone offsets are given in pixels of height.
+  const captionBottom=Math.round(p.height*(bottom+.04)),graphicTop=Math.round(p.height*(top+.04));
+  const captionMaxWidth=Math.max(30,Math.min(78,100-200*side))+'%';
   return <AbsoluteFill style={{backgroundColor:'#000',overflow:'hidden'}}>
     <AbsoluteFill style={{transform:"scale("+scale+")"}}>
       <OffthreadVideo src={staticFile(p.videoPath)} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
@@ -30,8 +34,8 @@ const MediaFinish:React.FC<Props>=(p)=>{
       const from=Math.max(0,Math.floor(c.start*p.fps)),dur=Math.max(1,Math.ceil((c.end-c.start)*p.fps));
       const words=c.text.split(/\s+/);
       return <Sequence key={"c"+i} from={from} durationInFrames={dur}>
-        <AbsoluteFill style={{justifyContent:'flex-end',alignItems:'center',paddingBottom:(bottom*100+4)+'%',pointerEvents:'none'}}>
-          <div style={{maxWidth:'78%',backgroundColor:'rgba(0,0,0,.72)',borderRadius:18,padding:'14px 22px',fontFamily:'DejaVu Sans, sans-serif',fontWeight:800,fontSize:54,lineHeight:1.05,textAlign:'center',color:'white',textShadow:'0 2px 8px #000'}}>
+        <AbsoluteFill style={{justifyContent:'flex-end',alignItems:'center',paddingBottom:captionBottom,pointerEvents:'none'}}>
+          <div style={{maxWidth:captionMaxWidth,backgroundColor:'rgba(0,0,0,.72)',borderRadius:18,padding:'14px 22px',fontFamily:'DejaVu Sans, sans-serif',fontWeight:800,fontSize:54,lineHeight:1.05,textAlign:'center',color:'white',textShadow:'0 2px 8px #000'}}>
             {words.map((w,j)=><span key={j} style={{color:c.keyword&&w.replace(/[^\w']/g,'').toLowerCase()===c.keyword.replace(/[^\w']/g,'').toLowerCase()?'#70e5ff':'white'}}>{w}{j<words.length-1?' ':''}</span>)}
           </div>
         </AbsoluteFill>
@@ -47,14 +51,14 @@ const MediaFinish:React.FC<Props>=(p)=>{
       const slideX=(1-visible)*(variant==='lower_third'?-120:variant==='callout'?110:0);
       const base:any={opacity:visible,fontFamily:'DejaVu Sans, sans-serif',fontWeight:900,color:'#eefcff',letterSpacing:.4,
         transform:"translate("+slideX+"px,"+slideY+"px) scale("+pulse+")",textShadow:'0 3px 15px rgba(0,0,0,.65)'};
-      let wrap:any={justifyContent:'flex-start',alignItems:'flex-start',paddingTop:(top*100+4)+'%',paddingLeft:'7%',paddingRight:'14%',pointerEvents:'none'};
+      let wrap:any={justifyContent:'flex-start',alignItems:'flex-start',paddingTop:graphicTop,paddingLeft:'7%',paddingRight:'14%',pointerEvents:'none'};
       let box:any={...base,backgroundColor:'rgba(5,18,28,.86)',border:'2px solid rgba(74,211,255,.72)',borderRadius:18,padding:'14px 20px',fontSize:42,boxShadow:'0 16px 42px rgba(0,0,0,.42)'};
       if(variant==='kinetic_title'){
         wrap={...wrap,justifyContent:'center',alignItems:'center',paddingTop:0,paddingLeft:'8%',paddingRight:'8%',paddingBottom:'38%'};
         box={...base,fontSize:66,maxWidth:'84%',textAlign:'center',padding:'18px 26px',borderRadius:20,
           background:'linear-gradient(135deg,rgba(6,20,34,.9),rgba(8,41,57,.82))',border:'2px solid rgba(91,225,255,.76)',boxShadow:'0 18px 50px rgba(0,0,0,.48)'};
       }else if(variant==='lower_third'){
-        wrap={...wrap,justifyContent:'flex-end',paddingBottom:(bottom*100+15)+'%',paddingTop:0};
+        wrap={...wrap,justifyContent:'flex-end',paddingBottom:Math.round(p.height*(bottom+.15)),paddingTop:0};
         box={...box,fontSize:36,borderLeft:'8px solid #32d7ff',borderTop:'1px solid rgba(90,220,255,.55)'};
       }else if(variant==='callout'){
         wrap={...wrap,alignItems:'flex-end',paddingLeft:'14%',paddingRight:'7%'};
