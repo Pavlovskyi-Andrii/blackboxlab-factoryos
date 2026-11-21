@@ -1039,6 +1039,7 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Progress 2026-11-15 (owner chose Google-account login, no API key): runtime implemented — `autopilot/gemini_worker.py` (separate checkout/branch, lane heartbeat), Gemini CLI adapter in `autopilot/delegation.py` (Google login enforced, API-key variables stripped and refused, push/merge/deploy shell excluded, quota → `subscription_limit`), Gemini lane takes only `Owner: gemini`, narrow server token `FACTORY_GEMINI_WORKER_TOKEN` (lane-gemini claim/events/heartbeat only). `python test_gemini_worker.py` covers auth, no runtime, own-lane claim, token scope, quota, redaction. Runbook: `docs/handoff/GEMINI_EC2_WORKER.md`. Still open: owner setup (T-607-H) and the live probe (T-607-P).
 
 - [ ] [HUMAN] T-607-H Set up the Gemini worker on EC2
+  Deferred 2026-11-18 by the owner (owner task page: «Отложить»): the Claude worker and Claude sessions cover the load; do not raise it in owner task lists until the owner asks again.
   Need: owner logs Gemini CLI in with Google on EC2 (no API key), sets the same `FACTORY_GEMINI_WORKER_TOKEN` in Render and in `~/.config/factoryos/gemini-worker.env`, creates the `~/factoryos-gemini` checkout on `autopilot/gemini-worker` and enables `factoryos-gemini-worker.service`. Steps: `docs/handoff/GEMINI_EC2_WORKER.md`.
   DONE: FactoryOS Workers shows the Gemini lane online with `auth_mode=google_account`.
 
