@@ -76,6 +76,14 @@ GATE_CHOICES = {"G3": ("build_minimum", "change_assumption", "back_to_idea"), "G
                 "G5": ("continue", "iterate", "pivot", "kill")}
 
 HOST_RE = re.compile(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24}|xn--[a-z0-9-]{2,59})", re.I)
+# Private file shares and workspaces: a link there is either readable only by its owner's team or an unlisted
+# "anyone with the link" share, i.e. the address itself is the access key. Evidence must be a public page.
+PRIVATE_SHARE_HOSTS = ("docs.google.com", "drive.google.com", "sites.google.com", "photos.app.goo.gl", "dropbox.com",
+                       "dropboxusercontent.com", "1drv.ms", "onedrive.live.com", "sharepoint.com", "box.com", "icloud.com",
+                       "wetransfer.com", "we.tl", "notion.so", "notion.site", "slack.com", "slack-files.com", "atlassian.net",
+                       "airtable.com", "figma.com", "miro.com", "loom.com", "t.me/+", "t.me/joinchat", "chat.whatsapp.com",
+                       "discord.gg", "zoom.us", "meet.google.com", "calendly.com", "mail.google.com", "outlook.office.com",
+                       "web.telegram.org", "amazonaws.com", "blob.core.windows.net", "storage.googleapis.com")
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # Query parameters that carry a credential: a link with one of these must not be stored in the shared registry.
 SECRET_PARAM_RE = re.compile(r"(^|[_.-])(token|key|apikey|secret|password|passwd|pwd|signature|sig|auth|session|sid|code)$", re.I)
@@ -110,8 +118,9 @@ def _url(value: Any, *, required: bool = True) -> str:
     """A public https link, parsed into parts. No user info, no e-mail address and no credential-like query
     parameter (checked after percent-decoding): the registry is shared, and a source link must be safe to show.
     Long digit runs are allowed on purpose: post and status ids look like phone numbers.
-    Known limit: a secret that is part of the path (an unlisted share link) cannot be told from an ordinary slug;
-    the board is served to signed-in team roles only, and writers are told to cite public pages."""
+    File shares, workspaces, invite links and storage buckets are refused by host (PRIVATE_SHARE_HOSTS): there the
+    address itself is the access key. Known limit: an unlisted link on a host outside that list still looks like
+    any slug; the board is served to signed-in team roles only."""
     text = str(value or "").strip()
     if not text:
         if required:
@@ -128,6 +137,11 @@ def _url(value: Any, *, required: bool = True) -> str:
     if parts.scheme.lower() != "https" or parts.username is not None or parts.password is not None \
             or not HOST_RE.fullmatch(host) or (port is not None and not 0 < port < 65536):
         raise MvpError("bad_url")
+    low = host.lower()
+    for entry in PRIVATE_SHARE_HOSTS:
+        name, _, prefix = entry.partition("/")
+        if (low == name or low.endswith("." + name)) and parts.path.lower().startswith("/" + prefix):
+            raise MvpError("private_share_link")
     decoded = unquote(unquote(parts.path + "?" + parts.query + "#" + parts.fragment))
     if EMAIL_RE.search(decoded):
         raise MvpError("personal_data")

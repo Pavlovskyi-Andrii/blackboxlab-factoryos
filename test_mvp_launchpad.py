@@ -202,13 +202,22 @@ class SchemaTest(LaunchpadCase):
                           ("https://example.org:abc/x", "bad_url"), ("ftp://example.org/x", "bad_url"),
                           ("https://localhost/x", "bad_url"), ("https://10.0.0.1/x", "bad_url"), ("https:///x", "bad_url")):
             self.assertEqual(self.code(self.add, fact(source_url=url)), want, url)
+        for url in ("https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit?usp=sharing",
+                    "https://drive.google.com/file/d/1AbCdEf/view", "https://www.dropbox.com/scl/fi/abc123/plan.pdf?rlkey=xyz",
+                    "https://1drv.ms/b/s!AbCdEf", "https://acme.sharepoint.com/:w:/s/team/EabcDEF",
+                    "https://www.notion.so/acme/Plan-0123456789abcdef", "https://acme.slack.com/archives/C01/p1700000000",
+                    "https://t.me/+AbCdEfGhIjKl", "https://t.me/joinchat/AbCdEf", "https://chat.whatsapp.com/AbCdEf",
+                    "https://my-bucket.s3.eu-central-1.amazonaws.com/report.pdf", "https://DOCS.Google.com/spreadsheets/d/1x"):
+            self.assertEqual(self.code(self.add, fact(source_url=url)), "private_share_link", url)
         for bad in (10 ** 400, -(10 ** 400), 10 ** 9 + 1):
             self.assertEqual(self.code(self.add, entry(leads=bad)), "bad_number")
         self.assertEqual(self.reg.path.read_text(encoding="utf-8"), before)
         good = ("https://example.org?utm=1", "https://example.org#reviews", "https://example.org:8443/a?page=2&sort=new",
                 "https://xn--80aswg.xn--p1ai/novosti", "https://x.com/someone/status/1859341234567890123",
                 "https://www.reddit.com/r/podcasts/comments/1abc2de/daily_digest/?keyword=news",
-                "https://forum.example.co.uk/t/topic/123456789012")
+                "https://forum.example.co.uk/t/topic/123456789012", "https://t.me/durov/342", "https://t.me/s/telegram",
+                "https://support.google.com/docs/answer/2494822", "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "https://github.com/rhasspy/piper/releases/tag/v0.0.2", "https://play.google.com/store/apps/details?id=org.telegram.messenger")
         for url in good:
             self.assertEqual(self.add(fact(source_url=url))["fields"]["source_url"], url)
         self.assertEqual(self.add(entry(reach=10 ** 9))["fields"]["reach"], 10 ** 9)
