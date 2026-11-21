@@ -10,7 +10,12 @@ platform always stays behind an owner approval:
   and published; anything else waits for the owner. Tone is guidance for whoever writes drafts, not a machine check.
 - Mode ``each`` (C): every item is approved separately; "approve the plan" is refused.
 
-An approval freezes ``sha256(platform + text)``; any edit drops it (same as ``linkedin_publisher.PostStore``).
+An approval freezes ``sha256(platform + text + image sha256)``; any edit drops it (same as
+``linkedin_publisher.PostStore``).
+
+T-713: every item carries a teaser image (``social_images``: a 1080×1080 card rendered locally, zero spend) that the
+owner sees next to the text and approves with it. Editing the text re-renders the image and drops the approval. The
+scheduler sends exactly the approved bytes (their SHA-256 is checked) or nothing.
 
 Scheduler (``Autopilot.tick``): only when ``FACTORY_SOCIAL_AUTOPILOT_ENABLED=1`` and the owner has not pressed «Стоп».
 Each due item is claimed (approved → publishing, persisted) *before* the network call, so a crash or a timeout can
@@ -18,9 +23,10 @@ never send it twice: a claim that never finished becomes ``uncertain`` on restar
 retried — the owner checks the platform and confirms. Permanent errors become ``failed`` with a fixed code; the owner
 re-approves to try again. Provider response bodies and tokens are never stored or returned.
 
-Adapters plug in through ``Adapter`` (``name``, ``max_chars``, ``blockers()``, ``publish(text)``): Telegram channel
-(Bot API ``sendMessage`` with the existing FactoryOS bot) and LinkedIn (``linkedin_publisher.send_text``). Instagram,
-TikTok and OLX are later tasks.
+Adapters plug in through ``Adapter`` (``name``, ``max_chars``, ``blockers()``, ``publish(text, image, alt)``):
+Telegram channel (Bot API ``sendPhoto`` with the existing FactoryOS bot; a post longer than a photo caption goes out as
+the photo with its headline, then the full text as a reply) and LinkedIn (``linkedin_publisher.send_text``, image
+through the Images API). Instagram, TikTok and OLX are later tasks.
 
 Plans are filled for free: ``propose_week`` turns existing Content Brain ideas into drafts with a fixed template (no
 LLM, no paid call), agents add drafts through the MCP tools ``social_plan_list`` / ``social_plan_propose`` (they can
@@ -43,6 +49,7 @@ from urllib import request as urlrequest
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, Request
+from fastapi.responses import Response
 
 KYIV = ZoneInfo("Europe/Kyiv")
 MODES = ("plan", "rules", "each")
@@ -51,6 +58,7 @@ ID_RE = re.compile(r"^sp_[0-9a-f]{12}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 LOCAL_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$")
 TG_CHANNEL_RE = re.compile(r"^(@[A-Za-z][A-Za-z0-9_]{3,31}|-100\d{5,15})$")
+TG_CAPTION_MAX = 1024                # Telegram photo caption limit (UTF-16 code units)
 MAX_ITEMS = 600
 MAX_LATE_SECONDS = 6 * 3600          # an approved item more than 6 h overdue (e.g. after downtime) is not sent: «missed»
 HARD_DAILY_CAP = 10                  # per platform per Kyiv day, in every mode
@@ -94,8 +102,18 @@ def clean_text(text) -> str:
     return "".join(ch for ch in text if ch in "\n\t" or ord(ch) >= 32)
 
 
-def approval_hash(platform: str, text: str) -> str:
-    return hashlib.sha256((platform + "\n" + text).encode("utf-8")).hexdigest()
+def approval_hash(platform: str, text: str, image_sha: str = "") -> str:
+    """What an approval freezes. Items without an image (stores without images) keep the T-702 hash."""
+    raw = platform + "\n" + text + ("\n" + image_sha if image_sha else "")
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def item_image_sha(item: dict) -> str:
+    return str((item.get("image") or {}).get("sha256") or "")
+
+
+def utf16_len(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
 
 
 def kyiv_day(ts: float) -> str:
@@ -121,25 +139,30 @@ def parse_local(value) -> int:
 class PublishError(RuntimeError):
     """Fixed, secret-free code. ``uncertain`` = the post may exist; never retried automatically."""
 
-    def __init__(self, code: str, uncertain: bool = False):
+    def __init__(self, code: str, uncertain: bool = False, url: str = ""):
         super().__init__(code)
-        self.code, self.uncertain = code, uncertain
+        self.code, self.uncertain, self.url = code, uncertain, url
 
 
 class Adapter:
-    """One publishing platform. ``publish`` returns {"url": str, "external_id": str} or raises PublishError."""
+    """One publishing platform. ``publish`` returns {"url": str, "external_id": str} or raises PublishError.
+    ``image`` is the approved PNG (or None for a store without images); ``alt`` is its short description."""
     name = ""
     max_chars = 4096
 
     def blockers(self) -> list:
         return []
 
-    def publish(self, text: str) -> dict:
+    def publish(self, text: str, image: Optional[bytes] = None, alt: str = "") -> dict:
         raise PublishError("adapter_missing")
 
 
 class TelegramChannelAdapter(Adapter):
-    """Plain-text ``sendMessage`` to a channel the existing FactoryOS bot administers (no parse_mode: text is literal)."""
+    """Posts to a channel the existing FactoryOS bot administers. No parse_mode anywhere: text is literal.
+
+    With an image: ``sendPhoto`` (multipart) with the text as caption. A text longer than a caption (1024) goes out as
+    the photo with the post's headline as caption, then the full text as a reply to it. If the photo went out and the
+    text did not, the outcome is «uncertain» with the photo link: never resent automatically (no double photo)."""
     name, max_chars = "telegram", 4096
 
     def __init__(self, token: Callable[[], str], channel: Callable[[], str], http: Http = urllib_http,
@@ -157,10 +180,25 @@ class TelegramChannelAdapter(Adapter):
             out.append("telegram_channel_invalid")
         return out
 
+    def _url(self, method: str) -> str:
+        return "https://api.telegram.org/bot" + self.token().strip() + "/" + method     # never logged or returned
+
     def _call(self, method: str, payload: dict) -> tuple:
-        url = "https://api.telegram.org/bot" + self.token().strip() + "/" + method    # never logged or returned
-        return self.http("POST", url, {"Content-Type": "application/json"},
+        return self.http("POST", self._url(method), {"Content-Type": "application/json"},
                          json.dumps(payload, ensure_ascii=False).encode("utf-8"), self.timeout)
+
+    def _photo(self, chat_id: str, png: bytes, caption: str) -> tuple:
+        boundary = "factoryos" + secrets.token_hex(12)
+        parts = []
+        for key, value in (("chat_id", chat_id), ("caption", caption)):
+            if value:
+                parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n'.encode()
+                             + value.encode("utf-8") + b"\r\n")
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="photo"; filename="post.png"\r\n'
+                     f"Content-Type: image/png\r\n\r\n".encode() + png + b"\r\n")
+        body = b"".join(parts) + f"--{boundary}--\r\n".encode()
+        return self.http("POST", self._url("sendPhoto"), {"Content-Type": "multipart/form-data; boundary=" + boundary},
+                         body, max(self.timeout, 60.0))
 
     @staticmethod
     def link(chat: dict, channel: str, message_id: int) -> str:
@@ -172,22 +210,15 @@ class TelegramChannelAdapter(Adapter):
             return f"https://t.me/c/{chat_id[4:]}/{message_id}"
         return ""
 
-    def publish(self, text: str) -> dict:
-        if self.blockers():
-            raise PublishError("telegram_not_ready")
-        channel = self.channel().strip()
-        try:
-            status, _, raw = self._call("sendMessage", {"chat_id": channel, "text": text,
-                                                        "disable_notification": False})
-        except (TimeoutError, OSError, urlerror.URLError):
-            raise PublishError("telegram_outcome_uncertain", uncertain=True) from None
+    @staticmethod
+    def _outcome(status: int, raw: bytes) -> dict:
+        """The sent message, or a PublishError with a fixed code (Telegram's body is never kept)."""
         data = _json(raw)
         if status == 200 and data.get("ok"):
             msg = data.get("result") or {}
-            mid = msg.get("message_id")
-            if not isinstance(mid, int):
+            if not isinstance(msg.get("message_id"), int):
                 raise PublishError("telegram_sent_without_id", uncertain=True)
-            return {"url": self.link(msg.get("chat") or {}, channel, mid), "external_id": str(mid)}
+            return msg
         if status == 401:
             raise PublishError("telegram_auth_failed")
         if status == 403:
@@ -197,6 +228,41 @@ class TelegramChannelAdapter(Adapter):
         if status == 429:
             raise PublishError("telegram_rate_limited")      # Telegram refused: nothing was posted
         raise PublishError(f"telegram_rejected_{status}", uncertain=status >= 500 or status == 200)
+
+    def publish(self, text: str, image: Optional[bytes] = None, alt: str = "") -> dict:
+        if self.blockers():
+            raise PublishError("telegram_not_ready")
+        channel = self.channel().strip()
+        long_text = image is not None and utf16_len(text) > TG_CAPTION_MAX
+        try:
+            if image is None:
+                status, _, raw = self._call("sendMessage", {"chat_id": channel, "text": text,
+                                                            "disable_notification": False})
+            else:
+                caption = text
+                if long_text:
+                    caption = clean_text(alt) or text.split("\n", 1)[0]
+                    while utf16_len(caption) > TG_CAPTION_MAX - 1:
+                        caption = caption[:-1]
+                status, _, raw = self._photo(channel, image, caption)
+        except (TimeoutError, OSError, urlerror.URLError):
+            raise PublishError("telegram_outcome_uncertain", uncertain=True) from None
+        msg = self._outcome(status, raw)
+        mid = msg["message_id"]
+        url = self.link(msg.get("chat") or {}, channel, mid)
+        if not long_text:
+            return {"url": url, "external_id": str(mid)}
+        # The photo is out. The full text follows as a reply; any failure now is a half-published post.
+        try:
+            status, _, raw = self._call("sendMessage", {"chat_id": channel, "text": text,
+                                                        "reply_parameters": {"message_id": mid},
+                                                        "disable_notification": True})
+            reply = self._outcome(status, raw)
+        except PublishError:
+            raise PublishError("telegram_text_after_photo_failed", uncertain=True, url=url) from None
+        except (TimeoutError, OSError, urlerror.URLError):
+            raise PublishError("telegram_text_after_photo_failed", uncertain=True, url=url) from None
+        return {"url": url, "external_id": f"{mid},{reply['message_id']}"}
 
     def check(self) -> dict:
         """Owner-triggered preflight (no post): is the bot an admin of the channel that may post?"""
@@ -230,10 +296,11 @@ class LinkedInAdapter(Adapter):
         import linkedin_publisher
         return linkedin_publisher.readiness(self.flow, self.workspace(), self.env)[0]
 
-    def publish(self, text: str) -> dict:
+    def publish(self, text: str, image: Optional[bytes] = None, alt: str = "") -> dict:
         import linkedin_publisher
         try:
-            out = linkedin_publisher.send_text(self.flow, self.workspace(), text, http=self.http, env=self.env)
+            out = linkedin_publisher.send_text(self.flow, self.workspace(), text, http=self.http, env=self.env,
+                                               image=image, alt=alt)
         except linkedin_publisher.LinkedInError as exc:
             raise PublishError(exc.code, uncertain=exc.uncertain) from None
         return {"url": out.get("url", ""), "external_id": out.get("post_urn", "")}
@@ -313,11 +380,12 @@ def normalize_settings(raw: dict, base: dict) -> dict:
 
 
 class Store:
-    """Plan, settings and history in DATA_DIR/social_autopilot.json; one lock, atomic writes."""
+    """Plan, settings and history in DATA_DIR/social_autopilot.json; one lock, atomic writes.
+    ``images`` (``social_images.ImageMaker``) gives every item a teaser image; None = text-only (T-702 behaviour)."""
 
-    def __init__(self, data_dir: Path, clock: Callable[[], float] = time.time):
+    def __init__(self, data_dir: Path, clock: Callable[[], float] = time.time, images=None):
         self.path = Path(data_dir) / "social_autopilot.json"
-        self.clock, self.lock = clock, threading.RLock()
+        self.clock, self.lock, self.images = clock, threading.RLock(), images
 
     def _load(self) -> dict:
         try:
@@ -343,6 +411,9 @@ class Store:
         if len(items) > MAX_ITEMS:          # drop the oldest finished history first, never an open item
             done = [i for i in items if i["status"] in ("published", "failed", "missed")]
             drop = {i["id"] for i in sorted(done, key=lambda i: i["planned_at"])[:len(items) - MAX_ITEMS]}
+            for i in items:
+                if i["id"] in drop and self.images:
+                    self.images.remove(i.get("image"))
             data["items"] = [i for i in items if i["id"] not in drop]
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
@@ -377,6 +448,15 @@ class Store:
             return data["settings"]
 
     # ---- items ----
+    def _render(self, item_id: str, text: str, topic: str) -> Optional[dict]:
+        """Teaser image metadata, or None (no images, or rendering failed: ``ensure_images`` retries later)."""
+        if not self.images:
+            return None
+        try:
+            return self.images.make(item_id, text, topic)
+        except Exception:
+            return None
+
     def _validate(self, platform, text, max_chars) -> str:
         if platform not in PLATFORMS:
             raise HTTPException(400, "platform must be telegram or linkedin")
@@ -393,6 +473,8 @@ class Store:
                 "source": str(source or "")[:120], "created_by": str(created_by or "owner")[:40],
                 "created": int(self.clock()), "status": "draft", "approved_hash": "", "approved_at": 0,
                 "approved_by": "", "result": None, "waiting": []}
+        if self.images:
+            item["image"] = self._render(item["id"], text, item["topic"])
         with self.lock:
             data = self._load()
             if sum(1 for i in data["items"] if i["status"] in ("draft", "approved")) >= MAX_ITEMS // 2:
@@ -409,6 +491,11 @@ class Store:
                 raise HTTPException(409, "a sent item can no longer be edited")
             new_platform = platform or item["platform"]
             new_text = self._validate(new_platform, item["text"] if text is None else text, max_chars)
+            if self.images and (new_text != item["text"] or not item.get("image")):
+                old = item.get("image")
+                item["image"] = self._render(item["id"], new_text, item.get("topic") or "")   # new text → new teaser
+                if old and (item["image"] or {}).get("file") != old.get("file"):
+                    self.images.remove(old)
             item.update(platform=new_platform, text=new_text, status="draft", approved_hash="", approved_at=0,
                         approved_by="", result=None, waiting=[])            # an edit drops approval
             if planned_at is not None:
@@ -422,12 +509,15 @@ class Store:
             item = self._find(data, item_id)
             if item["status"] in SENT_STATES:
                 raise HTTPException(409, "a sent item stays in the history")
+            if self.images:
+                self.images.remove(item.get("image"))
             data["items"] = [i for i in data["items"] if i["id"] != item_id]
             self._save(data)
             return True
 
     def _approve(self, item, by) -> None:
-        item.update(status="approved", approved_hash=approval_hash(item["platform"], item["text"]),
+        item.update(status="approved",
+                    approved_hash=approval_hash(item["platform"], item["text"], item_image_sha(item)),
                     approved_at=int(self.clock()), approved_by=by, waiting=[])
 
     def approve(self, item_id) -> dict:
@@ -436,6 +526,8 @@ class Store:
             item = self._find(data, item_id)
             if item["status"] not in ("draft", "failed"):
                 raise HTTPException(409, "only a draft can be approved")
+            if self.images and not item.get("image"):
+                raise HTTPException(409, "the post image is not ready yet; reload the page")
             self._approve(item, "owner_item")
             self._save(data)
             return item
@@ -448,7 +540,8 @@ class Store:
             now = self.clock()
             done = []
             for item in data["items"]:
-                if item["status"] == "draft" and start <= item["planned_at"] < end and item["planned_at"] > now:
+                if item["status"] == "draft" and start <= item["planned_at"] < end and item["planned_at"] > now \
+                        and not (self.images and not item.get("image")):
                     self._approve(item, "owner_plan")
                     done.append(item["id"])
             self._save(data)
@@ -485,16 +578,20 @@ class Store:
                 self._save(data)
             return n
 
-    def claim(self, item_id, *, rules_ok: bool = False) -> Optional[dict]:
-        """approved (or a rules-passing draft) → publishing, atomically, unless paused. None = do not send."""
+    def claim(self, item_id, *, rules_ok: bool = False, image_sha: Optional[str] = None) -> Optional[dict]:
+        """approved (or a rules-passing draft) → publishing, atomically, unless paused. None = do not send.
+        ``image_sha``: the SHA-256 of the image bytes the caller is about to send; must be the approved one."""
         with self.lock:
             data = self._load()
             if data["settings"]["paused"]:
                 return None
             item = self._find(data, item_id)
+            if image_sha is not None and (not image_sha or image_sha != item_image_sha(item)):
+                return None
             if item["status"] == "draft" and rules_ok:
                 self._approve(item, "rules")
-            if item["status"] != "approved" or item["approved_hash"] != approval_hash(item["platform"], item["text"]):
+            if item["status"] != "approved" or \
+                    item["approved_hash"] != approval_hash(item["platform"], item["text"], item_image_sha(item)):
                 return None
             item["status"] = "publishing"
             item["claimed_at"] = int(self.clock())
@@ -516,6 +613,35 @@ class Store:
             if item["status"] in ("draft", "approved"):
                 item.update(fields)
                 self._save(data)
+
+    def ensure_images(self) -> int:
+        """Give every open item an image (items from before T-713, a failed render, a lost file). An approved item
+        that gets a new image goes back to draft: the owner approves the post together with its image."""
+        if not self.images:
+            return 0
+        with self.lock:
+            data = self._load()
+            n = 0
+            for item in data["items"]:
+                if item["status"] not in ("draft", "approved", "failed", "missed"):
+                    continue
+                meta = item.get("image") or {}
+                if meta and (self.images.dir / str(meta.get("file") or "x")).is_file():
+                    continue
+                fresh = self._render(item["id"], item["text"], item.get("topic") or "")
+                if not fresh:
+                    continue
+                item["image"] = fresh
+                if item["status"] == "approved":
+                    item.update(status="draft", approved_hash="", approved_at=0, approved_by="",
+                                waiting=["image_added_reapprove"])
+                n += 1
+            if n:
+                self._save(data)
+            return n
+
+    def image_bytes(self, item: dict) -> Optional[bytes]:
+        return self.images.read(item.get("image")) if self.images else None
 
     def set_meta(self, **fields) -> None:
         with self.lock:
@@ -616,6 +742,9 @@ class Autopilot:
         if settings["paused"]:
             out["off"] = "paused"
             return out
+        if self.store.images:
+            self.store.ensure_images()
+            snap = self.store.snapshot()
         now = self.clock()
         due = sorted((i for i in snap["items"] if i["status"] in ("draft", "approved") and i["planned_at"] <= now),
                      key=lambda i: i["planned_at"])
@@ -649,17 +778,26 @@ class Autopilot:
                 self.store.mark(item["id"], waiting=blockers[:3])
                 out["waiting"].append(item["id"])
                 continue
-            claimed = self.store.claim(item["id"], rules_ok=rules_ok)
+            png = None
+            if self.store.images:
+                png = self.store.image_bytes(item)          # exactly the approved bytes, or nothing is sent
+                if png is None:
+                    self.store.mark(item["id"], waiting=["image_missing"])
+                    out["waiting"].append(item["id"])
+                    continue
+            claimed = self.store.claim(item["id"], rules_ok=rules_ok,
+                                       image_sha=item_image_sha(item) if self.store.images else None)
             if not claimed:
                 if self.store.snapshot()["settings"]["paused"]:
                     out["off"] = "paused"
                     break
                 continue
             try:
-                result = adapter.publish(claimed["text"])
+                result = adapter.publish(claimed["text"], image=png,
+                                         alt=str((claimed.get("image") or {}).get("headline") or ""))
             except PublishError as exc:
                 state = "uncertain" if exc.uncertain else "failed"
-                self.store.finish(item["id"], state, {"code": exc.code})
+                self.store.finish(item["id"], state, {"code": exc.code, **({"url": exc.url[:300]} if exc.url else {})})
                 out[state].append(item["id"])
                 continue
             except Exception as exc:                        # unknown failure after the request may have left
@@ -717,6 +855,7 @@ class Autopilot:
 
     # ---- views ----
     def state(self) -> dict:
+        self.store.ensure_images()
         snap = self.store.snapshot()
         platforms = {}
         for name in PLATFORMS:
@@ -726,12 +865,16 @@ class Autopilot:
         items = sorted(snap["items"], key=lambda i: i["planned_at"])
         for i in items:
             i["planned_local"] = local_label(i["planned_at"])
+            if (i.get("image") or {}).get("sha256"):
+                i["image_url"] = f"/api/factory/social/items/{i['id']}/image?v={i['image']['sha256'][:12]}"
         blockers = [] if self.enabled() else ["autopilot_disabled"]
         if snap["settings"]["paused"]:
             blockers.append("paused")
         return {"enabled": self.enabled(), "paused": snap["settings"]["paused"], "blockers": blockers,
                 "settings": snap["settings"], "platforms": platforms, "items": items, "timezone": "Europe/Kyiv",
-                "now_local": local_label(self.clock()), "summary_day": snap["meta"].get("summary_day", "")}
+                "now_local": local_label(self.clock()), "summary_day": snap["meta"].get("summary_day", ""),
+                "images": {"enabled": bool(self.store.images),
+                           "generator": getattr(getattr(self.store.images, "generator", None), "name", "")}}
 
     def agent_view(self) -> dict:
         """What an agent may read through MCP: plan text and times, no results, links or settings beyond tone."""
@@ -838,6 +981,17 @@ def install_routes(app, *, pilot: Autopilot, identity: Callable, telegram: Optio
         limit = pilot.max_chars(platform or (current or {}).get("platform") or "telegram")
         return {"item": store.edit(item_id, text=data.get("text"), planned_at=when(data), platform=platform,
                                    max_chars=limit)}
+
+    @app.get("/api/factory/social/items/{item_id}/image")
+    def social_image(item_id: str, request: Request):
+        owner(request)                                   # owner-only, also after publishing (the platform has a copy)
+        item = next((i for i in store.snapshot()["items"] if i["id"] == item_id), None) if ID_RE.fullmatch(item_id) \
+            else None
+        png = store.image_bytes(item) if item else None
+        if png is None:
+            raise HTTPException(404, "no image")
+        return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=86400",
+                                                              "X-Content-Type-Options": "nosniff"})
 
     @app.post("/api/factory/social/items/{item_id}/approve")
     def social_approve(item_id: str, request: Request):

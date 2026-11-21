@@ -60,12 +60,14 @@ class FakeAdapter(sa.Adapter):
         self.name, self.answers, self.sent, self._blockers = name, list(answers), [], list(blockers)
         self.max_chars = 3000 if name == "linkedin" else 4096
         self.on_publish = None
+        self.images = []
 
     def blockers(self):
         return list(self._blockers)
 
-    def publish(self, text):
+    def publish(self, text, image=None, alt=""):
         self.sent.append(text)
+        self.images.append((image, alt))
         if self.on_publish:
             self.on_publish()
         answer = self.answers.pop(0) if self.answers else {"url": f"https://t.me/x/{len(self.sent)}", "external_id": "1"}
