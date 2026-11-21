@@ -981,7 +981,7 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Goal: the Builder consumer validates the T-630 envelope before claiming, the claim/finish/failure of the Relay ticket is mirrored into the proposal history with the same run_id, a stale or failed run shows BLOCKED with its reason; no double claim. Uses only the Relay interfaces T-604 settles on.
   DONE: tests for validate-before-claim, duplicate claim refused, stale → blocked, finish → VERIFIED only with evidence.
 
-- [ ] T-633 Product Evolution S4 — consent-aware in-product usage events and export (M5)
+- [x] T-633 Product Evolution S4 — consent-aware in-product usage events and export (M5)
   Owner: claude (session MVP beta)
   Priority: P2
   Depends: T-630, T-630-H (owner-approved channel and wording)

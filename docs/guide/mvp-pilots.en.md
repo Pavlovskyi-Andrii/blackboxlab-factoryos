@@ -39,7 +39,9 @@ Module `mvp_evolution.py`, page `static/mvp-factory/evolution.html`. It never ch
 
 Built (T-631): versioned contracts for the 13 logical roles in `mvp_contracts.py`. Each role says what it may do, what it needs and hands over, its retries and timeout, and what evidence a finished run must carry. Every role runs on one of the five existing agents. No role may approve, release, publish or spend.
 
-Not built yet: builder-side claiming through Relay events (T-632), in-product usage events (T-633).
+Built (T-633): opt-in usage counting on the pilot pages (MyCast, MyBrief, Decision Memory). The page asks first; after «Allow» it stores three dates per visitor under a random code kept in their browser: first opened, first used, came back on a later day. No name, e-mail, address or page content, and no third-party analytics. The visitor can view and delete the record on the same page. The funnel rows «activated / used / returned» are counted from these records and can no longer be typed by hand. Switch: `FACTORY_USAGE_EVENTS=0` stops new events; viewing and deleting keep working.
+
+Not built yet: builder-side claiming through Relay events (T-632).
 
 ## A/B experiments
 

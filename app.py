@@ -1338,6 +1338,9 @@ install_mvp_quiz_routes(  # T-634 #270: optional MyCast quiz -> analyst -> V2 ta
                      grant_days=MYCAST_LISTENERS.grant_bonus), request_identity,
     listener_fn=lambda request: mycast_unsign(FACTORY_SECRET, request.cookies.get(MYCAST_COOKIE, ""), time.time()) or "",
     client_fn=_mycast_client_id)
+from mvp_usage import UsageService, install_mvp_usage_routes  # noqa: E402
+# T-633 #270: consented, first-party usage events (activated / used / returned) from the pilot pages into the funnel
+install_mvp_usage_routes(app, UsageService(MVP_EVOLUTION), request_identity, client_fn=_mycast_client_id)
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
 async def _ab_content_job(title, brief, job_id):
     """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
@@ -1488,7 +1491,7 @@ async def auth_middleware(request: Request, call_next):
     if mycast_redirect is not None:
         return mycast_redirect
     public_paths = {"/api/mycast/quiz", "/login", "/login/recover", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
-                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
+                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics", "/api/mycast/usage"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)

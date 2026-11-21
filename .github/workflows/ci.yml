@@ -330,6 +330,11 @@ jobs:
           python -m py_compile mvp_quiz.py test_mvp_quiz.py
           python test_mvp_quiz.py
           node --check static/mycast-configurator/improve.js
+      - name: Consent-aware usage events (T-633, #270, offline)
+        run: |
+          python -m py_compile mvp_usage.py test_mvp_usage.py
+          python test_mvp_usage.py
+          node --check static/mycast-configurator/usage.js
       - name: MyBrief pilot (T-615, #188)
         env:
           DATA_DIR: /tmp/factoryos-mybrief-ci

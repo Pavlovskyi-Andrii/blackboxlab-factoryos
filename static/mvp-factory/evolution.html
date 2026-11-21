@@ -98,6 +98,7 @@ const I={
   yes:'да',unk:'неизвестно',footer:'Только владелец/участник. Issue #270 · T-630. Данные: /api/mvp-evolution/<project>.'}
 };
 const FUNNEL=['invited','activated','used','returned','abandoned'];
+const EVENT_STEPS=['activated','used','returned']; // T-633: counted from consented in-product events, not entered by hand
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const gh=u=>/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(pull|commit|issues|actions\/runs)\/\w+$/.test(String(u||''))?String(u):'';
@@ -184,7 +185,7 @@ function renderForms(){
   (shipped.length?'<label>'+esc(x.retest)+'<select name="retest_of"><option value=""></option>'+shipped.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.id+' · '+p.title)+'</option>').join('')+'</select></label><label>'+esc(x.solvedQ)+'<select name="solved">'+opts(['unknown','yes','partly','no'],{unknown:x.unk,yes:x.yes,partly:x.partly,no:x.no})+'</select></label>':'')+
   '<div class="wide"><button class="primary" type="submit">'+esc(x.save)+'</button></div></form></details>'+
   '<details><summary>'+esc(x.addProp)+'</summary><form id="propForm" class="form"><label class="wide">'+esc(x.title)+'<input name="title" required maxlength="140"></label><label>'+esc(x.problem)+'<textarea name="problem" required></textarea></label><label>'+esc(x.changeP)+'<textarea name="change" required></textarea></label><label class="wide">'+esc(x.test)+'<textarea name="acceptance_test" required></textarea></label><label>'+esc(x.theme)+'<input name="theme"></label><label>'+esc(x.fbIds)+'<input name="feedback_ids" required></label><label>'+esc(x.issue)+'<input name="issue" type="number" min="1"></label><div class="wide"><button class="primary" type="submit">'+esc(x.propose)+'</button></div></form></details>'+
-  '<details><summary>'+esc(x.funnelSet)+'</summary><form id="funnelForm" class="form"><label>'+esc(x.step)+'<select name="step">'+opts(FUNNEL,x)+'</select></label><label>'+esc(x.count)+'<input name="count" type="number" min="0"></label><label class="wide">'+esc(x.fsource)+'<input name="source" maxlength="200"></label><div class="wide"><button type="submit">'+esc(x.record)+'</button></div></form></details>'+
+  '<details><summary>'+esc(x.funnelSet)+'</summary><form id="funnelForm" class="form"><label>'+esc(x.step)+'<select name="step">'+opts(FUNNEL.filter(s=>!EVENT_STEPS.includes(s)),x)+'</select></label><label>'+esc(x.count)+'<input name="count" type="number" min="0"></label><label class="wide">'+esc(x.fsource)+'<input name="source" maxlength="200"></label><div class="wide"><button type="submit">'+esc(x.record)+'</button></div></form></details>'+
   '<details><summary>'+esc(x.releaseT)+'</summary><form id="relForm" class="row"><input name="evidence" required placeholder="'+esc(x.evidence)+'" aria-label="'+esc(x.evidence)+'"><button type="submit">'+esc(x.release)+'</button></form></details>'+
   (project==='mybrief-pro'?'<div class="row"><button type="button" id="importMb">'+esc(x.importMb)+'</button></div>':'');
 }

@@ -56,6 +56,7 @@ footer{margin-top:28px;color:var(--muted);font-size:13px}
     <button class="more" id="more" hidden></button>
   </div>
   <section id="improve" aria-labelledby="improveTitle" data-api="/api/decision-memory/quiz" data-product="Decision Memory" data-key="decision-memory" data-plain hidden></section><!-- T-636 #270: optional improve-the-product quiz (shared improve.js) -->
+  <section id="usage" data-api="/api/decision-memory/usage" data-product="Decision Memory" data-key="decision-memory" data-used="form" data-used-on="submit" hidden></section><!-- T-633 #270: opt-in anonymous usage counting (shared usage.js) -->
   <footer id="foot"></footer>
 </div>
 <script>
@@ -160,6 +161,7 @@ document.addEventListener('submit',function(e){var form=e.target;e.preventDefaul
 $('q').addEventListener('input',function(){shown=40;render()});$('filter').addEventListener('change',function(){shown=40;render()});
 chrome();load();
 (function(){var s=document.createElement('script');s.src='/static/mycast-configurator/improve.js';document.body.appendChild(s)})(); // T-636: shared quiz widget
+(function(){var s=document.createElement('script');s.src='/static/mycast-configurator/usage.js';document.body.appendChild(s)})(); // T-633: shared opt-in usage counting
 </script>
 </body>
 </html>

@@ -20,6 +20,9 @@ Rules
   otherwise it shows the ticket's real state (queued / claimed / running / needs_owner / blocked / unknown).
 - "Shipped" needs a merged-PR / commit link; releasing V2 is owner-only and needs a shipped proposal.
 - Every write is idempotent by `idempotency_key` (same operation → same result; key reused for another operation → 409).
+- T-633: the funnel steps activated / used / returned are counted from consented in-product usage events only (one
+  record of three dates per participant and version, keyed by a hash of a random code the participant's browser holds);
+  they cannot be typed in by hand. The participant can export or delete the record with that code.
 - No provider call, no outreach, no publishing, no spending.
 """
 from __future__ import annotations
@@ -43,6 +46,10 @@ from mvp_factory import EVIDENCE_RE, ID_RE, REPO
 SCHEMA = "mvp-evolution/1"
 COHORT_TARGETS = (10, 100)  # first cohort: 10 unique substantive feedback records; next: 100 invited/opted-in users
 FUNNEL = ("invited", "activated", "used", "returned", "abandoned")
+USAGE_STEPS = ("activated", "used", "returned")  # T-633: counted from consented events, never entered by hand
+USAGE_SOURCE = "consented in-product events"
+USAGE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
+MAX_USAGE = 5000  # participants per version
 SOURCES = ("interview", "survey", "in_product", "mybrief_import", "synthetic")
 TRI = ("yes", "no", "unknown")
 SOLVED = ("yes", "partly", "no", "unknown")
@@ -384,6 +391,8 @@ class EvolutionStore:
         source = clean_text(body.get("source"), 200)
         if step not in FUNNEL:
             raise EvolutionError("bad_step")
+        if step in USAGE_STEPS:
+            raise EvolutionError("step_from_events", 409)  # T-633: these counts come from consented events only
         if count is not None and (not isinstance(count, int) or isinstance(count, bool) or count < 0):
             raise EvolutionError("bad_count")
         if count is not None and not source:
@@ -396,6 +405,71 @@ class EvolutionStore:
             self._log(proj, actor or actor_role, "funnel", step, str(count))
             self._save(data)
             return {"funnel": fn}
+
+    # --- usage events (T-633) -----------------------------------------------------------------------------------
+    def _usage_key(self, data: dict, pid: str, token: Any) -> str:
+        token = str(token or "")
+        if not USAGE_TOKEN_RE.match(token):
+            raise EvolutionError("bad_participant")
+        return self._participant(data, pid, "usage:" + token)
+
+    def record_usage(self, pid: str, body: dict[str, Any], *, allow_new: bool = True) -> dict[str, Any]:
+        """One consented in-product event for the current version. Stored per participant: the consent reference and
+        three dates (first open, first use, first return on a later day) - no timestamps, addresses or content.
+        `returned` is derived here from the dates, so a page cannot claim a return on the day of the first visit."""
+        if body.get("consent") is not True:
+            raise EvolutionError("consent_required")
+        consent_ref = clean_text(body.get("consent_ref"), 160)
+        if not consent_ref:
+            raise EvolutionError("consent_ref_required")
+        kind = str(body.get("event") or "")
+        if kind not in USAGE_STEPS:
+            raise EvolutionError("bad_event")
+        with self._lock:
+            data = self._load()
+            proj = self._project(data, pid)
+            who = self._usage_key(data, pid, body.get("participant"))
+            version, day = proj["current_version"], self._now()[:10]
+            bucket = proj.setdefault("usage", {}).setdefault(version, {})
+            rec, new = bucket.get(who), []
+            if rec is None:
+                if not allow_new:
+                    raise EvolutionError("daily_limit", 429)
+                if len(bucket) >= MAX_USAGE:
+                    raise EvolutionError("usage_full", 409)
+                rec = bucket[who] = {"consent_ref": consent_ref, "activated": day, "used": None, "returned": None}
+                new.append("activated")
+            if kind == "used" and not rec["used"]:
+                rec["used"] = day
+                new.append("used")
+            if not rec["returned"] and day > rec["activated"]:
+                rec["returned"] = day
+                new.append("returned")
+            if new:
+                self._save(data)
+            return {"project": pid, "version": version, "recorded": new, "events": {s: rec[s] for s in USAGE_STEPS}}
+
+    def export_usage(self, pid: str, token: Any) -> dict[str, Any]:
+        """Everything stored about one participant's usage, for the holder of the code."""
+        with self._lock:
+            data = self._load()
+            proj = self._project(data, pid)
+            who = self._usage_key(data, pid, token)
+            records = [dict(bucket[who], version=v) for v, bucket in (proj.get("usage") or {}).items() if who in bucket]
+        return {"project": pid, "records": records, "fields": ["version", "consent_ref", *USAGE_STEPS],
+                "note": "Dates only (UTC days). No name, e-mail, address or page content is stored with usage events."}
+
+    def delete_usage(self, pid: str, token: Any) -> dict[str, Any]:
+        """Privacy delete by the holder of the code: the records leave every version and the funnel counts drop."""
+        with self._lock:
+            data = self._load()
+            proj = self._project(data, pid)
+            who = self._usage_key(data, pid, token)
+            removed = sum(1 for bucket in (proj.get("usage") or {}).values() if bucket.pop(who, None) is not None)
+            if removed:
+                self._log(proj, "participant", "usage_deleted", str(removed))
+                self._save(data)
+            return {"deleted": removed}
 
     # --- proposals ----------------------------------------------------------------------------------------------
     def propose(self, pid: str, body: dict[str, Any], *, actor_role: str, actor: str = "") -> dict[str, Any]:
@@ -569,6 +643,17 @@ def ticket_body(prop: dict[str, Any]) -> str:
     ])
 
 
+def usage_funnel(proj: dict[str, Any], version: str) -> dict[str, Any]:
+    """T-633: activated / used / returned for one version, counted from its usage records. Unknown (null) until the
+    version has at least one consented participant; a manual number is never used for these steps."""
+    bucket = (proj.get("usage") or {}).get(version) or {}
+    out: dict[str, Any] = {}
+    for step in USAGE_STEPS:
+        days = [r[step] for r in bucket.values() if r.get(step)]
+        out[step] = {"count": len(days), "source": USAGE_SOURCE, "at": max(days) if days else None, "by": "events"} if bucket else None
+    return out
+
+
 def build_view(pid: str, proj: dict[str, Any], ticket_lookup: Callable, ticket_verified: Callable) -> dict[str, Any]:
     feedback = proj["feedback"]
     real = [r for r in feedback if not r["synthetic"]]
@@ -593,7 +678,7 @@ def build_view(pid: str, proj: dict[str, Any], ticket_lookup: Callable, ticket_v
         "cohort": {"targets": list(COHORT_TARGETS), "unique_substantive_real": unique_sub,
                    "first_target_met": unique_sub >= COHORT_TARGETS[0],
                    "feedback_real": len(real), "feedback_synthetic": len(feedback) - len(real)},
-        "funnel": {v: {s: (proj["funnel"].get(v) or {}).get(s) for s in FUNNEL} | {
+        "funnel": {v: {s: (proj["funnel"].get(v) or {}).get(s) for s in FUNNEL} | usage_funnel(proj, v) | {
             "feedback_received": sum(1 for r in real if r["version"] == v)} for v in versions},
         "themes": {v: synthesize(real, v) for v in versions},
         "synthetic_themes": {v: synthesize([r for r in feedback if r["synthetic"]], v) for v in versions} if synthetic_any else {},
