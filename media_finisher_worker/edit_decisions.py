@@ -162,6 +162,39 @@ def _duplicate_decisions(words: list, cleanup: dict) -> list:
     return out
 
 
+LONG_PAUSE_SEC = 1.0    # a pause this long that stays in the video is shown to the reviewer
+SNAP_MAX_SEC = 0.6      # how far a word-timed cut edge may move to reach the real edge of the sound
+SNAP_INTO_SILENCE_SEC = 0.03
+SLIVER_MAX_SEC = 0.6    # a kept piece shorter than this between two cuts, with no word in it, is suspicious
+
+
+def _snap_to_acoustic_edges(decision: dict, silences: list, words: list) -> None:
+    """ASR word times are estimates: speech often runs past a word's reported end (or starts before its start).
+    A filler or repeat cut that trusts them leaves a fragment of the removed word in the video. Where a detected
+    silence begins shortly after the cut (or ends shortly before it), the cut edge moves to that acoustic edge,
+    never across a neighbouring kept word."""
+    idx = [w["index"] for w in decision["removed_words"]]
+    if not idx:
+        return
+    first, last = min(idx), max(idx)
+    prev_end = _num(words[first - 1].get("end")) if first > 0 else 0.0
+    next_start = _num(words[last + 1].get("start")) if last + 1 < len(words) else float("inf")
+    a, b = decision["source_start"], decision["source_end"]
+    edges = sorted((_num(s.get("start")), _num(s.get("end"))) for s in silences if _num(s.get("end")) > _num(s.get("start")))
+    after = next((s0 for s0, s1 in edges if s0 >= b - 0.05 and s0 - b <= SNAP_MAX_SEC), None)
+    if after is not None:
+        new_b = min(after + SNAP_INTO_SILENCE_SEC, next_start - WORD_GUARD_SEC)
+        if new_b > b + 0.01:
+            decision["source_end"] = round(new_b, 3)
+            decision["notes"].append(f"end_moved_to_silence_edge: +{new_b - b:.2f}s")
+    before = next((s1 for s0, s1 in reversed(edges) if s1 <= a + 0.05 and a - s1 <= SNAP_MAX_SEC), None)
+    if before is not None:
+        new_a = max(before - SNAP_INTO_SILENCE_SEC, prev_end + WORD_GUARD_SEC, 0.0)
+        if new_a < a - 0.01:
+            decision["source_start"] = round(new_a, 3)
+            decision["notes"].append(f"start_moved_to_silence_edge: -{a - new_a:.2f}s")
+
+
 def _apply_overrides(decisions: list, overrides) -> None:
     """Reviewer undo: `restore_ids` or `restore_ranges` (source seconds) turn applied cuts back into kept footage."""
     if not isinstance(overrides, dict):
@@ -210,6 +243,9 @@ def plan_edits(silences: list, words: list, duration: float, profile: dict, over
         decisions.extend(_filler_decisions(words, cleanup))
     if cleanup.get("semantic_duplicate_planner", True):
         decisions.extend(_duplicate_decisions(words, cleanup))
+    for d in decisions:
+        if d["kind"] in ("filler", "duplicate"):
+            _snap_to_acoustic_edges(d, silences, words)
     decisions.sort(key=lambda d: (d["source_start"], d["source_end"], d["kind"]))
     for n, d in enumerate(decisions, 1):
         d["id"] = f"d{n:03d}"
@@ -250,5 +286,19 @@ def audit_cuts(words: list, cuts: list, decisions: list, tolerance: float = 0.02
             lost.append(_word_ref(i, w))
         elif overlap > tolerance:
             clipped.append({**_word_ref(i, w), "overlap_sec": round(overlap, 3)})
+    # A short kept piece between two cuts that holds no kept word: usually the tail of a removed word that the
+    # ASR timing missed. The transcript cannot prove it silent, so it is reported for the reviewer.
+    kept = [(_num(w.get("start")), _num(w.get("end"))) for i, w in enumerate(words) if i not in intended]
+    ordered = sorted(cuts, key=lambda c: _num(c["start"]))
+    slivers = []
+    for left, right in zip(ordered, ordered[1:]):
+        a, b = _num(left["end"]), _num(right["start"])
+        if 0.02 < b - a < SLIVER_MAX_SEC and not any(a <= (s + e) / 2 <= b for s, e in kept):
+            slivers.append({"source_start": round(a, 3), "source_end": round(b, 3), "seconds": round(b - a, 3)})
+    long_pauses = [{"id": d.get("id"), "source_start": d["source_start"], "source_end": d["source_end"],
+                    "pause_sec": d.get("pause_sec"), "kept_reason": d.get("kept_reason")}
+                   for d in decisions if d.get("kind") == "silence" and not d.get("applied")
+                   and _num(d.get("pause_sec")) >= LONG_PAUSE_SEC]
     return {"ok": not lost and not clipped, "lost_words": lost, "clipped_words": clipped, "removed_words": removed,
-            "kept_words": len(words) - len(removed) - len(lost), "tolerance_sec": tolerance}
+            "kept_words": len(words) - len(removed) - len(lost), "tolerance_sec": tolerance,
+            "wordless_slivers": slivers, "long_pauses_kept": long_pauses}

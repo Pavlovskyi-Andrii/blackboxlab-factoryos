@@ -128,7 +128,8 @@ assert audit["ok"] and [x["word"] for x in audit["removed_words"]] == ["um"] and
 assert report["edit_decisions"]["summary"]["applied_by_kind"] == {"silence": 1, "filler": 1, "duplicate": 0}
 assert report["qa_report"]["overall"] == "pass" and report["qa_report"]["human_review_required"] is True
 assert {c["id"] for c in report["qa_report"]["checks"]} == {"source_valid", "final_decodes", "words_at_cuts", "captions_timeline", "length_matches_cut_list",
-                                                           "audio_video_streams", "black_frames", "silent_stretches", "voice_loudness", "caption_safe_zones"}
+                                                           "audio_video_streams", "black_frames", "silent_stretches", "voice_loudness", "caption_safe_zones",
+                                                           "wordless_slivers", "long_pauses_kept"}
 assert report["safe_zone_report"]["method"] == "estimated_caption_bbox_v1" and report["safe_zone_report"]["violations"] == []
 
 # 3. Captions never cross the cut and never overlap; the timeline maps output time back to source time.
@@ -175,6 +176,56 @@ assert run("job-unreadable")["error"] == "Unsupported source: FFprobe could not 
 worker._probe = fake_probe
 retried = run("job-bad-source")
 assert retried["status"] == "ready" and retried["failed_stage"] == "" and retried["error"] == ""
+
+# 8. A user's video is private (#427 follow-up): job files open only with the API token or a signed link for exactly
+#    that file that has not expired; job ids are never paths.
+class Req:
+    def __init__(self, bearer=""):
+        self.headers = {"authorization": "Bearer " + bearer} if bearer else {}
+
+
+def status_of(fn, *a, **k):
+    try:
+        fn(*a, **k)
+    except worker.HTTPException as exc:
+        return exc.status_code
+    return 200
+
+
+served = []
+worker.FileResponse = lambda path, **kw: served.append(Path(path).name) or "file"
+JOB = "job-bad-source"                                   # finished in step 7, final.mp4 exists
+assert (DATA / JOB / "final.mp4").exists()
+worker.API_TOKEN, worker.ALLOW_PUBLIC_FILES = "", False
+assert status_of(worker.file, JOB, "final.mp4", Req()) == 403            # no token configured: closed, not open
+worker.ALLOW_PUBLIC_FILES = True
+assert status_of(worker.file, JOB, "final.mp4", Req()) == 200            # explicit local-development switch only
+worker.ALLOW_PUBLIC_FILES = False
+worker.API_TOKEN = "t0ken-for-the-test"
+assert status_of(worker.file, JOB, "final.mp4", Req()) == 403            # a known job id is not enough
+assert status_of(worker.file, JOB, "final.mp4", Req("wrong")) == 403
+assert status_of(worker.file, JOB, "final.mp4", Req("t0ken-for-the-test")) == 200
+link = worker._public_file(JOB, "final.mp4")
+exp = int(link.split("exp=")[1].split("&")[0]); sig = link.split("sig=")[1]
+assert link.startswith(worker.PUBLIC_BASE_URL + f"/files/{JOB}/final.mp4?exp=") and "t0ken" not in link
+assert 0 < exp - worker.time.time() <= worker.FILE_URL_TTL_SEC
+assert status_of(worker.file, JOB, "final.mp4", Req(), exp=exp, sig=sig) == 200          # the signed link plays
+assert status_of(worker.file, JOB, "captions.srt", Req(), exp=exp, sig=sig) == 403       # ...for that file only
+assert status_of(worker.file, "job-ok", "final.mp4", Req(), exp=exp, sig=sig) == 403     # ...of that job only
+assert status_of(worker.file, JOB, "final.mp4", Req(), exp=exp + 60, sig=sig) == 403     # the expiry is signed too
+assert status_of(worker.file, JOB, "final.mp4", Req(), exp=exp, sig=sig[:-1] + ("0" if sig[-1] != "0" else "1")) == 403
+old_sig = worker._file_signature(JOB, "final.mp4", 1_000)
+assert status_of(worker.file, JOB, "final.mp4", Req(), exp=1_000, sig=old_sig) == 403    # expired
+assert status_of(worker.file, JOB, "state.json", Req("t0ken-for-the-test")) == 404       # still only the listed files
+assert status_of(worker.file, JOB, "source.bin", Req("t0ken-for-the-test")) == 404
+for bad in ("..", ".", "a/b", "../etc", "job id", "", "x" * 81, "-lead"):
+    assert status_of(worker._job_dir, bad) == 400, bad
+    assert status_of(worker.file, bad, "final.mp4", Req("t0ken-for-the-test")) == 400, bad
+assert status_of(worker._job_dir, "3f2c9a1e-7b1d-4c55-9a51-0a1b2c3d4e5f") == 200          # the ids FactoryOS sends
+assert served.count("final.mp4") == 3
+state_again = worker.job_status(JOB, Req("t0ken-for-the-test"))
+assert "sig=" in state_again["final_url"] and status_of(worker.job_status, JOB, Req()) == 401   # a fresh signed link per read
+worker.API_TOKEN = ""
 
 if STUBBED:
     import media_finisher_worker.test_planner  # noqa: F401  the planner tests need the same stand-in on a bare host
