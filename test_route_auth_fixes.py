@@ -107,11 +107,18 @@ class RouteAuthFixes(unittest.TestCase):
             self.assertNotIn(b"checks", body)
         status, body = call("GET", base, cookie=self.viewer)
         self.assertEqual(status, 200)                                          # a signed-in viewer may read
-        self.assertEqual(json.loads(body)["checks"][0]["actual"], "unknown")   # MyCast starts empty, nothing invented
+        # T-705: MyCast starts with the manual D1–D3 benchmark run (seed_benchmark at startup). Every count comes from
+        # the stored records, and the checks after D1–D3 are still unknown: nothing is invented.
+        board = json.loads(body)
+        first = board["checks"][0]
+        self.assertEqual(first["actual"], sum(1 for a in board["artifacts"]
+                                              if a["check"] == first["id"] and not a["test"] and not a["synthetic"]))
+        self.assertGreater(first["actual"], 0)
+        self.assertEqual({c["actual"] for c in board["checks"][3:]}, {"unknown"})
         self.assertEqual(call("POST", base + "/artifacts", cookie=self.viewer, body=idea)[0], 403)   # and never write
         self.assertEqual(call("POST", base + "/approvals", cookie=self.viewer, body=b'{"artifact":"a-1","kind":"outreach"}')[0], 403)
         status, body = call("POST", base + "/artifacts", cookie=self.owner, body=idea)
-        self.assertEqual((status, json.loads(body)["artifact"]["id"]), (200, "a-1"))
+        self.assertEqual((status, json.loads(body)["artifact"]["id"]), (200, f"a-{board['artifact_count'] + 1}"))   # the next id after the seeded records
         self.assertEqual(call("GET", "/api/mvp-factory/no-such-project/launchpad", cookie=self.owner)[0], 404)
         # The page itself is a public static file with no data in it; it opens the project named in the link.
         status, page = call("GET", "/static/mvp-factory/launchpad.html")
