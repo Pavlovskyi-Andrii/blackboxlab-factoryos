@@ -960,7 +960,7 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Goal: a sender for the held outbox (Resend HTTP API, idempotent per message id, bounded retries, unsubscribe link) and a «V2 shipped» message to participants of a shipped proposal with a link to a one-question retest; only with contact consent; `FACTORY_QUIZ_MAIL=1` switches it on.
   DONE: tests for no-consent → no mail, idempotent send, retry cap, unsubscribe, retest link records `retest_of`.
 
-- [ ] T-636 The same quiz on the other MVPs (MyBrief, Decision Memory) with product-specific questions
+- [x] T-636 The same quiz on the other MVPs (MyBrief, Decision Memory) with product-specific questions
   Owner: claude (session MVP beta)
   Priority: P3
   Depends: T-634

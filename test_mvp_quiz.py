@@ -47,7 +47,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         d = Path(self.tmp.name)
         self.t = [1_800_000_000.0]
-        self.evo = EvolutionStore(d / "evo.json", clock=lambda: self.t[0], project_exists=lambda pid: pid == "mycast")
+        self.evo = EvolutionStore(d / "evo.json", clock=lambda: self.t[0], project_exists=lambda pid: pid in mq.QUIZZES)
         self.relay = Relay()
         self.grants = []
         self.svc = mq.QuizService(d / "quiz.json", self.evo, clock=lambda: self.t[0], create_ticket=self.relay.create,
@@ -320,7 +320,10 @@ class PageAndWiringTest(unittest.TestCase):
         keys = {lang: set(re.findall(r"(\w+): '", re.search(lang + r": \{(.*?)\}", js, re.S).group(1))) for lang in ("uk", "ru", "en")}
         self.assertEqual(keys["uk"], keys["ru"])
         self.assertEqual(keys["uk"], keys["en"])
-        self.assertEqual(set(re.findall(r"fetch\('([^']+)'", js)), {"/api/mycast/quiz"})
+        # T-636: the widget is shared, so the address comes from data-api; without it, it is still the MyCast quiz
+        self.assertIn("var API = root.getAttribute('data-api') || '/api/mycast/quiz';", js)
+        self.assertEqual(set(re.findall(r"fetch\(([^,)]+)", js)), {"API"})
+        self.assertNotIn("data-api", html)
         self.assertIn("quiz.rewards_enabled", js)  # the gift line is shown only when the server says it is on
         self.assertIn("prefers-reduced-motion", js)
 
@@ -333,6 +336,245 @@ class PageAndWiringTest(unittest.TestCase):
         self.assertIn('public_paths = {"/api/mycast/quiz", ', app)
         self.assertIn("grant_days=MYCAST_LISTENERS.grant_bonus", app)
         self.assertIn("create_ticket=_mvp_evolution_ticket", app)
+
+
+# --- T-636: the same quiz on the other MVPs -------------------------------------------------------------------------
+OTHERS = {  # product -> (answers that ask for one theme, that theme, a second product-specific theme option)
+    "mybrief-pro": ({"q_use": "several", "q_length": "same", "q_add": ["why"], "q_fix": "none", "q_channel": "web"}, "job-relevance-note"),
+    "decision-memory": ({"q_use": "weekly", "q_capture": "manual", "q_add": ["ask"], "q_fix": "none", "q_channel": "page"}, "ask-the-memory"),
+}
+
+
+class OtherProductsTest(Base):
+    def send(self, pid, i, **kw):
+        b = {"version": mq.QUIZZES[pid]["version"], "consent": True, "answers": dict(OTHERS[pid][0])}
+        b.update(kw)
+        return self.svc.submit(pid, b, client=f"10.1.0.{i}", listener=kw.pop("listener", f"ws-{i:016d}"))
+
+    def test_every_quiz_definition_is_complete_and_product_specific(self):
+        self.assertEqual(set(mq.QUIZZES), {"mycast", "mybrief-pro", "decision-memory"})
+        seen_themes, seen_versions, seen_apis = {}, set(), set()
+        for pid, quiz in mq.QUIZZES.items():
+            self.assertNotIn(quiz["version"], seen_versions)
+            self.assertNotIn(quiz["api"], seen_apis)
+            seen_versions.add(quiz["version"])
+            seen_apis.add(quiz["api"])
+            self.assertIn(quiz["access"], ("public", "owner"))
+            self.assertIn(quiz["identity"], ("listener", "workspace"))
+            for field in ("title", "free_text", "peers"):
+                self.assertEqual(set(quiz[field]), {"uk", "ru", "en"}, (pid, field))
+            ids = [q["id"] for q in quiz["questions"]]
+            self.assertEqual(len(ids), len(set(ids)))
+            self.assertGreaterEqual(len(ids), mq.MIN_ANSWERS + 1)
+            use = next(q for q in quiz["questions"] if q["id"] == "q_use")
+            self.assertIn("not_yet", [o["id"] for o in use["options"]])
+            refs = [q for _, q in quiz["summary"]["job"] + quiz["summary"]["helped"]] + [quiz["summary"]["failed"]]
+            self.assertTrue(set(refs) <= set(ids), pid)
+            for q in quiz["questions"]:
+                self.assertEqual(set(q["text"]), {"uk", "ru", "en"})
+                self.assertEqual(len({o["id"] for o in q["options"]}), len(q["options"]))
+                for o in q["options"]:
+                    self.assertEqual(set(o["text"]), {"uk", "ru", "en"})
+                    self.assertTrue(all(o["text"].values()))
+            themes = mq.quiz_themes(pid)
+            self.assertGreaterEqual(len(themes), 8, pid)
+            for th in themes:
+                self.assertIn(th, mq.THEMES)
+                self.assertRegex(th, r"^[a-z0-9][a-z0-9-]{1,30}$")
+                self.assertNotIn(th, seen_themes, f"{th} is shared by {pid} and {seen_themes.get(th)}")
+                seen_themes[th] = pid
+                self.assertEqual(set(mq.THEMES[th]["title"]), {"uk", "ru", "en"})
+                self.assertTrue(mq.THEMES[th]["change"] and mq.THEMES[th]["test"])
+            out = self.svc.quiz(pid)
+            self.assertEqual((out["project"], out["version"], out["name"]), (pid, quiz["version"], quiz["name"]))
+        self.assertEqual(set(seen_themes), set(mq.THEMES))  # no orphan theme
+        # gifts only where the product has accounts
+        self.assertEqual({pid for pid, q in mq.QUIZZES.items() if q["rewards"]}, {"mycast"})
+        self.assertEqual({pid for pid, q in mq.QUIZZES.items() if q["identity"] == "listener"}, {"mycast"})
+
+    def test_answer_goes_to_the_products_own_ledger(self):
+        for pid, (answers, theme) in OTHERS.items():
+            out = self.send(pid, 1, free_text="mail me at someone@example.com")
+            self.assertTrue(out["counted"], pid)
+            view = self.evo.view(pid)
+            self.assertEqual(len(view["feedback"]), 1)
+            rec = view["feedback"][0]
+            self.assertEqual(rec["source"], "in_product")
+            self.assertTrue(rec["consent"]["ref"].startswith(f"{pid}-quiz:{mq.QUIZZES[pid]['version']}:qz-"))
+            self.assertEqual(rec["themes"], [theme])
+            self.assertTrue(set(rec["contra"]) <= mq.quiz_themes(pid))
+            self.assertTrue(rec["contra"])
+            self.assertTrue(rec["substantive"])
+            self.assertTrue(rec["answers"]["job"].startswith(f"{mq.QUIZZES[pid]['name']} quiz {mq.QUIZZES[pid]['version']}: "))
+            self.assertNotIn("?", rec["answers"]["job"])
+            self.assertNotIn("someone@example.com", json.dumps(rec))
+        self.assertEqual(self.evo.view("mycast")["feedback"], [])
+        self.assertEqual(self.svc.stats("mybrief-pro")["submissions"], 1)
+        self.assertEqual(self.svc.stats("decision-memory")["version"], "decision-memory-q1")
+        self.assertEqual(self.svc.stats("mycast")["submissions"], 0)
+
+    def test_the_same_person_answers_each_product_once(self):
+        for pid in OTHERS:
+            self.send(pid, 1)
+            self.assertEqual(self.code(lambda: self.send(pid, 1)), "already_answered")
+        self.answer(1)  # and the MyCast quiz is still open to them
+
+    def test_validation_uses_the_products_own_questions(self):
+        for pid in OTHERS:
+            self.assertEqual(self.code(lambda: self.send(pid, 1, version=V)), "quiz_changed")
+            self.assertEqual(self.code(lambda: self.send(pid, 1, answers=body()["answers"])), "bad_answer")
+            self.assertEqual(self.code(lambda: self.send(pid, 1, consent=False)), "consent_required")
+            self.assertEqual(self.code(lambda: self.send(pid, 1, answers={"q_use": "not_yet"})), "too_few_answers")
+        self.assertEqual(self.code(lambda: self.answer(1, answers=OTHERS["mybrief-pro"][0])), "bad_answer")
+
+    def test_threshold_makes_one_ticket_per_product_with_its_own_acceptance_test(self):
+        for n, (pid, (answers, theme)) in enumerate(OTHERS.items(), 1):
+            for i in range(9):
+                self.assertEqual(self.send(pid, i)["analyst"], [])
+            act = self.send(pid, 9)["analyst"]
+            self.assertEqual([(a["theme"], a["handoff"], a["people"]) for a in act], [(theme, "handed_off", 10)])
+            self.assertEqual(len(self.relay.tickets), n)
+            ticket = self.relay.tickets[act[0]["ticket"]]
+            self.assertIn("Acceptance test: " + mq.THEMES[theme]["test"], ticket["body"])
+            prop = self.evo.view(pid)["proposals"]
+            self.assertEqual([(p["theme"], p["state"], p["decided_by"]) for p in prop], [(theme, "handed_off", "policy:quiz-threshold")])
+            self.assertEqual(self.send(pid, 10)["analyst"], [])
+        self.assertEqual(self.evo.view("mycast")["proposals"], [])
+
+    def test_anonymous_and_never_used_answers_do_not_count(self):
+        for pid, (answers, theme) in OTHERS.items():
+            for day in range(12):  # one anonymous visitor on 12 days is not 12 supporters
+                out = self.send(pid, 1, listener="")
+                self.assertEqual((out["counted"], out["reason"]), (False, "anonymous_not_counted"))
+                self.t[0] += 86400
+            out = self.send(pid, 2, answers=dict(answers, q_use="not_yet"))
+            self.assertEqual((out["counted"], out["reason"]), (False, "not_used_yet"))
+            view = self.evo.view(pid)
+            self.assertEqual((len(view["feedback"]), view["themes"]["v1"], view["proposals"]), (13, [], []))
+        self.assertEqual(self.relay.tickets, {})
+
+    def test_another_products_theme_never_becomes_a_proposal(self):
+        # a foreign tag in the ledger (hand-recorded feedback, or a validate answer naming a MyCast theme) is not the quiz's
+        for i in range(12):
+            self.evo.add_feedback("mybrief-pro", {"consent": True, "consent_ref": f"manual-{i}", "participant": f"p{i}", "source": "interview",
+                                                  "tried": "yes", "job": "reads the briefing every week at work", "helped": "sources",
+                                                  "failed": "wants audio", "themes": ["text-transcript"]}, actor_role="owner")
+        self.assertEqual(self.svc.analyze("mybrief-pro"), [])
+        self.assertIsNone(self.svc.quiz("mybrief-pro")["validate"])
+        self.send("mybrief-pro", 1, validate={"theme": "offline-download", "answer": "yes"})
+        self.assertNotIn("offline-download", self.evo.view("mybrief-pro")["feedback"][-1]["themes"])
+        self.assertEqual((self.relay.tickets, self.evo.view("mybrief-pro")["proposals"]), ({}, []))
+
+    def test_adaptive_question_speaks_about_the_product(self):
+        for pid, (answers, theme) in OTHERS.items():
+            for i in range(3):
+                self.send(pid, i)
+            v = self.svc.quiz(pid)["validate"]
+            self.assertEqual(v["theme"], theme)
+            for lang in ("uk", "ru", "en"):
+                self.assertTrue(v["text"][lang].startswith(mq.QUIZZES[pid]["peers"][lang]))
+                self.assertIn(mq.THEMES[theme]["title"][lang], v["text"][lang])
+            self.send(pid, 3, validate={"theme": theme, "answer": "no"}, answers=dict(answers, q_add=["nothing"]))
+            th = {t["theme"]: t for t in self.evo.view(pid)["themes"]["v1"]}[theme]
+            self.assertEqual((th["unique_support"], th["unique_contra"]), (3, 1))
+
+    def test_no_gift_where_the_product_has_no_accounts(self):
+        os.environ["FACTORY_QUIZ_REWARDS"] = "1"
+        for pid in OTHERS:
+            q = self.svc.quiz(pid)
+            self.assertEqual((q["rewards_enabled"], q["reward_days"]), (False, 0))
+            self.assertEqual(self.send(pid, 1)["reward"], {"status": "none", "reason": "no_accounts"})
+            self.assertEqual(self.svc.stats(pid)["rewards"], {"held_flag_off": 0, "granted": 0, "not_granted": 0})
+        self.assertEqual(self.grants, [])
+        self.assertNotIn("reward:", (Path(self.tmp.name) / "quiz.json").read_text())
+        self.assertEqual(self.svc.quiz("mycast")["reward_days"], 7)  # MyCast has accounts: unchanged
+        self.assertEqual(self.answer(5)["reward"], {"status": "granted", "days": 7})
+
+    def test_email_is_held_and_privacy_delete_works(self):
+        for pid in OTHERS:
+            out = self.send(pid, 1, email="a@b.co", contact_consent=True)
+            self.assertEqual(self.svc.stats(pid)["outbox"]["held_flag_off"], 1)
+            self.assertEqual(self.code(lambda: self.svc.delete("mycast", out["id"])), "not_found")
+            self.svc.delete(pid, out["id"])
+            self.assertEqual(self.evo.view(pid)["feedback"], [])
+        self.assertNotIn("a@b.co", (Path(self.tmp.name) / "quiz.json").read_text())
+
+    def test_workspace_person(self):
+        a, b = mq.workspace_person({"role": "member", "email": "Ann@Example.com "}), mq.workspace_person({"role": "viewer", "email": "ann@example.com"})
+        self.assertEqual(a, b)
+        self.assertRegex(a, r"^ws-[0-9a-f]{16}$")
+        self.assertNotIn("ann", a)
+        self.assertNotEqual(a, mq.workspace_person({"role": "member", "email": "bob@example.com"}))
+        self.assertEqual(mq.workspace_person({"role": "owner", "email": ""}), "ws-owner")
+        for nobody in ({}, None, {"role": "viewer"}, {"role": "guest", "email": ""}):
+            self.assertEqual(mq.workspace_person(nobody), "")
+
+
+class OtherProductsRouteTest(RouteTest):
+    def post(self, pid, **kw):
+        b = {"version": mq.QUIZZES[pid]["version"], "consent": True, "answers": dict(OTHERS[pid][0])}
+        b.update(kw)
+        return self.call("POST", mq.QUIZZES[pid]["api"], body=b)
+
+    def test_routes_exist_once_per_product(self):
+        self.assertEqual({p for m, p in self.routes if m == "GET" and p.endswith("/quiz")},
+                         {"/api/mycast/quiz", "/api/mybrief/public/quiz", "/api/decision-memory/quiz"})
+        self.assertEqual(len(self.routes), 3 * 2 + 2)
+
+    def test_mybrief_quiz_is_public_and_counts_only_workspace_people(self):
+        self.assertEqual(self.routes[("GET", "/api/mybrief/public/quiz")]()["version"], "mybrief-q1")
+        self.listener = "lst00042"  # a MyCast listener cookie is not a MyBrief identity
+        st, out = self.post("mybrief-pro")
+        self.assertEqual((st, out["counted"], out["reason"], out["reward"]["status"]), (200, False, "anonymous_not_counted", "none"))
+        self.who = {"role": "member", "email": "ann@example.com"}
+        st, out = self.post("mybrief-pro")
+        self.assertEqual((st, out["counted"]), (200, True))
+        self.assertEqual(self.post("mybrief-pro")[0], 409)
+        self.assertEqual(self.call("POST", "/api/mybrief/public/quiz", body="x")[0], 400)
+        self.assertNotIn("ann@example.com", (Path(self.tmp.name) / "quiz.json").read_text() + (Path(self.tmp.name) / "evo.json").read_text())
+        self.assertEqual(self.call("GET", "/api/mvp-quiz/{project_id}/stats", "mybrief-pro")[1]["counted"], 1)
+
+    def test_decision_memory_quiz_is_owner_only(self):
+        for who, status in (({}, 401), ({"role": "viewer", "email": "v@example.com"}, 403), ({"role": "member", "email": "m@example.com"}, 403)):
+            self.who = who
+            self.assertEqual(self.call("GET", "/api/decision-memory/quiz")[0], status)
+            self.assertEqual(self.post("decision-memory")[0], status)
+        self.assertEqual(self.evo.view("decision-memory")["feedback"], [])
+        self.who = {"role": "owner", "email": ""}
+        self.assertEqual(self.call("GET", "/api/decision-memory/quiz")[1]["name"], "Decision Memory")
+        st, out = self.post("decision-memory")
+        self.assertEqual((st, out["counted"], out["reward"]["status"]), (200, True, "none"))
+        self.assertEqual(self.post("decision-memory")[0], 409)
+
+
+class OtherPagesTest(unittest.TestCase):
+    def test_pages_reuse_the_widget_with_their_own_quiz(self):
+        js = (ROOT / "static/mycast-configurator/improve.js").read_text(encoding="utf-8")
+        for attr in ("data-api", "data-product", "data-key"):
+            self.assertIn(f"root.getAttribute('{attr}')", js)
+        self.assertIn("anonymous_not_counted", js)
+        self.assertNotRegex(js.split("var UI = {", 1)[1], r"MyCast")  # every text names the product through %P%
+        keys = []
+        for pid, page in (("mybrief-pro", "static/mybrief/index.html"), ("decision-memory", "static/decision-memory/index.html")):
+            html = (ROOT / page).read_text(encoding="utf-8")
+            tag = re.search(r'<section id="improve"[^>]*>', html).group(0)
+            self.assertEqual(html.count('id="improve"'), 1)
+            self.assertIn(f'data-api="{mq.QUIZZES[pid]["api"]}"', tag)
+            self.assertIn(f'data-product="{mq.QUIZZES[pid]["name"]}"', tag)
+            self.assertIn("data-plain", tag)
+            self.assertIn(" hidden", tag)  # shown only after the quiz loaded
+            keys.append(re.search(r'data-key="([a-z-]+)"', tag).group(1))
+            self.assertEqual(html.count("/static/mycast-configurator/improve.js"), 1)
+            self.assertLess(html.index('id="improve"'), html.index("/static/mycast-configurator/improve.js"))
+            self.assertFalse((ROOT / page).with_name("improve.js").exists())  # reused, not copied
+        self.assertEqual(len(set(keys + ["mycast"])), 3)  # "done"/"closed" are remembered per product
+
+    def test_new_quiz_paths_follow_each_products_login_rule(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        paths = re.search(r"public_paths = \{(.*?)\}", app, re.S).group(1)
+        prefixes = re.search(r"public_prefixes = \((.*?)\)", app).group(1)
+        self.assertIn('"/api/mybrief/public/"', prefixes)  # MyBrief is a public page
+        self.assertNotIn("decision-memory", paths + prefixes)  # Decision Memory stays behind the dashboard login
 
 
 if __name__ == "__main__":

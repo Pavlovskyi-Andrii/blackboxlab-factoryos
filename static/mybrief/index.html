@@ -109,6 +109,7 @@ textarea{width:100%;min-height:80px;background:rgba(10,14,32,.6);color:var(--ink
     </form>
     <div class="row" id="withdrawRow" hidden><button class="btn ghost" id="withdraw" type="button" data-i="withdraw">Withdraw my feedback</button></div>
   </section>
+  <section id="improve" aria-labelledby="improveTitle" data-api="/api/mybrief/public/quiz" data-product="MyBrief" data-key="mybrief" data-plain hidden></section><!-- T-636 #270: optional improve-the-product quiz (shared improve.js) -->
 </div>
 <script>
 (function(){
@@ -290,5 +291,6 @@ textarea{width:100%;min-height:80px;background:rgba(10,14,32,.6);color:var(--ink
   applyLang();
 })();
 </script>
+<script src="/static/mycast-configurator/improve.js" defer></script>
 </body>
 </html>

@@ -1333,6 +1333,7 @@ install_mvp_evolution_routes(  # T-630 #270: consented feedback -> themes -> own
     mybrief_entries=MYBRIEF_FEEDBACK.consented_entries, create_ticket=_mvp_evolution_ticket)
 from mvp_quiz import QuizService, install_mvp_quiz_routes  # noqa: E402
 install_mvp_quiz_routes(  # T-634 #270: optional MyCast quiz -> analyst -> V2 task via Relay; gifts/mail held behind flags
+    # T-636: also mounts the MyBrief (public) and Decision Memory (owner-only) quizzes from mvp_quiz.QUIZZES; no gifts there
     app, QuizService(DATA_DIR / "mvp_quiz.json", MVP_EVOLUTION, create_ticket=_mvp_evolution_ticket,
                      grant_days=MYCAST_LISTENERS.grant_bonus), request_identity,
     listener_fn=lambda request: mycast_unsign(FACTORY_SECRET, request.cookies.get(MYCAST_COOKIE, ""), time.time()) or "",

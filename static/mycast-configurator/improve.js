@@ -1,27 +1,34 @@
 /* T-634 "Help us improve MyCast": an optional quiz at the bottom of the page (#270).
    Answers are sent only after the consent box is ticked. Nothing is promised that the server does not say is on:
-   the gift line appears only when /api/mycast/quiz reports rewards_enabled. A small nudge appears on a repeat visit
-   (or after a minute on the page), can be closed for good, and respects reduced motion. */
+   the gift line appears only when the quiz API reports rewards_enabled. A small nudge appears on a repeat visit
+   (or after a minute on the page), can be closed for good, and respects reduced motion.
+   T-636: the same widget on the other MVP pages. <section id="improve" data-api="/api/…/quiz" data-product="MyBrief"
+   data-key="mybrief" data-plain> picks the product's quiz, its name in the texts (%P%) and its own localStorage key;
+   data-plain adds button styles for a page without the MyCast stylesheet. Without attributes it is the MyCast quiz. */
 (function () {
   'use strict';
   var root = document.getElementById('improve');
   if (!root) return;
-  var KEY = 'mycast:improve';
+  var API = root.getAttribute('data-api') || '/api/mycast/quiz';
+  var PRODUCT = root.getAttribute('data-product') || 'MyCast';
+  var KEY = (root.getAttribute('data-key') || 'mycast') + ':improve';
   var UI = {
-    uk: {anon: 'Щоб ваш голос врахувався у рішеннях, увійдіть у MyCast і пройдіть квіз ще раз.', h: 'Допоможіть покращити MyCast', lead: 'Хвилинний квіз: що додати, що прибрати, що змінити. Необов’язково — лише якщо маєте бажання.', start: 'Пройти квіз (1 хв)', next: 'Далі', back: 'Назад', skip: 'Пропустити', send: 'Надіслати', yes: 'Так', no: 'Ні', upTo: 'до двох варіантів',
-      consent: 'Погоджуюсь, щоб мої відповіді зберегли для покращення MyCast', email: 'E-mail (необов’язково) — щоб сказати, коли ваше побажання з’явиться', contact: 'Можна написати мені на цей e-mail про MyCast', free: 'Ваші слова (необов’язково)',
-      thanks: 'Дякуємо! Ваші відповіді вже в роботі.', gift: 'Вам нараховано {n} днів у подарунок.', signin: 'Увійдіть у MyCast, щоб отримати подарунок за квіз.', giftNote: 'Подарунок за квіз: +{n} днів MyCast для тих, хто увійшов.',
-      done: 'Ви вже пройшли цей квіз — дякуємо!', err: 'Не вдалося надіслати. Спробуйте пізніше.', limit: 'Забагато відповідей сьогодні. Спробуйте завтра.', nudge: 'Допоможіть покращити MyCast · 1 хв', close: 'Закрити', step: 'Крок {a} з {b}', changed: 'Квіз оновився — відкрийте його ще раз.'},
-    ru: {anon: 'Чтобы ваш голос учитывался в решениях, войдите в MyCast и пройдите квиз ещё раз.', h: 'Помогите улучшить MyCast', lead: 'Минутный квиз: что добавить, что убрать, что изменить. Необязательно — только если есть желание.', start: 'Пройти квиз (1 мин)', next: 'Далее', back: 'Назад', skip: 'Пропустить', send: 'Отправить', yes: 'Да', no: 'Нет', upTo: 'до двух вариантов',
-      consent: 'Согласен(на), чтобы мои ответы сохранили для улучшения MyCast', email: 'E-mail (необязательно) — чтобы сообщить, когда ваше пожелание появится', contact: 'Можно написать мне на этот e-mail о MyCast', free: 'Ваши слова (необязательно)',
-      thanks: 'Спасибо! Ваши ответы уже в работе.', gift: 'Вам начислено {n} дней в подарок.', signin: 'Войдите в MyCast, чтобы получить подарок за квиз.', giftNote: 'Подарок за квиз: +{n} дней MyCast для вошедших.',
-      done: 'Вы уже прошли этот квиз — спасибо!', err: 'Не удалось отправить. Попробуйте позже.', limit: 'Слишком много ответов сегодня. Попробуйте завтра.', nudge: 'Помогите улучшить MyCast · 1 мин', close: 'Закрыть', step: 'Шаг {a} из {b}', changed: 'Квиз обновился — откройте его ещё раз.'},
-    en: {anon: 'To have your vote count in decisions, sign in to MyCast and take the quiz again.', h: 'Help us improve MyCast', lead: 'A one-minute quiz: what to add, remove or change. Optional — only if you feel like it.', start: 'Take the quiz (1 min)', next: 'Next', back: 'Back', skip: 'Skip', send: 'Send', yes: 'Yes', no: 'No', upTo: 'up to two',
-      consent: 'I agree that my answers are kept to improve MyCast', email: 'E-mail (optional) — so we can tell you when your wish ships', contact: 'You may e-mail me about MyCast at this address', free: 'In your own words (optional)',
-      thanks: 'Thank you! Your answers are already in the queue.', gift: '{n} free days were added to your account.', signin: 'Sign in to MyCast to get the quiz gift.', giftNote: 'Quiz gift: +{n} MyCast days for signed-in listeners.',
-      done: 'You have already taken this quiz — thank you!', err: 'Could not send. Please try later.', limit: 'Too many answers today. Please try tomorrow.', nudge: 'Help improve MyCast · 1 min', close: 'Close', step: 'Step {a} of {b}', changed: 'The quiz changed — please open it again.'}
+    uk: {anon: 'Щоб ваш голос врахувався у рішеннях, увійдіть у %P% і пройдіть квіз ще раз.', anonPlain: 'Відповіді збережено як відгук. Анонімні відповіді не рахуються як голоси за зміни.', h: 'Допоможіть покращити %P%', lead: 'Хвилинний квіз: що додати, що прибрати, що змінити. Необов’язково — лише якщо маєте бажання.', start: 'Пройти квіз (1 хв)', next: 'Далі', back: 'Назад', skip: 'Пропустити', send: 'Надіслати', yes: 'Так', no: 'Ні', upTo: 'до двох варіантів',
+      consent: 'Погоджуюсь, щоб мої відповіді зберегли для покращення %P%', email: 'E-mail (необов’язково) — щоб сказати, коли ваше побажання з’явиться', contact: 'Можна написати мені на цей e-mail про %P%', free: 'Ваші слова (необов’язково)',
+      thanks: 'Дякуємо! Ваші відповіді вже в роботі.', gift: 'Вам нараховано {n} днів у подарунок.', signin: 'Увійдіть у %P%, щоб отримати подарунок за квіз.', giftNote: 'Подарунок за квіз: +{n} днів %P% для тих, хто увійшов.',
+      done: 'Ви вже пройшли цей квіз — дякуємо!', err: 'Не вдалося надіслати. Спробуйте пізніше.', limit: 'Забагато відповідей сьогодні. Спробуйте завтра.', nudge: 'Допоможіть покращити %P% · 1 хв', close: 'Закрити', step: 'Крок {a} з {b}', changed: 'Квіз оновився — відкрийте його ще раз.'},
+    ru: {anon: 'Чтобы ваш голос учитывался в решениях, войдите в %P% и пройдите квиз ещё раз.', anonPlain: 'Ответы сохранены как отзыв. Анонимные ответы не считаются голосами за изменения.', h: 'Помогите улучшить %P%', lead: 'Минутный квиз: что добавить, что убрать, что изменить. Необязательно — только если есть желание.', start: 'Пройти квиз (1 мин)', next: 'Далее', back: 'Назад', skip: 'Пропустить', send: 'Отправить', yes: 'Да', no: 'Нет', upTo: 'до двух вариантов',
+      consent: 'Согласен(на), чтобы мои ответы сохранили для улучшения %P%', email: 'E-mail (необязательно) — чтобы сообщить, когда ваше пожелание появится', contact: 'Можно написать мне на этот e-mail о %P%', free: 'Ваши слова (необязательно)',
+      thanks: 'Спасибо! Ваши ответы уже в работе.', gift: 'Вам начислено {n} дней в подарок.', signin: 'Войдите в %P%, чтобы получить подарок за квиз.', giftNote: 'Подарок за квиз: +{n} дней %P% для вошедших.',
+      done: 'Вы уже прошли этот квиз — спасибо!', err: 'Не удалось отправить. Попробуйте позже.', limit: 'Слишком много ответов сегодня. Попробуйте завтра.', nudge: 'Помогите улучшить %P% · 1 мин', close: 'Закрыть', step: 'Шаг {a} из {b}', changed: 'Квиз обновился — откройте его ещё раз.'},
+    en: {anon: 'To have your vote count in decisions, sign in to %P% and take the quiz again.', anonPlain: 'Your answers are saved as feedback. Anonymous answers are not counted as votes for a change.', h: 'Help us improve %P%', lead: 'A one-minute quiz: what to add, remove or change. Optional — only if you feel like it.', start: 'Take the quiz (1 min)', next: 'Next', back: 'Back', skip: 'Skip', send: 'Send', yes: 'Yes', no: 'No', upTo: 'up to two',
+      consent: 'I agree that my answers are kept to improve %P%', email: 'E-mail (optional) — so we can tell you when your wish ships', contact: 'You may e-mail me about %P% at this address', free: 'In your own words (optional)',
+      thanks: 'Thank you! Your answers are already in the queue.', gift: '{n} free days were added to your account.', signin: 'Sign in to %P% to get the quiz gift.', giftNote: 'Quiz gift: +{n} %P% days for signed-in listeners.',
+      done: 'You have already taken this quiz — thank you!', err: 'Could not send. Please try later.', limit: 'Too many answers today. Please try tomorrow.', nudge: 'Help improve %P% · 1 min', close: 'Close', step: 'Step {a} of {b}', changed: 'The quiz changed — please open it again.'}
   };
-  var css = '#improve{display:grid;gap:12px}#improve .iq{border:1px solid var(--edge2,#3a4470);border-radius:var(--r,18px);background:var(--glass,rgba(20,27,54,.58));padding:18px;display:grid;gap:12px}' +
+  Object.keys(UI).forEach(function (l) { Object.keys(UI[l]).forEach(function (k) { UI[l][k] = UI[l][k].split('%P%').join(PRODUCT); }); });
+  var css = '#improve[data-plain]{margin-top:28px}#improve[data-plain] .cta{font:700 15px var(--body,system-ui);padding:11px 18px;border-radius:12px;border:0;background:var(--cyan,#4fe3ff);color:#08101f;cursor:pointer}#improve[data-plain] .cta:disabled{opacity:.45;cursor:not-allowed}' +
+'#improve{display:grid;gap:12px}#improve .iq{border:1px solid var(--edge2,#3a4470);border-radius:var(--r,18px);background:var(--glass,rgba(20,27,54,.58));padding:18px;display:grid;gap:12px}' +
     '#improve .iq h3{margin:0;font:600 18px/1.3 var(--body,system-ui)}#improve .opts{display:grid;gap:8px}#improve .opt{display:flex;gap:10px;align-items:center;text-align:left;width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--edge,#2a3360);background:transparent;color:var(--ink,#eef1ff);font:inherit;cursor:pointer}' +
     '#improve .opt[aria-pressed="true"]{border-color:var(--cyan,#4fe3ff);background:rgba(79,227,255,.08)}#improve .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between}' +
     '#improve .lnk{background:none;border:0;color:var(--mute,#a3abc9);text-decoration:underline;cursor:pointer;font:inherit;padding:8px}#improve .meta{color:var(--mute,#a3abc9);font-size:13px}#improve label{display:flex;gap:8px;align-items:flex-start;font-size:14px}' +
@@ -48,6 +55,7 @@
     if (state === 'done') {
       box.appendChild(el('p', {class: 'ok', role: 'status'}, note || x.thanks));
       if (lastReason === 'sign_in_to_count') box.appendChild(el('p', {class: 'meta'}, x.anon));
+      if (lastReason === 'anonymous_not_counted') box.appendChild(el('p', {class: 'meta'}, x.anonPlain));
       if (reward && reward.status === 'granted') box.appendChild(el('p', null, fmt(x.gift, {n: reward.days})));
       else if (reward && reward.status === 'none' && quiz && quiz.rewards_enabled) box.appendChild(el('p', {class: 'meta'}, x.signin));
       return;
@@ -102,7 +110,7 @@
       var body = {version: quiz.version, consent: cb.checked, answers: answers, free_text: ta.value.trim()};
       if (quiz.validate && validateAnswer) body.validate = {theme: quiz.validate.theme, answer: validateAnswer};
       if (em.value.trim()) { body.email = em.value.trim(); body.contact_consent = ck.checked; }
-      fetch('/api/mycast/quiz', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', Accept: 'application/json'}, body: JSON.stringify(body)})
+      fetch(API, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', Accept: 'application/json'}, body: JSON.stringify(body)})
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return {ok: r.ok, status: r.status, j: j}; }); })
         .then(function (res) {
           if (res.ok || res.j.detail === 'already_answered') {
@@ -136,7 +144,7 @@
   }
 
   function load() {
-    fetch('/api/mycast/quiz', {headers: {Accept: 'application/json'}, cache: 'no-store'})
+    fetch(API, {headers: {Accept: 'application/json'}, cache: 'no-store', credentials: 'same-origin'})
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (q) {
         quiz = q; if (!q) { root.hidden = true; return; }

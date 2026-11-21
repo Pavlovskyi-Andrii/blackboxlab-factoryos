@@ -55,6 +55,7 @@ footer{margin-top:28px;color:var(--muted);font-size:13px}
     <div id="list"></div>
     <button class="more" id="more" hidden></button>
   </div>
+  <section id="improve" aria-labelledby="improveTitle" data-api="/api/decision-memory/quiz" data-product="Decision Memory" data-key="decision-memory" data-plain hidden></section><!-- T-636 #270: optional improve-the-product quiz (shared improve.js) -->
   <footer id="foot"></footer>
 </div>
 <script>
@@ -158,6 +159,7 @@ document.addEventListener('submit',function(e){var form=e.target;e.preventDefaul
  p.then(function(){if(form.dataset.id)openForm[form.dataset.id]=null;load()}).catch(function(x){err.textContent=errText(x.message);btn.disabled=false})});
 $('q').addEventListener('input',function(){shown=40;render()});$('filter').addEventListener('change',function(){shown=40;render()});
 chrome();load();
+(function(){var s=document.createElement('script');s.src='/static/mycast-configurator/improve.js';document.body.appendChild(s)})(); // T-636: shared quiz widget
 </script>
 </body>
 </html>
