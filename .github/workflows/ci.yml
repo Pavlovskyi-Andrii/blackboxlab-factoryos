@@ -257,6 +257,8 @@ jobs:
           python test_mycast_share_page.py
           python -m py_compile mycast_demo_audio.py test_mycast_demo_audio.py
           python test_mycast_demo_audio.py
+          python -m py_compile login_recovery.py test_login_recovery.py
+          python test_login_recovery.py
           python -m py_compile brand_strategy.py brand_strategy_seeds.py test_brand_strategy.py
           python test_brand_strategy.py
           python -m py_compile test_factory_cycle_controls.py
@@ -423,6 +425,8 @@ jobs:
           python -m py_compile mycast.py test_mycast.py autopilot/mycast_daily.py autopilot/test_mycast_daily.py
           python test_mycast.py
           python -m autopilot.test_mycast_daily
+          python -m py_compile tools/mycast_render.py tools/test_mycast_render.py
+          python -m tools.test_mycast_render
       - name: Delegation execution timeline regression
         env:
           FACTORY_PASSWORD: ""
@@ -526,6 +530,15 @@ jobs:
           python -m py_compile mvp_experiments.py test_mvp_experiments.py
           python test_mvp_experiments.py
           python test_mvp_experiments_ui.py
+          python -m py_compile mvp_launchpad.py test_mvp_launchpad.py
+          python test_mvp_launchpad.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mvp-factory/launchpad.html").read_text(encoding="utf-8")
+          Path("/tmp/mvp-launchpad-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/mvp-launchpad-ui.js
+          node static/mvp-factory/test_launchpad.js
       - name: Learning section (/learn) catalog, sandbox and login
         run: |
           python -m py_compile learn_center.py test_learn_center.py

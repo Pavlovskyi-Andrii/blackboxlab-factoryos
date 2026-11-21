@@ -27,6 +27,23 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.15.0 — Business League Launchpad in MVP Builder, MyCast render without apt — 2026-11-20 … 2026-11-21
+- **MVP Builder · Launchpad (Business League L1):** a board per project that takes an idea to first sales through
+  checks D1–D7, a 7-day MVP, channels and gates G1–G5. Facts need a source and a date, missing data stays
+  "unknown", a zero is shown as zero, test and synthetic records are never counted, and likes or views are not
+  demand. No agent decides a gate on its own work; spend and outreach approvals are the owner's. The page
+  (`/static/mvp-factory/launchpad.html`, UK/RU/EN) is read-only and is linked from every project card; MyCast is the
+  first board and starts empty. Nothing is posted, sent, advertised or charged (T-704, #432).
+- **MyCast daily render:** the render job needs no apt — FFmpeg comes from a pip package and the job takes about
+  half a minute; the MP3 is checked by decoding it in full (#431).
+
+### v5.14.0 — "Forgot password?" sign-in link through Telegram, MyCast daily render — 2026-11-19 … 2026-11-20
+- **Login:** "Forgot password?" on the FactoryOS login page: send `/login` to the FactoryOS bot from the paired private
+  Telegram chat and get a one-time, 10-minute sign-in link; the password itself is not shown or changed (T-712).
+- **MyCast daily render:** sources without a link, branch sync, speakable text and audio QA (MC-01, #426); the
+  render workflow skips the unconditional apt step, caches the voice and tests sync-before-publish (#429).
+- **MyCast demo voicing:** one manifest snapshot per run (follow-up to T-711).
+
 ### v5.13.0 — MyCast glass profile page, social publishing, Surfer signed-in reads — 2026-11-17 … 2026-11-19
 - **MyCast:** the profile page `/mycast/u/<slug>` has the same glass coverflow as the episode page, with UK/RU/EN by
   `?lang=` (T-710); "My podcasts" is in the configurator header and in the share step (T-703, #422); each demo city
