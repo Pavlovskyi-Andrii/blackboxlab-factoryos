@@ -195,8 +195,9 @@ function render(){
     const brief=p.brief?'<details class="hist"><summary>'+esc(x.brief)+'</summary><div class="briefTxt">'+esc(p.brief)+'</div></details>':'';
     const facelessCrm=[313,359].includes(Number(p.issue))?'<div class="links"><a class="btn primary" href="/static/mvp-factory/faceless-crm.html" target="_blank" rel="noopener">Faceless Models CRM ↗</a></div>':'';
     const releaseGuardian=(p.id==='release-guardian'||Number(p.issue)===189)?'<div class="links"><a class="btn primary" href="/static/mvp-factory/release-guardian.html" target="_blank" rel="noopener">AI Release Guardian ↗</a></div>':'';  // T-616 #189
+    const launchpad='<div class="links"><a class="btn" href="/static/mvp-factory/launchpad.html?project='+encodeURIComponent(p.id)+'" target="_blank" rel="noopener">Launchpad · D1–D7 → G1–G5 ↗</a></div>';  // T-704; MyCast is the first real board: launchpad.html?project=mycast
     const evolution='<div class="links"><a class="btn" href="/static/mvp-factory/evolution.html?project='+encodeURIComponent(p.id)+'" target="_blank" rel="noopener">Product Evolution · V1→V2 ↗</a></div>';  // T-630 #270
-    return '<article class="glass proj" id="p-'+esc(p.id)+'"><div class="ph"><h3>'+esc(p.title)+'</h3>'+badge+issue+'</div>'+bar+'<div class="next">'+next+'</div>'+brief+facelessCrm+releaseGuardian+evolution+
+    return '<article class="glass proj" id="p-'+esc(p.id)+'"><div class="ph"><h3>'+esc(p.title)+'</h3>'+badge+issue+'</div>'+bar+'<div class="next">'+next+'</div>'+brief+facelessCrm+releaseGuardian+launchpad+evolution+
       (p.prototype?'<div class="links"><a class="btn primary" href="'+esc(p.prototype)+'" target="_blank" rel="noopener">'+esc(x.open)+' ↗</a></div>':'')+
       '<details class="hist"><summary>'+esc(x.history)+' · '+(p.history||[]).length+' '+esc(x.events)+'</summary><ol class="tl">'+hist+'</ol></details>'+form+'</article>';
   }).join('');
