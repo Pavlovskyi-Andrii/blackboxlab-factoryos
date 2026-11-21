@@ -36,6 +36,11 @@ SESSION_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,39}$")
 SESSION_ACCOUNT_RE = re.compile(r"^[\w.@+ -]{1,80}$")
 MAX_WAIT_SELECTOR = 200
 STATUSES = ("queued", "running", "done", "blocked", "failed", "waiting_human")
+# T-714: the dedicated Surfer worker's heartbeat → the "surfer" lane in Worker Center.
+SURFER_STATES = ("idle", "running", "unavailable", "queue_unreachable", "stopped")
+SURFER_ONLINE_SECONDS = 180          # it beats every 30 s while idle
+SURFER_OFFLINE_SECONDS = 3600
+SAFE_TEXT_RE = re.compile(r"[^A-Za-z0-9_:+.\- ]")
 
 
 def check_url(url: str) -> str:
@@ -60,6 +65,7 @@ class BrowserTaskStore:
         self.path = Path(data_dir) / "browser_tasks.json"
         self.shots = Path(data_dir) / "browser_shots"
         self.pages = Path(data_dir) / "browser_pages"
+        self.beat_path = Path(data_dir) / "surfer_heartbeat.json"
         self.clock, self.lock = clock, threading.Lock()
 
     def _load(self) -> list:
@@ -194,6 +200,59 @@ class BrowserTaskStore:
             self._save(items)
             return task
 
+    def record_heartbeat(self, body: dict) -> dict:
+        """T-714: keep only secret-free, bounded fields of the Surfer worker heartbeat."""
+        def num(key, limit):
+            try:
+                return max(0, min(int(body.get(key) or 0), limit))
+            except (TypeError, ValueError):
+                return 0
+        state = str(body.get("state") or "")
+        task_id = str(body.get("task_id") or "")
+        beat = {"last_seen": self.clock(), "state": state if state in SURFER_STATES else "idle",
+                "task_id": task_id if ID_RE.fullmatch(task_id) else "",
+                "node_id": SAFE_TEXT_RE.sub("", str(body.get("node_id") or ""))[:80],
+                "version": SAFE_TEXT_RE.sub("", str(body.get("version") or ""))[:20],
+                "last_result": SAFE_TEXT_RE.sub("", str(body.get("last_result") or ""))[:80],
+                "started_at": num("started_at", 1 << 40), "pid": num("pid", 1 << 30),
+                "tasks_done": num("tasks_done", 1 << 30), "tasks_failed": num("tasks_failed", 1 << 30)}
+        with self.lock:
+            self.beat_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.beat_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(beat), encoding="utf-8")
+            tmp.replace(self.beat_path)
+        return beat
+
+    def surfer_lane(self) -> dict:
+        """Worker Center lane of the Surfer worker, in the lane-board shape (state, task_id, last_event, …)."""
+        try:
+            beat = json.loads(self.beat_path.read_text(encoding="utf-8"))
+            beat = beat if isinstance(beat, dict) else {}
+        except (OSError, ValueError):
+            beat = {}
+        now = self.clock()
+        with self.lock:
+            items = self._load()
+        queued = sum(1 for t in items if t.get("status") == "queued")
+        seen = float(beat.get("last_seen") or 0)
+        age = round(max(0.0, now - seen), 1) if seen else None
+        state, task_id, reason = "offline", "", ""
+        if age is not None and beat.get("state") != "stopped":
+            if beat.get("state") == "running" and age <= LEASE_SECONDS:
+                state, task_id = "working", str(beat.get("task_id") or "")
+            elif age <= SURFER_ONLINE_SECONDS:
+                state = "blocked" if beat.get("state") == "unavailable" else "idle"
+                reason = "chromium_unavailable" if state == "blocked" else ""
+            elif age <= SURFER_OFFLINE_SECONDS:
+                state = "stale"
+        at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seen)) if seen else ""
+        return {"lane": "surfer", "state": state, "heartbeat_age_seconds": age, "task_id": task_id,
+                "stage": "running" if task_id else "", "started_at": "", "reason": reason,
+                "last_event": {"action": "heartbeat", "at": at} if at else {}, "queue_depth": queued,
+                "tasks_done": int(beat.get("tasks_done") or 0), "tasks_failed": int(beat.get("tasks_failed") or 0),
+                "version": str(beat.get("version") or ""), "node_id": str(beat.get("node_id") or ""),
+                "source": "surfer-heartbeat"}
+
     def get(self, task_id: str) -> Optional[dict]:
         with self.lock:
             return next((t for t in self._load() if t["id"] == task_id), None)
@@ -314,6 +373,17 @@ def install_browser_task_routes(app, store: BrowserTaskStore, *, identity: Calla
                 state = None
             task["storage_state"] = state      # None → the worker reports session_unavailable; never logged or stored
         return {"task": task}
+
+    @app.post("/api/factory/browser/worker/heartbeat")
+    async def browser_worker_heartbeat(request: Request):
+        if not authorize_worker(request):
+            raise HTTPException(401, "Worker token required")
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, "json body required")
+        store.record_heartbeat(body if isinstance(body, dict) else {})
+        return {"ok": True, "lane": store.surfer_lane()}
 
     @app.post("/api/factory/browser/worker/{task_id}/result")
     async def browser_worker_result(task_id: str, request: Request):
