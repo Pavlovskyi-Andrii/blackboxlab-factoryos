@@ -238,7 +238,7 @@ class ControlRoomTest(unittest.TestCase):
 
     def test_roadmap_command_reads_the_deployed_file_and_creates_no_ticket(self):
         self.assertEqual(self.s.telegram("/roadmap", 1, lang="en")["action"], "roadmap")
-        self.assertIn("T-591", self.s.last_text())
+        self.assertEqual(self.s.last_text(), _roadmap_text(None, "en"))   # the file as deployed, whichever tasks are open
         self.assertEqual(self.s.store.list(), [])
 
     def test_history_is_localized(self):

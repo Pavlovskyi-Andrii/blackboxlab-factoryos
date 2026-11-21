@@ -137,8 +137,12 @@ class TestRelayTelegram(unittest.TestCase):
         # T-591: /roadmap is the ROADMAP.md view (it used to repeat /tasks); GitHub issues stay under /tasks and /github.
         text = self.last_message()
         self.assertIn("ROADMAP", text)
-        self.assertIn("T-590", text)
         self.assertIn("HUMAN", text)
+        # The first open task of the file itself, not a fixed id: a fixed id fails the day that task is closed (T-590 did).
+        from relay import _default_roadmap, roadmap_summary
+        summary = roadmap_summary(_default_roadmap())
+        first_open = (summary["p0"] or summary["human"] or summary["next"])[0]
+        self.assertIn(first_open["id"], text)
         self.assertEqual(count, self.store.summary()["total"])
 
     def test_help_command_ru_uk_en(self):
