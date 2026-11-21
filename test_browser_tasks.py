@@ -109,6 +109,53 @@ class StoreTest(unittest.TestCase):
         self.s.create("https://shop.example/now-fits", [])
 
 
+class SurferLaneTest(unittest.TestCase):
+    """T-714: the Surfer worker heartbeat → the "surfer" lane in Worker Center."""
+
+    def test_heartbeat_route_lane_states_and_sanitizing(self):
+        from fastapi import FastAPI
+        clock = Clock()
+        with tempfile.TemporaryDirectory() as d:
+            store = bt.BrowserTaskStore(pathlib.Path(d), clock=clock)
+            self.assertEqual(store.surfer_lane()["state"], "offline")              # never seen
+            app = FastAPI()
+            bt.install_browser_task_routes(app, store, identity=lambda r: {"role": "owner"},
+                                           authorize_worker=lambda r: getattr(r, "worker", False))
+            h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+
+            class Req:
+                def __init__(self, body=None, worker=False):
+                    self.body, self.worker = body, worker
+
+                async def json(self):
+                    return self.body
+            route = h[("POST", "/api/factory/browser/worker/heartbeat")]
+            with self.assertRaises(HTTPException) as e:
+                asyncio.run(route(Req({"state": "idle"})))
+            self.assertEqual(e.exception.status_code, 401)                        # worker token only
+            store.create("https://shop.example/", [])
+            lane = asyncio.run(route(Req({"state": "idle", "node_id": "ip-10-0-0-1<script>", "version": "abc123",
+                                          "token": "tok-secret", "tasks_done": 3}, worker=True)))["lane"]
+            self.assertEqual((lane["lane"], lane["state"], lane["queue_depth"], lane["tasks_done"]), ("surfer", "idle", 1, 3))
+            self.assertEqual(lane["node_id"], "ip-10-0-0-1script")
+            self.assertNotIn("tok-secret", (pathlib.Path(d) / "surfer_heartbeat.json").read_text())
+            asyncio.run(route(Req({"state": "running", "task_id": "bt_0123456789abcdef"}, worker=True)))
+            lane = store.surfer_lane()
+            self.assertEqual((lane["state"], lane["task_id"], lane["stage"]), ("working", "bt_0123456789abcdef", "running"))
+            self.assertTrue(lane["last_event"]["at"].endswith("Z"))
+            asyncio.run(route(Req({"state": "running", "task_id": "../../etc"}, worker=True)))
+            self.assertEqual(store.surfer_lane()["task_id"], "")                  # not a task id → dropped
+            asyncio.run(route(Req({"state": "unavailable"}, worker=True)))
+            self.assertEqual((store.surfer_lane()["state"], store.surfer_lane()["reason"]), ("blocked", "chromium_unavailable"))
+            asyncio.run(route(Req({"state": "idle"}, worker=True)))
+            clock.t += bt.SURFER_ONLINE_SECONDS + 1
+            self.assertEqual(store.surfer_lane()["state"], "stale")
+            clock.t += bt.SURFER_OFFLINE_SECONDS
+            self.assertEqual(store.surfer_lane()["state"], "offline")
+            asyncio.run(route(Req({"state": "stopped"}, worker=True)))
+            self.assertEqual(store.surfer_lane()["state"], "offline")             # stopped on purpose
+
+
 class RoutesTest(unittest.TestCase):
     def test_owner_and_worker_auth(self):
         from fastapi import FastAPI

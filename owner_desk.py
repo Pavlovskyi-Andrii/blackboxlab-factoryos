@@ -47,6 +47,36 @@ RENDER_SAVE = ("Нажмите Save, rebuild, and deploy (или Save changes, �
 NO_SECRETS = "Секрет вставляйте только в Render / AWS / терминал. Никогда не отправляйте его в чат, Telegram или в вопрос на сайте."
 
 RUNBOOKS: list[dict[str, Any]] = [
+    # T-714 (owner 2026-11-21 «да»): Surfer in its own process; the new systemd unit is installed once by the owner.
+    {
+        "id": "T-714-H",
+        "title": "Один раз установить отдельный Surfer-воркер на EC2",
+        "why": "Задачи Surfer (web_read, чтение страниц агентами) раньше выполнял Claude-воркер между задачами кода, поэтому они ждали десятки минут, пока идёт длинная задача Claude, а 21 ноября очередь стояла с 15:18 до 16:55 UTC. T-714 запускает Surfer отдельным процессом со своим systemd-сервисом, heartbeat и автоперезапуском. Код приезжает на EC2 сам, но новый systemd-сервис может установить только root, то есть вы, одной командой.",
+        "time": "≈5 минут",
+        "steps": [
+            {"id": "open", "title": "Откройте терминал EC2",
+             "do": ["Откройте консоль AWS → EC2 → Instances → регион eu-north-1 → инстанс i-087bd3c1bb5de4ec6.",
+                    "Нажмите Connect → вкладка EC2 Instance Connect → Connect. Откроется терминал в браузере под пользователем ec2-user.",
+                    "Проверьте, что код T-714 уже доехал до воркера: ls /opt/factoryos/deploy/install_surfer_worker.sh"],
+             "check": "Команда ls показывает путь к файлу, а не «No such file or directory».",
+             "if": [{"when": "No such file or directory", "then": "Воркер ещё не подтянул main (он делает это между задачами). Подождите 10–60 минут и повторите ls."},
+                    {"when": "EC2 Instance Connect не подключается", "then": "Используйте Connect → Session Manager; команды те же."}]},
+            {"id": "install", "title": "Установите и запустите сервис",
+             "do": ["Скопируйте и выполните одну команду: sudo bash /opt/factoryos/deploy/install_surfer_worker.sh",
+                    "Скрипт можно запускать повторно: он копирует сервис, делает systemctl daemon-reload, включает и запускает factoryos-surfer-worker.service и показывает его статус. Секретов он не читает и не спрашивает."],
+             "check": "В конце написано «OK: factoryos-surfer-worker.service is active».",
+             "if": [{"when": "Написано NOT RUNNING", "then": "Выполните journalctl -u factoryos-surfer-worker.service -n 50 --no-pager и задайте мне вопрос по этому шагу, вставив последние строки (в них нет секретов)."},
+                    {"when": "Написано Missing /etc/factoryos/claude-worker.env", "then": "Claude-воркер не спарен на этом EC2. Задайте мне вопрос по этому шагу: это отдельная задача."}]},
+            {"id": "verify", "title": "Проверьте в Worker Center",
+             "do": ["Откройте FactoryOS → Worker Center (раздел «Сейчас работают»).",
+                    "Найдите строку Surfer.",
+                    "По желанию в терминале: systemctl status factoryos-surfer-worker.service --no-pager"],
+             "check": "Строка Surfer показывает «Свободен» или «Работает» и свежую последнюю активность (меньше минуты назад).",
+             "if": [{"when": "Surfer «Заблокирован»", "then": "На EC2 не запускается Chromium. Задайте мне вопрос по этому шагу: пока это так, задачи Surfer по-прежнему выполняет Claude-воркер."},
+                    {"when": "Surfer «Офлайн» через 2 минуты после OK", "then": "Выполните journalctl -u factoryos-surfer-worker.service -n 50 --no-pager и задайте мне вопрос по этому шагу с последними строками."}]},
+        ],
+        "done": "factoryos-surfer-worker.service активен, Worker Center показывает свежую строку Surfer; задачи Surfer больше не ждут задач Claude.",
+    },
     # Business League (owner 2026-11-19: «все, що від мене — в ту таблицю, з чіткими кроками»), T-704/T-705.
     {
         "id": "T-706-H",

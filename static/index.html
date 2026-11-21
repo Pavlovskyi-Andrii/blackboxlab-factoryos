@@ -4393,7 +4393,7 @@ function odQuestion(q){const st=q.status||'pending';
   +'<div><b>'+esc(tr('od.you'))+':</b> '+odText(q.question)+'</div>'
   +(st==='answered'||st==='failed'?'<div class="odA"><b>Claude:</b> '+odText(q.answer)+'</div>':'<div class="dcNote">'+esc(tr(st==='answering'?'od.q.answering':'od.q.pending'))+'</div>')+'</div>'}
 // --- worker-center-simple:begin (owner 2026-11-17: one summary, who works now, technical details collapsed; pure renderers)
-const WC_LANES=['claude','chatgpt','gemini'];
+const WC_LANES=['claude','chatgpt','gemini','surfer'];
 function odBookHtml(r,qs,cls){const status=r.status||{},st=OD_STATES.includes(status.state)?status.state:'todo',open=r.id in odOpen?odOpen[r.id]:false;
  const rq=qs.filter(q=>q.task_id===r.id).slice().reverse();
  return '<details class="odBook wcItem'+(cls?' '+cls:'')+'" data-task="'+esc(r.id)+'" data-state="'+st+'"'+(open?' open':'')+'><summary><span class="wcRow"><b class="wcId">'+esc(r.id)+'</b><span class="wcWhat">'+esc(r.title)+'</span>'
@@ -4491,7 +4491,7 @@ async function refreshDelegationCenter(){
  catch(e){const body=$('#dcBody');if(body)body.innerHTML='<div class="finding critical"><strong>'+esc(tr('dc.loadFailed'))+'</strong><span>'+esc(e.message)+'</span></div>'}
 }
 // --- lane-board:begin (T-599-F: pure renderer; lane state, task and stage come only from /api/factory/lane-board)
-const LB_LANES=['claude','chatgpt','gemini'],LB_COLUMNS=['planned','in_progress','blocked','review','done'],LB_LABEL={claude:'Claude',chatgpt:'ChatGPT',gemini:'Gemini'};
+const LB_LANES=['claude','chatgpt','gemini'],LB_COLUMNS=['planned','in_progress','blocked','review','done'],LB_LABEL={claude:'Claude',chatgpt:'ChatGPT',gemini:'Gemini',surfer:'Surfer'};
 function lbTime(v){return String(v||'').slice(0,16).replace('T',' ')}
 function lbLane(id,l){
  l=l||{};const state=String(l.state||'offline'),cols=l.columns||{},ev=l.last_event||{},open=l.assigned_not_claimed||[];

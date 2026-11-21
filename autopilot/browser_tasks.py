@@ -152,8 +152,12 @@ def execute(task: dict, *, runner=run_playwright, artifact_root: pathlib.Path, r
             "steps": result.completed_steps, "texts": texts, "screenshot_png_b64": shot, **extra}
 
 
-def run_one(*, http=None, runner=run_playwright, available=playwright_available, resolve=socket.getaddrinfo) -> str:
-    """idle | done | failed. Never raises."""
+def run_one(*, http=None, runner=run_playwright, available=playwright_available, resolve=socket.getaddrinfo,
+            on_claim=None) -> str:
+    """idle | done | failed | error (queue unreachable). Never raises.
+
+    ``on_claim(task_id)`` (T-714) runs right after a task is claimed, before Chromium starts: the dedicated Surfer
+    worker reports "running" there."""
     if not relay_tasks.configured() or not available():
         return "idle"
     import requests
@@ -165,9 +169,14 @@ def run_one(*, http=None, runner=run_playwright, available=playwright_available,
         task = r.json().get("task") if r.status_code == 200 else None
     except Exception as exc:
         log(f"queue unavailable: {type(exc).__name__}")
-        return "idle"
+        return "error"
     if not task:
         return "idle"
+    if on_claim:
+        try:
+            on_claim(str(task.get("id") or ""))
+        except Exception:
+            pass
     log(f"running {task['id']} on {urlsplit(task['url']).netloc}" + (" (saved session)" if task.get("session") else ""))
     with tempfile.TemporaryDirectory(prefix="factoryos-browser-") as tmp:
         try:
