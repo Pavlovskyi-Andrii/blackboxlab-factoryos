@@ -74,6 +74,14 @@ GATE_CHECKS = {"G1": ("D1", "D2"), "G2": ("D1", "D2", "D3"), "G3": ("D4", "D5", 
                "G5": ("CH", "MVP")}
 GATE_CHOICES = {"G3": ("build_minimum", "change_assumption", "back_to_idea"), "G4": ("yes", "no"),
                 "G5": ("continue", "iterate", "pivot", "kill")}
+# "mixed": the source speaks both for and against the idea; "constraint": a rule of the market the idea has to live
+# with (a store policy, a law), neither for nor against. Both come from the manual MyCast run (T-705).
+FACT_VERDICTS = ("for", "against", "mixed", "constraint")
+SIGNAL_KINDS = ("user", "builder")              # someone who has the problem / someone who built a tool for it
+# T-705: fields a second model may fill on another actor's artifact, and only while they are still "unknown".
+COMPLETABLE = {"idea_card": ("situation", "desired_result"),
+               "market_fact": ("published_at", "query", "alternative", "price", "complaint"),
+               "signal": ("posted_at", "current_solution", "signal_kind")}
 
 HOST_RE = re.compile(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24}|xn--[a-z0-9-]{2,59})", re.I)
 # Private file shares and workspaces: a link there is either readable only by its owner's team or an unlisted
@@ -88,6 +96,7 @@ EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # Query parameters that carry a credential: a link with one of these must not be stored in the shared registry.
 SECRET_PARAM_RE = re.compile(r"(^|[_.-])(token|key|apikey|secret|password|passwd|pwd|signature|sig|auth|session|sid|code)$", re.I)
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+PARTIAL_DATE_RE = re.compile(r"^\d{4}(-(0[1-9]|1[0-2]))?$")   # a source that prints only a year or a month
 REF_RE = re.compile(r"^a-\d{1,6}$")
 PARTICIPANT_RE = re.compile(r"^p-[0-9a-f]{8,32}$")
 PII = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|(?<!\d)\+?\d(?:[\s().-]?\d){8,13}(?!\d)")
@@ -152,12 +161,17 @@ def _url(value: Any, *, required: bool = True) -> str:
     return text
 
 
-def _date(value: Any, today: str, *, required: bool) -> str:
+def _date(value: Any, today: str, *, required: bool, partial: bool = False) -> str:
+    """A full date. `partial` (publication dates only) also takes "2021" or "2021-10": that is what the source shows."""
     text = str(value or "").strip()
     if not text or text == UNKNOWN:
         if required:
             raise MvpError("date_required")
         return UNKNOWN
+    if partial and PARTIAL_DATE_RE.fullmatch(text):
+        if text > today[:len(text)]:
+            raise MvpError("date_in_future")
+        return text
     try:
         if not DATE_RE.fullmatch(text):
             raise ValueError
@@ -222,30 +236,34 @@ def validate_artifact(body: dict, today: str) -> dict:
             raise MvpError("where_noticed_required")
         fields = {"who": _text(b.get("who"), 300, required=True), "situation": _text(b.get("situation"), 500),
                   "problem": _text(b.get("problem"), 500, required=True), "desired_result": _text(b.get("desired_result"), 500),
-                  "where_noticed": [x if x == "own_experience" else _url(x) for x in noticed],
+                  "where_noticed": [x if x in ("own_experience", UNKNOWN) else _url(x) for x in noticed],
                   "assumptions": _list(b.get("assumptions"), 10, 300)}
-        sources = [x for x in fields["where_noticed"] if x != "own_experience"]
+        sources = [x for x in fields["where_noticed"] if x not in ("own_experience", UNKNOWN)]
     elif kind == "market_fact":
         _fields(b, {"idea_ref", "fact", "source_url", "source_kind", "observed_at", "published_at", "query", "alternative",
                     "price", "complaint", "verdict", "unknowns"})
         if b.get("source_kind") not in ("primary", "secondary"):
             raise MvpError("bad_source_kind")
-        if b.get("verdict") not in ("for", "against"):
+        if b.get("verdict") not in FACT_VERDICTS:
             raise MvpError("bad_verdict")
         fields = {"idea_ref": _refs(b.get("idea_ref"), required=True), "fact": _text(b.get("fact"), 600, required=True),
                   "source_url": _url(b.get("source_url")), "source_kind": b["source_kind"],
                   "observed_at": _date(b.get("observed_at"), today, required=True),
-                  "published_at": _date(b.get("published_at"), today, required=False),
+                  "published_at": _date(b.get("published_at"), today, required=False, partial=True),
                   "query": _text(b.get("query"), 200), "alternative": _text(b.get("alternative"), 300),
                   "price": _text(b.get("price"), 120), "complaint": _text(b.get("complaint"), 300),
                   "verdict": b["verdict"], "unknowns": _list(b.get("unknowns"), 10, 200)}
         sources = [fields["source_url"]]
     elif kind == "signal":
-        _fields(b, {"idea_ref", "url", "posted_at", "observed_at", "situation", "current_solution", "author_words", "independent"})
+        _fields(b, {"idea_ref", "url", "posted_at", "observed_at", "situation", "current_solution", "author_words", "independent",
+                    "signal_kind"})
         if not isinstance(b.get("independent"), bool):
             raise MvpError("independent_yes_or_no")
+        if b.get("signal_kind") not in (None, UNKNOWN, *SIGNAL_KINDS):
+            raise MvpError("bad_signal_kind")
         fields = {"idea_ref": _refs(b.get("idea_ref"), required=True), "url": _url(b.get("url")),
-                  "posted_at": _date(b.get("posted_at"), today, required=False),
+                  "signal_kind": b.get("signal_kind") or UNKNOWN,
+                  "posted_at": _date(b.get("posted_at"), today, required=False, partial=True),
                   "observed_at": _date(b.get("observed_at"), today, required=True),
                   "situation": _text(b.get("situation"), 500, required=True),
                   "current_solution": _text(b.get("current_solution"), 300),
@@ -382,8 +400,10 @@ def board(project: dict) -> dict:
     g5 = lp["gates"]["G5"]["decision"] or {}
     learn = {"verdict": g5.get("chosen", UNKNOWN), "main_channel": g5.get("main_channel", UNKNOWN),
              "main_metric": g5.get("main_metric", UNKNOWN), "price_covers_direct_cost": g5.get("price_covers_direct_cost", UNKNOWN)}
+    from mvp_launchpad_agents import comparison      # T-705: agent output against the manual benchmark (pure, no I/O)
     return {"project": project.get("id"), "schema": SCHEMA, "checks": checks, "gates": gates, "funnels": funnels,
             "needs_you": needs, "learn": learn, "artifacts": arts[-200:], "artifact_count": len(arts),
+            "comparison": comparison(project),
             "note": "Plans and evidence only. Nothing here posts, messages, advertises or charges. "
                     "Test and synthetic records are shown but never counted."}
 
@@ -528,6 +548,58 @@ class Launchpad:
             self._event(data, project, who, f"Launchpad {art['check']}: {art['id']} reviewed ({body['verdict']}).")
             return {"duplicate": False, "artifact": self._finish(data, key, scope, art)}
 
+    def complete(self, pid: str, aid: str, body: dict, *, actor_role: str, actor: str = "") -> dict:
+        """T-705: the second model completes the same artifact. Only fields that are still "unknown" (COMPLETABLE),
+        never the producer on its own work, never a source, a verdict or a quote; the level does not change."""
+        if actor_role not in ROLES:
+            raise MvpError("forbidden", 403)
+        if not isinstance(body, dict) or set(body) - {"fields", "note", "idempotency_key"}:
+            raise MvpError("unknown_fields")
+        new = body.get("fields")
+        if not isinstance(new, dict) or not new:
+            raise MvpError("nothing_to_complete")
+        note = _text(body.get("note"), 400)
+        who = actor or actor_role
+        scope = self._scope("complete", pid, who, [aid, new, note])
+        with self.r._lock:
+            data = self.r._load()
+            key, done = self._guard(data, body.get("idempotency_key"), scope)
+            if done is not None:
+                return {"duplicate": True, "artifact": done}
+            project, lp = self._open(data, pid)
+            art = self._artifact(lp, aid)
+            if art["actor"] == who:
+                raise MvpError("own_work", 403)
+            if set(new) - set(COMPLETABLE.get(art["type"], ())):
+                raise MvpError("field_not_completable")
+            if any(art["fields"].get(k, UNKNOWN) != UNKNOWN for k in new):
+                raise MvpError("field_already_known", 409)      # a known value is never overwritten
+            clean = validate_artifact({"type": art["type"], "check": art["check"], **art["fields"], **new}, self._today())["fields"]
+            if any(clean[k] == UNKNOWN for k in new):
+                raise MvpError("nothing_to_complete")
+            now = _iso(self.r.clock())
+            art["fields"].update({k: clean[k] for k in new})
+            art["events"].append({"step": "completed", "by": who, "role": actor_role, "at": now, "artifact": art["id"],
+                                  "fields": sorted(new), "note": note})
+            art["updated_at"] = now
+            self._event(data, project, who, f"Launchpad {art['check']}: {art['id']} completed ({', '.join(sorted(new))}).")
+            return {"duplicate": False, "artifact": self._finish(data, key, scope, art)}
+
+    def bookkeep(self, pid: str, section: str, key: str, value: dict, *, keep: int = 20) -> dict:
+        """Server-side records about the board itself (an imported benchmark, an agent run). No route passes a request
+        body here, so a client cannot mark its own artifacts as "benchmark" or "agent"."""
+        if section not in ("benchmarks", "agent_runs"):
+            raise MvpError("bad_section")
+        with self.r._lock:
+            data = self.r._load()
+            _, lp = self._open(data, pid)
+            box = lp.setdefault(section, {})
+            box[str(key)[:80]] = dict(value, at=value.get("at") or _iso(self.r.clock()))
+            for old in list(box)[:max(0, len(box) - keep)]:
+                del box[old]
+            self.r._save(data)
+            return box[str(key)[:80]]
+
     def step(self, pid: str, aid: str, body: dict, *, actor_role: str, actor: str = "") -> dict:
         """Move a ladder one rung forward, with evidence."""
         if actor_role not in ROLES:
@@ -656,7 +728,7 @@ class Launchpad:
             raise MvpError("unknown_gate", 404)
         if actor_role not in ROLES:
             raise MvpError("forbidden", 403)
-        allowed = {"action", "chosen", "deferred", "rationale", "evidence_refs", "extra_check", "main_channel",
+        allowed = {"action", "chosen", "deferred", "assumptions", "rationale", "evidence_refs", "extra_check", "main_channel",
                    "main_metric", "price_covers_direct_cost", "idempotency_key"}
         if not isinstance(body, dict) or set(body) - allowed:
             raise MvpError("unknown_fields")
@@ -692,7 +764,10 @@ class Launchpad:
                 if gate in OWNER_ONLY_GATES and actor_role != "owner":
                     raise MvpError("owner_only", 403)
                 if actor_role != "owner":
-                    produced = {a["actor"] for a in arts.values() if a["check"] in GATE_CHECKS[gate]}
+                    # Everyone with a step on the compared work: produced, reviewed or completed it (T-705: a
+                    # Discovery agent's reviewer is part of that loop and is not a judge either).
+                    produced = {e["by"] for a in arts.values() if a["check"] in GATE_CHECKS[gate] for e in a["events"]}
+                    produced |= {a["actor"] for a in arts.values() if a["check"] in GATE_CHECKS[gate]}
                     produced |= {p["by"] for p in state["proposals"]}
                     if who in produced:
                         raise MvpError("own_work", 403)   # a judge produced none of the compared work
@@ -722,7 +797,15 @@ class Launchpad:
             deferred = body.get("deferred") or {}
             if not isinstance(deferred, dict) or set(deferred) != pool - set(ideas):
                 raise MvpError("every_deferred_idea_needs_a_reason")
-            return {"chosen": ideas, "deferred": {k: _text(v, 300, required=True) for k, v in deferred.items()}}
+            out = {"chosen": ideas, "deferred": {k: _text(v, 300, required=True) for k, v in deferred.items()}}
+            assumed = body.get("assumptions")
+            if assumed is not None:                       # the main unverified assumption of a chosen direction
+                if not isinstance(assumed, dict) or not set(assumed) <= set(ideas):
+                    raise MvpError("bad_choice")
+                out["assumptions"] = {k: _text(v, 300, required=True) for k, v in assumed.items()}
+            return out
+        if body.get("assumptions") is not None:
+            raise MvpError("unknown_fields")
         if chosen not in GATE_CHOICES[gate]:
             raise MvpError("bad_choice")
         out = {"chosen": chosen}

@@ -80,5 +80,28 @@ const ok = body => ({ok: true, status: 200, json: async () => body});
     await tick();
     assert.ok(p.board().includes('Could not load the board') && !p.board().includes('class="grid"'));
   }
+
+  // 6. T-705: agents against the manual benchmark. A side that has not run is "unknown", never 0; no extra request.
+  const bench = {ideas: 6, facts: 18, facts_with_source: 18, signals: 13, independent_signals: 13, duplicates: 0, sources: 30,
+                 reviewed: 0, max_level: 'linked'};
+  const withCmp = comparison => () => ok(Object.assign({}, data, {comparison}));
+  const cmpCard = page => page.board().split('<div class="card">').find(c => c.includes('Manual run'));
+  p = open('?project=mycast', withCmp({benchmark: bench, agents: 'unknown'}), 'en');
+  await tick();
+  assert.strictEqual(p.calls.length, 1);
+  assert.ok(/Signals<\/td><td><b>13<\/b><\/td><td><b>unknown<\/b>/.test(cmpCard(p)));
+  assert.ok(cmpCard(p).includes('The agents have not run') && cmpCard(p).includes('has links'));
+  const agents = Object.assign({}, bench, {ideas: 1, facts: 1, facts_with_source: 1, signals: 2, independent_signals: 1, duplicates: 2,
+    duplicates_of_benchmark: 1, ideas_covered: 1, benchmark_ideas: 6, new_sources: 3, rejected: 5, runs: 1,
+    last_run: {id: 'run-1', at: '2026-11-21T10:00:00+00:00', status: 'done', producer: '<b>flash</b>', reviewer: 'flash-lite',
+               search_provider: 'wikipedia'}});
+  p = open('?project=mycast', withCmp({benchmark: bench, agents}), 'en');
+  await tick();
+  assert.ok(/Signals<\/td><td><b>13<\/b><\/td><td><b>2<\/b>/.test(cmpCard(p)) && cmpCard(p).includes('<b>1 of 6</b>'));
+  assert.ok(cmpCard(p).includes('search: wikipedia') && !cmpCard(p).includes('have not run'));
+  assert.ok(!cmpCard(p).includes('<b>flash</b>') && cmpCard(p).includes('&lt;b&gt;flash'));
+  p = open('?project=mycast', withCmp({benchmark: 'unknown', agents: 'unknown'}), 'en');
+  await tick();
+  assert.strictEqual(cmpCard(p), undefined);                                    // nothing to compare: no empty table
   console.log('launchpad page tests passed');
 })().catch(e => { console.error(e); process.exit(1); });

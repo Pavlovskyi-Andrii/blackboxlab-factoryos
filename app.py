@@ -1361,7 +1361,48 @@ async def _ab_content_job(title, brief, job_id):
 
 install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity, create_job=_ab_content_job)  # T-608..T-610 A/B Tester: drafts only, owner-gated
 from mvp_launchpad import install_mvp_launchpad_routes  # noqa: E402
-install_mvp_launchpad_routes(app, MVP_REGISTRY, request_identity)  # T-704 Launchpad: plans and evidence only, never changes a stage
+MVP_LAUNCHPAD = install_mvp_launchpad_routes(app, MVP_REGISTRY, request_identity)  # T-704 Launchpad: plans and evidence only, never changes a stage
+from mvp_launchpad_agents import DiscoveryAgents, install_mvp_discovery_routes, seed_benchmark  # noqa: E402
+LAUNCHPAD_REVIEW_MODEL = "gemini-flash-lite-latest"   # the second model of the Discovery loop: free key, another Flash model
+
+
+def _launchpad_model(prompt, model=""):
+    """One free-key Gemini JSON answer for a Discovery agent (T-705), or None. The paid LLM key is never used here."""
+    if not FACTORY_GEMINI_API_KEY:
+        return None
+    try:
+        data = _gemini_raw_call(FACTORY_GEMINI_API_KEY, "POST", f"models/{model or resolve_flash_model(FACTORY_GEMINI_API_KEY)}:generateContent",
+                                {"contents": [{"parts": [{"text": str(prompt)[:60000]}]}],
+                                 "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.2,
+                                                      "responseMimeType": "application/json"}}, None, 90)
+    except Exception:
+        return None
+    parts = ((((data or {}).get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+    return "".join(str(p.get("text") or "") for p in parts).strip() or None
+
+
+def _launchpad_read(url):
+    """web_read for the Researcher: the EC2 runner opens the page anonymously; called from the run's own thread."""
+    return asyncio.run(web_surfer.web_read(BROWSER_TASKS, {"url": url, "agent": "launchpad-researcher"},
+                                           source=web_surfer.WORKER_SOURCE))
+
+
+def _launchpad_signals():
+    con = db()
+    try:
+        return [dict(x) for x in con.execute("SELECT title,url,content FROM source_signals WHERE url LIKE 'https://%' "
+                                             "ORDER BY created_at DESC LIMIT 10").fetchall()]
+    finally:
+        con.close()
+
+
+install_mvp_discovery_routes(  # T-705 Discovery agents: owner-started, free tools only, records at most `linked`
+    app, MVP_LAUNCHPAD, request_identity,
+    agents=DiscoveryAgents(MVP_LAUNCHPAD, search=WEB_SEARCH.search, read=_launchpad_read, signals=_launchpad_signals,
+                           producer=_launchpad_model, producer_name=lambda: resolve_flash_model(FACTORY_GEMINI_API_KEY),
+                           reviewer=lambda prompt: _launchpad_model(prompt, LAUNCHPAD_REVIEW_MODEL),
+                           reviewer_name=lambda: LAUNCHPAD_REVIEW_MODEL))
+seed_benchmark(MVP_LAUNCHPAD)  # the manual MyCast D1–D3 run of 2026-11-19, once; its G1/G2 stay proposals (T-706-H)
 install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
 from decision_memory import DecisionStore, install_decision_memory_routes, sync_mvp_registry_once  # noqa: E402
 install_decision_memory_routes(app, DecisionStore(DATA_DIR / "decision_memory.json", BASE / "DECISIONS.md"), request_identity)  # T-614 #187: owner-only

@@ -1,7 +1,7 @@
 # Business League · Launchpad protocol
 
-**Status:** spec. L1 is queued as ROADMAP **T-704** and L2 as **T-705** (after T-704). L3–L4 wait for the owner's
-decisions T-707-H, T-708-H and T-709-H.
+**Status:** L1 (ROADMAP **T-704**) and L2 (**T-705**) are implemented. L3–L4 wait for the owner's decisions T-707-H,
+T-708-H and T-709-H.
 **Owner request:** 2026-11-18, in chat with Claude. The owner uploaded the *Product Launchpad 2027* curriculum
 (Growth Factory), asked what FactoryOS can take from it, approved this spec and the ROADMAP entry. The owner also
 relayed ChatGPT's analysis of the same curriculum; the points adopted from it are marked *(ChatGPT)*.
@@ -187,7 +187,7 @@ tab), `DECISIONS.md` and `.github/workflows/ci.yml` (the new test step, which th
 
 ## Later slices
 
-- **L2 Discovery agents, queued as T-705 (after T-704):** Researcher and Analyst fill D1–D3 from public sources with
+- **L2 Discovery agents, T-705 (implemented in `mvp_launchpad_agents.py`, see DECISIONS.md «2026-11-21 — T-705»):** Researcher and Analyst fill D1–D3 from public sources with
   the existing free tools (FactoryOS `web_search` / `web_read`, Content Brain signals); maximum level `linked`. Their
   benchmark is the manual MyCast run of 2026-11-19 (`docs/business_experiments/mycast_launchpad/`: 6 ideas, 18 facts,
   13 signals, G1/G2 only proposed; the owner decides in T-706-H). `web_search` covers Wikipedia only until the owner
