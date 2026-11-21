@@ -59,8 +59,36 @@ class PublicPageTest(unittest.TestCase):
         self.assertIn("Професійний бокс", page)
         self.assertNotIn("777", page)
         self.assertNotIn("<b>Тест", page)                                  # surname dropped, markup never raw
-        self.assertNotIn("<audio", page)                                   # listening by link is off by default
+        self.assertNotIn("latest.mp3", page)                               # listening by link is off by default
+        self.assertNotIn('data-play="0"', page)
+        self.assertIn(' id="pp" aria-label="Слухати" disabled', page)      # nothing to play: the bar's button is off
         self.assertTrue(self.h["/mycast/u/{slug}"]("nope").headers["location"].endswith("#missing"))
+
+    def test_glass_page_matches_the_episode_page_and_switches_language(self):
+        """T-710 (variant A): the same glass coverflow as /mycast/e/<token>, demo cities included, UK/RU/EN by ?lang=."""
+        import mycast_share_page as sp
+        page = self.h["/mycast/u/{slug}"](self.slug).body.decode()
+        self.assertIn(sp.CSS, page)
+        self.assertIn(sp.JS, page)
+        self.assertEqual(page.count('<article class="card'), 1 + len(sp.demo_cards("uk")))
+        self.assertIn('class="soon"', page)                                # demo tracks wait for the owner's approval
+        self.assertIn("Автор ще не відкрив", page)
+        self.assertNotIn("noindex", page)                                  # the profile page stays shareable and indexable
+        self.assertIn(f'<link rel="canonical" href="https://mycast.pro/mycast/u/{self.slug}">', page)
+        for name in ("Facebook", "Telegram", "WhatsApp"):
+            self.assertIn(f">{name}</a>", page)
+        ru = self.h["/mycast/u/{slug}"](self.slug, lang="ru").body.decode()
+        self.assertIn('<html lang="ru">', ru)
+        self.assertIn("Создать такой же", ru)
+        self.assertIn("Профессиональный бокс", ru)                         # catalogue topics follow the page language
+        self.assertIn('hreflang="ru" aria-current="true"', ru)
+        self.assertIn('<html lang="uk">', self.h["/mycast/u/{slug}"](self.slug, lang="zz").body.decode())
+        approved = mp.render_page(self.store.get(self.slug), __import__("mycast_listener_delivery").decode_profile(CODE), page="/p",
+                                  demos=[{"id": "rome", "name": "<Rome>", "title": "T", "desc": "D", "meta": "M", "motif": "temple",
+                                          "palette": [], "audio": "/mycast/demo/rome.uk.mp3"}])
+        self.assertIn('data-src="/mycast/demo/rome.uk.mp3"', approved)
+        self.assertNotIn("<Rome>", approved)
+        self.assertNotIn(' id="pp" aria-label="Слухати" disabled', approved)
 
     def test_card_is_a_1200x630_png_and_cached(self):
         r = self.h["/mycast/u/{slug}/card.png"](self.slug)
@@ -85,7 +113,10 @@ class PublicPageTest(unittest.TestCase):
         self.assertTrue(on["listener"]["public_audio"])
         r = audio(self.slug)
         self.assertEqual((r.status_code, r.body, self.audio), (200, b"ID3mp3", ["F1"]))
-        self.assertIn("<audio", self.h["/mycast/u/{slug}"](self.slug).body.decode())
+        opened = self.h["/mycast/u/{slug}"](self.slug).body.decode()
+        self.assertIn(f'data-src="/mycast/u/{self.slug}/latest.mp3"', opened)
+        self.assertIn('data-play="0"', opened)
+        self.assertIn("MyCast · 2026-11-12", opened)
         mp._PLAYS[self.slug] = [self.clock()] * mp.PLAYS_PER_HOUR
         self.assertEqual(audio(self.slug).status_code, 429)
         mp._PLAYS.clear()

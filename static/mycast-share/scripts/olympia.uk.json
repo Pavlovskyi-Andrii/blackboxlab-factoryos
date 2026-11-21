@@ -2,7 +2,7 @@
  "id": "olympia",
  "language": "uk",
  "title": "Олімпія: перші Ігри",
- "voices": "MyCast two hosts: A = Charon, B = Kore (mycast.gemini_tts_pcm)",
+ "voices": "MyCast two hosts: A = Puck, B = Leda (mycast.gemini_tts_pcm)",
  "checked": "2026-11-16: dates, numbers and names checked against the lead of en.wikipedia.org/wiki/Ancient_Olympic_Games read through the FactoryOS Surfer; the other links are the standard Wikipedia articles for the remaining facts. No invented facts or quotes.",
  "sources": [
   "https://en.wikipedia.org/wiki/Ancient_Olympic_Games",

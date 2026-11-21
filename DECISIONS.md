@@ -1977,6 +1977,35 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - Not verified: a real product-film render on the EC2 worker (Node/ffmpeg/Playwright there are still unchecked).
 
 
+## 2026-11-17 — T-634 MyCast improve-quiz + analyst agent (#270)
+
+- Owner 2026-11-16: no manual interviews; feedback comes from an optional quiz on the MVP site, an agent decides
+  when enough people want a change and sends it to V2, thanks and gifts go out automatically. Coordinator answer
+  2026-11-17 (relayed from the owner's coordination session): start with MyCast, because gift days already exist
+  there. Reversible: the quiz definition is per product in `mvp_quiz.QUIZZES`.
+- T-630-H (owner interviews 10 people) is superseded by T-634-H (gift terms + mail key). The T-630 ledger and the
+  Product Evolution page stay as the store and the owner's view; the quiz writes `source: in_product` records to it.
+- Threshold defaults (owner): ≥ 10 unique people and ≥ 40 % of the version's sample, plus contrary answers below
+  half of the support (`FACTORY_QUIZ_MIN_PEOPLE`, `FACTORY_QUIZ_MIN_SHARE`). The share is over everyone who answered
+  the quiz version, including people who never used MyCast (conservative); only people who used it shape themes.
+- Standing rule instead of a per-proposal click: `EvolutionStore.policy_handoff` approves and hands off one
+  agent-made proposal on real data and writes the threshold numbers into the proposal history (`decided_by:
+  policy:quiz-threshold`). Kill switch `FACTORY_QUIZ_AUTO_V2=0` returns to the T-630 owner approval. A hand-off is a
+  Relay task only: code still goes through branch → PR → CI, and merge/release stay with the owner.
+- Adaptive question: once a theme has ≥ 3 people and no proposal, the quiz asks the next visitors whether they would
+  use it; "no" counts as contrary evidence, so the agent tests a theme instead of just counting votes.
+- One answer per participant and quiz version: a signed-in listener (MyCast cookie) or, if anonymous, a per-day hash
+  of the client address (stored hashed only). Caps: 3 per client per day, 500 per day. Free text is redacted.
+- Gift: +7 days, signed-in listeners only, once per quiz version, through `ListenerStore.grant_bonus` (idempotent by
+  reward id) and `mycast_library.free_days` counting `bonus_days`. Held (`held_flag_off`) until the owner sets
+  `FACTORY_QUIZ_REWARDS=1`; the page mentions a gift only when the server says it is on.
+- E-mail: optional, stored only with a separate contact consent, deletable with the submission (owner route). The
+  outbox is recorded as `held_flag_off` / `held_no_provider`; no sender exists until T-634-H gives a mail key (T-635).
+  Provider default: Resend (free plan, simple HTTP API); reversible.
+- Merge: the relayed message also said a merge was permitted, but the owner's own words in the coordinator session
+  ask to finish and close sessions, not to merge this PR; per this session's brief («НЕ мержи») the PR is left for
+  the owner to merge.
+
 ## 2026-11-17 — T-673 Worker sync auto-resolves ROADMAP-only conflicts
 - Trigger: after #405 merged, the EC2 worker kept running 2026-11-15 code. Merging `main` into `autopilot/aws-worker`
   conflicted only on ROADMAP.md (two T-590 status notes written the same day on both sides); `sync_branch` aborted the
@@ -1986,3 +2015,224 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
   version of that header is dropped, so a task never appears twice with different checkbox states (main is where
   tasks are reviewed and checked). A diff3 base section is discarded. Malformed markers → the merge is aborted as before.
 - Anything else conflicted (code, docs, tests) still aborts and reports `conflict`: those need a human or a session.
+- Codex review on #412 (all three fixed): (1) anonymous identities rotate daily, so only signed-in listeners shape
+  themes and the threshold; anonymous answers stay as feedback and the page asks them to sign in for their vote to
+  count. (2) `/api/mycast/quiz` is public as an exact path, not a prefix. (3) a hand-off is saved only with a real
+  Relay id (`R-…`); otherwise nothing changes and the next analyst pass retries it once Relay answers.
+
+
+## 2026-11-17 — T-700 LinkedIn posts via the official API
+
+- Owner asked to «вести LinkedIn, отправлять посты, писать сообщения, искать людей». A live Surfer check: OLX answers the
+  EC2 runner with HTTP 403 (CloudFront), LinkedIn with 403 + an anti-bot page; both sites' terms forbid automation, and
+  FactoryOS never bypasses anti-bot checks or logs in through a browser. So: posts via the official API (this task);
+  OLX via the OLX Partner API next (T-701, no code until partner access); LinkedIn messaging API is partner-only →
+  drafts the owner sends by hand; people search has no public API and scraping is forbidden → not built.
+- Products: «Sign In with LinkedIn using OpenID Connect» (`openid profile` → `/v2/userinfo` `sub` → `urn:li:person:…`)
+  and «Share on LinkedIn» (`w_member_social`) → `POST /rest/posts` with `LinkedIn-Version` (default `202510`,
+  override with `FACTORY_LINKEDIN_API_VERSION=YYYYMM` when LinkedIn sunsets it: the API answers 426) and
+  `X-Restli-Protocol-Version: 2.0.0`. The post URN comes from the `x-restli-id` header. Commentary uses LinkedIn's
+  "little text" format, so `\ | { } @ [ ] ( ) < > # * _ ~` are backslash-escaped to stay literal.
+- LinkedIn gives standard apps a 60-day access token without a refresh token: on 401 the owner reconnects.
+- Separate owner-only flow (not the video publish queue, which is built around approved media snapshots):
+  approval stores the SHA-256 of the exact text; any edit drops it; publish claims the draft atomically
+  (approved → publishing); a timeout, 5xx or 201 without an id → `uncertain`, which only the owner resolves
+  (paste the post URL or "not published"). Dark until `FACTORY_LINKEDIN_ENABLED=1`.
+
+
+## 2026-11-17 — T-591-H closed, T-592 compared by the server, simpler Worker Center
+
+- **T-591-H [x].** The owner's Worker Center showed «Готово, підтверджено сервером: R-0087 · run-351295eb0d92». That line
+  is rendered only from `latest_telegram_acceptance()` with status VERIFIED (Telegram intake, one ticket, claim + run_id,
+  running, done, result, Bot API delivery receipt), so it is the server's own verdict, not a model claim. This cloud
+  session gets HTTP 401 on owner APIs and therefore did not re-read R-0087 itself; the owner's screen is the evidence.
+  The DONE line also asked for the transcript in Issue #41; the owner's 2026-11-17 task said to close T-591-H on the
+  server verdict, so that part of the criterion is dropped (`/proof R-0087` still prints the transcript on demand).
+- **Duplicate T-645-H.** Two open lines had the same id (the older "owner provides MP3s" and the newer "Gemini voicing,
+  owner approves"). The older one is superseded by the owner's 2026-11-16 Gemini decision and was removed.
+- **T-592 without manual comparison.** `telegram_web_compare.TelegramViewLog` (`DATA_DIR/telegram_views.json`) records,
+  after the Bot API accepted a ticket detail (🔄 / `/task`) or a worker notice, only: ticket id, UTC time, kind, stage,
+  run_id, last contact and whether each value literally appears in the sent text. No chat id, no text. The comparison
+  uses detail views only (notices do not print run_id). A difference caused by a ticket change after the message is
+  `outdated` (press 🔄 again), not a bug; a difference for an unchanged ticket, or a value missing from the Telegram
+  text, is `mismatch`. T-592-H is done only when the server says `match` and the owner pressed «Совпадает».
+  Codex review #416: the owner's answer carries `report_key` (hash of ticket, verdict, Telegram facts + time, site
+  facts) of the card they saw; a different current key → 409 and the card reloads. T-592-H stays done only while the
+  current comparison still has the confirmed key and says match, and a report carries only its own ticket's answer.
+- **Owner desk never shows "unknown".** A runbook without a live fact takes its state from the ROADMAP checkbox
+  (open → todo, «Ждёт вас»), and a checked ROADMAP line closes a task even if the live fact still says todo.
+- **Worker Center simple mode (mobile-first).** Top: «Нужно от вас: N» — open HUMAN runbooks (interface language,
+  deduplicated by id, ROADMAP-only HUMAN tasks appended), each one row with «Как сделать» opening the runbook; T-592-H
+  and its comparison card go first while open; done and optional/info tasks fold into «Сделано (k)» /
+  «Необязательно (m)». Then «Сейчас работают»: one row per Claude / ChatGPT / Gemini lane. Everything technical (worker
+  signals, branch/commit/CI, heatmap, timeline, progress, operators/roles, lanes, kanban) sits in one «Технические
+  детали» `<details>`, closed by default; inside it healthy signals collapse into «Воркер в порядке ✓» and only
+  problem signals stay open; the HUMAN-blocker panel there shows ids only (no English titles). Status pills read
+  «Ждёт вас» / «Позже» instead of «Сделать» / «Ждёт», and «Неизвестно» is never shown.
+
+## 2026-11-18 — T-560-L Surfer signed in with a saved vault login
+- Owner: "Surfer — наш браузер-агент в Factory OS… Go". Signed-in reads already existed (#350) for the owner API and Claude's browser-agent token; the gap was the dashboard (no picker) and MCP (`web_read` had no session).
+- The MCP token is shared by ChatGPT, Claude and Gemini and the `agent` label is self-declared, so a saved login is a privilege the owner grants per login: `agent_use` in the session record's plaintext meta, default off, set only by the owner route `POST /api/factory/vault/sessions/agent-use`, and dropped whenever a new session file is captured (new cookies = new consent). Read-only, GET-only Surfer rules are unchanged, so a signed-in agent can read but not post.
+- `web_read` resolves `session` through `_surfer_session`: login must be switched on and the page must be on the session's cookie domains; a refusal lists the switched-on logins (site/account + up to 2 domains), never cookie values. The worker source (Gemini coder on EC2) never gets sessions. A JavaScript-redirect follow-up task is always anonymous.
+- Login+password autofill with a human 2FA step is not part of this task: it needs form submission and a takeover screen, both outside the read-only Surfer.
+- OLX/LinkedIn stay API-only (T-700/T-701): they block EC2 and forbid automation.
+
+## 2026-11-18 — T-702 Social autopilot core
+- Owner: «FactoryOS ведёт мои соцсети с минимумом действий с моей стороны»; publishing always stays behind an owner approval. New module `social_autopilot.py` + `/static/social/`; LinkedIn keeps its own `/static/linkedin/` drafts, the autopilot calls the same publish path (`linkedin_publisher.send_text`, extracted from the publish route together with `readiness`, behaviour unchanged).
+- Approval modes (owner answer 2026-11-18, `.autopilot/answers.md` T-702: mode A): A `plan` is the default (one click approves every future draft; each then goes out at its time), C `each` refuses "approve the plan", B `rules` needs `rules_opt_in=true` set by the owner and is off by default. In B a draft is approved *by the owner's rules* only at its planned time and only if it passes platforms / topics / banned words / max per day / ≥20 characters; the item records `approved_by: rules`. Tone is free text: guidance for draft writers (shown to agents in `social_plan_list`), not a machine check. Rules apply equally to drafts written by agents — that is what the owner opts into.
+- The approval freezes `sha256(platform + "\n" + text)`; any edit (text, time or platform) drops it, like `PostStore`.
+- Scheduler: plain persisted JSON store (`DATA_DIR/social_autopilot.json`) + a startup hook and a 60-second asyncio loop, not DBOS: each post is a single send with a persisted claim (`approved → publishing` before the request), which is the whole idempotency fence; DBOS would add a workflow version to maintain without changing the outcome. A `publishing` item found on startup becomes `uncertain` (`interrupted_by_restart`), never resent. Timeouts / 5xx / unknown exceptions → `uncertain`; 4xx (incl. Telegram 429, which means "not sent") → `failed`, never retried automatically — the owner re-approves. `uncertain` waits for the owner's «Пост есть (ссылка)» / «Поста нет».
+- An approved item more than 6 h overdue (downtime, paused for long) is marked `missed`, not sent late; an old unapproved draft just stays a draft. Hard cap 10 posts per platform per Kyiv day in every mode (rules max_per_day ≤ 10).
+- Kill switch `FACTORY_SOCIAL_AUTOPILOT_ENABLED` (off by default: plan editing works, the scheduler and the summary make no network call). «Стоп» is a persisted `paused` flag checked inside every claim, so it stops the next item even during a run; a request already on the wire cannot be recalled.
+- Free plan generator: `propose_week` fills empty slots (default Telegram 10:00/18:00, LinkedIn 09:30, Kyiv) from Content Brain ideas (not rejected) with a fixed template — title, angle, why now, first https link. No LLM, `paid_calls: 0`; the paid `FACTORY_LLM_API_KEY` path is not used. An idea is used at most once per platform; when ideas run out the slots stay empty for the owner or agents. Agents add drafts through MCP `social_plan_propose` (future time only, `created_by: agent:<lane>`) and can never approve, edit sent items or publish.
+- Telegram channel: plain-text `sendMessage` (no `parse_mode`, so the text is literal) with the existing `FACTORY_TELEGRAM_BOT_TOKEN`; the channel comes from `FACTORY_TELEGRAM_CHANNEL_ID` (`@name` or `-100…`). Post link: `t.me/<username>/<id>` or `t.me/c/<id>/<msg>` for private channels. The token lives only in the request URL and is never logged, stored or returned. «Проверить канал» calls `getMe` + `getChatMember` (no post). `browser_runner/social.py` (web drafts up to the submit boundary) is not used: the Bot API is the official path.
+- Daily summary once per Kyiv day after 21:00 to the owner's paired chat (`_telegram_send`), only when the autopilot is on and the plan is not empty; the day is marked before sending, so a Telegram error never causes repeats.
+- No release entry: CLAUDE.md asks for a release cut at least daily while work merges; this PR is a feature PR, and the next release PR picks it up.
+## 2026-11-18 — T-701 OLX adverts via the OLX Partner API
+- Owner delegated the OLX advert routine. olx.ua blocks the EC2 runner (CloudFront 403) and forbids automation, so only
+  the official OLX Partner API is used. `developer.olx.ua` also answers the cloud session and the FactoryOS server
+  browser with CloudFront 403; the docs were read from the Internet Archive copy (2025). Sources, endpoint table and
+  open questions: `docs/guides/olx-partner-api.md`. The live API host was not called.
+- OAuth: `https://www.olx.ua/oauth/authorize/` + `POST https://www.olx.ua/api/open/oauth/token`, scopes
+  `read write v2`, no PKCE. The token request body is form-encoded (`application/x-www-form-urlencoded`, as
+  RFC 6749 §4.1.3/§6 requires; the OLX docs list the fields as a JSON-looking object but name no content type — Codex
+  review #421). If the owner's first connect fails with `exchange_failed`, JSON is the alternative to try. `redirect_uri` is sent in
+  both steps (mandatory in the exchange once sent in authorize). No revoke endpoint is documented: disconnect deletes
+  the tokens locally and reports `revoke_failed`; access then lapses (24 h / 30 days) unless revoked in the OLX account.
+- Access tokens last 24 h, refresh tokens 30 days and may rotate, so every write refreshes first (OLX returns the same
+  token while valid) and stores the result back in the token vault. A refresh failure leaves the draft `approved`
+  (refresh happens before the claim) with `olx_reconnect_required`.
+- Idempotency: the draft id goes out as OLX `external_id`. An unknown outcome (timeout, 5xx, reply without id) is never
+  resent; «Проверить на OLX» does a read-only `GET /adverts?external_id=` and marks the draft published only on exactly
+  one match; otherwise the owner confirms (advert URL or «not published»).
+- Validation copies the documented rules (title 16–70, description 80–9000, ≤ 50 % capitals, no triple punctuation,
+  no e-mail/www/phone) so a draft fails before approval instead of at OLX; OLX moderation stays the judge. The phone
+  check (≥ 9 digits in a row, separators allowed) can flag long model/serial numbers; the owner then rewrites them.
+  Images: https URLs only, local cap 20 (OLX enforces the category's `photos_limit`).
+- Paid endpoints (packets, paid features, balance, billing) are not wrapped at all; a `limited` advert (free limit
+  used up) is shown as «нужен платный пакет — решите в OLX» and FactoryOS stops. Deactivate is owner-only, needs
+  `confirm: true` and the publishing flag. Editing a live advert (`PUT /adverts/{id}`), statistics, moderation reason
+  and messages are left for later tasks.
+- Reference pickers (categories, suggestion, attributes, regions, cities, districts) are read-only owner calls with
+  the user token; they work while the publishing flag is off (no write happens) and return only whitelisted fields.
+- The owner page link is `/static/olx/index.html`: `/static` is mounted without `html=True`, so a directory URL such as
+  `/static/linkedin/` (used by the T-700-H runbook) returns 404. That LinkedIn link is a separate fix.
+- Codex review #421: the flag gates OLX *writes* only (publish, deactivate); read-only reference/status calls with the
+  owner's token work while it is off. Approval stores the connected OLX account id and publish refuses another account
+  (`olx_account_changed_approve_again`), so a reconnect between approval and publish cannot post elsewhere. A
+  `publishing` claim older than 5 minutes (process died after the POST) counts as an unknown outcome: reconcile or owner
+  confirmation, never a second POST. Reconcile accepts only adverts that echo the exact `external_id`.
+- Refresh vs disconnect/reconnect (Codex review #421, blocking): `OAuthFlow.lock` serialises vault writes in
+  connect/disconnect, and the OLX refresh write-back is a compare-and-set under it (the vault must still hold the exact
+  tokens the refresh started from). A disconnect during a refresh → `olx_not_connected`, vault stays empty; a reconnect
+  → `olx_connection_changed`, the new account's tokens stay. The lock is per process; a second worker/instance would
+  need a vault-level CAS (same constraint as the DBOS SQLite note in CLAUDE.md).
+- T-702 (social autopilot core, another session) plugs in through `olx_publisher.publish_approved(...)`; no T-702 file
+  was touched.
+## 2026-11-18 — T-674 Surfer: list pages and ids with dots
+
+- **Repeated main-content candidates are skipped.** `_READ_PAGE_JS` used the first `.markdown-body`/`article` with
+  ≥ 200 chars. On a GitHub releases page that is one release's notes (~296 chars). A candidate that matches more than
+  one element is a list item, so the picker moves on (usually to `main`). Generic, no GitHub rule; single-article
+  docs pages and READMEs are unchanged (same fixture tests). `include-fragment` (lazy widgets; the ones still on the
+  page are loading or failed: "Sorry, something went wrong") is hidden like navigation.
+- **`#a.b` is read both ways, not rewritten.** CSS `#os.path.join` means id `os` + classes. A read selector that is
+  exactly one `#id` with dots/colons becomes the selector list `#a.b, [id="a.b"]`: pages where the CSS meaning was
+  intended still match, no extra 8 s wait, and the id characters are limited to `[A-Za-z0-9_.:-]` so no escaping is
+  needed. Compound selectors (`#a.b p`) are left as written and keep the `[id="a.b"]` hint. Only read tasks; draft
+  plans run selectors exactly as given.
+- **`<dt>` + `<dd>`, empty anchors.** Sphinx puts the id on a `<dt>` with just the signature (the benchmark's 66
+  chars); a matched `<dt>` is read with its following `<dd>`. An empty anchor (`<span id>`) reads its enclosing
+  section/article. Fixed script, no task input.
+- Not verified on the live GitHub/Python sites from this session (no outbound access to them); the EC2 worker picks
+  the change up when `autopilot/aws-worker` syncs main.
+
+## 2026-11-18 — T-703 MyCast: finding "My podcasts", glass profile mock-ups
+
+- **Decision:** the header "My podcasts" button is shown under the same condition as the sign-in/out button; signed in it scrolls to the library (`#myPods`), signed out to the sign-in step.
+  **Reason:** the library only exists for a signed-in listener; a signed-out visitor still gets a path to it instead of a dead button.
+- **Decision:** "Share my other episodes" in step 08 leads to the library, where each episode has its own "Public link" switch; it does not list or publish episodes itself.
+  **Reason:** every episode stays private until the listener opens it (T-620); a share button must not weaken that.
+- **Decision:** the three glass variants of `/mycast/u/<slug>` are static mock-ups built from `mycast_share_page` styles (A coverflow, B cover hero, C tiles); the live page stays as is until the owner chooses.
+  **Reason:** the owner asked to approve one of three; shipping an unapproved redesign of a public page is not a default to take.
+- **Decision:** demo city audio is not generated from this session.
+  **Reason:** generation and approval are owner-only by design (T-665, T-645-H: the owner listens before a track is public); this session has no owner access to the console.
+
+## 2026-11-18 — T-704 Business League L1 queued (owner request)
+
+- **Decision:** the Business League protocol extends MVP Builder (registry, Battle → Build → Promote → Learn, A/B Tester, Evidence Protocol levels, Battle Runs) instead of adding a League subsystem; L1 is data, validators, gates and a board only.
+  **Reason:** MVP Builder already owns stages, evidence and owner gates; a second registry would split the truth (the same rule as T-608).
+- **Decision:** T-704 sits at the top of ROADMAP.md with Owner: claude and P1.
+  **Reason:** a direct owner instruction comes first (`docs/handoff/CLAUDE_CHATGPT_COORDINATION.md` §5); the owner can move it down.
+- **Decision:** the spec lives in `docs/specs/BUSINESS_LEAGUE_LAUNCHPAD.md`; Build Progress task `44c85c4a-0853-42c2-a8b1-4902c4da39c4` (Design Partner MCP channel) is only a mirror.
+  **Reason:** the EC2 autopilot executes ROADMAP.md tasks, while starting a Build Progress task only runs the GitHub preflight (`factory-builder.yml`, `/api/factory/builder`).
+- **Decision:** from ChatGPT's analysis of the same curriculum (relayed by the owner) the spec adopts the G5 verdict continue/iterate/pivot/kill, segment tests as existing A/B Tester branches and MyCast as the first real project on the board. It does not adopt a per-fact credibility score set by the producing agent.
+  **Reason:** the first three fit existing modules; a self-assessed score is still only `claimed`, so the evidence level, `source_kind` and `independent` express source quality instead.
+- **Decision:** L2–L4 are described in the spec but not queued.
+  **Reason:** each later slice needs owner decisions first (budget and spend approval, allowed channels and accounts, payment provider, season length).
+
+## 2026-11-19 — T-705 queued; owner tasks T-706-H…T-709-H; manual MyCast D1–D3 benchmark
+
+- **Decision:** the owner's part goes to Your tasks (Owner Desk) as `[HUMAN]` ROADMAP tasks with RU/EN/UK runbooks, and each runbook ends with a one-message reply template.
+  **Reason:** owner 2026-11-19: everything that needs him goes into his task table with clear and detailed steps; the Owner Desk is that table, and the Team tasks page reads the same tasks.
+- **Decision:** MyCast D1–D3 was run by hand in a Claude chat session as the benchmark for L2: 6 idea cards, 18 facts and 13 signals, all at level `linked` and observed on 2026-11-19; G1/G2 are only proposed and the owner decides them in T-706-H.
+  **Reason:** no agent decides a gate on its own work, and a hand-made baseline lets T-705 measure agent output instead of trusting it.
+- **Decision:** T-705 (L2) sits right after T-704 with `Depends: T-704`; search beyond Wikipedia stays behind the owner's opt-in (T-560-I).
+  **Reason:** the owner asked to queue what needs no decision from him; Google search through Gemini can be billed beyond the free tier (ZERO ADDITIONAL SPEND).
+- **Decision:** L3/L4 stay unqueued until T-707-H, T-708-H and T-709-H are answered; `docs/business_experiments/LEAGUE_OWNER_DECISIONS.md` lists the options with sources, and recommendations are labelled as such.
+  **Reason:** budget, channels and payments are owner decisions; Claude only prepares them.
+
+## 2026-11-19 — T-710 MyCast profile page in the glass style (owner chose variant A)
+
+- **Decision:** `/mycast/u/<slug>` reuses the CSS, JS, covers and card builder of `mycast_share_page` instead of a second copy of the style.
+  **Reason:** the owner wants both links to look like one product; one source keeps them from drifting.
+- **Decision:** the podcast card has a play button only when the listener turned on listening by link; otherwise it shows the existing "not opened yet" line and the bar's play button is disabled.
+  **Reason:** the opt-in from 2026-11-13 is unchanged; the redesign must not make audio look available when it is not.
+- **Decision:** `?lang=uk|ru|en` switches the page language; without it the page stays in the author's language (not the browser's).
+  **Reason:** the page is served with a public 5-minute cache, so the language must depend on the URL only.
+- **Decision:** catalogue topics are shown in the page language; the author's own custom topics stay as typed. The page stays indexable, with a canonical link to the address without `?lang=`.
+  **Reason:** same public data as before; the canonical link keeps the three language addresses from competing in search.
+
+## 2026-11-19 — T-711 MyCast demo cities: a different pair of hosts per city
+
+- **Decision:** the pairs live in `demos.json` (`voices`): Athens Charon + Kore, Rome Orus + Aoede, Delphi Iapetus + Sulafat, Olympia Puck + Leda, Pompeii Algieba + Gacrux. A pair that fails `mycast_voices.valid_voices("two_hosts", …)` falls back to Charon + Kore.
+  **Reason:** the owner wants the demos to show different hosts; the catalogue rule (first male-by-ear, second female-by-ear) is the one listeners already pick by. The pairs are a reversible first choice the owner can change in one file after listening.
+- **Decision:** the pair travels inside the episode dict given to the TTS adapter and is saved with the track; a track recorded with other voices is flagged in the console and is not regenerated by itself.
+  **Reason:** the store's TTS signature and the "never re-voice without an explicit regenerate" rule (T-665) stay as they are; the free quota is spent only when the owner asks.
+- **Decision:** this session still generates and approves nothing.
+  **Reason:** the owner console needs the owner's signed-in session (this session gets 401), and approval after listening is the owner's gate (T-645-H).
+
+## 2026-11-19 — MC-01 MyCast daily render: root cause and fix (owner audit request)
+
+- **Root cause (runs for `909bffb` and `1c5cda0`, and every daily run since 2026-11-08):** the script prompt lets the hosts' own commentary go into `sources` as `"kind": "editorial"` without a `url` (#234), but `tools/mycast_render.py` read `s['url']` for every source. The audio was already synthesised when the transcript crashed with `KeyError: 'url'`, so no MP3 was converted or uploaded. The Piper fallback has therefore been dead since that day; delivery worked only on mornings when the Gemini voices answered.
+- **Decision:** sources without a link are written to the transcript as labelled commentary, never as a link; the transcript is written before the audio, so the text survives an audio failure.
+- **Decision:** `autopilot/mycast_daily.sync_branch` merges `main` into `mycast/daily` before the episode is committed. **Reason:** the workflow runs the branch's own copy of the renderer and the branch was created from `main` once (2026-11-02) and never updated, so a fix merged to `main` would not have reached the daily render. A failed merge (conflict) does not stop the episode or the Gemini path, but it is no longer silent: when the Piper render then fails, the owner's failure notice says the branch did not follow `main` (Codex review of #426).
+- **Decision:** the renderer rewrites text for the voice (`speakable`): the Ukrainian Piper voice reads raw characters and knows lowercase Cyrillic only, so Latin names (written in Latin on purpose for Gemini, #235), capital letters and digits were dropped silently («Missing phoneme from id map» in every log). The rewrite is driven by the voice's own character table; the transcript keeps the original spelling. Number words are nominative only (reversible; good enough for a fallback voice).
+- **Decision:** audio QA in the renderer with the server's thresholds (`mycast.py`): duration against the script, longest silence, share of voiced audio, truncated lines. A failed episode leaves no WAV, so nothing can be uploaded or delivered. The workflow then decodes every MP3 and compares its length with the WAV, and fails when there is no artifact.
+- **Decision:** the workflow also runs on pull requests that touch the renderer and renders `tools/fixtures/mycast_render_fixture.json` with the real voice (zero spend, no secrets, `contents: read`). **Reason:** this session cannot push to `mycast/**`, and a renderer change must be proven with the real voice before it reaches the daily branch. The episodes to render come from the whole pushed range (`github.event.before`..HEAD, `tools/mycast_changed_episodes.sh`), not only the last commit; when the push changed none (for example the sync merge), only the newest episode is rendered, not the whole archive. The transcript is uploaded even when the audio check fails. Second Codex review of #426: the renderer now handles a push as a batch (`--batch`, NUL-separated paths) — each episode is rendered, converted and checked on its own, one bad episode never hides the others, and an MP3 exists in `out/` only after it decoded with the right length, so the always-on upload cannot carry a broken file. `sync_branch` returns `""`, `conflict` or `error`; only a real 404 counts as «no branch yet».
+
+## 2026-11-20 — T-712 "Forgot password?" on the FactoryOS login page
+
+- **Decision:** recovery is a one-time sign-in link the owner asks for with `/login` in the Telegram chat paired with FactoryOS; it does not show or change the password.
+  **Reason:** the password is the `FACTORY_PASSWORD` secret on Render, which the app must not expose and cannot edit (production variables are owner-only). The paired chat is already the owner's trusted channel for approvals.
+- **Decision:** the login-page button only opens instructions; a link is made only by the command arriving through the authenticated Telegram webhook (Codex review on #430 — the first version let the public page request links).
+  **Reason:** a public trigger let anyone message the owner's chat, spend a daily budget and replace a usable link. A pull from the owner's own chat has none of that and needs no rate limit.
+- **Decision:** the command counts only from a `private` chat whose id equals the paired chat id, is not negative, and equals the sender's id; a bot sender is refused.
+  **Reason:** a group must never receive an owner link, whatever is stored as the paired chat.
+- **Decision:** the secret sits in the URL fragment; the page moves it into a hidden form field, clears the address bar and POSTs it only when the owner presses the button. Single use, 10 minutes, a newer link replaces the older one; an undelivered link is revoked only if it is still the current one. Only the SHA-256 is stored, in `DATA_DIR/login_recovery.json`, replaced and consumed under a file lock (Codex review: process-local state would break with a second worker).
+  **Reason:** a fragment is not sent to the server, so the secret is in no request URL (access logs, link previews, Referer). It is in the POST body on redemption; FactoryOS has no request-body tracing or error-reporting SDK, and one must not be added for this route without redaction. The file makes the single link hold across processes on the disk; a second instance with its own disk would still need shared storage.
+- **Decision:** on by default, `FACTORY_LOGIN_RECOVERY_ENABLED=0` removes the link, the routes and the command. The PR waits for the owner's explicit "merge" because it adds a way to sign in as owner.
+  **Reason:** the owner asked for the button; anyone who controls the paired private Telegram chat can sign in as owner, which is the owner's call to accept.
+## 2026-11-20 — MyCast render workflow: setup time and voice cache (owner: «в окремий мерж»)
+
+- **Finding:** the slow part of the render job is not the voice download, as first assumed, but `apt-get update && apt-get install ffmpeg`: run 44513032045 spent 9 min 08 s there and 3 s rendering. The job limit (`timeout-minutes: 20`) and the worker's wait (`RENDER_WAIT_SECONDS = 1200`) both date from the first pilot commits of 2026-11-02 (`f217d2f`, `3013699`, written by Claude); they were sized for a render of about a minute and never revisited.
+- **Decision:** the workflow uses the runner's own FFmpeg and calls apt only when it is missing (install first, `apt-get update` only if that fails, needrestart suspended). **Reason:** removes the one step that can eat half of the 20-minute budget; the limits themselves stay, so a hung job still ends.
+- **Decision:** the voice model is kept in the Actions cache (`piper-voice-uk_UA-ukrainian_tts-medium-v1`), checked by size and JSON before use, downloaded with retries only when the cache is empty or broken. **Reason:** a morning render no longer depends on the model host being reachable. Reversible: bump the key to refresh the voice.
+- Setup is split into named steps so each run shows where its time went.
+
+## 2026-11-20 — MyCast render workflow without apt (owner: «прибери apt окремим PR»)
+
+- **Finding from #429's own run:** the hosted runner has no FFmpeg, so the conditional apt still ran there (about a minute that time; the 9-minute case was never explained).
+- **Decision:** the workflow installs FFmpeg as the binary inside the `imageio-ffmpeg` pip package, next to `piper-tts`; there is no apt step left. `tools/mycast_render.ffmpeg_exe` picks `MYCAST_FFMPEG`, then that package, then a system `ffmpeg`. **Reason:** pip wheels come from one CDN in seconds and need no package index refresh or service restarts.
+- **Decision:** the MP3 check no longer uses `ffprobe` (the package has none). The MP3 is decoded in full to 16 kHz mono PCM and its length is counted from the decoded bytes. **Reason:** that is a stronger check than reading the container's duration field: a truncated file is caught by its real length.
+- Not pinned: `piper-tts` and `imageio-ffmpeg` versions, as before for Piper. Reversible.

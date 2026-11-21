@@ -160,6 +160,26 @@ class ListenerStore:
         """#305: called under the store lock when an episode really reached the listener. Decides once, via the ledger."""
         return mycast_library.credit(data, rec, now)
 
+    def grant_bonus(self, slug: str, days: int, key: str) -> bool:
+        """T-634: add gift days once per key (a quiz reward id). False when the listener is gone or the key was used."""
+        if not isinstance(days, int) or not 0 < days <= 31 or not key:
+            return False
+        now = int(self.clock())
+        with self._lock:
+            data = self._load()
+            rec = data["listeners"].get(slug)
+            if not rec:
+                return False
+            grants = rec.setdefault("bonus_grants", [])
+            if key in grants:
+                return False
+            grants.append(key)
+            del grants[:-50]
+            rec["bonus_days"] = int(rec.get("bonus_days", 0)) + days
+            self._audit(rec, now, "bonus_days", f"+{days} {key}"[:80])
+            self._save(data)
+            return True
+
     def set_episode_public(self, slug: str, day: str, public: bool) -> dict:
         with self._lock:
             data = self._load()
@@ -541,7 +561,7 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
         return resp
 
     @app.get("/mycast/u/{slug}", include_in_schema=False)
-    def mycast_public_page(slug: str):
+    def mycast_public_page(slug: str, lang: str = ""):
         """Owner 2026-11-13: a shareable podcast page (DNA, optional player, "make one like this"), not the editor."""
         rec, profile = _public(slug)
         if not rec:
@@ -549,7 +569,7 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
         if profile is None:                                   # an old or damaged code: the editor still opens it
             return RedirectResponse(f"{PAGE}#p={rec['code']}&from={slug}", status_code=307)
         import mycast_public
-        return HTMLResponse(mycast_public.render_page(rec, profile, page=PAGE), headers={"Cache-Control": "public, max-age=300"})
+        return HTMLResponse(mycast_public.render_page(rec, profile, page=PAGE, lang=str(lang or "")[:5]), headers={"Cache-Control": "public, max-age=300"})
 
     def _public(slug: str):
         rec = store.get(slug) if SLUG_RE.match(slug or "") else None

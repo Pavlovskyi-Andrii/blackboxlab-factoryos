@@ -36,7 +36,8 @@ from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as 
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from relay_acceptance import latest_telegram_acceptance
-from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes
+from telegram_web_compare import StaleComparison, TelegramViewLog, compare as telegram_web_compare, confirmation_for, owner_status as telegram_compare_status
+from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes, roadmap_states
 from mvp_factory import MvpRegistry, install_mvp_factory_routes
 from mybrief import FeedbackStore as MyBriefFeedback, install_mybrief_routes, load_catalog as mybrief_catalog
 from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_mvp_project_once
@@ -58,6 +59,7 @@ from mycast_calendar import ListenerCalendar, install_calendar_routes
 from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
 from mycast import GeminiTTSError as MycastGeminiTTSError
 from mycast_demo_audio import DemoAudioStore, install_mycast_demo_audio_routes
+import login_recovery
 import evidence as _evidence
 from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
@@ -67,6 +69,9 @@ from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_rout
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import youtube_publisher
+import linkedin_publisher
+import social_autopilot
+import olx_publisher
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
@@ -74,7 +79,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.12.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.14.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -752,8 +757,59 @@ class TelegramBridgeNotify(BaseModel):
     task_id: Optional[str] = None
 
 
+# T-592: facts (never text or chat ids) of every ticket view the bot delivered, for the server-side Telegram ↔ website check.
+TELEGRAM_VIEWS = TelegramViewLog(DATA_DIR / "telegram_views.json")
 install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send,
-                     authorize_gemini_worker=_gemini_worker_authorized)
+                     authorize_gemini_worker=_gemini_worker_authorized, view_log=TELEGRAM_VIEWS)
+
+
+def _telegram_web_report(ticket_id: str = "") -> dict:
+    """T-592 card: the newest ticket the bot showed in detail (or the T-591 acceptance ticket) vs the website now."""
+    tid = str(ticket_id or "").strip().upper()
+    if not tid:
+        latest = TELEGRAM_VIEWS.latest()
+        if latest:
+            tid = latest["ticket_id"]
+        else:
+            acc = latest_telegram_acceptance(RELAY_STORE.list(limit=100000))
+            tid = (acc or {}).get("ticket_id") or ""
+    ticket = RELAY_STORE.get(tid) if tid else None
+    view = RELAY_QUEUE.view(ticket) if ticket else None
+    report = telegram_web_compare(TELEGRAM_VIEWS.latest(tid) if tid else None, view)
+    report["ticket_id"] = tid or report.get("ticket_id") or ""
+    report["ticket_title"] = str((ticket or {}).get("title") or "")[:120]
+    report["confirmation"] = confirmation_for(TELEGRAM_VIEWS.latest_confirmation(), report)
+    return report
+
+
+class TelegramWebConfirm(BaseModel):
+    ticket_id: str
+    verdict: str
+    key: str = ""  # report_key of the card the owner saw
+
+
+@app.get("/api/factory/telegram-web-compare")
+def telegram_web_compare_view(request: Request, ticket_id: str = ""):
+    if (request_identity(request) or {}).get("role") != "owner":
+        raise HTTPException(403, "Owner access required")
+    return _telegram_web_report(ticket_id)
+
+
+@app.post("/api/factory/telegram-web-compare/confirm")
+def telegram_web_compare_confirm(payload: TelegramWebConfirm, request: Request):
+    """The owner's one action for T-592-H: «Совпадает» / «Не совпадает» next to the server verdict."""
+    if (request_identity(request) or {}).get("role") != "owner":
+        raise HTTPException(403, "Owner access required")
+    report = _telegram_web_report(payload.ticket_id)
+    if not report["ticket_id"]:
+        raise HTTPException(404, "No Relay ticket to compare")
+    try:
+        entry = TELEGRAM_VIEWS.confirm(report["ticket_id"], payload.verdict, report, payload.key)
+    except StaleComparison as exc:
+        raise HTTPException(409, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "confirmation": entry, "report": {**report, "confirmation": entry}}
 
 def _agent_relay_forbidden_tokens():
     """PR #314 review B4: the agent relay tokens must not reuse any broader FactoryOS credential."""
@@ -788,7 +844,13 @@ def _owner_desk_status():
         out["T-591-H"]={"state":"todo","detail_key":"accept_partial","args":{"ticket":acc["ticket_id"],"missing":", ".join(acc["missing"]) or (acc["problems"][0][:80] if acc["problems"] else "—")}}
     else:
         out["T-591-H"]={"state":"todo","detail_key":"accept_none"} if tg.get("paired") else {"state":"blocked","detail_key":"waits","args":{"task":"T-506"}}
-    out["T-592-H"]={"state":"todo","detail_key":"can_start"} if out["T-591-H"]["state"]=="done" else {"state":"blocked","detail_key":"waits","args":{"task":"T-591-H"}}
+    confirmation=TELEGRAM_VIEWS.latest_confirmation()
+    try:
+        current=_telegram_web_report((confirmation or {}).get("ticket_id") or "")
+    except Exception:
+        current=None
+    out["T-592-H"]=telegram_compare_status(confirmation,
+                                           out["T-591-H"]["state"]=="done" or roadmap_states().get("T-591-H") is True,current)
     out["T-593-H"]={"state":"todo","detail_key":"t593_live"}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
@@ -905,7 +967,7 @@ def _mycast_demo_tts_no_retry(key, episode):
     """T-665: the MyCast two-host TTS without its 429 wait-and-retry: a 429 stops the owner's run at once."""
     def _stop(_seconds):
         raise MycastGeminiTTSError("rate_limited")
-    return gemini_tts_pcm(key, episode, voices=("Charon", "Kore"), sleep=_stop)
+    return gemini_tts_pcm(key, episode, voices=tuple(episode.get("voices") or ("Charon", "Kore")), sleep=_stop)
 
 
 MYCAST_DEMO_AUDIO = DemoAudioStore(DATA_DIR / "mycast_demo_audio", api_key=lambda: FACTORY_GEMINI_API_KEY,
@@ -1228,6 +1290,33 @@ def _browser_session_state(provider: str, account: str):
     return sessions.load(ref, workspace_id=workspace, provider=provider, account_binding_id=account).reveal()
 
 
+def _surfer_session(raw, url: str) -> dict:
+    """T-560-L: MCP web_read may use a saved vault login only if the owner switched "allow agents" on for it and the
+    page is on one of its cookie domains. The refusal lists the allowed logins (site/account only, no secrets)."""
+    from urllib.parse import urlsplit
+    from browser_runner.sessions import VaultError
+    if isinstance(raw,dict):provider,account=str(raw.get("provider") or ""),str(raw.get("account") or "")
+    else:provider,_,account=str(raw or "").strip().partition("/")
+    provider,account=provider.strip().lower(),(account.strip() or "default")
+    parts=_vault_parts(required=False)
+    workspace=tenancy.binding_workspace()
+    allowed=[e for e in (parts[1].entries(workspace) if parts else []) if e.get("agent_use") is True]
+    listing=", ".join(f"{e['provider']}/{e['account']} ({', '.join((e.get('domains') or [])[:2])})" for e in allowed[:5]) or "none"
+    if not parts or not _VAULT_SLUG.match(provider) or not _VAULT_ACCOUNT.match(account):
+        raise HTTPException(403,f"saved login not allowed for agents; allowed: {listing}")
+    try:
+        ok=parts[1].agent_use(workspace_id=workspace,provider=provider,account_binding_id=account)
+    except VaultError:
+        ok=False
+    if not ok:
+        raise HTTPException(403,f"saved login not allowed for agents; allowed: {listing}")
+    domains=_browser_session_domains(provider,account)
+    host=(urlsplit(url).hostname or "").lower()
+    if not domains or not any(host==d or host.endswith("."+d) for d in domains):
+        raise HTTPException(400,f"the page is not on a domain of {provider}/{account}: {', '.join(domains[:3]) or 'none'}")
+    return {"provider":provider,"account":account}
+
+
 install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized,
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
@@ -1235,12 +1324,18 @@ install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidenc
 MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
 install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
 from mvp_evolution import EvolutionStore, install_mvp_evolution_routes  # noqa: E402
+MVP_EVOLUTION = EvolutionStore(DATA_DIR / "mvp_evolution.json", project_exists=lambda pid: _mvp_project(pid) is not None)
+_mvp_evolution_ticket = lambda title, body, key, lane: RELAY_STORE.create(  # noqa: E731
+    title, body, source={"channel": "mvp-evolution", "source_key": key, "url": ""}, created_by="mvp-evolution", owner=lane)[0]
 install_mvp_evolution_routes(  # T-630 #270: consented feedback -> themes -> owner-approved V2 proposal -> one Relay ticket
-    app, EvolutionStore(DATA_DIR / "mvp_evolution.json", project_exists=lambda pid: _mvp_project(pid) is not None),
-    request_identity, ticket_lookup=RELAY_STORE.get, ticket_verified=_mvp_ticket_done,
-    mybrief_entries=MYBRIEF_FEEDBACK.consented_entries,
-    create_ticket=lambda title, body, key, lane: RELAY_STORE.create(
-        title, body, source={"channel": "mvp-evolution", "source_key": key, "url": ""}, created_by="mvp-evolution", owner=lane)[0])
+    app, MVP_EVOLUTION, request_identity, ticket_lookup=RELAY_STORE.get, ticket_verified=_mvp_ticket_done,
+    mybrief_entries=MYBRIEF_FEEDBACK.consented_entries, create_ticket=_mvp_evolution_ticket)
+from mvp_quiz import QuizService, install_mvp_quiz_routes  # noqa: E402
+install_mvp_quiz_routes(  # T-634 #270: optional MyCast quiz -> analyst -> V2 task via Relay; gifts/mail held behind flags
+    app, QuizService(DATA_DIR / "mvp_quiz.json", MVP_EVOLUTION, create_ticket=_mvp_evolution_ticket,
+                     grant_days=MYCAST_LISTENERS.grant_bonus), request_identity,
+    listener_fn=lambda request: mycast_unsign(FACTORY_SECRET, request.cookies.get(MYCAST_COOKIE, ""), time.time()) or "",
+    client_fn=_mycast_client_id)
 from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
 async def _ab_content_job(title, brief, job_id):
     """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
@@ -1347,7 +1442,7 @@ async def auth_middleware(request: Request, call_next):
     mycast_redirect = _mycast_host_response(request)
     if mycast_redirect is not None:
         return mycast_redirect
-    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
+    public_paths = {"/api/mycast/quiz", "/login", "/login/recover", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
                     "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
@@ -1447,6 +1542,7 @@ def login_page(request: Request, lang: str = "en"):
     .langs{{display:flex;gap:5px;justify-content:flex-end;margin-bottom:14px}}.langs a{{font-size:10px;color:#8297ac;text-decoration:none;border:1px solid #294761;padding:5px 7px;border-radius:7px}}.langs a.active{{color:#fff;background:#153b63}}
     .sep{{display:flex;align-items:center;gap:10px;color:#6f8599;font-size:11px;margin:16px 0 12px}}.sep:before,.sep:after{{content:'';height:1px;background:#234158;flex:1}}
     .googleWrap{{display:flex;justify-content:center}}
+    .forgot{{margin:12px 0 0;text-align:center}}.forgot a{{color:#5cc8ff;font-weight:600}}
     </style>{google_script}</head><body><div class='box'>
     <div class='langs'><a href='/login?lang=en' class='{"active" if lang=="en" else ""}'>EN</a><a href='/login?lang=uk' class='{"active" if lang=="uk" else ""}'>УКР</a><a href='/login?lang=ru' class='{"active" if lang=="ru" else ""}'>RU</a></div>
     <div class='cube'></div><h1>Blackbox Lab — FactoryOS</h1><div class='sub'>{copy["sub"]}</div>
@@ -1456,6 +1552,7 @@ def login_page(request: Request, lang: str = "en"):
       <input name='password' type='password' placeholder='{copy["password"]}' autocomplete='current-password' required>
       <button type='submit'>{copy["enter"]}</button>
     </form>
+    {login_recovery.link_html(lang)}
     <div class='googleWrap'>{google_html}</div>
     </div></body></html>""")
 
@@ -1467,6 +1564,20 @@ def login(username: str = Form(...), password: str = Form(...), lang: str = Form
         retry={"en":"Try again","uk":"Спробувати ще раз","ru":"Попробовать снова"}[lang]
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>{retry}</a>", status_code=401)
     return _auth_cookie_response(f"/{lang}","owner","")
+
+LOGIN_RECOVERY=login_recovery.LoginRecovery(base_url=lambda: FACTORY_PUBLIC_BASE_URL,state_path=DATA_DIR/"login_recovery.json")
+login_recovery.install_login_recovery_routes(app,LOGIN_RECOVERY,sign_in=lambda lang: _auth_cookie_response(f"/{lang}","owner",""))
+
+def _login_recovery_reply(message: dict, owner_chat: str) -> bool:
+    """T-712: `/login` from the owner's private paired chat gets a one-time sign-in link, sent without a link preview."""
+    if not login_recovery.enabled() or not login_recovery.owner_private_command(message,owner_chat):
+        return False
+    text=LOGIN_RECOVERY.message("ru")
+    try:
+        _telegram_api("sendMessage",{"chat_id":str(owner_chat),"text":text,"disable_web_page_preview":True})
+    except Exception:
+        LOGIN_RECOVERY.revoke(text)                      # undelivered: the link must not stay usable
+    return True
 
 @app.post("/auth/google")
 def google_login(credential: str = Form(...), lang: str = Form("en")):
@@ -1582,6 +1693,8 @@ async def telegram_webhook(request: Request):
             try:_telegram_api("answerCallbackQuery",{"callback_query_id":g_cb["id"]})
             except Exception:pass
         return {"ok":True,**result}
+    if _login_recovery_reply(g_msg,owner_chat):
+        return {"ok":True,"action":"login_link"}
     if g_chat.get("type")=="private" and owner_chat and str(g_chat.get("id") or "")==owner_chat:
         reply=MORNING_BRIEF.handle_private(str(g_msg.get("text") or ""))
         if reply:
@@ -1635,7 +1748,7 @@ async def telegram_webhook(request: Request):
             _telegram_send_to(chat,"🎙 Не удалось распознать голосовое ("+VOICE_REASONS.get(reason,reason)+").\n"
                               "Задачу не создаю: без текста исполнителю нечего делать. Отправь её текстом или голосом ещё раз.")
             return {"ok":True,"action":"voice_not_transcribed","reason":reason}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,_github_read_token()),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,_github_read_token()),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES,view_log=TELEGRAM_VIEWS)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}
@@ -1836,7 +1949,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+agent_workspace.TOOLS
+]+web_surfer.TOOLS+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -1885,7 +1998,10 @@ async def factory_mcp(request: Request):
                     return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,**_factory_mcp_text(data["error"])}})
                 result=_factory_mcp_text(data)
             elif name in web_surfer.TOOL_NAMES:
-                result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH))
+                result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH,sessions=_surfer_session))
+            elif name in social_autopilot.MCP_TOOL_NAMES:
+                # T-702: agents read the plan and add drafts only; approval and publishing stay owner-only.
+                result=_factory_mcp_text(social_autopilot.call_tool(SOCIAL_AUTOPILOT,name,args,mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -1987,6 +2103,8 @@ PORTABLE_INTEGRATIONS = {
     "Instagram": {"category":"publishing","auth_mode":"via_metricool","transport":"metricool"},
     "TikTok": {"category":"publishing","auth_mode":"via_metricool","transport":"metricool"},
     "HubSpot": {"category":"crm","auth_mode":"oauth","transport":"direct"},
+    "LinkedIn": {"category":"publishing","auth_mode":"oauth","transport":"direct"},
+    "OLX": {"category":"marketplace","auth_mode":"oauth","transport":"direct"},
 }
 CONNECTIONS = {
     "Metricool": {"state":"not_configured","detail":"Publishing workspace not configured"},
@@ -1994,6 +2112,8 @@ CONNECTIONS = {
     "Instagram": {"state":"not_configured","detail":"Connect a publishing account"},
     "TikTok": {"state":"not_configured","detail":"Connect a publishing account"},
     "HubSpot": {"state":"not_configured","detail":"CRM / Growth · direct FactoryOS login not configured"},
+    "LinkedIn": {"state":"not_configured","detail":"Text posts via the official LinkedIn API · connect on /static/linkedin/"},
+    "OLX": {"state":"not_configured","detail":"Adverts via the official OLX Partner API · connect on /static/olx/index.html"},
     "vidIQ": {"state":"paused","detail":"Paused for now"},
     "LLM": {
         "state":"connected" if FACTORY_LLM_API_KEY else "demo",
@@ -11126,8 +11246,45 @@ OAUTH_FLOW = OAuthFlow(
     client_id_lookup=lambda spec: os.environ.get(spec.client_id_env,""),
     vault=_oauth_token_vault(),
     # T-552-YT: real Google transport for YouTube; other providers stay blocked until their adapters exist.
-    adapters={"youtube":youtube_publisher.GoogleOAuthAdapter()},
+    adapters={"youtube":youtube_publisher.GoogleOAuthAdapter(),"linkedin":linkedin_publisher.LinkedInOAuthAdapter(),
+              "olx":olx_publisher.OlxOAuthAdapter()},
 )
+# T-700: LinkedIn text posts (owner-only draft → approve → publish), off until FACTORY_LINKEDIN_ENABLED=1.
+linkedin_publisher.install_routes(app,store=linkedin_publisher.PostStore(DATA_DIR),flow=OAUTH_FLOW,
+                                  identity=request_identity,workspace=tenancy.binding_workspace)
+# T-701: OLX adverts (owner-only draft → approve → publish), off until FACTORY_OLX_ENABLED=1.
+olx_publisher.install_routes(app,store=olx_publisher.AdvertStore(DATA_DIR),flow=OAUTH_FLOW,
+                             identity=request_identity,workspace=tenancy.binding_workspace)
+
+# T-702: social autopilot — weekly plan, owner approval (plan / rules opt-in / each), exactly-once scheduled publishing
+# to the Telegram channel and LinkedIn. Scheduler does nothing until FACTORY_SOCIAL_AUTOPILOT_ENABLED=1; «Стоп» pauses it.
+SOCIAL_TELEGRAM=social_autopilot.TelegramChannelAdapter(
+    token=lambda: FACTORY_TELEGRAM_BOT_TOKEN,
+    channel=lambda: os.environ.get("FACTORY_TELEGRAM_CHANNEL_ID","").strip())
+SOCIAL_AUTOPILOT=social_autopilot.Autopilot(
+    social_autopilot.Store(DATA_DIR),
+    {"telegram":SOCIAL_TELEGRAM,
+     "linkedin":social_autopilot.LinkedInAdapter(OAUTH_FLOW,tenancy.binding_workspace)},
+    notify=lambda text: _telegram_send(text),
+    ideas=lambda: get_content_brain(limit=200)["ideas"])
+social_autopilot.install_routes(app,pilot=SOCIAL_AUTOPILOT,identity=request_identity,telegram=SOCIAL_TELEGRAM)
+
+async def social_autopilot_loop():
+    while True:
+        try:
+            result=await asyncio.to_thread(SOCIAL_AUTOPILOT.tick)
+            if any(result.get(k) for k in ("sent","failed","uncertain","missed")):
+                print(json.dumps({"event":"SOCIAL_AUTOPILOT_TICK",**{k:len(result.get(k) or []) for k in ("sent","failed","uncertain","missed")}}),flush=True)
+            await asyncio.to_thread(SOCIAL_AUTOPILOT.maybe_send_summary)
+        except Exception as exc:
+            print(json.dumps({"event":"SOCIAL_AUTOPILOT_TICK","status":"error","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def start_social_autopilot():
+    # A claim that never finished before the restart may have been sent: it becomes «uncertain», never resent.
+    SOCIAL_AUTOPILOT.store.recover_interrupted()
+    asyncio.create_task(social_autopilot_loop())
 
 @app.get("/api/factory/vault/status")
 def factory_vault_status(request: Request):
@@ -11235,6 +11392,19 @@ async def factory_vault_disconnect_session(request: Request):
     deleted=sessions.disconnect(workspace_id=workspace,provider=provider,account_binding_id=account)
     if deleted:event(None,f"Vault: browser session removed for {provider}/{account}")
     return {"ok":deleted,"provider":provider,"account":account}
+
+@app.post("/api/factory/vault/sessions/agent-use")
+async def factory_vault_session_agent_use(request: Request):
+    # T-560-L: owner lets (or stops) MCP agents (ChatGPT, Claude, Gemini via the Surfer) open pages with this login.
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    _,sessions=_vault_parts()
+    allowed=body.get("allowed") is True
+    if not sessions.set_agent_use(workspace_id=workspace,provider=provider,account_binding_id=account,allowed=allowed):
+        raise HTTPException(404,"no_session")
+    event(None,f"Vault: agents {'may' if allowed else 'may not'} use the browser session {provider}/{account}")
+    return {"ok":True,"provider":provider,"account":account,"agent_use":allowed}
 
 @app.post("/api/factory/vault/check")
 async def factory_vault_check(request: Request):

@@ -94,6 +94,10 @@ class FakeLocator:
     def all_inner_texts(self):
         return ["First result", " ", "Second result"] if self.selector == ".many" else ["Synthetic fixture heading"]
 
+    def evaluate_all(self, _script):
+        self.page.state.setdefault("read_selectors", []).append(self.selector)
+        return self.all_inner_texts()
+
 
 class FakePage:
     def __init__(self, context):

@@ -1,10 +1,14 @@
 name: MyCast render
 # Renders MyCast episode scripts to audio with the open-source Piper TTS (zero spend, no API keys).
 # Runs on pushes to mycast/** branches or manually; output is a 14-day artifact, never published.
+# A pull request that touches the renderer renders the regression fixture with the real voice, so a broken
+# renderer is caught before it reaches the daily branch.
 on:
   push:
     branches: [ "mycast/**" ]
-    paths: [ "docs/prototypes/mycast/episodes/**", "tools/mycast_render.py", ".github/workflows/mycast-render.yml" ]
+    paths: [ "docs/prototypes/mycast/episodes/**", "tools/mycast_render.py", "tools/mycast_changed_episodes.sh", ".github/workflows/mycast-render.yml" ]
+  pull_request:
+    paths: [ "tools/mycast_render.py", "tools/mycast_changed_episodes.sh", "tools/fixtures/mycast_render_fixture.json", ".github/workflows/mycast-render.yml" ]
   workflow_dispatch:
 
 permissions:
@@ -21,28 +25,56 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install Piper TTS and the Ukrainian voice
+      # No apt: the hosted runner has no FFmpeg, and "apt-get update && apt-get install ffmpeg" once took 9 of a
+      # run's 9.5 minutes (2026-11-19). FFmpeg comes as a binary inside the imageio-ffmpeg pip package instead;
+      # tools/mycast_render.py finds it and needs no ffprobe.
+      - name: Piper TTS and FFmpeg (pip only)
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
-          python -m pip install piper-tts
+          python -m pip install --disable-pip-version-check piper-tts imageio-ffmpeg
+          python -c "import sys; sys.path.insert(0, 'tools'); import mycast_render, subprocess; exe = mycast_render.ffmpeg_exe(); print(exe); print(subprocess.run([exe, '-hide_banner', '-version'], capture_output=True, text=True).stdout.splitlines()[0])"
+      - name: Voice cache
+        id: voice
+        uses: actions/cache@v4
+        with:
+          path: voices
+          key: piper-voice-uk_UA-ukrainian_tts-medium-v1
+      - name: Ukrainian voice (downloaded only when the cache is empty or broken)
+        run: |
+          set -euo pipefail
           mkdir -p voices
-          base=https://huggingface.co/rhasspy/piper-voices/resolve/main/uk/uk_UA/ukrainian_tts/medium
-          curl -fsSL -o voices/uk_UA-ukrainian_tts-medium.onnx "$base/uk_UA-ukrainian_tts-medium.onnx"
-          curl -fsSL -o voices/uk_UA-ukrainian_tts-medium.onnx.json "$base/uk_UA-ukrainian_tts-medium.onnx.json"
+          model=voices/uk_UA-ukrainian_tts-medium.onnx
+          ok() { [ "$(stat -c %s "$model" 2>/dev/null || echo 0)" -gt 10000000 ] && python -c "import json,sys; json.load(open(sys.argv[1]))" "$model.json" 2> /dev/null; }
+          if ok; then
+            echo "voice from cache (hit: ${{ steps.voice.outputs.cache-hit }})"
+          else
+            base=https://huggingface.co/rhasspy/piper-voices/resolve/main/uk/uk_UA/ukrainian_tts/medium
+            curl -fsSL --retry 3 --retry-delay 5 -o "$model" "$base/uk_UA-ukrainian_tts-medium.onnx"
+            curl -fsSL --retry 3 --retry-delay 5 -o "$model.json" "$base/uk_UA-ukrainian_tts-medium.onnx.json"
+            ok || { echo "the downloaded voice is incomplete"; exit 1; }
+          fi
+          ls -la voices
       - name: Render episodes
         run: |
-          # Render only the episodes changed by this commit (daily runs add one); fall back to all.
-          changed=$(git diff --name-only --diff-filter=AM HEAD~1 HEAD -- 'docs/prototypes/mycast/episodes/*.json' 2>/dev/null || true)
-          [ -n "$changed" ] || changed=$(ls docs/prototypes/mycast/episodes/*.json)
-          for ep in $changed; do
-            python tools/mycast_render.py "$ep" voices/uk_UA-ukrainian_tts-medium.onnx out
-          done
-          for f in out/*.wav; do ffmpeg -loglevel error -y -i "$f" -codec:a libmp3lame -b:a 96k "${f%.wav}.mp3"; done
-          ls -la out
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            printf '%s\0' tools/fixtures/mycast_render_fixture.json > episodes.list
+          else
+            # Every episode changed by this push (all its commits); the newest episode when it changed none.
+            tools/mycast_changed_episodes.sh "${{ github.event.before }}" > episodes.list
+          fi
+          # Each episode is rendered, converted and checked on its own. An MP3 stays in out/ only after it decoded
+          # with the right length, so the upload below can never carry a broken or unchecked file.
+          python tools/mycast_render.py --batch episodes.list voices/uk_UA-ukrainian_tts-medium.onnx out 2> piper.log || status=$?
+          grep -o 'Missing phoneme from id map: .*' piper.log | sort -u | head -n 40 || true
+          grep -v 'Missing phoneme' piper.log | tail -n 30 || true
+          ls -la out || true
+          exit "${status:-0}"
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}  # a failed audio check still leaves the transcript to read
         with:
           name: mycast-episodes
           path: |
             out/*.mp3
             out/*.md
+          if-no-files-found: error
           retention-days: 14

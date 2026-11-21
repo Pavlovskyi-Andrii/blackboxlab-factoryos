@@ -289,6 +289,20 @@ def _js(value) -> str:
     return json.dumps(value, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
+def card_html(t: dict, i: int, n: int, art: str, kicker: str, h: str, desc: str, meta_line: str, src: Optional[str], *,
+              hint: str = "", badge: bool = True) -> str:
+    """One coverflow card. No `src`: a "Soon" badge instead of the play button (or nothing with badge=False)."""
+    e = html.escape
+    play = (f'<button class="play" type="button" data-play="{i}" aria-label="{e(t["play"])}: {e(h)}"><span class="pi" aria-hidden="true"></span>'
+            f'<span class="pl">{e(t["play"])}</span></button>') if src else (f'<span class="soon">{e(t["soon"])}</span>' if badge else "")
+    return (f'<article class="card{" own" if i == 0 else ""}" data-i="{i}" data-src="{e(src or "")}" role="group" '
+            f'aria-roledescription="slide" aria-label="{e(t["slide"].format(i=i + 1, n=n))}">'
+            f'<div class="art">{art}</div><div class="body"><div class="row1"><span class="kick">{e(kicker)}</span>'
+            f'<span class="count">{i + 1} / {n}</span></div><h2>{e(h)}</h2><p class="desc">{e(desc)}</p>'
+            f'<div class="row2"><span class="meta">{e(meta_line)}</span>{play}</div>'
+            + (f'<p class="hint">{e(hint)}</p>' if hint else "") + "</div></article>")
+
+
 # ---- page ---------------------------------------------------------------------------------------------------------
 def render(rec: dict, day: str, entry: dict, *, token: str, page: str, lang: str = "", accept: str = "",
            demos: Optional[list] = None) -> str:
@@ -314,14 +328,7 @@ def render(rec: dict, day: str, entry: dict, *, token: str, page: str, lang: str
     cover = cover_svg(d["ids"] if d else [], lang, gid="cv0")
 
     def card(i, art, kicker, h, desc, meta_line, src, soon=False):
-        play = (f'<button class="play" type="button" data-play="{i}" aria-label="{e(t["play"])}: {e(h)}"><span class="pi" aria-hidden="true"></span>'
-                f'<span class="pl">{e(t["play"])}</span></button>') if src else f'<span class="soon">{e(t["soon"])}</span>'
-        return (f'<article class="card{" own" if i == 0 else ""}" data-i="{i}" data-src="{e(src or "")}" role="group" '
-                f'aria-roledescription="slide" aria-label="{e(t["slide"].format(i=i + 1, n=n))}">'
-                f'<div class="art">{art}</div><div class="body"><div class="row1"><span class="kick">{e(kicker)}</span>'
-                f'<span class="count">{i + 1} / {n}</span></div><h2>{e(h)}</h2><p class="desc">{e(desc)}</p>'
-                f'<div class="row2"><span class="meta">{e(meta_line)}</span>{play}</div>'
-                + (f'<p class="hint">{e(t["soon_note"])}</p>' if soon else "") + "</div></article>")
+        return card_html(t, i, n, art, kicker, h, desc, meta_line, src, hint=t["soon_note"] if soon else "")
 
     cards = [card(0, cover, t["yours"], title, by, meta, f"/mycast/e/{token}/audio.mp3")]
     tracks = [{"t": title, "s": by, "src": f"/mycast/e/{token}/audio.mp3"}]

@@ -20,8 +20,9 @@ Gemini CLI — gets three tools:
    100 000 chars per page are kept.
 3. **Selectors for precise parts.** `web_read {"url": "https://pypi.org/project/requests/", "selectors": ["h1"]}`
    returns `texts: [{selector, text, chars, truncated?, missing?}]` (every match, ≤ 6000 chars each in `texts`; a
-   longer selector text is read in chunks with `web_task … offset`). An id with dots is `[id="pathlib.Path.glob"]`,
-   not `#pathlib.Path.glob`.
+   longer selector text is read in chunks with `web_task … offset`). An id with dots works as written (`#os.path.join`
+   also matches the literal id, T-674; `[id="os.path.join"]` works too); a Sphinx/Python-docs `<dt>` is read with its
+   `<dd>` description.
 4. **JavaScript pages.** The worker waits up to 5 s for the network to go quiet. If the text is still nearly empty, the
    answer says so in `hints`; retry with `wait_for` (e.g. `"article h1"`).
 5. **Read `hints`.** Every answer that needs action says what to do: domain does not exist, HTTP 404, selector missing,
@@ -33,7 +34,7 @@ Gemini CLI — gets three tools:
 Status values: `done`, `queued`, `running`, `blocked` (refused by a rule or the site moved away), `failed` (network/
 timeout; see `blocker` and `hints`), `waiting_human` (CAPTCHA/2FA/anti-bot page — never bypassed).
 
-Limits: public `https://` pages only, read-only (GET only; no logins, forms, purchases), ≤ 5 selectors, 20 active
+Limits: public `https://` pages only, read-only (GET only; no forms, posting, purchases; signing in only with a saved login the owner allowed, below), ≤ 5 selectors, 20 active
 tasks (beyond that: HTTP 429, retry in a minute), 200 MCP tasks per day. Pages run on the EC2 worker
 (`docs/guides/browser-agent.md`); if it is down, `web_read` returns `queued`.
 
@@ -68,6 +69,22 @@ curl -s https://blackboxlab-factoryos.onrender.com/mcp -H "Authorization: Bearer
 The Gemini coder loop on EC2 uses the same tools without MCP: `POST /api/factory/surfer/worker/{web_search|web_read|web_task}`
 with the worker token it already has (`/etc/factoryos/claude-worker.env`). Before writing code it may run up to 3 searches
 and read up to 2 pages; the log shows `Surfer research: N searches, M pages`. Set `GEMINI_RESEARCH=0` to turn it off.
+
+## Signed-in reads with a saved login (T-560-L)
+
+`web_read` takes an optional `"session": "site/account"` (for example `"github/main"`). The page then opens signed in
+with a browser session the owner saved in **Connections → Access vault** — still read-only, GET only.
+
+- The owner must switch **"🤖 Agents: on"** for that session in the vault. It is off by default and goes off again
+  whenever a new session file is uploaded.
+- The page must be on one of the session's cookie domains; cookies never go to another site. A redirect to another
+  site is followed anonymously.
+- A refused value returns the list of allowed logins (`site/account (domains)`), never cookies.
+- The agent's answer and the task record carry no cookies; the EC2 worker gets the decrypted state only in the claim
+  response and drops it after the task.
+- OLX and LinkedIn are not done this way: they block the EC2 worker and forbid automation (official APIs: T-700, T-701).
+
+Example: `{"url": "https://github.com/notifications", "session": "github/main"}`.
 
 ## Shared agent workspace
 

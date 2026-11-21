@@ -2,7 +2,7 @@
  "id": "rome",
  "language": "en",
  "title": "Colosseum: arena of an empire",
- "voices": "MyCast two hosts: A = Charon, B = Kore (mycast.gemini_tts_pcm)",
+ "voices": "MyCast two hosts: A = Orus, B = Aoede (mycast.gemini_tts_pcm)",
  "checked": "2026-11-16: dates, numbers and names checked against the lead of en.wikipedia.org/wiki/Colosseum read through the FactoryOS Surfer; the other links are the standard Wikipedia articles for the remaining facts. No invented facts or quotes.",
  "sources": [
   "https://en.wikipedia.org/wiki/Colosseum"

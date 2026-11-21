@@ -61,9 +61,12 @@ def first_name(rec: dict) -> str:
     return str(rec.get("name") or "").split(" ")[0][:40]
 
 
-def summary(rec: dict, profile: dict) -> dict:
-    lang = profile.get("language") if profile.get("language") in T else "uk"
+def summary(rec: dict, profile: dict, lang: str = "") -> dict:
+    """`lang` overrides the page language (the author's by default). Topic names here stay as the author saved them (the
+    share card uses them); render_page shows catalogue topics in the page language instead."""
+    lang = lang if lang in T else (profile.get("language") if profile.get("language") in T else "uk")
     t = T[lang]
+    voice_lang = profile.get("language") if profile.get("language") in T else "uk"
     name = first_name(rec)
     topics = [re.sub(r"\s*\([^)]*\)$", "", x) for x in profile.get("topics") or []] + list(profile.get("custom") or [])
     geo = []
@@ -75,7 +78,7 @@ def summary(rec: dict, profile: dict) -> dict:
     follows = [re.sub(r"^https?://(www\.)?[^/]+/", "", f.split(" ", 1)[1] if " " in f else f).rstrip("/")[:40]
                for f in profile.get("follows") or []]
     when = f"{t[profile.get('frequency', 'daily')]} · {profile.get('time', '07:30')} · {profile.get('duration_min', 10)} {t['min']}"
-    voice = f"{t[profile.get('mode', 'two_hosts')]} · {t['lang'].get(lang, '')}"
+    voice = f"{t[profile.get('mode', 'two_hosts')]} · {t['lang'].get(voice_lang, '')}"
     return {"lang": lang, "t": t, "name": name, "title": t["title"].format(name=name) if name else t["anon"],
             "topics": topics, "geo": geo, "follows": follows, "when": when, "voice": voice,
             "desc": t["desc"].format(n=len(topics), when=when, voice=voice)}
@@ -104,30 +107,73 @@ def _chips(items, cls="chip") -> str:
     return "".join(f'<span class="{cls}">{html.escape(i)}</span>' for i in items)
 
 
-def render_page(rec: dict, profile: dict, *, page: str) -> str:
-    s = summary(rec, profile)
-    t, slug, e = s["t"], rec["slug"], html.escape
+# T-710 (owner 2026-11-19, variant A): the profile page wears the glass style of the episode page /mycast/e/<token>.
+PAGE_CSS = """
+.chip{--c:#8b7bff}.chip.fo{--c:#b79cff;background:rgba(183,156,255,.12)}.chip.g{--c:#4fe3ff}
+.lab{margin:16px 0 0;font:600 11px/1.2 var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--warm)}
+.about .chips{margin:8px 0 0}.about dl{margin-top:14px}.shareRow{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0 0}
+.sb{display:inline-grid;place-items:center;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid var(--edge);background:var(--glass);color:var(--ink);
+font:600 13px/1 var(--body);text-decoration:none;cursor:pointer;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.btn.ghost{background:var(--glass);border:1px solid var(--edge);color:var(--ink);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.cta .btn{margin:4px}"""
+
+
+def render_page(rec: dict, profile: dict, *, page: str, lang: str = "", demos: Optional[list] = None) -> str:
+    import mycast_share_page as sp
+    s = summary(rec, profile, lang)
+    lang = s["lang"]
+    t, g, slug, e = s["t"], sp.T[lang], rec["slug"], html.escape
     url = f"{SITE}/mycast/u/{slug}"
     card = f"{SITE}/mycast/u/{slug}/card.png?v={card_version(rec)}"
     make_same = f"{page}#p={rec['code']}&from={slug}"
     audio = latest_audio(rec)
-    player = (f'<audio controls preload="none" src="/mycast/u/{slug}/latest.mp3"></audio><p class="mute">{e(audio[0])}</p>'
-              if audio else f'<p class="mute">{e(t["no_audio"])}</p>')
-    rows = [(t["topics"], _chips(s["topics"])), (t["geo"], _chips(s["geo"], "chip g") if s["geo"] else ""),
-            (t["follows"], _chips(s["follows"], "chip f") if s["follows"] else ""),
-            (t["when"], e(s["when"])), (t["voice"], e(s["voice"]))]
-    dna = "".join(f'<div class="row"><dt>{e(k)}</dt><dd>{v}</dd></div>' for k, v in rows if v)
+    src = f"/mycast/u/{slug}/latest.mp3" if audio else None
+    d = sp.dna(rec.get("code") or "")
+    ids = d["ids"] if d else []
+    demos = sp.demo_cards(lang) if demos is None else demos
+    n = 1 + len(demos)
+    cards = [sp.card_html(g, 0, n, sp.cover_svg(ids, lang, gid="cv0"), t["listen"], s["title"], t["sub"], audio[0] if audio else "", src,
+                          hint="" if audio else t["no_audio"], badge=False)]
+    tracks = [{"t": f"MyCast · {audio[0]}" if audio else s["title"], "s": s["title"], "src": src or ""}]
+    for k, dm in enumerate(demos, start=1):
+        cards.append(sp.card_html(g, k, n, sp.city_svg(dm["motif"], dm["palette"], dm["name"], gid=f"cv{k}"), f'{g["demo"]} · {dm["name"]}',
+                                  dm["title"], dm["desc"], dm["meta"], dm["audio"], hint="" if dm["audio"] else g["soon_note"]))
+        tracks.append({"t": dm["title"], "s": f'{g["demo"]} · {dm["name"]}', "src": dm["audio"] or ""})
+    dots = "".join(f'<button type="button" class="dot" data-go="{i}" aria-label="{e(g["slide"].format(i=i + 1, n=n))}"></button>' for i in range(n))
+
+    counts: dict = {}
+    for c in [i.split(".")[0] for i in ids] + (d["custom_cats"] if d else []):
+        if c in sp.CATS:
+            counts[c] = counts.get(c, 0) + 1
+    total = max(1, sum(counts.values()))
+    mix = "".join(f'<i style="width:{100 * v / total:.1f}%;background:{sp.CATS[c][0]}"></i>' for c, v in counts.items())
+    legend = "".join(f'<span style="--c:{sp.CATS[c][0]}">{e(sp.CATS[c][1][lang])} · {v}</span>' for c, v in counts.items())
+    topics = ([sp.topic_label(i, lang) for i in ids] + [str(c) for c in profile.get("custom") or []]) if d else s["topics"]
+    blocks = [(t["topics"], _chips(topics)), (t["geo"], _chips(s["geo"], "chip g")), (t["follows"], _chips(s["follows"], "chip fo"))]
+    chips = "".join(f'<p class="lab">{e(k)}</p><div class="chips">{v}</div>' for k, v in blocks if v)
+    dl = "".join(f'<div class="dr"><dt>{e(k)}</dt><dd>{e(v)}</dd></div>' for k, v in ((t["when"], s["when"]), (t["voice"], s["voice"])))
+    about = (f'<section class="about glass" aria-labelledby="ab"><div class="ah"><div class="mini">{sp.cover_svg(ids, lang, gid="cva")}</div>'
+             f'<div><h2 id="ab">{e(g["about"])}</h2><p class="mute">{e(s["title"])}</p></div>'
+             f'<div class="num"><b>{len(topics)}</b><span>{e(g["topics_n"])}</span></div></div>'
+             + (f'<div class="mix" aria-hidden="true">{mix}</div><div class="legend">{legend}</div>' if counts else "")
+             + f'{chips}<dl>{dl}</dl></section>')
+
     share_text = quote(f"{s['title']} — MyCast")
     shares = [("Facebook", f"https://www.facebook.com/sharer/sharer.php?u={quote(url)}"),
               ("Telegram", f"https://t.me/share/url?url={quote(url)}&text={share_text}"),
               ("X", f"https://twitter.com/intent/tweet?url={quote(url)}&text={share_text}"),
               ("WhatsApp", f"https://wa.me/?text={share_text}%20{quote(url)}")]
-    share_html = "".join(f'<a class="btn" target="_blank" rel="noopener" href="{e(h)}">{e(n)}</a>' for n, h in shares)
-    initial = e((s["name"] or "M")[:1].upper())
+    share_html = "".join(f'<a class="sb" target="_blank" rel="noopener" href="{e(h)}">{e(name)}</a>' for name, h in shares)
+    cur_attr = ' aria-current="true"'
+    langs = "".join(f'<a href="?lang={code}" hreflang="{code}"{cur_attr if code == lang else ""}>{code.upper()}</a>' for code in sp.LANGS)
+    data = {"tracks": tracks, "url": url, "title": s["title"], "copied": t["copied"], "play": g["play"], "pause": g["pause"],
+            "err": g["play_err"], "soon": g["soon"]}
+    copy_js = ("document.getElementById('copy').onclick=function(){var b=this;navigator.clipboard&&navigator.clipboard.writeText(D.url)"
+               ".then(function(){b.textContent=D.copied})};")
     return f"""<!DOCTYPE html>
-<html lang="{s['lang']}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>{e(s['title'])} · MyCast</title>
-<meta name="description" content="{e(s['desc'])}">
+<meta name="description" content="{e(s['desc'])}"><meta name="theme-color" content="#1a1430"><link rel="canonical" href="{e(url)}">
 <meta property="og:type" content="website"><meta property="og:site_name" content="MyCast">
 <meta property="og:title" content="{e(s['title'])} · MyCast"><meta property="og:description" content="{e(s['desc'])}">
 <meta property="og:url" content="{e(url)}"><meta property="og:image" content="{e(card)}">
@@ -135,32 +181,25 @@ def render_page(rec: dict, profile: dict, *, page: str) -> str:
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="{e(card)}">
 <link rel="icon" href="/static/mycast-configurator/mycast-favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/static/mycast-configurator/mycast-apple-touch.png">
-<style>
-:root{{--bg:#0b1024;--card:#121a38;--edge:#26325e;--ink:#eef2ff;--mute:#9aa6cf;--a:#4fe3ff;--b:#d23fa6}}
-*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background-attachment:fixed!important;background:radial-gradient(1200px 600px at 10% -10%,#2a1d6b 0,transparent 60%),var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}}
-.wrap{{max-width:760px;margin:0 auto;padding:20px 16px 48px}}
-header{{display:flex;align-items:center;gap:10px;font:700 13px/1 ui-monospace,monospace;letter-spacing:.16em;color:var(--mute);text-transform:uppercase}}
-header img{{border-radius:8px}}header a{{color:inherit;text-decoration:none}}header b{{color:#b65bd6;text-transform:none;letter-spacing:.04em}}
-.hero{{margin:22px 0;padding:22px;border:1px solid var(--edge);border-radius:20px;background:linear-gradient(135deg,#1a2350,#121a38);display:flex;gap:16px;align-items:center}}
-.av{{flex:none;width:64px;height:64px;border-radius:50%;display:grid;place-items:center;font:700 26px/1 system-ui;background:linear-gradient(135deg,var(--a),#8b7bff,var(--b));color:#0b1024}}
-h1{{margin:0;font-size:clamp(22px,5vw,30px)}}.mute{{color:var(--mute);margin:4px 0 0;font-size:14px}}
-section{{margin:16px 0;padding:18px;border:1px solid var(--edge);border-radius:18px;background:var(--card)}}
-h2{{margin:0 0 10px;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}}
-audio{{width:100%}}dl{{margin:0}}.row{{display:grid;grid-template-columns:110px 1fr;gap:10px;padding:8px 0;border-top:1px dashed var(--edge)}}.row:first-child{{border-top:0}}
-dt{{color:var(--mute);font-size:14px}}dd{{margin:0;display:flex;flex-wrap:wrap;gap:6px}}
-.chip{{padding:4px 10px;border-radius:999px;background:#1d2a5a;border:1px solid #2f3f7d;font-size:13px}}.chip.f{{background:#2a1d4d;border-color:#5b3f8f}}.chip.g{{background:#0e3a48;border-color:#4fe3ff}}
-.btns{{display:flex;flex-wrap:wrap;gap:8px}}.btn{{display:inline-block;padding:10px 16px;border-radius:12px;border:1px solid var(--edge);background:#18214a;color:var(--ink);text-decoration:none;font-weight:600;cursor:pointer;font-size:15px}}
-.btn.primary{{border:0;background:linear-gradient(90deg,#ff8a6b,#ff6a88);color:#1a0d12}}
-@media(max-width:520px){{.row{{grid-template-columns:1fr;gap:4px}}}}
-</style></head><body><div class="wrap">
-<header><a href="{e(page)}"><img src="/static/mycast-configurator/mycast-icon-64.png" width="32" height="32" alt=""></a><a href="{e(page)}">MyCast<b>.pro</b></a></header>
-<div class="hero"><div class="av" aria-hidden="true">{initial}</div><div><h1>{e(s['title'])}</h1><p class="mute">{e(t['sub'])}</p></div></div>
-<section><h2>{e(t['listen'])}</h2>{player}</section>
-<section><dl>{dna}</dl></section>
-<section><div class="btns"><a class="btn primary" href="{e(make_same)}">{e(t['make_same'])}</a><a class="btn" href="{e(page)}">{e(t['make_own'])}</a></div></section>
-<section><h2>{e(t['share'])}</h2><div class="btns">{share_html}<button class="btn" type="button" id="copy">{e(t['copy'])}</button></div></section>
-</div>
-<script>document.getElementById('copy').onclick=function(){{var b=this;navigator.clipboard&&navigator.clipboard.writeText({url!r}).then(function(){{b.textContent={t['copied']!r}}})}};</script>
+<style>{sp.CSS}{PAGE_CSS}</style></head><body><div class="glow" aria-hidden="true"></div><div class="wrap">
+<header><a class="brand" href="{e(page)}"><img src="/static/mycast-configurator/mycast-icon-64.png" width="28" height="28" alt=""><span>MyCast<b>.pro</b></span></a>
+<nav class="langs" aria-label="{e(g['lang_label'])}">{langs}</nav></header>
+<main><h1 style="position:absolute;left:-9999px">{e(s['title'])}</h1>
+<section class="stage" aria-roledescription="carousel" aria-label="{e(g['carousel'])}">
+<div class="deck" id="deck" tabindex="0">{"".join(cards)}</div>
+<div class="ctrl"><button class="nav" type="button" id="prev" aria-label="{e(g['prev'])}">‹</button><div class="dots">{dots}</div><button class="nav" type="button" id="next" aria-label="{e(g['next'])}">›</button></div>
+</section>
+<div class="bar glass" id="bar"><div class="disc" id="disc">{sp.cover_svg(ids, lang, gid="cvb")}</div>
+<div class="bt"><b id="bt">{e(tracks[0]['t'])}</b><span id="bs">{e(tracks[0]['s'])}</span><div class="seek"><input type="range" id="seek" min="0" max="1000" value="0" aria-label="{e(g['length'])}"><span id="tm">0:00</span></div></div>
+<button class="ib" type="button" id="share" aria-label="{e(t['share'])}"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+<button class="pp" type="button" id="pp" aria-label="{e(g['play'])}"{"" if any(x["src"] for x in tracks) else " disabled"}><span class="pi" aria-hidden="true"></span></button></div>
+<p class="mute msg" id="msg" role="status" aria-live="polite"></p>
+{about}
+<section class="cta"><a class="btn primary" href="{e(make_same)}">{e(t['make_same'])}</a><a class="btn ghost" href="{e(page)}">{e(t['make_own'])}</a>
+<div class="shareRow" aria-label="{e(t['share'])}">{share_html}<button class="sb" type="button" id="copy">{e(t['copy'])}</button></div>
+<p class="mute">{e(g['demo_note'])}</p></section>
+</main></div><audio id="au" preload="none"></audio>
+<script>var D={sp._js(data)};{sp.JS}{copy_js}</script>
 </body></html>"""
 
 
