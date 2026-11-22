@@ -1,0 +1,26 @@
+[Unit]
+Description=FactoryOS Codex relay worker (answers up to 3 Claude messages, then exits)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=factoryos-relay
+Group=factoryos-relay
+WorkingDirectory=/opt/factoryos-codex-relay
+LoadCredential=factory_codex_relay_token:/etc/factoryos-codex-relay/token
+# FACTORYOS_URL is set by the owner with `systemctl edit` (drop-in), never committed here.
+ExecStart=/usr/bin/python3 -m autopilot.codex_relay_worker --drain 3
+TimeoutStartSec=900
+UMask=0077
+PrivateTmp=true
+# full, not strict: sudo needs a writable /run and /var (found on EC2 2026-11-13: Codex check failed under strict).
+ProtectSystem=full
+ReadWritePaths=/var/lib/factoryos-codex
+InaccessiblePaths=-/opt/factoryos -/root -/home -/etc/factoryos
+ProtectControlGroups=true
+# sudo needs setuid, so NoNewPrivileges stays off; the sudoers rule allows only the Codex account.
+# Do not add ProtectKernelTunables/ProtectKernelModules/ProtectKernelLogs/ProtectClock/SystemCallFilter/
+# SystemCallArchitectures/RestrictAddressFamilies/RestrictNamespaces/RestrictSUIDSGID/RestrictRealtime/LockPersonality/
+# MemoryDenyWriteExecute/PrivateDevices/DynamicUser here (or NoNewPrivileges): systemd turns each of them into NoNewPrivileges=yes for a non-root
+# User=, which breaks sudo (EC2 2026-11-13: sudo refused with "no new privileges flag is set").

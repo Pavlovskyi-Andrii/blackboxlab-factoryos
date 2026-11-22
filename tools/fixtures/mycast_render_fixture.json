@@ -1,0 +1,18 @@
+{
+  "id": "mycast-render-fixture",
+  "title": "MyCast · перевірка рендера",
+  "language": "uk",
+  "voice_model": "uk_UA-ukrainian_tts-medium",
+  "hosts": {"A": {"name": "Клод", "speaker": "mykyta"}, "B": {"name": "Джі-Пі-Ті", "speaker": "tetiana"}},
+  "note": "Render regression fixture, not an episode: Latin names, capitals, digits, quotes and a host commentary entry without a link.",
+  "sources": [
+    {"title": "MyCast render fixture", "url": "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos", "date": "2026-11-19", "status": "fresh"},
+    {"title": "Висновки ведучих та ідеї для FactoryOS", "kind": "editorial", "date": "2026-11-19", "status": "editorial"}
+  ],
+  "lines": [
+    ["A", "Доброго ранку! Це MyCast, ваш персональний подкаст. Сьогодні перевіряємо, чи голос вимовляє назви OpenAI, Claude Code і Gemini."],
+    ["B", "А ще Telegram, GitHub та API. ДУЖЕ ВАЖЛИВО: великі літери теж мають звучати, а не зникати."],
+    ["A", "Модель GPT-6.2 вийшла у 2026 році — так пишуть джерела. Слово «лапки» і п'ять апострофів теж читаються."],
+    ["B", "Якщо ви чуєте кожне слово цього короткого запису, рендер працює правильно. До завтра!"]
+  ]
+}

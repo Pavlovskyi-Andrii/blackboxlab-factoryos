@@ -1,0 +1,223 @@
+"""T-714: the dedicated Surfer worker loop and the loop heartbeats. Offline: fake run_one, fake HTTP, fake clock."""
+from __future__ import annotations
+
+import pathlib
+import tempfile
+import threading
+import unittest
+from unittest import mock
+
+from autopilot import browser_tasks, browser_worker as bw, worker_heartbeat as hb
+
+
+class Clock:
+    def __init__(self, t=1_800_000_000.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+class Resp:
+    def __init__(self, code=200):
+        self.status_code = code
+
+
+class WorkerTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = pathlib.Path(self.tmp.name)
+        self.clock = Clock()
+        self.posts = []
+        self.results = []
+        self.calls = 0
+        p = mock.patch.object(bw.relay_tasks, "endpoint", return_value=("https://factory.example", "tok"))
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    def post(self, url, headers, json, timeout):
+        self.posts.append((url, dict(json), headers))
+        return Resp()
+
+    def fake_run_one(self, *, on_claim=None):
+        self.calls += 1
+        result = self.results.pop(0) if self.results else "idle"
+        if isinstance(result, tuple):                # ("done", "bt_…"): a task was claimed
+            result, task_id = result
+            on_claim(task_id)
+            # while the task runs, the local heartbeat says "running" with the task and a 15 min promise
+            beat = hb.read(hb.path_for(self.repo, hb.SURFER_FILE))
+            assert beat["state"] == "running" and beat["task"] == task_id, beat
+            assert beat["deadline"] - beat["at"] == bw.TASK_BUDGET_SECONDS
+        return result
+
+    def worker(self, **kw):
+        kw.setdefault("configured", lambda: True)
+        kw.setdefault("available", lambda: True)
+        return bw.SurferWorker(repo=self.repo, run_one=self.fake_run_one, post=self.post, clock=self.clock,
+                               fingerprint=kw.pop("fingerprint", lambda: ("same",)), **kw)
+
+    def test_claim_run_report_and_heartbeats(self):
+        w = self.worker()
+        self.results = [("done", "bt_0123456789abcdef"), "idle"]
+        self.assertEqual(w.pass_once(), ("done", 0.0))          # the next task at once after a finished one
+        running = [p for u, p, _ in self.posts if p["state"] == "running"]
+        self.assertEqual(running[0]["task_id"], "bt_0123456789abcdef")
+        self.assertTrue(all(u == "https://factory.example/api/factory/browser/worker/heartbeat" for u, _, _ in self.posts))
+        self.assertEqual(self.posts[-1][2]["Authorization"], "Bearer tok")
+        self.assertEqual((self.posts[-1][1]["state"], self.posts[-1][1]["tasks_done"]), ("idle", 1))
+        self.assertEqual(w.pass_once(), ("idle", float(bw.POLL_SECONDS)))
+        beat = hb.read(hb.path_for(self.repo, hb.SURFER_FILE))
+        self.assertEqual(beat["state"], "idle")
+        self.assertTrue(hb.alive(hb.path_for(self.repo, hb.SURFER_FILE), now=self.clock.t))
+        # The server heartbeat is throttled to one per 30 s while idle.
+        n = len(self.posts)
+        w.pass_once()
+        self.assertEqual(len(self.posts), n)
+        self.clock.t += bw.HEARTBEAT_SECONDS
+        w.pass_once()
+        self.assertEqual(len(self.posts), n + 1)
+
+    def test_backoff_on_unreachable_queue_and_reset(self):
+        w = self.worker()
+        self.results = ["error", "error", "error", "error", "error", "error", "error", "idle", "error"]
+        waits = [w.pass_once()[1] for _ in range(9)]
+        self.assertEqual(waits[:7], [10.0, 20.0, 40.0, 80.0, 120.0, 120.0, 120.0])
+        self.assertEqual(waits[7], float(bw.POLL_SECONDS))
+        self.assertEqual(waits[8], 10.0)                         # backoff restarts after a good pass
+
+    def test_unavailable_does_not_claim(self):
+        w = self.worker(available=lambda: False)
+        self.assertEqual(w.pass_once(), ("unavailable", bw.UNAVAILABLE_SECONDS))
+        w2 = self.worker(configured=lambda: False)
+        self.assertEqual(w2.pass_once()[0], "unavailable")
+        self.assertEqual(self.calls, 0)
+        self.assertEqual(hb.read(hb.path_for(self.repo, hb.SURFER_FILE))["state"], "unavailable")
+
+    def test_graceful_stop_finishes_the_task_and_releases_the_queue(self):
+        stop = threading.Event()
+        w = self.worker(stop=stop)
+
+        def run_one(*, on_claim=None):
+            self.calls += 1
+            on_claim("bt_0123456789abcdef")
+            stop.set()                                           # SIGTERM arrives while the task runs
+            return "done"
+        w.run_one = run_one
+        self.assertEqual(w.run(), 0)
+        self.assertEqual(self.calls, 1)                          # finished, no further pass
+        self.assertEqual(self.posts[-1][1]["state"], "stopped")
+        path = hb.path_for(self.repo, hb.SURFER_FILE)
+        self.assertEqual(hb.read(path)["state"], "stopped")
+        self.assertFalse(hb.alive(path, now=self.clock.t + 1))   # the Claude worker's fallback may take over
+
+    def test_runner_code_change_exits_between_tasks(self):
+        versions = iter([("v1",), ("v2",)])
+        w = self.worker(fingerprint=lambda: next(versions))
+        self.results = ["idle"]
+        self.assertEqual(w.run(), bw.EXIT_CODE_UPDATED)
+        self.assertEqual(self.calls, 1)
+
+    def test_tasks_run_one_at_a_time(self):
+        active, peak = [0], [0]
+
+        def run_one(*, on_claim=None):
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+            active[0] -= 1
+            return "idle"
+        w = self.worker()
+        w.run_one = run_one
+        w.stop.wait = lambda *_: False
+        w.run(max_passes=5)
+        self.assertEqual(peak[0], 1)
+
+    def test_single_instance_lock(self):
+        path = self.repo / ".autopilot" / "surfer.lock"
+        a, b = bw.SingleInstance(path), bw.SingleInstance(path)
+        self.assertTrue(a.acquire())
+        self.assertFalse(b.acquire())                            # no second Chromium on this checkout
+        a.release()
+        self.assertTrue(b.acquire())
+        b.release()
+
+
+class RunOneTest(unittest.TestCase):
+    """browser_tasks.run_one: on_claim before the browser starts, "error" when the queue is unreachable."""
+
+    def test_on_claim_and_error(self):
+        class Http:
+            def __init__(self, fail=False):
+                self.fail = fail
+
+            def post(self, url, headers, json, timeout):
+                if self.fail:
+                    raise OSError("down")
+                body = {"task": {"id": "bt_0123456789abcdef", "url": "https://shop.example/", "selectors": []}} \
+                    if url.endswith("/claim") else {}
+
+                class R:
+                    status_code = 200
+
+                    def json(self):
+                        return body
+                return R()
+        seen = []
+        with mock.patch.object(browser_tasks.relay_tasks, "configured", return_value=True), \
+                mock.patch.object(browser_tasks.relay_tasks, "endpoint", return_value=("https://f", "tok")), \
+                mock.patch.object(browser_tasks, "execute", side_effect=lambda task, **k: seen.append(("run", task["id"]))
+                                  or {"status": "done", "texts": []}):
+            result = browser_tasks.run_one(http=Http(), available=lambda: True,
+                                           on_claim=lambda tid: seen.append(("claim", tid)))
+            self.assertEqual(result, "done")
+            self.assertEqual(seen, [("claim", "bt_0123456789abcdef"), ("run", "bt_0123456789abcdef")])
+            self.assertEqual(browser_tasks.run_one(http=Http(fail=True), available=lambda: True), "error")
+
+
+class HeartbeatFileTest(unittest.TestCase):
+    def test_alive_and_deadline(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = hb.path_for(pathlib.Path(d), hb.CLAUDE_LOOP_FILE)
+            self.assertFalse(hb.alive(path, now=100))
+            self.assertTrue(hb.beat(path, budget_seconds=60, state="idle", now=100))
+            self.assertTrue(hb.alive(path, now=150))
+            self.assertFalse(hb.alive(path, now=161))
+            path.write_text("not json", encoding="utf-8")
+            self.assertEqual(hb.read(path), {})
+
+
+class FallbackTest(unittest.TestCase):
+    """The Claude worker loop runs a browser task only while the dedicated Surfer worker is not alive."""
+
+    def test_main_worker_skips_browser_tasks_while_surfer_alive(self):
+        from autopilot import autopilot as ap
+        with tempfile.TemporaryDirectory() as d:
+            beat = hb.path_for(pathlib.Path(d), hb.SURFER_FILE)
+            calls = []
+            with mock.patch.object(ap, "SURFER_BEAT", beat), \
+                    mock.patch.object(ap.browser_tasks, "run_one", side_effect=lambda: calls.append(1) or "done"):
+                self.assertTrue(ap.run_browser_fallback())           # no Surfer worker: the loop serves the queue
+                hb.beat(beat, budget_seconds=600, state="idle")
+                self.assertFalse(ap.run_browser_fallback())          # Surfer alive: no second Chromium
+                hb.beat(beat, budget_seconds=0, state="stopped")
+                self.assertTrue(ap.run_browser_fallback())           # stopped: the fallback takes over at once
+            self.assertEqual(len(calls), 2)
+
+    def test_claude_loop_beats_with_a_long_budget_before_claude_runs(self):
+        from autopilot import autopilot as ap
+        with tempfile.TemporaryDirectory() as d:
+            path = hb.path_for(pathlib.Path(d), hb.CLAUDE_LOOP_FILE)
+            with mock.patch.object(ap, "LOOP_BEAT", path):
+                ap.loop_beat()
+                short = hb.read(path)
+                ap.loop_beat("running", long_job=True, task="T-1")
+                long = hb.read(path)
+            self.assertEqual(short["deadline"] - short["at"],
+                             max(ap.IDLE_SECONDS, ap.PAUSE_SECONDS) + hb.STALE_AFTER_SECONDS)
+            self.assertEqual(long["deadline"] - long["at"], max(ap.TASK_TIMEOUT_SECONDS, 3600) + hb.STALE_AFTER_SECONDS)
+            self.assertEqual((long["state"], long["task"]), ("running", "T-1"))
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

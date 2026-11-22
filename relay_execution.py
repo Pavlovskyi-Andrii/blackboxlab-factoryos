@@ -12,6 +12,8 @@ import re
 import secrets
 from typing import Any
 
+import evidence as proof
+
 ACTIVE_STATES = {"claimed", "running", "checkpoint", "committed", "pushed"}
 FINAL_STATES = {"done", "blocked", "failed"}
 ALLOWED_EVENTS = ACTIVE_STATES | FINAL_STATES | {"heartbeat"}
@@ -65,6 +67,12 @@ def lifecycle(ticket: dict) -> list[dict]:
                 row["detail"] = str(evidence["commit"])[:12]
             elif stage == "pushed":
                 row["detail"] = "branch " + str(evidence.get("branch") or ex.get("branch") or "?")
+            elif stage == "deployed":
+                row["source"] = "render"
+                row["detail"] = str(event.get("note") or "")[:120]
+            elif stage in ("ci", "merged"):
+                row["source"] = "github"
+                row["detail"] = str(event.get("note") or "")[:120]
         elif stage == "pr" and ex.get("pr_url"):
             row.update(state="linked", source="worker", detail=str(ex["pr_url"]))
         elif stage in ("pr", "ci", "merged", "deployed"):
@@ -82,6 +90,8 @@ def lifecycle_text(ticket: dict) -> str:
     lines = ["Этапы (факт из Relay):"]
     for row in lifecycle(ticket):
         icon = {"blocked": "🙋", "failed": "❌"}.get(row["stage"], icons.get(row["state"], "•"))
+        if row["stage"] == "ci" and row["detail"].startswith("CI failed"):
+            icon = "❌"
         label = row["stage"] + (" — не проверено" if row["state"] == "unverified" else "")
         parts = [icon + " " + label]
         if row["at"]:
@@ -100,9 +110,20 @@ def _is_roadmap(ticket: dict) -> bool:
 
 
 def _claude_claimable(ticket: dict) -> bool:
-    """Generic Relay claims are Claude's; ROADMAP and other-lane Issue tickets are not."""
-    owner = str((ticket.get("source") or {}).get("owner") or "").lower()
-    return not _is_roadmap(ticket) and (owner in SHARED_LANES or owner == "claude")
+    """Only Claude-owned generic tickets may be claimed by the Claude worker.
+
+    Telegram assignment lives in execution.owner, while imported GitHub Issues
+    declare source.owner. An explicit execution lane (including unassigned)
+    must take precedence; legacy tickets without either field remain claimable.
+    """
+    if _is_roadmap(ticket):
+        return False
+    execution_owner = str((ticket.get("execution") or {}).get("owner") or "").strip().lower()
+    source_owner = str((ticket.get("source") or {}).get("owner") or "").strip().lower()
+    owner = execution_owner or source_owner
+    if source_owner not in SHARED_LANES and source_owner != "claude":
+        return False
+    return owner in SHARED_LANES or owner == "claude"
 
 
 # T-599-E: an owner Issue is imported only when its first non-blank body line names a lane.
@@ -314,9 +335,9 @@ class RelayQueue:
                 now = utc_now()
                 attempts = int(execution.get("attempts") or 0)
                 item["execution"] = {
-                    "state": "queued", "owner": "claude", "queued_at": now,
+                    "state": "queued", "owner": execution.get("owner") or "claude", "queued_at": now,
                     "attempts": attempts, "last_seen_at": None,
-                    "note": "Ожидает работающего Claude worker",
+                    "note": "Ожидает исполнителя " + str(execution.get("owner") or "claude") + " (повторная очередь)",
                 }
                 item["status"] = "inbox"
                 item["updated_at"] = now
@@ -450,6 +471,208 @@ class RelayQueue:
             "note": note, "from_status": before, "to_status": "blocked"
         })
 
+    def _close_if_proven(self, item: dict, now: str) -> bool:
+        """Evidence T1.4: close a ticket whose worker finished once the required evidence is complete."""
+        if item.get("verification") is None or item.get("status") == "done" or not proof.satisfied(item):
+            return False
+        if str((item.get("execution") or {}).get("state") or "") in ACTIVE_STATES:
+            return False
+        before = item.get("status")
+        item["status"] = "done"
+        item.setdefault("history", []).append({"at": now, "actor": "evidence", "action": "verified", "from_status": before,
+                                               "to_status": "done", "note": "Required evidence complete: " +
+                                               ", ".join(item["verification"].get("required_checks") or [])})
+        return True
+
+    def review_candidates(self, pulls: list, ci: dict, now: float, retry_after: float = 1800) -> list[dict]:
+        """Evidence T2.6: Claude-authored PRs with CI green on the head and no review decision for that head."""
+        by_url = {str(p.get("html_url") or ""): p for p in pulls or [] if isinstance(p, dict) and p.get("html_url")}
+        out = []
+        for item in self.store.list(limit=500):
+            ver, ex = item.get("verification"), item.get("execution") or {}
+            pr = by_url.get(str(ex.get("pr_url") or ""))
+            if ver is None or pr is None or item.get("status") in ("done", "archived") or ver.get("override"):
+                continue
+            if str(ex.get("owner") or "claude") != "claude":
+                continue                                   # Gemini's own PRs are not reviewed by Gemini
+            if str(pr.get("state") or "") == "closed" and not pr.get("merged_at"):
+                continue
+            head = str((pr.get("head") or {}).get("sha") or "")
+            if not head or ((ci or {}).get(head) or {}).get("state") != "passed":
+                continue
+            scope = ver.get("review_scope") or {}
+            if scope.get("sha") == head and not scope.get("required"):
+                continue                                   # decided: this head needs no review
+            if ((ver.get("checks") or {}).get("peer_review") or {}).get("sha") == head:
+                continue                                   # already reviewed
+            attempt = ver.get("review_attempt") or {}
+            if attempt.get("sha") == head and now - float(attempt.get("at") or 0) < retry_after:
+                continue
+            m = re.search(r"/pull/(\d+)$", str(ex.get("pr_url") or ""))
+            out.append({"ticket": item["id"], "url": ex.get("pr_url"), "number": int(m.group(1)) if m else 0,
+                        "head": head, "title": item.get("title") or "", "body": item.get("body") or "",
+                        "scope_known": scope.get("sha") == head})
+        return out
+
+    def _update_ver(self, ticket_id: str, fn) -> dict | None:
+        with self.store.lock:
+            state = self.store._load_unlocked()
+            for item in state["tickets"]:
+                if item.get("id") == ticket_id and item.get("verification") is not None:
+                    fn(item, item["verification"])
+                    item["updated_at"] = utc_now()
+                    self.store._save_unlocked(state)
+                    return dict(item)
+        return None
+
+    def record_review_scope(self, ticket_id: str, head: str, required: bool, reason: str) -> None:
+        """The server (not the agent) adds peer_review to the required checks when the diff is risky or large."""
+        def apply(item, ver):
+            ver["review_scope"] = {"sha": head[:40], "required": bool(required), "reason": reason[:200]}
+            if required and "peer_review" not in (ver.get("required_checks") or []):
+                ver.setdefault("required_checks", []).append("peer_review")
+                item.setdefault("history", []).append({"at": utc_now(), "actor": "evidence", "action": "review_required",
+                                                       "note": "Gemini review required: " + reason[:200]})
+        self._update_ver(ticket_id, apply)
+
+    def record_review(self, ticket_id: str, head: str, verdict: dict | None, now: float) -> dict | None:
+        """None = review unavailable (error, cap): remembered for a retry, never a pass."""
+        def apply(item, ver):
+            if verdict is None:
+                ver["review_attempt"] = {"sha": head[:40], "at": now}
+                return
+            blockers = int(verdict.get("blockers") or 0)
+            proof.record_check(ver, "peer_review", "fail" if blockers else "pass", source="gemini:review", sha=head,
+                               detail=f"{blockers} blocker(s), {len(verdict.get('findings') or [])} finding(s)")
+            ver["review"] = {"sha": head[:40], "verdict": verdict.get("verdict"), "findings": verdict.get("findings") or []}
+            item.setdefault("history", []).append({"at": utc_now(), "actor": "gemini", "action": "peer_review",
+                                                   "note": ("blockers: %d" % blockers) if blockers else "no blocking findings"})
+            # Closing (with the owner's buttons) is left to reconcile_pull_requests, which runs right after.
+        return self._update_ver(ticket_id, apply)
+
+    def reconcile_deploys(self, build_sha: str, contains, limit: int = 10) -> list[dict]:
+        """Evidence T2.2: is the merge commit of a ticket in the code Render is running now?
+
+        ``contains(merge_sha)`` answers True / False / None (unknown) from GitHub; build_sha is Render's
+        RENDER_GIT_COMMIT. Informational: "deployed" is recorded and told once, it is not a done requirement."""
+        build_sha = str(build_sha or "").lower()
+        if not SHA_RE.fullmatch(build_sha):
+            return []
+        notices = []
+        with self.store.lock:
+            state = self.store._load_unlocked()
+            changed = False
+            asked = 0
+            for item in state["tickets"]:
+                ex = item.get("execution") or {}
+                ver = item.get("verification")
+                merge = str(ex.get("merge_sha") or "")
+                if ver is None or not merge or ((ver.get("checks") or {}).get("deployed") or {}).get("result") == "pass":
+                    continue
+                if asked >= limit:
+                    break
+                asked += 1
+                ok = True if merge == build_sha else contains(merge)
+                if ok is not True:
+                    continue
+                proof.record_check(ver, "deployed", "pass", source="render:build", sha=build_sha)
+                now = utc_now()
+                item.setdefault("history", []).append({"at": now, "actor": "render", "action": "deployed",
+                                                       "note": "Merge commit is in the running build " + build_sha[:7],
+                                                       "evidence": {"commit": build_sha}})
+                notices.append({"ticket": item["id"], "action": "deployed",
+                                "text": f"🚀 Relay {item['id']}: изменения работают на Render (сборка {build_sha[:7]})"})
+                changed = True
+            if changed:
+                self.store._save_unlocked(state)
+        return notices
+
+    def reconcile_pull_requests(self, pulls: list, ci: dict, source: str = "github:ec2-snapshot") -> list[dict]:
+        """#289 round trip, server side: follow each ticket's PR (the worker's pr_url evidence) on GitHub.
+
+        Facts come only from the GitHub read passed in (the EC2 snapshot); a PR that is not in it stays unknown.
+        Each transition is recorded once in the ticket history (actor "github") and returned as an owner notice:
+        CI passed / CI failed / merged / closed without merge. Nothing is merged or retried here.
+        """
+        by_url = {str(p.get("html_url") or ""): p for p in pulls or [] if isinstance(p, dict) and p.get("html_url")}
+        notices = []
+        with self.store.lock:
+            state = self.store._load_unlocked()
+            changed = False
+            for item in state["tickets"]:
+                ex = item.get("execution") or {}
+                url = str(ex.get("pr_url") or "")
+                final = ex.get("pr_final")
+                # A merged PR still waiting for its evidence (e.g. CI read later) keeps being followed.
+                if not url or (final and (final != "merged" or item.get("status") == "done"
+                                          or item.get("verification") is None)):
+                    continue
+                pr = by_url.get(url)
+                if pr is None:
+                    continue
+                now = utc_now()
+
+                def record(action, note, text):
+                    item.setdefault("history", []).append({"at": now, "actor": "github", "action": action, "note": note,
+                                                           "evidence": {"pr_url": url}})
+                    notice = {"ticket": item["id"], "action": action, "text": text}
+                    if item.get("status") == "done" and item.get("verification") is not None:
+                        notice["markup"] = proof.accept_buttons(item["id"])          # T2.3
+                    notices.append(notice)
+
+                ver = item.get("verification")
+                head = str((pr.get("head") or {}).get("sha") or "")
+                summary = (ci or {}).get(head) or {}
+                ci_state = summary.get("state") if isinstance(summary, dict) else None
+                touched = False
+                if ver is not None:
+                    # Evidence T1.3/T1.5: record only what this GitHub read shows, bound to the PR head commit.
+                    touched |= proof.set_head(ver, head)
+                    if ci_state in ("passed", "failed"):
+                        touched |= proof.record_check(ver, "ci_passed", "pass" if ci_state == "passed" else "fail",
+                                                         source=source, sha=head, detail=str(summary.get("failed") or ""))
+                if pr.get("merged_at") and final == "merged":
+                    if self._close_if_proven(item, now):
+                        record("verified", "Evidence complete after merge", f"✅ Relay {item['id']}: доказательства "
+                               f"собраны (CI на смерженном коммите) — тикет закрыт.\n{url}")
+                    elif not touched:
+                        continue
+                elif pr.get("merged_at"):
+                    ex.update(pr_final="merged", merged_at=str(pr.get("merged_at"))[:40])
+                    merge_sha = str(pr.get("merge_commit_sha") or "")
+                    if SHA_RE.fullmatch(merge_sha):
+                        ex["merge_sha"] = merge_sha.lower()                         # T2.2: what must reach Render
+                    if ver is not None:
+                        proof.record_check(ver, "pr_merged", "pass", source=source, sha=head)
+                    closed = self._close_if_proven(item, now)
+                    record("merged", "PR merged into main (GitHub)", f"🔀 Relay {item['id']}: PR смержен в main\n{url}\n"
+                           + ("✅ Доказательства собраны — тикет закрыт.\n" if closed else
+                              "" if ver is None else
+                              "⚠️ CI на смерженном коммите не подтверждён — тикет не закрыт. "
+                              f"Закрыть вручную: /done {item['id']} причина\n")
+                           + "Деплой на Render — после зелёных проверок main.")
+                elif str(pr.get("state") or "") == "closed":
+                    ex.update(pr_final="closed")
+                    if ver is not None:
+                        proof.record_check(ver, "pr_merged", "fail", source=source, sha=head, detail="closed_unmerged")
+                    record("pr_closed", "PR closed without merge (GitHub)", f"🚫 Relay {item['id']}: PR закрыт без мержа\n{url}")
+                else:
+                    if ci_state in ("passed", "failed") and (ci_state != ex.get("ci_state") or head != ex.get("ci_sha")):
+                        ex["ci_state"], ex["ci_sha"] = ci_state, head
+                        if ci_state == "passed":
+                            record("ci", "CI passed (GitHub)", f"✅ Relay {item['id']}: CI зелёный — PR готов к ревью и мержу\n{url}")
+                        else:
+                            failed = str(summary.get("failed") or "")[:80]
+                            record("ci", "CI failed: " + failed, f"❌ Relay {item['id']}: CI упал ({failed or 'check'})\n{url}")
+                    elif not touched:
+                        continue
+                item["execution"] = ex
+                item["updated_at"] = now
+                changed = True
+            if changed:
+                self.store._save_unlocked(state)
+        return notices
+
     def counts(self, tickets: list[dict]) -> dict:
         """Effective queue depth must reflect the same predicates as claim()."""
         counts = {"claimable": 0, "other_lane": 0, "running": 0, "stale": 0, "need_you": 0, "not_queued": []}
@@ -517,7 +740,9 @@ class RelayQueue:
                 if stage in FINAL_STATES:
                     ex["finished_at"] = now
                 if stage in {"done"}:
-                    item["status"] = "done"
+                    # Evidence Protocol T1.4: the worker's "done" is a claim. The ticket closes only when the
+                    # required evidence is there (for code: merged PR + CI on that commit, set by the server).
+                    item["status"] = "done" if proof.satisfied({**item, "execution": ex}) else "in_progress"
                 elif stage in {"blocked", "failed"}:
                     item["status"] = "need_you"
                 elif stage in {"running", "checkpoint", "committed", "pushed"}:

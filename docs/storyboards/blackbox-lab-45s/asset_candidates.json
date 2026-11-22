@@ -1,0 +1,99 @@
+{
+  "schema": "film-studio/assets/v1",
+  "project_id": "blackbox-lab-film-studio-pilot",
+  "created_at": "2026-11-20",
+  "render_allowed": false,
+  "assets": [
+    {
+      "id": "pexels-5847759",
+      "role": "city_night",
+      "page": "https://www.pexels.com/photo/cityscape-of-modern-megapolis-in-night-time-5847759/",
+      "author": "Charles Parker",
+      "provider": "Pexels",
+      "licence_reference": "https://www.pexels.com/license/",
+      "rights_status": "candidate_unverified",
+      "allowed_to_render": false,
+      "verified_at": null,
+      "asset_sha256": null,
+      "local_path": null
+    },
+    {
+      "id": "pexels-10410074",
+      "role": "office_night",
+      "page": "https://www.pexels.com/photo/windows-of-a-building-during-night-time-10410074/",
+      "author": null,
+      "provider": "Pexels",
+      "licence_reference": "https://www.pexels.com/license/",
+      "rights_status": "candidate_unverified",
+      "allowed_to_render": false,
+      "verified_at": null,
+      "asset_sha256": null,
+      "local_path": null
+    },
+    {
+      "id": "pexels-7983347",
+      "role": "research",
+      "page": "https://www.pexels.com/photo/keyboard-and-computer-laptop-screen-7983347/",
+      "author": null,
+      "provider": "Pexels",
+      "licence_reference": "https://www.pexels.com/license/",
+      "rights_status": "candidate_unverified",
+      "allowed_to_render": false,
+      "verified_at": null,
+      "asset_sha256": null,
+      "local_path": null
+    },
+    {
+      "id": "pexels-5496464",
+      "role": "prototype",
+      "page": "https://www.pexels.com/photo/person-using-silver-and-black-laptop-computer-5496464/",
+      "author": "Pavel Danilyuk",
+      "provider": "Pexels",
+      "licence_reference": "https://www.pexels.com/license/",
+      "rights_status": "candidate_unverified",
+      "allowed_to_render": false,
+      "verified_at": null,
+      "asset_sha256": null,
+      "local_path": null
+    },
+    {
+      "id": "pexels-17489156",
+      "role": "media_infrastructure",
+      "page": "https://www.pexels.com/photo/computer-server-in-data-center-room-17489156/",
+      "author": null,
+      "provider": "Pexels",
+      "licence_reference": "https://www.pexels.com/license/",
+      "rights_status": "candidate_unverified",
+      "allowed_to_render": false,
+      "verified_at": null,
+      "asset_sha256": null,
+      "local_path": null
+    },
+    {
+      "id": "pexels-5926378",
+      "role": "approval",
+      "page": "https://www.pexels.com/photo/crop-faceless-person-using-laptop-in-darkness-5926378/",
+      "author": null,
+      "provider": "Pexels",
+      "licence_reference": "https://www.pexels.com/license/",
+      "rights_status": "candidate_unverified",
+      "allowed_to_render": false,
+      "verified_at": null,
+      "asset_sha256": null,
+      "local_path": null
+    },
+    {
+      "id": "pexels-8344064",
+      "role": "brand_glow",
+      "page": "https://www.pexels.com/photo/close-up-shot-of-neon-lights-8344064/",
+      "author": null,
+      "provider": "Pexels",
+      "licence_reference": "https://www.pexels.com/license/",
+      "rights_status": "candidate_unverified",
+      "allowed_to_render": false,
+      "verified_at": null,
+      "asset_sha256": null,
+      "local_path": null
+    }
+  ]
+}

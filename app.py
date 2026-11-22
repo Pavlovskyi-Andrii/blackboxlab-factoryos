@@ -24,29 +24,79 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues
+from relay_agent_messages import agent_identity, install_agent_message_routes
+from relay import RelayStore, install_relay_routes, relay_handle_telegram_update, relay_github_snapshot, relay_auto_intake_issues, relay_github_owner_issues, _telegram_attachment
+from voice_transcribe import VoiceTranscriber
+from telegram_group import GroupBridge, GROUP_TYPES as TELEGRAM_GROUP_TYPES
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 from operator_lanes import build_operator_lanes
+from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 from relay_pairing import create_pairing, valid_pairing, pairing_status
-from owner_desk import QuestionStore, install_owner_desk_routes
-from mycast import DeliveryLog, install_mycast_routes, telegram_send_audio
+from relay_acceptance import latest_telegram_acceptance
+from telegram_web_compare import StaleComparison, TelegramViewLog, compare as telegram_web_compare, confirmation_for, owner_status as telegram_compare_status
+from owner_desk import RUNBOOKS as OWNER_RUNBOOKS, QuestionStore, TELEGRAM_TASK, install_owner_desk_routes, roadmap_states
+from mvp_factory import MvpRegistry, install_mvp_factory_routes
+from mybrief import FeedbackStore as MyBriefFeedback, install_mybrief_routes, load_catalog as mybrief_catalog
+from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_mvp_project_once
+from open_questions import install_open_questions_routes
+from browser_tasks import BrowserTaskStore, install_browser_task_routes
+import web_surfer
+import agent_workspace
+from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
+from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
+from gemini_proxy import GEMINI_KEY_CHECK, install_gemini_verify_route, install_gemini_worker_routes
+from mycast import (DeliveryLog, check_mp3, check_pcm as mycast_check_pcm, gemini_tts_pcm, install_mycast_routes, install_mycast_voice_routes, pcm_to_mp3,
+                    telegram_send_audio)
+from mycast_demo import DemoService, install_mycast_demo_routes, _client_id as _mycast_client_id
+from mycast_subtopics import SubtopicService
+from mycast_listener_delivery import ListenerDelivery, install_listener_delivery_routes
+from mycast_accounts import ListenerStore, install_mycast_account_routes, AccountError as MyCastAccountError
+from mycast_accounts import COOKIE as MYCAST_COOKIE, unsign as mycast_unsign
+from mycast_calendar import ListenerCalendar, install_calendar_routes
+from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_voice_audition_routes
+from mycast import GeminiTTSError as MycastGeminiTTSError
+from mycast_demo_audio import DemoAudioStore, install_mycast_demo_audio_routes
+import login_recovery
+import evidence as _evidence
+from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
+from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
+from morning_brief import MorningBrief, compose_brief, plan_ids as brief_plan_ids, github_brief_snapshot
+from voice_settings import (VoiceHistory, VoiceSettingsStore, install_brief_route, install_voice_history_routes,
+                            install_voice_settings_routes)
 from connection_capabilities import ai_provider_catalog, worker_projection, video_projection
 from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
+import youtube_publisher
+import linkedin_publisher
+import social_autopilot
+import social_images
+import olx_publisher
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
+import durable_engine
+import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.7.1"
+APP_VERSION = "v5.16.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
-# T-599-E: owner Issue auto-intake; never polls more often than every 5 minutes.
+# Evidence Protocol: a separate read-only token, so verification never needs (or enables) the Builder's write token.
+GITHUB_READ_TOKEN = os.environ.get("FACTORY_GITHUB_READ_TOKEN", "").strip()
+def _github_read_token():
+    """Every server-side GitHub *read* (intake, team board, /github, PR reconcile) prefers the read-only token;
+    the Builder's write paths keep FACTORY_GITHUB_TOKEN. Evaluated at call time."""
+    return GITHUB_READ_TOKEN or GITHUB_TOKEN
+if GITHUB_READ_TOKEN:
+    # Evidence Tier 2.1: only Render's own GitHub read counts as "checked" once the read-only token exists.
+    import evidence as _evidence
+    _evidence.set_trusted_sources({"github:render","delivery_log","telegram_api","gemini:review"})
+# T-599-E / #369: poll no more often than every 120 seconds; this is not a worker-start SLA.
 FACTORY_GITHUB_ISSUE_INTAKE_ENABLED = os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE", "1").strip().lower() not in ("0","false","no","off")
-FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC = max(300, int(os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC", "300") or 300))
+FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC = max(120, int(os.environ.get("FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC", "120") or 120))
 BUILDER_WORKFLOW = os.environ.get("FACTORY_BUILDER_WORKFLOW", "factory-builder.yml")
 FACTORY_MCP_TOKEN = os.environ.get("FACTORY_MCP_TOKEN", "").strip()
 
@@ -158,6 +208,30 @@ AGENT_SPECS = {
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
+
+@app.on_event("startup")
+def _durable_engine_startup():
+    """T-611: keep this the first startup hook. Launching DBOS resumes interrupted workflows from their last finished step
+    before any later hook (such as the Media Finisher recovery) inspects or restarts work."""
+    durable_engine.launch(DATA_DIR)
+
+
+@app.on_event("shutdown")
+def _durable_engine_shutdown():
+    durable_engine.shutdown()
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """Browsers ask for /favicon.ico before reading the page; serve the Blackbox Lab cube."""
+    return FileResponse(BASE / "static" / "favicon-32.png", media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/mycast", include_in_schema=False)
+def mycast_short_link():
+    """Short public address for shared MyCast podcasts. The browser keeps the #p=… part across the redirect."""
+    return RedirectResponse("/static/mycast-configurator/index.html", status_code=307)
+
 FACTORY_USER = os.environ.get("FACTORY_USER", "blackboxlab")
 FACTORY_PASSWORD = os.environ.get("FACTORY_PASSWORD", "")
 FACTORY_SECRET = os.environ.get("FACTORY_SECRET", secrets.token_hex(32))
@@ -177,6 +251,10 @@ FACTORY_CLAUDE_WORKER_TOKEN_EC2 = os.environ.get("FACTORY_CLAUDE_WORKER_TOKEN_EC
 FACTORY_OPERATOR_WORKER_TOKEN = (os.environ.get("FACTORY_OPERATOR_WORKER_TOKEN","").strip()
     or hmac.new(FACTORY_SECRET.encode("utf-8"),b"factoryos-operator-worker-v1",hashlib.sha256).hexdigest())
 FACTORY_OPERATOR_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_OPERATOR_WORKER_TTL_SECONDS","45"))))
+# T-607: the Gemini worker's own credential (owner-set, >= 32 chars, no derived default). It opens only the Gemini lane:
+# ROADMAP claims with lane=gemini, events on Gemini-owned tickets and the gemini operator heartbeat. Nothing else.
+FACTORY_GEMINI_WORKER_TOKEN = os.environ.get("FACTORY_GEMINI_WORKER_TOKEN", "").strip()
+GEMINI_WORKER_PATHS = ("/api/relay/worker/roadmap-claim", "/api/relay/worker/event", "/api/operator-worker/heartbeat")
 operator_worker_runtime={"claude":{"last_seen":0.0},"gemini":{"last_seen":0.0}}
 _operator_worker_lock=threading.Lock()
 FACTORY_CLAUDE_WORKER_TTL_SECONDS = max(15,min(300,int(os.environ.get("FACTORY_CLAUDE_WORKER_TTL_SECONDS","45"))))
@@ -186,6 +264,9 @@ CLAUDE_WORKER_RESULTS_FILE = DATA_DIR / "claude_worker_results.json"
 CLAUDE_WORKER_HEARTBEAT_FILE = DATA_DIR / "claude_worker_heartbeat.json"
 _claude_worker_results_lock=threading.Lock()
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
+FACTORY_GOOGLE_CLIENT_SECRET = os.environ.get("FACTORY_GOOGLE_CLIENT_SECRET","").strip()   # MyCast calendar OAuth only
+FACTORY_MYCAST_CALENDAR_REDIRECT = os.environ.get("FACTORY_MYCAST_CALENDAR_REDIRECT",
+                                                  "https://mycast.pro/api/mycast/calendar/callback").strip()
 FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS","").split(",") if x.strip()}
 FACTORY_GOOGLE_VIEWER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_VIEWER_EMAILS","").split(",") if x.strip()}
 FACTORY_GOOGLE_ALLOWED_EMAILS = ({x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_EMAILS","").split(",") if x.strip()} | FACTORY_GOOGLE_OWNER_EMAILS | FACTORY_GOOGLE_VIEWER_EMAILS)
@@ -348,11 +429,37 @@ def _claude_worker_authorized(request: Request) -> bool:
                  or bool(FACTORY_CLAUDE_WORKER_TOKEN_EC2 and hmac.compare_digest(supplied,FACTORY_CLAUDE_WORKER_TOKEN_EC2))
                  or valid_pairing(RELAY_WORKER_PAIR_FILE, supplied)))
 
+FACTORY_BROWSER_AGENT_TOKEN = os.environ.get("FACTORY_BROWSER_AGENT_TOKEN", "").strip()
+
+
+def _browser_agent_authorized(request: Request) -> bool:
+    """Owner 2026-11-13: a token that opens only the browser agent's read-task queue for Claude (min 32 chars,
+    never equal to the worker tokens)."""
+    token = FACTORY_BROWSER_AGENT_TOKEN
+    if len(token) < 32 or token in (FACTORY_CLAUDE_WORKER_TOKEN, FACTORY_CLAUDE_WORKER_TOKEN_EC2):
+        return False
+    auth = (request.headers.get("authorization") or "").strip()
+    if not auth.lower().startswith("bearer "):
+        return False
+    return hmac.compare_digest(auth.split(" ", 1)[1].strip(), token)
+
+
 def _operator_worker_authorized(request: Request) -> bool:
     auth=(request.headers.get("authorization") or "").strip()
     if not auth.lower().startswith("bearer "):return False
     supplied=auth.split(" ",1)[1].strip()
     return bool(supplied and hmac.compare_digest(supplied,FACTORY_OPERATOR_WORKER_TOKEN))
+
+def _gemini_worker_authorized(request: Request) -> bool:
+    auth=(request.headers.get("authorization") or "").strip()
+    if len(FACTORY_GEMINI_WORKER_TOKEN)<32 or not auth.lower().startswith("bearer "):return False
+    supplied=auth.split(" ",1)[1].strip()
+    return bool(supplied and hmac.compare_digest(supplied,FACTORY_GEMINI_WORKER_TOKEN))
+
+def _worker_lane(request: Request) -> str:
+    """'claude' for the Claude worker credentials, 'gemini' for the Gemini worker token, '' otherwise."""
+    if _claude_worker_authorized(request):return "claude"
+    return "gemini" if _gemini_worker_authorized(request) else ""
 
 def _operator_runtime_online(item: dict) -> bool:
     return (time.time()-float((item or {}).get("last_seen") or 0)) <= FACTORY_OPERATOR_WORKER_TTL_SECONDS
@@ -511,13 +618,16 @@ def _telegram_webhook_authorized(request: Request) -> bool:
 
 
 def _telegram_bridge_authorized(request: Request) -> bool:
-    if not FACTORY_MCP_TOKEN:
+    """#114 C-4: once FACTORY_TELEGRAM_BRIDGE_TOKEN is set, only it opens the bridge (the MCP connector token, which
+    the public /mcp also accepts in a URL, no longer reads the owner's inbox). Unset: the old MCP-token behaviour."""
+    token=os.environ.get("FACTORY_TELEGRAM_BRIDGE_TOKEN","").strip() or FACTORY_MCP_TOKEN
+    if not token:
         return False
     auth=(request.headers.get("authorization") or "").strip()
     if not auth.lower().startswith("bearer "):
         return False
     supplied=auth.split(" ",1)[1].strip()
-    return bool(supplied and hmac.compare_digest(supplied,FACTORY_MCP_TOKEN))
+    return bool(supplied and hmac.compare_digest(supplied,token))
 
 
 def _telegram_load_state() -> dict:
@@ -568,6 +678,16 @@ def _telegram_api(method: str, payload: Optional[dict]=None) -> dict:
     return result
 
 
+def _telegram_send_markup(chat_id: str, text: str, reply_markup: Optional[dict]=None):
+    """#129: send to any chat the bridge already authorised (the paired group); never raises."""
+    try:
+        payload={"chat_id":str(chat_id),"text":str(text)[:4000]}
+        if reply_markup:payload["reply_markup"]=reply_markup
+        _telegram_api("sendMessage",payload)
+        return True
+    except Exception:
+        return False
+
 def _telegram_send_to(chat_id: str, text: str) -> bool:
     target=str(chat_id or "").strip()
     if not target or not FACTORY_TELEGRAM_BOT_TOKEN:
@@ -613,9 +733,13 @@ async def sync_telegram_relay_webhook():
             {"command":"tasks","description":"Задачи Relay и GitHub"},
             {"command":"task","description":"Детали задачи Relay: /task R-0001"},
             {"command":"history","description":"История действий Relay"},
+            {"command":"proof","description":"Приёмка задачи по фактам: /proof R-0001"},
             {"command":"github","description":"GitHub PR, коммиты и CI"},
             {"command":"roadmap","description":"Roadmap и открытые задачи"},
             {"command":"new","description":"Создать новую задачу"},
+            {"command":"ask","description":"Вопрос Claude: /ask текст"},
+            {"command":"group","description":"Привязать группу FactoryOS Team"},
+            {"command":"brief","description":"Ранковий брифінг 08:00: on / off / test"},
             {"command":"work","description":"Перевести тикет в работу"},
             {"command":"need","description":"Нужно действие от меня"},
             {"command":"done","description":"Закрыть тикет"},
@@ -634,7 +758,74 @@ class TelegramBridgeNotify(BaseModel):
     task_id: Optional[str] = None
 
 
-install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send)
+# T-592: facts (never text or chat ids) of every ticket view the bot delivered, for the server-side Telegram ↔ website check.
+TELEGRAM_VIEWS = TelegramViewLog(DATA_DIR / "telegram_views.json")
+install_relay_routes(app, RELAY_STORE, request_identity, queue=RELAY_QUEUE, authorize_worker=_claude_worker_authorized, notify_owner=_telegram_send,
+                     authorize_gemini_worker=_gemini_worker_authorized, view_log=TELEGRAM_VIEWS)
+
+
+def _telegram_web_report(ticket_id: str = "") -> dict:
+    """T-592 card: the newest ticket the bot showed in detail (or the T-591 acceptance ticket) vs the website now."""
+    tid = str(ticket_id or "").strip().upper()
+    if not tid:
+        latest = TELEGRAM_VIEWS.latest()
+        if latest:
+            tid = latest["ticket_id"]
+        else:
+            acc = latest_telegram_acceptance(RELAY_STORE.list(limit=100000))
+            tid = (acc or {}).get("ticket_id") or ""
+    ticket = RELAY_STORE.get(tid) if tid else None
+    view = RELAY_QUEUE.view(ticket) if ticket else None
+    report = telegram_web_compare(TELEGRAM_VIEWS.latest(tid) if tid else None, view)
+    report["ticket_id"] = tid or report.get("ticket_id") or ""
+    report["ticket_title"] = str((ticket or {}).get("title") or "")[:120]
+    report["confirmation"] = confirmation_for(TELEGRAM_VIEWS.latest_confirmation(), report)
+    return report
+
+
+class TelegramWebConfirm(BaseModel):
+    ticket_id: str
+    verdict: str
+    key: str = ""  # report_key of the card the owner saw
+
+
+@app.get("/api/factory/telegram-web-compare")
+def telegram_web_compare_view(request: Request, ticket_id: str = ""):
+    if (request_identity(request) or {}).get("role") != "owner":
+        raise HTTPException(403, "Owner access required")
+    return _telegram_web_report(ticket_id)
+
+
+@app.post("/api/factory/telegram-web-compare/confirm")
+def telegram_web_compare_confirm(payload: TelegramWebConfirm, request: Request):
+    """The owner's one action for T-592-H: «Совпадает» / «Не совпадает» next to the server verdict."""
+    if (request_identity(request) or {}).get("role") != "owner":
+        raise HTTPException(403, "Owner access required")
+    report = _telegram_web_report(payload.ticket_id)
+    if not report["ticket_id"]:
+        raise HTTPException(404, "No Relay ticket to compare")
+    try:
+        entry = TELEGRAM_VIEWS.confirm(report["ticket_id"], payload.verdict, report, payload.key)
+    except StaleComparison as exc:
+        raise HTTPException(409, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "confirmation": entry, "report": {**report, "confirmation": entry}}
+
+def _agent_relay_forbidden_tokens():
+    """PR #314 review B4: the agent relay tokens must not reuse any broader FactoryOS credential."""
+    return (FACTORY_CLAUDE_WORKER_TOKEN, FACTORY_CLAUDE_WORKER_TOKEN_EC2, FACTORY_OPERATOR_WORKER_TOKEN, FACTORY_PASSWORD,
+            os.environ.get("FACTORY_TELEGRAM_BRIDGE_TOKEN", ""), FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN, FACTORY_MCP_TOKEN)
+
+AGENT_MESSAGES = install_agent_message_routes(app, RELAY_STORE, _agent_relay_forbidden_tokens)
+
+def _mcp_lane_forbidden_tokens():
+    """T-604: a per-lane MCP token must not reuse the shared MCP token or any other FactoryOS credential."""
+    return _agent_relay_forbidden_tokens()+(os.environ.get("FACTORY_CLAUDE_RELAY_TOKEN",""),os.environ.get("FACTORY_CODEX_RELAY_TOKEN",""))
+
+AGENT_WORKSPACE = agent_workspace.AgentWorkspace(RELAY_STORE, RELAY_QUEUE, known_secrets=_mcp_lane_forbidden_tokens)
+agent_workspace.install_routes(app, AGENT_WORKSPACE, lambda: agent_workspace.lane_status(forbidden=_mcp_lane_forbidden_tokens()))
+agent_workspace.install_access_log_redaction()
 
 def _owner_desk_status():
     """Live facts for the owner runbooks; never calls a provider. Lines are keys localized by owner_desk_i18n."""
@@ -647,48 +838,676 @@ def _owner_desk_status():
     else:
         out["T-506"]={"state":"todo","detail_key":"tg_no_token"}
     out["T-590-H"]={"state":"info","detail_key":"prod_sha","args":{"sha":BUILD_SHA[:12]}}
+    acc=latest_telegram_acceptance(RELAY_STORE.list(limit=100000))
+    if acc and acc["status"]=="VERIFIED":
+        out["T-591-H"]={"state":"done","detail_key":"accept_verified","args":{"ticket":acc["ticket_id"],"run":acc["run_id"]}}
+    elif acc:
+        out["T-591-H"]={"state":"todo","detail_key":"accept_partial","args":{"ticket":acc["ticket_id"],"missing":", ".join(acc["missing"]) or (acc["problems"][0][:80] if acc["problems"] else "—")}}
+    else:
+        out["T-591-H"]={"state":"todo","detail_key":"accept_none"} if tg.get("paired") else {"state":"blocked","detail_key":"waits","args":{"task":"T-506"}}
+    confirmation=TELEGRAM_VIEWS.latest_confirmation()
+    try:
+        current=_telegram_web_report((confirmation or {}).get("ticket_id") or "")
+    except Exception:
+        current=None
+    out["T-592-H"]=telegram_compare_status(confirmation,
+                                           out["T-591-H"]["state"]=="done" or roadmap_states().get("T-591-H") is True,current)
+    out["T-593-H"]={"state":"todo","detail_key":"t593_live"}
     reg=get_publisher_adapter_registry()
     metricool=next((a for a in reg.get("adapters") or [] if a.get("kind")=="metricool"),{})
-    if reg.get("selected")=="metricool" and metricool.get("configured"):
+    youtube=next((a for a in reg.get("adapters") or [] if a.get("kind")=="youtube"),{})
+    if reg.get("selected")=="youtube":
+        out["T-520"]=({"state":"done","detail_key":"youtube_ok","args":{"channel":youtube.get("channel_title") or "—"}}
+                      if youtube.get("configured") else
+                      {"state":"todo","detail_key":"youtube_blocked","args":{"reasons":", ".join(youtube.get("blockers") or [])}})
+    elif reg.get("selected")=="metricool" and metricool.get("configured"):
         out["T-520"]={"state":"done","detail_key":"metricool_ok" if metricool.get("youtube_audience_configured") else "metricool_no_audience"}
     elif reg.get("selected")=="metricool":
         out["T-520"]={"state":"todo","detail_key":"metricool_unconfigured"}
     else:
         out["T-520"]={"state":"todo","detail_key":"publisher_selected","args":{"adapter":reg.get("selected") or "manual"}}
     out["T-521"]={"state":"todo","detail_key":"can_start"} if out["T-520"]["state"]=="done" else {"state":"blocked","detail_key":"waits","args":{"task":"T-520"}}
-    out["T-551"]={"state":"blocked","detail_key":"waits_t552"}
+    out["T-551"]={"state":"optional","detail_key":"t551_youtube_in_t520"}
     out["T-598-H1"]={"state":"done","detail_key":"h1_done"}
     out["T-598-H2"]={"state":"optional","detail_key":"h2_optional"}
+    out["T-605"]={"state":"done","detail_key":"gemini_key_ok"} if FACTORY_GEMINI_API_KEY else {"state":"todo","detail_key":"gemini_key_missing"}
+    out["T-606"]={"state":"todo","detail_key":"jules_pending"}
     return out
 
 def _mycast_send_audio(audio, filename, title, caption):
     telegram_send_audio(FACTORY_TELEGRAM_BOT_TOKEN, str(_telegram_load_state().get("chat_id") or ""), audio,
                         filename=filename, title=title, caption=caption)
 
-install_mycast_routes(app, DeliveryLog(DATA_DIR/"mycast_delivered.json"), authorize_worker=_claude_worker_authorized,
-                      send_audio=_mycast_send_audio,
-                      paired=lambda: bool(FACTORY_TELEGRAM_BOT_TOKEN and _telegram_public_status().get("paired")))
+MYCAST_DELIVERIES = DeliveryLog(DATA_DIR/"mycast_delivered.json")
+GROUP_GEMINI_PROMPT=("Ты Gemini — участник рабочего чата FactoryOS Team вместе с владельцем и Claude. "
+                    "Отвечай по-русски, по делу, до 1200 символов, без воды. Если не знаешь фактов о проекте — так и скажи, "
+                    "не выдумывай статусы, цифры и результаты. Claude ответит отдельно, не повторяй его.\n\n")
+
+
+def _group_gemini(prompt):
+    """Owner 2026-11-11: Gemini joins /discuss on the owner's free key (stable Flash, picked per key)."""
+    return _gemini_text(GROUP_GEMINI_PROMPT+str(prompt)[:6000])
+
+
+def _gemini_text(full_prompt):
+    """One free-key Gemini text answer: (text, "") or (None, reason in Russian). Never raises."""
+    if not FACTORY_GEMINI_API_KEY:
+        return None,"ключ Gemini не задан"
+    try:
+        model=resolve_flash_model(FACTORY_GEMINI_API_KEY)
+        data=_gemini_raw_call(FACTORY_GEMINI_API_KEY,"POST",f"models/{model}:generateContent",
+                              {"contents":[{"parts":[{"text":str(full_prompt)[:8000]}]}],
+                               "generationConfig":{"maxOutputTokens":1024,"temperature":0.4}},None,60)
+    except Exception as exc:
+        status=getattr(exc,"detail",{}) if isinstance(getattr(exc,"detail",None),dict) else {}
+        return None,{429:"перегружен, попробуй позже",404:"модель недоступна"}.get(status.get("upstream_status"),"недоступен")
+    parts=((((data or {}).get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+    text="".join(str(p.get("text") or "") for p in parts).strip()
+    return (text[:6000],"") if text else (None,"пустой ответ")
+
+
+GROUP_BRIDGE = GroupBridge(DATA_DIR, ask=lambda text, source_key="", meta=None: OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",text,source_key=source_key,meta=meta),
+                           gemini=_group_gemini)
+VOICE_TRANSCRIBER = VoiceTranscriber(DATA_DIR, api_key=lambda: FACTORY_GEMINI_API_KEY, bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN)
+VOICE_REASONS = {"not_configured":"ключ Gemini не задан","daily_limit":"дневной лимит 30 голосовых исчерпан","too_long":"слишком длинное, больше ~3 минут","rate_limited":"Gemini перегружен, попробуй позже","invalid_key":"ключ Gemini не принят","telegram_file_unavailable":"Telegram не отдал файл","empty_transcript":"пустой результат","model_not_found":"модель Gemini недоступна"}
+VOICE_SETTINGS = VoiceSettingsStore(DATA_DIR)
+VOICE_HISTORY = VoiceHistory(DATA_DIR)
+_mycast_paired = lambda: bool(FACTORY_TELEGRAM_BOT_TOKEN and _telegram_public_status().get("paired"))
+install_mycast_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
+                      send_audio=_mycast_send_audio, paired=_mycast_paired)
+# Natural two-host voice with the owner's Gemini key; the worker falls back to Piper when this returns 409/502.
+install_mycast_voice_routes(app, MYCAST_DELIVERIES, authorize_worker=_claude_worker_authorized,
+                            send_audio=_mycast_send_audio, paired=_mycast_paired, api_key=lambda: FACTORY_GEMINI_API_KEY,
+                            model=os.environ.get("FACTORY_MYCAST_TTS_MODEL", "").strip(),
+                            voices=lambda: VOICE_SETTINGS.current_pair(),
+                            on_result=lambda row: VOICE_HISTORY.record(kind="mycast", item_id=row["id"], status=row["status"],
+                                                                      seconds=row.get("seconds", 0),
+                                                                      voice="+".join(VOICE_SETTINGS.current_pair())))
+# #140: the owner picks the daily two-host pair; owner-only API, same catalogue and pair rule as the demo.
+install_voice_settings_routes(app, VOICE_SETTINGS, is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
+install_voice_history_routes(app, VOICE_HISTORY, is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
+# Morning brief in the owner's host-A voice, once per date: the worker route and the #106 08:00 schedule share it.
+BRIEF_DELIVER = install_brief_route(app, VOICE_HISTORY, MYCAST_DELIVERIES, VOICE_SETTINGS, authorize_worker=_claude_worker_authorized,
+                    api_key=lambda: FACTORY_GEMINI_API_KEY, paired=_mycast_paired,
+                    tts_single=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice),
+                    encode=pcm_to_mp3, send_audio=_mycast_send_audio, check_audio=lambda audio: check_mp3(audio))
+
+# Gemini coder loop on EC2 calls Google through this proxy, so the key never leaves Render.
+install_gemini_worker_routes(app, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY)
+# MyCast public demo (owner 2026-11-06): Gemini voices, at most 30 new per UTC day, cached, one at a time.
+def _subtopics_generate(key,prompt):
+    try:
+        model=resolve_flash_model(key)
+        data=_gemini_raw_call(key,"POST",f"models/{model}:generateContent",
+                              {"contents":[{"parts":[{"text":prompt}]}],
+                               "generationConfig":{"responseMimeType":"application/json","maxOutputTokens":512,"temperature":0.5}},None,20)
+    except Exception:
+        return None
+    parts=((((data or {}).get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+    return "".join(str(p.get("text") or "") for p in parts) or None
+
+
+MYCAST_SUBTOPICS=SubtopicService(DATA_DIR/"mycast_subtopics",api_key=lambda: FACTORY_GEMINI_API_KEY,generate=_subtopics_generate)
+
+
+@app.get("/api/mycast/subtopics")
+def mycast_subtopics(request: Request, q: str = "", lang: str = "en"):
+    """Public beta: AI subtopic suggestions on the free Gemini key; capped, cached, never an error page."""
+    return MYCAST_SUBTOPICS.suggest(q,lang,_mycast_client_id(request))
+
+
+MYCAST_DEMO = DemoService(DATA_DIR / "mycast_demo", api_key=lambda: FACTORY_GEMINI_API_KEY, tts=gemini_tts_pcm,
+                          tts_single=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice))
+install_mycast_demo_routes(app, MYCAST_DEMO)
+# #281 voice audition: real cached Gemini samples per prebuilt voice (owner: about 30 samples), honest unavailable states.
+install_mycast_voice_audition_routes(app, VoiceSamples(DATA_DIR / "mycast_voices", api_key=lambda: FACTORY_GEMINI_API_KEY,
+                                                       tts=lambda key, text, voice: gemini_single_voice_pcm(key, text, voice)))
+
+
+def _mycast_demo_tts_no_retry(key, episode):
+    """T-665: the MyCast two-host TTS without its 429 wait-and-retry: a 429 stops the owner's run at once."""
+    def _stop(_seconds):
+        raise MycastGeminiTTSError("rate_limited")
+    return gemini_tts_pcm(key, episode, voices=tuple(episode.get("voices") or ("Charon", "Kore")), sleep=_stop)
+
+
+MYCAST_DEMO_AUDIO = DemoAudioStore(DATA_DIR / "mycast_demo_audio", api_key=lambda: FACTORY_GEMINI_API_KEY,
+                                   tts=_mycast_demo_tts_no_retry, encode=lambda pcm, rate: pcm_to_mp3(pcm, rate),
+                                   qc=lambda pcm, rate, lines: mycast_check_pcm(pcm, rate, lines))
+install_mycast_demo_audio_routes(app, MYCAST_DEMO_AUDIO,
+                                 is_owner=lambda r: (request_identity(r) or {}).get("role") == "owner")
+import mycast_share_page as _mycast_share_page  # noqa: E402
+_mycast_share_page.set_demo_audio_source(MYCAST_DEMO_AUDIO.approved_url)
+def _mycast_send_listener_sample(chat_id: str, job_id: str) -> None:
+    """#281: one generated demo, as mp3, to the listener's own Telegram chat (delivery opt-in checked by the caller)."""
+    import wave
+    from mycast import pcm_to_mp3
+    try:
+        path = MYCAST_DEMO.audio_path(job_id)
+    except Exception:
+        raise MyCastAccountError("demo_not_ready", 409)
+    with wave.open(str(path)) as w:
+        pcm, rate = w.readframes(w.getnframes()), w.getframerate()
+    telegram_send_audio(FACTORY_TELEGRAM_BOT_TOKEN, str(chat_id), pcm_to_mp3(pcm, rate), filename="mycast-demo.mp3",
+                        title="MyCast · демо", caption="Демо MyCast (не справжній випуск). Розсилку можна зупинити на сторінці MyCast.")
+def _telegram_fetch_file(file_id: str, limit: int = 20 * 1024 * 1024) -> bytes:
+    """#317 history: download a file the bot sent earlier (Bot API getFile, max 20 MB). Nothing is cached on disk."""
+    path=str((_telegram_api("getFile",{"file_id":file_id}).get("result") or {}).get("file_path") or "")
+    if not path or ".." in path:
+        raise RuntimeError("Telegram file not available")
+    req=urlrequest.Request(f"https://api.telegram.org/file/bot{FACTORY_TELEGRAM_BOT_TOKEN}/{path}")
+    with urlrequest.urlopen(req,timeout=60) as response:
+        data=response.read(limit+1)
+    if len(data)>limit:
+        raise RuntimeError("Telegram file too large")
+    return data
+_MYCAST_BOT_NAME = {"name": "", "at": 0.0}
+def _mycast_bot_username() -> str:
+    # The Login Widget needs the bot's public @username; ask Telegram once an hour, never expose the token.
+    if time.time() - _MYCAST_BOT_NAME["at"] > 3600:
+        _MYCAST_BOT_NAME.update(name=str((_telegram_api("getMe").get("result") or {}).get("username") or ""), at=time.time())
+    return _MYCAST_BOT_NAME["name"]
+# MyCast listener accounts (owner 2026-11-06: open beta, Telegram + Google). Separate cookie; never a staff session.
+MYCAST_LISTENERS = ListenerStore(DATA_DIR / "mycast_listeners.json")
+
+
+def _mycast_keyring():
+    from browser_runner.vault import Keyring
+    return Keyring.from_env()
+
+
+# Owner 2026-11-13: "Підключити Google Календар" — read-only, refresh token encrypted with FACTORY_VAULT_KEY.
+MYCAST_CALENDAR = ListenerCalendar(MYCAST_LISTENERS, keyring=_mycast_keyring, client_id=lambda: FACTORY_GOOGLE_CLIENT_ID,
+                                   client_secret=lambda: FACTORY_GOOGLE_CLIENT_SECRET, secret=FACTORY_SECRET,
+                                   redirect_uri=FACTORY_MYCAST_CALENDAR_REDIRECT)
+install_calendar_routes(app, MYCAST_CALENDAR, current_slug=lambda request: mycast_unsign(
+    FACTORY_SECRET, request.cookies.get(MYCAST_COOKIE, ""), time.time()))
+install_mycast_account_routes(app, MYCAST_LISTENERS, secret=FACTORY_SECRET,
+                              bot_token=lambda: FACTORY_TELEGRAM_BOT_TOKEN, bot_username=_mycast_bot_username,
+                              google_client_id=lambda: FACTORY_GOOGLE_CLIENT_ID,
+                              google_verify=lambda cred: google_id_token.verify_oauth2_token(cred, google_requests.Request(), FACTORY_GOOGLE_CLIENT_ID),
+                              secure_cookie=FACTORY_PUBLIC_BASE_URL.startswith("https://"),
+                              send_message=lambda chat, text: _telegram_api("sendMessage", {"chat_id": chat, "text": text}),
+                              send_sample=_mycast_send_listener_sample, fetch_audio=_telegram_fetch_file,
+                              calendar_available=MYCAST_CALENDAR.available,
+                              on_delete=MYCAST_CALENDAR.disconnect)
+install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
+# #317: website listeners' daily episodes. The EC2 worker writes the script; the server re-checks every gate,
+# voices it with the listener's own voices and sends it only to the listener's own chat.
+MYCAST_LISTENER_DELIVERY = ListenerDelivery(MYCAST_LISTENERS, calendar=MYCAST_CALENDAR.today)
+install_listener_delivery_routes(
+    app, MYCAST_LISTENER_DELIVERY, authorize_worker=_claude_worker_authorized, api_key=lambda: FACTORY_GEMINI_API_KEY,
+    tts=gemini_tts_pcm, encode=lambda pcm, rate: pcm_to_mp3(pcm, rate, bitrate=64),  # 30 min ≈ 14 MB < Telegram's 20 MB re-download limit
+    check_pcm=mycast_check_pcm, identity=request_identity,
+    send_audio=lambda chat, audio, filename, title, caption: telegram_send_audio(
+        FACTORY_TELEGRAM_BOT_TOKEN, str(chat), audio, filename=filename, title=title, caption=caption))
+
+# Owner 2026-11-14: brand strategy passport (7-step chain) -> Master Brief; MyCast starts from Claude's draft.
+from brand_strategy import StrategyStore, install_strategy_routes
+from brand_strategy_seeds import SEEDS as STRATEGY_SEEDS
+STRATEGY = StrategyStore(DATA_DIR / "brand_strategy.json", seeds=STRATEGY_SEEDS)
+
+
+async def _strategy_draft(agent, system, user):
+    """One owner-clicked LLM call, inside the daily budget guard and recorded as an agent run."""
+    _content_brain_budget_guard(1800)
+    model = _workflow_model(None)
+    run_id = start_agent_run(agent, None, "brand_strategy", model=model)
+    try:
+        result = await asyncio.wait_for(asyncio.to_thread(_content_brain_llm, agent, system, user, 1800, model),
+                                        timeout=AGENT_TIMEOUT_SECONDS)
+    except Exception as exc:
+        finish_agent_run(run_id, status="failed", error=str(exc), meta={"brand_strategy": True})
+        raise RuntimeError(str(exc)) from exc
+    finish_agent_run(run_id, status="completed", input_tokens=result["input_tokens"], output_tokens=result["output_tokens"],
+                     cost_usd=result["cost_usd"], meta={"brand_strategy": True})
+    return result
+
+
+async def _strategy_job(title, brief, fmt):
+    """Stage 2: a plan row becomes an ordinary inbox job through the normal job route."""
+    out = await create_job(JobCreate(title=title[:200], brief=brief, format=(fmt or "Long + Shorts")[:80], language="Russian"))
+    return out["id"]
+
+
+def _strategy_job_exists(job_id):
+    con = db()
+    try:
+        return con.execute("SELECT 1 FROM jobs WHERE id=?", (job_id,)).fetchone() is not None
+    finally:
+        con.close()
+
+
+install_strategy_routes(app, STRATEGY, identity=request_identity, draft=_strategy_draft, create_job=_strategy_job,
+                        job_exists=_strategy_job_exists)
+
+# Owner 2026-11-15 (T-MODS): Mods & skills — one-button on/off for skills and features, with usage and before/after.
+from mods_registry import ModsStore, install_mods_routes
+MODS = ModsStore(DATA_DIR / "mods.json")
+
+
+def _duel_job_state(job_id):
+    job = get_job(job_id)
+    return {"status": job.get("status") or "", "title": job.get("title") or ""} if job else None
+
+
+def _duel_ticket_state(ticket_id):
+    t = RELAY_STORE.get(ticket_id)
+    if not t:
+        return None
+    ex = t.get("execution") or {}
+    return {"status": t.get("status") or "", "execution": ex.get("state") or "", "note": str(ex.get("note") or "")[:400]}
+
+
+install_mods_routes(app, MODS, identity=request_identity, worker_auth=_claude_worker_authorized,
+                    create_job=_strategy_job, job_state=_duel_job_state, ticket_state=_duel_ticket_state,
+                    create_ticket=lambda title, body, key: RELAY_STORE.create(
+                        title, body, source={"channel": "mods-duel", "source_key": key, "url": ""},
+                        created_by="mods-duel", owner="claude")[0]["id"],
+                    media_dir=DATA_DIR / "mods_media")
 
 OWNER_QUESTIONS = QuestionStore(DATA_DIR/"owner_questions.json")
+MVP_REGISTRY = MvpRegistry(DATA_DIR / "mvp_factory.json")
+FACELESS_CRM = FacelessCrm(DATA_DIR / "faceless_crm.json")  # #359 owner-only internal persona tracker
+try:
+    register_crm_mvp_project_once(MVP_REGISTRY, DATA_DIR / "faceless_crm_project_intake_v1.marker")
+except (OSError, ValueError) as exc:
+    # Never take down FactoryOS because of a draft project intake; leave no success marker on failure.
+    print("Faceless Models CRM MVP intake blocked:", type(exc).__name__)
+MVP_CHAT = AgentChat(DATA_DIR)
+
+
+def _mvp_project(project_id):
+    return next((p for p in MVP_REGISTRY.snapshot()["projects"] if p.get("id")==project_id),None)
+
+
+def _mvp_connections():
+    return {"gemini":bool(FACTORY_GEMINI_API_KEY),"github":bool(GITHUB_READ_TOKEN),"claude_worker":_claude_worker_online(),
+            "render":BUILD_SHA!="local","channels":False}
+
+
+def _mvp_route_answer(item):
+    """Claude worker answers for MVP agents go back into the agent's chat (2026-11-11)."""
+    meta=item.get("meta") if isinstance(item.get("meta"),dict) else {}
+    pid,agent=meta.get("mvp_project"),meta.get("mvp_agent")
+    if not pid or agent not in MVP_AGENT_IDS:
+        return False
+    try:MVP_CHAT.add(pid,agent,"agent",str(item.get("answer") or "")[:1500] or "(порожня відповідь)",ref=str(item.get("id") or ""))
+    except ValueError:pass
+    return True
+
+
+MVP_ARTIFACTS=MvpArtifacts(DATA_DIR)
+
+
+def _mvp_ticket_done(ticket):
+    """Build hand-off needs real evidence: the Relay ticket closed on merged PR + CI, not by an owner override."""
+    ver=ticket.get("verification") or {}
+    return ticket.get("status")=="done" and not ver.get("override") and _evidence.level(ticket) in ("checked","accepted")
+
+
+MVP_PIPELINE=MvpPipeline(DATA_DIR,registry=MVP_REGISTRY,chat=MVP_CHAT,artifacts=MVP_ARTIFACTS,gemini=lambda prompt:_gemini_text(prompt),
+    create_ticket=lambda title,body,key,pid:RELAY_STORE.create(title,body,source={"channel":"mvp","source_key":key,"url":""},
+                                                               created_by="mvp-pipeline",owner="claude")[0],
+    get_ticket=lambda tid:RELAY_STORE.get(tid) if tid else None,ticket_done=_mvp_ticket_done)
+
+
+def _mvp_owner(request,members=False):
+    role=(request_identity(request) or {}).get("role")
+    if role!="owner" and not (members and role=="member"):
+        raise HTTPException(403,"owner_only")
+
+
+@app.get("/api/mvp-factory/{project_id}/artifacts/{name}")
+def mvp_artifact(project_id: str, name: str, request: Request):
+    if not request_identity(request):
+        raise HTTPException(401,"login required")
+    text=MVP_ARTIFACTS.read(project_id,name)
+    if text is None:
+        raise HTTPException(404,"unknown_artifact")
+    media="application/json" if name.endswith(".json") else "text/markdown"
+    return Response(text,media_type=media+"; charset=utf-8")
+
+
+@app.post("/api/mvp-factory/{project_id}/autopilot")
+async def mvp_autopilot(project_id: str, request: Request):
+    """Owner starts or stops the agents' hand-off for one project (free Gemini key; build still needs the owner)."""
+    _mvp_owner(request)
+    if not _mvp_project(project_id):
+        raise HTTPException(404,"unknown_project")
+    try:body=await request.json()
+    except ValueError:body={}
+    on=bool((body or {}).get("on")) if isinstance(body,dict) else False
+    return MVP_PIPELINE.set_autopilot(project_id,on)
+
+
+@app.post("/api/mvp-factory/{project_id}/spec/approve")
+def mvp_spec_approve(project_id: str, request: Request):
+    """The owner's "так" on the spec: spec_review → build_queued with the spec as evidence. Agents can't do this."""
+    _mvp_owner(request)
+    project=_mvp_project(project_id)
+    if not project or project.get("stage")!="spec_review":
+        raise HTTPException(409,"not_in_spec_review")
+    version=int(MVP_PIPELINE.state(project_id).get("spec_version") or 0)
+    if not version:
+        raise HTTPException(409,"no_spec")
+    out=MVP_REGISTRY.record(project_id,"advance",actor_role="owner",actor=(request_identity(request) or {}).get("email") or "owner",
+                            evidence=[f"/api/mvp-factory/{project_id}/artifacts/spec-v{version}.md"],
+                            note=f"owner approved spec v{version}",idempotency_key=f"mvp:{project_id}:approve:{version}")
+    MVP_CHAT.add(project_id,"spec","system",f"✅ Власник затвердив ТЗ v{version}. Передаю Builder'у.")
+    return out
+
+
+@app.post("/api/mvp-factory/{project_id}/spec/redo")
+async def mvp_spec_redo(project_id: str, request: Request):
+    """Battle: redo the spec on another variant and/or with the owner's feedback (before approval)."""
+    _mvp_owner(request,members=True)
+    project=_mvp_project(project_id)
+    if not project or project.get("stage") not in ("spec_draft","spec_review"):
+        raise HTTPException(409,"not_in_spec_stage")
+    try:body=await request.json()
+    except ValueError:body={}
+    body=body if isinstance(body,dict) else {}
+    variant=str(body.get("variant") or "").strip().upper()[:2]
+    if variant:
+        MVP_PIPELINE._update(project_id,variant=variant)
+    feedback=str(body.get("feedback") or "")[:1500]
+    threading.Thread(target=lambda:MVP_PIPELINE.run_spec(project,feedback),daemon=True).start()
+    return {"ok":True,"variant":variant or MVP_PIPELINE.state(project_id).get("variant")}
+
+
+@app.get("/api/mvp-factory/{project_id}/cycle")
+def mvp_project_cycle(project_id: str, request: Request):
+    """MVP Builder panel: phase, five agents, what they produced, what to connect, their chats. Read-only facts."""
+    if not request_identity(request):
+        raise HTTPException(401,"login required")
+    project=_mvp_project(project_id)
+    if not project:
+        raise HTTPException(404,"unknown_project")
+    view=mvp_cycle_view(project,_mvp_connections(),MVP_CHAT.thread(project_id))
+    st=MVP_PIPELINE.state(project_id)
+    view["pipeline"]={"autopilot":bool(st.get("autopilot")),"variant":st.get("variant"),"spec_version":st.get("spec_version"),
+                      "build_ticket":st.get("build_ticket"),"last_error":st.get("last_error"),
+                      "artifacts":[f"/api/mvp-factory/{project_id}/artifacts/{n}" for n in MVP_ARTIFACTS.names(project_id)]}
+    return view
+
+
+@app.post("/api/mvp-factory/{project_id}/agents/{agent}/message")
+async def mvp_agent_message(project_id: str, agent: str, request: Request):
+    """Owner → agent. Gemini roles answer at once (free key); Claude roles go through the worker question queue."""
+    if (request_identity(request) or {}).get("role") not in ("owner","member"):
+        raise HTTPException(403,"forbidden")
+    project=_mvp_project(project_id)
+    spec=next((a for a in MVP_AGENTS if a["id"]==agent),None)
+    if not project or not spec:
+        raise HTTPException(404,"unknown_project_or_agent")
+    try:body=await request.json()
+    except ValueError:body={}
+    text=str((body or {}).get("text") or "") if isinstance(body,dict) else ""
+    try:msg=MVP_CHAT.add(project_id,agent,"owner",text)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+    chat=(MVP_CHAT.thread(project_id).get(agent) or [])
+    if spec["engine"]=="claude":
+        question=(f"MVP Builder · проєкт «{project.get('title')}» ({project.get('stage')}) · агент {spec['label']} "
+                  f"({spec['does']}).\nТЗ (початок): {str(project.get('brief') or '—')[:500]}\n\nВласник: {msg['text'][:700]}")
+        try:
+            item=OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",question,source_key=f"mvp:{project_id}:{agent}:{msg['at']}",
+                                        meta={"mvp_project":project_id,"mvp_agent":agent})
+            MVP_CHAT.add(project_id,agent,"system",f"📨 Передано Claude-воркеру ({item.get('id')}). Відповідь з'явиться тут.")
+        except Exception:
+            MVP_CHAT.add(project_id,agent,"system","⚠️ Черга Claude зараз недоступна, повідомлення збережено.")
+        return {"ok":True,"routed":"claude_worker"}
+    prompt=mvp_agent_prompt(project,spec,msg["text"],chat)
+
+    def work():
+        text_out,reason=_gemini_text(prompt)
+        MVP_CHAT.add(project_id,agent,"agent" if text_out else "system",
+                     text_out or f"⚠️ Gemini не відповів ({reason}). Повідомлення збережено.")
+    threading.Thread(target=work,daemon=True).start()
+    return {"ok":True,"routed":"gemini"}
+# T-560 wiring: owner's read-only browser tasks, run by the EC2 runner (Playwright never runs on Render).
+BROWSER_TASKS = BrowserTaskStore(DATA_DIR)
+# T-560-H Surfer for every MCP-connected agent; Google search via Gemini only after the owner opts in (may be billed).
+WEB_SEARCH = web_surfer.WebSearch(DATA_DIR, provider=lambda: os.environ.get("FACTORY_WEB_SEARCH_PROVIDER", ""),
+                                  gemini_key=lambda: FACTORY_GEMINI_API_KEY, gemini_model=resolve_flash_model)
+web_surfer.install_worker_routes(app, store=BROWSER_TASKS, search=WEB_SEARCH, authorize_worker=_claude_worker_authorized)
+def _browser_session_domains(provider: str, account: str) -> list:
+    parts = _vault_parts(required=False)
+    if not parts or not _VAULT_SLUG.match(provider or "") or not _VAULT_ACCOUNT.match(account or ""):
+        return []
+    info = parts[1].check(workspace_id=tenancy.binding_workspace(), provider=provider, account_binding_id=account)
+    return [d.lower() for d in info.get("domains") or []] if info.get("ok") else []
+
+
+def _browser_session_state(provider: str, account: str):
+    parts = _vault_parts(required=False)
+    if not parts:
+        return None
+    sessions, workspace = parts[1], tenancy.binding_workspace()
+    ref = sessions._registry.resolve(workspace, provider, account)
+    if not ref:
+        return None
+    return sessions.load(ref, workspace_id=workspace, provider=provider, account_binding_id=account).reveal()
+
+
+def _surfer_session(raw, url: str) -> dict:
+    """T-560-L: MCP web_read may use a saved vault login only if the owner switched "allow agents" on for it and the
+    page is on one of its cookie domains. The refusal lists the allowed logins (site/account only, no secrets)."""
+    from urllib.parse import urlsplit
+    from browser_runner.sessions import VaultError
+    if isinstance(raw,dict):provider,account=str(raw.get("provider") or ""),str(raw.get("account") or "")
+    else:provider,_,account=str(raw or "").strip().partition("/")
+    provider,account=provider.strip().lower(),(account.strip() or "default")
+    parts=_vault_parts(required=False)
+    workspace=tenancy.binding_workspace()
+    allowed=[e for e in (parts[1].entries(workspace) if parts else []) if e.get("agent_use") is True]
+    listing=", ".join(f"{e['provider']}/{e['account']} ({', '.join((e.get('domains') or [])[:2])})" for e in allowed[:5]) or "none"
+    if not parts or not _VAULT_SLUG.match(provider) or not _VAULT_ACCOUNT.match(account):
+        raise HTTPException(403,f"saved login not allowed for agents; allowed: {listing}")
+    try:
+        ok=parts[1].agent_use(workspace_id=workspace,provider=provider,account_binding_id=account)
+    except VaultError:
+        ok=False
+    if not ok:
+        raise HTTPException(403,f"saved login not allowed for agents; allowed: {listing}")
+    domains=_browser_session_domains(provider,account)
+    host=(urlsplit(url).hostname or "").lower()
+    if not domains or not any(host==d or host.endswith("."+d) for d in domains):
+        raise HTTPException(400,f"the page is not on a domain of {provider}/{account}: {', '.join(domains[:3]) or 'none'}")
+    return {"provider":provider,"account":account}
+
+
+install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized,
+                            authorize_agent=_browser_agent_authorized,
+                            session_domains=_browser_session_domains, session_state=_browser_session_state)
+install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
+MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
+install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
+from mvp_evolution import EvolutionStore, install_mvp_evolution_routes  # noqa: E402
+MVP_EVOLUTION = EvolutionStore(DATA_DIR / "mvp_evolution.json", project_exists=lambda pid: _mvp_project(pid) is not None)
+_mvp_evolution_ticket = lambda title, body, key, lane: RELAY_STORE.create(  # noqa: E731
+    title, body, source={"channel": "mvp-evolution", "source_key": key, "url": ""}, created_by="mvp-evolution", owner=lane)[0]
+install_mvp_evolution_routes(  # T-630 #270: consented feedback -> themes -> owner-approved V2 proposal -> one Relay ticket
+    app, MVP_EVOLUTION, request_identity, ticket_lookup=RELAY_STORE.get, ticket_verified=_mvp_ticket_done,
+    mybrief_entries=MYBRIEF_FEEDBACK.consented_entries, create_ticket=_mvp_evolution_ticket)
+from mvp_quiz import QuizService, install_mvp_quiz_routes  # noqa: E402
+install_mvp_quiz_routes(  # T-634 #270: optional MyCast quiz -> analyst -> V2 task via Relay; gifts/mail held behind flags
+    app, QuizService(DATA_DIR / "mvp_quiz.json", MVP_EVOLUTION, create_ticket=_mvp_evolution_ticket,
+                     grant_days=MYCAST_LISTENERS.grant_bonus), request_identity,
+    listener_fn=lambda request: mycast_unsign(FACTORY_SECRET, request.cookies.get(MYCAST_COOKIE, ""), time.time()) or "",
+    client_fn=_mycast_client_id)
+from mvp_experiments import install_mvp_experiment_routes  # noqa: E402
+async def _ab_content_job(title, brief, job_id):
+    """T-610: an A/B branch becomes an ordinary inbox job (draft only), the same row the normal job route writes.
+    Codex review on #376: the id is deterministic per branch and the insert is INSERT OR IGNORE in one transaction with
+    its workspace binding, so retries, slow creators and crashes can never make a second job. Nothing runs or publishes."""
+    workspace = tenancy.normalize_workspace(tenancy.current() or tenancy.DEFAULT_WORKSPACE)
+    con = db()
+    try:
+        now = ts()
+        cur = con.execute("INSERT OR IGNORE INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                          (job_id, title[:200], brief, "inbox", "AI presenter", "Short only", "Russian", 8, "idle", 0, now, now))
+        created = cur.rowcount == 1
+        if created:
+            assign_job_workspace(con, job_id, workspace)
+        con.commit()
+    finally:
+        con.close()
+    if created:
+        event(job_id, f"Created: {title[:200]}")
+        await broadcast()
+    return job_id
+
+
+install_mvp_experiment_routes(app, MVP_REGISTRY, request_identity, create_job=_ab_content_job)  # T-608..T-610 A/B Tester: drafts only, owner-gated
+from mvp_launchpad import install_mvp_launchpad_routes  # noqa: E402
+MVP_LAUNCHPAD = install_mvp_launchpad_routes(app, MVP_REGISTRY, request_identity)  # T-704 Launchpad: plans and evidence only, never changes a stage
+from mvp_launchpad_agents import DiscoveryAgents, install_mvp_discovery_routes, seed_benchmark  # noqa: E402
+LAUNCHPAD_REVIEW_MODEL = "gemini-flash-lite-latest"   # the second model of the Discovery loop: free key, another Flash model
+
+
+def _launchpad_model(prompt, model=""):
+    """One free-key Gemini JSON answer for a Discovery agent (T-705), or None. The paid LLM key is never used here."""
+    if not FACTORY_GEMINI_API_KEY:
+        return None
+    try:
+        data = _gemini_raw_call(FACTORY_GEMINI_API_KEY, "POST", f"models/{model or resolve_flash_model(FACTORY_GEMINI_API_KEY)}:generateContent",
+                                {"contents": [{"parts": [{"text": str(prompt)[:60000]}]}],
+                                 "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.2,
+                                                      "responseMimeType": "application/json"}}, None, 90)
+    except Exception:
+        return None
+    parts = ((((data or {}).get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+    return "".join(str(p.get("text") or "") for p in parts).strip() or None
+
+
+def _launchpad_read(url):
+    """web_read for the Researcher: the EC2 runner opens the page anonymously; called from the run's own thread."""
+    return asyncio.run(web_surfer.web_read(BROWSER_TASKS, {"url": url, "agent": "launchpad-researcher"},
+                                           source=web_surfer.WORKER_SOURCE))
+
+
+def _launchpad_signals():
+    con = db()
+    try:
+        return [dict(x) for x in con.execute("SELECT title,url,content FROM source_signals WHERE url LIKE 'https://%' "
+                                             "ORDER BY created_at DESC LIMIT 10").fetchall()]
+    finally:
+        con.close()
+
+
+install_mvp_discovery_routes(  # T-705 Discovery agents: owner-started, free tools only, records at most `linked`
+    app, MVP_LAUNCHPAD, request_identity,
+    agents=DiscoveryAgents(MVP_LAUNCHPAD, search=WEB_SEARCH.search, read=_launchpad_read, signals=_launchpad_signals,
+                           producer=_launchpad_model, producer_name=lambda: resolve_flash_model(FACTORY_GEMINI_API_KEY),
+                           reviewer=lambda prompt: _launchpad_model(prompt, LAUNCHPAD_REVIEW_MODEL),
+                           reviewer_name=lambda: LAUNCHPAD_REVIEW_MODEL))
+seed_benchmark(MVP_LAUNCHPAD)  # the manual MyCast D1–D3 run of 2026-11-19, once; its G1/G2 stay proposals (T-706-H)
+install_faceless_crm_routes(app, FACELESS_CRM, request_identity)  # #359: private, zero-external-work CRM
+from decision_memory import DecisionStore, install_decision_memory_routes, sync_mvp_registry_once  # noqa: E402
+install_decision_memory_routes(app, DecisionStore(DATA_DIR / "decision_memory.json", BASE / "DECISIONS.md"), request_identity)  # T-614 #187: owner-only
+try:
+    sync_mvp_registry_once(MVP_REGISTRY, DATA_DIR / "decision_memory_registry_intake.marker")  # links the existing #187 pilot
+except (OSError, ValueError) as exc:
+    print("Decision Memory registry intake skipped:", type(exc).__name__)
+from learn_center import install_learn_routes  # noqa: E402
+import brand_strategy as _brand_strategy_mod  # noqa: E402
+install_learn_routes(app, base=BASE, steps_source=lambda: _brand_strategy_mod.STEPS)  # owner 2026-11-14: one Learning section
+install_open_questions_routes(app, MVP_REGISTRY, OWNER_QUESTIONS, request_identity)  # #321: read-only owner dashboard
+from release_guardian import GitHubReader as _RgReader, ReleaseGuardian as _RgGuardian, install_release_guardian_routes  # noqa: E402
+install_release_guardian_routes(app, _RgGuardian(_RgReader(GITHUB_REPO, _github_read_token)), request_identity)  # T-616 #189: owner-only, GET-only PR board
 install_owner_desk_routes(app, OWNER_QUESTIONS, request_identity, authorize_worker=_claude_worker_authorized,
                           status_fn=_owner_desk_status,
                           redact_fn=lambda s: _redact_board_value(s,_board_secret_values()),
-                          notify_owner=_telegram_send)
+                          notify_owner=_telegram_send,
+                          route_answer=lambda item: _mvp_route_answer(item) or GROUP_BRIDGE.deliver_answer(item,_telegram_send_markup))
+
+
+# MyCast's own domain (owner bought mycast.pro, 2026-11-13). On it, only MyCast is served: the root opens the MyCast
+# page and the FactoryOS dashboard/API stay on the onrender.com address. Comma-separated, lower case.
+MYCAST_HOSTS = {h.strip().lower() for h in os.environ.get("FACTORY_MYCAST_HOSTS", "mycast.pro,www.mycast.pro").split(",") if h.strip()}
+MYCAST_PAGE = "/static/mycast-configurator/index.html"
+MYCAST_HOST_PREFIXES = ("/static/mycast-configurator/", "/static/favicon", "/static/apple-touch-icon", "/api/mycast/",
+                        "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/.well-known/")
+MYCAST_HOST_PATHS = {"/privacy", "/terms", "/health", "/favicon.ico", "/mycast", "/robots.txt", "/sitemap.xml"}
+
+
+def _mycast_host_response(request: Request):
+    """None when the request may go on; otherwise a redirect that keeps mycast.pro limited to MyCast."""
+    host = (request.headers.get("host") or "").split(":")[0].strip().lower()
+    if host not in MYCAST_HOSTS:
+        return None
+    path = request.url.path
+    if host.startswith("www."):
+        return RedirectResponse("https://" + host[4:] + (path if path != "/" else MYCAST_PAGE), status_code=301)
+    if path in MYCAST_HOST_PATHS or path.startswith(MYCAST_HOST_PREFIXES):
+        return None
+    query = ("?" + request.url.query) if request.url.query and path == "/" else ""
+    return RedirectResponse(MYCAST_PAGE + query, status_code=302)
+
+
+@app.get("/privacy")
+def mycast_privacy():
+    return FileResponse(BASE/"static"/"mycast-configurator"/"privacy.html")
+
+
+@app.get("/terms")
+def mycast_terms():
+    return FileResponse(BASE/"static"/"mycast-configurator"/"terms.html")
+
+
+# Search Console (owner 2026-11-13): mycast.pro is indexable; the FactoryOS dashboard host is not.
+MYCAST_SITEMAP_PATHS = ("/static/mycast-configurator/index.html", "/privacy", "/terms")
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots_txt(request: Request):
+    host = (request.headers.get("host") or "").split(":")[0].strip().lower()
+    if host in MYCAST_HOSTS:
+        body = "User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: https://" + host + "/sitemap.xml\n"
+    else:
+        body = "User-agent: *\nDisallow: /\n"
+    return Response(body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap_xml(request: Request):
+    host = (request.headers.get("host") or "").split(":")[0].strip().lower()
+    if host not in MYCAST_HOSTS:
+        return Response(status_code=404)
+    urls = "".join(f"<url><loc>https://{host}{p}</loc></url>" for p in MYCAST_SITEMAP_PATHS)
+    return Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+                    + urls + "</urlset>", media_type="application/xml")
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/auth/google", "/guest", "/health", "/mcp"}
-    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/")
+    mycast_redirect = _mycast_host_response(request)
+    if mycast_redirect is not None:
+        return mycast_redirect
+    public_paths = {"/api/mycast/quiz", "/login", "/login/recover", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
+                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
+    # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
+    public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
+    # #114 C-2: the provider callback carries FACTORY_VIDEO_CALLBACK_TOKEN, not a session; the route checks it.
+    media_job_callback = FACTORY_VIDEO_CALLBACK_TOKEN and re.fullmatch(r"/api/media-jobs/[0-9a-zA-Z_-]+/callback", request.url.path)
     local_booster_api=request.url.path.startswith("/api/local-booster/") and _local_booster_authorized(request)
     claude_worker_api=request.url.path.startswith("/api/claude-worker/") and _claude_worker_authorized(request)
-    operator_worker_api=request.url.path.startswith("/api/operator-worker/") and _operator_worker_authorized(request)
+    gemini_worker_api=request.url.path in GEMINI_WORKER_PATHS and _gemini_worker_authorized(request)
+    operator_worker_api=request.url.path.startswith("/api/operator-worker/") and (_operator_worker_authorized(request) or gemini_worker_api)
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
-    relay_worker_api=request.url.path.startswith("/api/relay/worker/") and _claude_worker_authorized(request)
-    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/")) and _claude_worker_authorized(request)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    relay_worker_api=request.url.path.startswith("/api/relay/worker/") and (_claude_worker_authorized(request) or gemini_worker_api)
+    browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
+    relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
+    owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/") or request.url.path.startswith("/api/factory/surfer/worker/")) and _claude_worker_authorized(request)
+    # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
+    if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
+            and not (claude_worker_api or operator_worker_api or local_booster_api)):
+        return JSONResponse({"detail":"worker token required"},status_code=401)
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or relay_agent_api or browser_agent_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
@@ -755,6 +1574,7 @@ def login_page(request: Request, lang: str = "en"):
         </script>"""
     return HTMLResponse(f"""<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>
     <meta name='viewport' content='width=device-width,initial-scale=1'>
+    <link rel='icon' href='/static/favicon.svg' type='image/svg+xml'><link rel='apple-touch-icon' href='/static/apple-touch-icon.png'>
     <title>Blackbox Lab — FactoryOS Login</title>
     <style>
     body{{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(700px 420px at 50% 0,#163f6255,transparent 65%),#07101b;color:#fff;font:14px Inter,system-ui,Arial}}
@@ -766,6 +1586,7 @@ def login_page(request: Request, lang: str = "en"):
     .langs{{display:flex;gap:5px;justify-content:flex-end;margin-bottom:14px}}.langs a{{font-size:10px;color:#8297ac;text-decoration:none;border:1px solid #294761;padding:5px 7px;border-radius:7px}}.langs a.active{{color:#fff;background:#153b63}}
     .sep{{display:flex;align-items:center;gap:10px;color:#6f8599;font-size:11px;margin:16px 0 12px}}.sep:before,.sep:after{{content:'';height:1px;background:#234158;flex:1}}
     .googleWrap{{display:flex;justify-content:center}}
+    .forgot{{margin:12px 0 0;text-align:center}}.forgot a{{color:#5cc8ff;font-weight:600}}
     </style>{google_script}</head><body><div class='box'>
     <div class='langs'><a href='/login?lang=en' class='{"active" if lang=="en" else ""}'>EN</a><a href='/login?lang=uk' class='{"active" if lang=="uk" else ""}'>УКР</a><a href='/login?lang=ru' class='{"active" if lang=="ru" else ""}'>RU</a></div>
     <div class='cube'></div><h1>Blackbox Lab — FactoryOS</h1><div class='sub'>{copy["sub"]}</div>
@@ -775,6 +1596,7 @@ def login_page(request: Request, lang: str = "en"):
       <input name='password' type='password' placeholder='{copy["password"]}' autocomplete='current-password' required>
       <button type='submit'>{copy["enter"]}</button>
     </form>
+    {login_recovery.link_html(lang)}
     <div class='googleWrap'>{google_html}</div>
     </div></body></html>""")
 
@@ -786,6 +1608,20 @@ def login(username: str = Form(...), password: str = Form(...), lang: str = Form
         retry={"en":"Try again","uk":"Спробувати ще раз","ru":"Попробовать снова"}[lang]
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>{retry}</a>", status_code=401)
     return _auth_cookie_response(f"/{lang}","owner","")
+
+LOGIN_RECOVERY=login_recovery.LoginRecovery(base_url=lambda: FACTORY_PUBLIC_BASE_URL,state_path=DATA_DIR/"login_recovery.json")
+login_recovery.install_login_recovery_routes(app,LOGIN_RECOVERY,sign_in=lambda lang: _auth_cookie_response(f"/{lang}","owner",""))
+
+def _login_recovery_reply(message: dict, owner_chat: str) -> bool:
+    """T-712: `/login` from the owner's private paired chat gets a one-time sign-in link, sent without a link preview."""
+    if not login_recovery.enabled() or not login_recovery.owner_private_command(message,owner_chat):
+        return False
+    text=LOGIN_RECOVERY.message("ru")
+    try:
+        _telegram_api("sendMessage",{"chat_id":str(owner_chat),"text":text,"disable_web_page_preview":True})
+    except Exception:
+        LOGIN_RECOVERY.revoke(text)                      # undelivered: the link must not stay usable
+    return True
 
 @app.post("/auth/google")
 def google_login(credential: str = Form(...), lang: str = Form("en")):
@@ -890,7 +1726,73 @@ async def telegram_webhook(request: Request):
         return {"ok":True}
     if not isinstance(update,dict):
         return {"ok":True}
-    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,GITHUB_TOKEN),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES)
+    # #129 FactoryOS Team group: pairing (/group in the private chat), group commands and decision buttons.
+    owner_chat=str(_telegram_load_state().get("chat_id") or "")
+    g_msg=update.get("message") if isinstance(update.get("message"),dict) else {}
+    g_chat=g_msg.get("chat") if isinstance(g_msg.get("chat"),dict) else {}
+    g_cb=update.get("callback_query") if isinstance(update.get("callback_query"),dict) else {}
+    if g_chat.get("type") in TELEGRAM_GROUP_TYPES or str(g_cb.get("data") or "").startswith("grp:"):
+        result=GROUP_BRIDGE.handle_group(update,owner_chat,_telegram_send_markup)
+        if g_cb.get("id"):
+            try:_telegram_api("answerCallbackQuery",{"callback_query_id":g_cb["id"]})
+            except Exception:pass
+        return {"ok":True,**result}
+    if _login_recovery_reply(g_msg,owner_chat):
+        return {"ok":True,"action":"login_link"}
+    if g_chat.get("type")=="private" and owner_chat and str(g_chat.get("id") or "")==owner_chat:
+        reply=MORNING_BRIEF.handle_private(str(g_msg.get("text") or ""))
+        if reply:
+            _telegram_send_to(owner_chat,reply)
+            return {"ok":True,"action":"morning_brief"}
+        reply=GROUP_BRIDGE.handle_private(str(g_msg.get("text") or ""))
+        if reply:
+            _telegram_send_to(owner_chat,reply)
+            return {"ok":True,"action":"group_pairing"}
+    # #133: Telegram owner -> existing Claude subscription worker question queue.
+    # This precedes the Relay command fallback (which would otherwise treat /ask as unknown).
+    ask_msg=update.get("message") if isinstance(update.get("message"),dict) else {}
+    ask_chat=ask_msg.get("chat") if isinstance(ask_msg.get("chat"),dict) else {}
+    ask_text=str(ask_msg.get("text") or "").strip()
+    ask_cmd=ask_text.split(maxsplit=1)[0].split("@",1)[0].lower() if ask_text.startswith("/") else ""
+    ask_chat_id=str(ask_chat.get("id") or "").strip()
+    if (ask_cmd=="/ask" and ask_chat.get("type")=="private"
+            and ask_chat_id and ask_chat_id==str(_telegram_load_state().get("chat_id") or "")):
+        question=ask_text.split(maxsplit=1)[1].strip() if len(ask_text.split(maxsplit=1))>1 else ""
+        if not question:
+            _telegram_send_to(ask_chat_id,"Использование: /ask Вопрос Claude")
+            return {"ok":True,"action":"ask_help"}
+        update_id=str(update.get("update_id") or "")
+        source_key=("telegram-ask:"+update_id) if update_id else (
+            "telegram-ask:"+ask_chat_id+":"+str(ask_msg.get("message_id") or ""))
+        try:
+            item=OWNER_QUESTIONS.create(TELEGRAM_TASK,"","",question,source_key=source_key)
+        except OverflowError:
+            _telegram_send_to(ask_chat_id,"Очередь вопросов заполнена. Попробуй позже.")
+            return {"ok":True,"action":"ask_full"}
+        except ValueError:
+            _telegram_send_to(ask_chat_id,"Пустой или неподдерживаемый вопрос.")
+            return {"ok":True,"action":"ask_invalid"}
+        _telegram_send_to(ask_chat_id,"Принял вопрос "+item["id"]+". Claude ответит после того, как его воркер заберёт задачу.")
+        return {"ok":True,"action":"ask_queued","question_id":item["id"]}
+    # Owner voice → text (owner: «1 вариант», 2026-11-08): Gemini transcribes the paired owner's voice message,
+    # the owner sees the text, and the Relay ticket gets that text instead of an empty "Голосовое сообщение".
+    voice_msg=update.get("message") if isinstance(update.get("message"),dict) else {}
+    voice_chat=voice_msg.get("chat") if isinstance(voice_msg.get("chat"),dict) else {}
+    voice_att=_telegram_attachment(voice_msg) if voice_msg else {}
+    if (voice_att and voice_att.get("kind") in ("voice","audio") and not str(voice_msg.get("text") or voice_msg.get("caption") or "").strip()
+            and voice_chat.get("type")=="private" and str(voice_chat.get("id") or "")==str(_telegram_load_state().get("chat_id") or "")):
+        transcript,reason=await asyncio.to_thread(VOICE_TRANSCRIBER,voice_att)
+        chat=str(voice_chat.get("id"))
+        if transcript:
+            voice_msg["text"]=transcript
+            _telegram_send_to(chat,"🎙 Распознал голосовое (Gemini):\n«"+transcript[:3500]+"»")
+        else:
+            # 2026-11-11 (R-0065): an empty voice ticket only made Claude run and answer "BLOCKED, no text".
+            # No ticket without text: the owner resends it as text.
+            _telegram_send_to(chat,"🎙 Не удалось распознать голосовое ("+VOICE_REASONS.get(reason,reason)+").\n"
+                              "Задачу не создаю: без текста исполнителю нечего делать. Отправь её текстом или голосом ещё раз.")
+            return {"ok":True,"action":"voice_not_transcribed","reason":reason}
+    relay_result=relay_handle_telegram_update(update,RELAY_STORE,_telegram_load_state,_telegram_api,get_operator_lanes,lambda: relay_github_snapshot(GITHUB_REPO,_github_read_token()),RELAY_QUEUE,lane_board_provider=get_telegram_lane_board,operator_lanes_provider=get_telegram_operator_lanes,battle_controls=TELEGRAM_BATTLES,view_log=TELEGRAM_VIEWS)
     if relay_result and relay_result.get("handled"):
         return {"ok":True,**relay_result}
     message=update.get("message") or {}
@@ -1091,13 +1993,14 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]
+]+web_surfer.TOOLS+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
     if not FACTORY_MCP_TOKEN:
         return JSONResponse({"jsonrpc":"2.0","id":None,"error":{"code":-32001,"message":"FactoryOS MCP connector is disabled until FACTORY_MCP_TOKEN is configured."}},status_code=503)
-    if not _factory_mcp_authorized(request):
+    mcp_lane=agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
+    if not (mcp_lane or _factory_mcp_authorized(request)):
         return JSONResponse({"jsonrpc":"2.0","id":None,"error":{"code":-32000,"message":"Unauthorized"}},status_code=401)
     try:
         payload=await request.json()
@@ -1133,6 +2036,16 @@ async def factory_mcp(request: Request):
                     "status":x["status"],"progress":x.get("execution_progress",0),
                     "priority":x["priority"],"owner":x["owner"]
                 } for x in rows])
+            elif name in agent_workspace.TOOL_NAMES:
+                data=agent_workspace.call_tool(AGENT_WORKSPACE,name,args,mcp_lane)
+                if "error" in data:
+                    return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,**_factory_mcp_text(data["error"])}})
+                result=_factory_mcp_text(data)
+            elif name in web_surfer.TOOL_NAMES:
+                result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH,sessions=_surfer_session))
+            elif name in social_autopilot.MCP_TOOL_NAMES:
+                # T-702: agents read the plan and add drafts only; approval and publishing stay owner-only.
+                result=_factory_mcp_text(social_autopilot.call_tool(SOCIAL_AUTOPILOT,name,args,mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -1141,19 +2054,28 @@ async def factory_mcp(request: Request):
                 return JSONResponse({"jsonrpc":"2.0","id":req_id,"error":{"code":-32601,"message":"Unknown tool"}},status_code=404)
             return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":result})
         except Exception as exc:
-            return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,"content":[{"type":"text","text":str(exc)}]}})
+            # #114 D-2: validation messages are meant for the caller; anything else is reported by type only.
+            text=str(getattr(exc,"detail",None) or exc)[:300] if isinstance(exc,(ValueError,HTTPException)) else "internal error ("+type(exc).__name__+")"
+            return JSONResponse({"jsonrpc":"2.0","id":req_id,"result":{"isError":True,"content":[{"type":"text","text":text}]}})
     return JSONResponse({"jsonrpc":"2.0","id":req_id,"error":{"code":-32601,"message":"Method not found"}},status_code=404)
 
 @app.get("/mcp")
 def factory_mcp_info(request: Request):
     if not FACTORY_MCP_TOKEN:
         return JSONResponse({"enabled":False,"detail":"Set FACTORY_MCP_TOKEN in Render to enable the Claude/remote MCP connector."},status_code=503)
-    if not _factory_mcp_authorized(request):
+    lane=agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
+    if not (lane or _factory_mcp_authorized(request)):
         return JSONResponse({"enabled":True,"detail":"Authentication required: Bearer token or ?key= token."},status_code=401)
-    return {"enabled":True,"server":"Blackbox Lab FactoryOS","version":APP_VERSION,"tools":[x["name"] for x in FACTORY_MCP_TOOLS]}
+    return {"enabled":True,"server":"Blackbox Lab FactoryOS","version":APP_VERSION,"lane":lane or None,"tools":[x["name"] for x in FACTORY_MCP_TOOLS]}
 
 @app.get("/health")
-def health():
+def health(request: Request):
+    """#114 A-1: anyone (Render's health check) gets liveness only; pilot/spend details need a signed-in session."""
+    if not request_identity(request):
+        return {"ok": True, "service": "factoryos", "version": APP_VERSION}
+    return health_details()
+
+def health_details():
     verification=get_paid_verification()
     return {
         "ok": True,
@@ -1169,12 +2091,37 @@ def health():
             "cost_usd": round(float(verification.get("cost_usd") or 0), 6),
         },
         "real_pilot": get_real_pilot(),
+        "durable_engine": durable_engine.status(),
     }
 
 clients: set[WebSocket] = set()
 member_clients: set[WebSocket] = set()
-running_jobs: set[str] = set()
+class _LeasedJobSet(set):
+    """T-690: the in-process job registry also writes a job lease, so another process (an overlapping deploy) can
+    see that this process is executing the job and must not reset it."""
+    def add(self, job_id):
+        super().add(job_id)
+        _write_job_lease(job_id, True)
+    def discard(self, job_id):
+        super().discard(job_id)
+        _write_job_lease(job_id, False)
+
+def _write_job_lease(job_id, held):
+    try:
+        con=db()
+        if held:
+            con.execute("INSERT OR REPLACE INTO job_leases(job_id,process_id,created_at) VALUES(?,?,?)",(job_id,PROCESS_ID,ts()))
+        else:
+            con.execute("DELETE FROM job_leases WHERE job_id=? AND process_id=?",(job_id,PROCESS_ID))
+        con.commit();con.close()
+    except Exception as exc:
+        print(json.dumps({"event":"JOB_LEASE_ERROR","error":str(exc)[:200]}),flush=True)
+
+running_jobs: set[str] = _LeasedJobSet()
 package_building: set[str] = set()
+# T-690: runs this process started and has not finished yet (content pipeline, variant reruns, Content Packager,
+# media QA …). A run of ours is orphaned only when it is not here, whatever registry its caller used.
+LIVE_RUNS: set[str] = set()
 selected_job_id: Optional[str] = None
 selected_job_by_workspace: dict = {}
 agent_runtime = {name: "idle" for name in AGENTS}
@@ -1200,6 +2147,8 @@ PORTABLE_INTEGRATIONS = {
     "Instagram": {"category":"publishing","auth_mode":"via_metricool","transport":"metricool"},
     "TikTok": {"category":"publishing","auth_mode":"via_metricool","transport":"metricool"},
     "HubSpot": {"category":"crm","auth_mode":"oauth","transport":"direct"},
+    "LinkedIn": {"category":"publishing","auth_mode":"oauth","transport":"direct"},
+    "OLX": {"category":"marketplace","auth_mode":"oauth","transport":"direct"},
 }
 CONNECTIONS = {
     "Metricool": {"state":"not_configured","detail":"Publishing workspace not configured"},
@@ -1207,6 +2156,8 @@ CONNECTIONS = {
     "Instagram": {"state":"not_configured","detail":"Connect a publishing account"},
     "TikTok": {"state":"not_configured","detail":"Connect a publishing account"},
     "HubSpot": {"state":"not_configured","detail":"CRM / Growth · direct FactoryOS login not configured"},
+    "LinkedIn": {"state":"not_configured","detail":"Text posts via the official LinkedIn API · connect on /static/linkedin/"},
+    "OLX": {"state":"not_configured","detail":"Adverts via the official OLX Partner API · connect on /static/olx/index.html"},
     "vidIQ": {"state":"paused","detail":"Paused for now"},
     "LLM": {
         "state":"connected" if FACTORY_LLM_API_KEY else "demo",
@@ -1309,7 +2260,10 @@ def get_connection_registry():
     }
     cw=get_claude_code_status()
     registry["AI Providers"]={
-        "providers":ai_provider_catalog(FACTORY_LLM_MODEL,FACTORY_LLM_BASE_URL,bool(FACTORY_LLM_API_KEY)),
+        "providers":[{**p,"gemini_key_configured":bool(FACTORY_GEMINI_API_KEY),
+                      "gemini_check":{k:v for k,v in GEMINI_KEY_CHECK.items() if not k.startswith("_")} if FACTORY_GEMINI_API_KEY else {"status":"not_configured"}}
+                     if p.get("id")=="google" else p
+                     for p in ai_provider_catalog(FACTORY_LLM_MODEL,FACTORY_LLM_BASE_URL,bool(FACTORY_LLM_API_KEY))],
         "secrets_exposed":False,
     }
     registry["Workers"]={"items":worker_projection(cw),"secrets_exposed":False}
@@ -1521,6 +2475,20 @@ def init_db():
       meta_json TEXT DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent, started_at DESC);
+    CREATE TABLE IF NOT EXISTS agent_run_leases(
+      run_id TEXT PRIMARY KEY,
+      process_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS job_leases(
+      job_id TEXT PRIMARY KEY,
+      process_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS process_heartbeats(
+      process_id TEXT PRIMARY KEY,
+      heartbeat_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_agent_runs_job ON agent_runs(job_id, started_at DESC);
     CREATE TABLE IF NOT EXISTS artifacts(
       id TEXT PRIMARY KEY,
@@ -2383,7 +3351,10 @@ async def resume_stale_started_tasks():
                                           ORDER BY requested_at""").fetchall()]
     con.close()
     for task in rows:
-        if (task.get("workflow_status") or "") in live_states:
+        # Owner 2026-11-14 (Actions budget): recover only a dispatch that was lost before GitHub saw it. A preflight that
+        # already ran and failed or finished is left for a manual Start build; re-dispatching it on every Render restart
+        # (= every deploy) burned 22 runs in two days.
+        if (task.get("workflow_status") or "") or task.get("workflow_run_id"):
             continue
         try:
             await dispatch_builder_workflow(task)
@@ -2483,6 +3454,13 @@ class FactoryCycleCreate(BaseModel):
     idea_id: Optional[str] = None
     language: str = "English"
     parent_cycle_id: Optional[str] = None
+    target: Optional[dict] = None   # T-646: what the cycle aims at {brand, topic, platform, audience}
+
+class FactoryCycleTarget(BaseModel):
+    brand: str = ""
+    topic: str = ""
+    platform: str = ""
+    audience: str = ""
 
 class FactoryCycleRunRequest(BaseModel):
     confirm_cost: bool = False
@@ -3400,10 +4378,14 @@ def get_factory_tasks():
 def start_agent_run(agent, job_id=None, stage=None, model="simulation-v3"):
     run_id=str(uuid.uuid4())
     con=db()
+    now=ts()
     con.execute("""INSERT INTO agent_runs(id,job_id,agent,stage,status,started_at,model)
                    VALUES(?,?,?,?,?,?,?)""",
-                (run_id,job_id,agent,stage,"running",ts(),model))
+                (run_id,job_id,agent,stage,"running",now,model))
+    # T-690: the run belongs to this process; another process may close it only after our heartbeat lease expires.
+    con.execute("INSERT OR REPLACE INTO agent_run_leases(run_id,process_id,created_at) VALUES(?,?,?)",(run_id,PROCESS_ID,now))
     con.commit(); con.close()
+    LIVE_RUNS.add(run_id)
     return run_id
 
 def attach_run_inputs(run_id, inputs):
@@ -3416,6 +4398,7 @@ def attach_run_inputs(run_id, inputs):
     con.commit(); con.close()
 
 def finish_agent_run(run_id, status="completed", input_tokens=0, output_tokens=0, cost_usd=0.0, error=None, meta=None):
+    LIVE_RUNS.discard(run_id)
     con=db(); row=con.execute("SELECT started_at FROM agent_runs WHERE id=?",(run_id,)).fetchone()
     finished=ts()
     duration_ms=0
@@ -4881,18 +5864,20 @@ def _artifact_archive_file(artifact):
     return path,archive_meta
 
 @app.get("/api/artifacts/{artifact_id}/media",name="artifact_media")
-def artifact_media(artifact_id:str,download:bool=False):
+def artifact_media(artifact_id:str,request:Request=None,download:bool=False):
     artifact=_artifact_media_row(artifact_id)
     if not artifact:raise HTTPException(404,"Artifact not found")
     path,archive_meta=_artifact_archive_file(artifact)
-    if not path and artifact.get("kind")=="video" and _is_ephemeral_finisher_url(artifact.get("url")):
+    # #114 B-2: only the owner's request may download and rewrite the artifact; viewers and members only read.
+    may_archive=request is None or (request_identity(request) or {}).get("role")=="owner"
+    if may_archive and not path and artifact.get("kind")=="video" and _is_ephemeral_finisher_url(artifact.get("url")):
         try:
             _archive_media_artifact(artifact_id)
             artifact=_artifact_media_row(artifact_id) or artifact
             path,archive_meta=_artifact_archive_file(artifact)
         except Exception as exc:
             if not str(artifact.get("url") or ""):
-                raise HTTPException(410,f"Media is no longer available: {str(exc)[:220]}")
+                raise HTTPException(410,"Media is no longer available ("+type(exc).__name__+")")  # #114 D-2
     if path and archive_meta:
         response=FileResponse(path,media_type=archive_meta.get("content_type") or artifact.get("mime_type") or "application/octet-stream",
                               filename=archive_meta.get("filename") or path.name,
@@ -5235,6 +6220,9 @@ MEDIA_FINISHER_EVIDENCE={
   "audio_report":("analysis","Audio finishing report"),
   "safe_zone_report":("analysis","Safe-zone / frame QA"),
   "edit_summary":("analysis","Media Finisher edit summary"),
+  "edit_decisions":("json","Edit decisions (reasons, confidence, undo)"),
+  "qa_report":("analysis","Measured QA report"),
+  "render_metrics":("analysis","Render time and resource use"),
 }
 
 def _persist_edit_evidence(edit_job_id,job_id,profile_id,profile_version,report,output_url=""):
@@ -5294,8 +6282,10 @@ def _record_media_finisher_qa_handoff(item,artifact_ids,report):
     safe=(report or {}).get("safe_zone_report") or {}
     violations=safe.get("violations") if isinstance(safe,dict) else []
     summary=(report or {}).get("edit_summary") or {}
+    worker_qa=(report or {}).get("qa_report") or {}
     qa={
       "decision":"human_review_required",
+      "worker_qa_overall":worker_qa.get("overall") if isinstance(worker_qa,dict) else None,
       "safe_zone_violations":len(violations or []),
       "caption_events":len((report or {}).get("caption_timeline") or []),
       "graphics_events":len((report or {}).get("graphics_timeline") or []),
@@ -5489,7 +6479,45 @@ def _submit_media_finisher_background(edit_job_id):
         with _media_finisher_submit_lock:_media_finisher_submit_active.discard(edit_job_id)
 
 def _spawn_media_finisher_submit(edit_job_id):
+    # T-612: once the durable engine is launched, one DBOS workflow owns submit → wait for callback → poll for this
+    # edit job, and a repeated call while it runs is a no-op. Engine off or unavailable → the legacy thread below.
+    if durable_engine.launched():
+        try:
+            workflow_id,created=durable_finisher.start(edit_job_id)
+        except Exception as exc:
+            workflow_id,created=None,False
+            print(json.dumps({"event":"DBOS_MEDIA_FINISHER_START_ERROR","edit_job_id":edit_job_id,"error":str(exc)[:300]}),flush=True)
+        if workflow_id:
+            if created:
+                item=get_edit_job(edit_job_id)
+                if item:event(item["production_job_id"],f"AI Media Finisher durable workflow started: {edit_job_id[:8]} · survives restarts and deploys")
+            return
     threading.Thread(target=_submit_media_finisher_background,args=(edit_job_id,),daemon=True,name=f"finisher-submit-{edit_job_id[:8]}").start()
+
+def _durable_finisher_state(edit_job_id,needs_submit=False):
+    item=get_edit_job(edit_job_id)
+    if not item:return {"status":"missing","provider_job_id":"","needs_submit":False}
+    status=str(item.get("status") or "")
+    return {"status":status,"provider_job_id":str(item.get("provider_job_id") or ""),
+            "needs_submit":bool(needs_submit) and status not in ("ready","failed")}
+
+def _durable_finisher_submit(edit_job_id):
+    """DBOS step body (T-612): the legacy submit routine, safe to repeat after a crash. It returns early once
+    provider_job_id is recorded, and the worker treats edit_job_id as its idempotency key (POST /jobs)."""
+    _submit_media_finisher_background(edit_job_id)
+    return _durable_finisher_state(edit_job_id)
+
+def _durable_finisher_poll(edit_job_id):
+    """DBOS step body (T-612): read the outcome a callback may already have written, otherwise ask the worker.
+    needs_submit=True when the worker has no job for us (its state was lost → 404, or the submit never landed)."""
+    item=get_edit_job(edit_job_id)
+    if not item or item.get("status") in ("ready","failed"):return _durable_finisher_state(edit_job_id)
+    if not str(item.get("provider_job_id") or "").strip():
+        return _durable_finisher_state(edit_job_id,needs_submit=edit_job_id not in _media_finisher_submit_active)
+    refreshed=refresh_edit_job(edit_job_id,resubmit=False)
+    return _durable_finisher_state(edit_job_id,needs_submit=not str(refreshed.get("provider_job_id") or "").strip())
+
+durable_finisher.bind(submit=_durable_finisher_submit,poll=_durable_finisher_poll)
 
 def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     job=get_job(job_id)
@@ -5557,7 +6585,8 @@ def start_media_finisher(job_id,payload,parent_edit_job_id=None,rerun_stage=""):
     event(job_id,f"AI Media Finisher queued: {edit_job_id[:8]} · profile {profile['id']} v{profile['version']} · {package_mode} · compute {route_target}")
     return {"duplicate":False,"edit_job":item}
 
-def refresh_edit_job(edit_job_id):
+def refresh_edit_job(edit_job_id,resubmit=True):
+    # resubmit=False: the caller (the T-612 durable workflow) resubmits itself after a lost-worker 404.
     item=get_edit_job(edit_job_id)
     if not item:raise ValueError("Edit job not found")
     if item["status"] in ("ready","failed"):return item
@@ -5577,7 +6606,7 @@ def refresh_edit_job(edit_job_id):
             con=db();con.execute("""UPDATE edit_jobs SET provider_job_id='',status='queued',error='',response_json=?,updated_at=? WHERE id=?""",
                                  (json.dumps(response,ensure_ascii=False,default=str),ts(),edit_job_id));con.commit();con.close()
             event(item["production_job_id"],f"AI Media Finisher worker state was lost after restart; auto-resubmitting {edit_job_id[:8]}")
-            _spawn_media_finisher_submit(edit_job_id)
+            if resubmit:_spawn_media_finisher_submit(edit_job_id)
             return get_edit_job(edit_job_id)
         raise
     except (TimeoutError,urlerror.URLError):
@@ -6642,9 +7671,13 @@ def get_job_flow(job_id, limit=40):
         return empty
     con=db()
     runs=[dict(x) for x in con.execute(
-        """SELECT id,agent,stage,status,started_at,finished_at,error FROM agent_runs
+        """SELECT id,agent,stage,status,started_at,finished_at,error,duration_ms,cost_usd,model FROM agent_runs
            WHERE job_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?""",(job_id,limit+1)
     ).fetchall()]
+    # T-691: a failure is resolved once the same agent later completes (same rule as the Error Center).
+    completed_at={x["agent"]:x["at"] or "" for x in con.execute(
+        """SELECT agent,MAX(COALESCE(finished_at,started_at)) AS at FROM agent_runs
+           WHERE job_id=? AND status='completed' GROUP BY agent""",(job_id,)).fetchall()}
     truncated=len(runs)>limit
     runs=list(reversed(runs[:limit]))
     if not runs:
@@ -6665,10 +7698,17 @@ def get_job_flow(job_id, limit=40):
     hops={}
     for i,r in enumerate(runs):
         state=_flow_run_state(r["status"],r.get("error"))
+        stopped=state in ("failed","blocked")
         hops[r["id"]]={"order":i+1,"run_id":r["id"],"agent":r["agent"],"stage":r.get("stage") or "","status":r["status"],"state":state,
                        "started_at":r["started_at"],"finished_at":r.get("finished_at"),
-                       "error":(r.get("error") or "")[:160] if state in ("failed","blocked") else "",
+                       "duration_ms":r.get("duration_ms"),"cost_usd":r.get("cost_usd"),"model":r.get("model") or "",
+                       "error":(r.get("error") or "")[:600] if stopped else "",
                        "inputs":[],"outputs":[],"downstream":[]}
+        if stopped:
+            p=classify_agent_error(r.get("error"))
+            failed_at=r.get("finished_at") or r.get("started_at") or ""
+            hops[r["id"]]["policy"]={k:p[k] for k in ("code","category","severity","title","action","retryable","requires_confirmation","spend_uncertain")}
+            hops[r["id"]]["resolved"]=bool(completed_at.get(r["agent"]) and failed_at and completed_at[r["agent"]]>failed_at)
     for a in outputs:
         hops[a["run_id"]]["outputs"].append({"artifact_id":a["id"],"title":a["title"],"kind":a["kind"]})
     edges=[];sources={}
@@ -6693,6 +7733,109 @@ def get_job_flow(job_id, limit=40):
     return {"job_id":job_id,"hops":ordered,"edges":edges,"sources":list(sources.values()),"counts":counts,
             "live":counts["running"]>0,"truncated":truncated}
 
+RUN_INTERRUPTED_ERROR=("Run interrupted: the FactoryOS server restarted or the worker task stopped before this agent "
+                       "finished; no result was recorded.")
+
+# T-690: each FastAPI process owns the runs it starts and renews a heartbeat. During an overlapping Render deploy the
+# old instance keeps executing while the new one starts, so "not in my running_jobs" is not proof that a run is dead.
+PROCESS_ID=str(uuid.uuid4())
+RUN_LEASE_SECONDS=int(os.environ.get("FACTORY_RUN_LEASE_SECONDS","90"))
+RUN_HEARTBEAT_SECONDS=max(5,min(30,RUN_LEASE_SECONDS//3))
+# Runs written before leases existed (or by an older build still draining) are closed only after the longest a single
+# agent can take: every attempt at the provider timeout, plus a margin.
+LEGACY_RUN_GRACE_SECONDS=AGENT_TIMEOUT_SECONDS*max(1,AGENT_MAX_RETRIES+1)+300
+
+def beat_process_heartbeat(process_id=None):
+    con=db()
+    con.execute("INSERT OR REPLACE INTO process_heartbeats(process_id,heartbeat_at) VALUES(?,?)",(process_id or PROCESS_ID,ts()))
+    con.commit();con.close()
+
+def _heartbeat_loop():
+    while True:
+        try:beat_process_heartbeat()
+        except Exception as exc:print(json.dumps({"event":"PROCESS_HEARTBEAT_ERROR","error":str(exc)[:200]}),flush=True)
+        time.sleep(RUN_HEARTBEAT_SECONDS)
+
+def _lease_cutoff(seconds):
+    return (datetime.now(timezone.utc)-timedelta(seconds=seconds)).isoformat()
+
+def job_owned_by_live_process(job_id, lease_seconds=None):
+    """True when another process holds a fresh lease on the job (it is executing it right now)."""
+    cutoff=_lease_cutoff(RUN_LEASE_SECONDS if lease_seconds is None else lease_seconds)
+    con=db()
+    row=con.execute("""SELECT 1 FROM job_leases j JOIN process_heartbeats h ON h.process_id=j.process_id
+                       WHERE j.job_id=? AND j.process_id<>? AND h.heartbeat_at>?""",(job_id,PROCESS_ID,cutoff)).fetchone()
+    con.close()
+    return bool(row)
+
+def _run_is_orphaned(row, now_dt, lease_seconds, legacy_grace_seconds):
+    owner=row.get("process_id")
+    if owner==PROCESS_ID:
+        return row["id"] not in LIVE_RUNS  # our own run whose task is gone (no finish was recorded)
+    if owner:
+        beat=row.get("heartbeat_at")
+        return not beat or (now_dt-_parse_dt(beat)).total_seconds()>lease_seconds
+    started=row.get("started_at")
+    return bool(started) and (now_dt-_parse_dt(started)).total_seconds()>legacy_grace_seconds
+
+def close_interrupted_agent_runs(job_id=None, lease_seconds=None, legacy_grace_seconds=None):
+    """T-690: content-job runs live in a FastAPI process. After a deploy/restart (or a dead task) their agent_runs
+    row stayed 'running' forever, so the trace showed a phantom live worker and the owner could not see where the job
+    stopped. Close such rows as failed with an explicit, classified reason, but only when no live process owns them:
+    our own run whose job we no longer execute, a run whose owner's heartbeat lease expired, or a lease-less legacy
+    run older than any agent attempt can last."""
+    lease=RUN_LEASE_SECONDS if lease_seconds is None else lease_seconds
+    grace=LEGACY_RUN_GRACE_SECONDS if legacy_grace_seconds is None else legacy_grace_seconds
+    con=db()
+    sql="""SELECT r.id,r.job_id,r.agent,r.stage,r.started_at,l.process_id,h.heartbeat_at FROM agent_runs r
+           LEFT JOIN agent_run_leases l ON l.run_id=r.id LEFT JOIN process_heartbeats h ON h.process_id=l.process_id
+           WHERE r.status='running' AND r.job_id IS NOT NULL"""
+    params=[]
+    if job_id:
+        sql+=" AND r.job_id=?";params.append(job_id)
+    now_dt=datetime.now(timezone.utc)
+    rows=[dict(x) for x in con.execute(sql,params).fetchall()]
+    rows=[r for r in rows if _run_is_orphaned(r,now_dt,lease,grace)]
+    now=ts();closed=[]
+    lease_cut=_lease_cutoff(lease);legacy_cut=_lease_cutoff(grace)
+    for r in rows:
+        if r.get("process_id")==PROCESS_ID and r["id"] in LIVE_RUNS:
+            continue
+        # The ownership test is repeated inside the UPDATE, so a heartbeat renewed after the SELECT still protects the
+        # run: a foreign owner must be stale *now*, and a lease-less run must still be older than the grace window.
+        cur=con.execute("""UPDATE agent_runs SET status='failed',finished_at=?,error=? WHERE id=? AND status='running'
+                AND NOT EXISTS (SELECT 1 FROM agent_run_leases l JOIN process_heartbeats h ON h.process_id=l.process_id
+                                WHERE l.run_id=agent_runs.id AND l.process_id<>? AND h.heartbeat_at>?)
+                AND (EXISTS (SELECT 1 FROM agent_run_leases l WHERE l.run_id=agent_runs.id) OR agent_runs.started_at<?)""",
+                (now,RUN_INTERRUPTED_ERROR,r["id"],PROCESS_ID,lease_cut,legacy_cut))
+        if cur.rowcount:closed.append(r)
+    con.commit();con.close()
+    rows=closed
+    for r in rows:
+        event(r["job_id"],f"Run interrupted: {r['agent']} ({r['stage'] or 'stage unknown'}) did not finish; marked failed so it can be retried")
+    return len(rows)
+
+def get_jobs_attention(job_ids):
+    """T-690: per-job open incidents for the job list (same 'resolved' rule as get_job_error_center)."""
+    ids=[x for x in job_ids if x]
+    if not ids:
+        return {}
+    marks=",".join("?"*len(ids))
+    con=db()
+    rows=[dict(x) for x in con.execute(
+        f"""SELECT r.job_id,r.agent,r.stage,r.error,r.id AS run_id FROM agent_runs r
+            WHERE r.job_id IN ({marks}) AND r.status='failed' AND r.error IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM agent_runs c WHERE c.job_id=r.job_id AND c.agent=r.agent AND c.status='completed'
+                              AND COALESCE(c.finished_at,c.started_at)>COALESCE(r.finished_at,r.started_at))
+            ORDER BY COALESCE(r.finished_at,r.started_at) DESC""",ids).fetchall()]
+    con.close()
+    out={}
+    for r in rows:
+        item=out.setdefault(r["job_id"],{"open":0,"agent":r["agent"],"stage":r["stage"] or "","run_id":r["run_id"],
+                                         "code":classify_agent_error(r["error"])["code"]})
+        item["open"]+=1
+    return out
+
 def classify_agent_error(message):
     raw=(message or "").strip()
     low=raw.lower()
@@ -6702,7 +7845,16 @@ def classify_agent_error(message):
         "title":"Unclassified worker failure",
         "action":"Review the failed run before retrying. The provider outcome may be uncertain.",
     }
-    if any(x in low for x in ("balance exhausted","insufficient_quota","no credits remaining")):
+    if low.startswith("run interrupted"):
+        # T-690: the in-process task died (deploy/restart) mid-run. Nothing was recorded, but a live
+        # provider call may already have been billed, so a retry stays behind the confirmation gate.
+        policy.update({
+            "code":"run_interrupted","category":"interrupted","severity":"warning",
+            "retryable":True,"auto_retry":False,"requires_confirmation":True,"spend_uncertain":True,
+            "title":"Run interrupted by a server restart",
+            "action":"No result was saved. Confirm, then retry this worker or press Run to continue from this stage.",
+        })
+    elif any(x in low for x in ("balance exhausted","insufficient_quota","no credits remaining")):
         policy.update({
             "code":"billing_exhausted","category":"billing","severity":"critical",
             "retryable":True,"auto_retry":False,"requires_confirmation":False,"spend_uncertain":False,
@@ -6916,7 +8068,7 @@ def supervisor_audit(auto_heal=False, persist=False):
                 "A pipeline stage raised an exception and the job is paused.",
                 "Open the responsible agent ledger, inspect the error, then retry from the current stage.")
 
-        if j["status"] == "running" and j["id"] not in running_jobs:
+        if j["status"] == "running" and j["id"] not in running_jobs and not job_owned_by_live_process(j["id"]):
             add("critical", "orphan_job", f"Orphaned running job: {j['title']}",
                 "The database says the job is running, but no worker task owns it.",
                 "Reset it to ready and restart from the current stage.")
@@ -6924,6 +8076,7 @@ def supervisor_audit(auto_heal=False, persist=False):
                 con = db()
                 con.execute("UPDATE jobs SET status='idle',updated_at=? WHERE id=?", (ts(), j["id"]))
                 con.commit(); con.close()
+                close_interrupted_agent_runs(j["id"])
                 event(j["id"], "Supervisor auto-heal: orphaned run reset to ready")
                 healed.append(f"Reset orphaned job '{j['title']}' to ready.")
 
@@ -6941,6 +8094,11 @@ def supervisor_audit(auto_heal=False, persist=False):
             add("warning", "progress_mismatch", f"Progress mismatch: {j['title']}",
                 f"Stage {j['stage']} and stored progress {j['progress']}% disagree.",
                 "Calculate progress from completed stage artifacts instead of storing it independently.")
+
+    if auto_heal:
+        interrupted=close_interrupted_agent_runs()
+        if interrupted:
+            healed.append(f"Closed {interrupted} agent run(s) whose process stopped before they finished.")
 
     # Reset impossible agent runtime states.
     if not running_jobs:
@@ -7082,6 +8240,15 @@ async def supervisor_loop():
     while True:
         await supervisor_cycle()
         await asyncio.sleep(60)
+
+@app.on_event("startup")
+def close_runs_interrupted_by_restart():
+    # T-690: renew this process's lease, then close only runs no live process owns (an overlapping old instance keeps
+    # its runs until its heartbeat expires; the Supervisor cycle closes them after that).
+    beat_process_heartbeat()
+    threading.Thread(target=_heartbeat_loop,daemon=True,name="run-heartbeat").start()
+    closed=close_interrupted_agent_runs()
+    if closed:print(json.dumps({"event":"AGENT_RUNS_INTERRUPTED","closed":closed}),flush=True)
 
 @app.on_event("startup")
 async def verify_builder_bridge():
@@ -7237,6 +8404,8 @@ async def start_factory_cycle_reconciler():
         asyncio.create_task(github_issue_intake_loop())
     if FACTORY_PUBLISHER_SCHEDULER_ENABLED:
         asyncio.create_task(publisher_scheduler_loop())
+    asyncio.create_task(morning_brief_loop())
+    asyncio.create_task(mvp_pipeline_loop())
     asyncio.create_task(run_real_world_pilot_once())
     asyncio.create_task(run_media_finisher_pilot_once())
 
@@ -7387,6 +8556,18 @@ def _apply_workflow_prompt(agent,system,job_id=None):
     additions=[]
     if extra:additions.append("Approved workflow instruction: "+extra)
     if hook_pattern:additions.append("Approved hook pattern to test: "+hook_pattern)
+    # Stage 3 (owner 2026-11-14): jobs from a brand plan (or linked to a brand) carry that brand's Master Brief.
+    try:
+        from brand_strategy import agent_context, brand_for_job
+        # T-MODS: the "brand-strategy" mod switch decides whether the Master Brief enters agent prompts.
+        if MODS.enabled("brand-strategy"):
+            passport,item=brand_for_job(STRATEGY,job_id)
+            brief=agent_context(passport,agent,item) if passport else ""
+            if brief:
+                additions.append(brief)
+                MODS.use("brand-strategy")
+    except Exception as exc:
+        print(f"brand brief not added for {agent}: {type(exc).__name__}",file=__import__("sys").stderr)
     return system + (("\n" + "\n".join(additions)) if additions else "")
 
 def build_improvement_action(title,rationale,evidence=None,change=None,hypothesis=None):
@@ -7837,11 +9018,11 @@ def _media_review_state(job_id):
 # T-541: evidence groups shown to the operator before approval. Every finisher artifact is optional; an absent one is
 # reported as not produced instead of being hidden, so the reviewer can tell "missing" from "not looked at".
 MEDIA_FINISHER_PREVIEW_GROUPS=(
-  ("cuts",("cut_list","shorts_manifest")),
+  ("cuts",("cut_list","edit_decisions","shorts_manifest")),
   ("captions",("caption_timeline","transcript_words","transcript_corrections")),
   ("audio",("audio_report",)),
   ("graphics",("graphics_timeline","motion_timeline")),
-  ("qa",("safe_zone_report","edit_summary")),
+  ("qa",("safe_zone_report","qa_report","render_metrics","edit_summary")),
 )
 
 def _preview_media_item(item):
@@ -7976,9 +9157,29 @@ def link_job_idea(job_id,idea_id):
 def _metricool_configured():
     return bool(_metricool_credentials_present() and not _integration_explicitly_disconnected("Metricool"))
 
+def _youtube_publisher_state(workspace=None):
+    """Direct YouTube publisher readiness from facts only: OAuth client, stored channel token, upload settings.
+    Scoped to one workspace (default: the caller's), so no workspace sees another's channel."""
+    workspace=workspace or tenancy.binding_workspace()
+    from oauth_framework import get_provider
+    spec=get_provider("youtube")
+    blockers=[b for b in OAUTH_FLOW.blockers(spec)]
+    tokens=None
+    if "vault_unavailable" not in blockers:
+        try:tokens=OAUTH_FLOW.vault.get(workspace,"youtube")
+        except Exception:blockers.append("vault_unreadable")
+    if not tokens and not blockers:blockers.append("youtube_not_connected")
+    if _integration_explicitly_disconnected("YouTube",workspace):blockers.append("youtube_disconnected")
+    settings=youtube_publisher.upload_settings()
+    blockers+=settings["blockers"]
+    return {"configured":not blockers,"blockers":blockers,"channel_id":(tokens.account_id if tokens else ""),
+            "channel_title":(tokens.account_label if tokens else ""),"privacy":settings["privacy"],
+            "audience_configured":settings["made_for_kids"] is not None}
+
 def get_publisher_adapter_registry():
     webhook=bool(FACTORY_PUBLISHER_ENDPOINT)
     metricool=_metricool_configured()
+    youtube=_youtube_publisher_state()
     return {"selected":FACTORY_PUBLISHER_ADAPTER,
             "scheduler_enabled":FACTORY_PUBLISHER_SCHEDULER_ENABLED,
             "scheduler_interval_sec":FACTORY_PUBLISHER_SCHEDULER_INTERVAL_SEC,
@@ -7990,6 +9191,12 @@ def get_publisher_adapter_registry():
                  "execution":"server-side Metricool scheduler",
                  "supported_platforms":["instagram_reels","tiktok","youtube_shorts"],
                  "youtube_audience_configured":FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS in ("true","false","1","0","yes","no")},
+                {"kind":"youtube","configured":youtube["configured"],
+                 "status":"configured" if youtube["configured"] else "not_configured",
+                 "execution":"direct YouTube Data API upload (official, free quota)",
+                 "supported_platforms":["youtube_shorts"],"blockers":youtube["blockers"],
+                 "channel_title":youtube["channel_title"],"privacy":youtube["privacy"],
+                 "youtube_audience_configured":youtube["audience_configured"]},
             ],
             "secrets_exposed":False,
             "note":"Approval never publishes directly. Metricool receives only the exact immutable approved snapshot and durable media URL after explicit scheduling. A Metricool scheduler ID is never treated as a real platform post receipt."}
@@ -8025,7 +9232,7 @@ def _publish_item(row):
     item["media"]={
         "artifact_id":meta.get("media_artifact_id"),"url":meta.get("media_url") or "",
         "title":meta.get("media_title") or "","mime_type":meta.get("media_mime_type") or "",
-        "edit_job_id":meta.get("media_edit_job_id")
+        "edit_job_id":meta.get("media_edit_job_id"),"sha256":meta.get("media_sha256") or ""
     } if meta.get("media_artifact_id") or meta.get("media_url") else None
     item["content_snapshot"]=meta.get("content_snapshot") if isinstance(meta.get("content_snapshot"),dict) else None
     item["content_snapshot_hash"]=str(meta.get("content_snapshot_hash") or "")
@@ -8056,7 +9263,9 @@ def _ensure_publish_item(job_id,approval_decision_id=None):
           "content_snapshot":content_snapshot,"content_snapshot_hash":snapshot_hash,
           "media_artifact_id":media.get("id"),"media_url":media.get("url") or "",
           "media_title":media.get("title") or "","media_mime_type":media.get("mime_type") or "",
-          "media_edit_job_id":media_meta.get("edit_job_id")}
+          "media_edit_job_id":media_meta.get("edit_job_id"),
+          # T-552-YT: digest of the exact durable file the owner approved; byte-uploading publishers verify it.
+          "media_sha256":media_meta.get("archive_sha256") or ""}
     con.execute("""INSERT INTO publishing_queue(
         id,job_id,package_id,status,target,platform,scheduled_at,idempotency_key,attempt_count,
         external_post_id,external_url,last_error,created_at,updated_at,published_at,meta_json
@@ -8393,6 +9602,51 @@ def _publish_receipt(item,external_post_id,external_url="",published_at=None,sou
     event(item["job_id"],f"Publish confirmed: {item['platform']} · {external_post_id}")
     sync_cycle_for_publish(item["id"])
 
+def _publish_via_youtube(item,content,media,workspace):
+    """T-552-YT: upload the exact approved durable media to the connected channel. Never retried blindly."""
+    if item.get("platform")!="youtube_shorts":
+        raise RuntimeError(f"YouTube publisher only handles youtube_shorts, not {item.get('platform')}")
+    state=_youtube_publisher_state(workspace)
+    if not state["configured"]:
+        raise RuntimeError("YouTube publisher is not ready: "+", ".join(state["blockers"]))
+    artifact=_artifact_media_row((media or {}).get("artifact_id"))
+    if not artifact or artifact.get("job_id")!=item.get("job_id") or (artifact.get("url") or "")!=(media or {}).get("url"):
+        raise RuntimeError("Approved media artifact does not match the approved snapshot")
+    path,archive_meta=_artifact_archive_file(artifact)
+    if not path or not Path(path).is_file():
+        raise RuntimeError("Approved media is not in the durable FactoryOS archive; YouTube needs the exact file")
+    # The bytes must be the ones approved: only the digest captured in the approval snapshot counts (never the
+    # artifact's current metadata, which a re-archive could rewrite together with the file). upload_video re-checks
+    # it on the same file handle it uploads from.
+    expected=str((media or {}).get("sha256") or "").lower()
+    if not expected:
+        raise RuntimeError("Approved media has no digest in the approval snapshot; re-approve it before publishing")
+    if expected!=str((archive_meta or {}).get("sha256") or "").lower():
+        raise RuntimeError("Archived media bytes do not match the approved media digest")
+    from oauth_framework import get_provider
+    spec=get_provider("youtube");adapter=OAUTH_FLOW.adapters["youtube"]
+    try:
+        tokens=adapter.refresh(spec,OAUTH_FLOW.vault.get(workspace,"youtube"))
+        OAUTH_FLOW.vault.put(workspace,"youtube",tokens)
+    except OAuthError as exc:
+        raise RuntimeError(f"YouTube token refresh failed ({exc.code}); reconnect YouTube") from None
+    settings=youtube_publisher.upload_settings()
+    metadata=youtube_publisher.video_metadata(content,settings)
+    try:
+        result=youtube_publisher.upload_video(adapter.http,tokens.access_token,Path(path),
+                                              (archive_meta or {}).get("content_type") or media.get("mime_type") or "video/mp4",metadata,
+                                              expected)
+    except youtube_publisher.YouTubeError as exc:
+        if exc.code in ("youtube_media_digest_mismatch","youtube_media_digest_missing"):
+            raise RuntimeError("Archived media bytes do not match the approved media digest") from None
+        # Uncertain outcomes surface as TimeoutError so the publish item demands explicit confirmation before a retry.
+        if exc.uncertain:raise TimeoutError(exc.code) from None
+        raise RuntimeError(exc.code) from None
+    raw={"provider":"youtube","channel_id":tokens.account_id,"channel_title":tokens.account_label,
+         "video_id":result["video_id"],"privacy":result["privacy"],"upload_status":result["upload_status"],
+         "made_for_kids":settings["made_for_kids"],"contains_synthetic_media":True}
+    return {"manual":False,"status":"published","external_post_id":result["video_id"],"external_url":result["url"],"raw":raw}
+
 def _publish_via_adapter(item):
     if FACTORY_PUBLISHER_ADAPTER=="manual":
         return {"manual":True,"status":"publishing"}
@@ -8409,6 +9663,8 @@ def _publish_via_adapter(item):
     media=item.get("media") or {}
     if FACTORY_PUBLISHER_ADAPTER=="metricool":
         return _publish_via_metricool(item,content,media)
+    if FACTORY_PUBLISHER_ADAPTER=="youtube":
+        return _publish_via_youtube(item,content,media,workspace)
     if not FACTORY_PUBLISHER_ENDPOINT:
         raise RuntimeError(f"Publisher adapter '{FACTORY_PUBLISHER_ADAPTER}' is not configured")
     payload={"idempotency_key":item["idempotency_key"],"publish_id":item["id"],"job_id":item["job_id"],"workspace_key":workspace,
@@ -8476,8 +9732,14 @@ def build_publish_dry_run(publish_id):
     registry=get_publisher_adapter_registry()
     metricool=next((a for a in registry["adapters"] if a["kind"]=="metricool"),{})
     real_blockers=[]
-    if not metricool.get("configured") or FACTORY_PUBLISHER_ADAPTER=="manual":
+    selected=next((a for a in registry["adapters"] if a["kind"]==FACTORY_PUBLISHER_ADAPTER),{})
+    if FACTORY_PUBLISHER_ADAPTER=="manual" or not selected.get("configured"):
         real_blockers.append("T-520: no configured real publisher adapter")
+    supported=selected.get("supported_platforms")
+    if FACTORY_PUBLISHER_ADAPTER!="manual" and supported is not None:
+        for plan in plans:plan["real_publisher_supported"]=plan["platform"] in supported
+        if item.get("platform") and item["platform"]!="unspecified" and item["platform"] not in supported:
+            real_blockers.append(f"T-520: publisher '{FACTORY_PUBLISHER_ADAPTER}' does not support {item['platform']}")
     real_blockers.append("T-521: explicit owner approval of this exact snapshot for a real post")
     # The plan hash excludes publication times so re-running the same snapshot is idempotent.
     stable=[{k:v for k,v in p.items() if k!="scheduled_at_utc"} for p in plans]
@@ -8569,10 +9831,92 @@ def _new_signal_ids(limit=None):
                                  ORDER BY created_at DESC LIMIT ?""",(int(limit or FACTORY_CYCLE_MAX_SIGNALS),)).fetchall();con.close()
     return [x["id"] for x in rows]
 
+# T-646: the owner can say what a cycle aims at. All four fields are optional and only steer existing steps:
+# topic narrows which new signals are attached, brand links the production job to that brand's Master Brief,
+# platform/audience are written into the production brief. None of them publishes or spends anything.
+FACTORY_CYCLE_TARGET_PLATFORMS=("",)+PUBLISH_DRY_RUN_PLATFORMS
+CYCLE_TARGET_EDITABLE=("ready","stopped","failed")
+
+# T-647: stable codes for cycle error/status messages, so the dashboard can show them in EN/UK/RU.
+# The English text stays the source of truth (logs, API clients); the code and params only drive translation.
+CYCLE_MESSAGE_CODES=(
+    (r"^Factory cycle not found","not_found"),
+    (r"^Unknown target platform: (?P<value>.*)$","bad_platform"),
+    (r"^Unknown brand: (?P<value>.*)$","bad_brand"),
+    (r"^(?:One or more source signal ids are unknown|Unknown source signal id\(s\): (?P<value>.*))$","bad_signals"),
+    (r"^(?:Idea not found|Cycle idea no longer exists)","idea_missing"),
+    (r"^Parent cycle not found","parent_missing"),
+    (r"^The target can change only before production","target_locked"),
+    (r"^Only a ready, running or failed cycle can be stopped","not_stoppable"),
+    (r"^Only a stopped cycle can be resumed","not_resumable"),
+    (r"^This cycle is stopped","stopped_resume_first"),
+    (r"^This idea already has production job (?P<job>\S+) made for a different target \((?P<have>.*)\)\.","job_other_target"),
+    (r"^Rejected idea cannot enter production","idea_rejected"),
+    (r"^Live-mode idea must pass Content Brain verification","idea_not_verified"),
+    (r"^No source signals","no_signals"),
+    (r"^Content Brain generated no usable ideas","no_ideas"),
+    (r"^Idea Verifier did not shortlist","no_shortlist"),
+    (r"^Preselected idea did not pass verification","idea_failed_verification"),
+    (r"^Production did not reach the human approval gate","production_not_at_gate"),
+    (r"^Live LLM provider is not configured","llm_not_configured"),
+    (r"^Daily provider budget would be exceeded","daily_budget"),
+    (r"^No real performance snapshot","no_metrics"),
+    (r"^Factory cycle is already running","already_running"),
+    (r"^Confirm the conservative paid-work ceiling","confirm_cost"),
+    (r"^Autopilot started and will stop","started"),
+)
+
+def cycle_message_info(message):
+    """(code, params) for a known cycle message; ('unknown', {'text': message}) otherwise."""
+    text=str(message or "").strip()
+    for pattern,code in CYCLE_MESSAGE_CODES:
+        m=re.match(pattern,text)
+        if m:return code,{k:v for k,v in m.groupdict().items() if v is not None}
+    if len(text)>500:return "unknown",{"text":text[:500]+"…","truncated":True}
+    return "unknown",{"text":text}
+
+def cycle_http_error(status,exc):
+    code,params=cycle_message_info(str(exc))
+    return HTTPException(status,{"message":str(exc),"code":code,"params":params})
+
+def _cycle_target(raw):
+    raw=dict(raw or {})
+    target={k:re.sub(r"\s+"," ",str(raw.get(k) or "")).strip()[:120] for k in ("brand","topic","platform","audience")}
+    if target["platform"] not in FACTORY_CYCLE_TARGET_PLATFORMS:
+        raise ValueError("Unknown target platform: "+target["platform"])
+    if target["brand"]:
+        known={b["brand"] for b in STRATEGY.brands()}
+        if target["brand"] not in known:raise ValueError("Unknown brand: "+target["brand"])
+    return target
+
+def _signal_ids_for_topic(signal_ids,topic):
+    """Keep only signals whose topic or title mentions the target topic. Returns (ids, matched)."""
+    topic=(topic or "").strip().lower()
+    if not topic or not signal_ids:return signal_ids,None
+    placeholders=",".join("?" for _ in signal_ids)
+    con=db();rows=con.execute(f"SELECT id,title,topic FROM source_signals WHERE id IN ({placeholders})",signal_ids).fetchall();con.close()
+    keep={x["id"] for x in rows if topic in (x["topic"] or "").lower() or topic in (x["title"] or "").lower()}
+    picked=[x for x in signal_ids if x in keep]
+    return (picked,True) if picked else (signal_ids,False)
+
+def _new_signal_ids_for_topic(topic):
+    """Newest *new* signals that mention the topic, searched across all new signals before the limit is applied.
+    Returns (ids, matched); with no topic or no match it falls back to the newest new signals."""
+    topic=(topic or "").strip().lower()
+    if not topic:return _new_signal_ids(),None
+    # Matched in Python (SQLite lower() only folds ASCII; topics are often Cyrillic). Bounded scan of new signals.
+    con=db();rows=con.execute("""SELECT id,title,topic FROM source_signals WHERE status='new'
+                                 ORDER BY created_at DESC LIMIT 2000""").fetchall();con.close()
+    rows=[x for x in rows if topic in (x["topic"] or "").lower() or topic in (x["title"] or "").lower()][:FACTORY_CYCLE_MAX_SIGNALS]
+    ids=[x["id"] for x in rows]
+    return (ids,True) if ids else (_new_signal_ids(),False)
+
 def create_factory_cycle(payload,source="owner"):
+    target=_cycle_target(payload.target)
     signal_ids=list(dict.fromkeys(str(x).strip() for x in (payload.signal_ids or []) if str(x).strip()))
+    topic_matched=None
     if not signal_ids and not payload.idea_id:
-        signal_ids=_new_signal_ids()
+        signal_ids,topic_matched=_new_signal_ids_for_topic(target["topic"])
     con=db()
     if signal_ids:
         placeholders=",".join("?" for _ in signal_ids)
@@ -8587,7 +9931,9 @@ def create_factory_cycle(payload,source="owner"):
         con.close();raise ValueError("Parent cycle not found")
     cycle_id=str(uuid.uuid4());now=ts();active=_active_workflow_version()
     meta={"created_by":source,"language":(payload.language or "English").strip(),"approval_gate":"required",
-          "publisher_execution":"explicit","paid_generation":"confirmation_required"}
+          "publisher_execution":"explicit","paid_generation":"confirmation_required","target":target}
+    if topic_matched is not None:meta["target_topic_matched"]=topic_matched
+    if not payload.signal_ids and not idea_id:meta["signals_auto"]=True
     con.execute("""INSERT INTO factory_cycles(
         id,parent_cycle_id,status,phase,source_signal_ids_json,idea_id,job_id,publish_id,workflow_version_id,
         created_at,updated_at,started_at,completed_at,last_error,learning_json,meta_json
@@ -8597,8 +9943,117 @@ def create_factory_cycle(payload,source="owner"):
     ))
     con.commit();con.close()
     cycle_event(cycle_id,"signals",f"Factory cycle created with {len(signal_ids)} signal(s)"+(" and a preselected idea" if idea_id else ""),
-                {"workflow_version_id":active["id"],"source":source})
+                {"workflow_version_id":active["id"],"source":source,"target":target})
+    if topic_matched is False:
+        cycle_event(cycle_id,"signals",f"No new signal mentions the target topic '{target['topic']}'; all new signals were attached")
     return get_factory_cycle(cycle_id,True)
+
+def set_factory_cycle_target(cycle_id,raw):
+    cycle=get_factory_cycle(cycle_id)
+    if not cycle:raise LookupError("Factory cycle not found")
+    if cycle["status"] not in CYCLE_TARGET_EDITABLE or cycle.get("job_id") or cycle_id in active_factory_cycles:
+        raise PermissionError("The target can change only before production starts (ready, stopped or failed, no job yet)")
+    target=_cycle_target(raw)
+    meta=dict(cycle.get("meta") or {});old_topic=(meta.get("target") or {}).get("topic","")
+    meta["target"]=target;meta.pop("target_topic_matched",None)
+    fields={}
+    # Signals the cycle picked by itself follow the new topic; signals or an idea chosen by the owner stay as chosen.
+    if meta.get("signals_auto") and not cycle.get("idea_id") and target["topic"]!=old_topic:
+        ids,matched=_new_signal_ids_for_topic(target["topic"])
+        if matched is not True:   # no new signal matches: keep any already attached signal that does
+            kept,kept_match=_signal_ids_for_topic(cycle.get("source_signal_ids") or [],target["topic"])
+            if kept_match:ids,matched=kept,True
+        if matched is not None:meta["target_topic_matched"]=matched
+        fields["source_signal_ids_json"]=json.dumps(ids)
+    _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False),**fields)
+    cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle target changed by the owner",{"target":target})
+    if fields:
+        cycle_event(cycle_id,"signals",f"Signals re-selected for the new topic: {len(json.loads(fields['source_signal_ids_json']))}")
+    if meta.get("target_topic_matched") is False:
+        cycle_event(cycle_id,"signals",f"No signal mentions the target topic '{target['topic']}'; all available signals are kept")
+    return get_factory_cycle(cycle_id,True)
+
+# T-646: stop/resume. A stop is a flag the coordinator reads between handoffs; it never cancels a provider call
+# mid-flight and never touches the approval gate. Resume returns the cycle to `ready` and re-syncs from its job.
+CYCLE_STOPPABLE=("ready","running","failed")
+
+class _CycleStopped(Exception):
+    pass
+
+def _cycle_stop_requested(cycle_id):
+    cycle=get_factory_cycle(cycle_id)
+    return bool(cycle and (cycle.get("meta") or {}).get("stop_requested"))
+
+def _cycle_checkpoint(cycle_id,step):
+    if _cycle_stop_requested(cycle_id):raise _CycleStopped(step)
+
+def stop_factory_cycle(cycle_id):
+    cycle=get_factory_cycle(cycle_id)
+    if not cycle:raise LookupError("Factory cycle not found")
+    if cycle["status"]=="stopped":return {"cycle":get_factory_cycle(cycle_id,True),"pending":False}
+    if cycle["status"] not in CYCLE_STOPPABLE:
+        raise PermissionError("Only a ready, running or failed cycle can be stopped. Later steps already wait for you.")
+    meta=dict(cycle.get("meta") or {});meta["stop_requested"]=True
+    pending=cycle_id in active_factory_cycles
+    if pending:
+        _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+        cycle_event(cycle_id,cycle.get("phase") or "signals","Stop requested; Autopilot stops at the next handoff")
+    else:
+        _cycle_update(cycle_id,status="stopped",meta_json=json.dumps(meta,ensure_ascii=False))
+        cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle stopped by the owner")
+    return {"cycle":get_factory_cycle(cycle_id,True),"pending":pending}
+
+def resume_factory_cycle(cycle_id):
+    cycle=get_factory_cycle(cycle_id)
+    if not cycle:raise LookupError("Factory cycle not found")
+    if cycle["status"]!="stopped":raise PermissionError("Only a stopped cycle can be resumed")
+    meta=dict(cycle.get("meta") or {});meta.pop("stop_requested",None)
+    _cycle_update(cycle_id,status="ready",meta_json=json.dumps(meta,ensure_ascii=False),last_error="")
+    cycle_event(cycle_id,cycle.get("phase") or "signals","Cycle resumed by the owner")
+    return sync_factory_cycle(cycle_id,True)
+
+CYCLE_TARGET_MARK="CYCLE TARGET (owner): "
+
+def _cycle_target_line(target):
+    target=target or {}
+    lines=[f"{label}: {target[key]}" for key,label in (("brand","BRAND"),("topic","TOPIC"),("platform","TARGET PLATFORM"),("audience","TARGET AUDIENCE")) if target.get(key)]
+    return "; ".join(lines)
+
+def _job_target_line(brief):
+    for line in reversed((brief or "").splitlines()):
+        if line.startswith(CYCLE_TARGET_MARK):return line[len(CYCLE_TARGET_MARK):]
+    return ""
+
+def _check_existing_job_target(cycle_id,idea_id):
+    """An idea has at most one production job. Reusing it is only honest when it was made for the same target."""
+    con=db();row=con.execute("""SELECT j.id,j.brief FROM job_idea_links l JOIN jobs j ON j.id=l.job_id
+                                WHERE l.idea_id=? ORDER BY l.created_at DESC LIMIT 1""",(idea_id,)).fetchone();con.close()
+    if not row:return
+    want=_cycle_target_line(((get_factory_cycle(cycle_id) or {}).get("meta") or {}).get("target"))
+    have=_job_target_line(row["brief"])
+    if want!=have:
+        raise RuntimeError(f"This idea already has production job {row['id'][:8]} made for a different target "
+                           f"({have or 'no target'}). Start the cycle from another idea, or set the same target.")
+
+def _apply_cycle_target_to_job(cycle_id,job_id,created):
+    """Write the cycle target into a freshly created production job and link the brand (Master Brief)."""
+    target=((get_factory_cycle(cycle_id) or {}).get("meta") or {}).get("target") or {}
+    if not created or not any(target.values()):return
+    con=db();row=con.execute("SELECT brief FROM jobs WHERE id=?",(job_id,)).fetchone()
+    if row:
+        con.execute("UPDATE jobs SET brief=?,updated_at=? WHERE id=?",
+                    ((row["brief"] or "")+"\n"+CYCLE_TARGET_MARK+_cycle_target_line(target),ts(),job_id));con.commit()
+    con.close()
+    if target.get("brand"):
+        try:
+            STRATEGY.link_job(target["brand"],job_id)
+            cycle_event(cycle_id,"production",f"Production job linked to brand {target['brand']}; agents get its Master Brief")
+        except Exception as exc:
+            reason=str(getattr(exc,'detail',exc))[:200]
+            cur=get_factory_cycle(cycle_id) or {};meta=dict(cur.get("meta") or {});meta["brand_link_error"]=reason
+            _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+            cycle_event(cycle_id,"production",f"WARNING: brand {target['brand']} was NOT linked, agents do not get its Master Brief: {reason}",
+                        {"code":"brand_not_linked","params":{"brand":target["brand"],"reason":reason}})
 
 def _cycle_update(cycle_id,**fields):
     allowed={"status","phase","idea_id","job_id","publish_id","workflow_version_id","started_at","completed_at","last_error","learning_json","meta_json","source_signal_ids_json"}
@@ -8683,6 +10138,13 @@ def _select_cycle_idea(candidates):
     usable.sort(key=lambda x:(float(x.get("score") or 0),x.get("verified_at") or ""),reverse=True)
     return usable[0]
 
+def _cycle_record_error(cycle_id,status,exc):
+    code,params=cycle_message_info(str(exc))
+    meta=dict((get_factory_cycle(cycle_id) or {}).get("meta") or {})
+    meta["last_error_code"]=code;meta["last_error_params"]=params
+    _cycle_update(cycle_id,status=status,last_error=str(exc)[:1200],meta_json=json.dumps(meta,ensure_ascii=False))
+    return code,params
+
 async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
     active_factory_cycles.add(cycle_id)
     try:
@@ -8691,18 +10153,29 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
         if cycle.get("job") and cycle["job"].get("status")=="waiting_approval":
             _cycle_update(cycle_id,status="waiting_approval",phase="approval",last_error="")
             return
-        _cycle_update(cycle_id,status="running",started_at=cycle.get("started_at") or ts(),last_error="")
+        meta=dict(cycle.get("meta") or {});meta.pop("last_error_code",None);meta.pop("last_error_params",None)
+        _cycle_update(cycle_id,status="running",started_at=cycle.get("started_at") or ts(),last_error="",
+                      meta_json=json.dumps(meta,ensure_ascii=False))
         cycle_event(cycle_id,cycle.get("phase") or "signals","Autopilot run started",{"language":language})
+        _cycle_checkpoint(cycle_id,"signals")
 
         signal_ids=cycle.get("source_signal_ids") or []
         if not signal_ids and not cycle.get("idea_id"):
             collected=await asyncio.to_thread(collect_configured_signals,FACTORY_CYCLE_MAX_SIGNALS) if FACTORY_SIGNAL_FEEDS else {"created":[]}
             signal_ids=[x["id"] for x in collected.get("created") or []] or _new_signal_ids()
+            run_topic=((cycle.get("meta") or {}).get("target") or {}).get("topic")
+            signal_ids,matched=_signal_ids_for_topic(signal_ids,run_topic)
+            if matched is not None:
+                meta=dict((get_factory_cycle(cycle_id) or {}).get("meta") or {});meta["target_topic_matched"]=matched
+                _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
+            if matched is False:
+                cycle_event(cycle_id,"signals",f"No collected signal mentions the target topic '{run_topic}'; all collected signals were used")
             if not signal_ids:raise RuntimeError("No source signals are available. Add a signal or configure RSS feeds.")
             _cycle_update(cycle_id,source_signal_ids_json=json.dumps(signal_ids),phase="ideas")
             cycle_event(cycle_id,"signals",f"Attached {len(signal_ids)} available signal(s)")
 
         idea_id=cycle.get("idea_id")
+        _cycle_checkpoint(cycle_id,"ideas")
         if not idea_id:
             _cycle_update(cycle_id,phase="ideas")
             generated=await generate_ideas_from_signals(IdeaGenerateRequest(signal_ids=signal_ids,max_ideas=max_ideas,language=language))
@@ -8726,7 +10199,10 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
                 if not chosen:raise RuntimeError("Preselected idea did not pass verification")
                 con=db();con.execute("UPDATE content_ideas SET status='selected',updated_at=? WHERE id=?",(ts(),idea_id));con.commit();con.close()
 
+        _cycle_checkpoint(cycle_id,"production")
+        _check_existing_job_target(cycle_id,idea_id)
         bridge=create_job_from_idea(idea_id,language)
+        _apply_cycle_target_to_job(cycle_id,bridge["job"]["id"],bridge.get("created"))
         job=bridge["job"];workflow=_workflow_context(job["id"],lock=True)["version"]
         _cycle_update(cycle_id,job_id=job["id"],workflow_version_id=workflow["id"],phase="production")
         cycle_event(cycle_id,"production","Content Brain → production handoff completed",
@@ -8736,13 +10212,31 @@ async def _run_factory_cycle_to_review(cycle_id,max_ideas=3,language="English"):
         job=get_job(job["id"])
         if not job or job.get("status")!="waiting_approval":
             raise RuntimeError("Production did not reach the human approval gate")
+        if _cycle_stop_requested(cycle_id):
+            _cycle_update(cycle_id,status="stopped",phase="approval",last_error="")
+            cycle_event(cycle_id,"approval","Stopped as requested after production; the package waits at the approval gate, nothing was published",
+                        {"job_id":job["id"]})
+            await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
+            return
         _cycle_update(cycle_id,status="waiting_approval",phase="approval",last_error="")
         cycle_event(cycle_id,"approval","Production package is ready; Autopilot stopped at the human approval gate",
                     {"job_id":job["id"]})
         await broadcast({"type":"factory_cycle","action":"waiting_approval","cycleId":cycle_id,"jobId":job["id"]})
+    except _CycleStopped as stop:
+        _cycle_update(cycle_id,status="stopped",last_error="")
+        cycle_event(cycle_id,str(stop) or "signals","Autopilot stopped by the owner before this step; nothing was skipped or published")
+        await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
     except Exception as exc:
-        _cycle_update(cycle_id,status="failed",last_error=str(exc)[:1200])
-        cycle_event(cycle_id,"error",f"Autopilot failed: {str(exc)[:500]}")
+        if _cycle_stop_requested(cycle_id):
+            # The owner asked to stop while this step was running: honour the stop, keep the error visible.
+            _cycle_record_error(cycle_id,"stopped",exc)
+            cycle_event(cycle_id,"error",f"Step failed after a stop was requested; the cycle stays stopped: {str(exc)[:500]}",
+                        {"code":"stopped_then_failed","params":{},"cause":{"code":cycle_message_info(str(exc))[0],
+                         "params":cycle_message_info(str(exc))[1],"text":str(exc)[:1200]}})
+            await broadcast({"type":"factory_cycle","action":"stopped","cycleId":cycle_id})
+            return
+        code,params=_cycle_record_error(cycle_id,"failed",exc)
+        cycle_event(cycle_id,"error",f"Autopilot failed: {str(exc)[:500]}",{"code":code,"params":params})
         await broadcast({"type":"factory_cycle","action":"failed","cycleId":cycle_id,"error":str(exc)[:500]})
     finally:
         active_factory_cycles.discard(cycle_id)
@@ -8826,6 +10320,9 @@ def sync_factory_cycle(cycle_id,derive_learning_if_possible=True):
         if row:
             publish=_publish_item(row);_cycle_update(cycle_id,publish_id=publish["id"])
     status=cycle.get("status");phase=cycle.get("phase")
+    if status=="stopped":
+        _cycle_update(cycle_id,publish_id=(publish or {}).get("id") or cycle.get("publish_id"))
+        return get_factory_cycle(cycle_id,True)
     if job:
         if job.get("status")=="waiting_approval":status,phase="waiting_approval","approval"
         elif job.get("status")=="approved":status,phase="approved","publishing"
@@ -8855,16 +10352,188 @@ def sync_cycle_for_publish(publish_id):
     cycle=_cycle_for_publish(publish_id)
     return sync_factory_cycle(cycle["id"]) if cycle else None
 
+INTAKE_SNAPSHOT_MAX_AGE=900  # the EC2 pusher runs every 3 minutes
+
+INTAKE_SNAPSHOT_CLOCK_SKEW=60  # a snapshot "from the future" beyond this is not trusted as fresh
+
+def _intake_issues_from_ec2_snapshot():
+    """#41/#258: owner Issues from the EC2 worker's snapshot (owner gh login) when Render's own read fails.
+    Returns (data, reason): data is None unless the snapshot is present, well-formed and fresh; reason is one of
+    "fresh", "missing", "stale", "malformed". Unknown is never imported as fresh."""
+    snap=_load_team_snapshot()
+    if snap is None:return None,"missing"
+    if not isinstance(snap,dict):return None,"malformed"
+    try:received=float(snap.get("received"))
+    except (TypeError,ValueError):return None,"malformed"
+    age=time.time()-received
+    if age>INTAKE_SNAPSHOT_MAX_AGE or age<-INTAKE_SNAPSHOT_CLOCK_SKEW:return None,"stale"
+    github=snap.get("github")
+    if not isinstance(github,dict) or not isinstance(github.get("issues"),list):return None,"malformed"
+    issues=[{"number":i.get("number"),"title":str(i.get("title") or ""),"body":str(i.get("body") or ""),
+             "url":str(i.get("html_url") or ""),"state":str(i.get("state") or ""),"author":str(i.get("author") or ""),
+             "pull_request":bool(i.get("pull_request"))} for i in github["issues"] if isinstance(i,dict)]
+    return {"issues":issues,"github":{**github,"pulls":github.get("pulls") if isinstance(github.get("pulls"),list) else []}},"fresh"
+
 def github_issue_intake_once(fetch=None):
-    """T-599-E: one owner-Issue intake pass; logs counts/IDs only, never bodies or tokens."""
-    result=relay_auto_intake_issues(RELAY_QUEUE,GITHUB_REPO,GITHUB_TOKEN,fetch=fetch)
-    print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":result["ok"],"error":result.get("error",""),
+    """T-599-E / #41: one owner-Issue intake pass; logs counts/IDs and safe reason codes only, never bodies or tokens.
+
+    Source: Render's own GitHub read, else the fresh EC2 snapshot. Claude issues that Queue Keeper (#231) sees as
+    blocked (open Depends, owner gate, another agent's PR) are deferred, so the worker never starts them early."""
+    direct=relay_github_owner_issues(GITHUB_REPO,_github_read_token(),fetch=fetch)
+    source,render_error,gate_github="render","",None
+    if direct.get("available"):
+        issues,owner=direct["issues"],direct["owner"]
+        gate_github={"available":True,"pulls":[],"issues":[{"number":i.get("number"),"title":i.get("title"),"body":i.get("body"),
+                     "state":i.get("state"),"html_url":i.get("url"),"labels":[]} for i in issues if isinstance(i,dict)]}
+    else:
+        render_error=f"{direct.get('error','')} ({direct.get('reason','unknown')})"
+        ec2,snapshot_state=_intake_issues_from_ec2_snapshot()
+        if ec2 is None:
+            print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":False,"error":direct.get("error",""),"reason":direct.get("reason",""),
+                              "ec2_snapshot":snapshot_state,"imported":[],"linked":[],"existing":0,"ignored":0}),flush=True)
+            return {"ok":False,"error":direct.get("error") or "GitHub unavailable","ec2_snapshot":snapshot_state,
+                    "imported":[],"existing":[],"linked":[],"ignored":0}
+        issues,owner,source,gate_github=ec2["issues"],GITHUB_REPO.split("/",1)[0],"ec2",ec2["github"]
+    readiness=queue_readiness({**gate_github,"available":True},roadmap=_parse_roadmap_tasks(),agent="claude")
+    blocked={t["number"]:t["reasons"] for t in readiness.get("blocked") or []}
+    deferred=[{"issue":n,"reasons":r} for n,r in sorted(blocked.items())]
+    ready=[i for i in issues if not (isinstance(i,dict) and _safe_int(i.get("number")) in blocked)]
+    result={"ok":True,**RELAY_QUEUE.auto_intake_owner_issues(ready,GITHUB_REPO,owner)}
+    print(json.dumps({"event":"GITHUB_ISSUE_INTAKE","ok":True,"source":source,"render_error":render_error,
                       "imported":[x["issue"] for x in result["imported"]],"linked":[x["issue"] for x in result["linked"]],
-                      "existing":len(result["existing"]),"ignored":result["ignored"]}),flush=True)
+                      "existing":len(result["existing"]),"ignored":result["ignored"],"deferred":[d["issue"] for d in deferred]}),flush=True)
     for row in result["imported"]:
         try:_telegram_send(f"📥 Relay {row['ticket']}: GitHub #{row['issue']} (Owner: {row['lane']})\nВ очереди, выполнение ещё не началось.")
         except Exception:pass
+    result.update(source=source,deferred=deferred,render_error=render_error)
     return result
+
+def _safe_int(value):
+    try:return int(value)
+    except (TypeError,ValueError):return 0
+
+
+PEER_REVIEW_BUDGET=ReviewBudget(DATA_DIR)
+
+
+def relay_peer_review_once(pulls,ci,reader,gemini_call=None,limit=2):
+    """Evidence T2.6 (owner option A): Gemini reviews Claude's PRs that touch risky areas or are large, once
+    per head commit after CI is green. Free tier, stable Flash, DAILY_CAP per day; unavailable = retried later."""
+    notices=[]
+    for c in RELAY_QUEUE.review_candidates(pulls,ci,time.time())[:limit]:
+        files=None
+        if not c["scope_known"]:
+            try:files=reader(f"/pulls/{c['number']}/files?per_page=100")
+            except Exception:files=None
+            if not isinstance(files,list):
+                # Unknown diff: be conservative, so a risky PR cannot close unreviewed while GitHub is flaky.
+                RELAY_QUEUE.record_review_scope(c["ticket"],c["head"],True,"diff unreadable")
+                continue
+            required,reason=needs_review(files)
+            RELAY_QUEUE.record_review_scope(c["ticket"],c["head"],required,reason)
+            if not required:
+                continue
+        if not FACTORY_GEMINI_API_KEY or not PEER_REVIEW_BUDGET.take():
+            RELAY_QUEUE.record_review(c["ticket"],c["head"],None,time.time())
+            continue
+        if files is None:
+            try:files=reader(f"/pulls/{c['number']}/files?per_page=100")
+            except Exception:files=None
+        if not isinstance(files,list):
+            RELAY_QUEUE.record_review(c["ticket"],c["head"],None,time.time())
+            continue
+        verdict=gemini_review(FACTORY_GEMINI_API_KEY,build_prompt(c["title"],c["body"],files),gemini_call or _gemini_raw_call,
+                              None if gemini_call else resolve_flash_model)
+        RELAY_QUEUE.record_review(c["ticket"],c["head"],verdict,time.time())
+        print(json.dumps({"event":"PEER_REVIEW","ticket":c["ticket"],"status":"unavailable" if verdict is None else verdict["verdict"],
+                          "blockers":0 if verdict is None else verdict["blockers"]}),flush=True)
+        if verdict is not None:
+            notices.append({"ticket":c["ticket"],"action":"peer_review","text":review_notice_text(c["ticket"],c["url"],verdict)})
+    return notices
+
+
+def relay_pr_reconcile_once(fetch=None):
+    """#289 round trip: follow Relay tickets' PRs (CI passed/failed, merged, closed) and tell the owner once per
+    transition. Evidence Tier 2.1: with FACTORY_GITHUB_READ_TOKEN the facts come from Render's own GitHub read
+    (source github:render, the only source that counts as checked); otherwise, or if that read fails, from the fresh
+    EC2 snapshot, which the worker itself uploads (source github:ec2-snapshot). Unknown stays unknown."""
+    github,source,snapshot_state=None,"github:ec2-snapshot",""
+    if GITHUB_READ_TOKEN or fetch is not None:
+        own=read_github(fetch or github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN))
+        if own.get("available"):
+            github,source,snapshot_state=own,"github:render","render"
+    if github is None:
+        ec2,snapshot_state=_intake_issues_from_ec2_snapshot()
+        if ec2 is None:
+            return {"ok":False,"snapshot":snapshot_state,"notices":0}
+        github=ec2["github"]
+    ci=github.get("ci") if isinstance(github.get("ci"),dict) else {}
+    notices=[]
+    if source=="github:render":
+        notices+=relay_peer_review_once(github.get("pulls") or [],ci,fetch or github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN))
+    notices+=RELAY_QUEUE.reconcile_pull_requests(github.get("pulls") or [],ci,source=source)
+    if source=="github:render":
+        # Evidence T2.2: is a ticket's merge commit inside the build Render runs now? Only from our own read.
+        reader=fetch or github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN)
+
+        def contains(merge_sha):
+            try:
+                data=reader(f"/compare/{merge_sha}...{BUILD_SHA}")
+            except Exception:
+                return None
+            status=str((data or {}).get("status") or "") if isinstance(data,dict) else ""
+            return True if status in ("ahead","identical") else False if status in ("behind","diverged") else None
+        notices+=RELAY_QUEUE.reconcile_deploys(BUILD_SHA,contains)
+    owner_chat=str((_telegram_load_state() or {}).get("chat_id") or "")
+    for n in notices:
+        try:
+            if n.get("markup") and owner_chat:_telegram_send_markup(owner_chat,n["text"],n["markup"])
+            else:_telegram_send(n["text"])
+        except Exception:pass
+    if notices:
+        print(json.dumps({"event":"RELAY_PR_RECONCILE","source":source,"notices":[{"ticket":n["ticket"],"action":n["action"]} for n in notices]}),flush=True)
+    return {"ok":True,"snapshot":snapshot_state,"source":source,"notices":len(notices)}
+
+def _morning_brief_github(now=None):
+    """Fresh main commit facts with an honest, logged fallback on GitHub read failure."""
+    return github_brief_snapshot(
+        token=GITHUB_READ_TOKEN, repo=GITHUB_REPO, now=time.time() if now is None else now,
+        fetcher=github_fetcher, read_snapshot=read_github,
+        fallback=_intake_issues_from_ec2_snapshot,
+        log_error=lambda event: print(json.dumps(event), flush=True))
+
+
+def _morning_brief_compose(date,now,yesterday_plan=None):
+    tickets=RELAY_STORE.list(limit=500)
+    return compose_brief(date,now,github=_morning_brief_github(now),tickets=tickets,
+                         questions_open=int(OWNER_QUESTIONS.queue_stats().get("open") or 0),
+                         evidence_metrics=_evidence.metrics(tickets,now),yesterday_plan=yesterday_plan)
+
+
+MORNING_BRIEF=MorningBrief(DATA_DIR,deliver=lambda date,text:BRIEF_DELIVER(date,text),send_text=_telegram_send,
+                           compose=_morning_brief_compose,plan_source=lambda:brief_plan_ids(RELAY_STORE.list(limit=500)))
+
+
+async def mvp_pipeline_loop():
+    """MVP Builder step 2: move autopilot projects one hand-off per minute (see mvp_pipeline.py)."""
+    await asyncio.sleep(45)
+    while True:
+        try:
+            moved=await asyncio.to_thread(MVP_PIPELINE.tick)
+            if moved:print(json.dumps({"event":"MVP_PIPELINE","moved":moved}),flush=True)
+        except Exception as exc:
+            print(json.dumps({"event":"MVP_PIPELINE_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
+
+
+async def morning_brief_loop():
+    """#106: owner opt-in (/brief on), 08:00 Europe/Kyiv, one brief per date; see morning_brief.py."""
+    await asyncio.sleep(30)
+    while True:
+        try:await asyncio.to_thread(MORNING_BRIEF.tick)
+        except Exception as exc:
+            print(json.dumps({"event":"MORNING_BRIEF_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
 
 
 async def github_issue_intake_loop():
@@ -8873,6 +10542,9 @@ async def github_issue_intake_loop():
         try:await asyncio.to_thread(github_issue_intake_once)
         except Exception as exc:
             print(json.dumps({"event":"GITHUB_ISSUE_INTAKE_ERROR","error":type(exc).__name__}),flush=True)
+        try:await asyncio.to_thread(relay_pr_reconcile_once)
+        except Exception as exc:
+            print(json.dumps({"event":"RELAY_PR_RECONCILE_ERROR","error":type(exc).__name__}),flush=True)
         await asyncio.sleep(FACTORY_GITHUB_ISSUE_INTAKE_INTERVAL_SEC)
 
 
@@ -8880,7 +10552,7 @@ async def factory_cycle_reconcile_loop():
     while True:
         try:
             con=db();rows=con.execute("""SELECT id FROM factory_cycles
-                                        WHERE status NOT IN ('failed','rejected','learning_ready','completed')
+                                        WHERE status NOT IN ('failed','rejected','learning_ready','completed','stopped')
                                         ORDER BY updated_at DESC LIMIT 100""").fetchall();con.close()
             for row in rows:sync_factory_cycle(row["id"],True)
         except Exception as exc:
@@ -9120,61 +10792,113 @@ def record_performance_snapshot(payload):
     sync_cycle_for_publish(pub["id"])
     return {"id":snapshot_id,"publish_id":pub["id"],"metrics":metrics,"captured_at":captured,"meta":snapshot_meta}
 
+def factory_cycle_readiness():
+    """T-646: what a beginner needs before the first cycle — real counts only, nothing estimated."""
+    con=db()
+    new_signals=con.execute("SELECT COUNT(*) n FROM source_signals WHERE status='new'").fetchone()["n"]
+    # Ideas a cycle can start from: not rejected and not yet in production (live mode verifies them first).
+    ideas=[dict(x) for x in con.execute("""SELECT id,title,score,status,verified_at FROM content_ideas
+                                          WHERE status IN ('selected','shortlisted','generated')
+                                          ORDER BY CASE status WHEN 'selected' THEN 0 WHEN 'shortlisted' THEN 1 ELSE 2 END,
+                                                   updated_at DESC LIMIT 20""").fetchall()]
+    con.close()
+    try:brands=[{"brand":b["brand"],"name":b.get("name") or b["brand"]} for b in STRATEGY.brands()]
+    except Exception:brands=[]
+    return {"new_signals":int(new_signals),"feeds_configured":bool(FACTORY_SIGNAL_FEEDS),
+            "paid_calls_possible":bool(FACTORY_LLM_API_KEY),"ideas":ideas,"brands":brands,
+            "platforms":[x for x in FACTORY_CYCLE_TARGET_PLATFORMS if x]}
+
 @app.get("/api/factory-cycles")
 def factory_cycles(limit:int=80):
-    return get_factory_cycles(limit)
+    data=get_factory_cycles(limit)
+    data["readiness"]=factory_cycle_readiness()
+    return data
 
 @app.get("/api/factory-cycles/{cycle_id}")
 def factory_cycle_detail(cycle_id:str):
-    cycle=sync_factory_cycle(cycle_id,True)
-    if not cycle:raise HTTPException(404,"Factory cycle not found")
+    # #114 B-1: a GET (viewers included) only reads; reconciliation and learning run through POST /sync and /learn.
+    cycle=get_factory_cycle(cycle_id,True)
+    if not cycle:raise cycle_http_error(404,"Factory cycle not found")
     return cycle
 
 @app.post("/api/factory-cycles")
 async def new_factory_cycle(payload:FactoryCycleCreate):
     try:cycle=create_factory_cycle(payload)
-    except ValueError as exc:raise HTTPException(400,str(exc))
+    except ValueError as exc:raise cycle_http_error(400,exc)
     await broadcast({"type":"factory_cycle","action":"created","cycleId":cycle["id"]})
     return {"ok":True,"cycle":cycle}
 
 @app.get("/api/factory-cycles/{cycle_id}/quote")
 def factory_cycle_quote(cycle_id:str,max_ideas:int=3):
     try:return estimate_factory_cycle_cost(cycle_id,max_ideas)
-    except ValueError as exc:raise HTTPException(400,str(exc))
+    except ValueError as exc:raise cycle_http_error(400,exc)
 
 @app.post("/api/factory-cycles/{cycle_id}/run")
 async def run_factory_cycle_api(cycle_id:str,payload:FactoryCycleRunRequest):
     cycle=get_factory_cycle(cycle_id,True)
-    if not cycle:raise HTTPException(404,"Factory cycle not found")
-    if cycle_id in active_factory_cycles:return {"ok":True,"message":"Factory cycle is already running"}
+    if not cycle:raise cycle_http_error(404,"Factory cycle not found")
+    if cycle["status"]=="stopped":raise cycle_http_error(409,"This cycle is stopped. Resume it first.")
+    if cycle_id in active_factory_cycles:return {"ok":True,"message":"Factory cycle is already running","message_code":"already_running"}
     try:quote=estimate_factory_cycle_cost(cycle_id,payload.max_ideas)
-    except ValueError as exc:raise HTTPException(400,str(exc))
+    except ValueError as exc:raise cycle_http_error(400,exc)
     if quote["paid_calls_possible"] and not payload.confirm_cost:
         return {"ok":False,"requiresCostConfirmation":True,"quote":quote,
-                "message":"Confirm the conservative paid-work ceiling before Autopilot starts. Daily/job budgets remain hard limits."}
+                "message":"Confirm the conservative paid-work ceiling before Autopilot starts. Daily/job budgets remain hard limits.",
+                "message_code":"confirm_cost"}
+    meta=dict(cycle.get("meta") or {})
+    if meta.pop("stop_requested",None):   # a stop flag left by a run that already ended is stale
+        _cycle_update(cycle_id,meta_json=json.dumps(meta,ensure_ascii=False))
     asyncio.create_task(_run_factory_cycle_to_review(cycle_id,payload.max_ideas,payload.language))
     return {"ok":True,"started":True,"quote":quote,
-            "message":"Autopilot started and will stop at the human approval gate."}
+            "message":"Autopilot started and will stop at the human approval gate.","message_code":"started"}
 
 @app.post("/api/factory-cycles/{cycle_id}/sync")
 async def sync_factory_cycle_api(cycle_id:str):
     cycle=sync_factory_cycle(cycle_id,True)
-    if not cycle:raise HTTPException(404,"Factory cycle not found")
+    if not cycle:raise cycle_http_error(404,"Factory cycle not found")
     await broadcast({"type":"factory_cycle","action":"synced","cycleId":cycle_id})
     return {"ok":True,"cycle":cycle}
 
 @app.post("/api/factory-cycles/{cycle_id}/learn")
 async def learn_factory_cycle(cycle_id:str):
     try:result=derive_cycle_learning(cycle_id)
-    except ValueError as exc:raise HTTPException(400,str(exc))
+    except ValueError as exc:raise cycle_http_error(400,exc)
+    if not result.get("ready"):result["reason_code"]=cycle_message_info(result.get("reason"))[0]
     await broadcast({"type":"factory_cycle","action":"learning","cycleId":cycle_id})
     return result
+
+@app.post("/api/factory-cycles/{cycle_id}/target")
+async def factory_cycle_target_api(cycle_id:str,payload:FactoryCycleTarget):
+    try:cycle=set_factory_cycle_target(cycle_id,payload.model_dump())
+    except LookupError as exc:raise cycle_http_error(404,exc)
+    except PermissionError as exc:raise cycle_http_error(409,exc)
+    except ValueError as exc:raise cycle_http_error(400,exc)
+    await broadcast({"type":"factory_cycle","action":"target","cycleId":cycle_id})
+    return {"ok":True,"cycle":cycle}
+
+@app.post("/api/factory-cycles/{cycle_id}/stop")
+async def factory_cycle_stop_api(cycle_id:str):
+    try:result=stop_factory_cycle(cycle_id)
+    except LookupError as exc:raise cycle_http_error(404,exc)
+    except PermissionError as exc:raise cycle_http_error(409,exc)
+    await broadcast({"type":"factory_cycle","action":"stop","cycleId":cycle_id})
+    return {"ok":True,**result}
+
+@app.post("/api/factory-cycles/{cycle_id}/resume")
+async def factory_cycle_resume_api(cycle_id:str):
+    try:cycle=resume_factory_cycle(cycle_id)
+    except LookupError as exc:raise cycle_http_error(404,exc)
+    except PermissionError as exc:raise cycle_http_error(409,exc)
+    await broadcast({"type":"factory_cycle","action":"resume","cycleId":cycle_id})
+    return {"ok":True,"cycle":cycle}
 
 @app.post("/api/factory-cycles/{cycle_id}/next")
 async def next_factory_cycle(cycle_id:str):
     parent=get_factory_cycle(cycle_id,True)
-    if not parent:raise HTTPException(404,"Factory cycle not found")
-    child=create_factory_cycle(FactoryCycleCreate(language=(parent.get("meta") or {}).get("language","English"),parent_cycle_id=cycle_id))
+    if not parent:raise cycle_http_error(404,"Factory cycle not found")
+    try:child=create_factory_cycle(FactoryCycleCreate(language=(parent.get("meta") or {}).get("language","English"),parent_cycle_id=cycle_id,
+                                                      target=(parent.get("meta") or {}).get("target")))
+    except ValueError as exc:raise cycle_http_error(400,exc)
     cycle_event(child["id"],"signals","Next cycle created using the currently active, owner-approved workflow",
                 {"parent_cycle_id":cycle_id,"workflow_version_id":child.get("workflow_version_id")})
     await broadcast({"type":"factory_cycle","action":"next","cycleId":child["id"],"parentCycleId":cycle_id})
@@ -9183,9 +10907,21 @@ async def next_factory_cycle(cycle_id:str):
 @app.get("/api/approval")
 def approval_studio(job_id: Optional[str]=None):
     data=get_approval_queue()
+    data["filter"]={"job_id":None,"applied":False,"total_items":len(data["items"])}
     if job_id:
-        data["items"]=[x for x in data["items"] if x["job"]["id"]==job_id]
-        data["summary"]["items"]=len(data["items"])
+        matched=[x for x in data["items"] if x["job"]["id"]==job_id]
+        if matched:
+            data["items"]=matched
+            data["summary"]["items"]=len(matched)
+            data["filter"].update(job_id=job_id,applied=True)
+        else:
+            # The job selected elsewhere (e.g. "Ready to run") is not in review yet. Filtering to it would show an
+            # empty studio next to a non-zero "waiting" counter; show the whole queue and say where that job is.
+            job=get_job(job_id)
+            data["filter"]["job_id"]=job_id
+            if job:
+                data["filter"]["selected_job"]={"id":job["id"],"title":job.get("title") or "",
+                                                "status":job.get("status") or "","stage":job.get("stage") or ""}
     data["regeneration_quotes"]={x:_estimated_regeneration_cost(x) for x in ("hook","script","caption","voice")}
     return data
 
@@ -9280,6 +11016,24 @@ async def schedule_publishing(publish_id:str,payload:PublishScheduleRequest):
     await broadcast({"type":"publishing","publishId":publish_id,"status":"scheduled"})
     return {"ok":True,"item":_publish_item(updated)}
 
+def _publish_approval_gate(item):
+    """#238: the last check before any publisher adapter runs. Returns "" when the item carries the current owner
+    approval of its own job; otherwise a reason, and nothing is published. Fails closed on missing data."""
+    decision_id=str(item.get("approval_decision_id") or "")
+    if not decision_id:return "No owner approval is recorded for this publish item"
+    con=db()
+    try:
+        row=con.execute("SELECT job_id,decision FROM approval_decisions WHERE id=?",(decision_id,)).fetchone()
+        if not row:return "The owner approval for this publish item was not found"
+        if row["job_id"]!=item.get("job_id"):return "The approval belongs to a different job"
+        if row["decision"]!="approved":return "The linked owner decision is not an approval"
+        latest=con.execute("SELECT id FROM approval_decisions WHERE job_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                           (item.get("job_id"),)).fetchone()
+        if not latest or latest["id"]!=decision_id:
+            return "The approval is stale: the owner made a newer decision for this job; approve again to publish"
+        return ""
+    finally:con.close()
+
 @app.post("/api/publishing/{publish_id}/publish")
 async def publish_scheduled_item(publish_id:str,confirm_uncertain:bool=False):
     con=db();row=con.execute("SELECT * FROM publishing_queue WHERE id=?",(publish_id,)).fetchone()
@@ -9300,6 +11054,12 @@ async def publish_scheduled_item(publish_id:str,confirm_uncertain:bool=False):
         con.close();return {"ok":False,"message":"Publish item has an invalid scheduled timestamp"}
     if item.get("media") and not (item.get("media") or {}).get("url"):
         con.close();return {"ok":False,"message":"Approved media URL is missing"}
+    con.close()
+    refusal=_publish_approval_gate(item)
+    if refusal:
+        event(item["job_id"],f"Publishing refused: {refusal}")
+        return {"ok":False,"approvalRequired":True,"message":refusal}
+    con=db()
     con.execute("UPDATE publishing_queue SET status='publishing',attempt_count=attempt_count+1,updated_at=?,last_error=NULL WHERE id=?",
                 (ts(),publish_id));con.commit();con.close()
     try:
@@ -9470,6 +11230,10 @@ async def connect_integration(provider: str, payload: IntegrationConnectRequest=
     if provider not in PORTABLE_INTEGRATIONS:raise HTTPException(404,"Unknown integration")
     label=(payload.account_label or "").strip()[:180]
     external_id=(payload.external_account_id or "").strip()[:180]
+    if provider=="YouTube" and os.environ.get("FACTORY_OAUTH_GOOGLE_CLIENT_ID","").strip():
+        # T-552-YT: a configured Google OAuth client means the channel is connected by OAuth, not via Metricool.
+        return {"ok":False,"state":"oauth_redirect","provider":provider,"oauth_provider":"youtube",
+                "message":"Continue in Google to connect your YouTube channel."}
     if provider in ("Metricool","YouTube","Instagram","TikTok"):
         if not _metricool_credentials_present():
             return {"ok":False,"state":"needs_setup","provider":provider,
@@ -9512,13 +11276,205 @@ async def switch_integration(provider: str):
         "history_preserved":True,
     }
 
-# T-551-A: provider OAuth scaffold. No real adapters and no token vault yet (T-552), so
-# authorize refuses with blockers in production; tests inject mock adapters + memory vault.
+# T-551-A: provider OAuth scaffold. No real adapters yet (T-552), so authorize still refuses
+# with blockers in production; tests inject mock adapters + memory vault.
+# T-560-F: tokens go to the AES-256-GCM vault when FACTORY_VAULT_KEY is configured. Missing or
+# malformed key -> UnavailableTokenVault (fail closed); the app still boots.
+def _oauth_token_vault():
+    from browser_runner.vault import Keyring, VaultConfigError, make_token_vault, vault_paths
+    try:
+        keyring=Keyring.from_env()
+    except VaultConfigError:
+        return UnavailableTokenVault()
+    if keyring is None:
+        return UnavailableTokenVault()
+    return make_token_vault(vault_paths(DATA_DIR)["oauth_token"],keyring)
+
 OAUTH_FLOW = OAuthFlow(
     redirect_base=FACTORY_PUBLIC_BASE_URL,
     client_id_lookup=lambda spec: os.environ.get(spec.client_id_env,""),
-    vault=UnavailableTokenVault(),
+    vault=_oauth_token_vault(),
+    # T-552-YT: real Google transport for YouTube; other providers stay blocked until their adapters exist.
+    adapters={"youtube":youtube_publisher.GoogleOAuthAdapter(),"linkedin":linkedin_publisher.LinkedInOAuthAdapter(),
+              "olx":olx_publisher.OlxOAuthAdapter()},
 )
+# T-700: LinkedIn text posts (owner-only draft → approve → publish), off until FACTORY_LINKEDIN_ENABLED=1.
+linkedin_publisher.install_routes(app,store=linkedin_publisher.PostStore(DATA_DIR),flow=OAUTH_FLOW,
+                                  identity=request_identity,workspace=tenancy.binding_workspace)
+# T-701: OLX adverts (owner-only draft → approve → publish), off until FACTORY_OLX_ENABLED=1.
+olx_publisher.install_routes(app,store=olx_publisher.AdvertStore(DATA_DIR),flow=OAUTH_FLOW,
+                             identity=request_identity,workspace=tenancy.binding_workspace)
+
+# T-702: social autopilot — weekly plan, owner approval (plan / rules opt-in / each), exactly-once scheduled publishing
+# to the Telegram channel and LinkedIn. Scheduler does nothing until FACTORY_SOCIAL_AUTOPILOT_ENABLED=1; «Стоп» pauses it.
+SOCIAL_TELEGRAM=social_autopilot.TelegramChannelAdapter(
+    token=lambda: FACTORY_TELEGRAM_BOT_TOKEN,
+    channel=lambda: os.environ.get("FACTORY_TELEGRAM_CHANNEL_ID","").strip())
+# T-713: every post carries a teaser image rendered locally (zero spend); an AI generator stays off unless the owner
+# sets FACTORY_SOCIAL_AI_IMAGES=1 and one is wired here (none is today).
+SOCIAL_AUTOPILOT=social_autopilot.Autopilot(
+    social_autopilot.Store(DATA_DIR,images=social_images.ImageMaker(DATA_DIR,social_images.generator_from_env())),
+    {"telegram":SOCIAL_TELEGRAM,
+     "linkedin":social_autopilot.LinkedInAdapter(OAUTH_FLOW,tenancy.binding_workspace)},
+    notify=lambda text: _telegram_send(text),
+    ideas=lambda: get_content_brain(limit=200)["ideas"])
+social_autopilot.install_routes(app,pilot=SOCIAL_AUTOPILOT,identity=request_identity,telegram=SOCIAL_TELEGRAM)
+
+async def social_autopilot_loop():
+    try:
+        await asyncio.to_thread(SOCIAL_AUTOPILOT.store.ensure_images)   # T-713: images for items made before images
+    except Exception as exc:
+        print(json.dumps({"event":"SOCIAL_AUTOPILOT_IMAGES","status":"error","error":type(exc).__name__}),flush=True)
+    while True:
+        try:
+            result=await asyncio.to_thread(SOCIAL_AUTOPILOT.tick)
+            if any(result.get(k) for k in ("sent","failed","uncertain","missed")):
+                print(json.dumps({"event":"SOCIAL_AUTOPILOT_TICK",**{k:len(result.get(k) or []) for k in ("sent","failed","uncertain","missed")}}),flush=True)
+            await asyncio.to_thread(SOCIAL_AUTOPILOT.maybe_send_summary)
+        except Exception as exc:
+            print(json.dumps({"event":"SOCIAL_AUTOPILOT_TICK","status":"error","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def start_social_autopilot():
+    # A claim that never finished before the restart may have been sent: it becomes «uncertain», never resent.
+    SOCIAL_AUTOPILOT.store.recover_interrupted()
+    asyncio.create_task(social_autopilot_loop())
+
+@app.get("/api/factory/vault/status")
+def factory_vault_status(request: Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+    # Owner-visible: configured or not, algorithm, key ids and record counts. Never key material.
+    from browser_runner.vault import vault_status
+    out={**vault_status(DATA_DIR),"oauth_vault":OAUTH_FLOW.vault.kind,"secrets_exposed":False,
+         "credentials":[],"sessions":[],"workspace":tenancy.binding_workspace()}
+    parts=_vault_parts(required=False)
+    if parts:
+        creds,sessions=parts
+        out["credentials"]=list(creds.entries(out["workspace"]))
+        out["sessions"]=list(sessions.entries(out["workspace"]))
+    return out
+
+# T-560-F UI: owner-only vault management. Secrets go in, never come back out: responses carry
+# refs, field kinds, cookie counts and domains only. Workspace comes from the server binding.
+_VAULT_SLUG=re.compile(r"^[a-z0-9][a-z0-9_.-]{0,39}$")
+_VAULT_ACCOUNT=re.compile(r"^[\w.@+ -]{1,80}$")
+
+def _vault_parts(required=True):
+    from browser_runner.sessions import SessionRegistry
+    from browser_runner.vault import (EncryptedCredentialVault,EncryptedSessionStore,Keyring,
+                                      VaultConfigError,vault_paths)
+    try:
+        keyring=Keyring.from_env()
+    except VaultConfigError:
+        keyring=None
+    if keyring is None:
+        if required:raise HTTPException(409,"vault_not_configured")
+        return None
+    paths=vault_paths(DATA_DIR)
+    return (EncryptedCredentialVault(paths["credential"],keyring),
+            EncryptedSessionStore(paths["session"],keyring,SessionRegistry(paths["session_registry"])))
+
+def _vault_owner(request: Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+
+def _vault_binding(body: dict):
+    provider=str(body.get("provider") or "").strip().lower()
+    account=str(body.get("account") or "default").strip()
+    if not _VAULT_SLUG.match(provider):raise HTTPException(400,"invalid_provider")
+    if not _VAULT_ACCOUNT.match(account):raise HTTPException(400,"invalid_account")
+    return tenancy.binding_workspace(),provider,account
+
+@app.post("/api/factory/vault/credentials")
+async def factory_vault_save_credential(request: Request):
+    _vault_owner(request)
+    from browser_runner.sessions import VaultError
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    values={k:str(body.get(k) or "") for k in ("username","password") if body.get(k)}
+    creds,_=_vault_parts()
+    ref=creds.find_ref(workspace_id=workspace,provider=provider,account_binding_id=account) or f"vault://{secrets.token_hex(16)}"
+    try:
+        creds.put(ref,workspace_id=workspace,provider=provider,account_binding_id=account,values=values)
+    except VaultError as e:
+        raise HTTPException(400,str(e))
+    event(None,f"Vault: login saved for {provider}/{account}")
+    return {"ok":True,"ref":ref,"provider":provider,"account":account,"fields":sorted(values),"secrets_exposed":False}
+
+@app.post("/api/factory/vault/credentials/delete")
+async def factory_vault_delete_credential(request: Request):
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    creds,_=_vault_parts()
+    ref=creds.find_ref(workspace_id=workspace,provider=provider,account_binding_id=account)
+    deleted=bool(ref and creds.delete(ref,workspace_id=workspace,provider=provider,account_binding_id=account))
+    if deleted:event(None,f"Vault: login deleted for {provider}/{account}")
+    return {"ok":deleted,"provider":provider,"account":account}
+
+@app.post("/api/factory/vault/sessions")
+async def factory_vault_save_session(request: Request):
+    _vault_owner(request)
+    from browser_runner.sessions import SessionIsolationError, VaultError
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    state=body.get("storage_state")
+    if isinstance(state,str):
+        try:state=json.loads(state)
+        except ValueError:raise HTTPException(400,"storage_state_not_json")
+    if isinstance(state,list):   # a Cookie-Editor / EditThisCookie export from the owner's own Chrome
+        from browser_runner.vault import from_cookie_export
+        try:state=from_cookie_export(state)
+        except Exception as e:raise HTTPException(400,str(e)[:120])
+    _,sessions=_vault_parts()
+    try:
+        sessions.capture(workspace_id=workspace,provider=provider,account_binding_id=account,storage_state=state)
+    except (VaultError,SessionIsolationError,ValueError) as e:
+        raise HTTPException(400,str(e))
+    event(None,f"Vault: browser session saved for {provider}/{account}")
+    return {"ok":True,"provider":provider,"account":account,
+            **sessions.check(workspace_id=workspace,provider=provider,account_binding_id=account),
+            "secrets_exposed":False}
+
+@app.post("/api/factory/vault/sessions/disconnect")
+async def factory_vault_disconnect_session(request: Request):
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    _,sessions=_vault_parts()
+    deleted=sessions.disconnect(workspace_id=workspace,provider=provider,account_binding_id=account)
+    if deleted:event(None,f"Vault: browser session removed for {provider}/{account}")
+    return {"ok":deleted,"provider":provider,"account":account}
+
+@app.post("/api/factory/vault/sessions/agent-use")
+async def factory_vault_session_agent_use(request: Request):
+    # T-560-L: owner lets (or stops) MCP agents (ChatGPT, Claude, Gemini via the Surfer) open pages with this login.
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    _,sessions=_vault_parts()
+    allowed=body.get("allowed") is True
+    if not sessions.set_agent_use(workspace_id=workspace,provider=provider,account_binding_id=account,allowed=allowed):
+        raise HTTPException(404,"no_session")
+    event(None,f"Vault: agents {'may' if allowed else 'may not'} use the browser session {provider}/{account}")
+    return {"ok":True,"provider":provider,"account":account,"agent_use":allowed}
+
+@app.post("/api/factory/vault/check")
+async def factory_vault_check(request: Request):
+    # Proves the stored record decrypts with the current key, without returning any value.
+    _vault_owner(request)
+    body=await request.json()
+    workspace,provider,account=_vault_binding(body)
+    creds,sessions=_vault_parts()
+    if body.get("kind")=="session":
+        return {"kind":"session","provider":provider,"account":account,
+                **sessions.check(workspace_id=workspace,provider=provider,account_binding_id=account)}
+    ref=creds.find_ref(workspace_id=workspace,provider=provider,account_binding_id=account)
+    if not ref:return {"kind":"login","provider":provider,"account":account,"ok":False,"reason":"no_login"}
+    return {"kind":"login","provider":provider,"account":account,
+            **creds.check(ref,workspace_id=workspace,provider=provider,account_binding_id=account)}
 
 def _oauth_subject(request: Request) -> str:
     identity=request_identity(request) or {}
@@ -9574,6 +11530,8 @@ def status(request: Request=None):
     if tenancy.current() is not None:
         return _workspace_status(identity)
     jobs=get_jobs(); sid=current_selected(jobs); selected=next((j for j in jobs if j["id"]==sid),None)
+    attention=get_jobs_attention([j["id"] for j in jobs])
+    for j in jobs:j["attention"]=attention.get(j["id"])
     con=db(); ev=[dict(x) for x in con.execute("SELECT * FROM events ORDER BY id DESC LIMIT 60").fetchall()]; con.close()
     report = supervisor_runtime.get("last_report") or supervisor_audit(auto_heal=False, persist=False)
     return {
@@ -10174,9 +12132,11 @@ def _recover_active_media_finisher_jobs():
                                 ORDER BY created_at DESC LIMIT 30""").fetchall();con.close()
     rows=[row for row in rows if _recent_edit_timestamp(row["updated_at"],360) and not _is_media_finisher_pilot_request(row["request_json"])
           and str((_decode_json(row["request_json"] or "{}",{})).get("compute_target") or "")!="local"]
-    checked=0
+    checked=durable=0
     for row in rows:
         try:
+            if durable_finisher.active(row["id"]):
+                durable+=1;continue  # T-612: its DBOS workflow waits for the callback and polls; never double-poll.
             if not str(row["provider_job_id"] or "").strip():
                 _spawn_media_finisher_submit(row["id"])
             else:
@@ -10184,7 +12144,7 @@ def _recover_active_media_finisher_jobs():
             checked+=1
         except Exception as exc:
             print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY_ERROR","edit_job_id":row["id"],"error":str(exc)[:400]}),flush=True)
-    if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked}),flush=True)
+    if rows:print(json.dumps({"event":"MEDIA_FINISHER_STATUS_RECOVERY","active":len(rows),"checked":checked,"durable":durable}),flush=True)
 
 def _media_finisher_watchdog_loop():
     time.sleep(8)
@@ -10307,9 +12267,12 @@ def claude_worker_task_result(payload: ClaudeWorkerTaskResult):
     return {"ok":True,"result":ingest_claude_worker_result(payload)}
 
 @app.post("/api/operator-worker/heartbeat")
-def operator_worker_heartbeat(payload: OperatorWorkerHeartbeat):
+def operator_worker_heartbeat(payload: OperatorWorkerHeartbeat, request: Request = None):
     op=(payload.operator_id or "").strip().lower()
     if op not in ("claude","gemini"):raise HTTPException(422,"Unsupported operator")
+    # The middleware already admitted either the operator token or the Gemini token; the latter reports only gemini.
+    if request is not None and not _operator_worker_authorized(request) and op!="gemini":
+        raise HTTPException(403,"The Gemini worker token reports only the gemini lane")
     data=payload.model_dump()
     data["operator_id"]=op
     data["last_seen"]=time.time()
@@ -10502,6 +12465,11 @@ async def media_finisher_callback(edit_job_id:str,payload:MediaFinisherCallbackR
         output_url=(payload.final_url or payload.output_url or "").strip()
         item=_finalize_edit_job(edit_job_id,payload.status,output_url,payload.provider_job_id,payload.error,payload.raw,payload.report,payload.measured_cost_usd,payload.measured_duration_sec)
     except ValueError as exc:raise HTTPException(404,str(exc))
+    # T-612: wake the durable workflow now instead of at its next poll; a no-op when no workflow owns this job. The result is
+    # already saved, so a wake-up failure must not fail the worker's callback: the workflow's next poll reads the result.
+    try:await asyncio.to_thread(durable_finisher.notify,edit_job_id,{"status":item["status"]})
+    except Exception as exc:
+        print(json.dumps({"event":"DBOS_MEDIA_FINISHER_NOTIFY_ERROR","edit_job_id":edit_job_id,"error":str(exc)[:300]}),flush=True)
     await broadcast({"type":"media_finisher","action":"callback","editJobId":edit_job_id,"status":item["status"]})
     return {"ok":True,"edit_job":item}
 
@@ -11086,7 +13054,7 @@ def get_delegation_board():
                   "human_publish_approval_required":True},
     }
     board["operator_lanes"]=get_delegation_operator_lanes(board["worker"],results,queue)
-    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
+    secret_values=[s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,GITHUB_TOKEN,GITHUB_READ_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,
                                FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,
                                FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,
                                FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8]
@@ -11151,7 +13119,16 @@ def get_lane_board():
     """T-599-F: per-lane state and Build Progress columns from Relay events + heartbeats only."""
     lanes=get_operator_lanes()
     beats={k:{"last_seen":v.get("last_seen") or None,"online":v.get("online") is True} for k,v in lanes.items()}
-    return build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds)
+    # GitHub activity from the cached Team tasks board (never a GitHub read here): the Gemini loop works through
+    # GitHub issues/PRs, not Relay, so its lane would otherwise look empty.
+    team=_TEAM_TASKS_CACHE.peek() if "_TEAM_TASKS_CACHE" in globals() else None
+    activity={k:{"done_7d":a.get("done_7d"),"last_activity_at":a.get("last_activity_at")}
+              for k,a in ((team or {}).get("agents") or {}).items() if k in ("claude","chatgpt","gemini")}
+    board=build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds,
+                           github_activity=activity)
+    # T-714: the dedicated Surfer worker (browser tasks) beside the coding lanes; it never takes ROADMAP tasks.
+    board["lanes"]["surfer"]=BROWSER_TASKS.surfer_lane()
+    return board
 
 @app.get("/api/factory/lane-board")
 def factory_lane_board(request: Request):
@@ -11161,7 +13138,7 @@ def factory_lane_board(request: Request):
 
 def _board_secret_values():
     return sorted([s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,
-                               GITHUB_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,
+                               GITHUB_TOKEN,GITHUB_READ_TOKEN,FACTORY_MCP_TOKEN,FACTORY_LLM_API_KEY,FACTORY_SECRET,FACTORY_PASSWORD,FACTORY_LOCAL_BOOSTER_TOKEN,
                                FACTORY_PUBLISHER_TOKEN,FACTORY_METRICOOL_TOKEN,FACTORY_ANALYTICS_TOKEN,FACTORY_MEDIA_FINISHER_TOKEN,
                                FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN,FACTORY_VIEWER_INVITE_TOKEN) if s and len(s)>=8],key=len,reverse=True)
 
@@ -11188,8 +13165,112 @@ def get_telegram_lane_board():
     return board
 
 def get_telegram_operator_lanes():
-    """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons."""
-    return get_delegation_board().get("operator_lanes") or []
+    """T-586: the T-585 delegation lanes (already secret-redacted) for the Telegram Claude/Gemini buttons.
+    2026-11-07: each lane also carries its GitHub facts from the cached Team tasks board (never a GitHub read here),
+    so the Gemini lane, which works through GitHub PRs and has no Relay runner, is not shown as merely "not configured"."""
+    lanes=get_delegation_board().get("operator_lanes") or []
+    team=_TEAM_TASKS_CACHE.peek() if "_TEAM_TASKS_CACHE" in globals() else None
+    agents=(team or {}).get("agents") or {}
+    out=[]
+    for lane in lanes:
+        a=agents.get(str((lane or {}).get("operator_id") or "")) if isinstance(lane,dict) else None
+        if isinstance(a,dict):
+            c=a.get("counts") or {}
+            lane={**lane,"github":{"open_prs":int(c.get("review") or 0)+int(c.get("in_progress") or 0)+int(c.get("ci_failed") or 0),
+                                   "done_7d":a.get("done_7d") or 0,"last_activity_at":a.get("last_activity_at") or ""}}
+        out.append(lane)
+    return out
+
+def _owner_decision_cards(roadmap):
+    """Owner-desk cards that are open decisions and not already ROADMAP [HUMAN] tasks (those are listed anyway)."""
+    known={str(t.get("id")) for t in roadmap or []}
+    status=_owner_desk_status()
+    return [{"id":r["id"],"title":r["title"],"covers":r.get("covers") or []} for r in OWNER_RUNBOOKS
+            if r["id"] not in known and (status.get(r["id"]) or {}).get("state")=="todo"]
+
+_TEAM_TASKS_CACHE=TeamTasksCache()
+
+def github_read_check(fetch=None):
+    """Evidence Protocol: can the read-only token read what verification needs? Codes only, never the token."""
+    if fetch is None:
+        if not GITHUB_READ_TOKEN:
+            return {"configured":False,"reads":{}}
+        fetch=github_fetcher(GITHUB_REPO,GITHUB_READ_TOKEN)
+    reads={}
+    for name,path in (("issues","/issues?per_page=1"),("pulls","/pulls?state=all&per_page=1"),
+                      ("checks","/commits/main/check-runs?per_page=1"),("actions","/actions/runs?per_page=1")):
+        try:
+            data=fetch(path)
+            reads[name]="ok" if isinstance(data,(list,dict)) else "unexpected"
+        except Exception as exc:
+            code=getattr(exc,"code",None)
+            reads[name]=f"http_{code}" if code else "unreachable"
+    # Fine-grained tokens have no Checks permission; CI is then read from Actions runs, which is enough.
+    ci_via="checks" if reads.get("checks")=="ok" else "actions" if reads.get("actions")=="ok" else ""
+    return {"configured":True,"reads":reads,"ci_via":ci_via,
+            "all_ok":reads.get("issues")=="ok" and reads.get("pulls")=="ok" and bool(ci_via)}
+
+
+@app.get("/api/factory/evidence/github-read-check")
+def evidence_github_read_check(request: Request):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+    return github_read_check()
+
+
+@app.get("/api/factory/evidence/overview")
+def evidence_overview(request: Request):
+    """Evidence T2.4: the Agent Office panel. Owner only; facts from the Relay tickets, no secrets."""
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"owner_only")
+    out=_evidence.overview(RELAY_STORE.list(limit=500),time.time())
+    out["source"]="render" if GITHUB_READ_TOKEN else "ec2_snapshot"
+    return out
+
+
+def get_team_tasks(refresh=False):
+    """Owner tasks page: Issues/PRs/CI per executor + ROADMAP [HUMAN] tasks + lane heartbeats."""
+    def read():
+        github=read_github(github_fetcher(GITHUB_REPO,_github_read_token()),owner=GITHUB_REPO.split("/",1)[0])
+        if not github.get("available"):
+            # Render's token cannot read the repo (seen 2026-11-04: HTTP 403); use the EC2 worker's snapshot (owner's gh login).
+            snap=_load_team_snapshot()
+            if snap and time.time()-float(snap.get("received",0))<3600:
+                github={**snap["github"],"source":"ec2","fetched_at":snap["fetched_at"],"render_error":github.get("error")}
+        try:lanes=(get_lane_board() or {}).get("lanes") or {}
+        except Exception:lanes={}
+        roadmap=_parse_roadmap_tasks()
+        return build_team_tasks(github,roadmap=roadmap,lanes=lanes,repo=GITHUB_REPO,owner_cards=_owner_decision_cards(roadmap))
+    return _TEAM_TASKS_CACHE.get(read,refresh=refresh)
+
+_TEAM_SNAPSHOT_PATH=DATA_DIR/"team_tasks_github.json"
+
+def _load_team_snapshot():
+    try:return json.loads(_TEAM_SNAPSHOT_PATH.read_text())
+    except Exception:return None
+
+@app.post("/api/factory/team-tasks/worker/snapshot")
+async def factory_team_tasks_snapshot(request: Request):
+    if not _claude_worker_authorized(request):
+        raise HTTPException(401,"worker token required")
+    raw=await request.body()
+    if len(raw)>3_000_000:raise HTTPException(413,"snapshot too large")
+    try:data=compact_github(json.loads(raw))
+    except Exception:raise HTTPException(400,"invalid json") from None
+    data["available"]=True
+    if not valid_snapshot(data):raise HTTPException(400,"invalid snapshot")
+    now=time.time()
+    tmp=_TEAM_SNAPSHOT_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"received":now,"fetched_at":datetime.fromtimestamp(now,timezone.utc).isoformat(),"github":data}))
+    tmp.replace(_TEAM_SNAPSHOT_PATH)
+    _TEAM_TASKS_CACHE.invalidate()
+    return {"ok":True,"issues":len(data["issues"]),"pulls":len(data["pulls"])}
+
+@app.get("/api/factory/team-tasks")
+def factory_team_tasks(request: Request, refresh: int = 0):
+    if (request_identity(request) or {}).get("role")!="owner":
+        raise HTTPException(403,"Owner access required")
+    return get_team_tasks(bool(refresh))
 
 @app.get("/api/factory/worker-overview")
 def factory_worker_overview(request: Request):

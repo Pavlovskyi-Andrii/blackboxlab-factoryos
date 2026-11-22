@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><link rel="icon" href="/static/favicon-32.png" sizes="32x32" type="image/png"><link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<title>MVP Builder</title>
+<!-- #186 MVP Builder overview (renamed from MVP Factory, owner 2026-11-11; API paths unchanged). Reads /api/mvp-factory (signed-in only). Stages change only through recorded events with
+     evidence; nothing on this page starts a worker, spends money, deploys or publishes. -->
+<style>
+:root{--bg:#070a16;--glass:rgba(20,27,54,.6);--glass2:rgba(28,37,72,.66);--edge:rgba(160,180,255,.14);--edge2:rgba(160,180,255,.26);
+  --ink:#eef1ff;--mute:#a3abc9;--dim:#717a9c;--violet:#8b7bff;--cyan:#4fe3ff;--teal:#3ee6c1;--coral:#ff7a6b;--coral-ink:#2a0d08;
+  --warn:#ffd27a;--bad:#ff8f86;--ok:#79e8b0;--display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--body)}
+body{overflow-x:hidden}
+.aurora{position:fixed;inset:-20vmax;z-index:0;pointer-events:none}
+.aurora i{position:absolute;border-radius:50%;filter:blur(70px)}
+.aurora .a1{width:55vmax;height:55vmax;left:0;top:-8vmax;background:radial-gradient(circle,#5b43ff 0,transparent 65%);opacity:.45;animation:d1 38s ease-in-out infinite alternate}
+.aurora .a2{width:50vmax;height:50vmax;right:-4vmax;top:12vmax;background:radial-gradient(circle,#00c8ff 0,transparent 62%);opacity:.28;animation:d2 44s ease-in-out infinite alternate}
+@keyframes d1{to{transform:translate(8vmax,6vmax)}}@keyframes d2{to{transform:translate(-8vmax,4vmax)}}
+@media (prefers-reduced-motion:reduce){.aurora i{animation:none}}
+.wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:18px max(16px,env(safe-area-inset-right,0px)) 56px max(16px,env(safe-area-inset-left,0px));display:grid;gap:26px;min-width:0}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.brand{font:700 12px var(--mono);letter-spacing:.18em;color:var(--mute);text-transform:uppercase;text-decoration:none}
+.topR{display:flex;gap:8px;flex-wrap:wrap}
+.langs{display:flex;gap:4px;padding:3px;border:1px solid var(--edge);border-radius:999px;background:var(--glass)}
+.langs button{font:600 12px var(--mono);background:transparent;color:var(--mute);border:0;border-radius:999px;padding:6px 11px;cursor:pointer}
+.langs button[aria-pressed="true"]{color:var(--bg);background:var(--ink)}
+h1{font:700 clamp(32px,5.6vw,56px)/1.04 var(--display);margin:6px 0 10px}
+h1 em{font-style:italic;background:linear-gradient(100deg,#c9c2ff,var(--cyan) 50%,var(--teal));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{color:#c8cee8;max-width:66ch;margin:0}
+.honest{margin-top:12px;font:12.5px/1.5 var(--mono);color:var(--warn)}
+h2{font:700 clamp(22px,3vw,30px)/1.1 var(--display);margin:0 0 4px}
+.sub{color:var(--mute);margin:0 0 14px;font-size:14.5px}
+.glass{background:var(--glass);border:1px solid var(--edge);border-radius:18px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px}
+.st{padding:12px 10px;border-radius:14px;border:1px solid var(--edge);background:rgba(10,14,32,.55);display:grid;gap:4px;min-width:0}
+.st b{font:700 22px/1 var(--display)}.st span{font-size:12px;color:var(--mute);overflow-wrap:anywhere}
+.st.has{border-color:var(--edge2);background:linear-gradient(160deg,rgba(91,67,255,.25),rgba(10,14,32,.6))}
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.role{padding:14px;border-radius:14px;border:1px solid var(--edge);background:rgba(10,14,32,.55)}
+.role b{display:block}.role small{color:var(--mute);font-size:13px}
+.tag{display:inline-block;font:600 10.5px var(--mono);padding:3px 8px;border-radius:999px;border:1px solid var(--edge2);color:var(--mute);margin-top:8px}
+.projects{display:grid;gap:14px}
+.proj{padding:18px;display:grid;gap:12px;min-width:0}
+.ph{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:baseline}
+.ph h3{margin:0;font:700 20px var(--body)}
+.ph a{color:var(--cyan);font:600 13px var(--mono);text-decoration:none}
+.badge{font:700 11px var(--mono);padding:4px 9px;border-radius:999px;border:1px solid var(--edge2);text-transform:uppercase;letter-spacing:.06em}
+.badge.stage{color:var(--cyan);border-color:rgba(79,227,255,.4)}.badge.blocked{color:var(--bad);border-color:rgba(255,143,134,.45)}.badge.done{color:var(--ok);border-color:rgba(121,232,176,.45)}
+.bar{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}
+.bar i{height:8px;border-radius:999px;background:rgba(255,255,255,.08)}
+.bar i.on{background:linear-gradient(90deg,var(--cyan),var(--violet))}
+.bar i.now{background:var(--coral);box-shadow:0 0 12px rgba(255,122,107,.6)}
+.next{font-size:14.5px;padding:10px 12px;border-radius:12px;background:rgba(10,14,32,.55);border:1px solid var(--edge)}
+.next b{color:var(--teal)}
+.links{display:flex;flex-wrap:wrap;gap:8px}
+.btn{font:600 14px var(--body);border-radius:12px;padding:9px 14px;border:1px solid var(--edge2);background:rgba(28,37,72,.7);color:var(--ink);cursor:pointer;text-decoration:none}
+.btn.primary{background:linear-gradient(135deg,#ff9a7b,var(--coral));color:var(--coral-ink);border-color:transparent}
+details.hist>summary,details.act>summary{cursor:pointer;color:var(--mute);font-size:14px}
+ol.tl{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px;border-left:2px solid var(--edge2);padding-left:14px}
+ol.tl li{font-size:13.5px;position:relative}
+ol.tl li::before{content:"";position:absolute;left:-20px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--violet)}
+ol.tl small{color:var(--dim);font-family:var(--mono)}
+ol.tl a{color:var(--cyan);overflow-wrap:anywhere}
+form.ev{display:grid;gap:8px;margin-top:10px}
+form.ev .row{display:flex;flex-wrap:wrap;gap:8px}
+input,select{font:14px var(--body);background:rgba(9,13,30,.75);color:var(--ink);border:1px solid var(--edge2);border-radius:10px;padding:9px 10px;min-width:0;max-width:100%}
+input{flex:1 1 220px}
+.msg{font-size:13.5px}
+.unv{font:600 10.5px var(--mono);color:var(--warn);border:1px solid rgba(255,210,122,.35);border-radius:999px;padding:1px 7px;white-space:nowrap}.msg.bad{color:var(--bad)}.msg.ok{color:var(--ok)}
+.state{padding:16px;border-radius:14px}
+.state.bad{color:var(--bad)}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+footer{color:var(--dim);font-size:13px;text-align:center}
+.barRow{display:flex;align-items:center;gap:12px;min-width:0}
+.barRow .bar{flex:1 1 auto;min-width:0}
+.pct{font:700 13px var(--mono);color:var(--ink);white-space:nowrap}.pct small{color:var(--dim);font-weight:600}
+.proj:target{border-color:rgba(79,227,255,.55);box-shadow:0 0 0 1px rgba(79,227,255,.35)}
+.briefTxt{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;margin:10px 0 0;padding:10px 12px;border-radius:12px;background:rgba(10,14,32,.55);border:1px solid var(--edge)}
+/* "Команда MVP" as a pipeline (owner 2026-11-11): cards joined by → arrows; on narrow screens one column with ↓ arrows */
+.team{display:grid;gap:12px}
+.pipe{display:grid;gap:26px;grid-template-columns:repeat(var(--n),minmax(0,1fr))}
+.pipe .role{position:relative;min-width:0}
+.pipe .role:not(:last-child)::after{content:"→";position:absolute;right:-21px;top:50%;transform:translateY(-50%);width:16px;text-align:center;font:700 18px/1 var(--body);color:var(--cyan)}
+.pipe .role b{overflow-wrap:anywhere}
+.pipe .role.now{border-color:rgba(79,227,255,.55);background:linear-gradient(160deg,rgba(0,200,255,.18),rgba(10,14,32,.6));box-shadow:0 0 18px rgba(79,227,255,.18)}
+.pipe .role .tag.now{color:var(--bg);background:var(--cyan);border-color:transparent}
+.thenSep{display:flex;align-items:center;gap:10px;color:var(--mute);font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.12em}
+.thenSep::before,.thenSep::after{content:"";flex:1;height:1px;background:var(--edge2)}
+@media (max-width:760px){.pipe{grid-template-columns:1fr;gap:22px}.pipe .role:not(:last-child)::after{content:"→";right:auto;left:50%;top:auto;bottom:-21px;transform:translateX(-50%) rotate(90deg)}}
+</style>
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><i class="a1"></i><i class="a2"></i></div>
+<div class="wrap">
+  <header>
+    <a class="brand" href="/" data-t="back"></a>
+    <div class="topR"><div class="langs" role="group" aria-label="Language"><button type="button" data-lang="uk">УКР</button><button type="button" data-lang="ru">RU</button><button type="button" data-lang="en">EN</button></div></div>
+  </header>
+  <section>
+    <h1><span data-t="title_a"></span> <em data-t="title_b"></em></h1>
+    <p class="lede" data-t="lede"></p>
+    <p class="honest" data-t="honest"></p>
+  </section>
+  <section aria-labelledby="flowH"><h2 id="flowH" data-t="flow_h"></h2><p class="sub" data-t="flow_p"></p><div class="flow" id="flow"></div></section>
+  <section aria-labelledby="projH"><h2 id="projH" data-t="proj_h"></h2><p class="sub" data-t="proj_p"></p><div class="projects" id="projects" aria-live="polite"></div></section>
+  <section aria-labelledby="rolesH"><h2 id="rolesH" data-t="roles_h"></h2><p class="sub" data-t="roles_p"></p><div class="team" id="roles"></div></section>
+  <footer data-t="foot"></footer>
+</div>
+<script>
+'use strict';
+const T={
+ uk:{back:'← FactoryOS',title_a:'MVP Builder —',title_b:'від ідеї до перевіреного прототипу',lede:'Кожен MVP проходить ті самі етапи: дослідження, спека, збірка, QA, прев’ю і ваше рішення. Етап змінюється лише записаною подією з посиланням-доказом.',
+  honest:'Ролі нижче — це етапи процесу, а не запущені агенти. Посилання-докази перевіряються лише за форматом, не за змістом. Ця сторінка нічого не запускає, не витрачає гроші й не публікує.',flow_h:'Конвеєр',flow_p:'Скільки проєктів зараз на кожному етапі.',
+  proj_h:'Проєкти',proj_p:'Стан, наступний крок і вся історія з доказами.',roles_h:'Команда MVP',roles_p:'Хто відповідає за кожен етап, по черзі. Підсвічено ролі, на етапі яких зараз є проєкти.',
+  next:'Наступний крок',rec:'рекомендація, нікого не запущено',owner:'потрібне ваше рішення',blocked:'Заблоковано',closed:'Закрито',history:'Історія',events:'подій',
+  open:'Відкрити прототип',issue:'Issue',act:'Записати подію',kind:'Тип',evidence:'Посилання-доказ (GitHub або /static/…)',note:'Коментар або причина',save:'Записати',
+  kinds:{advance:'Перейти на наступний етап',note:'Нотатка',block:'Заблокувати',unblock:'Розблокувати',reject:'Відхилити (лише власник)'},
+  saved:'Записано.',dup:'Таку подію вже записано.',retry:'Немає зв’язку. Натисніть ще раз — це буде повтор тієї самої дії, не нова.',unverified:'посилання не перевірено',loading:'Завантаження…',auth:'Увійдіть у FactoryOS, щоб побачити проєкти.',login:'Увійти',failed:'Не вдалося завантажити реєстр',
+  err:{evidence_required:'Для переходу потрібне посилання-доказ.',bad_evidence:'Доказ має бути посиланням на GitHub (issue, PR, commit, actions) або /static/…',owner_only:'Це рішення приймає лише власник.',project_blocked:'Проєкт заблоковано — спершу розблокуйте.',project_closed:'Проєкт закрито.',reason_required:'Вкажіть причину блокування.',not_blocked:'Проєкт не заблоковано.',forbidden:'Немає прав на запис.',idempotency_conflict:'Ключ повтору належить іншій дії. Оновіть сторінку.'},
+  stages:{idea:'Ідея',researching:'Дослідження',spec_draft:'Чернетка спеки',spec_review:'Перевірка спеки',build_queued:'У черзі на збірку',building:'Збірка',qa_review:'QA',preview_ready:'Прев’ю готове',owner_review:'Ваше рішення',validated:'Підтверджено',rejected:'Відхилено'},
+  roles:{'MVP Manager':'Черга, залежності, передачі і статус на доказах.','Product Analyst':'Аудиторія, проблема, обсяг і безкоштовні тести попиту.','Spec Writer':'Технічна спека з критеріями приймання.','Claude Builder':'Гілка і PR після затвердженої спеки.','QA / Security':'Тести, секрети, доступи, готовність.','Deploy Agent':'Прев’ю на наявній безкоштовній інфраструктурі.','Owner':'Приймає прев’ю, вирішує запуск або відмову.','Content Factory':'Отримує бриф для просування після вашого «так».'},
+  role_tag:'роль, не запущений агент',then:'далі',now_n:'зараз: {n}',brief:'Технічне завдання',of:'з',foot:'Blackbox Lab · MVP Builder · #186'},
+ ru:{back:'← FactoryOS',title_a:'MVP Builder —',title_b:'от идеи до проверенного прототипа',lede:'Каждый MVP проходит одни и те же этапы: исследование, спека, сборка, QA, превью и ваше решение. Этап меняется только записанным событием со ссылкой-доказательством.',
+  honest:'Роли ниже — это этапы процесса, а не запущенные агенты. Ссылки-доказательства проверяются только по формату, не по содержанию. Эта страница ничего не запускает, не тратит деньги и не публикует.',flow_h:'Конвейер',flow_p:'Сколько проектов сейчас на каждом этапе.',
+  proj_h:'Проекты',proj_p:'Состояние, следующий шаг и вся история с доказательствами.',roles_h:'Команда MVP',roles_p:'Кто отвечает за каждый этап, по очереди. Подсвечены роли, на этапе которых сейчас есть проекты.',
+  next:'Следующий шаг',rec:'рекомендация, никто не запущен',owner:'нужно ваше решение',blocked:'Заблокировано',closed:'Закрыто',history:'История',events:'событий',
+  open:'Открыть прототип',issue:'Issue',act:'Записать событие',kind:'Тип',evidence:'Ссылка-доказательство (GitHub или /static/…)',note:'Комментарий или причина',save:'Записать',
+  kinds:{advance:'Перейти на следующий этап',note:'Заметка',block:'Заблокировать',unblock:'Разблокировать',reject:'Отклонить (только владелец)'},
+  saved:'Записано.',dup:'Такое событие уже записано.',retry:'Нет связи. Нажмите ещё раз — это будет повтор того же действия, не новое.',unverified:'ссылка не проверена',loading:'Загрузка…',auth:'Войдите в FactoryOS, чтобы увидеть проекты.',login:'Войти',failed:'Не удалось загрузить реестр',
+  err:{evidence_required:'Для перехода нужна ссылка-доказательство.',bad_evidence:'Доказательство должно быть ссылкой на GitHub (issue, PR, commit, actions) или /static/…',owner_only:'Это решение принимает только владелец.',project_blocked:'Проект заблокирован — сначала разблокируйте.',project_closed:'Проект закрыт.',reason_required:'Укажите причину блокировки.',not_blocked:'Проект не заблокирован.',forbidden:'Нет прав на запись.',idempotency_conflict:'Ключ повтора принадлежит другому действию. Обновите страницу.'},
+  stages:{idea:'Идея',researching:'Исследование',spec_draft:'Черновик спеки',spec_review:'Проверка спеки',build_queued:'В очереди на сборку',building:'Сборка',qa_review:'QA',preview_ready:'Превью готово',owner_review:'Ваше решение',validated:'Подтверждено',rejected:'Отклонено'},
+  roles:{'MVP Manager':'Очередь, зависимости, передачи и статус на доказательствах.','Product Analyst':'Аудитория, проблема, объём и бесплатные тесты спроса.','Spec Writer':'Техническая спека с критериями приёмки.','Claude Builder':'Ветка и PR после утверждённой спеки.','QA / Security':'Тесты, секреты, доступы, готовность.','Deploy Agent':'Превью на имеющейся бесплатной инфраструктуре.','Owner':'Принимает превью, решает запуск или отказ.','Content Factory':'Получает бриф для продвижения после вашего «да».'},
+  role_tag:'роль, не запущенный агент',then:'дальше',now_n:'сейчас: {n}',brief:'Техническое задание',of:'из',foot:'Blackbox Lab · MVP Builder · #186'},
+ en:{back:'← FactoryOS',title_a:'MVP Builder:',title_b:'from idea to a checked prototype',lede:'Every MVP goes through the same stages: research, spec, build, QA, preview and your decision. A stage changes only through a recorded event with an evidence link.',
+  honest:'The roles below are process stages, not running agents. Evidence links are checked for format only, not content. This page starts nothing, spends nothing and publishes nothing.',flow_h:'Pipeline',flow_p:'How many projects sit at each stage right now.',
+  proj_h:'Projects',proj_p:'State, next step and the full history with evidence.',roles_h:'MVP team',roles_p:'Who is responsible for each stage, in order. Roles whose stage currently holds projects are highlighted.',
+  next:'Next step',rec:'a recommendation; nothing was started',owner:'your decision is needed',blocked:'Blocked',closed:'Closed',history:'History',events:'events',
+  open:'Open prototype',issue:'Issue',act:'Record an event',kind:'Type',evidence:'Evidence link (GitHub or /static/…)',note:'Comment or reason',save:'Record',
+  kinds:{advance:'Move to the next stage',note:'Note',block:'Block',unblock:'Unblock',reject:'Reject (owner only)'},
+  saved:'Recorded.',dup:'This event was already recorded.',retry:'No connection. Press again to retry the same action; it will not be recorded twice.',unverified:'link not verified',loading:'Loading…',auth:'Sign in to FactoryOS to see the projects.',login:'Sign in',failed:'Could not load the registry',
+  err:{evidence_required:'Moving a stage needs an evidence link.',bad_evidence:'Evidence must be a GitHub link (issue, PR, commit, actions) or /static/…',owner_only:'Only the owner makes this decision.',project_blocked:'The project is blocked; unblock it first.',project_closed:'The project is closed.',reason_required:'Give a reason for the block.',not_blocked:'The project is not blocked.',forbidden:'You cannot record events.',idempotency_conflict:'The retry key belongs to a different action. Reload the page.'},
+  stages:{idea:'Idea',researching:'Research',spec_draft:'Spec draft',spec_review:'Spec review',build_queued:'Queued to build',building:'Building',qa_review:'QA',preview_ready:'Preview ready',owner_review:'Your decision',validated:'Validated',rejected:'Rejected'},
+  roles:{'MVP Manager':'Queue, dependencies, handoffs and evidence-backed status.','Product Analyst':'Audience, problem, scope and free demand tests.','Spec Writer':'A technical spec with acceptance criteria.','Claude Builder':'A branch and PR after an approved spec.','QA / Security':'Tests, secrets, access, readiness.','Deploy Agent':'A preview on existing free infrastructure.','Owner':'Reviews the preview, decides launch or stop.','Content Factory':'Gets a promotion brief after your yes.'},
+  role_tag:'a role, not a running agent',then:'then',now_n:'now: {n}',brief:'Technical brief',of:'of',foot:'Blackbox Lab · MVP Builder · #186'}};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+const PIPE=['idea','researching','spec_draft','spec_review','build_queued','building','qa_review','preview_ready','owner_review'];
+let lang='uk',data=null,error='',msgs={},scrolled=false;const openForms=new Set();
+try{const l=localStorage.getItem('mvp-factory:lang');if(['uk','ru','en'].includes(l))lang=l}catch(e){}
+const t=()=>T[lang];
+function link(u){const safe=/^(https:\/\/github\.com\/|\/static\/)/.test(u);return safe?'<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(u.replace('https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/','gh:'))+'</a>':esc(u)}
+async function load(){
+  error='';
+  try{const r=await fetch('/api/mvp-factory',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});
+    const type=r.headers.get('content-type')||'';
+    if(r.status===401||r.status===403||!type.includes('json')){error='auth';data=null}
+    else if(!r.ok){error=t().failed+' · HTTP '+r.status;data=null}
+    else data=await r.json();
+  }catch(e){error=t().failed;data=null}
+  render();
+  if(data&&!scrolled&&location.hash.startsWith('#p-')){scrolled=true;const el=document.getElementById(decodeURIComponent(location.hash.slice(1)));if(el)el.scrollIntoView({block:'start'})}
+}
+function render(){
+  const x=t();document.documentElement.lang=lang;
+  document.querySelectorAll('[data-t]').forEach(el=>{el.textContent=x[el.dataset.t]||''});
+  document.querySelectorAll('.langs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.lang===lang)));
+  const projects=(data&&data.projects)||[];
+  const counts={};projects.forEach(p=>{counts[p.stage]=(counts[p.stage]||0)+1});
+  $('#flow').innerHTML=PIPE.concat(['validated']).map(s=>'<div class="st'+(counts[s]?' has':'')+'"><b>'+(counts[s]||0)+'</b><span>'+esc(x.stages[s])+'</span></div>').join('');
+  // Team as a pipeline: the build path first, then the later steps. A role is highlighted when projects sit at its stage now.
+  const stageRole=(data&&data.roles)||{},busy={};
+  projects.forEach(p=>{if(p.stage==='validated'||p.stage==='rejected')return;const r=stageRole[p.stage];if(r)busy[r]=(busy[r]||0)+1});
+  const card=r=>'<div class="role'+(busy[r]?' now':'')+'"><b>'+esc(r)+'</b><small>'+esc(x.roles[r]||'')+'</small><br>'+(busy[r]?'<span class="tag now">'+esc(x.now_n.replace('{n}',busy[r]))+'</span> ':'')+'<span class="tag">'+esc(x.role_tag)+'</span></div>';
+  const row=list=>'<div class="pipe" style="--n:'+list.length+'">'+list.map(card).join('')+'</div>';
+  $('#roles').innerHTML=row(['MVP Manager','Product Analyst','Spec Writer','Claude Builder','QA / Security'])+'<div class="thenSep" aria-hidden="true">↓ '+esc(x.then)+'</div>'+row(['Deploy Agent','Owner','Content Factory']);
+  if(error==='auth'){$('#projects').innerHTML='<div class="glass state">'+esc(x.auth)+' <a class="btn primary" href="/login">'+esc(x.login)+'</a></div>';return}
+  if(error){$('#projects').innerHTML='<div class="glass state bad">'+esc(error)+'</div>';return}
+  if(!data){$('#projects').innerHTML='<div class="glass state">'+esc(x.loading)+'</div>';return}
+  $('#projects').innerHTML=projects.map(p=>{
+    const idx=PIPE.indexOf(p.stage),closed=p.stage==='validated'||p.stage==='rejected';
+    const pct=Math.max(0,Math.min(100,Number(p.progress!=null?p.progress:(p.stage==='validated'?100:Math.max(0,idx)*100/9))|0));
+    const bar='<div class="barRow"><div class="bar" aria-hidden="true">'+PIPE.map((s,i)=>'<i class="'+(closed&&p.stage==='validated'?'on':i<idx?'on':i===idx?'now':'')+'"></i>').join('')+'</div><span class="pct" role="img" aria-label="'+pct+'%">'+pct+'% <small>/ 100</small></span></div>';
+    const badge=p.blocked?'<span class="badge blocked">'+esc(x.blocked)+'</span>':closed?'<span class="badge done">'+esc(x.stages[p.stage])+'</span>':'<span class="badge stage">'+esc(x.stages[p.stage]||p.stage)+'</span>';
+    const r=p.recommendation||{};
+    const next=p.blocked?'<b>'+esc(x.blocked)+':</b> '+esc(p.blocked.reason):closed?esc(x.closed):'<b>'+esc(x.next)+':</b> '+esc(x.stages[r.next_stage]||r.next_stage||'')+' · '+esc(r.role||'')+' — '+esc(r.decision==='owner'?x.owner:x.rec);
+    const hist=(p.history||[]).slice().reverse().map(e=>'<li><small>'+esc(String(e.at).replace('T',' ').slice(0,16))+' · '+esc(e.actor)+'</small><br>'+esc(x.kinds[e.kind]||e.kind)+(e.from_stage!==e.to_stage?' · '+esc(x.stages[e.from_stage])+' → '+esc(x.stages[e.to_stage]):'')+(e.note?' — '+esc(e.note):'')+(e.evidence&&e.evidence.length?'<br>'+e.evidence.map(link).join(' · ')+' <span class="unv">'+esc(x.unverified)+'</span>':'')+'</li>').join('');
+    const m=msgs[p.id]||{};
+    const form='<details class="act" data-p="'+esc(p.id)+'"'+(openForms.has(p.id)?' open':'')+'><summary>'+esc(x.act)+'</summary><form class="ev" data-p="'+esc(p.id)+'"><div class="row"><select name="kind" aria-label="'+esc(x.kind)+'">'+Object.keys(x.kinds).map(k=>'<option value="'+k+'">'+esc(x.kinds[k])+'</option>').join('')+'</select><input name="evidence" type="text" placeholder="'+esc(x.evidence)+'" aria-label="'+esc(x.evidence)+'"></div><div class="row"><input name="note" type="text" maxlength="500" placeholder="'+esc(x.note)+'" aria-label="'+esc(x.note)+'"><button class="btn" type="submit">'+esc(x.save)+'</button></div><div class="msg '+(m.ok?'ok':'bad')+'" role="status">'+esc(m.text||'')+'</div></form></details>';
+    const issue=Number(p.issue)>0?'<a href="https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/'+Number(p.issue)+'" target="_blank" rel="noopener">#'+Number(p.issue)+'</a>':'';
+    const brief=p.brief?'<details class="hist"><summary>'+esc(x.brief)+'</summary><div class="briefTxt">'+esc(p.brief)+'</div></details>':'';
+    const facelessCrm=[313,359].includes(Number(p.issue))?'<div class="links"><a class="btn primary" href="/static/mvp-factory/faceless-crm.html" target="_blank" rel="noopener">Faceless Models CRM ↗</a></div>':'';
+    const releaseGuardian=(p.id==='release-guardian'||Number(p.issue)===189)?'<div class="links"><a class="btn primary" href="/static/mvp-factory/release-guardian.html" target="_blank" rel="noopener">AI Release Guardian ↗</a></div>':'';  // T-616 #189
+    const launchpad='<div class="links"><a class="btn" href="/static/mvp-factory/launchpad.html?project='+encodeURIComponent(p.id)+'" target="_blank" rel="noopener">Launchpad · D1–D7 → G1–G5 ↗</a></div>';  // T-704; MyCast is the first real board: launchpad.html?project=mycast
+    const evolution='<div class="links"><a class="btn" href="/static/mvp-factory/evolution.html?project='+encodeURIComponent(p.id)+'" target="_blank" rel="noopener">Product Evolution · V1→V2 ↗</a></div>';  // T-630 #270
+    return '<article class="glass proj" id="p-'+esc(p.id)+'"><div class="ph"><h3>'+esc(p.title)+'</h3>'+badge+issue+'</div>'+bar+'<div class="next">'+next+'</div>'+brief+facelessCrm+releaseGuardian+launchpad+evolution+
+      (p.prototype?'<div class="links"><a class="btn primary" href="'+esc(p.prototype)+'" target="_blank" rel="noopener">'+esc(x.open)+' ↗</a></div>':'')+
+      '<details class="hist"><summary>'+esc(x.history)+' · '+(p.history||[]).length+' '+esc(x.events)+'</summary><ol class="tl">'+hist+'</ol></details>'+form+'</article>';
+  }).join('');
+}
+document.addEventListener('submit',async e=>{
+  const f=e.target.closest('form.ev');if(!f)return;e.preventDefault();
+  const pid=f.dataset.p,kind=f.kind.value,ev=f.evidence.value.trim(),note=f.note.value.trim(),x=t();
+  // One opaque key per intended operation. It is reused only to retry that same operation after a network failure,
+  // and dropped once the server answers or the form changes, so two real submissions never collapse into one.
+  if(!f.dataset.key)f.dataset.key=newKey();
+  const body={kind,evidence:ev?[ev]:[],note,reason:kind==='block'?note:'',idempotency_key:f.dataset.key};
+  try{const r=await fetch('/api/mvp-factory/'+encodeURIComponent(pid)+'/events',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json().catch(()=>({}));
+    delete f.dataset.key;  // the server answered: this operation is finished either way
+    if(r.ok){msgs[pid]={ok:true,text:d.duplicate?x.dup:x.saved};openForms.add(pid);await load();return}
+    showMsg(f,x.err[d.detail]||String(d.detail||('HTTP '+r.status)));  // keep the form and what was typed
+  }catch(err){showMsg(f,x.retry)}  // network failure: the key stays, so pressing again retries the same operation
+});
+function newKey(){try{if(crypto.randomUUID)return crypto.randomUUID()}catch(e){}const a=new Uint8Array(16);crypto.getRandomValues(a);return Array.from(a,b=>b.toString(16).padStart(2,'0')).join('')}
+document.addEventListener('input',e=>{const f=e.target.closest&&e.target.closest('form.ev');if(f)delete f.dataset.key});
+function showMsg(f,text){const m=f.querySelector('.msg');m.className='msg bad';m.textContent=text}
+document.addEventListener('toggle',e=>{const d=e.target;if(d.classList&&d.classList.contains('act')){d.open?openForms.add(d.dataset.p):openForms.delete(d.dataset.p)}},true);
+document.querySelectorAll('.langs button').forEach(b=>b.addEventListener('click',()=>{lang=b.dataset.lang;try{localStorage.setItem('mvp-factory:lang',lang)}catch(e){}render()}));
+render();load();
+</script>
+</body>
+</html>

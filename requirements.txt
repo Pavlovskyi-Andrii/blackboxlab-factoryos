@@ -10,3 +10,12 @@ urllib3>=2.8.0; python_version >= "3.10"
 anyio>=4.14.2; python_version >= "3.10"
 requests>=2.33.0; python_version >= "3.10"
 python-dotenv>=1.2.2; python_version >= "3.10"
+# MyCast: PCM from Gemini TTS → mp3 on the server (no ffmpeg on Render).
+lameenc>=1.9; python_version >= "3.10"
+# T-560-F: AES-256-GCM vault for browser credentials, sessions and OAuth tokens.
+cryptography>=46.0
+# MyCast: share card image (1200x630 PNG) for the public podcast page.
+Pillow>=11.3
+# T-611: embedded durable execution (DBOS Transact, MIT; SQLite system DB on DATA_DIR). Pinned: an upgrade runs its own
+# schema migrations, so bump it deliberately. Needs Python 3.10+; without it app.py keeps the legacy thread path.
+dbos==3.5.0; python_version >= "3.10"

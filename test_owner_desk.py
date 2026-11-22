@@ -4,6 +4,8 @@ Zero spend, no network: routes are called directly through a capturing fake app.
 """
 import re
 import tempfile
+import unittest
+import unittest.mock
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -97,13 +99,37 @@ def test_runbooks_localized_en_uk_ru():
     assert od.status_detail({"state": "done", "detail": "plain"}, "en") == {"state": "done", "detail": "plain"}
 
 
+def test_every_runbook_has_uk_and_en_translation_with_same_steps():
+    for runbook in od.RUNBOOKS:
+        rb_id = runbook["id"]
+        for lang in ("uk", "en"):
+            assert lang in od.RUNBOOK_I18N, f"Missing language {lang} in RUNBOOK_I18N"
+            assert rb_id in od.RUNBOOK_I18N[lang], f"Missing translation for {rb_id} in {lang}"
+            tr_steps = od.RUNBOOK_I18N[lang][rb_id].get("steps") or {}
+            assert len(tr_steps) == len(runbook["steps"]), (
+                f"Step count mismatch for {rb_id} in {lang}: "
+                f"expected {len(runbook['steps'])}, got {len(tr_steps)}"
+            )
+            for step in runbook["steps"]:
+                assert step["id"] in tr_steps, f"Step {step['id']} missing in {lang} translation of {rb_id}"
+
+
 def test_secret_scrubbing():
     bot = "123456789:" + "A" * 35
-    text = od.scrub_secrets(f"мой токен {bot} и ghp_{'b' * 20} и AKIA{'C' * 16} password=hunter2hunter2")
-    assert bot not in text and "ghp_" not in text and "AKIA" not in text and "hunter2" not in text, text
-    assert text.count("[скрыто]") == 4, text
-    # Variable names in the runbooks are not secrets and must survive.
-    assert od.scrub_secrets("FACTORY_TELEGRAM_BOT_TOKEN = значение") == "FACTORY_TELEGRAM_BOT_TOKEN = значение"
+    ghp = "ghp_" + "b" * 36
+    gh_pat = "github_pat_11ABCDEFG0123456789_" + "c" * 50
+    google_key = "AIzaSyA" + "d" * 32
+    bearer_hdr = "Bearer " + "e" * 30
+    text = od.scrub_secrets(
+        f"мой токен {bot} и {ghp} и {gh_pat} и {google_key} и {bearer_hdr} и AKIA{'C' * 16} password=hunter2hunter2"
+    )
+    for secret in (bot, ghp, gh_pat, google_key, "eeeeeeee", "AKIA", "hunter2"):
+        assert secret not in text, f"{secret} leaked in {text}"
+    assert text.count("[скрыто]") == 7, text
+
+    # Normal text and runbook variable names survive without corruption
+    normal_text = "Обычный текст: используйте FACTORY_TELEGRAM_BOT_TOKEN, FACTORY_GEMINI_API_KEY, ghp_ и Bearer в заголовках."
+    assert od.scrub_secrets(normal_text) == normal_text
 
 
 def test_question_queue():
@@ -194,7 +220,10 @@ def test_routes_and_auth():
         assert exc.status_code == 401
     data = desk(owner)
     by_id = {b["id"]: b for b in data["runbooks"]}
-    assert by_id["T-506"]["status"]["state"] == "done" and by_id["T-520"]["status"]["state"] == "unknown"
+    # 2026-11-17: no live fact -> the ROADMAP checkbox decides; an open task is "todo", never "unknown".
+    assert by_id["T-506"]["status"]["state"] == "done" and by_id["T-520"]["status"]["state"] == "todo"
+    assert od._fallback_status("T-591-H", od.roadmap_states(lambda: "- [x] [HUMAN] T-591-H Live")) == {"state": "done", "detail": ""}
+    assert od.roadmap_states(lambda: "- [x] [HUMAN] T-9-H a\n- [ ] [HUMAN] T-9-H b") == {"T-9-H": False}
     assert data["lang"] == "ru" and by_id["T-506"]["title"] == od.RUNBOOK_BY_ID["T-506"]["title"]
     assert by_id["T-521"]["status"] == {"state": "blocked", "detail": "Ждёт T-520"}
     for lang, title in (("en", "Connect the owner's Telegram bot"), ("uk", "Підключити Telegram-бота власника"), ("xx", od.RUNBOOK_BY_ID["T-506"]["title"])):
@@ -218,7 +247,7 @@ def test_routes_and_auth():
     app2 = _FakeApp()
     od.install_owner_desk_routes(app2, store, lambda r: {"role": "owner"}, authorize_worker=lambda r: False,
                                  status_fn=lambda: 1 / 0)
-    assert app2.routes[("GET", "/api/factory/owner-desk")](owner)["runbooks"][0]["status"]["state"] == "unknown"
+    assert app2.routes[("GET", "/api/factory/owner-desk")](owner)["runbooks"][0]["status"]["state"] in ("todo", "done")  # status_fn failed: ROADMAP fallback, never "unknown"
 
 
 def test_selftest_round_trip():
@@ -261,11 +290,74 @@ def main():
     test_every_open_human_task_has_a_runbook()
     test_runbook_shape()
     test_runbooks_localized_en_uk_ru()
+    test_every_runbook_has_uk_and_en_translation_with_same_steps()
     test_secret_scrubbing()
     test_question_queue()
     test_routes_and_auth()
     test_selftest_round_trip()
+    result = unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.loadTestsFromTestCase(TelegramOwnerAskASGITest))
+    assert result.wasSuccessful(), "Telegram ASGI regression failed"
     print("Owner desk tests passed: runbooks cover every open HUMAN task, EN/UK/RU runbooks, queue, scrubbing, auth")
+
+
+class TelegramOwnerAskASGITest(unittest.TestCase):
+    """#133: real webhook -> existing queue -> authenticated worker -> Telegram; no network."""
+    def test_ask_lifecycle_idempotency_and_secret_scrub(self):
+        import json
+        from pathlib import Path
+        import app as factory
+        from owner_desk import QuestionStore
+        from test_worker_token_binding import asgi_post
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = QuestionStore(Path(tmp)/"questions.json")
+            replies=[]
+            def send(chat_id, text):
+                replies.append((str(chat_id),text))
+            body={"update_id":401,"message":{"chat":{"id":42,"type":"private"},"message_id":52,
+                  "text":"/ask Tell me what happened to task T-590"}}
+            with unittest.mock.patch.object(factory,"OWNER_QUESTIONS",queue), \
+                 unittest.mock.patch.object(factory,"_telegram_load_state",return_value={"chat_id":"42"}), \
+                 unittest.mock.patch.object(factory,"_telegram_webhook_authorized",return_value=True), \
+                 unittest.mock.patch.object(factory,"_telegram_send_to",side_effect=send), \
+                 unittest.mock.patch.object(factory,"FACTORY_PASSWORD","test-auth-enabled"), \
+                 unittest.mock.patch.object(factory,"FACTORY_CLAUDE_WORKER_TOKEN","worker-secret"):
+                status,response=asgi_post("/api/integrations/telegram/webhook",body=json.dumps(body).encode())
+                self.assertEqual(status,200,response)
+                first=queue._load()[0]
+                self.assertEqual(first["task_id"],"TELEGRAM")
+                self.assertEqual(len(queue._load()),1)
+                status,_=asgi_post("/api/integrations/telegram/webhook",body=json.dumps(body).encode())
+                self.assertEqual(status,200)
+                self.assertEqual(len(queue._load()),1)
+                other={**body,"update_id":402,"message":{**body["message"],"chat":{"id":93,"type":"private"}}}
+                status,_=asgi_post("/api/integrations/telegram/webhook",body=json.dumps(other).encode())
+                self.assertEqual(status,200)
+                self.assertEqual(len(queue._load()),1)
+                item=queue.claim("claude-ec2")
+                self.assertEqual(item["id"],first["id"])
+                # The production installed owner-desk route retains its own store reference.
+                # Here use the same queue to verify completion and Telegram delivery message policy.
+                answer="Claude answer: " + ("works " * 900)
+                queue.finish(item["id"],"answered",answer)
+                self.assertEqual(queue._load()[0]["status"],"answered")
+                self.assertTrue(any("Принял вопрос" in text for _,text in replies))
+                self.assertTrue(all(chat=="42" for chat,_ in replies))
+
+                # Verify the actual existing owner-desk answer route emits bounded Telegram chunks.
+                fake = _FakeApp()
+                delivered = []
+                od.install_owner_desk_routes(fake, queue, lambda req: {"role": "owner"},
+                    authorize_worker=lambda req: req.worker, status_fn=lambda: {},
+                    notify_owner=delivered.append)
+                second = queue.create(od.TELEGRAM_TASK, "", "", "What changed?")
+                claimed = queue.claim("claude-ec2")
+                self.assertEqual(claimed["id"], second["id"])
+                handler = fake.routes[("POST", "/api/factory/owner-desk/worker/answer")]
+                result = handler(od.WorkerAnswerRequest(id=second["id"], outcome="answered",
+                                            answer="Ukrainian briefing " * 260), _Req(worker=True))
+                self.assertEqual(result["status"], "answered")
+                self.assertTrue(delivered and all("Claude" in part for part in delivered))
+                self.assertTrue(all(len(part) <= 4000 for part in delivered))
 
 
 if __name__ == "__main__":

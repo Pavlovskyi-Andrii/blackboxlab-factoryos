@@ -67,5 +67,24 @@ class TestTelegramLiveFix(unittest.TestCase):
         self.assertEqual(self.queue.claim("another-worker"), None)
 
 
+
+class TestMaxTurnsSummary(unittest.TestCase):
+    """R-0074 (owner 2026-11-14): a run stopped by --max-turns is reported plainly, never as a cut JSON tail."""
+
+    def test_max_turns_is_named_and_raw_json_never_leaks(self):
+        import json as _json
+        from autopilot import relay_tasks
+        big = {"type": "result", "subtype": "error_max_turns", "is_error": True, "num_turns": 26,
+               "stop_reason": "tool_use", "session_id": "s", "total_cost_usd": 1.65, "result": "",
+               "usage": {"input_tokens": 50, "pad": "x" * 9000}}
+        msg = relay_tasks.summarize_result(_json.dumps(big), 1, False)
+        self.assertIn("исчерпал лимит ходов (26)", msg)
+        self.assertNotIn("session_id", msg)
+        self.assertNotIn("total_cost_usd", msg)
+        ok = relay_tasks.summarize_result(_json.dumps({"result": "Готово: PR открыт"}), 0, False)
+        self.assertEqual(ok, "Готово: PR открыт")
+        self.assertIn("bounded execution time", relay_tasks.summarize_result("", 0, True))
+
+
 if __name__ == "__main__":
     unittest.main()

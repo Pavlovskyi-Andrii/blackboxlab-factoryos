@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FactoryOS · LinkedIn</title>
+<style>
+:root{--bg:#0b1020;--card:#131a30;--line:#26304f;--text:#e7ecff;--mute:#9aa6c9;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--acc:#60a5fa}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:16px}h1{font-size:22px;margin:8px 0 4px}p.sub{color:var(--mute);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}button{background:#1f2a4a;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+button.primary{background:var(--acc);color:#071022;border-color:var(--acc);font-weight:600}button:disabled{opacity:.45;cursor:not-allowed}
+textarea{width:100%;min-height:140px;background:#0d1328;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit}
+.chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;border:1px solid var(--line)}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.draft{border-top:1px solid var(--line);padding:12px 0}.draft:first-child{border-top:0}.text{white-space:pre-wrap;word-break:break-word;margin:6px 0}
+small{color:var(--mute)}a{color:var(--acc)}select{background:#1f2a4a;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px}
+</style>
+</head>
+<body>
+<main>
+<div class="row" style="justify-content:space-between"><h1 data-t="title"></h1><select id="lang"><option value="ru">RU</option><option value="uk">UK</option><option value="en">EN</option></select></div>
+<p class="sub" data-t="sub"></p>
+<section class="card" id="status"></section>
+<section class="card"><b data-t="newDraft"></b><textarea id="text" maxlength="3000"></textarea>
+<div class="row" style="justify-content:space-between"><small id="count"></small><button class="primary" id="save" data-t="save"></button></div></section>
+<section class="card"><b data-t="drafts"></b><div id="list"></div></section>
+</main>
+<script>
+const T={
+ru:{title:"LinkedIn · посты",sub:"Черновик → ваше одобрение → публикация через официальный LinkedIn API. Без одобрения ничего не публикуется.",newDraft:"Новый черновик",save:"Сохранить черновик",drafts:"Черновики и публикации",connect:"Подключить LinkedIn",disconnect:"Отключить",connected:"Подключён аккаунт",notConnected:"Аккаунт не подключён",approve:"Одобрить этот текст",publish:"Опубликовать",del:"Удалить",edit:"Изменить",confirmYes:"Пост есть (вставить ссылку)",confirmNo:"Поста нет",empty:"Черновиков пока нет.",blockers:"Что мешает публикации",ready:"Готово к публикации",askUrl:"Вставьте ссылку на пост в LinkedIn",askPublish:"Опубликовать в LinkedIn публично? Отменить из FactoryOS нельзя.",
+ st:{draft:"черновик",approved:"одобрен",publishing:"отправляется",published:"опубликован",failed:"не отправлен",uncertain:"исход неизвестен — проверьте LinkedIn"},
+ b:{client_not_configured:"нет ключей приложения LinkedIn (задача T-700-H)",client_secret_missing:"нет секрета приложения (T-700-H)",adapter_missing:"нет адаптера",vault_unavailable:"хранилище токенов выключено (нужен FACTORY_VAULT_KEY, T-560-G)",vault_unreadable:"хранилище токенов не читается",linkedin_not_connected:"аккаунт LinkedIn не подключён",linkedin_publishing_off:"публикация выключена (FACTORY_LINKEDIN_ENABLED)"}},
+uk:{title:"LinkedIn · дописи",sub:"Чернетка → ваше схвалення → публікація через офіційний LinkedIn API. Без схвалення нічого не публікується.",newDraft:"Нова чернетка",save:"Зберегти чернетку",drafts:"Чернетки й публікації",connect:"Підключити LinkedIn",disconnect:"Відключити",connected:"Підключено акаунт",notConnected:"Акаунт не підключено",approve:"Схвалити цей текст",publish:"Опублікувати",del:"Видалити",edit:"Змінити",confirmYes:"Допис є (вставити посилання)",confirmNo:"Допису немає",empty:"Чернеток поки немає.",blockers:"Що заважає публікації",ready:"Готово до публікації",askUrl:"Вставте посилання на допис у LinkedIn",askPublish:"Опублікувати в LinkedIn публічно? Скасувати з FactoryOS не можна.",
+ st:{draft:"чернетка",approved:"схвалено",publishing:"надсилається",published:"опубліковано",failed:"не надіслано",uncertain:"результат невідомий — перевірте LinkedIn"},
+ b:{client_not_configured:"немає ключів застосунку LinkedIn (задача T-700-H)",client_secret_missing:"немає секрету застосунку (T-700-H)",adapter_missing:"немає адаптера",vault_unavailable:"сховище токенів вимкнене (потрібен FACTORY_VAULT_KEY, T-560-G)",vault_unreadable:"сховище токенів не читається",linkedin_not_connected:"акаунт LinkedIn не підключено",linkedin_publishing_off:"публікацію вимкнено (FACTORY_LINKEDIN_ENABLED)"}},
+en:{title:"LinkedIn · posts",sub:"Draft → your approval → publish through the official LinkedIn API. Nothing is published without approval.",newDraft:"New draft",save:"Save draft",drafts:"Drafts and posts",connect:"Connect LinkedIn",disconnect:"Disconnect",connected:"Connected account",notConnected:"No account connected",approve:"Approve this text",publish:"Publish",del:"Delete",edit:"Edit",confirmYes:"Post exists (paste link)",confirmNo:"No post",empty:"No drafts yet.",blockers:"What blocks publishing",ready:"Ready to publish",askUrl:"Paste the LinkedIn post URL",askPublish:"Publish publicly on LinkedIn? It cannot be undone from FactoryOS.",
+ st:{draft:"draft",approved:"approved",publishing:"sending",published:"published",failed:"not sent",uncertain:"unknown outcome — check LinkedIn"},
+ b:{client_not_configured:"no LinkedIn app keys (task T-700-H)",client_secret_missing:"no app secret (T-700-H)",adapter_missing:"adapter missing",vault_unavailable:"token vault off (needs FACTORY_VAULT_KEY, T-560-G)",vault_unreadable:"token vault unreadable",linkedin_not_connected:"no LinkedIn account connected",linkedin_publishing_off:"publishing off (FACTORY_LINKEDIN_ENABLED)"}}};
+let L=(()=>{try{return localStorage.getItem('li_lang')}catch(e){return null}})()||((navigator.language||'ru').slice(0,2));if(!T[L])L='ru';
+const t=k=>T[L][k]||T.en[k]||k;const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path,opt){const r=await fetch(path,{credentials:'same-origin',headers:{'content-type':'application/json'},...(opt||{})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));return d}
+let S={drafts:[],blockers:[]};
+function paint(){document.querySelectorAll('[data-t]').forEach(e=>e.textContent=t(e.dataset.t));$('#lang').value=L;
+ const b=S.blockers||[];$('#status').innerHTML=(S.connected?`<div class="row"><span class="chip ok">●</span> ${esc(t('connected'))}: <b>${esc(S.account)}</b> <button id="disc">${esc(t('disconnect'))}</button></div>`:`<div class="row"><span class="chip warn">●</span> ${esc(t('notConnected'))} <button class="primary" id="conn">${esc(t('connect'))}</button></div>`)+
+ (b.length?`<p><small>${esc(t('blockers'))}:</small></p><ul>${b.map(x=>`<li class="warn">${esc((T[L].b||{})[x]||x)}</li>`).join('')}</ul>`:`<p class="ok">${esc(t('ready'))}</p>`);
+ const c=$('#conn');if(c)c.onclick=async()=>{try{const o=await api('/api/oauth/linkedin/authorize',{method:'POST'});if(o.authorize_url)location.assign(o.authorize_url);else alert(o.reason||'not ready')}catch(e){alert(e.message)}};
+ const dc=$('#disc');if(dc)dc.onclick=async()=>{await api('/api/oauth/linkedin/disconnect',{method:'POST'}).catch(e=>alert(e.message));load()};
+ $('#count').textContent=($('#text').value.length)+' / '+(S.text_max||3000);
+ const L2=$('#list');if(!S.drafts.length){L2.innerHTML=`<p><small>${esc(t('empty'))}</small></p>`;return}
+ L2.innerHTML=S.drafts.map(d=>{const st=(T[L].st||{})[d.status]||d.status,cls=d.status==='published'?'ok':(d.status==='failed'||d.status==='uncertain')?'bad':'warn';
+  const r=d.result||{};let btn='';
+  if(d.status==='draft'||d.status==='failed')btn+=`<button data-a="approve" data-id="${d.id}">${esc(t('approve'))}</button><button data-a="edit" data-id="${d.id}">${esc(t('edit'))}</button><button data-a="delete" data-id="${d.id}">${esc(t('del'))}</button>`;
+  if(d.status==='approved')btn+=`<button class="primary" data-a="publish" data-id="${d.id}" ${S.ready?'':'disabled'}>${esc(t('publish'))}</button><button data-a="edit" data-id="${d.id}">${esc(t('edit'))}</button><button data-a="delete" data-id="${d.id}">${esc(t('del'))}</button>`;
+  if(d.status==='uncertain')btn+=`<button data-a="yes" data-id="${d.id}">${esc(t('confirmYes'))}</button><button data-a="no" data-id="${d.id}">${esc(t('confirmNo'))}</button>`;
+  return `<div class="draft"><span class="chip ${cls}">${esc(st)}</span> <small>${new Date(d.created*1000).toLocaleString()}</small><div class="text">${esc(d.text)}</div>${r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`:''}${r.code?`<small class="bad"> ${esc(r.code)}</small>`:''}<div class="row">${btn}</div></div>`}).join('');
+ L2.querySelectorAll('button[data-a]').forEach(b=>b.onclick=()=>act(b.dataset.a,b.dataset.id));}
+async function act(a,id){try{const base='/api/factory/linkedin/drafts/'+id+'/';
+ if(a==='edit'){const d=S.drafts.find(x=>x.id===id);const v=prompt(t('edit'),d?d.text:'');if(v==null)return;await api(base+'edit',{method:'POST',body:JSON.stringify({text:v})})}
+ else if(a==='publish'){if(!confirm(t('askPublish')))return;await api(base+'publish',{method:'POST',body:'{}'})}
+ else if(a==='yes'){const u=prompt(t('askUrl'));if(!u)return;await api(base+'confirm',{method:'POST',body:JSON.stringify({outcome:u})})}
+ else if(a==='no'){await api(base+'confirm',{method:'POST',body:JSON.stringify({outcome:'not_published'})})}
+ else await api(base+a,{method:'POST',body:'{}'});}catch(e){alert(e.message)}load()}
+async function load(){try{S=await api('/api/factory/linkedin')}catch(e){$('#status').innerHTML=`<p class="bad">${esc(e.message)}</p>`;return}paint()}
+$('#save').onclick=async()=>{const v=$('#text').value.trim();if(!v)return;try{await api('/api/factory/linkedin/drafts',{method:'POST',body:JSON.stringify({text:v})});$('#text').value=''}catch(e){alert(e.message)}load()};
+$('#text').oninput=()=>{$('#count').textContent=$('#text').value.length+' / '+(S.text_max||3000)};
+$('#lang').onchange=e=>{L=e.target.value;try{localStorage.setItem('li_lang',L)}catch(_){}paint()};
+paint();load();
+</script>
+</body>
+</html>

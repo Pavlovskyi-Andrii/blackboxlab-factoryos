@@ -1,0 +1,9 @@
+{
+  "name": "grilling",
+  "version": "2026.11.12",
+  "description": "Stress-test a plan before building: a design tree worked in rounds of questions with recommended answers.",
+  "author": {"name": "Matt Pocock"},
+  "homepage": "https://github.com/mattpocock/skills/tree/main/skills/productivity/grilling",
+  "repository": "https://github.com/mattpocock/skills",
+  "license": "MIT"
+}

@@ -50,7 +50,30 @@ def main():
     no_human = write_roadmap("# Roadmap\n\n## v5\n- [x] T-001 Finished\n")
     assert ap.idle_notice(no_human).startswith("🏁")
     dependency_and_owner_regression()
+    runtime_files_ignored_regression()
     print("Autopilot roadmap advancement tests passed")
+
+
+def runtime_files_ignored_regression():
+    """Every file the runner writes inside its own checkout must be git-ignored.
+
+    relay_tasks.execute() refuses to work while `git status --porcelain` shows anything. On 2026-11-05 the untracked
+    MyCast state file .autopilot/mycast.json made the checkout dirty, and every Claude Relay task was blocked.
+    """
+    import subprocess
+    repo = Path(__file__).resolve().parent.parent
+    written = [ap.STATUS, ap.ANSWERS.with_name("mycast.json"), ap.ANSWERS.with_name("mycast.json").with_suffix(".tmp"),
+               repo / ".autopilot" / "run.json", repo / ".autopilot" / "supervisor.json", repo / ".autopilot" / "telegram.json",
+               repo / ".autopilot" / "parking.json", repo / ".autopilot" / "evidence" / "x.json", repo / ".venv" / "x",
+               repo / ".autopilot" / "ui-check.js", repo / ".autopilot" / "any-future-scratch.txt"]
+    for path in written:
+        rel = Path(path).resolve().relative_to(repo.resolve()) if Path(path).is_absolute() else Path(path)
+        result = subprocess.run(["git", "check-ignore", "-q", str(rel)], cwd=repo, check=False)
+        assert result.returncode == 0, f"runner writes {rel} inside its checkout but it is not git-ignored"
+    for tracked in (".autopilot/answers.md", ".autopilot/status.example.json"):  # owner answers stay versioned
+        assert subprocess.run(["git", "check-ignore", "-q", tracked], cwd=repo, check=False).returncode == 1, tracked
+        assert subprocess.run(["git", "ls-files", "--error-unmatch", tracked], cwd=repo, check=False,
+                              capture_output=True).returncode == 0, tracked
 
 
 def dependency_and_owner_regression():
@@ -137,10 +160,62 @@ def dependency_and_owner_regression():
     roadmap_owner_lint()
     claim_gate_regression()
     follow_main_regression()
+    roadmap_autoresolve_regression()
+    sync_safety_regression()
     restart_survival_regression()
     git_timeout_regression()
     subscription_limit_regression()
     milestone_report_regression()
+
+
+def roadmap_autoresolve_regression():
+    # Owner 2026-11-17: a merge whose ONLY conflict is ROADMAP.md is resolved and committed (both sides' notes kept,
+    # a task header both sides changed comes from main), so the worker keeps following main's runner code.
+    assert ap.merge_roadmap_text("a\n<<<<<<< HEAD\nworker note\n=======\nmain note\n>>>>>>> origin/main\nz\n") == \
+        "a\nworker note\nmain note\nz\n"
+    diff3 = ("<<<<<<< HEAD\n- [x] T-1 Task\n  Note: w\n||||||| base\n- [ ] T-1 Task\n=======\n- [ ] T-1 Task\n"
+             "  Note: m\n>>>>>>> origin/main\n")
+    assert ap.merge_roadmap_text(diff3) == "  Note: w\n- [ ] T-1 Task\n  Note: m\n"   # one header, main's state
+    assert ap.merge_roadmap_text("<<<<<<< HEAD\nsame\n=======\nsame\n>>>>>>> x\n") == "same\n"
+    assert ap.merge_roadmap_text("<<<<<<< HEAD\nno end\n=======\n") is None
+    import subprocess
+
+    def git(cwd, *args):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+    root = Path(tempfile.mkdtemp(prefix="factoryos-roadmap-merge-"))
+    origin, seed, worker = root / "origin.git", root / "seed", root / "worker"
+    git(root, "init", "--bare", "-b", "main", str(origin))
+    git(root, "clone", str(origin), str(seed))
+    git(seed, "config", "user.email", "t@example.com"); git(seed, "config", "user.name", "t")
+    base = "# Roadmap\n- [ ] T-590 Acceptance\n  Re-check: base\n\n- [ ] T-591 Next\n"
+    (seed / "ROADMAP.md").write_text(base, encoding="utf-8")
+    (seed / "app.txt").write_text("one\n", encoding="utf-8")
+    git(seed, "add", "."); git(seed, "commit", "-m", "init"); git(seed, "push", "origin", "main")
+    git(seed, "push", "origin", "main:autopilot/w")
+    git(root, "clone", "-b", "autopilot/w", str(origin), str(worker))
+    git(worker, "config", "user.email", "w@example.com"); git(worker, "config", "user.name", "w")
+    saved = (ap.REPO, ap.BASE_BRANCH)
+    ap.REPO, ap.BASE_BRANCH = worker, "main"
+    try:
+        (worker / "ROADMAP.md").write_text(base.replace("  Re-check: base\n", "  Re-check: base\n  Re-check: worker run\n"),
+                                           encoding="utf-8")
+        git(worker, "commit", "-am", "worker note")
+        (seed / "ROADMAP.md").write_text(base.replace("- [ ] T-590", "- [x] T-590").replace(
+            "  Re-check: base\n", "  Re-check: base\n  Progress: main session\n"), encoding="utf-8")
+        (seed / "app.txt").write_text("two\n", encoding="utf-8")
+        git(seed, "commit", "-am", "main progress"); git(seed, "push", "origin", "main")
+        assert ap.sync_branch("autopilot/w") == ""
+        merged = (worker / "ROADMAP.md").read_text(encoding="utf-8")
+        assert "Re-check: worker run" in merged and "Progress: main session" in merged, merged
+        assert merged.count("T-590") == 1 and "- [x] T-590" in merged, merged
+        assert (worker / "app.txt").read_text(encoding="utf-8") == "two\n"           # main's other changes arrived
+        assert git(worker, "status", "--porcelain").strip() == ""
+        assert len(git(worker, "log", "-1", "--format=%P").split()) == 2            # a real merge commit
+        assert not (worker / ".git" / "MERGE_HEAD").exists()
+    finally:
+        ap.REPO, ap.BASE_BRANCH = saved
+    print("Autopilot ROADMAP-only conflict auto-resolve tests passed")
 
 
 def claim_gate_regression():
@@ -250,17 +325,162 @@ def follow_main_regression():
         assert ap.sync_branch("autopilot/w") == "code_updated"
         assert (worker / "autopilot" / "y.py").exists()
         git(seed, "push", "origin", "main")
-        # Conflict: both sides edit the same line; merge is aborted and the tree stays clean.
+        # T-670: the browser executor (browser_runner/) is loaded once per worker process too.
+        (seed / "browser_runner").mkdir()
+        (seed / "browser_runner" / "z.py").write_text("Z = 1\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "executor fix"); git(seed, "push", "origin", "main")
+        assert ap.sync_branch("autopilot/w") == "code_updated"
+        (seed / "docs.md").write_text("only docs\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "docs"); git(seed, "push", "origin", "main")
+        assert ap.sync_branch("autopilot/w") == ""
+        # Conflict: both sides edit the same line of a non-ROADMAP file (ROADMAP.md conflicts too); the merge is
+        # aborted and the tree stays clean. A ROADMAP-only conflict is resolved: roadmap_autoresolve_regression.
         (worker / "ROADMAP.md").write_text("worker\n", encoding="utf-8")
-        git(worker, "commit", "-am", "worker edit")
+        (worker / "conf.txt").write_text("worker\n", encoding="utf-8")
+        git(worker, "add", "."); git(worker, "commit", "-m", "worker edit")
         (seed / "ROADMAP.md").write_text("main\n", encoding="utf-8")
-        git(seed, "commit", "-am", "main edit"); git(seed, "push", "origin", "main")
+        (seed / "conf.txt").write_text("main\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "main edit"); git(seed, "push", "origin", "main")
         assert ap.sync_branch("autopilot/w") == "conflict"
         status = subprocess.run(["git", "status", "--porcelain"], cwd=worker, capture_output=True, text=True).stdout
         assert status.strip() == "", status
+        # 2026-11-04 outage: local branch ahead of its remote through a merge commit that resolved a conflict.
+        # Rebasing replayed the conflicting commit and stopped mid-rebase; sync must merge, never rebase.
+        git(worker, "reset", "--hard", "origin/autopilot/w")
+        git(seed, "checkout", "-b", "side", "HEAD~1")
+        (seed / "notes.txt").write_text("side\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "side notes")
+        git(seed, "checkout", "main")
+        (seed / "notes.txt").write_text("main\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "main notes")
+        subprocess.run(["git", "merge", "side"], cwd=seed, capture_output=True)
+        (seed / "notes.txt").write_text("both\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "resolve notes"); git(seed, "push", "origin", "main")
+        git(worker, "fetch", "origin", "main"); git(worker, "merge", "--no-edit", "origin/main")  # local only, not pushed
+        (seed / "other.txt").write_text("x\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "other"); git(seed, "push", "origin", "main:autopilot/w", "--force")
+        assert ap.sync_branch("autopilot/w") in ("", "code_updated")
+        assert not (worker / ".git" / "rebase-merge").exists()
+        assert (worker / "notes.txt").read_text(encoding="utf-8") == "both\n"
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=worker, capture_output=True, text=True).stdout
+        assert status.strip() == "", status
+        # A rebase left behind by older runner code is aborted before syncing.
+        (worker / ".git" / "rebase-merge").mkdir()
+        (worker / ".git" / "rebase-merge" / "head-name").write_text("refs/heads/autopilot/w\n", encoding="utf-8")
+        ap.sync_branch("autopilot/w")
     finally:
         ap.REPO, ap.BASE_BRANCH = saved
     print("Autopilot follow-main sync tests passed")
+
+
+def sync_safety_regression():
+    """#236: the worker sync never rebases, force-pushes, resets or drops a checkpoint, and every bad state ends in a
+    clear result instead of an endless "running". Temporary git repos only; no network, no live worker."""
+    import subprocess
+
+    def git(cwd, *args, ok=True):
+        r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+        if ok and r.returncode:
+            raise AssertionError(f"git {args}: {r.stderr}")
+        return r.stdout.strip()
+
+    root = Path(tempfile.mkdtemp(prefix="factoryos-sync-safety-"))
+    origin, seed, worker = root / "origin.git", root / "seed", root / "worker"
+    git(root, "init", "--bare", "-b", "main", str(origin))
+    git(root, "clone", str(origin), str(seed))
+    for cwd in (seed,):
+        git(cwd, "config", "user.email", "t@example.com"); git(cwd, "config", "user.name", "t")
+    (seed / "ROADMAP.md").write_text("v1\n", encoding="utf-8")
+    (seed / "notes.txt").write_text("base\n", encoding="utf-8")
+    git(seed, "add", "."); git(seed, "commit", "-m", "init"); git(seed, "push", "origin", "main")
+    git(seed, "push", "origin", "main:autopilot/w")
+    git(root, "clone", "-b", "autopilot/w", str(origin), str(worker))
+    git(worker, "config", "user.email", "w@example.com"); git(worker, "config", "user.name", "w")
+
+    commands: list[list[str]] = []
+    real_run = ap.run
+
+    def spy(cmd, **kw):
+        commands.append(list(cmd))
+        return real_run(cmd, **kw)
+
+    saved = (ap.REPO, ap.BASE_BRANCH, ap.run)
+    ap.REPO, ap.BASE_BRANCH, ap.run = worker, "main", spy
+    try:
+        # 1. Ahead: a verified local checkpoint commit not pushed yet survives a sync that brings in main.
+        (worker / "work.txt").write_text("checkpoint\n", encoding="utf-8")
+        git(worker, "add", "."); git(worker, "commit", "-m", "checkpoint")
+        checkpoint = git(worker, "rev-parse", "HEAD")
+        (seed / "ROADMAP.md").write_text("v2\n", encoding="utf-8")
+        git(seed, "commit", "-am", "main moves"); git(seed, "push", "origin", "main")
+        assert ap.sync_branch("autopilot/w") == ""
+        assert git(worker, "merge-base", "--is-ancestor", checkpoint, "HEAD", ok=False) == "" and (worker / "work.txt").exists()
+        assert (worker / "ROADMAP.md").read_text(encoding="utf-8") == "v2\n"
+
+        # 2. Diverged + conflicting: merge is aborted, the checkpoint and HEAD stay exactly as they were.
+        (worker / "notes.txt").write_text("worker side\n", encoding="utf-8")
+        git(worker, "commit", "-am", "worker notes")
+        head = git(worker, "rev-parse", "HEAD")
+        (seed / "notes.txt").write_text("main side\n", encoding="utf-8")
+        git(seed, "commit", "-am", "main notes"); git(seed, "push", "origin", "main")
+        assert ap.sync_branch("autopilot/w") == "conflict"
+        assert git(worker, "rev-parse", "HEAD") == head and git(worker, "status", "--porcelain") == ""
+        assert not (worker / ".git" / "MERGE_HEAD").exists()
+
+        # 3. Dirty tree (uncommitted edit to a file main also changes): refused, the edit is kept, never reset.
+        git(worker, "reset", "--hard", "origin/main")  # test setup only: start from main again
+        (worker / "ROADMAP.md").write_text("uncommitted owner edit\n", encoding="utf-8")
+        (seed / "ROADMAP.md").write_text("v3\n", encoding="utf-8")
+        git(seed, "commit", "-am", "main v3"); git(seed, "push", "origin", "main")
+        assert ap.sync_branch("autopilot/w") == "conflict"
+        assert (worker / "ROADMAP.md").read_text(encoding="utf-8") == "uncommitted owner edit\n"
+        git(worker, "checkout", "--", "ROADMAP.md")
+
+        # 4. Restart between fetch and merge: a leftover MERGE_HEAD is aborted, then the sync completes.
+        (seed / "notes.txt").write_text("main side 2\n", encoding="utf-8")
+        git(seed, "commit", "-am", "main notes 2"); git(seed, "push", "origin", "main")
+        git(worker, "fetch", "origin", "main")
+        (worker / "notes.txt").write_text("half-merged\n", encoding="utf-8")
+        git(worker, "commit", "-am", "local notes")
+        local = git(worker, "rev-parse", "HEAD")
+        git(worker, "merge", "--no-edit", "origin/main", ok=False)  # conflicts and stops: what a crash leaves behind
+        assert (worker / ".git" / "MERGE_HEAD").exists()
+        assert ap.sync_branch("autopilot/w") == "conflict"          # real content conflict, reported, not hidden
+        assert not (worker / ".git" / "MERGE_HEAD").exists() and git(worker, "rev-parse", "HEAD") == local
+        assert git(worker, "status", "--porcelain") == ""
+        # ...and a leftover merge that would succeed now syncs cleanly instead of reporting "conflict" forever.
+        git(worker, "reset", "--hard", "origin/main")  # test setup only
+        (seed / "other.txt").write_text("x\n", encoding="utf-8")
+        git(seed, "add", "."); git(seed, "commit", "-m", "other"); git(seed, "push", "origin", "main")
+        git(worker, "fetch", "origin", "main")
+        (worker / "mine.txt").write_text("mine\n", encoding="utf-8")
+        git(worker, "add", "."); git(worker, "commit", "-m", "mine")
+        git(worker, "merge", "--no-commit", "--no-ff", "origin/main")
+        assert (worker / ".git" / "MERGE_HEAD").exists()
+        assert ap.sync_branch("autopilot/w") == ""
+        assert (worker / "other.txt").exists() and (worker / "mine.txt").exists() and not (worker / ".git" / "MERGE_HEAD").exists()
+
+        # 5. A real interrupted rebase left by old runner code (the 2026-11-04 outage): aborted, never continued,
+        #    the local commit comes back untouched and the conflict is reported.
+        (worker / "notes.txt").write_text("worker rebase side\n", encoding="utf-8")
+        git(worker, "commit", "-am", "worker before rebase")
+        local = git(worker, "rev-parse", "HEAD")
+        (seed / "notes.txt").write_text("main rebase side\n", encoding="utf-8")
+        git(seed, "commit", "-am", "main before rebase"); git(seed, "push", "origin", "main")
+        git(worker, "fetch", "origin", "main")
+        git(worker, "rebase", "origin/main", ok=False)  # stops on the conflict, exactly like the outage
+        assert (worker / ".git" / "rebase-merge").exists() or (worker / ".git" / "rebase-apply").exists()
+        assert ap.sync_branch("autopilot/w") == "conflict"
+        assert not (worker / ".git" / "rebase-merge").exists() and not (worker / ".git" / "rebase-apply").exists()
+        assert git(worker, "rev-parse", "HEAD") == local and git(worker, "status", "--porcelain") == ""
+    finally:
+        ap.REPO, ap.BASE_BRANCH, ap.run = saved
+
+    flat = [" ".join(c) for c in commands]
+    assert all(c in ("git rebase --abort",) for c in flat if " rebase" in c), flat              # only ever --abort
+    assert not [c for c in flat if c.startswith("git push") or "--force" in c or " reset" in c or " clean" in c], flat
+    assert not [c for c in flat if c.startswith("git checkout") or c.startswith("git branch -D")], flat
+    print("Worker sync safety regression passed (no rebase/force/reset; checkpoints kept; stale merge recovered)")
 
 
 def roadmap_owner_lint():
@@ -293,8 +513,18 @@ def parking_regression():
     assert "T-030" in ap.idle_notice(path, parked={"T-030"})
 
     answers = path.parent / "answers.md"
+    answers.write_text("## T-001\nold answer\n", encoding="utf-8")
     calls: list[str] = []
     sleeps = {"n": 0}
+
+    def rewriting_sync(_branch):
+        # 2026-11-15 regression: a conflicting merge of main + `git merge --abort` rewrote answers.md on every
+        # pass (same bytes, new mtime) and woke the blocked task each time: ~300 Telegram cards for T-590.
+        data = answers.read_bytes()
+        answers.write_bytes(data)
+        st = answers.stat()
+        ap.os.utime(answers, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000 * (sleeps["n"] + 1)))
+        return "conflict"
 
     def fake_agent(target):
         calls.append(target["id"])
@@ -310,14 +540,14 @@ def parking_regression():
         sleeps["n"] += 1
         if sleeps["n"] == 8:
             # New owner input wakes the blocked task exactly once more.
-            answers.write_text("## T-030\nuse option A\n", encoding="utf-8")
+            answers.write_text(answers.read_text(encoding="utf-8") + "## T-030\nuse option A\n", encoding="utf-8")
         if sleeps["n"] > 12:
             raise _StopLoop
 
     patches = {
         "ROADMAP": path, "ANSWERS": answers, "DAEMON_MODE": True, "ALLOW_UNCLAIMED": True, "OPERATOR": "claude", "RELAY_ONLY": False,
         "assert_safe_branch": lambda: "autopilot/test", "current_branch": lambda: "autopilot/test",
-        "sync_branch": lambda _b: None, "commits_ahead": lambda _b: 0, "push_branch": lambda _b: True,
+        "sync_branch": rewriting_sync, "commits_ahead": lambda _b: 0, "push_branch": lambda _b: True,
         "poll_control": lambda *a, **k: {"paused": False, "retry": "", "acks": []},
         "run_agent": fake_agent, "send": lambda _m: None, "write_runtime_status": lambda *a, **k: None,
         "done_status_is_consistent": lambda status, target, path=None: True,

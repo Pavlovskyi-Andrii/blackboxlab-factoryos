@@ -1,0 +1,767 @@
+{
+ "schema": "mvp-launchpad/1",
+ "project": "mycast",
+ "checks": [
+  "D1",
+  "D2",
+  "D3"
+ ],
+ "produced_by": "claude-session (chat with the owner, 2026-11-19)",
+ "observed_at": "2026-11-19",
+ "human_readable": "docs/business_experiments/mycast_launchpad/D1-D3_2026-11-19.md",
+ "unknowns": [
+  "search volume for every idea",
+  "willingness to pay in Ukraine",
+  "Ukrainian-language personal daily AI podcasts (none found)",
+  "daily Ukrainian-language audio about Ukrainian clubs (none found)"
+ ],
+ "artifacts": [
+  {
+   "type": "idea_card",
+   "id": "i1",
+   "who": "Украиноязычные пользователи Telegram 18–44, которые следят за несколькими темами",
+   "situation": "Утро, дорога, домашние дела; лента каналов переполнена",
+   "problem": "Читать десятки каналов долго; персональной аудиосводки на украинском не нашли",
+   "desired_result": "5–10 минут аудио по своим темам в том же Telegram, без новой аппки",
+   "where_noticed": [
+    "https://dev.ua/en/news/telegram-became-the-main-source-of-news-for-ukrainians-in-2025-ipsos-study"
+   ],
+   "assumptions": [
+    "Слушать удобнее, чем читать",
+    "Кто-то за это заплатит"
+   ],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "idea_card",
+   "id": "i2",
+   "who": "Болельщики конкретного клуба, бойца или лиги (Динамо, Шахтар, УПЛ, бокс)",
+   "situation": "Каждый игровой и новостной день",
+   "problem": "Общие спортивные выпуски не про «мой» клуб; на украинском ежедневного аудио про клубы не нашли",
+   "desired_result": "Каждое утро 5–7 минут только про «мою» команду: результаты, трансферы, расписание",
+   "where_noticed": [
+    "https://chartable.com/podcasts/world-cup-daily-457972/reviews/BzTQnXWX"
+   ],
+   "assumptions": [
+    "Болельщики примут AI-голоса",
+    "Новости клуба можно собирать законно из открытых источников"
+   ],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "idea_card",
+   "id": "i3",
+   "who": "Украинцы, которые путешествуют или живут в ЕС",
+   "situation": "Прогулка по незнакомому городу",
+   "problem": "Аудиогиды в основном на английском или русском",
+   "desired_result": "Гид на украинском под свой маршрут и интересы",
+   "where_noticed": [
+    "https://apps.apple.com/ua/app/%D0%B2%D0%B5%D0%BD%D0%B5%D1%86%D1%96%D1%8F-%D0%BF%D1%83%D1%82%D1%96%D0%B2%D0%BD%D0%B8%D0%BA-%D1%82%D0%B0-%D0%BC%D0%B0%D0%BF%D0%B0/id1454847989?l=uk"
+   ],
+   "assumptions": [
+    "Заплатят за тур или пакет",
+    "Качество синтеза украинской речи достаточно для гида"
+   ],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "idea_card",
+   "id": "i4",
+   "who": "Специалисты с десятками рассылок и RSS",
+   "situation": "Дорога, спорт, дела по дому",
+   "problem": "Нет времени читать рассылки",
+   "desired_result": "Ежедневный 10-минутный выпуск по своим рассылкам",
+   "where_noticed": [
+    "https://hunted.space/product/maidio"
+   ],
+   "assumptions": [
+    "Отличимся от бесплатных конвертеров"
+   ],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "idea_card",
+   "id": "i5",
+   "who": "Специалисты и руководители",
+   "situation": "Утро перед работой",
+   "problem": "Почта, календарь и отраслевые новости разбросаны",
+   "desired_result": "Один короткий брифинг каждое утро",
+   "where_noticed": [
+    "https://zapier.com/workflow-gallery/daily-podcast-material-generator"
+   ],
+   "assumptions": [
+    "Будут платить, хотя Huxe не выжил"
+   ],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "idea_card",
+   "id": "i6",
+   "who": "Студенты и самоучки",
+   "situation": "Подготовка к экзаменам и курсам",
+   "problem": "Читать материалы долго",
+   "desired_result": "Аудиоразбор своих материалов",
+   "where_noticed": [
+    "unknown"
+   ],
+   "assumptions": [
+    "Нужна функция, которой нет у бесплатного NotebookLM"
+   ],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f1",
+   "idea_ref": [
+    "i1",
+    "i2"
+   ],
+   "fact": "Ipsos (поле 14–28.11.2025): Telegram — источник новостей для 62% украинцев, 18–34 — 84–87%",
+   "verdict": "for",
+   "source_url": "https://dev.ua/en/news/telegram-became-the-main-source-of-news-for-ukrainians-in-2025-ipsos-study",
+   "source_kind": "secondary",
+   "published_at": "unknown",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f2",
+   "idea_ref": [
+    "i1"
+   ],
+   "fact": "Rating (поле 1–13.04.2025): каналы Telegram постоянно или часто читают 52%",
+   "verdict": "for",
+   "source_url": "https://www.ratinggroup.ua/en/news/media-aug2025",
+   "source_kind": "primary",
+   "published_at": "unknown",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f3",
+   "idea_ref": [
+    "i1"
+   ],
+   "fact": "Internews 2025: 86% получают новости из соцсетей, телевизор 33%",
+   "verdict": "for",
+   "source_url": "https://internews.ua/en/opportunity/media_trust_consumption_2025_release",
+   "source_kind": "primary",
+   "published_at": "2025-09-23",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f4",
+   "idea_ref": [
+    "i1",
+    "i2",
+    "i3"
+   ],
+   "fact": "Суспільне (10.2021): подкасты слушали 8,3% украинцев; средний возраст 31; данные старые",
+   "verdict": "against",
+   "source_url": "https://suspilne.media/176455-skilki-ukrainciv-sluhaut-podkasti-doslidzenna-suspilnogo/",
+   "source_kind": "primary",
+   "published_at": "2021-10",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f5",
+   "idea_ref": [
+    "i1"
+   ],
+   "fact": "Google Daily Listen (Search Labs): личная аудиосводка ~5 минут, только США",
+   "verdict": "mixed",
+   "source_url": "https://searchengineland.com/google-testing-audio-version-of-google-discover-named-daily-listen-450319",
+   "source_kind": "secondary",
+   "published_at": "2025-01",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f6",
+   "idea_ref": [
+    "i1",
+    "i5"
+   ],
+   "fact": "Huxe ($4.6M, бывшие разработчики NotebookLM, бесплатное приложение) закрылся в мае 2026; причина не названа",
+   "verdict": "against",
+   "source_url": "https://techcrunch.com/2026/05/22/audio-generation-app-huxe-founded-by-former-notebooklm-developers-shuts-down/",
+   "source_kind": "secondary",
+   "published_at": "2026-05-22",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f7",
+   "idea_ref": [
+    "i1",
+    "i4",
+    "i5"
+   ],
+   "fact": "Похожие функции есть у NotebookLM, Adobe, Amazon, ElevenLabs, Meta и Spotify",
+   "verdict": "against",
+   "source_url": "https://techcrunch.com/2026/05/22/audio-generation-app-huxe-founded-by-former-notebooklm-developers-shuts-down/",
+   "source_kind": "secondary",
+   "published_at": "2026-05-22",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f8",
+   "idea_ref": [
+    "i6",
+    "i1"
+   ],
+   "fact": "NotebookLM Audio Overviews на 50+ языках, включая украинский",
+   "verdict": "against",
+   "source_url": "https://blog.google/technology/google-labs/notebooklm-audio-overviews-50-languages",
+   "source_kind": "primary",
+   "published_at": "2025-04-29",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f9",
+   "idea_ref": [
+    "i4",
+    "i6"
+   ],
+   "fact": "ElevenReader GenFM: два AI-ведущих по своим материалам, 32 языка, бесплатно",
+   "verdict": "against",
+   "source_url": "https://elevenlabs.io/blog/genfm-on-elevenreader",
+   "source_kind": "primary",
+   "published_at": "2024-11-28",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f10",
+   "idea_ref": [
+    "i5"
+   ],
+   "fact": "Бесплатные личные AI-подкасты по интересам: PocketPod (YC), Podio и другие",
+   "verdict": "against",
+   "source_url": "https://www.ycombinator.com/launches/KWl-pocketpod-ai-generated-podcasts-tailored-to-your-interests",
+   "source_kind": "primary",
+   "published_at": "unknown",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f11",
+   "idea_ref": [
+    "i4"
+   ],
+   "fact": "Рассылки в подкаст: Lettercast, Fama, Jellypod; Kortex $29 в год",
+   "verdict": "against",
+   "source_url": "https://www.producthunt.com/p/lettercast",
+   "source_kind": "secondary",
+   "published_at": "unknown",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f12",
+   "idea_ref": [
+    "i3"
+   ],
+   "fact": "VoiceMap: туры $3.99–19.99 (в среднем $9.59), 4.8 по 3,3 тыс. отзывов",
+   "verdict": "mixed",
+   "source_url": "https://apppricinglab.com/app/apple/852027939",
+   "source_kind": "secondary",
+   "published_at": "unknown",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f13",
+   "idea_ref": [
+    "i3"
+   ],
+   "fact": "AI-гидов десятки: CityTour AI, Zigway (подписка, 7 дней пробно), guidable (бесплатно)",
+   "verdict": "against",
+   "source_url": "https://apps.apple.com/us/app/id6754586403",
+   "source_kind": "primary",
+   "published_at": "unknown",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f14",
+   "idea_ref": [
+    "i3"
+   ],
+   "fact": "Гиды по Риму, Парижу, Венеции продаются на русском и английском; украинских в этом поиске не нашлось",
+   "verdict": "for",
+   "source_url": "https://apps.apple.com/ua/app/%D0%B2%D0%B5%D0%BD%D0%B5%D1%86%D1%96%D1%8F-%D0%BF%D1%83%D1%82%D1%96%D0%B2%D0%BD%D0%B8%D0%BA-%D1%82%D0%B0-%D0%BC%D0%B0%D0%BF%D0%B0/id1454847989?l=uk",
+   "source_kind": "primary",
+   "published_at": "unknown",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f15",
+   "idea_ref": [
+    "i2"
+   ],
+   "fact": "The Athletic: ежедневный футбольный выпуск до 10 минут, 4.7 по 846 оценкам",
+   "verdict": "mixed",
+   "source_url": "https://podnews.net/podcast/iapjx",
+   "source_kind": "secondary",
+   "published_at": "unknown",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f16",
+   "idea_ref": [
+    "i2"
+   ],
+   "fact": "Locked On: ежедневные подкасты о конкретных клубах (англоязычные)",
+   "verdict": "against",
+   "source_url": "https://chartable.com/podcasts/locked-on-spurs/reviews/b0TKxN6n",
+   "source_kind": "secondary",
+   "published_at": "unknown",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f17",
+   "idea_ref": [
+    "i2",
+    "i1"
+   ],
+   "fact": "n8n-шаблон: ежедневный спортивный подкаст из RSS с доставкой в Telegram",
+   "verdict": "mixed",
+   "source_url": "https://n8n.io/workflows/6945-convert-rss-feeds-into-a-podcast-with-google-gemini-kokoro-tts-and-ffmpeg/",
+   "source_kind": "primary",
+   "published_at": "unknown",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "market_fact",
+   "id": "f18",
+   "idea_ref": [
+    "i1",
+    "i2",
+    "i3",
+    "i4",
+    "i5",
+    "i6"
+   ],
+   "fact": "С 12.06.2024 цифровые товары в Telegram-ботах продаются только за Stars; подписки поддерживаются",
+   "verdict": "constraint",
+   "source_url": "https://telegram.org/blog/telegram-stars",
+   "source_kind": "primary",
+   "published_at": "2024-06",
+   "observed_at": "2026-11-19",
+   "query": "unknown",
+   "unknowns": [],
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s1",
+   "idea_ref": [
+    "i5",
+    "i1"
+   ],
+   "signal_kind": "builder",
+   "situation": "Тратил часы в неделю на отслеживание нескольких тем; нужно аудио для дороги",
+   "current_solution": "Свой 30–45-минутный ежедневный подкаст на Zapier",
+   "author_words_paraphrase": "Тратил часы в неделю на отслеживание нескольких тем; нужно аудио для дороги",
+   "url": "https://zapier.com/workflow-gallery/daily-podcast-material-generator",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s2",
+   "idea_ref": [
+    "i4"
+   ],
+   "signal_kind": "builder",
+   "situation": "Хотел слушать посты r/SaaS, пока готовит и моет посуду",
+   "current_solution": "Собрал и опубликовал ежедневный подкаст",
+   "author_words_paraphrase": "Хотел слушать посты r/SaaS, пока готовит и моет посуду",
+   "url": "https://www.indiehackers.com/post/show-ih-how-i-built-a-daily-podcast-from-my-favorite-subreddit-29d5881231",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s3",
+   "idea_ref": [
+    "i4"
+   ],
+   "signal_kind": "builder",
+   "situation": "Много RSS, нет времени читать; 1–2 часа в день в дороге и за делами",
+   "current_solution": "Своё приложение RSS → аудио",
+   "author_words_paraphrase": "Много RSS, нет времени читать; 1–2 часа в день в дороге и за делами",
+   "url": "https://hunted.space/product/maidio",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s4",
+   "idea_ref": [
+    "i4"
+   ],
+   "signal_kind": "builder",
+   "situation": "Хочет слушать новости из рассылок на прогулке и в машине",
+   "current_solution": "Рассылки в PDF → NotebookLM",
+   "author_words_paraphrase": "Хочет слушать новости из рассылок на прогулке и в машине",
+   "url": "https://huggingface.co/blog/airabbitX/turn-your-newsletters-into-a-podcast-with-notebook",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s5",
+   "idea_ref": [
+    "i1"
+   ],
+   "signal_kind": "builder",
+   "situation": "Аудио NotebookLM нельзя слушать в обычном приложении",
+   "current_solution": "Сервис приватной RSS-ленты",
+   "author_words_paraphrase": "Аудио NotebookLM нельзя слушать в обычном приложении",
+   "url": "https://dev.to/yaksh1/how-to-turn-your-notebooklm-into-a-private-podcast-3mie",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s6",
+   "idea_ref": [
+    "i2"
+   ],
+   "signal_kind": "builder",
+   "situation": "Нужен ежедневный спортивный подкаст из любимых источников в Telegram",
+   "current_solution": "n8n: RSS → Gemini → синтез → Telegram",
+   "author_words_paraphrase": "Нужен ежедневный спортивный подкаст из любимых источников в Telegram",
+   "url": "https://n8n.io/workflows/6945-convert-rss-feeds-into-a-podcast-with-google-gemini-kokoro-tts-and-ffmpeg/",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s7",
+   "idea_ref": [
+    "i5"
+   ],
+   "signal_kind": "builder",
+   "situation": "ML-инженер хотел ежедневную сводку новостей AI в дорогу",
+   "current_solution": "Свой генератор на Streamlit",
+   "author_words_paraphrase": "ML-инженер хотел ежедневную сводку новостей AI в дорогу",
+   "url": "https://discuss.streamlit.io/t/i-used-gpt-to-build-a-daily-5-minute-ai-news-podcast-for-me/53447",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s8",
+   "idea_ref": [
+    "i1",
+    "i5"
+   ],
+   "signal_kind": "builder",
+   "situation": "Соло-разработчик сделал аудиосводку новостей для поездок; рецензент: Spotify и брифинги это уже делают",
+   "current_solution": "Своё приложение News Wise",
+   "author_words_paraphrase": "Соло-разработчик сделал аудиосводку новостей для поездок; рецензент: Spotify и брифинги это уже делают",
+   "url": "https://hnshowcase.com/post/47255186/i-built-an-app-that-turns-trending-news-into-a-commute-podca",
+   "posted_at": "2026-03-04",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s9",
+   "idea_ref": [
+    "i2"
+   ],
+   "signal_kind": "user",
+   "situation": "Слушатель общего футбольного выпуска недоволен: почти только Премьер-лига",
+   "current_solution": "Слушает, но недоволен охватом",
+   "author_words_paraphrase": "Слушатель общего футбольного выпуска недоволен: почти только Премьер-лига",
+   "url": "https://chartable.com/podcasts/world-cup-daily-457972/reviews/BzTQnXWX",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s10",
+   "idea_ref": [
+    "i2"
+   ],
+   "signal_kind": "user",
+   "situation": "Слушатель ценит ежедневные обновления о своей команде",
+   "current_solution": "Командный подкаст Locked On",
+   "author_words_paraphrase": "Слушатель ценит ежедневные обновления о своей команде",
+   "url": "https://chartable.com/podcasts/locked-on-spurs/reviews/b0TKxN6n",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s11",
+   "idea_ref": [
+    "i3"
+   ],
+   "signal_kind": "user",
+   "situation": "Украинский пользователь гида по Венеции просит добавить украинский язык",
+   "current_solution": "Гид на другом языке",
+   "author_words_paraphrase": "Украинский пользователь гида по Венеции просит добавить украинский язык",
+   "url": "https://apps.apple.com/ua/app/%D0%B2%D0%B5%D0%BD%D0%B5%D1%86%D1%96%D1%8F-%D0%BF%D1%83%D1%82%D1%96%D0%B2%D0%BD%D0%B8%D0%BA-%D1%82%D0%B0-%D0%BC%D0%B0%D0%BF%D0%B0/id1454847989?l=uk",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s12",
+   "idea_ref": [
+    "i3"
+   ],
+   "signal_kind": "builder",
+   "situation": "Разработчик гида спрашивает путешественников, пользуются ли они аудиогидами",
+   "current_solution": "Ответы не видны",
+   "author_words_paraphrase": "Разработчик гида спрашивает путешественников, пользуются ли они аудиогидами",
+   "url": "https://community.ricksteves.com/travel-forum/day-tours/has-anyone-here-used-audio-guides-for-self-guided-city-walks",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  },
+  {
+   "type": "signal",
+   "id": "s13",
+   "idea_ref": [
+    "i4"
+   ],
+   "signal_kind": "user",
+   "situation": "Отзыв на странице продукта: в дороге слушает сводки рассылок (слабый сигнал)",
+   "current_solution": "Jellypod",
+   "author_words_paraphrase": "Отзыв на странице продукта: в дороге слушает сводки рассылок (слабый сигнал)",
+   "url": "https://hunted.space/product/jellypod/launches/jellypod-2",
+   "posted_at": "unknown",
+   "observed_at": "2026-11-19",
+   "independent": true,
+   "level": "linked",
+   "test": false,
+   "synthetic": false,
+   "actor": "claude-session"
+  }
+ ],
+ "gate_proposals": [
+  {
+   "gate": "G1",
+   "proposed_by": "claude-session",
+   "chosen": [
+    "i1",
+    "i2",
+    "i3"
+   ],
+   "deferred": {
+    "i4": "много бесплатных конвертеров (f9, f11)",
+    "i5": "Huxe не выжил (f6), бесплатные аналоги (f10), пересечение с MyBrief",
+    "i6": "NotebookLM бесплатно и на украинском (f8)"
+   },
+   "rationale": "Опора на то, что у MyCast уже есть: Telegram, watch list, демо-города; уход от ценовой войны англоязычного рынка"
+  },
+  {
+   "gate": "G2",
+   "proposed_by": "claude-session",
+   "chosen": [
+    "i2",
+    "i3"
+   ],
+   "assumptions": {
+    "i2": "болельщики будут слушать AI-голоса про свой клуб вместо чтения канала",
+    "i3": "украинцы за границей заплатят за гид на украинском"
+   },
+   "rationale": "Узкая увлечённая аудитория и ежедневная повторяемость (i2); прецедент оплаты туров и прямой запрос (i3)"
+  }
+ ],
+ "gate_decisions": []
+}

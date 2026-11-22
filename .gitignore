@@ -5,13 +5,13 @@ data/
 .env
 .DS_Store
 .env.autopilot
-.autopilot/status.json
-.autopilot/run.json
-.autopilot/run.json.tmp
-.autopilot/supervisor.json
-.autopilot/supervisor.tmp
-.autopilot/telegram.json
-.autopilot/parking.json
-.autopilot/parking.tmp
-.autopilot/evidence/
 autopilot-ssh/
+# .autopilot/ is the runner's runtime and scratch area. Only these two files are tracked; anything else there
+# (state, evidence, an agent's scratch script such as ui-check.js) must never make the checkout look dirty,
+# or relay_tasks refuses every ticket (2026-11-05/06: mycast.json, then ui-check.js).
+.autopilot/*
+!.autopilot/answers.md
+!.autopilot/status.example.json
+
+# Temporary git worktrees of Claude Code subagents; never part of the project.
+.claude/worktrees/

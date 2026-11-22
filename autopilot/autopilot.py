@@ -1,27 +1,36 @@
 from __future__ import annotations
+import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import time
 from typing import Any
 
 try:
-    from .delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
+    from .delegation import agent_preflight, build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from .notify import configured as telegram_configured
     from .notify import send, wait_answer
     from . import control
     from . import relay_tasks
     from . import owner_questions
-    from . import mycast_daily
+    from . import browser_tasks, codex_review, mycast_daily, mycast_listeners
+    from . import mods_runtime
+    from . import worker_heartbeat
 except ImportError:
-    from delegation import build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
+    from delegation import agent_preflight, build_delegation, limit_reset_epoch, report_result, run_delegation, write_evidence
     from notify import configured as telegram_configured
     from notify import send, wait_answer
+    import mods_runtime
+    import worker_heartbeat
     import control
     import relay_tasks
     import owner_questions
+    import browser_tasks
+    import codex_review
     import mycast_daily
+    import mycast_listeners
 
 def _default_repo() -> pathlib.Path:
     """AUTOPILOT_REPO wins; otherwise the container path; otherwise this checkout (EC2/phone runs)."""
@@ -37,6 +46,9 @@ def _default_repo() -> pathlib.Path:
 REPO = _default_repo()
 STATUS = REPO / ".autopilot" / "status.json"
 ANSWERS = REPO / ".autopilot" / "answers.md"
+# T-714: this loop's own heartbeat (read by the root supervisor's watchdog) and the dedicated Surfer worker's.
+LOOP_BEAT = worker_heartbeat.path_for(REPO, worker_heartbeat.CLAUDE_LOOP_FILE)
+SURFER_BEAT = worker_heartbeat.path_for(REPO, worker_heartbeat.SURFER_FILE)
 ROADMAP = REPO / "ROADMAP.md"
 MAX_FAILS = max(1, min(5, int(os.environ.get("AUTOPILOT_MAX_FAILS", "3"))))
 MAX_TURNS = max(10, min(160, int(os.environ.get("AUTOPILOT_MAX_TURNS", "80"))))
@@ -49,6 +61,14 @@ IDLE_SECONDS = max(15, min(3600, int(os.environ.get("AUTOPILOT_IDLE_SECONDS", "6
 # Operator identity of this runner. Roadmap tasks carrying `Owner: <other operator>` are skipped.
 OPERATOR = os.environ.get("AUTOPILOT_OPERATOR", "claude").strip().lower() or "claude"
 SHARED_OWNERS = {"", "any", "auto"}
+# T-607: which agent CLI runs a task. The Gemini lane runs Gemini CLI on the owner's Google-account login.
+AGENT = (os.environ.get("AUTOPILOT_AGENT", "").strip().lower()
+         or (OPERATOR if OPERATOR in {"claude", "gemini"} else "claude"))
+# A non-Claude lane takes only tasks that name it (`Owner: gemini`), never shared/unowned work (ROADMAP T-607).
+EXPLICIT_OWNER_ONLY = os.environ.get("AUTOPILOT_EXPLICIT_OWNER_ONLY", "1" if OPERATOR != "claude" else "0"
+                                     ).strip().lower() in {"1", "true", "yes", "on"}
+# Owner questions, MyCast, Codex review, browser tasks and Relay owner tickets belong to the Claude runner.
+CLAUDE_SIDE_JOBS = OPERATOR == "claude"
 # T-599-C: without a server claim no ROADMAP task runs, unless explicitly allowed for offline dev runs.
 ALLOW_UNCLAIMED = os.environ.get("AUTOPILOT_ALLOW_UNCLAIMED", "0").strip().lower() in {"1", "true", "yes", "on"}
 CLAIM_RETRY_SECONDS = 300
@@ -141,7 +161,10 @@ def parse_roadmap(path: pathlib.Path = ROADMAP) -> list[dict[str, Any]]:
 
 def owned_by_operator(task: dict[str, Any], operator: str = "") -> bool:
     owner = str(task.get("owner") or "").lower()
-    return owner in SHARED_OWNERS or owner == (operator or OPERATOR)
+    operator = operator or OPERATOR
+    if EXPLICIT_OWNER_ONLY and operator == OPERATOR:
+        return owner == operator
+    return owner in SHARED_OWNERS or owner == operator
 
 
 def unmet_dependencies(task: dict[str, Any], tasks: list[dict[str, Any]]) -> list[str]:
@@ -183,6 +206,8 @@ def done_status_is_consistent(status: dict[str, Any], expected_task: dict[str, A
 
 
 def run_agent(target: dict[str, Any]) -> dict[str, Any]:
+    # Owner's switched-on mods, this run only. They are Claude Code plugins: the Gemini lane never loads them.
+    mods = mods_runtime.prepare(REPO, "roadmap") if AGENT == "claude" else None
     try:
         spec = build_delegation(
             target,
@@ -190,12 +215,21 @@ def run_agent(target: dict[str, Any]) -> dict[str, Any]:
             max_turns=MAX_TURNS,
             timeout_seconds=TASK_TIMEOUT_SECONDS,
             skip_permissions=SKIP_PERMISSIONS,
+            agent=AGENT,
+            mods=mods,
         )
     except ValueError as exc:
         return {"task": target.get("id"), "status": "failed", "summary": f"delegation refused: {exc}"}
+    refused = agent_preflight(spec)
+    if refused:
+        return {"task": target.get("id"), **refused}
     evidence = run_delegation(spec)
     write_evidence(REPO, evidence)
-    report_result(evidence)
+    if AGENT == "claude":
+        report_result(evidence)   # /api/claude-worker/task-result is the Claude lane's own record
+        mods_runtime.report_run(spec["mods"], run_id=str(evidence.get("run_id") or ""), task=str(target.get("id") or ""),
+                                kind="roadmap", result=str(evidence.get("result") or ""),
+                                duration_seconds=evidence.get("duration_seconds") or 0)
     status = dict(evidence["status"])
     status["status"] = evidence["result"]
     if evidence["violations"]:
@@ -209,26 +243,107 @@ def append_answer(task: str, answer: str) -> None:
         handle.write(f"\n## {task or 'blocked-task'}\n{answer.strip()}\n")
 
 
+RUNNER_CODE_DIRS = ("autopilot/", "browser_runner/")
+
+
+_TASK_HEADER_RE = re.compile(r"^\s*- \[[ xX]\] (?:\[HUMAN\] )?(T-[A-Za-z0-9-]+)")
+
+
+def merge_roadmap_text(text: str) -> str | None:
+    """Resolve conflict blocks in ROADMAP.md: keep both sides' lines (worker notes first, then main's), but a task
+    header (`- [ ] T-…`) that both sides changed is taken from main only, so a task never appears twice with two
+    checkbox states. Returns None when the markers are malformed."""
+    out: list[str] = []
+    lines = text.splitlines(keepends=True)
+    i = 0
+    while i < len(lines):
+        if not lines[i].startswith("<<<<<<< "):
+            out.append(lines[i])
+            i += 1
+            continue
+        ours: list[str] = []
+        theirs: list[str] = []
+        section = ours
+        i += 1
+        while i < len(lines) and not lines[i].startswith(">>>>>>> "):
+            line = lines[i]
+            if line.startswith("||||||| "):
+                section = []                       # diff3 base section: not kept
+            elif line.rstrip("\r\n") == "=======":
+                section = theirs
+            elif line.startswith("<<<<<<< "):
+                return None
+            else:
+                section.append(line)
+            i += 1
+        if i >= len(lines):
+            return None
+        i += 1
+        main_ids = {m.group(1) for m in map(_TASK_HEADER_RE.match, theirs) if m}
+        kept = [line for line in ours if not ((m := _TASK_HEADER_RE.match(line)) and m.group(1) in main_ids)]
+        out.extend(line for line in kept if line not in theirs)
+        out.extend(theirs)
+    return "".join(out)
+
+
+def resolve_roadmap_only_conflict() -> bool:
+    """Owner 2026-11-17: a merge whose only conflict is ROADMAP.md (status notes written on both sides) is resolved
+    automatically and committed; any other conflicted file leaves the merge to be aborted as before. 2026-11-16: two
+    T-590 notes kept the EC2 worker on day-old code (36 commits behind main) until a human merged by hand."""
+    conflicted = run(["git", "diff", "--name-only", "--diff-filter=U"], check=False, capture=True).stdout.split()
+    if conflicted != ["ROADMAP.md"]:
+        return False
+    path = pathlib.Path(REPO) / "ROADMAP.md"
+    try:
+        merged = merge_roadmap_text(path.read_text(encoding="utf-8"))
+    except OSError:
+        return False
+    if merged is None or any(line.startswith(("<<<<<<< ", ">>>>>>> ")) for line in merged.splitlines()):
+        return False
+    path.write_text(merged, encoding="utf-8")
+    if run(["git", "add", "ROADMAP.md"], check=False).returncode != 0:
+        return False
+    return run(["git", "commit", "--no-edit", "--no-verify"], check=False, capture=True).returncode == 0
+
+
 def sync_branch(branch: str) -> str:
     """Pull the worker branch, then bring in main. Returns "", "code_updated", "conflict" or "offline".
 
     Runner code can arrive through either step (a fix pushed to the worker branch, or main), so the
     comparison starts before the pull; otherwise new runner code sits on disk without being loaded.
     """
+    # 2026-11-04: "pull --rebase" replayed main's merge commits one by one, stopped on a conflict that a
+    # merge commit had already resolved, and left the checkout mid-rebase; the worker was down for ~7 h.
+    # Never rebase: abort a leftover rebase, then fast-forward or merge the remote worker branch.
+    git_dir = pathlib.Path(REPO) / ".git"
+    if (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists():
+        run(["git", "rebase", "--abort"], check=False)
+    # #236: a restart in the middle of a merge leaves MERGE_HEAD behind; every later merge would then fail and the
+    # worker would report "conflict" forever. Abort it (committed work is untouched) and sync again from scratch.
+    if (git_dir / "MERGE_HEAD").exists():
+        run(["git", "merge", "--abort"], check=False)
     before = git_head()
-    run(["git", "pull", "--rebase", "origin", branch], check=False, timeout=GIT_NET_TIMEOUT)
+    if run(["git", "fetch", "origin", branch], check=False, timeout=GIT_NET_TIMEOUT).returncode == 0:
+        remote = f"origin/{branch}"
+        if run(["git", "merge", "--ff-only", remote], check=False, capture=True).returncode != 0:
+            if run(["git", "merge", "--no-edit", remote], check=False, capture=True).returncode != 0:
+                if not resolve_roadmap_only_conflict():
+                    run(["git", "merge", "--abort"], check=False)
+                    return "conflict"
     if run(["git", "fetch", "origin", BASE_BRANCH], check=False, timeout=GIT_NET_TIMEOUT).returncode != 0:
         return "offline"
     target = f"origin/{BASE_BRANCH}"
     if run(["git", "merge", "--ff-only", target], check=False, capture=True).returncode != 0:
         if run(["git", "merge", "--no-edit", target], check=False, capture=True).returncode != 0:
-            run(["git", "merge", "--abort"], check=False)
-            return "conflict"
+            if not resolve_roadmap_only_conflict():
+                run(["git", "merge", "--abort"], check=False)
+                return "conflict"
     after = git_head()
     if not before or after == before:
         return ""
     changed = run(["git", "diff", "--name-only", before, after], check=False, capture=True).stdout.split()
-    return "code_updated" if any(name.startswith("autopilot/") and name.endswith(".py") for name in changed) else ""
+    # T-670: the browser worker imports browser_runner/ once per process, so its changes need the same restart.
+    return "code_updated" if any(name.startswith(RUNNER_CODE_DIRS) and name.endswith(".py") for name in changed) else ""
 
 
 def push_branch(branch: str) -> bool:
@@ -249,10 +364,18 @@ def commits_ahead(branch: str) -> int:
 
 
 def answers_marker() -> int:
+    """Fingerprint of the owner's answers: changes only when their *content* changes.
+
+    2026-11-15: this used the file's mtime. A sync whose merge of main conflicted ran `git merge` +
+    `git merge --abort` on every loop pass; both rewrite answers.md (main had changed it), so the mtime moved
+    each pass, a blocked task was "woken" every ~2 minutes and Telegram got ~300 identical cards. A content
+    hash ignores rewrites, checkouts and touches; only real new owner input wakes a blocked task.
+    """
     try:
-        return ANSWERS.stat().st_mtime_ns
-    except FileNotFoundError:
+        data = ANSWERS.read_bytes()
+    except OSError:
         return 0
+    return int.from_bytes(hashlib.sha256(data).digest()[:7], "big") or 1
 
 
 def parking_path() -> pathlib.Path:
@@ -388,6 +511,21 @@ def idle_notice(path: pathlib.Path = ROADMAP, parked: set[str] | frozenset[str] 
     return "🏁 FactoryOS roadmap has no remaining safe tasks."
 
 
+def loop_beat(state: str = "idle", *, long_job: bool = False, task: str = "") -> None:
+    """T-714: promise the next beat within 15 min (plus the longest deliberate sleep), or within the task timeout
+    plus 15 min before a Claude CLI run. A loop that breaks the promise is restarted by the supervisor's watchdog."""
+    budget = (max(TASK_TIMEOUT_SECONDS, 3600) if long_job else max(IDLE_SECONDS, PAUSE_SECONDS)) + worker_heartbeat.STALE_AFTER_SECONDS
+    worker_heartbeat.beat(LOOP_BEAT, budget_seconds=budget, state=state, task=task)
+
+
+def run_browser_fallback() -> bool:
+    """T-560 in-loop browser task, now only a fallback (T-714): while the dedicated Surfer worker beats, it owns the
+    queue and this loop starts no second Chromium. True when a task was run."""
+    if worker_heartbeat.alive(SURFER_BEAT):
+        return False
+    return browser_tasks.run_one() == "done"
+
+
 def main() -> int:
     branch = assert_safe_branch()
     # T-599-A: a blocked or failed task is parked instead of stalling the whole queue.
@@ -418,8 +556,11 @@ def main() -> int:
     decided: dict[str, tuple[str, str]] = {}
 
     while True:
+        loop_beat()
         # Owner controls are only read here, between tasks, so a pause never interrupts a running task.
-        decision = poll_control(paused, set(blocked) | failed_hold, decided)
+        # The owner controls queue serves the Claude runner; a Gemini runner must not ack (and so swallow) its commands.
+        decision = (poll_control(paused, set(blocked) | failed_hold, decided) if CLAUDE_SIDE_JOBS
+                    else {"paused": False, "retry": "", "acks": []})
         if decision["retry"]:
             send(f"🔁 {decision['retry']}: owner requested a retry from FactoryOS.")
             failures = 0
@@ -478,34 +619,55 @@ def main() -> int:
             persist()
             send("▶️ Claude subscription limit window has passed; the queue resumes.")
 
-        # Owner desk questions are short and read-only, so they go before any long task.
-        owner_questions.maybe_selftest()
-        asked, hint = owner_questions.answer_one(REPO)
-        if asked == "limit":
-            notice = hold_for_limit(hint)
-            write_runtime_status("idle", summary=notice)
-            send(notice)
-            continue
-        if asked in ("answered", "failed"):
-            continue
-
-        # T-603: the owner's morning MyCast episode, once a day, between tasks.
-        if MYCAST_ENABLED:
-            cast = mycast_daily.run_daily(ANSWERS.with_name("mycast.json"))
-            if cast == "limit":
-                notice = hold_for_limit("")
+        # T-607: the Gemini runner skips the Claude-only jobs below (they start Claude CLI or claim Claude tickets).
+        if CLAUDE_SIDE_JOBS:
+            # Owner desk questions, MyCast and Relay tickets can start Claude CLI: promise a long-job deadline.
+            loop_beat("side_jobs", long_job=True)
+            # Owner desk questions are short and read-only, so they go before any long task.
+            owner_questions.maybe_selftest()
+            asked, hint = owner_questions.answer_one(REPO)
+            if asked == "limit":
+                notice = hold_for_limit(hint)
                 write_runtime_status("idle", summary=notice)
                 send(notice)
                 continue
-            if cast != "idle":
+            if asked in ("answered", "failed"):
                 continue
 
-        # Relay owner tickets have priority over ordinary roadmap work. This is
-        # an actual claim + bounded Claude CLI invocation, not a UI status flip.
-        if relay_tasks.run_one(REPO, status_fn=write_runtime_status):
-            last_idle_notice = ""
-            time.sleep(PAUSE_SECONDS)
-            continue
+            # T-603: the owner's morning MyCast episode, once a day, between tasks.
+            if MYCAST_ENABLED:
+                cast = mycast_daily.run_daily(ANSWERS.with_name("mycast.json"), repo=REPO)
+                if cast == "limit":
+                    notice = hold_for_limit("")
+                    write_runtime_status("idle", summary=notice)
+                    send(notice)
+                    continue
+                if cast != "idle":
+                    continue
+                # #317: website listeners' episodes, one per pass, only after the owner's own episode is settled.
+                cast = mycast_listeners.run_listeners(ANSWERS.with_name("mycast_listeners.json"))
+                if cast == "limit":
+                    notice = hold_for_limit("")
+                    write_runtime_status("idle", summary=notice)
+                    send(notice)
+                    continue
+                if cast != "idle":
+                    continue
+
+            # Owner 2026-11-13: every open PR gets an automatic Codex review (advisory comment). Cheap: no model runs here,
+            # Codex answers in its own isolated service; at most one new request per pass.
+            codex_review.run_once(ANSWERS.with_name("codex_review.json"))
+            # T-560: the owner's read-only browser tasks (anonymous Chromium, one per pass; idle without Playwright).
+            # T-714: only when the dedicated Surfer worker (autopilot.browser_worker) is not alive.
+            if run_browser_fallback():
+                continue
+
+            # Relay owner tickets have priority over ordinary roadmap work. This is
+            # an actual claim + bounded Claude CLI invocation, not a UI status flip.
+            if relay_tasks.run_one(REPO, status_fn=write_runtime_status):
+                last_idle_notice = ""
+                time.sleep(PAUSE_SECONDS)
+                continue
 
         # Keep the dedicated EC2 Relay executor focused on owner requests.
         # It must not silently consume unrelated ROADMAP tasks while idle.
@@ -556,6 +718,7 @@ def main() -> int:
             write_runtime_status("idle", task=target["id"], summary=f"{target['id']} not started: {reason}")
             continue
         report = relay_tasks.RunReporter(ticket) if ticket else (lambda *a, **k: None)
+        loop_beat("running", long_job=True, task=target["id"])
         head_before = git_head()
         if ticket:
             report("running", f"{target['id']}: Claude Code CLI started", {"branch": branch})

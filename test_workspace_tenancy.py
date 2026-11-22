@@ -88,12 +88,15 @@ def seed_workspace(email):
     now = factory.ts()
     con = factory.db()
     con.execute("UPDATE jobs SET status='waiting_approval' WHERE id=?", (job_id,))
+    decision_id = str(uuid.uuid4())
     con.execute("""INSERT INTO approval_decisions(id,job_id,decision,reason,actor,created_at,meta_json)
-                   VALUES(?,?,?,?,?,?,?)""", (str(uuid.uuid4()), job_id, "approved", "fixture", "owner", now, "{}"))
+                   VALUES(?,?,?,?,?,?,?)""", (decision_id, job_id, "approved", "fixture", "owner", now, "{}"))
     ids = {}
     for kind, status_value in (("published", "published"), ("scheduled", "scheduled")):
         pid = str(uuid.uuid4())
-        meta = {"content_snapshot": {"title": f"{MEMBERS[email]} post", "caption": "c"}, "content_snapshot_hash": "h"}
+        # #238: a publish item carries the owner approval of its own job, as items created by /approve do.
+        meta = {"content_snapshot": {"title": f"{MEMBERS[email]} post", "caption": "c"}, "content_snapshot_hash": "h",
+                "approval_decision_id": decision_id}
         con.execute("""INSERT INTO publishing_queue(id,job_id,package_id,status,target,platform,scheduled_at,idempotency_key,
                        attempt_count,external_post_id,created_at,updated_at,published_at,meta_json)
                        VALUES(?,?,?,?,?,?,?,?,0,?,?,?,?,?)""",
@@ -235,11 +238,13 @@ def check_background_workers(acme, globex):
     status, created = call("POST", "/api/jobs", cookie_for("owner"), {"title": "owner default job"})
     require(created["workspace_key"] == "default", "owner job defaults to the default workspace")
     pid = str(uuid.uuid4())
+    decision_id = factory._record_approval(created["id"], "approved", "fixture: owner approval of this job (#238 gate)")
     con = factory.db()
     con.execute("""INSERT INTO publishing_queue(id,job_id,package_id,status,target,platform,scheduled_at,idempotency_key,
                    attempt_count,created_at,updated_at,meta_json) VALUES(?,?,?,?,?,?,?,?,0,?,?,?)""",
                 (pid, created["id"], "pkg-default", "scheduled", "webhook", "youtube_shorts", "2026-01-01T00:00:00+00:00",
-                 "idem-default", factory.ts(), factory.ts(), json.dumps({"content_snapshot": {"title": "d"}})))
+                 "idem-default", factory.ts(), factory.ts(),
+                 json.dumps({"content_snapshot": {"title": "d"}, "approval_decision_id": decision_id})))
     con.commit()
     con.close()
     sent = []
@@ -322,6 +327,12 @@ def check_sessions():
     require(factory._google_identity_role("alice@acme.test") == "member", "configured customers sign in as members")
     require(tenancy.parse_members("a@x.io=Acme, bad, c@x.io=../etc, d@x.io=ok_1") == {"a@x.io": "acme", "d@x.io": "ok_1"},
             "member map parsing normalizes keys and drops invalid entries")
+    for invalid_ws in ("../", "/", "", "a" * 205):
+        try:
+            tenancy.normalize_workspace(invalid_ws)
+            require(False, f"workspace key '{invalid_ws}' must be rejected")
+        except ValueError:
+            pass
 
 
 def main():

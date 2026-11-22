@@ -159,14 +159,27 @@ require(eng["battle"]["battle_id"] == "battle_" + battle_runs._sha("battle|eng-1
 refused(lambda: app.battle_create(request({**content_body, "idempotency_key": "eng-1"})), 409)
 
 # validation
+con = app.db()
+count_before = con.execute("SELECT COUNT(*) FROM battle_runs").fetchone()[0]
+con.close()
+
 refused(lambda: app.battle_create(request({**content_body, "chains": content_body["chains"][:1]})), 422)
 refused(lambda: app.battle_create(request({**content_body, "chains": [content_body["chains"][0]] * 2})), 409)
+refused(lambda: app.battle_create(request({**content_body, "brief": ""})), 422)
 refused(lambda: app.battle_create(request({**content_body, "brief": " "})), 422)
+refused(lambda: app.battle_create(request({**content_body, "brief": "x" * (battle_runs.MAX_BRIEF + 1)})), 422)
 refused(lambda: app.battle_create(request({**content_body, "kind": "ads"})), 422)
 bad = lambda step: {**content_body, "chains": [content_body["chains"][0], {"steps": [step]}]}  # noqa: E731
 refused(lambda: app.battle_create(request(bad({"role": "engineer", "operator": "chatgpt"}))), 409)
 refused(lambda: app.battle_create(request(bad({"role": "nope", "operator": "claude"}))), 404)
 refused(lambda: app.battle_create(request(bad({"role": "scout", "operator": "gpt"}))), 422)
+refused(lambda: app.battle_create(request(bad({"role": "scout", "operator": "unknown_operator"}))), 422)
+refused(lambda: app.battle_create(request(bad({"role": "scout", "operator": ""}))), 422)
+
+con = app.db()
+count_after = con.execute("SELECT COUNT(*) FROM battle_runs").fetchone()[0]
+require(count_after == count_before, "invalid requests save nothing to database")
+con.close()
 
 # results keep the actual producer, run in order, match the plan and are immutable
 c1, c2 = a["chain_id"], b["chain_id"]

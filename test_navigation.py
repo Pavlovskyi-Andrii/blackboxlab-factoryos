@@ -40,15 +40,22 @@ BEFORE = {
     "nav.agents": "openAgentDirectory()",
     "nav.supervisor": "document.querySelector('.supervisor').scrollIntoView()",
     "nav.errors": "document.querySelector('.errorCenterCard').scrollIntoView()",
-    "nav.pipeline": "document.querySelector('.pipelineCard').scrollIntoView()",
+    "nav.pipeline": "openMakingOf()",
     "nav.build": "openBuildProgress()",
     "dc.nav": "openDelegationCenter()",
     "nav.outputs": "S&&S.selectedJobId?openJobOutputs(S.selectedJobId):toast(tr('toast.selectJob'))",
     "nav.analytics": "openFactoryIntelligence()",
     "nav.qa": "openReleaseReadiness()",
     "nav.settings": None,
+    "mvp.nav": "openMvpFactory()",
+    "mycast.nav": "openMyCastConfigurator()",
+    "nav.browser": "document.querySelector('.brAgentCard').scrollIntoView()",    # owner 2026-11-13: cards had no entry
+    "nav.ownerHub": "document.querySelector('.ohCard').scrollIntoView()",
+    "nav.strategy": "document.querySelector('.stratCard').scrollIntoView()",   # owner 2026-11-14: brand strategy
+    "nav.learn": "openLearning()",   # owner 2026-11-14: one Learning section (my learning, explainers, guide)
+    "mods.nav": "document.querySelector('.modsCard').scrollIntoView()",   # owner 2026-11-15 (T-MODS): Mods & skills
 }
-GROUPS = ("overview", "create", "publish", "grow", "automation", "system")
+GROUPS = ("overview", "create", "publish", "grow", "automation", "mvp", "mods", "learn", "system")
 # Live counters updated by other renderers must keep their ids inside the sidebar.
 COUNTERS = ("brainNavCount", "discoveryNavCount", "revideoNavCount", "variantNavCount", "packageNavState", "buildNavPct")
 
@@ -112,6 +119,9 @@ def check_routes_and_groups(items):
     return [attr(b[1], "data-nav-id") for b in buttons]
 
 
+PRODUCT_NAMES = {"navGroup.mvp"}
+
+
 def check_locales(tables, nav_ids):
     keys = [f"navGroup.{g}" for g in GROUPS] + ["navGroup.aria"] + [f"navHint.{n}" for n in nav_ids]
     keys += ["navMenu.open", "navMenu.close", "navCrumb.aria", "navCrumb.home"]
@@ -121,7 +131,8 @@ def check_locales(tables, nav_ids):
         for lang in ("uk", "ru"):
             value = tables[lang].get(key)
             require(value, f"{lang} missing {key}")
-            require(value != en, f"{lang} {key} is untranslated EN copy")
+            # Product names stay in English on purpose (owner 2026-11-11: "MVP Builder" in every language).
+            require(value != en or key in PRODUCT_NAMES, f"{lang} {key} is untranslated EN copy")
             require(not FOREIGN_LETTERS[lang].search(value), f"{lang} {key} uses letters from the other language: {value}")
     require(tables["uk"]["navGroup.create"] != tables["ru"]["navGroup.create"], "UK and RU section labels must be distinct copy")
 
@@ -297,7 +308,7 @@ const out={runs:[],langs:{},fails};
 for(const job of [false,true])for(const id of IDS){
  const e=boot({job}),b=nav(e,id);tap(e,b.querySelector('[data-i18n]'));
  const r={id,job,calls:e.calls.slice(),toasts:e.toasts.slice(),top:e.top,current:current(e),aria:b.getAttribute('aria-current'),crumbs:crumbs(e),
-  scrolled:['pipelineCard','supervisor','errorCenterCard','jobs'].filter(c=>$$(e,'.'+c).scrolled),studio:$$(e,'#studio').classList.contains('open')};
+  scrolled:['pipelineCard','supervisor','errorCenterCard','jobs','brAgentCard','ohCard','stratCard','modsCard'].filter(c=>$$(e,'.'+c).scrolled),studio:$$(e,'#studio').classList.contains('open')};
  if(r.studio){$$(e,'#studio').classList.remove('open');tick(e);r.after=current(e);r.afterCrumbs=crumbs(e)}
  out.runs.push(r);
 }
@@ -378,7 +389,7 @@ def dom_inputs(html, script, i18n, assigns, tr):
         re.search(r'<nav class="navCrumbs"[^>]*></nav>', html),
     ]
     require(all(markup), "sidebar, toggle, backdrop or breadcrumb markup not found for the behaviour run")
-    stubs = '<div id="studio" class="drawer"></div>' + "".join(f'<div class="{c}"></div>' for c in ("pipelineCard", "supervisor", "errorCenterCard", "jobs"))
+    stubs = '<div id="studio" class="drawer"></div>' + "".join(f'<div class="{c}"></div>' for c in ("pipelineCard", "supervisor", "errorCenterCard", "jobs", "brAgentCard", "ohCard", "stratCard", "modsCard"))
     block = re.search(r"^// --- nav:begin.*?^// --- nav:end$", script, re.S | re.M)
     require(block is not None, "nav script block markers missing")
     parts = [

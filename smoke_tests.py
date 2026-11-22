@@ -24,9 +24,9 @@ def route_exists(path, method):
     method=method.upper()
     return any(getattr(route,"path",None)==path and method in set(getattr(route,"methods",set()) or set()) for route in app.app.routes)
 
-health=app.health()
+health=app.health_details()  # #114 A-1: the public /health only says ok; details need a session
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v5.7.1","version mismatch")
+require(health["version"]==app.APP_VERSION=="v5.16.0","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -276,6 +276,14 @@ legacy_id=legacy["id"]
 con=app.db();con.execute("UPDATE jobs SET stage='qa',status='waiting_approval',progress=75,updated_at=? WHERE id=?",(app.ts(),legacy_id));con.commit();con.close()
 legacy_item=next(x for x in app.get_approval_queue()["items"] if x["job"]["id"]==legacy_id)
 require(legacy_item["legacy_incomplete"] is True and legacy_item["review_ready"] is False,"legacy approval item must be explicitly marked incomplete")
+# Approval Studio opened with a selected job that is not in review must not render empty next to a non-zero counter.
+studio_off=app.approval_studio(job_id=job_id)
+require(studio_off["filter"]["applied"] is False and studio_off["filter"]["selected_job"]["id"]==job_id
+        and any(x["job"]["id"]==legacy_id for x in studio_off["items"]),
+        "approval studio must fall back to the whole queue and name the selected job that is not in review")
+studio_on=app.approval_studio(job_id=legacy_id)
+require(studio_on["filter"]["applied"] is True and [x["job"]["id"] for x in studio_on["items"]]==[legacy_id]
+        and studio_on["filter"]["total_items"]>=1,"approval studio must still filter to a selected job that is in review")
 contract_job=asyncio.run(app.create_job(app.JobCreate(title="CI worker contract",brief="Unknown-value fixture",presenter="Faceless",format="Short only",language="English",outputs=1)))["id"]
 contract_seed=app.save_artifact("Scout","analysis","CI contract seed","seed",job_id=contract_job)
 running_run=app.start_agent_run("Researcher",contract_job,"research",model="simulation-v4.2")
@@ -886,7 +894,7 @@ try:
             "Metricool YouTube compliance metadata regression")
     require("MUTATED AFTER APPROVAL" not in json.dumps(mc_payload,ensure_ascii=False),
             "Metricool must never receive mutable post-approval package state")
-    require(app.get_publisher_adapter_registry()["adapters"][-1]["configured"] is True,
+    require(next(a for a in app.get_publisher_adapter_registry()["adapters"] if a["kind"]=="metricool")["configured"] is True,
             "Metricool adapter registry must reflect complete server-side configuration")
     ig_payload,_,ig_network=app._metricool_scheduler_payload(
         {**metricool_item,"platform":"instagram_reels"},pub["content_snapshot"],pub["media"])
@@ -923,6 +931,45 @@ require(unscheduled["ok"] is False and "scheduling" in unscheduled["message"].lo
         "approved item must not publish before an explicit scheduling action")
 scheduled=asyncio.run(app.schedule_publishing(pub["id"],app.PublishScheduleRequest(target="manual",platform="youtube_shorts",scheduled_at=app.ts())))
 require(scheduled["item"]["status"]=="scheduled","publishing schedule regression")
+# #238 — publish/approval boundary: the publisher adapter never runs without the current owner approval of the same job.
+adapter_calls=[]
+orig_adapter=app._publish_via_adapter
+app._publish_via_adapter=lambda item:adapter_calls.append(item["id"]) or orig_adapter(item)
+def _set_decision(publish_id,decision_id):
+    con=app.db();row=con.execute("SELECT meta_json FROM publishing_queue WHERE id=?",(publish_id,)).fetchone()
+    meta=json.loads(row["meta_json"] or "{}");meta["approval_decision_id"]=decision_id
+    con.execute("UPDATE publishing_queue SET meta_json=?,status='scheduled' WHERE id=?",(json.dumps(meta),publish_id));con.commit();con.close()
+real_decision=pub["approval_decision_id"]
+try:
+    for label,decision,want in (("absent approval",None,"No owner approval"),
+                                ("unknown approval","missing-decision-id","not found")):
+        _set_decision(pub["id"],decision)
+        refused=asyncio.run(app.publish_scheduled_item(pub["id"]))
+        require(refused["ok"] is False and refused.get("approvalRequired") and want in refused["message"],f"{label} must be refused: {refused}")
+    # Cross-job: an approval recorded for another job cannot authorise this item.
+    other_decision=app._record_approval("some-other-job","approved","approval of a different job")
+    _set_decision(pub["id"],other_decision)
+    refused=asyncio.run(app.publish_scheduled_item(pub["id"]))
+    require(refused["ok"] is False and "different job" in refused["message"],f"cross-job approval must be refused: {refused}")
+    # A rejection decision linked as if it were an approval.
+    rejection=app._record_approval(job_id,"rejected","not an approval")
+    _set_decision(pub["id"],rejection)
+    refused=asyncio.run(app.publish_scheduled_item(pub["id"]))
+    require(refused["ok"] is False and "not an approval" in refused["message"],f"non-approval decision must be refused: {refused}")
+    # Stale: the owner's real approval, followed by a newer owner decision on the same job.
+    _set_decision(pub["id"],real_decision)
+    refused=asyncio.run(app.publish_scheduled_item(pub["id"]))
+    require(refused["ok"] is False and "stale" in refused["message"],f"approval superseded by a newer decision must be refused: {refused}")
+    require(adapter_calls==[],"no publisher adapter call on any refused path")
+    status=app.db().execute("SELECT status FROM publishing_queue WHERE id=?",(pub["id"],)).fetchone()["status"]
+    require(status=="scheduled","a refused publish must not move the item to publishing/published")
+    # Allowed: the current owner approval of this job (re-approval makes it the newest decision again).
+    fresh=app._record_approval(job_id,"approved","owner approved again for the regression")
+    _set_decision(pub["id"],fresh)
+    pub=app._publish_item(app.db().execute("SELECT * FROM publishing_queue WHERE id=?",(pub["id"],)).fetchone())
+    require(app._publish_approval_gate(pub)=="","the current owner approval of the same job must pass the gate")
+finally:
+    app._publish_via_adapter=orig_adapter
 started=asyncio.run(app.publish_scheduled_item(pub["id"]))
 require(started["requiresManualConfirmation"] is True,"manual path must require factual platform confirmation")
 confirmed=asyncio.run(app.confirm_manual_publish(pub["id"],app.PublishConfirmRequest(external_post_id="ci-post-1",external_url="https://example.com/post/ci-post-1")))
@@ -934,6 +981,15 @@ require("content_snapshot_hash" in (receipt["meta_json"] or "") and "approval_de
         "publish receipt must preserve approved content/decision provenance")
 again=asyncio.run(app.publish_scheduled_item(pub["id"]))
 require(again.get("idempotent") is True,"published item must be duplicate-safe")
+# #238 replay: publishing an already published item again never reaches the adapter.
+replay_calls=[]
+orig_adapter=app._publish_via_adapter
+app._publish_via_adapter=lambda item:replay_calls.append(item["id"]) or orig_adapter(item)
+try:
+    replay=asyncio.run(app.publish_scheduled_item(pub["id"]))
+    require(replay.get("idempotent") is True and replay_calls==[],"replayed publish must not call the publisher again")
+finally:
+    app._publish_via_adapter=orig_adapter
 
 # v3.80 Feedback Loop — store only metrics actually supplied and preserve attribution.
 snap=app.record_performance_snapshot(app.PerformanceSnapshotCreate(publish_id=pub["id"],views=1200,retention_pct=61.5,likes=48,source="ci_fixture"))
@@ -1218,7 +1274,7 @@ require("workerSelectedResult" in html and "selected_job_result" in Path("app.py
 require('"/media-archive/"' in Path("app.py").read_text(encoding="utf-8").split("public_prefixes =",1)[1].split("\n",1)[0],"signed durable media route must bypass session auth before token validation")
 require('data-help="help.approval"' in html and 'data-help="help.brain"' in html and 'data-help="help.worker"' in html and 'data-help="help.finisher"' in html,"help tooltip coverage missing")
 require("legacyBanner" in html and "approval.legacyHelp" in html,"legacy approval clarity missing")
-require('<span class="version">v5.3</span>' in html,"visible UI version mismatch")
+require(f'<span class="version" id="appVersion">{app.APP_VERSION}</span>' in html,"visible UI version mismatch")
 require('autopilotDecisions' in html and 'recent_decisions' in html,"autopilot decision review UI missing")
 require("v3.24 mobile parity" in html,"mobile parity CSS marker missing")
 require(".agent{display:none}" not in html,"mobile CSS must not hide clickable worker cards")
@@ -1305,3 +1361,10 @@ try:
     require("must-not-survive" not in json.dumps(wo),"worker overview leaked supervisor extras")
 finally:
     app.claude_worker_runtime.clear();app.claude_worker_runtime.update(old_runtime)
+
+# #359: include CRM persistence, owner-only authorization and task regression in the standard CI smoke run.
+import unittest as _faceless_unit
+from test_faceless_crm import FacelessCrmTests as _FacelessCrmTests
+_faceless_result = _faceless_unit.TextTestRunner(verbosity=0).run(
+    _faceless_unit.defaultTestLoader.loadTestsFromTestCase(_FacelessCrmTests))
+require(_faceless_result.wasSuccessful(), 'Faceless Models CRM regression failed')

@@ -15,7 +15,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from lane_board import TEXT, build_lane_board, lane_board_text
+from lane_board import TEXT, build_lane_board, lane_board_text, telegram_lang
 from relay import RelayStore, relay_handle_telegram_update
 from relay_execution import RelayQueue
 
@@ -120,6 +120,28 @@ class TestLaneStates(LaneBoardCase):
         self.assertEqual((lane["state"], lane["task_id"], lane["stage"]), ("blocked", "T-901", "blocked"))
         self.assertEqual(self.task(board, "T-901")["column"], "blocked")
 
+    def test_old_block_is_history_not_current_state(self):
+        # 2026-11-05 mobile screenshot: a run blocked three days earlier still showed the lane as "Blocked".
+        self.fixture_blocked()
+        later = time.time() + 2 * 86400
+        board = build_lane_board(ROADMAP, self.store.list(limit=500), {"claude": later - 5},
+                                 now=later, stale_seconds=self.queue.stale_seconds)
+        lane = board["lanes"]["claude"]
+        self.assertEqual((lane["state"], lane["task_id"], lane["reason"]), ("idle", "", ""))
+        self.assertEqual(lane["last_task_id"], "T-901")                       # still visible as the last task
+        self.assertEqual(self.task(board, "T-901")["column"], "blocked")       # the task itself stays blocked
+
+    def test_github_activity_is_shown_not_trusted_as_state(self):
+        activity = {"gemini": {"done_7d": 6, "last_activity_at": "2026-11-05T08:42:38+00:00"}, "chatgpt": {"done_7d": 0},
+                    "claude": "garbage"}
+        board = build_lane_board(ROADMAP, self.store.list(limit=500), {}, stale_seconds=self.queue.stale_seconds,
+                                 github_activity=activity)
+        gem = board["lanes"]["gemini"]
+        self.assertEqual(gem["github"], {"done_7d": 6, "last_activity_at": "2026-11-05T08:42:38+00:00"})
+        self.assertEqual(gem["state"], "offline")             # no heartbeat: GitHub activity never fakes "online"
+        self.assertIsNone(board["lanes"]["chatgpt"]["github"])  # nothing to show
+        self.assertIsNone(board["lanes"]["claude"]["github"])   # malformed input ignored
+
     def test_stale_run_lost_contact(self):
         board = self.fixture_stale()
         lane = board["lanes"]["claude"]
@@ -201,6 +223,22 @@ class TestTelegramMatchesWeb(LaneBoardCase):
         text = lane_board_text(board, "de")
         self.assertIn(TEXT["ru"]["title"], text)
         self.assertIn("В работе 1", text)
+
+    def test_lane_board_text(self):
+        board = self.fixture_working()
+        texts = {lang: lane_board_text(board, lang) for lang in ("ru", "uk", "en")}
+        for lang in ("ru", "uk", "en"):
+            self.assertIn(TEXT[lang]["title"], texts[lang])
+        nums = {lang: re.findall(r"\d+", texts[lang]) for lang in ("ru", "uk", "en")}
+        self.assertEqual(nums["ru"], nums["uk"])
+        self.assertEqual(nums["ru"], nums["en"])
+
+    def test_telegram_lang(self):
+        self.assertEqual(telegram_lang('uk-UA'), 'uk')
+        self.assertEqual(telegram_lang('EN'), 'en')
+        self.assertEqual(telegram_lang(None), 'ru')
+        self.assertEqual(telegram_lang('de'), 'ru')
+        self.assertEqual(telegram_lang(''), 'ru')
 
 
 def ui_program():

@@ -1,0 +1,233 @@
+{
+  "schema": "film-studio/storyboard/v1",
+  "project_id": "blackbox-lab-film-studio-pilot",
+  "revision": 1,
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 24,
+    "seconds": 45,
+    "ratio": "16:9",
+    "preview_width": 1280,
+    "preview_height": 720,
+    "language": "ru"
+  },
+  "creative_goal": "Create an honest and engaging cinematic introduction to FactoryOS / Blackbox Lab, not a claim of proven autonomous business outcomes.",
+  "narration_policy": "The script is proposed; actual VO timing must be aligned to the chosen local/user-supplied voice. Do not claim narration generated.",
+  "shots": [
+    {
+      "shot_id": "s01",
+      "scene_id": "scene_01",
+      "start_sec": 0,
+      "duration_sec": 5,
+      "end_sec": 5,
+      "label": "Ночной город",
+      "voiceover_ru": "Что, если идея сможет пройти путь до реального продукта?",
+      "visual_source": "licensed_stock_candidate",
+      "asset_id": "pexels-5847759",
+      "visual_brief": "Establishing wide night skyline, damp reflections, realistic practical lights, no sci-fi buildings",
+      "camera": {
+        "preset": "slow_dolly_in",
+        "zoom_max": 1.08
+      },
+      "graphics": {
+        "title": "ЧТО, ЕСЛИ...",
+        "overlay_generated_by_code": true,
+        "demonstration_label": null
+      },
+      "transition": {
+        "type": "fade_in",
+        "duration_sec": 0.4
+      },
+      "state": "not_started",
+      "renderer": "photo_cinema",
+      "rights_verified": false,
+      "requires_owner_approval": true
+    },
+    {
+      "shot_id": "s02",
+      "scene_id": "scene_02",
+      "start_sec": 5,
+      "duration_sec": 6,
+      "end_sec": 11,
+      "label": "Вопрос",
+      "voiceover_ru": "Сначала вопрос. Затем — спор, гипотезы и поиск доказательств.",
+      "visual_source": "licensed_stock_candidate",
+      "asset_id": "pexels-10410074",
+      "visual_brief": "Quiet workspace at night, practical amber windows against dark blue",
+      "camera": {
+        "preset": "subtle_pan_right",
+        "zoom_max": 1.08
+      },
+      "graphics": {
+        "title": "ИДЕЯ → ГИПОТЕЗА",
+        "overlay_generated_by_code": true,
+        "demonstration_label": null
+      },
+      "transition": {
+        "type": "cut",
+        "duration_sec": 0
+      },
+      "state": "not_started",
+      "renderer": "photo_cinema",
+      "rights_verified": false,
+      "requires_owner_approval": true
+    },
+    {
+      "shot_id": "s03",
+      "scene_id": "scene_03",
+      "start_sec": 11,
+      "duration_sec": 6,
+      "end_sec": 17,
+      "label": "Факты",
+      "voiceover_ru": "Агенты собирают факты и отделяют сигналы от догадок.",
+      "visual_source": "licensed_stock_candidate",
+      "asset_id": "pexels-7983347",
+      "visual_brief": "Real computer and notes; overlay cards staged as DEMO, no made-up citation counts",
+      "camera": {
+        "preset": "slow_dolly_in",
+        "zoom_max": 1.08
+      },
+      "graphics": {
+        "title": "ИСТОЧНИКИ · СИГНАЛЫ",
+        "overlay_generated_by_code": true,
+        "demonstration_label": "DEMO"
+      },
+      "transition": {
+        "type": "cut",
+        "duration_sec": 0
+      },
+      "state": "not_started",
+      "renderer": "photo_cinema",
+      "rights_verified": false,
+      "requires_owner_approval": true
+    },
+    {
+      "shot_id": "s04",
+      "scene_id": "scene_04",
+      "start_sec": 17,
+      "duration_sec": 7,
+      "end_sec": 24,
+      "label": "Прототип",
+      "voiceover_ru": "План превращается в прототип. Прототип — в проверяемый эксперимент.",
+      "visual_source": "licensed_stock_candidate",
+      "asset_id": "pexels-5496464",
+      "visual_brief": "Hands typing in dim light; 35mm documentary detail, do not misrepresent stock actor as FactoryOS worker",
+      "camera": {
+        "preset": "subtle_pan_left",
+        "zoom_max": 1.08
+      },
+      "graphics": {
+        "title": "ПРОТОТИП",
+        "overlay_generated_by_code": true,
+        "demonstration_label": null
+      },
+      "transition": {
+        "type": "cut",
+        "duration_sec": 0
+      },
+      "state": "not_started",
+      "renderer": "photo_cinema",
+      "rights_verified": false,
+      "requires_owner_approval": true
+    },
+    {
+      "shot_id": "s05",
+      "scene_id": "scene_05",
+      "start_sec": 24,
+      "duration_sec": 6,
+      "end_sec": 30,
+      "label": "Креатив",
+      "voiceover_ru": "Из этих материалов рождаются сценарии, визуалы и новые версии видео.",
+      "visual_source": "licensed_stock_candidate",
+      "asset_id": "pexels-17489156",
+      "visual_brief": "Real data center as metaphor; motion graphics nodes composited with explicit DEMO label",
+      "camera": {
+        "preset": "slow_orbit_2_5d",
+        "zoom_max": 1.08
+      },
+      "graphics": {
+        "title": "СЦЕНАРИЙ → ВИЗУАЛ → МОНТАЖ",
+        "overlay_generated_by_code": true,
+        "demonstration_label": "DEMO"
+      },
+      "transition": {
+        "type": "cut",
+        "duration_sec": 0
+      },
+      "state": "not_started",
+      "renderer": "photo_cinema",
+      "rights_verified": false,
+      "requires_owner_approval": true
+    },
+    {
+      "shot_id": "s06",
+      "scene_id": "scene_06",
+      "start_sec": 30,
+      "duration_sec": 6,
+      "end_sec": 36,
+      "label": "Контроль",
+      "voiceover_ru": "Но публикация и реальные действия требуют контроля человека.",
+      "visual_source": "licensed_stock_candidate",
+      "asset_id": "pexels-5926378",
+      "visual_brief": "Human review interface is composited as labelled DEMO until verified real UI captured with consent",
+      "camera": {
+        "preset": "static_with_graphic",
+        "zoom_max": 1.08
+      },
+      "graphics": {
+        "title": "ПРОВЕРКА → УТВЕРЖДЕНИЕ",
+        "overlay_generated_by_code": true,
+        "demonstration_label": "DEMO"
+      },
+      "transition": {
+        "type": "cut",
+        "duration_sec": 0
+      },
+      "state": "not_started",
+      "renderer": "photo_cinema",
+      "rights_verified": false,
+      "requires_owner_approval": true
+    },
+    {
+      "shot_id": "s07",
+      "scene_id": "scene_07",
+      "start_sec": 36,
+      "duration_sec": 9,
+      "end_sec": 45,
+      "label": "Финал",
+      "voiceover_ru": "FactoryOS. Blackbox Lab. Не обещание успеха — лаборатория, в которой мы проверяем, что действительно работает.",
+      "visual_source": "licensed_stock_candidate",
+      "asset_id": "pexels-8344064",
+      "visual_brief": "Clean premium film end-card, discreet brand lighting, no fictional traction",
+      "camera": {
+        "preset": "slow_pull_out",
+        "zoom_max": 1.08
+      },
+      "graphics": {
+        "title": "FACTORYOS / BLACKBOX LAB",
+        "overlay_generated_by_code": true,
+        "demonstration_label": null
+      },
+      "transition": {
+        "type": "cut",
+        "duration_sec": 0
+      },
+      "state": "not_started",
+      "renderer": "photo_cinema",
+      "rights_verified": false,
+      "requires_owner_approval": true
+    }
+  ],
+  "render": {
+    "status": "not_started",
+    "actual_mp4": null,
+    "output_private": true,
+    "owner_approval": "pending"
+  },
+  "dependencies": {
+    "asset_rights": "blocked_unverified",
+    "voice": "not_selected",
+    "media_finisher_privacy": "blocked_PR428"
+  }
+}

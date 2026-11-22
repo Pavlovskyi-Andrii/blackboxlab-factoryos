@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll the FactoryOS agent relay for Codex every 2 minutes (bounded batches)
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=2min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

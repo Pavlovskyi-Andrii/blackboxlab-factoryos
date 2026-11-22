@@ -2,8 +2,14 @@
 
 Security boundary: this module executes ONLY read/draft/upload preparation steps
 within origins supplied by trusted application configuration. No credentials,
-session cookies, browser storage-state restoration, arbitrary shell commands,
-external submissions, or automatic social publishing.
+arbitrary shell commands, external submissions, or automatic social publishing.
+
+T-560-F: a logged-in browser session may be restored ONLY when the trusted host
+passes an ``EncryptedSessionStore`` and the plan's ``session_ref`` is bound to the
+plan's exact workspace/provider/account binding. The decrypted storage_state goes
+straight into the Chromium context and never into results, logs or artifacts.
+The network guard (GET/HEAD/OPTIONS only, allowlisted origins) still applies, so a
+restored session can read and prepare drafts but cannot write to the site.
 
 Playwright is an optional dependency of the separate runner host, NOT the
 FactoryOS Render web service. The default runner never uses an API service.
@@ -26,7 +32,13 @@ from .core import (
     IRREVERSIBLE_ACTIONS, BrowserActionPlan, BrowserActionResult, PolicyError,
     approval_matches, canonical_payload_hash, validate_plan,
 )
-from .sessions import challenge_checkpoint
+from .core import redact
+from .sessions import CHALLENGE_REASONS, challenge_checkpoint
+
+EXTRACT_TEXT_LIMIT = 6000
+PAGE_TEXT_LIMIT = 100_000             # read_page (T-670): the server pages through it, the agent reads it in chunks
+PAGE_LINKS_LIMIT = 150
+RENDER_WAIT_MS = 5000                 # read_page waits up to this for the network to go idle (JS-rendered pages)
 
 
 _SAFE_CLASSES = frozenset({"read", "draft", "upload"})
@@ -38,8 +50,14 @@ _UNSAFE_WORDS = re.compile(
     r"checkout|transfer|subscribe|unsubscribe|invite|confirm|follow|like)(?:[^a-z]|$)",
     re.I,
 )
+READ_SELECTOR_WAIT_MS = 8000          # how long a read task waits for a selector before reporting it missing
 _CHALLENGE_MARKERS = (
-    ("captcha", 'iframe[src*="recaptcha"],iframe[src*="hcaptcha"],.h-captcha,.g-recaptcha'),
+    # An invisible reCAPTCHA (v3 / size=invisible, e.g. on fastapi.tiangolo.com) is not a challenge to a reader.
+    ("captcha", 'iframe[src*="recaptcha"]:not([src*="size=invisible"]),iframe[src*="hcaptcha"],.h-captcha,'
+                '.g-recaptcha:not([data-size="invisible"])'),
+    # Anti-bot interstitials (Cloudflare "Just a moment...", npm "Performing security verification"): never bypassed.
+    ("bot_challenge", 'iframe[src*="challenges.cloudflare.com"],.cf-turnstile,#challenge-running,'
+                      '#cf-challenge-running,#challenge-stage,#cf-please-wait'),
     ("2fa", 'input[autocomplete="one-time-code"],input[name="otp"],input[name="totp"]'),
     ("security_challenge", 'form[id="challenge-form"],[data-security-challenge]'),
 )
@@ -52,7 +70,86 @@ _SCHEMA = {
     "wait_for": frozenset({"type", "selector"}),
     "extract": frozenset({"type", "selector"}),
     "screenshot": frozenset({"type"}),
+    "read_page": frozenset({"type"}),
 }
+
+# T-670 (Surfer benchmark 2026-11-16): a read task without selectors returned the whole <body> cut at 6000 chars, so
+# docs pages came back as language menus and version pickers. read_page runs this FIXED script (no task input reaches
+# it): it picks the main content element, hides navigation/cookie banners only while it reads innerText, puts them
+# back, and lists the page's https links for the agent's next step. It changes nothing on the site.
+_READ_PAGE_JS = r"""() => {
+  const MAIN = ['main article', '[role=main] article', 'article.markdown-body', '.markdown-body', 'article',
+    'main', '[role=main]', '#mw-content-text', '#bodyContent', '#main-content', '#content', '.content',
+    '.document', '#main', '.main'];
+  const len = el => ((el && el.innerText) || '').trim().length;
+  let root = null;
+  for (const sel of MAIN) {
+    // T-674: a selector that matches several blocks (a releases or blog list with one .markdown-body / article per
+    // entry) is a list item, not the page's main content; skip it so the shared container (main) is read instead.
+    const all = document.querySelectorAll(sel);
+    if (all.length === 1 && len(all[0]) >= 200) { root = all[0]; break; }
+  }
+  if (!root) root = document.body || document.documentElement;
+  const JUNK = 'nav,aside,script,style,noscript,template,svg,dialog,[role=navigation],[role=complementary],' +
+    '[role=search],[aria-hidden=true],[hidden],[id*=cookie i],[class*=cookie i],[id*=consent i],' +
+    '[class*=consent i],[id*=gdpr i],[class*=gdpr i],.sidebar,#sidebar,.toc,#toc,.breadcrumb,.breadcrumbs,' +
+    '.skip-link,.visually-hidden,.sr-only,include-fragment';
+  const hidden = [];
+  const hide = el => { if (el !== root && !el.contains(root)) { hidden.push([el, el.style.display]); el.style.display = 'none'; } };
+  root.querySelectorAll(JUNK).forEach(hide);
+  root.querySelectorAll('header,footer,[role=banner],[role=contentinfo]').forEach(el => {
+    if (!el.parentElement || !el.parentElement.closest('article,main,[role=main]')) hide(el);
+  });
+  let text = '';
+  try { text = root.innerText || ''; } finally { hidden.forEach(([el, d]) => { el.style.display = d; }); }
+  text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const links = [], seen = new Set();
+  const add = a => {
+    let href = '';
+    try { const u = new URL(a.href, location.href); if (u.protocol !== 'https:') return; u.hash = ''; href = u.href; }
+    catch (e) { return; }
+    if (seen.has(href)) return;
+    seen.add(href);
+    links.push({text: (a.innerText || a.getAttribute('aria-label') || a.title || '').trim().replace(/\s+/g, ' ').slice(0, 120), url: href});
+  };
+  root.querySelectorAll('a[href]').forEach(add);
+  document.querySelectorAll('a[href]').forEach(add);
+  const desc = document.querySelector('meta[name=description]');
+  return {title: (document.title || '').trim().slice(0, 300), text: text, links: links.slice(0, %d),
+          description: desc ? (desc.content || '').trim().slice(0, 500) : '',
+          main: root === document.body ? 'body' : root.tagName.toLowerCase() + (root.id ? '#' + root.id : '')};
+}""" % PAGE_LINKS_LIMIT
+
+
+# T-674: a selector match read for an AI. Sphinx/Python docs put the id on a <dt> holding only the signature (66 chars
+# for #os.path.join); the description is the following <dd>, so a <dt> is read together with its <dd>. An empty anchor
+# (<span id="x"></span>) is read as the section it labels. Fixed script, no task input; it changes nothing on the page.
+_READ_MATCHES_JS = r"""els => els.map(el => {
+  const txt = e => ((e && e.innerText) || '').trim();
+  let t = txt(el);
+  if (el.tagName === 'DT') {
+    const dd = el.nextElementSibling;
+    if (dd && dd.tagName === 'DD') t = (t + '\n' + txt(dd)).trim();
+  } else if (!t && el.id) {
+    const box = el.parentElement && el.parentElement.closest('section,article');
+    t = box ? txt(box) : txt(el.nextElementSibling);
+  }
+  return t;
+})"""
+
+# T-674: `#os.path.join` is CSS for id "os" with classes "path" and "join", so ids with dots (Python docs, Sphinx) or
+# colons never matched. A read selector that is exactly one such #id also tries the literal id via [id="..."]; the
+# CSS meaning is kept (selector list), so pages where it was right still match. Characters are limited to
+# [A-Za-z0-9_.:-], so the quoted value needs no escaping.
+_DOTTED_ID = re.compile(r"#([A-Za-z_][\w\-]*(?:[.:][\w\-]+)+)", re.ASCII)
+
+
+def read_selector(selector: str) -> str:
+    """CSS selector a read task actually uses for `selector` (an id with dots or colons also matches literally)."""
+    match = _DOTTED_ID.fullmatch(selector.strip())
+    if not match:
+        return selector
+    return f'{selector.strip()}, [id="{match.group(1)}"]'
 
 
 @dataclass(frozen=True)
@@ -64,6 +161,29 @@ class BrowserRuntimePolicy:
     upload_root: Path | None = None
     browser_executable_path: str | None = None
     allow_loopback_fixture: bool = False
+    # Read tasks on real sites (2026-11-13): pages pull CSS/JS/images from CDNs. When set, an off-allowlist GET that is
+    # not a navigation is loaded instead of failing the run. Navigations off the allowlist and every non-GET request
+    # stay blocked, and only the "read" action class may use it.
+    allow_offsite_subresource_reads: bool = False
+    # Return the extracted text (redacted, capped) for read tasks; otherwise only its length and hash are recorded.
+    return_extracted_text: bool = False
+    # Owner 2026-11-13: logged-in read tasks (a saved session) — the page's own same-origin XHR/fetch may use POST
+    # (apps like Search Console load data that way). Navigations, forms and every other origin stay GET-only.
+    allow_same_origin_xhr: bool = False
+    # Every browser connection goes through this proxy (browser_runner.egress_proxy.PublicOnlyProxy), which checks the
+    # address at connection time; "<-loopback>" removes Chromium's implicit loopback bypass.
+    proxy_server: str | None = None
+
+
+def _main_frame_navigation(request: Any) -> bool:
+    """True unless the request is clearly a sub-resource or a sub-frame navigation (unknown counts as main frame)."""
+    try:
+        if not bool(getattr(request, "is_navigation_request", lambda: True)()):
+            return False
+        frame = getattr(request, "frame", None)
+        return frame is None or getattr(frame, "parent_frame", None) is None
+    except Exception:
+        return True
 
 
 def _origin(url: str, *, allow_loopback_fixture: bool) -> str:
@@ -80,18 +200,22 @@ def _origin(url: str, *, allow_loopback_fixture: bool) -> str:
     host = host.lower().rstrip(".")
     if not host or host in {"localhost", "localhost.localdomain"} or host.endswith(".localhost"):
         raise PolicyError("localhost_disallowed_use_explicit_loopback_fixture")
+    # T-670: PolicyError is a ValueError, so the IP checks sit outside the try; before, "local_network_disallowed" was
+    # swallowed by `except ValueError` and a private IP literal passed this check (the egress proxy still refused it).
     try:
         ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+        # Hostnames are allowed only if trusted application configuration
+        # explicitly lists their precise origin.
+        if not re.fullmatch(r"[a-z0-9.-]+", host) or ".." in host:
+            raise PolicyError("invalid_browser_host")
+    if ip is not None:
         if ip.is_loopback:
             if not allow_loopback_fixture:
                 raise PolicyError("local_network_disallowed")
         elif not ip.is_global:
             raise PolicyError("local_network_disallowed")
-    except ValueError:
-        # Hostnames are allowed only if trusted application configuration
-        # explicitly lists their precise origin.
-        if not re.fullmatch(r"[a-z0-9.-]+", host) or ".." in host:
-            raise PolicyError("invalid_browser_host")
     suffix = f":{port}" if port is not None and port != (443 if p.scheme == "https" else 80) else ""
     return f"{p.scheme}://{host}{suffix}"
 
@@ -102,6 +226,32 @@ def _safe_report_url(url: str) -> str:
         return _origin(url, allow_loopback_fixture=True)
     except PolicyError:
         return ""
+
+
+def _redirect_report_url(url: str) -> str:
+    """Where a read task's page tried to go: public https origin + path only (query and fragment dropped)."""
+    try:
+        origin = _origin(url, allow_loopback_fixture=False)
+        path = urlsplit(url).path or "/"
+    except (PolicyError, ValueError):
+        return ""
+    if not origin.startswith("https://") or any(ord(c) < 33 for c in path):
+        return ""
+    return (origin + path)[:500]
+
+
+def _clean_links(raw: Any) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "")
+        if not url.startswith("https://") or len(url) > 500 or any(ord(c) < 33 for c in url):
+            continue
+        out.append({"text": str(redact(str(item.get("text") or "")))[:120], "url": url})
+        if len(out) >= PAGE_LINKS_LIMIT:
+            break
+    return out
 
 
 def _selector(step: dict[str, Any]) -> str:
@@ -177,6 +327,9 @@ def validate_runtime(plan: BrowserActionPlan, policy: BrowserRuntimePolicy) -> f
                 raise PolicyError("off_allowlist_navigation")
             if _UNSAFE_WORDS.search(urlsplit(url).path):
                 raise PolicyError("irreversible_navigation_path_disallowed")
+        elif kind == "read_page":
+            if plan.action_class != "read":
+                raise PolicyError("read_page_is_read_only")
         elif kind not in {"screenshot"}:
             _selector(step)
         if kind in {"fill", "select"} and (
@@ -188,9 +341,29 @@ def validate_runtime(plan: BrowserActionPlan, policy: BrowserRuntimePolicy) -> f
     return frozenset(origins)
 
 
-def _challenge(page: Any) -> str:
+_BOT_TITLE_RE = re.compile(r"^(just a moment|attention required|performing security verification|"
+                           r"verifying you are human|checking your browser|ddos-guard|access denied\s*$)", re.I)
+READ_CAPTCHA_TEXT_FLOOR = 1500        # a read page with this much text is content with a captcha widget on it
+
+
+def _challenge(page: Any, *, reading: bool = False) -> str:
+    try:
+        title = str(page.title() or "").strip()
+    except Exception:
+        title = ""
+    if _BOT_TITLE_RE.match(title):
+        return "bot_challenge"
     for reason, selector in _CHALLENGE_MARKERS:
         if page.locator(selector).count():
+            if reading and reason == "captcha":
+                # T-670: a read task does not stop on a captcha widget (a comment form, a newsletter box) when the
+                # page itself is readable; it is reported as a warning instead. A real gate shows little text.
+                try:
+                    body_chars = int(page.evaluate("() => ((document.body && document.body.innerText) || '').trim().length"))
+                except Exception:
+                    body_chars = 0
+                if body_chars >= READ_CAPTCHA_TEXT_FLOOR:
+                    continue
             return reason
     return ""
 
@@ -214,6 +387,7 @@ def run_playwright(
     policy: BrowserRuntimePolicy,
     playwright_factory: Callable[[], Any] | None = None,
     clock: Callable[[], float] = time.monotonic,
+    session_store: Any | None = None,
 ) -> BrowserActionResult:
     """Execute a bounded, fresh anonymous Chromium context; no external writes.
 
@@ -240,10 +414,27 @@ def run_playwright(
             )
         playwright_factory = sync_playwright
 
+    context_state: dict[str, Any] = {}
+    if session_store is not None:
+        try:
+            if not plan.session_ref:
+                raise PermissionError("session_ref_required_for_session_restore")
+            context_state = {"storage_state": session_store.load(
+                plan.session_ref, workspace_id=plan.workspace_id, provider=plan.provider,
+                account_binding_id=plan.account_binding_id,
+            ).reveal()}
+        except PermissionError:
+            return BrowserActionResult(
+                plan_id=plan.plan_id, status="blocked",
+                blocker_reason="session_unavailable_for_binding", executor="playwright",
+            )
+
     deadline = clock() + plan.timeout_seconds
     log: list[dict[str, Any]] = []
     artifacts: list[str] = []
     blocked_requests: list[str] = []
+    quietly_aborted: list[str] = []
+    redirect_to: list[str] = []
     completed = 0
     final_url = ""
     status = "done"
@@ -262,14 +453,30 @@ def run_playwright(
                 request.url, allow_loopback_fixture=policy.allow_loopback_fixture
             )
             if actual_origin not in origins:
-                raise PolicyError("off_allowlist_network_request")
-            if request.method.upper() not in _SAFE_METHODS:
+                is_navigation = bool(getattr(request, "is_navigation_request", lambda: True)())
+                if not (policy.allow_offsite_subresource_reads and plan.action_class == "read" and not is_navigation
+                        and request.method.upper() in ("GET", "HEAD")):
+                    raise PolicyError("off_allowlist_network_request")
+            if request.method.upper() not in _SAFE_METHODS and not (
+                    policy.allow_same_origin_xhr and plan.action_class == "read" and actual_origin in origins
+                    and not bool(getattr(request, "is_navigation_request", lambda: True)())):
                 raise PolicyError("browser_write_request_blocked")
             if _UNSAFE_WORDS.search(urlsplit(request.url).path):
                 raise PolicyError("irreversible_network_path_disallowed")
         except PolicyError as exc:
+            route.abort()                      # the request never leaves the browser, in every mode
+            # Read tasks on real sites (owner 2026-11-13, prom.ua): analytics POSTs and third-party iframes are
+            # aborted as before, but only a main-frame navigation away from the allowed origin fails the read.
+            if policy.allow_offsite_subresource_reads and plan.action_class == "read" and not _main_frame_navigation(request):
+                quietly_aborted.append(str(exc))
+                return
             blocked_requests.append(str(exc))
-            route.abort()
+            # T-670: a read task whose page redirects to another site (pypi.python.org -> pypi.org) is still stopped
+            # here, but the agent is told where it went so it can queue that page itself (origin + path, no query).
+            if plan.action_class == "read" and str(exc) == "off_allowlist_network_request" and not redirect_to:
+                target = _redirect_report_url(request.url)
+                if target:
+                    redirect_to.append(target)
             return
         route.continue_()
 
@@ -278,12 +485,15 @@ def run_playwright(
             args = {} if policy.browser_executable_path is None else {
                 "executable_path": policy.browser_executable_path
             }
+            if policy.proxy_server:
+                args["proxy"] = {"server": policy.proxy_server, "bypass": "<-loopback>"}
             browser = playwright.chromium.launch(headless=True, **args)
             try:
                 context = browser.new_context(
                     accept_downloads=False, service_workers="block",
-                    permissions=[], ignore_https_errors=False,
+                    permissions=[], ignore_https_errors=False, **context_state,
                 )
+                context_state = {}
                 try:
                     context.route("**/*", guard_route)
                     if not hasattr(context, "route_web_socket"):
@@ -296,15 +506,34 @@ def run_playwright(
                             status, blocker = "blocked", blocked_requests[0]
                             break
                         if completed:
-                            challenge = _challenge(page)
+                            challenge = _challenge(page, reading=plan.action_class == "read")
                             if challenge:
                                 status, blocker = "waiting_human", challenge
                                 break
                         step = dict(input_step)
                         kind = step["type"]
+                        missing = False
                         ms = min(time_left(), 20000)
+                        page_data: dict[str, Any] = {}
+                        http_status = 0
                         if kind == "navigate":
-                            page.goto(step["url"], wait_until="domcontentloaded", timeout=ms)
+                            response = page.goto(step["url"], wait_until="domcontentloaded", timeout=ms)
+                            try:
+                                http_status = int(getattr(response, "status", 0) or 0)
+                            except (TypeError, ValueError):
+                                http_status = 0
+                        elif kind == "read_page":
+                            # JS-rendered pages (SPA): give the page a few seconds to finish loading; a page that
+                            # keeps polling is read as it is after the wait.
+                            try:
+                                page.wait_for_load_state("networkidle", timeout=min(ms, RENDER_WAIT_MS))
+                            except Exception as exc:
+                                if type(exc).__name__ != "TimeoutError":
+                                    raise
+                            page_data = page.evaluate(_READ_PAGE_JS) or {}
+                            if not isinstance(page_data, dict):
+                                page_data = {}
+                            text = str(page_data.get("text") or "")
                         elif kind == "screenshot":
                             root = policy.artifact_root.resolve()
                             root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -324,6 +553,8 @@ def run_playwright(
                             artifacts.append(ref)
                         else:
                             selector = _selector(step)
+                            if kind == "extract" and plan.action_class == "read":
+                                selector = read_selector(selector)
                             locator = page.locator(selector)
                             if kind == "click":
                                 if not _safe_click(locator):
@@ -338,6 +569,18 @@ def run_playwright(
                                 locator.set_input_files(str(path), timeout=ms)
                             elif kind == "wait_for":
                                 locator.wait_for(state="visible", timeout=ms)
+                            elif kind == "extract" and plan.action_class == "read":
+                                # Read tasks (Surfer): a selector that is not on the page, or matches several
+                                # elements, must not fail the whole task. Every match is read; a missing one is
+                                # reported as missing and the run goes on to the remaining steps and screenshot.
+                                try:
+                                    locator.first.wait_for(state="attached", timeout=min(ms, READ_SELECTOR_WAIT_MS))
+                                    texts = locator.evaluate_all(_READ_MATCHES_JS) or []
+                                    text = "\n".join(str(t).strip() for t in texts if str(t).strip())
+                                except Exception as exc:
+                                    if isinstance(exc, TimeoutError) or type(exc).__name__ != "TimeoutError":
+                                        raise
+                                    text, missing = "", True
                             elif kind == "extract":
                                 text = locator.inner_text(timeout=ms)
                         if blocked_requests:
@@ -347,15 +590,30 @@ def run_playwright(
                         record: dict[str, Any] = {
                             "index": index, "type": kind, "status": "done"
                         }
+                        if kind == "navigate" and http_status:
+                            record["http_status"] = http_status
+                        if kind == "read_page":
+                            record["text_chars"] = len(text)
+                            record["text_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+                            if policy.return_extracted_text:
+                                record["text"] = str(redact(text))[:PAGE_TEXT_LIMIT]
+                                record["title"] = str(redact(str(page_data.get("title") or "")))[:300]
+                                record["description"] = str(redact(str(page_data.get("description") or "")))[:500]
+                                record["main"] = str(page_data.get("main") or "")[:80]
+                                record["links"] = _clean_links(page_data.get("links"))
                         if kind == "extract":
                             record["text_chars"] = len(text)
                             record["text_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+                            if missing:
+                                record["missing"] = True
+                            if policy.return_extracted_text and plan.action_class == "read":
+                                record["text"] = str(redact(text))[:PAGE_TEXT_LIMIT]
                         if kind == "screenshot":
                             record["artifact_ref"] = artifacts[-1]
                         log.append(record)
                         final_url = _safe_report_url(page.url)
                     if status == "done":
-                        challenge = _challenge(page)
+                        challenge = _challenge(page, reading=plan.action_class == "read")
                         if challenge:
                             status, blocker = "waiting_human", challenge
                     if blocked_requests:
@@ -371,13 +629,21 @@ def run_playwright(
     except Exception as exc:
         # No raw Playwright errors (may contain secret-bearing URLs/DOM).
         status, blocker = "failed", f"browser_runtime_{type(exc).__name__}"
+        # T-670: Chromium's network error code (net::ERR_NAME_NOT_RESOLVED, ...) carries no URL or page content and
+        # tells the agent what went wrong; nothing else of the message is kept.
+        net = re.search(r"net::(ERR_[A-Z_]{3,60})", str(exc))
+        if net:
+            blocker = "net_" + net.group(1).lower()
         if blocked_requests:
             status, blocker = "blocked", blocked_requests[0]
 
+    if redirect_to and status == "blocked":
+        log.append({"type": "redirect", "status": "blocked", "url": redirect_to[0]})
     if status == "waiting_human":
         cp = challenge_checkpoint(
             plan.plan_id, plan.workspace_id, plan.account_binding_id,
-            completed, canonical_payload_hash(plan), blocker,
+            completed, canonical_payload_hash(plan),
+            blocker if blocker in CHALLENGE_REASONS else "security_challenge",   # bot_challenge is one kind of it
         )
         log.append({
             "type": "checkpoint", "status": "waiting_human",

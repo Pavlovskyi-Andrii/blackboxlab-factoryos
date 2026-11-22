@@ -118,4 +118,25 @@ try:
     raise AssertionError("viewer must be refused")
 except HTTPException as exc:
     require(exc.status_code == 403, "owner-only")
+
+# Table-driven test for route_task inputs and expected outcomes
+table_tests = [
+    ("done_task", {"id": "T-101", "done": True}, "engineer", {}, ALL_ON, None, "done", None, "roadmap", "task_done"),
+    ("human_task", {"id": "T-102", "human": True, "owner": "claude"}, "engineer", {}, ALL_ON, None, "blocked", None, "roadmap", "human_task"),
+    ("unknown_owner", {"id": "T-103", "owner": "invalid_op"}, "engineer", {}, ALL_ON, None, "blocked", None, "task_owner", "unknown_operator"),
+    ("explicit_owner_online", {"id": "T-104", "owner": "gemini"}, "engineer", {}, ALL_ON, None, "routed", "gemini", "task_owner", "explicit_assignment"),
+    ("explicit_owner_offline", {"id": "T-105", "owner": "gemini"}, "engineer", {}, {"gemini": False}, None, "waiting", "gemini", "task_owner", "assigned_operator_offline"),
+    ("role_assignment_online", {"id": "T-106"}, "engineer", {"engineer": "gemini"}, ALL_ON, None, "routed", "gemini", "role_assignment", "explicit_assignment"),
+    ("auto_routing_first_candidate", {"id": "T-107"}, "engineer", {}, ALL_ON, None, "routed", "claude", "auto", "auto_policy"),
+    ("auto_routing_fallback", {"id": "T-108"}, "engineer", {}, {"claude": False, "gemini": True}, None, "routed", "gemini", "auto", "auto_policy"),
+    ("auto_routing_all_offline", {"id": "T-109"}, "engineer", {}, {"claude": False, "gemini": False}, None, "waiting", None, "auto", "no_online_operator"),
+    ("unknown_role_safe_default", {"id": "T-110"}, "nonexistent_role", {}, ALL_ON, None, "waiting", None, "auto", "no_eligible_operator"),
+    ("empty_task_input", {}, "engineer", {}, ALL_ON, None, "routed", "claude", "auto", "auto_policy"),
+]
+
+for name, t_task, t_role, t_assign, t_avail, t_elig, exp_state, exp_op, exp_source, exp_reason in table_tests:
+    res = sr.route_task(t_task, role=t_role, role_assignments=t_assign, availability=t_avail, eligible=t_elig)
+    require((res["state"], res["operator"], res["source"], res["reason"]) == (exp_state, exp_op, exp_source, exp_reason),
+            f"table test failed for {name}: {res}")
+
 print("T-588 supervisor routing regression passed")

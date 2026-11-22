@@ -1,33 +1,52 @@
 name: FactoryOS CI
 on:
+  # Gemini PRs are opened with GITHUB_TOKEN, which does not fire pull_request; gemini-coder dispatches CI instead.
+  workflow_dispatch:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
+# Owner 2026-11-08: Actions minutes are on a $5 budget until the quota resets on 1 Dec, so CI spends as little as it can:
+# a newer push to the same PR cancels the older run; the Python 3.9 import check is a step, not its own billed job;
+# the 4-minute screenshot job runs only when page files change. Main keeps running CI: Render deploys on checksPass.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  ec2-python39-import:
-    runs-on: ubuntu-latest
+  syntax-and-smoke:
+    # Pinned: ubuntu-latest moved to 26.04 (2026-11-11), where setup-python has no 3.9 build, and the deployed
+    # EC2 worker still runs Python 3.9 (import check below). Move on when the worker leaves 3.9.
+    runs-on: ubuntu-24.04
+    outputs:
+      ui: ${{ steps.changes.outputs.ui }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect page changes (decides whether the screenshot job runs)
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then base="${{ github.event.pull_request.base.sha }}"; else base="${{ github.event.before }}"; fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then echo "ui=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          files=$(git diff --name-only "$base" "${{ github.sha }}")
+          echo "$files"
+          if echo "$files" | grep -Eq '^(static/|tools/ui_screenshots\.py$|requirements\.txt$|\.github/workflows/ci\.yml$)'; then echo "ui=true" >> "$GITHUB_OUTPUT"; else echo "ui=false" >> "$GITHUB_OUTPUT"; fi
+      # Formerly its own job ec2-python39-import: the deployed EC2 worker still runs Python 3.9.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.9"
-      - name: Install existing runner Python dependencies
-        run: python -m pip install requests
       - name: Import deployed EC2 worker modules on Python 3.9
         run: |
-          python -m py_compile autopilot/delegation.py autopilot/autopilot.py autopilot/claude_pro_worker.py autopilot/relay_tasks.py
+          python -m pip install requests
+          python -m py_compile autopilot/delegation.py autopilot/autopilot.py autopilot/claude_pro_worker.py autopilot/relay_tasks.py autopilot/mods_runtime.py autopilot/mp4_check.py
           python -c "import autopilot.autopilot; import autopilot.claude_pro_worker; print('EC2 worker Python 3.9 import OK')"
-  syntax-and-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - name: Compile Python
-        run: python -m py_compile app.py relay.py relay_execution.py relay_pairing.py test_relay_pairing.py test_relay_execution.py test_relay_telegram.py autopilot/relay_tasks.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py autopilot/autopilot.py autopilot/notify.py autopilot/claude_pro_worker.py autopilot/pair_worker.py autopilot/test_pair_worker.py autopilot/supervisor.py autopilot/test_supervisor.py test_worker_token_binding.py autopilot/delegation.py autopilot/test_autopilot.py autopilot/test_notify.py autopilot/test_delegation.py autopilot/control.py autopilot/test_control.py test_delegation_ui.py browser_runner/__init__.py browser_runner/core.py browser_runner/sessions.py browser_runner/playwright_executor.py browser_runner/observability.py test_browser_runner.py test_browser_sessions.py test_browser_playwright.py test_browser_observability.py
+        run: python -m py_compile app.py relay.py relay_execution.py relay_pairing.py test_relay_pairing.py test_relay_execution.py test_relay_telegram.py autopilot/relay_tasks.py smoke_tests.py media_finisher_worker/app.py media_finisher_worker/test_planner.py autopilot/autopilot.py autopilot/notify.py autopilot/claude_pro_worker.py autopilot/pair_worker.py autopilot/test_pair_worker.py autopilot/supervisor.py autopilot/test_supervisor.py test_worker_token_binding.py autopilot/delegation.py autopilot/test_autopilot.py autopilot/test_notify.py autopilot/test_delegation.py autopilot/control.py autopilot/test_control.py test_delegation_ui.py browser_runner/__init__.py browser_runner/core.py browser_runner/sessions.py browser_runner/playwright_executor.py browser_runner/observability.py browser_runner/vault.py test_browser_vault.py test_vault_ui.py test_browser_runner.py test_browser_sessions.py test_browser_playwright.py test_browser_observability.py
       - name: Install runtime dependencies
         run: python -m pip install -r requirements.txt
       - name: Dependency vulnerability audit (pip-audit)
@@ -41,7 +60,11 @@ jobs:
       - name: Media Finisher planner unit tests
         env:
           FINISHER_DATA_DIR: /tmp/factoryos-finisher-ci
-        run: python -m media_finisher_worker.test_planner
+        run: |
+          python -m py_compile media_finisher_worker/edit_decisions.py media_finisher_worker/qa_checks.py media_finisher_worker/test_edit_decisions.py media_finisher_worker/test_pipeline_contract.py
+          python -m media_finisher_worker.test_planner
+          python -m media_finisher_worker.test_edit_decisions
+          python -m media_finisher_worker.test_pipeline_contract
       - name: Runtime smoke and regression suite
         env:
           DATA_DIR: /tmp/factoryos-ci
@@ -54,6 +77,14 @@ jobs:
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
         run: python smoke_tests.py
+      - name: Durable engine tests (DBOS, kill switch, crash recovery)
+        run: |
+          python -m py_compile durable_engine.py test_durable_engine.py
+          python test_durable_engine.py
+      - name: Durable Media Finisher workflow tests (DBOS, zero spend)
+        run: |
+          python -m py_compile durable_media_finisher.py test_durable_media_finisher.py
+          python test_durable_media_finisher.py
       - name: Validate required frontend assets
         run: |
           test -f static/index.html
@@ -102,6 +133,31 @@ jobs:
         run: python test_relay_telegram.py
       - name: Relay worker queue / Claude execution unit tests
         run: python test_relay_execution.py
+      - name: Claude <-> Codex agent relay (#94 / PR #314 security review)
+        run: |
+          python -m py_compile agent_secret_scan.py relay_agent_messages.py autopilot/agent_relay_client.py autopilot/codex_relay_worker.py test_relay_agent_messages.py
+          python test_relay_agent_messages.py
+          bash -n deploy/codex-relay/setup.sh
+          python -m py_compile autopilot/codex_review.py autopilot/test_codex_review.py
+          python -m autopilot.test_codex_review
+      - name: Relay owner-notice dedupe regression (#241)
+        run: python test_relay_notify_dedupe.py
+      - name: Evidence Protocol Tier 1 (No Evidence — No Done)
+        run: |
+          python -m py_compile evidence.py test_evidence.py
+          python test_evidence.py
+          python -m py_compile peer_review.py test_peer_review.py
+          python test_peer_review.py
+          python -m py_compile test_mods.py
+          python test_mods.py
+          python -m py_compile test_versioning.py
+          python test_versioning.py
+          python -m py_compile mycast_subtopics.py test_mycast_subtopics.py
+          python test_mycast_subtopics.py
+          python -m py_compile mvp_cycle.py test_mvp_cycle.py
+          python test_mvp_cycle.py
+          python -m py_compile mvp_pipeline.py test_mvp_pipeline.py
+          python test_mvp_pipeline.py
       - name: Relay secure worker pairing unit tests
         run: python test_relay_pairing.py
       - name: Claude delegation adapter regression
@@ -118,12 +174,37 @@ jobs:
           FACTORY_PASSWORD: ""
           FACTORY_LLM_API_KEY: ""
         run: python test_worker_token_binding.py
+      - name: T-607 Gemini worker (Google login only, narrow token, own lane)
+        env:
+          DATA_DIR: /tmp/factoryos-gemini-worker-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile autopilot/gemini_worker.py test_gemini_worker.py
+          python test_gemini_worker.py
+      - name: Team tasks page regression
+        env:
+          DATA_DIR: /tmp/factoryos-team-tasks-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: python test_team_tasks.py && python test_team_truthfulness.py
+      - name: Security Check findings schema and redaction (#237)
+        run: |
+          python -m py_compile security_findings.py test_security_findings.py
+          python test_security_findings.py
       - name: Browser Action Runner policy regression
         run: python test_browser_runner.py
       - name: Browser session isolation regression
         run: python test_browser_sessions.py
       - name: Browser executor isolated fake-browser fixture
         run: python test_browser_playwright.py
+      - name: Encrypted vault (AES-256-GCM) regression (T-560-F)
+        run: python test_browser_vault.py
+      - name: Access vault owner routes + dashboard drawer (T-560-F)
+        env:
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: python test_vault_ui.py
       - name: Browser Runner observability view/API/UI fixtures
         env:
           DATA_DIR: /tmp/factoryos-browser-obs-ci
@@ -158,10 +239,162 @@ jobs:
           Path("/tmp/factoryos-ui.js").write_text(script, encoding="utf-8")
           PY
           node --check /tmp/factoryos-ui.js
+      - name: MyCast Gemini demo guards (#261)
+        run: |
+          python -m py_compile mycast_demo.py test_mycast_demo.py
+          python test_mycast_demo.py
+          python -m py_compile mycast_accounts.py test_mycast_accounts.py
+          python test_mycast_accounts.py
+          python -m py_compile mycast_listener_delivery.py autopilot/mycast_listeners.py test_mycast_listener_delivery.py
+          python test_mycast_listener_delivery.py
+          python -m py_compile mycast_calendar.py test_mycast_calendar.py
+          python test_mycast_calendar.py
+          python -m py_compile mycast_public.py test_mycast_public.py
+          python test_mycast_public.py
+          python -m py_compile mycast_library.py test_mycast_library.py
+          python test_mycast_library.py
+          python -m py_compile mycast_share_page.py test_mycast_share_page.py
+          python test_mycast_share_page.py
+          python -m py_compile mycast_demo_audio.py test_mycast_demo_audio.py
+          python test_mycast_demo_audio.py
+          python -m py_compile login_recovery.py test_login_recovery.py
+          python test_login_recovery.py
+          python -m py_compile brand_strategy.py brand_strategy_seeds.py test_brand_strategy.py
+          python test_brand_strategy.py
+          python -m py_compile test_factory_cycle_controls.py
+          python test_factory_cycle_controls.py
+          python -m py_compile test_builder_recovery.py
+          python test_builder_recovery.py
+          python -m py_compile test_mycast_domain.py
+          python test_mycast_domain.py
+          python -m py_compile browser_tasks.py autopilot/browser_tasks.py browser_runner/egress_proxy.py test_browser_tasks.py
+          python test_browser_tasks.py
+          python -m py_compile autopilot/browser_worker.py autopilot/worker_heartbeat.py autopilot/test_browser_worker.py
+          python -m autopilot.test_browser_worker
+          bash -n deploy/install_surfer_worker.sh
+          python -m py_compile web_surfer.py test_web_surfer.py
+          python test_web_surfer.py
+          python -m py_compile linkedin_publisher.py test_linkedin_publisher.py
+          python test_linkedin_publisher.py
+          python -m py_compile social_autopilot.py test_social_autopilot.py
+          python test_social_autopilot.py
+          python -m py_compile social_images.py test_social_images.py
+          python test_social_images.py
+          python -m py_compile olx_publisher.py test_olx_publisher.py
+          python test_olx_publisher.py
+          python -c "from pathlib import Path; h=Path('static/olx/index.html').read_text(encoding='utf-8'); Path('/tmp/olx-ui.js').write_text(h.rsplit('<script>',1)[1].split('</script>',1)[0], encoding='utf-8')"
+          node --check /tmp/olx-ui.js
+          python -m py_compile test_browser_reading.py tools/surfer_benchmark.py
+          python test_browser_reading.py
+          python -m py_compile agent_workspace.py test_agent_workspace.py
+          python test_agent_workspace.py
+          node --check tools/gemini_issue_pr.cjs
+          node tools/test_gemini_research.cjs
+          python -m py_compile mycast_voices.py test_mycast_voices.py
+          python test_mycast_voices.py
+          python -m py_compile voice_settings.py test_voice_settings.py
+          python test_voice_settings.py
+          python -m py_compile voice_transcribe.py test_voice_transcribe.py
+          python test_voice_transcribe.py
+          python -m py_compile test_route_auth_fixes.py
+          python test_route_auth_fixes.py
+          python -m py_compile telegram_group.py test_telegram_group.py
+          python test_telegram_group.py
+          python -m py_compile morning_brief.py test_morning_brief.py
+          python test_morning_brief.py
+      - name: MVP Factory registry (#186)
+        run: |
+          python -m py_compile mvp_factory.py test_mvp_factory.py
+          python test_mvp_factory.py
+          python -m py_compile test_mvp_state_machine.py
+          python test_mvp_state_machine.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mvp-factory/index.html").read_text(encoding="utf-8")
+          Path("/tmp/mvp-factory-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/mvp-factory-ui.js
+      - name: MVP Product Evolution (T-630, #270, offline)
+        run: |
+          python -m py_compile mvp_evolution.py test_mvp_evolution.py
+          python test_mvp_evolution.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mvp-factory/evolution.html").read_text(encoding="utf-8")
+          Path("/tmp/mvp-evolution-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/mvp-evolution-ui.js
+      - name: MVP worker contracts for the 13 roles (T-631, #270 §2, offline)
+        run: |
+          python -m py_compile mvp_contracts.py test_mvp_contracts.py
+          python test_mvp_contracts.py
+      - name: MyCast improve-quiz + analyst (T-634, #270, offline)
+        run: |
+          python -m py_compile mvp_quiz.py test_mvp_quiz.py
+          python test_mvp_quiz.py
+          node --check static/mycast-configurator/improve.js
+      - name: MyBrief pilot (T-615, #188)
+        env:
+          DATA_DIR: /tmp/factoryos-mybrief-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile mybrief.py test_mybrief.py
+          python test_mybrief.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mybrief/index.html").read_text(encoding="utf-8")
+          Path("/tmp/mybrief-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/mybrief-ui.js
+      - name: AI Decision Memory pilot (#187, T-614)
+        run: |
+          python -m py_compile decision_memory.py test_decision_memory.py
+          python test_decision_memory.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/decision-memory/index.html").read_text(encoding="utf-8")
+          Path("/tmp/decision-memory-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/decision-memory-ui.js
+      - name: AI Release Guardian pilot (T-616, #189, offline)
+        env:
+          DATA_DIR: /tmp/factoryos-release-guardian-ci
+          FACTORY_PASSWORD: ""
+          FACTORY_LLM_API_KEY: ""
+        run: |
+          python -m py_compile release_guardian.py test_release_guardian.py
+          python test_release_guardian.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mvp-factory/release-guardian.html").read_text(encoding="utf-8")
+          Path("/tmp/release-guardian-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/release-guardian-ui.js
+      - name: MVP Builder M1 contracts (#272-#275, offline)
+        run: |
+          python -m py_compile mvp_builder_request.py mvp_builder_preflight.py mvp_builder_manifest.py mvp_builder_projection.py
+          python test_mvp_builder_request.py
+          python test_mvp_builder_preflight.py
+          python test_mvp_builder_manifest.py
+          python test_mvp_builder_projection.py
+      - name: MyCast configurator prototype (#261)
+        run: |
+          node --check static/mycast-configurator/configurator.js
+          node static/mycast-configurator/test_configurator.js
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mycast-configurator/index.html").read_text(encoding="utf-8")
+          script = html.rsplit("<script>",1)[1].split("</script>",1)[0]
+          Path("/tmp/mycast-configurator-ui.js").write_text(script, encoding="utf-8")
+          PY
+          node --check /tmp/mycast-configurator-ui.js
       - name: Worker / Delegation Control Center UI fixtures
         env:
           FACTORYOS_REQUIRE_NODE: "1"
-        run: python test_delegation_ui.py
+        run: |
+          python test_delegation_ui.py
+          python test_worker_center_simple.py
       - name: Role / operator API and operator assignment UI fixtures
         env:
           FACTORYOS_REQUIRE_NODE: "1"
@@ -175,6 +408,10 @@ jobs:
         run: |
           python -m py_compile test_pipeline_flow.py
           python test_pipeline_flow.py
+      - name: Content making-of (interrupted runs, agent chain, row expansion)
+        run: |
+          python -m py_compile test_content_making_of.py
+          python test_content_making_of.py
       - name: Explainability tooltip fixtures
         env:
           FACTORYOS_REQUIRE_NODE: "1"
@@ -192,9 +429,13 @@ jobs:
           python -m py_compile owner_desk.py test_owner_desk.py autopilot/owner_questions.py autopilot/test_owner_questions.py
           python test_owner_desk.py
           python -m autopilot.test_owner_questions
+          python -m py_compile telegram_web_compare.py test_telegram_web_compare.py
+          python test_telegram_web_compare.py
           python -m py_compile mycast.py test_mycast.py autopilot/mycast_daily.py autopilot/test_mycast_daily.py
           python test_mycast.py
           python -m autopilot.test_mycast_daily
+          python -m py_compile tools/mycast_render.py tools/test_mycast_render.py
+          python -m tools.test_mycast_render
       - name: Delegation execution timeline regression
         env:
           FACTORY_PASSWORD: ""
@@ -254,6 +495,8 @@ jobs:
         run: |
           python -m py_compile oauth_framework.py test_oauth_framework.py
           python test_oauth_framework.py
+          python -m py_compile youtube_publisher.py test_youtube_publisher.py
+          python test_youtube_publisher.py
       - name: Workspace data tenancy regression
         env:
           FACTORY_PASSWORD: ""
@@ -289,10 +532,37 @@ jobs:
         run: |
           python -m py_compile operator_lanes.py test_operator_lanes.py
           python test_operator_lanes.py
+      - name: Motion explainer (#353) offline + RU/UK/EN completeness
+        run: python test_explainer_motion.py
+      - name: A/B Tester S1+S2 (T-608/T-609) experiments - registry and dashboard lanes
+        run: |
+          python -m py_compile mvp_experiments.py test_mvp_experiments.py
+          python test_mvp_experiments.py
+          python test_mvp_experiments_ui.py
+          python -m py_compile mvp_launchpad.py test_mvp_launchpad.py
+          python test_mvp_launchpad.py
+          python -m py_compile mvp_launchpad_agents.py test_mvp_launchpad_agents.py
+          python test_mvp_launchpad_agents.py
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("static/mvp-factory/launchpad.html").read_text(encoding="utf-8")
+          Path("/tmp/mvp-launchpad-ui.js").write_text(html.rsplit("<script>",1)[1].split("</script>",1)[0], encoding="utf-8")
+          PY
+          node --check /tmp/mvp-launchpad-ui.js
+          node static/mvp-factory/test_launchpad.js
+      - name: Learning section (/learn) catalog, sandbox and login
+        run: |
+          python -m py_compile learn_center.py test_learn_center.py
+          python test_learn_center.py
   ui-screenshots:
     # Evidence for UI tasks (T-594..T-597): EN/UK/RU × desktop/tablet/mobile screenshots of a local,
     # password-less, key-less FactoryOS (zero spend). Findings are reported in the job summary, not enforced.
-    runs-on: ubuntu-latest
+    # Runs only when page files changed and the smoke job passed (budget, 2026-11-08).
+    needs: syntax-and-smoke
+    # Owner 2026-11-14 (Actions budget, $5 in two days): the 4-minute screenshot job runs on main (Render deploys only after
+    # it) and on manual runs, not on every PR push; PR authors run Playwright locally before pushing.
+    if: needs.syntax-and-smoke.outputs.ui == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04   # 26.04 has no Playwright browser deps (apt failed 2026-11-11); same pin as syntax-and-smoke
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -302,7 +572,13 @@ jobs:
       - name: Install runtime dependencies and headless Chromium
         run: |
           python -m pip install -r requirements.txt playwright
-          python -m playwright install --with-deps chromium
+          # 2026-11-11: GitHub runners could not resolve the Ubuntu mirrors for >1 h, so `--with-deps` (apt) burned
+          # the whole 20-minute job three times. Runner images already carry Chromium's system libraries: install the
+          # browser alone, prove it launches, and touch apt only if it does not (bounded to 5 minutes).
+          python -m playwright install chromium
+          if ! python -c "from playwright.sync_api import sync_playwright as s; p=s().start(); p.chromium.launch().close(); p.stop()"; then
+            timeout 300 python -m playwright install --with-deps chromium
+          fi
       - name: Start FactoryOS locally without credentials
         env:
           DATA_DIR: /tmp/factoryos-ui
@@ -318,8 +594,11 @@ jobs:
           python tools/ui_screenshots.py
       - name: Upload screenshots
         if: always()
+        # Owner-approved 2026-11-06: an artifact-storage quota error at upload must not fail the job.
+        # The screenshot step above still fails on page errors, overflow or failed actions.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ui-screenshots
           path: ui-screenshots/
-          retention-days: 14
+          retention-days: 1

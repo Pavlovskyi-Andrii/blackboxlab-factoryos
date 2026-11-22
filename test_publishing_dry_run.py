@@ -252,6 +252,25 @@ def check_fences(job_id, item):
     require(all(p["ready"] for p in configured["plans"]), "configured adapter dry-run must still plan all platforms")
     require(queue_row(item["id"])["status"] == "approved", "configured dry-run must not schedule or publish")
 
+    # T-552-YT: a configured YouTube-only adapter flags platforms it cannot publish.
+    yt_ready = {"configured": True, "blockers": [], "channel_title": "Fixture", "privacy": "private",
+                "audience_configured": True}
+    con = factory.db()
+    con.execute("UPDATE publishing_queue SET platform='tiktok' WHERE id=?", (item["id"],))
+    con.commit(); con.close()
+    with patch.object(factory, "FACTORY_PUBLISHER_ADAPTER", "youtube"), \
+            patch.object(factory, "_youtube_publisher_state", lambda workspace=None: yt_ready), \
+            patch.object(factory, "FACTORY_METRICOOL_YOUTUBE_MADE_FOR_KIDS", "false"):
+        yt_plan = dry_run(item["id"])
+    con = factory.db()
+    con.execute("UPDATE publishing_queue SET platform='unspecified' WHERE id=?", (item["id"],))
+    con.commit(); con.close()
+    support = {p["platform"]: p.get("real_publisher_supported") for p in yt_plan["plans"]}
+    require(support == {"youtube_shorts": True, "tiktok": False, "instagram_reels": False},
+            f"per-platform support must follow the YouTube adapter: {support}")
+    require(any("does not support tiktok" in b for b in yt_plan["real_publish"]["blockers"]),
+            "a TikTok item must keep a T-520 blocker while only YouTube is configured")
+
     status, _ = call("POST", "/api/publishing/no-such-item/dry-run")
     require(status == 404, f"unknown publish item must 404, got {status}")
     with patch.object(factory, "FACTORY_PASSWORD", "t542-owner-pass"):

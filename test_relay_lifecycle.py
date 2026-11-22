@@ -152,6 +152,12 @@ class TestEndToEndSlice(SliceBase):
         """Worker code talks to the real RelayQueue through an in-process bridge."""
         intake = self.update("/new Add lifecycle trace", 1000)
         tid = intake["ticket_id"]
+        # /new is deliberately unassigned until the owner chooses a worker.
+        assigned = relay_handle_telegram_update(
+            {"callback_query": {"id": "assign-lifecycle", "data": "relay:assign:" + tid + ":claude",
+                                "message": {"chat": {"id": 42, "type": "private"}}}},
+            self.store, lambda: {"chat_id": "42"}, self.tg, queue=self.queue)
+        self.assertEqual(assigned["action"], "assigned")
         posted = []
 
         def bridge(path, data, **kwargs):
@@ -197,7 +203,7 @@ class TestEndToEndSlice(SliceBase):
         events = [d for p, d in posted if p == "/api/relay/worker/event" and d["stage"] != "heartbeat"]
         self.assertTrue(all(d["run_id"] == run_id and d["event_id"].startswith(run_id) for d in events))
         history = self.store.get(tid)["history"]
-        self.assertEqual([h["action"] for h in history], ["queued", "claimed", "running", "committed", "pushed", "done"])
+        self.assertEqual([h["action"] for h in history], ["queued", "assigned", "claimed", "running", "committed", "pushed", "done"])
 
         # Restart: a fresh store/queue over the same file shows the same durable trace.
         restarted = RelayQueue(RelayStore(self.path))

@@ -1,0 +1,116 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AI Hangout · Teaser A</title>
+<style>html,body{margin:0;background:#05060a;overflow:hidden}canvas{display:block}</style></head>
+<body><canvas id="c"></canvas>
+<script>
+// Teaser A (#220): cinematic motion-graphics, 10 s. Deterministic: window.render(t) draws frame at time t (seconds).
+// Everything is procedural (no external assets). All content is DEMO.
+const W = +new URLSearchParams(location.search).get('w') || 1280, H = +new URLSearchParams(location.search).get('h') || 720;
+const cv = document.getElementById('c'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+const S = Math.min(W, H) / 720, DUR = 10;
+const ease = x => x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
+const seg = (t, a, b) => ease((t - a) / (b - a));
+const A = '#ff8a3d', A2 = '#ffcf7a', B = '#53e0ff', B2 = '#9b8cff', INK = '#f3f1ea';
+function rng(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+// 3D camera: never stops. Orbit + dolly along the whole shot.
+function cam(t) {
+  const yaw = -0.55 + t * 0.11, pitch = 0.16 + 0.05 * Math.sin(t * 0.7), dist = 9.5 - 3.2 * seg(t, 0, 7) + 1.2 * seg(t, 7.5, 10);
+  return { yaw, pitch, dist, fx: 0, fy: 0.75 };
+}
+function proj(p, c) {
+  let x = p[0] - c.fx, y = p[1] - c.fy, z = p[2];
+  const cy = Math.cos(c.yaw), sy = Math.sin(c.yaw); [x, z] = [x * cy - z * sy, x * sy + z * cy];
+  const cp = Math.cos(c.pitch), sp = Math.sin(c.pitch); [y, z] = [y * cp - z * sp, y * sp + z * cp];
+  z += c.dist; if (z < 0.2) return null;
+  const f = 620 * S / z; return [W / 2 + x * f, H / 2 - y * f, f, z];
+}
+// sculptural forms: two twisted tori (A, B) and a large ribbon ring around the room
+function torusPts(R, r, n, m, tw) { const pts = []; for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
+  const u = i / n * 2 * Math.PI, v = j / m * 2 * Math.PI + tw * u; pts.push([(R + r * Math.cos(v)) * Math.cos(u), r * Math.sin(v), (R + r * Math.cos(v)) * Math.sin(u)]); } return pts; }
+const TOR = torusPts(1, 0.38, 46, 10, 1.5);
+const R0 = rng(7), DUST = Array.from({ length: 420 }, () => [(R0() - .5) * 26, (R0() - .3) * 12, (R0() - .5) * 26, R0()]);
+function rot(p, ax, ay) { let [x, y, z] = p; const c = Math.cos(ax), s = Math.sin(ax); [y, z] = [y * c - z * s, y * s + z * c];
+  const c2 = Math.cos(ay), s2 = Math.sin(ay); [x, z] = [x * c2 - z * s2, x * s2 + z * c2]; return [x, y, z]; }
+function glow(x, y, r, c, a) { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, c); gr.addColorStop(1, 'transparent');
+  g.globalAlpha = a; g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.globalAlpha = 1; }
+function mind(t, c, pos, col, col2, spin, appear) {
+  if (appear <= 0) return null;
+  const centre = proj(pos, c); if (!centre) return null;
+  glow(centre[0], centre[1], 2.6 * centre[2] * appear, col, 0.35 * appear);
+  g.lineWidth = Math.max(1, 1.3 * S);
+  for (const p of TOR) { const q = rot(p, t * 0.6 * spin + 0.6, t * 0.9 * spin);
+    const s = proj([pos[0] + q[0] * appear, pos[1] + q[1] * appear, pos[2] + q[2] * appear], c); if (!s) continue;
+    const depth = Math.max(0.15, Math.min(1, (q[2] + 1.4) / 2.8));
+    g.fillStyle = depth > .6 ? col2 : col; g.globalAlpha = appear * (0.35 + 0.65 * depth);
+    g.fillRect(s[0], s[1], 2.2 * S, 2.2 * S); }
+  g.globalAlpha = 1;
+  const core = g.createRadialGradient(centre[0] - centre[2] * .12, centre[1] - centre[2] * .12, 0, centre[0], centre[1], centre[2] * .55 * appear);
+  core.addColorStop(0, '#fff'); core.addColorStop(.25, col2); core.addColorStop(.7, col); core.addColorStop(1, 'transparent');
+  g.fillStyle = core; g.beginPath(); g.arc(centre[0], centre[1], centre[2] * .55 * appear, 0, 7); g.fill();
+  return centre;
+}
+function floor(t, c) {
+  g.strokeStyle = 'rgba(160,190,255,.13)'; g.lineWidth = 1;
+  for (let i = -12; i <= 12; i++) for (const k of [0, 1]) { g.beginPath(); let first = true;
+    for (let j = -12; j <= 12; j += 1) { const p = k ? [i, -1.6, j] : [j, -1.6, i]; const s = proj(p, c); if (!s) { first = true; continue; }
+      first ? g.moveTo(s[0], s[1]) : g.lineTo(s[0], s[1]); first = false; } g.stroke(); }
+}
+function beam(t, a, b, k) {
+  if (!a || !b || k <= 0) return;
+  const ex = a[0] + (b[0] - a[0]) * k, ey = a[1] + (b[1] - a[1]) * k;
+  const gr = g.createLinearGradient(a[0], a[1], b[0], b[1]); gr.addColorStop(0, A); gr.addColorStop(.5, '#fff'); gr.addColorStop(1, B);
+  g.strokeStyle = gr; g.lineWidth = 2.4 * S; g.shadowColor = '#fff'; g.shadowBlur = 16 * S;
+  g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(ex, ey); g.stroke(); g.shadowBlur = 0;
+  if (k < 1) return;
+  for (let i = 0; i < 6; i++) { const u = ((t * 0.55 + i / 6) % 1), dir = i % 2 ? 1 - u : u;
+    const x = a[0] + (b[0] - a[0]) * dir, y = a[1] + (b[1] - a[1]) * dir;
+    g.fillStyle = i % 2 ? B : A2; g.fillRect(x - 5 * S, y - 5 * S, 10 * S, 10 * S); glow(x, y, 22 * S, i % 2 ? B : A2, .5); }
+}
+// kinetic type: words slide in on a tilted baseline, with an outline ghost trailing behind
+function word(text, x, y, size, k, opts = {}) {
+  if (k <= 0) return; g.save(); g.translate(x, y); g.rotate((opts.tilt || 0) * (1 - k));
+  g.font = `${opts.italic ? 'italic 400' : '900'} ${size}px "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif`;
+  g.textAlign = opts.align || 'left'; g.textBaseline = 'alphabetic';
+  const off = (1 - k) * size * 1.4;
+  if (opts.outline) { g.strokeStyle = INK; g.lineWidth = 1.6 * S; g.globalAlpha = k; g.strokeText(text, 0, off); }
+  else { g.globalAlpha = 0.18 * k; g.strokeStyle = INK; g.lineWidth = 1 * S; g.strokeText(text, -off * .4, off * .4 + size * .06);
+    g.globalAlpha = k; g.fillStyle = INK; g.fillText(text, 0, off); }
+  g.restore(); g.globalAlpha = 1;
+}
+function mono(text, x, y, size, color, a, align) { g.font = `600 ${size}px ui-monospace,Menlo,Consolas,monospace`; g.fillStyle = color; g.globalAlpha = a; g.textAlign = align || 'left'; g.fillText(text, x, y); g.globalAlpha = 1; }
+function render(t) {
+  const c = cam(t);
+  g.fillStyle = '#05060a'; g.fillRect(0, 0, W, H);
+  glow(W * .3, H * .6, W * .5, 'rgba(255,138,61,.20)', 1); glow(W * .72, H * .45, W * .5, 'rgba(83,224,255,.17)', 1);
+  floor(t, c);
+  for (const d of DUST) { const s = proj([d[0], d[1] + Math.sin(t * .5 + d[3] * 9) * .2, d[2]], c); if (!s) continue;
+    g.fillStyle = 'rgba(220,230,255,' + (0.15 + 0.5 * d[3]) / Math.max(1, s[3] / 6) + ')'; g.fillRect(s[0], s[1], 1.6 * S, 1.6 * S); }
+  const pa = mind(t, c, [-2.3, 0.4, 0], A, A2, 1, seg(t, 0.6, 2.2));
+  const pb = mind(t, c, [2.3, 0.4, 0], B, B2, -1, seg(t, 2.0, 3.4));
+  beam(t, pa, pb, seg(t, 3.2, 4.2));
+  // titles (film credits): shot 1 kicker, shot 4 big words, shot 6 lockup
+  const k1 = seg(t, .3, 1.2) * (1 - seg(t, 3.6, 4.2));
+  mono('BLACKBOX LAB  ·  PRESENTS', W * .07, H * .14, 15 * S, '#9aa0ad', k1);
+  const big = 128 * S, k2 = 1 - seg(t, 7.4, 7.9);
+  word('Two', W * .07, H * .25, big, seg(t, 4.2, 5.0) * k2, { tilt: -.12 });
+  word('minds.', W * .07 + big * 1.95, H * .25, big, seg(t, 4.6, 5.4) * k2, { italic: true, outline: true, tilt: .1 });
+  word('One mission.', W * .07, H * .25 + big * .95, big, seg(t, 5.4, 6.3) * k2, { tilt: -.08 });
+  const k3 = seg(t, 7.8, 8.8);
+  if (k3 > 0) { g.fillStyle = 'rgba(5,6,10,' + .55 * k3 + ')'; g.fillRect(0, 0, W, H);
+    word('AI HANGOUT', W / 2, H * .52, 112 * S, k3, { align: 'center' });
+    mono('two agents · one hypothesis · evidence only', W / 2, H * .62, 18 * S, '#c9ccd6', k3, 'center');
+    mono('BLACKBOX LAB', W / 2, H * .70, 15 * S, '#9aa0ad', k3, 'center'); }
+  // roles flash under the beam (shot 5)
+  const roles = ['SCOUT', 'SKEPTIC', 'BUILDER', 'EDITOR'];
+  roles.forEach((r, i) => { const k = seg(t, 6.2 + i * .18, 6.6 + i * .18) * (1 - seg(t, 7.6, 8)); if (k <= 0) return;
+    const x = W * (.29 + i * .14), y = H * .86 + (1 - k) * 30 * S;
+    g.globalAlpha = k; g.strokeStyle = 'rgba(190,210,255,.5)'; g.lineWidth = 1; g.beginPath(); g.roundRect(x - 64 * S, y - 22 * S, 128 * S, 36 * S, 18 * S); g.stroke();
+    mono(r, x, y + 2 * S, 15 * S, INK, k, 'center'); });
+  // persistent honesty label + letterbox
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H * .045); g.fillRect(0, H * .955, W, H * .045);
+  g.fillStyle = '#ffd166'; g.fillRect(W - 140 * S, H * .065, 118 * S, 26 * S); mono('DEMO · CONCEPT', W - 81 * S, H * .065 + 18 * S, 12 * S, '#111', 1, 'center');
+  // fade in/out
+  const fade = Math.min(seg(t, 0, .5), 1 - seg(t, DUR - .5, DUR)); if (fade < 1) { g.fillStyle = 'rgba(0,0,0,' + (1 - fade) + ')'; g.fillRect(0, 0, W, H); }
+}
+window.DURATION = DUR; window.render = render; render(5);
+</script></body></html>

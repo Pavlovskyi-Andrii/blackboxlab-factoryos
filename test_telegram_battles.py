@@ -208,6 +208,36 @@ def pure_checks():
     require(after == before and after["publish"] == {"automatic": False, "status": "not_published", "requires_human_approval": True},
             "decisions never change the battle or its publish policy")
 
+    # Multilingual support check: ru, uk, en texts
+    b_obj = store.get(bid)
+    ru_sum = controls.summary_text(b_obj, lang="ru")
+    uk_sum = controls.summary_text(b_obj, lang="uk")
+    en_sum = controls.summary_text(b_obj, lang="en")
+    require("статус: ⏳ идёт" in ru_sum and "Решение владельца:" in ru_sum, "RU summary text")
+    require("статус: ⏳ триває" in uk_sum and "Рішення власника:" in uk_sum, "UK summary text")
+    require("status: ⏳ running" in en_sum and "Owner decision:" in en_sum, "EN summary text")
+
+    ru_list, ru_kb = controls.list_text(lang="ru")
+    uk_list, uk_kb = controls.list_text(lang="uk")
+    en_list, en_kb = controls.list_text(lang="en")
+    require("Battle Runs (последние)" in ru_list, "RU list text")
+    require("Battle Runs (останні)" in uk_list, "UK list text")
+    require("Battle Runs (recent)" in en_list, "EN list text")
+
+    ru_chains = controls.chains_text(b_obj, lang="ru")
+    uk_chains = controls.chains_text(b_obj, lang="uk")
+    en_chains = controls.chains_text(b_obj, lang="en")
+    require("🔗 Кандидаты" in ru_chains and "результата нет" in ru_chains, "RU chains text")
+    require("🔗 Кандидати" in uk_chains and "результату немає" in uk_chains, "UK chains text")
+    require("🔗 Candidates" in en_chains and "no result" in en_chains, "EN chains text")
+
+    ru_metrics = controls.metrics_text(b_obj, lang="ru")
+    uk_metrics = controls.metrics_text(b_obj, lang="uk")
+    en_metrics = controls.metrics_text(b_obj, lang="en")
+    require("просмотры: 1200" in ru_metrics, "RU metrics text")
+    require("перегляди: 1200" in uk_metrics, "UK metrics text")
+    require("views: 1200" in en_metrics, "EN metrics text")
+
     # Unpaired chat sees nothing and cannot decide; legacy bridge without battle controls stays inert.
     n_msgs, n_dec = len(bot.sent()), len(store.owner_decisions(bid))
     require(run(callback(f"battle:approve:{bid}:c2", chat="777")) == {"handled": True}, "unpaired chat")

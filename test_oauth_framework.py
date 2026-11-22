@@ -93,7 +93,7 @@ def callback(provider, query, cookie=""):
 
 
 def check_registry_and_pkce():
-    require(list(oauth.PROVIDERS) == ["youtube", "tiktok", "instagram", "hubspot"], "provider set")
+    require(list(oauth.PROVIDERS) == ["youtube", "tiktok", "instagram", "linkedin", "olx", "hubspot"], "provider set")
     for spec in oauth.PROVIDERS.values():
         require(spec.integration in factory.PORTABLE_INTEGRATIONS, f"{spec.id} maps to a portable integration slot")
         require(oauth.get_provider(spec.id.upper()) is spec, "provider selection is case-insensitive")
@@ -126,8 +126,9 @@ def check_production_default_is_fenced():
         require(status == 200 and SECRET_SENTINEL not in body, "registry must not expose secrets")
         providers = json.loads(body)["providers"]
         for p in providers:
-            require(not p["ready"] and set(p["blockers"]) == {"client_not_configured", "adapter_missing",
-                                                              "vault_unavailable"}, f"{p['id']} blockers")
+            # T-552-YT / T-700 / T-701: YouTube, LinkedIn and OLX ship real adapters; every other provider still has none.
+            expected = {"client_not_configured", "vault_unavailable"} | (set() if p["id"] in ("youtube", "linkedin", "olx") else {"adapter_missing"})
+            require(not p["ready"] and set(p["blockers"]) == expected, f"{p['id']} blockers")
             require(p["redirect_uri"] == f"{factory.FACTORY_PUBLIC_BASE_URL}/api/oauth/{p['id']}/callback", "redirect")
             status, _, body = call("POST", f"/api/oauth/{p['id']}/authorize")
             require(status == 409 and json.loads(body)["reason"] == "client_not_configured", "authorize refused")
@@ -185,11 +186,15 @@ def check_mock_flows(mocks):
 
 
 def check_state_and_callback_errors(mocks):
-    _, _, q = authorize("youtube")
+    _, _, q1 = authorize("youtube")
+    _, _, q2 = authorize("youtube")
+    require(q1["state"] != q2["state"], "two authorize calls yield different state values")
+
     cases = [
-        ("tiktok", f"state={q['state']}&code=c", "state_provider_mismatch"),
-        ("youtube", f"state={q['state']}&code=c", "state_invalid"),  # burned by the mismatch above
+        ("tiktok", f"state={q1['state']}&code=c", "state_provider_mismatch"),
+        ("youtube", f"state={q1['state']}&code=c", "state_invalid"),  # burned by the mismatch above (repeated state)
         ("youtube", "code=c", "state_missing"),
+        ("youtube", "state=&code=c", "state_missing"),
         ("youtube", "state=forged-state&code=c", "state_invalid"),
     ]
     _, _, q2 = authorize("youtube")
@@ -219,6 +224,8 @@ def check_state_and_callback_errors(mocks):
     st = parse_qs(urlsplit(flow.start("youtube", "default", "owner|a")["authorize_url"]).query)["state"][0]
     expect_code(lambda: flow.complete("youtube", {"state": st, "code": "c"}, "owner|b"), "state_subject_mismatch")
     expect_code(lambda: flow.complete("youtube", {"state": st, "code": "c"}, "owner|a"), "state_invalid")
+    expect_code(lambda: flow.complete("youtube", {"state": "", "code": "c"}, "owner|a"), "state_missing")
+    expect_code(lambda: flow.complete("youtube", {"state": "foreign-state", "code": "c"}, "owner|a"), "state_invalid")
     for _ in range(oauth.MAX_PENDING_STATES + 25):
         flow.start("youtube", "default", "owner|a")
     require(flow.states.pending() <= oauth.MAX_PENDING_STATES, "pending state store is bounded")
@@ -309,8 +316,9 @@ def main():
             check_state_and_callback_errors(mocks)
             check_disconnect(mocks)
             check_auth_boundaries()
-        require(isinstance(factory.OAUTH_FLOW.vault, oauth.UnavailableTokenVault) and not factory.OAUTH_FLOW.adapters,
-                "production defaults restored")
+        require(isinstance(factory.OAUTH_FLOW.vault, oauth.UnavailableTokenVault)
+                and set(factory.OAUTH_FLOW.adapters) == {"youtube", "linkedin", "olx"},
+                "production defaults restored (only the real YouTube, LinkedIn and OLX adapters are registered)")
         check_no_leakage()
     logging.getLogger().removeHandler(handler)
     print("T-551-A OAuth framework scaffold: PASS (zero secrets, zero network)")

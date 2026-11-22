@@ -33,10 +33,17 @@ SAME_AS_EN = {
     # product / workspace names
     "approval.title", "brain.nav", "cycle.title", "discovery.nav", "experiment.title", "finisher.nav",
     "finisher.title", "intel.title", "owner.builder", "package.title", "performance.title",
-    "publishing.title", "revideo.nav", "variant.title",
+    "publishing.title", "revideo.nav", "variant.title", "navGroup.mvp",
+    # product role/phase names (owner 2026-11-11)
+    "mvpc.phase.battle", "mvpc.phase.build", "mvpc.phase.promote", "mvpc.phase.learn", "mvpc.engine.content_factory",
     # glossary / technical terms
     "approval.hook", "build.workflow", "dc.cpu", "dc.doneCriteria", "dc.state.human", "dc.tl.push",
     "discovery.short", "finisher.routeQa", "package.cta", "qa.roadmap", "stage.qa",
+    # T-MODS mod names are product names (owner 2026-11-15)
+    "mods.m.poteto-mode.name", "mods.m.grilling.name", "mods.m.product-film.name", "mods.m.revideo.name",
+    "mods.m.media-finisher.name", "mods.m.explainer-motion.name",
+    # T-MODS-D duel: symbols, arm letters and the Relay product name only
+    "duel.noScore", "duel.result", "duel.ticket",
 }
 
 # English UI strings that used to be hardcoded outside tr(). They must stay localized.

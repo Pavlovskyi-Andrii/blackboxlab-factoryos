@@ -19,6 +19,165 @@ This document is the source of truth for milestone status, Definition of Done, p
 
 ## Product changelog
 
+Versioning rules (2026-11-16): `APP_VERSION` in `app.py` is the only version. The dashboard header, the sidebar badge
+and `/health` all show it, and `test_versioning.py` fails CI if this changelog's first entry, the sidebar fallback and
+`APP_VERSION` disagree. Minor = new features, patch = fixes only. A release PR bumps the version and adds its entry
+here; after it merges, `.github/workflows/release.yml` tags the merge commit and publishes the GitHub Release.
+v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their weeks: the app showed `v5.7.1`
+during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
+#297, #298 are in v5.10.0.
+
+### v5.16.0 — Launchpad Discovery agents, agent workspace panel, AI Video Editor decisions, worker catch-up — 2026-11-21
+- **MVP Builder · Launchpad (Business League L2):** the manual MyCast D1–D3 run is imported as the benchmark (the
+  MyCast board no longer starts empty; its G1/G2 stay proposals), an owner-started Discovery run fills D1–D3 from
+  fetched public sources on the free Gemini key, and the Launchpad page shows a read-only comparison of agent output
+  against the benchmark (EN/UK/RU). A quote, price or date that is not in the fetched text becomes "unknown" (T-705, #439).
+- **Worker Center:** a panel for the shared agent workspace, inside the technical details (T-626, #439).
+- **MVP workers:** versioned contracts for the 13 logical roles (T-631, #439).
+- **AI Media Finisher → AI Video Editor v1:** word-safe edit decisions with reasons, confidence and undo, a measured QA
+  report and render metrics as review evidence; a final file that does not decode fails the job. No real render or
+  pilot is claimed yet (R-0089, #428).
+- **Owner Issue intake:** GitHub Issues are polled every 120 s instead of 300 s (#413).
+- **EC2 worker:** it was 50 commits behind `main` since 2026-11-17 because of a merge conflict; it is back on current
+  code, so the Surfer fix for ids with dots (T-674) now runs on production reads.
+- **Docs:** FactoryOS architecture map (#417); Film Studio 45 s storyboard package, rights-gated (#435).
+
+### v5.15.0 — Business League Launchpad in MVP Builder, MyCast render without apt — 2026-11-20 … 2026-11-21
+- **MVP Builder · Launchpad (Business League L1):** a board per project that takes an idea to first sales through
+  checks D1–D7, a 7-day MVP, channels and gates G1–G5. Facts need a source and a date, missing data stays
+  "unknown", a zero is shown as zero, test and synthetic records are never counted, and likes or views are not
+  demand. No agent decides a gate on its own work; spend and outreach approvals are the owner's. The page
+  (`/static/mvp-factory/launchpad.html`, UK/RU/EN) is read-only and is linked from every project card; MyCast is the
+  first board and starts empty. Nothing is posted, sent, advertised or charged (T-704, #432).
+- **MyCast daily render:** the render job needs no apt — FFmpeg comes from a pip package and the job takes about
+  half a minute; the MP3 is checked by decoding it in full (#431).
+
+### v5.14.0 — "Forgot password?" sign-in link through Telegram, MyCast daily render — 2026-11-19 … 2026-11-20
+- **Login:** "Forgot password?" on the FactoryOS login page: send `/login` to the FactoryOS bot from the paired private
+  Telegram chat and get a one-time, 10-minute sign-in link; the password itself is not shown or changed (T-712).
+- **MyCast daily render:** sources without a link, branch sync, speakable text and audio QA (MC-01, #426); the
+  render workflow skips the unconditional apt step, caches the voice and tests sync-before-publish (#429).
+- **MyCast demo voicing:** one manifest snapshot per run (follow-up to T-711).
+
+### v5.13.0 — MyCast glass profile page, social publishing, Surfer signed-in reads — 2026-11-17 … 2026-11-19
+- **MyCast:** the profile page `/mycast/u/<slug>` has the same glass coverflow as the episode page, with UK/RU/EN by
+  `?lang=` (T-710); "My podcasts" is in the configurator header and in the share step (T-703, #422); each demo city
+  has its own pair of hosts for the owner's voicing (T-711); "Help us improve" quiz with an analyst loop (T-634, #412).
+- **Social publishing, always behind the owner's approval:** LinkedIn text posts (T-700, #414), OLX adverts through
+  the OLX Partner API (T-701, #421), weekly plan with exactly-once scheduled publishing (T-702, #420).
+- **Surfer:** opens pages signed in with a saved vault login (T-560-L, #418); reads GitHub release pages and ids
+  with dots in full (T-674, #419).
+- **Worker Center:** server-side Telegram ↔ site check and a simpler view (T-592, #416); worker sync resolves
+  ROADMAP-only merge conflicts by itself (T-673, #411).
+- **Planning:** Business League L1 spec queued (T-704, #423); owner tasks and MyCast discovery benchmark (T-705, #424).
+
+### v5.12.0 — Watchable video duel, releases for every version, main restored — 2026-11-17
+- **Video duel** (T-MODS-E): every take plays in its card (9:16 player); the worker's runner uploads the product-film
+  render of a B take, the owner can upload any take; only a real MP4 up to 80 MB is kept, with size, sha256 and
+  uploader shown under the player; 1–5 stars to score.
+- **Releases:** v5.9.0 published on #252, so every version from v5.6 to v5.11.0 has a GitHub Release (#407, #408).
+- **Repository:** `main` restored to v5.11.0 after an activity-generator overwrite; `main` is now protected against
+  force pushes and deletion (owner ruleset, 2026-11-17).
+
+### v5.11.0 — Surfer for AI agents, Content making-of, guides in RU/UK, MyCast demo voices — 2026-11-16
+- **Surfer:** live benchmark of 33 real read tasks and fixes so any AI can use it mid-project: main page text without
+  menus, links, HTTP status, long pages in chunks, hints for every blocker, anti-bot pages reported as needing a
+  human, private IP literals refused in the executor too (#405). Web search tries `gemini-flash-lite-latest` and
+  moves to the next model on 429, at most 3 calls (#400).
+- **Content / Promotion:** runs interrupted by a restart are closed; clicking a content row opens its own pipeline,
+  where it stopped and the agent chain with errors and next steps (#404).
+- **Guides:** /learn guides in RU/UK/EN and 7 new "how it works" guides (#402).
+- **Autopilot:** server error and status messages of Cycle Control in EN/UK/RU (#401).
+- **MyCast:** owner-triggered Gemini voicing of the demo cities on the share page, played only after owner approval
+  (#403).
+- **Releases:** release workflow can backfill past versions; owner runbook for the one-time v5.9.0 release
+  (#396, #397, #398, #399).
+
+### v5.10.0 — Evidence, MVP Builder, Brand Strategy, Durable Engine, Mods & Skills — 2026-11-08 … 2026-11-16
+- **Version sync and releases:** the sidebar badge (was a hard-coded `v5.3`), header and `/health` now all show
+  `APP_VERSION`; changelog restarted from v5.6; git tags and an automatic GitHub Release workflow.
+- **Owner tools:** owner voice messages → Gemini transcript → text Relay ticket (#295); route audit fixes and the
+  FactoryOS Team group bridge (#297); morning brief at 08:00 Kyiv and P2 regressions (#298); Queue Keeper reads
+  "Depends: none" (#292); ChatGPT lane taken over by Claude (#293).
+- **Relay:** per-ticket branch + PR round trip with CI/merge back to Telegram (#294).
+- **MVP Builder M1B–M1D** build request (#288); evidence-command visual concept (#266); MyCast sub-topics, voice
+  history and calendar wishes (#290, #291).
+- **Evidence Protocol** (#299, #300, #301, #303, #304, #306): No Evidence — No Done; CI read from Actions runs; deploy
+  check against Render; owner accept buttons; Proof panel in Agent Office; Gemini reviews risky or large Claude PRs.
+- **Security:** encrypted vault AES-256-GCM with Access vault UI (#302); server GitHub reads use the read-only token
+  (#301); Cookie-Editor paste for vault sessions (#355, #356).
+- **MVP Builder:** cycle Battle → Build → Promote → Learn with five agents and agent chat (#310); autonomous hand-off
+  with evidence and an owner gate before build (#311); Faceless Creator brief (#330) and Faceless Models CRM (#360);
+  A/B Tester S1–S3 (#371, #373, #376, #389); AI Release Guardian (#383); AI Decision Memory pilot (#384); MyBrief for
+  a profession (#386); Product Evolution S1 (#392).
+- **Brand strategy → Master Brief** (#357, #358, #361): 7-step passport, monthly content plan with pillar × funnel
+  matrix, plan row → job, agents follow the Master Brief.
+- **Durable engine** (#379): DBOS Transact inside FastAPI and a durable AI Media Finisher (stages 0–1).
+- **Mods & skills** (#390): sidebar section with one-button switches for poteto-mode, grilling, product-film and the
+  brand-strategy pipeline; with/without numbers for worker runs; video duel A1/A2 against B1/B2.
+- **Agents and Relay:** Claude ↔ Codex agent relay (#318, #324, #325, #326, #328, #331); browser agent task queue,
+  EC2 worker, saved vault sessions (#334, #335, #339, #349, #350); Surfer web tools for every connected agent over MCP
+  (#375, #381, #388); shared agent workspace tools on `/mcp` (#391); Gemini worker on the owner's Google login (#387);
+  verifiable Telegram acceptance `/proof` (#393); Autopilot Cycle Control for beginners (#395); Relay runs limited to
+  60 turns / 30 min (#362); blocked-task wake loop fixed (#382).
+- **Publishing:** direct YouTube publisher with Google OAuth (#377). Real posting still needs owner approval.
+- **MyCast:** episodes 1–30 min (#322), episode history (#329), mycast.pro with privacy/terms, robots and sitemap
+  (#333, #349), Google Calendar read-only (#341), header sign-in and public podcast page (#344, #345), referral +7
+  after a friend's first episode (#363), MVP V1 library and revocable public links (#385), share card (#394),
+  accurate daily reports (#315, #316, #317).
+- **Dashboard:** owner feedback round (#308), MVP Builder on the dashboard (#309), Content / Promotion rename (#320),
+  local open questions on home (#323), owner console for background modules (#336–#338), Learning section and the
+  cinematic explainer (#364, #366), Approval Studio fixes (#374).
+
+### v5.9.0 — Gemini Lane, Team Tasks, MyCast Beta, Relay Round Trip — 2026-11-03 … 2026-11-08
+- **Gemini lane:** Gemini CLI Actions with least privilege, then manual only (#131, #178); Issue → PR pipeline (#146);
+  model update, timeout, 503 backoff and Flash fallback, error detail, night shift (#143, #148, #149, #157, #158);
+  every 5 minutes on EC2 with the key kept in Render (#164); Google's real status and key check (#209, #210);
+  Gemini-written tests and guides (#162, #183–#185, #191–#193, #196, #197, #214, #224, #225, #227, #228, #230, #243,
+  #247, #250, #252, #257, #268).
+- **Team and owner tools:** Team tasks page with PR/CI status and EC2 GitHub fallback (#182, #198, #251, #253);
+  Telegram `/workers` per executor (#159); owner desk cards (#249); Queue Keeper counts (#245).
+- **Relay:** intake through the EC2 GitHub snapshot (#254, #262); dirty-path reporting and `.autopilot/` as runtime
+  space (#276, #277); worker sync never rebases (#211).
+- **Security:** route authorization inventory (#145); publish approval gate and findings schema (#246).
+- **MyCast:** full episode by 06:00 Kyiv (#222), owner-feedback format (#226), audio QC and source/date gate (#244),
+  configurator on the site and beta batches (#263, #267, #271, #278, #279, #280), Gemini voice picker and Telegram
+  pairing (#284), 7 free days + 7 per friend (#285).
+- **MVP Builder / MVP Factory:** phase 1 registry, API and overview (#271); M1A build request contract (#287); AI
+  Hangout pack (#223).
+
+### v5.8.0 — Operator Lanes, Relay Control Room, Browser Runner, Builder Autopilot Hardening — 2026-10-27 … 2026-11-02
+- **Operators:** FactoryOS roles separated from operators; live Claude and Gemini operator telemetry; Telegram Claude
+  and Gemini lanes (T-580); dependency-aware scheduler and task owner lanes (#62).
+- **Browser Action Runner** (T-560-A/B/C, #35): contracts and policy engine, isolated session registry with human
+  takeover, guarded Playwright executor with a zero-spend fixture.
+- **Workers:** zero-PAYG self-healing Runner Supervisor (T-562); per-EC2 worker credential and secure interactive
+  pairing (T-563, T-564, #44); Python 3.9 on AWS EC2 (#59); reboot-proof worker venv (#73); worker reloads runner code
+  (#84); pause the whole queue on a Claude subscription limit (#81).
+- **Relay:** Telegram live control center with status, GitHub CI and history (#42); real Claude queue, heartbeat and
+  execution history (#43); lifecycle integration (#63); Telegram worker states and `/work` retry fixes (#64, #65);
+  verified server-side ROADMAP claims and factual run events (T-599, #68–#71, #80).
+- **Dashboard:** six semantic multilingual navigation groups (#66); CI dashboard screenshots for UI tasks (#82);
+  owner desk with step-by-step HUMAN runbooks (#83, #112); UI fixes from the screenshot review (#108).
+- **Security:** security baseline (#109); Python 3.13 pin, dependency floors and pip-audit in CI (#116).
+- **MyCast:** pilot episode with zero-spend TTS (#110); daily episode script, render and Telegram audio (#117); Gemini
+  two-host voices with Piper fallback (#127).
+- **Docs:** Claude ↔ ChatGPT coordination rules (#95); OAuth provider research (#91); Metricool access audit (#90);
+  Gemini onboarding (#121); MCP handoff protocol spec (#128).
+
+### v5.7.1 — One-tap Relay Telegram Pairing — 2026-10-26
+- Mobile Relay Telegram pairing and status controls.
+- Runtime version advanced to `v5.7.1`.
+
+### v5.7 — Relay Mobile Task Inbox — 2026-10-26
+- Persistent Relay ticket journal with history and notes.
+- Telegram auto-ticketing with inline actions, a mobile board, Operator-ready metadata and startup webhook sync.
+- Zero-spend regression coverage.
+
+### v5.6 — Native Gemini Omni Video Provider — 2026-10-26
+- Native Gemini Interactions API video provider with URI delivery and durable media archival.
+- Render configuration and zero-spend regression coverage.
+
 ### v5.5.1 — Production Runtime Observability — 2026-10-26
 - Runtime version advanced to `v5.5.1`.
 - Added a non-secret `PUBLISHER_RUNTIME` startup event with publisher adapter, scheduler state, Metricool readiness, reconciliation state, analytics adapter and queue counts; credentials are never logged.
@@ -333,6 +492,16 @@ This document is the source of truth for milestone status, Definition of Done, p
 - Introduced the overnight product-improvement roadmap and build manifest.
 - Added structured roadmap steps for live LLM hardening, worker visibility, trace viewing, live pipeline visualization, error center, responsive/i18n work, smoke tests and morning QA.
 
+## Telegram: /brief (morning brief)
+
+Owner opt-in voice brief, sent at 08:00 Europe/Kyiv to the paired private Telegram chat (#106, `morning_brief.py`). Off by default.
+
+- `/brief on` / `/brief off`: turn the daily brief on or off.
+- `/brief test`: send the composed text only (no voice, no Gemini call) so the owner can check it first.
+- `/brief`: show the current state and the result of the last send.
+
+Content comes only from data FactoryOS already holds: PRs merged in the last 24 h, open PRs with red CI, active Relay tickets (including how many wait for the owner) and open questions. If the GitHub snapshot is missing, the brief says GitHub status is unknown instead of guessing. One brief per Kyiv date, up to 3 tries 20 min apart, none at or after 11:00. Cost: one Gemini TTS call per day on the existing free-tier key. Commands from any other chat are ignored.
+
 ## Safety invariants
 
 - Human approval is required before publishing.
@@ -344,3 +513,5 @@ This document is the source of truth for milestone status, Definition of Done, p
 ## Deployment
 
 Render auto-deploys the `main` branch after the configured GitHub checks pass.
+
+Relay E2E check 2026-11-14
