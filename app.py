@@ -45,6 +45,7 @@ from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
 import web_surfer
 import surfer_actions
+import surfer_policy
 import agent_workspace
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
@@ -1322,10 +1323,41 @@ def _surfer_session(raw, url: str) -> dict:
 install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized,
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
-# T-720 Surfer action sessions (docs/roadmap/T-720_SURFER_ACTIONS.md). The engine ships closed: ClosedGate refuses every
-# action until T-721 adds the owner's flag, allowlist and caps.
+# T-720 Surfer action sessions (docs/roadmap/T-720_SURFER_ACTIONS.md) behind the T-721 policy gate: off until the owner
+# sets FACTORY_SURFER_ACTIONS_ENABLED=1, and then only on the sites and action classes of his allowlist.
+class _SurferVault:
+    """What the gate may ask the encrypted vault (T-560-F). Values go only to the worker; nothing is logged."""
+    @staticmethod
+    def _open():
+        return _vault_parts(required=False), tenancy.binding_workspace()
+    def logins(self):
+        parts,workspace=self._open()
+        if not parts:return []
+        return sorted({f"{e['provider']}/{e['account']}" for part in parts for e in part.entries(workspace)})
+    def _ref(self,provider,account):
+        parts,workspace=self._open()
+        ref=parts[0].find_ref(workspace_id=workspace,provider=provider,account_binding_id=account) if parts else None
+        return parts,workspace,ref
+    def has_secret(self,provider,account):
+        parts,workspace,ref=self._ref(provider,account)
+        if not ref:return False
+        info=parts[0].check(ref,workspace_id=workspace,provider=provider,account_binding_id=account)
+        return bool(info.get("ok")) and "password" in (info.get("fields") or [])
+    def secret(self,provider,account,kind):
+        parts,workspace,ref=self._ref(provider,account)
+        if not ref:return ""
+        return parts[0].resolve(ref,workspace_id=workspace,provider=provider,account_binding_id=account,kind=kind).reveal()
+    def storage_state(self,provider,account):
+        return _browser_session_state(provider,account)
+    def save_storage_state(self,provider,account,state):
+        parts,workspace=self._open()
+        if not parts:return False
+        parts[1].capture(workspace_id=workspace,provider=provider,account_binding_id=account,storage_state=state)
+        event(None,f"Vault: browser session saved from a Surfer takeover for {provider}/{account}")
+        return True
 SURFER_ACTIONS = surfer_actions.ActionStore(DATA_DIR)
-SURFER_GATE = surfer_actions.ClosedGate()
+SURFER_GATE = surfer_policy.PolicyGate(DATA_DIR, vault=_SurferVault())
+surfer_policy.install_routes(app, gate=SURFER_GATE, store=SURFER_ACTIONS, identity=request_identity)
 def _surfer_lane(request: Request) -> str:
     return agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
 surfer_actions.install_routes(app, store=SURFER_ACTIONS, gate_fn=lambda: SURFER_GATE, identity=request_identity,

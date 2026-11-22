@@ -6,11 +6,11 @@
   Goal: a session = one live page on the Surfer worker kept across steps (idle 5 min, 15 min while it waits for the owner, 30 min hard, one at a time). MCP tools and the same over REST (`/api/factory/surfer/agent/{tool}`, lane token): `web_open`, `web_act` (click, fill, select, check, press, upload, scroll, wait_for, back), `web_snapshot` (title, url, text chunk, interactive elements with refs), `web_close`. Secret-field values, cookies and storage are never returned; secrets are filled only by vault reference, resolved when the worker claims the command; the worker replaces every secret it typed in what it reports. Every step is in the audit log. Ships closed (`ClosedGate`) until T-721.
   DONE: `python test_surfer_actions.py`, `python test_browser_tasks.py`, `python -m autopilot.test_browser_worker`, `python test_web_surfer.py`, `python test_agent_workspace.py`, default verification.
 
-- [ ] T-721 Surfer policy gate: owner flag, allowlist with action classes, sensitive-step confirmation, daily caps
+- [x] T-721 Surfer policy gate: owner flag, allowlist with action classes, sensitive-step confirmation, daily caps
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1
   Depends: T-720
-  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Policy gate.
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Policy gate; DECISIONS.md «2026-11-22 — T-721». `surfer_policy.py`, `browser_runner/action_policy.py`, `surfer_actions.py`.
   Goal: server-side, fail closed: `FACTORY_SURFER_ACTIONS_ENABLED` (off by default) + owner pause switch; allowlist store (domain patterns + classes read/navigate/fill/submit/upload + optional vault login), nothing on by default; sensitive steps (payment, delete, security settings, messaging, publishing, leaving the allowlist, a class not switched on) → `needs_owner_confirmation` with a preview; login wall / captcha / SMS code → `waiting_human`; per-day session and step caps; lane identity from the per-lane MCP token, the shared token may not act.
   DONE: `python test_surfer_policy.py`, `python test_surfer_actions.py`, default verification.
 

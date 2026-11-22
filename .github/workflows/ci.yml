@@ -274,6 +274,8 @@ jobs:
           python -m autopilot.test_browser_worker
           python -m py_compile surfer_actions.py browser_runner/action_policy.py browser_runner/action_session.py autopilot/browser_actions.py surfer_fixture_site.py surfer_fake_browser.py test_surfer_actions.py
           python test_surfer_actions.py
+          python -m py_compile surfer_policy.py test_surfer_policy.py
+          python test_surfer_policy.py
           bash -n deploy/install_surfer_worker.sh
           python -m py_compile web_surfer.py test_web_surfer.py
           python test_web_surfer.py
