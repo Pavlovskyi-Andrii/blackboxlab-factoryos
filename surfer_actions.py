@@ -468,6 +468,89 @@ class ActionStore:
             self._audit_step(session, step, "confirmed" if confirm else "rejected")
             return step
 
+    def owner_command(self, session_id: str, kind: str, payload: dict) -> dict:
+        """T-722: what the owner does on the live page himself: type a code, click, type, press a key, save the login."""
+        spec: Dict[str, Any] = {"kind": kind, "action": kind}
+        volatile = ""
+        with self.lock:
+            self._expire()
+            doc = self._read(session_id)
+            if not doc or doc["session"]["status"] == "closed":
+                raise HTTPException(404, "no such live session")
+            status = doc["session"]["status"]
+            if kind == "human_input":
+                volatile = str(payload.get("text") or "")
+                if not volatile.strip() or len(volatile) > 200:
+                    raise HTTPException(400, "text must be 1–200 characters")
+                spec["submit"] = payload.get("submit") is True
+            elif kind == "save_login":
+                if not doc["session"].get("login"):
+                    raise HTTPException(409, "no vault login is bound to this site in the allowlist")
+            elif kind == "snapshot":
+                pass
+            elif kind in ("takeover_click", "takeover_type", "takeover_key", "takeover_scroll"):
+                if status != "takeover":
+                    raise HTTPException(409, "press Take over first")
+                if kind == "takeover_click":
+                    try:
+                        spec["x"], spec["y"] = round(float(payload.get("x")), 1), round(float(payload.get("y")), 1)
+                    except (TypeError, ValueError):
+                        raise HTTPException(400, "x and y are numbers")
+                    if not (0 <= spec["x"] <= 1280 and 0 <= spec["y"] <= 800):
+                        raise HTTPException(400, "the click is outside the page view")
+                elif kind == "takeover_type":
+                    volatile = str(payload.get("text") or "")
+                    if not volatile or len(volatile) > 500:
+                        raise HTTPException(400, "text must be 1–500 characters")
+                elif kind == "takeover_key":
+                    if str(payload.get("key") or "") not in policy.KEYS:
+                        raise HTTPException(400, "unknown key")
+                    spec["key"] = str(payload["key"])
+                else:
+                    try:
+                        spec["dy"] = max(-2000, min(2000, int(payload.get("dy") or 0)))
+                    except (TypeError, ValueError):
+                        raise HTTPException(400, "dy is a number")
+            else:
+                raise HTTPException(404, "unknown command")
+            return self.add_step(session_id, spec, by="owner", volatile=volatile)
+
+    def set_takeover(self, session_id: str, on: bool) -> dict:
+        """Take over: the owner drives the page (the agent waits). Resume: the agent continues from this page."""
+        with self.lock:
+            self._expire()
+            doc = self._read(session_id)
+            if not doc or doc["session"]["status"] == "closed":
+                raise HTTPException(404, "no such live session")
+            session = doc["session"]
+            waiting = self.pending(doc)
+            if waiting:
+                raise HTTPException(409, f"step {waiting['id']} is {waiting['status']}; "
+                                         + ("confirm or reject it first" if waiting["status"] ==
+                                            "needs_owner_confirmation" else "wait a moment"))
+            if on:
+                if session["status"] not in ("active", "waiting_human", "takeover"):
+                    raise HTTPException(409, f"the session is {session['status']}")
+                session["status"] = "takeover"
+            else:
+                if session["status"] not in ("takeover", "waiting_human"):
+                    raise HTTPException(409, "the session is not waiting for you")
+                # The owner says the page is fine now: the same page does not send the agent back to him.
+                session.update(status="active", challenge_ack=policy.log_url(session.get("url") or ""),
+                               login_submits=0)
+                session.pop("wait_reason", None)
+            session["last_activity"] = int(self.clock())
+            self._write(doc)
+            self.audit(session=session["id"], who="owner", lane=session.get("lane") or "",
+                       action="takeover" if on else "resume", url=policy.log_url(session.get("url") or ""))
+            return session
+
+    def last_shot(self, doc: dict) -> str:
+        for step in reversed(doc["steps"]):
+            if step.get("screenshot"):
+                return step["id"]
+        return ""
+
     def stop(self, session_id: str, *, by: str, reason: str = "stopped") -> dict:
         with self.lock:
             doc = self._read(session_id)
@@ -602,7 +685,14 @@ class ActionStore:
                 session["status"] = "needs_owner_confirmation"
             else:
                 step.update(status="done" if status == "waiting_human" else status, finished=now)
-                if session["status"] != "takeover":
+                by_owner = step.get("by") == "owner"
+                if by_owner and session["status"] == "waiting_human":
+                    # T-722: the owner typed the code himself; the session continues once the page stops asking.
+                    markers = clean["markers"] if snap else {}
+                    if snap and not markers["challenge"] and not markers["login_wall"]:
+                        session["status"] = "active"
+                        session.pop("wait_reason", None)
+                elif session["status"] != "takeover":
                     ack = session.get("challenge_ack") == policy.log_url(session.get("url") or "")
                     if status == "waiting_human" and not ack:
                         session.update(status="waiting_human", wait_reason=step["blocker"] or "security_challenge")
