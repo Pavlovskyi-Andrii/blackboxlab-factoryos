@@ -66,6 +66,9 @@ class OpenGate:
     def upload(self, asset_id):
         return self.uploads.get(asset_id)
 
+    def has_login_secret(self, login):
+        return f"vault:{login}#password" in self.secrets
+
 
 class Response:
     def __init__(self, data=None, code=200, content=b""):
@@ -642,7 +645,7 @@ class RoutesTest(Harness):
 
 
 class McpEndpointTest(unittest.TestCase):
-    def test_tools_are_listed_and_closed_in_the_real_app(self):
+    def test_tools_are_listed_and_off_by_default_in_the_real_app(self):
         from test_agent_workspace import LANE_TOKENS, SHARED, mcp_call
         import app as factory
         _, listed = mcp_call(factory, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, SHARED)
@@ -658,7 +661,7 @@ class McpEndpointTest(unittest.TestCase):
         self.assertIn("shared MCP token may not act", text)
         error, text = call(LANE_TOKENS["claude"])
         self.assertTrue(error)
-        self.assertIn("not switched on", text)
+        self.assertIn("FACTORY_SURFER_ACTIONS_ENABLED", text)      # off until the owner sets the flag (T-721)
         self.assertEqual(factory.SURFER_ACTIONS.list(), [])
 
 
