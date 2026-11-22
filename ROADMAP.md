@@ -9,7 +9,7 @@
 - [ ] [HUMAN] T-725-H Create the Google OAuth client for Sheets, add the keys in Render and connect Google
   Owner: human
   Depends: T-725, T-560-G
-  Need: owner enables the Google Sheets API in a Google Cloud project, fills in the OAuth consent screen (External, published to production so the refresh token does not expire after 7 days), creates a Web application OAuth client with the redirect `https://blackboxlab-factoryos.onrender.com/api/oauth/google_sheets/callback`, puts FACTORY_OAUTH_GOOGLE_SHEETS_CLIENT_ID / _SECRET and FACTORY_GOOGLE_SHEETS_ENABLED=1 in Render, connects on /static/sheets/index.html and adds a spreadsheet.
+  Need: owner creates a new Google Cloud project (not the one used for YouTube: disconnecting Sheets must not touch YouTube), enables the Google Sheets API in it, fills in the OAuth consent screen (External, published to production so the refresh token does not expire after 7 days), creates a Web application OAuth client with the redirect `https://blackboxlab-factoryos.onrender.com/api/oauth/google_sheets/callback`, puts FACTORY_OAUTH_GOOGLE_SHEETS_CLIENT_ID / _SECRET and FACTORY_GOOGLE_SHEETS_ENABLED=1 in Render, connects on /static/sheets/index.html and adds a spreadsheet.
   Runbook: Worker Center → «Нужно от вас» → T-725-H (RU/EN/UK).
   DONE: an agent appended a test row to the owner's spreadsheet and the history on /static/sheets/index.html shows it.
 

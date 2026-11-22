@@ -76,9 +76,9 @@ PROVIDERS = {
         scope_separator=",",
     ),
     # T-725 (owner 2026-11-22): agents write collected data into the owner's spreadsheets through the Sheets API.
-    # Its own Google OAuth client (not the YouTube one): revoking a Google token revokes the whole grant of that
-    # client, so a shared client would let "disconnect Sheets" cut YouTube. No include_granted_scopes: the token
-    # carries the spreadsheets scope only.
+    # Its own Google OAuth client in its own Google Cloud project (not the YouTube one): Google's revocation can
+    # reach every grant of the client's project, so a shared client or project would let "disconnect Sheets" cut
+    # YouTube. No include_granted_scopes: the token carries the spreadsheets scope only.
     "google_sheets": OAuthProvider(
         id="google_sheets", label="Google Sheets", integration="Google Sheets",
         authorize_url="https://accounts.google.com/o/oauth2/v2/auth",

@@ -738,7 +738,7 @@ RUNBOOK_I18N: dict[str, dict[str, dict[str, Any]]] = {
             "done": "An agent appended a test row to your spreadsheet through /static/sheets/index.html and the entry is in the history.",
             "steps": {
                 "api": {"title": "Enable the Google Sheets API",
-                        "do": ["Open console.cloud.google.com with the Google account that owns your spreadsheets. At the top pick a project or create a new one (e.g. FactoryOS).",
+                        "do": ["Open console.cloud.google.com with the Google account that owns your spreadsheets. At the top create a new project (e.g. FactoryOS Sheets). Do not use the project where YouTube is set up: then disconnecting Sheets cannot affect YouTube.",
                                "Menu → APIs & Services → Library → find “Google Sheets API” → Enable."],
                         "check": "The Google Sheets API page says “API Enabled” (or shows Manage instead of Enable).",
                         "if": _if(("Google asks you to enable billing", "The Sheets API needs no billing. Do not connect anything and tell me exactly what the screen shows."))},
@@ -1688,7 +1688,7 @@ RUNBOOK_I18N: dict[str, dict[str, dict[str, Any]]] = {
             "done": "Агент дописав тестовий рядок у вашу таблицю через /static/sheets/index.html, запис видно в історії.",
             "steps": {
                 "api": {"title": "Увімкніть Google Sheets API",
-                        "do": ["Відкрийте console.cloud.google.com під тим акаунтом Google, де лежать ваші таблиці. Угорі виберіть проєкт або створіть новий (наприклад FactoryOS).",
+                        "do": ["Відкрийте console.cloud.google.com під тим акаунтом Google, де лежать ваші таблиці. Угорі створіть новий проєкт (наприклад FactoryOS Sheets). Не використовуйте проєкт, де налаштовано YouTube: тоді вимкнення таблиць не зачепить YouTube.",
                                "Меню → APIs & Services → Library → знайдіть «Google Sheets API» → Enable."],
                         "check": "На сторінці Google Sheets API написано «API Enabled» (або кнопка Manage замість Enable).",
                         "if": _if(("Google просить увімкнути оплату (billing)", "Для Sheets API оплата не потрібна. Нічого не підключайте й напишіть мені, що саме показує екран."))},

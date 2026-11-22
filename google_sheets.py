@@ -43,7 +43,7 @@ SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 API = "https://sheets.googleapis.com/v4/spreadsheets"
 SHEET_ID_RE = re.compile(r"^[A-Za-z0-9_-]{20,100}$")
 SHEET_URL_RE = re.compile(r"^https://docs\.google\.com/spreadsheets/d/([A-Za-z0-9_-]{20,100})(?:[/?#].*)?$")
-RANGE_RE = re.compile(r"^([A-Za-z]{1,2})([1-9][0-9]{0,6}):([A-Za-z]{1,2})([1-9][0-9]{0,6})$")
+RANGE_RE = re.compile(r"^([A-Za-z]{1,3})([1-9][0-9]{0,6}):([A-Za-z]{1,3})([1-9][0-9]{0,6})$")   # Sheets ends at ZZZ
 KEY_RE = re.compile(r"^[A-Za-z0-9_.:-]{8,100}$")
 NUMBER_RE = re.compile(r"^[+-]?\d+(?:[.,]\d+)?$")
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
@@ -63,9 +63,10 @@ APPEND_MAX_CELLS = 2000                  # per call
 APPEND_CELL_CHARS = 2000
 APPEND_ROWS_PER_DAY = 2000
 APPEND_CELLS_PER_DAY = 20000
+APPEND_CALLS_PER_DAY = 300               # also bounds the idempotency records: 300 a day x KEY_TTL_DAYS
 STALE_CLAIM_SECONDS = 300                # an append claim older than this died mid-request: outcome unknown
-KEYS_KEPT = 3000
-KEY_TTL_SECONDS = 30 * 86400
+KEY_TTL_DAYS = 7
+KEY_TTL_SECONDS = KEY_TTL_DAYS * 86400   # a record is dropped only by age, never to make room for a new one
 HISTORY_KEPT = 300
 RESPONSE_MAX_BYTES = 4 * 1024 * 1024
 
@@ -421,7 +422,7 @@ class SheetStore:
         day = self._day()
         data["usage"] = {day: data["usage"].get(day) or {}}          # only today is kept
         usage = data["usage"][day]
-        for key in ("reads", "rows", "cells"):
+        for key in ("reads", "rows", "cells", "appends"):
             usage[key] = int(usage.get(key) or 0)
         return usage
 
@@ -517,14 +518,18 @@ class SheetStore:
                                   and now - int(record.get("at") or 0) < STALE_CLAIM_SECONDS
                                   else "sheets_append_outcome_unknown")
             usage = self._usage(data)
-            if usage["rows"] + rows > APPEND_ROWS_PER_DAY or usage["cells"] + cells > APPEND_CELLS_PER_DAY:
+            if (usage["rows"] + rows > APPEND_ROWS_PER_DAY or usage["cells"] + cells > APPEND_CELLS_PER_DAY
+                    or usage["appends"] >= APPEND_CALLS_PER_DAY):
                 raise SheetsError("sheets_daily_append_limit")
             usage["rows"] += rows
             usage["cells"] += cells
+            usage["appends"] += 1
             data["appends"][ident] = {"hash": digest, "status": "sending", "at": now, "sheet_id": sheet_id,
                                       "rows": rows, "cells": cells}
-            live = {k: v for k, v in data["appends"].items() if now - int(v.get("at") or 0) < KEY_TTL_SECONDS}
-            data["appends"] = dict(sorted(live.items(), key=lambda kv: kv[1].get("at") or 0)[-KEYS_KEPT:])
+            # Only age removes a record. The daily call cap keeps the file small (300 x 7 records at most), so a
+            # live key is never evicted and a retry inside the window can never write twice.
+            data["appends"] = {k: v for k, v in data["appends"].items()
+                               if now - int(v.get("at") or 0) < KEY_TTL_SECONDS}
             self._save(data)
             return "send", None
 
@@ -549,6 +554,7 @@ class SheetStore:
                 usage = self._usage(data)
                 usage["rows"] = max(0, usage["rows"] - rows)
                 usage["cells"] = max(0, usage["cells"] - cells)
+                usage["appends"] = max(0, usage["appends"] - 1)
                 status = "failed"
             extra = {"code": code} if code else {}
             if result:
@@ -568,7 +574,8 @@ class SheetStore:
 LIMITS = {"read_max_rows": READ_MAX_ROWS, "read_max_cells": READ_MAX_CELLS, "reads_per_day": READS_PER_DAY,
           "append_max_rows": APPEND_MAX_ROWS, "append_max_columns": APPEND_MAX_COLS,
           "append_max_cells": APPEND_MAX_CELLS, "append_cell_chars": APPEND_CELL_CHARS,
-          "append_rows_per_day": APPEND_ROWS_PER_DAY, "append_cells_per_day": APPEND_CELLS_PER_DAY}
+          "append_rows_per_day": APPEND_ROWS_PER_DAY, "append_cells_per_day": APPEND_CELLS_PER_DAY,
+          "append_calls_per_day": APPEND_CALLS_PER_DAY, "idempotency_key_days": KEY_TTL_DAYS}
 
 
 # --- Service: the one path for owner routes and agent tools ----------------------------------
@@ -619,7 +626,8 @@ class Sheets:
                 "limits": LIMITS,
                 "left_today": {"reads": max(0, READS_PER_DAY - usage["reads"]),
                                "append_rows": max(0, APPEND_ROWS_PER_DAY - usage["rows"]),
-                               "append_cells": max(0, APPEND_CELLS_PER_DAY - usage["cells"])},
+                               "append_cells": max(0, APPEND_CELLS_PER_DAY - usage["cells"]),
+                               "append_calls": max(0, APPEND_CALLS_PER_DAY - usage["appends"])},
                 "note": "Only spreadsheets the owner registered on /static/sheets/index.html are reachable."}
 
     def read(self, actor: str, sheet_id, tab="", cells="") -> dict:
@@ -676,7 +684,7 @@ MCP_TOOLS = [
     {"name": "sheet_append",
      "description": "Append rows after the last row of a registered Google spreadsheet where the owner switched on "
                     "'agents may append'. rows is a list of rows, each a list of cells (text, number or boolean); "
-                    "at most 200 rows, 50 columns and 2000 cells per call. Text starting with = + - @ is stored as "
+                    "at most 200 rows, 50 columns and 2000 cells per call, 300 calls a day: send rows in batches. Text starting with = + - @ is stored as "
                     "text, never as a formula. idempotency_key (8-100 chars of A-Z a-z 0-9 _ . : -) is required: "
                     "repeat a call with the SAME key and the SAME rows after a network error and nothing is "
                     "written twice. On sheets_append_outcome_unknown do not resend: read the sheet first.",

@@ -111,10 +111,13 @@ class ValidationTest(unittest.TestCase):
     def test_range_must_be_bounded(self):
         self.assertEqual(gs.clean_range(""), "A1:Z100")
         self.assertEqual(gs.clean_range("$a$1:f50"), "A1:F50")
-        for bad in ("A:Z", "A1", "Sheet1!A1:B2", "B2:A1", "A1:B2;C3", "A1:ZZZ9"):
+        for bad in ("A:Z", "A1", "Sheet1!A1:B2", "B2:A1", "A1:B2;C3", "A1:AAAA9"):
             self.assertEqual(self.code(gs.clean_range, bad), "sheets_range_invalid", bad)
         self.assertEqual(self.code(gs.clean_range, "A1:A501"), "sheets_range_too_large")
         self.assertEqual(self.code(gs.clean_range, "A1:Z500"), "sheets_range_too_large")
+        self.assertEqual(gs.clean_range("zz1:aaa2"), "ZZ1:AAA2")     # three-letter columns: ZZ -> AAA boundary
+        self.assertEqual(gs.clean_range("ZZZ1:ZZZ1"), "ZZZ1:ZZZ1")
+        self.assertEqual(self.code(gs.clean_range, "AAA1:ZZ1"), "sheets_range_invalid")
         self.assertEqual(gs.a1("It's", "A1:B2"), "'It''s'!A1:B2")
         self.assertEqual(gs.a1("", "A1"), "A1")
         self.assertEqual(self.code(gs.clean_tab, "x" * 101), "sheets_tab_invalid")
@@ -335,6 +338,31 @@ class ServiceTest(unittest.TestCase):
             self.http.answers.append((200, {"values": []}))
             self.tool("sheet_read", {"sheet_id": SID})
             self.assertEqual(self.code("sheet_read", {"sheet_id": SID}), "sheets_daily_read_limit")
+
+    def test_a_full_key_store_never_evicts_a_live_key(self):
+        """Fill every daily call slot for a whole key window: the first successful key still replays and the
+        uncertain key is still fenced, so neither can be written twice."""
+        self.register()
+        self.http.answers += [(200, APPENDED), TimeoutError("slow")]
+        self.tool("sheet_append", self.append_args(idempotency_key="first-done-key"))
+        self.assertEqual(self.code("sheet_append", self.append_args(idempotency_key="first-unknown-key")),
+                         "sheets_append_outcome_unknown")
+        calls = len(self.http.calls)
+        for day in range(gs.KEY_TTL_DAYS - 1):
+            start = 2 if day == 0 else 0
+            for i in range(start, gs.APPEND_CALLS_PER_DAY):
+                self.store.claim_append("agent:claude", f"fill-{day}-{i:04d}", "h", SID, "", 1, 1)
+            with self.assertRaises(gs.SheetsError) as err:        # the day is full: refused, nothing evicted
+                self.store.claim_append("agent:claude", f"over-{day}-key", "h", SID, "", 1, 1)
+            self.assertEqual(err.exception.code, "sheets_daily_append_limit")
+            self.now[0] += 86400 - 60
+        records = json.loads(self.store.path.read_text(encoding="utf-8"))["appends"]
+        self.assertEqual(len(records), gs.APPEND_CALLS_PER_DAY * (gs.KEY_TTL_DAYS - 1))
+        self.assertTrue(self.tool("sheet_append", self.append_args(idempotency_key="first-done-key"))["replayed"])
+        self.assertEqual(self.code("sheet_append", self.append_args(idempotency_key="first-unknown-key")),
+                         "sheets_append_outcome_unknown")
+        self.assertEqual(len(self.http.calls), calls)               # neither retry reached Google
+        self.assertEqual(self.tool("sheet_list", {})["limits"]["append_calls_per_day"], gs.APPEND_CALLS_PER_DAY)
 
     def test_expired_token_is_refreshed_once_with_a_fenced_write_back(self):
         self.register()

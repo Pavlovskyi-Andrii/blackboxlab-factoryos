@@ -499,7 +499,7 @@ RUNBOOKS: list[dict[str, Any]] = [
         "time": "≈20 минут",
         "steps": [
             {"id": "api", "title": "Включите Google Sheets API",
-             "do": ["Откройте console.cloud.google.com под тем аккаунтом Google, где лежат ваши таблицы. Вверху выберите проект или создайте новый (например FactoryOS).",
+             "do": ["Откройте console.cloud.google.com под тем аккаунтом Google, где лежат ваши таблицы. Вверху создайте новый проект (например FactoryOS Sheets). Не используйте проект, где настроен YouTube: тогда отключение таблиц не заденет YouTube.",
                     "Меню → APIs & Services → Library → найдите «Google Sheets API» → Enable."],
              "check": "На странице Google Sheets API написано «API Enabled» (или кнопка Manage вместо Enable).",
              "if": [{"when": "Google просит включить оплату (billing)", "then": "Для Sheets API оплата не нужна. Ничего не подключайте и напишите мне, что именно показывает экран."}]},
