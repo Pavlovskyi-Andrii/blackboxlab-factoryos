@@ -126,3 +126,8 @@ How to drive it:
      solves or bypasses these: the owner takes over on the Surfer page.
    - `refused` / `blocked` / `failed` — see `blocker` and `hints`.
 5. Daily caps apply (40 sessions, 600 steps by default); the answer is HTTP 429 until 00:00 UTC.
+6. **Recipes** (`web_recipe`, T-723): the owner can save a successful session as a recipe. `web_recipe {}` lists them
+   (`name`, `site`, `params`); `web_recipe {"recipe": "name", "params": {…}}` replays one without AI and returns
+   `run_id` and `session_id`; `web_recipe {"run_id": "rr_…"}` reports `running`, `done` or `stopped` with the step and
+   the reason. After `stopped` the session is still open: look at it with `web_snapshot` and continue with `web_act`,
+   or close it. A recipe never carries the owner's confirmation: a sensitive step asks him again on every run.

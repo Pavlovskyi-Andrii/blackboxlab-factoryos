@@ -387,11 +387,13 @@ class PageTest(unittest.TestCase):
         for suffix in ("/policy", "/policy/allow", "/policy/allow/{entry_id}/delete", "/policy/pause", "/sessions",
                        "/sessions/{session_id}", "/sessions/{session_id}/stop", "/sessions/{session_id}/takeover",
                        "/sessions/{session_id}/input", "/sessions/{session_id}/control", "/steps/{step_id}/screenshot",
-                       "/steps/{step_id}/{decision}", "/uploads", "/uploads/{asset_id}/delete", "/audit", "/pending"):
+                       "/steps/{step_id}/{decision}", "/uploads", "/uploads/{asset_id}/delete", "/audit", "/pending",
+                       "/recipes", "/recipes/{recipe_id}/run", "/recipes/{recipe_id}/delete"):
             self.assertIn("/api/factory/surfer/owner" + suffix, paths, suffix)
         called = set(re.findall(r'api\("(/[a-z/]+)', self.script))
         self.assertTrue(called <= {"/policy", "/policy/pause", "/policy/allow", "/policy/allow/", "/sessions",
-                                   "/sessions/", "/steps/", "/uploads", "/uploads/", "/audit"}, called)
+                                   "/sessions/", "/steps/", "/uploads", "/uploads/", "/audit", "/recipes",
+                                   "/recipes/"}, called)
 
 
 if __name__ == "__main__":
