@@ -30,8 +30,9 @@ import time
 from typing import Callable, Optional
 
 try:
-    from . import browser_tasks, relay_tasks, worker_heartbeat
+    from . import browser_actions, browser_tasks, relay_tasks, worker_heartbeat
 except ImportError:  # pragma: no cover - run as a plain script
+    import browser_actions
     import browser_tasks
     import relay_tasks
     import worker_heartbeat
@@ -45,7 +46,7 @@ HEARTBEAT_SECONDS = 30
 TASK_BUDGET_SECONDS = 15 * 60            # a browser task is bounded (~90 s); the beat before it promises 15 min
 EXIT_CODE_UPDATED = 0                    # Restart=always brings it back on the new code
 CODE_FILES = ("autopilot/browser_worker.py", "autopilot/browser_tasks.py", "autopilot/worker_heartbeat.py",
-              "autopilot/relay_tasks.py")
+              "autopilot/relay_tasks.py", "autopilot/browser_actions.py")
 
 
 def log(message: str) -> None:
@@ -105,10 +106,12 @@ class SurferWorker:
                  available: Callable[[], bool] = lambda: browser_tasks.playwright_available(),
                  configured: Callable[[], bool] = relay_tasks.configured, post: Optional[Callable] = None,
                  clock: Callable[[], float] = time.time, stop: Optional[threading.Event] = None,
-                 fingerprint: Callable[[], tuple] = code_fingerprint, version: str = ""):
+                 fingerprint: Callable[[], tuple] = code_fingerprint, version: str = "",
+                 actions: Optional["browser_actions.ActionRunner"] = None):
         self.repo = pathlib.Path(repo)
         self.beat_path = worker_heartbeat.path_for(self.repo, worker_heartbeat.SURFER_FILE)
         self.run_one, self.available, self.configured = run_one, available, configured
+        self.actions = actions               # T-720: live action sessions (None: read tasks only)
         self.post, self.clock = post, clock
         self.stop = stop or threading.Event()
         self.fingerprint = fingerprint
@@ -161,7 +164,14 @@ class SurferWorker:
             return "unavailable", UNAVAILABLE_SECONDS
         self.local_beat("polling", TASK_BUDGET_SECONDS)
         self.task_id = ""
-        result = self.run_one(on_claim=self._claimed)
+        # T-720: while an action session holds Chromium, a read task opens its own anonymous context in that browser.
+        borrowed = self.actions.borrowed_factory() if self.actions else None
+        if borrowed:
+            import functools
+            result = self.run_one(on_claim=self._claimed, runner=functools.partial(
+                browser_tasks.run_playwright, playwright_factory=borrowed))
+        else:
+            result = self.run_one(on_claim=self._claimed)
         if result == "error":
             self.backoff = min(MAX_BACKOFF_SECONDS, max(POLL_SECONDS * 2.0, self.backoff * 2))
             wait = self.backoff
@@ -176,6 +186,16 @@ class SurferWorker:
             self.server_beat("idle", force=True)
         else:
             self.server_beat("idle" if result == "idle" else "queue_unreachable")
+        if self.actions:
+            acted = self.actions.pump()
+            if acted == "ran":
+                wait = 0.0
+            elif self.actions.live and result != "error":
+                wait = min(wait, browser_actions.LIVE_POLL_SECONDS) if wait else 0.0
+            if self.actions.live:
+                self.local_beat("running", TASK_BUDGET_SECONDS)
+                self.server_beat("running")
+                return result, max(wait, 0.2) if acted != "ran" else 0.0
         self.local_beat("idle", wait + worker_heartbeat.STALE_AFTER_SECONDS)
         return result, wait
 
@@ -190,12 +210,14 @@ class SurferWorker:
             passes += 1
             if max_passes is not None and passes >= max_passes:
                 break
-            if self.fingerprint() != self._code:
+            if self.fingerprint() != self._code and not (self.actions and self.actions.live):
                 log("runner code changed on disk; exiting between tasks so systemd restarts on the new code")
                 code = EXIT_CODE_UPDATED
                 break
             if wait:
                 self.stop.wait(wait)
+        if self.actions:
+            self.actions.close()
         # Deadline = now: the Claude worker's fallback may take browser tasks again at once.
         self.local_beat("stopped", 0)
         self.server_beat("stopped", force=True)
@@ -217,7 +239,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _graceful)
     signal.signal(signal.SIGINT, _graceful)
     try:
-        return SurferWorker(stop=stop, version=code_version()).run()
+        return SurferWorker(stop=stop, version=code_version(), actions=browser_actions.ActionRunner()).run()
     finally:
         lock.release()
 

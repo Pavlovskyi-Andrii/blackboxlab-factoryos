@@ -44,6 +44,7 @@ from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
 import web_surfer
+import surfer_actions
 import agent_workspace
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
@@ -1322,6 +1323,14 @@ def _surfer_session(raw, url: str) -> dict:
 install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized,
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
+# T-720 Surfer action sessions (docs/roadmap/T-720_SURFER_ACTIONS.md). The engine ships closed: ClosedGate refuses every
+# action until T-721 adds the owner's flag, allowlist and caps.
+SURFER_ACTIONS = surfer_actions.ActionStore(DATA_DIR)
+SURFER_GATE = surfer_actions.ClosedGate()
+def _surfer_lane(request: Request) -> str:
+    return agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
+surfer_actions.install_routes(app, store=SURFER_ACTIONS, gate_fn=lambda: SURFER_GATE, identity=request_identity,
+                              authorize_worker=_claude_worker_authorized, lane_identity=_surfer_lane)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
 install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
@@ -1503,6 +1512,8 @@ async def auth_middleware(request: Request, call_next):
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and (_claude_worker_authorized(request) or gemini_worker_api)
     browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
+    # T-720: the Surfer action tools over REST, with the caller's own per-lane MCP token (never the shared one).
+    relay_agent_api=relay_agent_api or (request.url.path.startswith("/api/factory/surfer/agent/") and bool(_surfer_lane(request)))
     owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/") or request.url.path.startswith("/api/factory/surfer/worker/")) and _claude_worker_authorized(request)
     # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
@@ -1994,7 +2005,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS
+]+web_surfer.TOOLS+surfer_actions.TOOLS+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2044,6 +2055,9 @@ async def factory_mcp(request: Request):
                 result=_factory_mcp_text(data)
             elif name in web_surfer.TOOL_NAMES:
                 result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH,sessions=_surfer_session))
+            elif name in surfer_actions.TOOL_NAMES:
+                # T-720: acting needs the caller's lane identity; the gate (flag, allowlist, caps) is checked inside.
+                result=_factory_mcp_text(await surfer_actions.call_tool(name,args,store=SURFER_ACTIONS,gate=SURFER_GATE,lane=mcp_lane or ""))
             elif name in social_autopilot.MCP_TOOL_NAMES:
                 # T-702: agents read the plan and add drafts only; approval and publishing stay owner-only.
                 result=_factory_mcp_text(social_autopilot.call_tool(SOCIAL_AUTOPILOT,name,args,mcp_lane or ""))
