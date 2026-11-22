@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import secrets
@@ -39,7 +40,8 @@ TOOL = {
     "description": "Saved Surfer recipes: a sequence of steps the owner approved after a successful session, replayed "
                    "without AI under the same allowlist and confirmation rules. {} lists the recipes (name, site, "
                    "params). {\"recipe\": \"name or rc_… id\", \"params\": {…}} starts a replay and returns run_id and "
-                   "session_id at once. {\"run_id\": \"rr_…\"} returns its state: running, done, or stopped with the "
+                   "session_id at once. {\"run_id\": \"rr_…\"} returns its state: running, done, interrupted (the service "
+                   "restarted: look at the page before starting it again), or stopped with the "
                    "step and the reason (a mismatch, a step that needs the owner, a login). After 'stopped' the "
                    "session is still open: continue it with web_snapshot / web_act, or close it with web_close.",
     "inputSchema": {
@@ -69,6 +71,17 @@ def _path(url: str) -> str:
     return logged[len(origin):] if origin and logged.startswith(origin) else ""
 
 
+def _query_mark(url: str) -> str:
+    """A fingerprint of the page's query string: `/edit?id=123` and `/edit?id=456` are different pages. The query
+    itself can carry tokens, so only its hash is kept in a recipe."""
+    from urllib.parse import parse_qsl, urlsplit
+    try:
+        pairs = sorted(parse_qsl(urlsplit(str(url or "")).query, keep_blank_values=True))
+    except ValueError:
+        pairs = []
+    return hashlib.sha256(json.dumps(pairs).encode("utf-8")).hexdigest()[:16] if pairs else ""
+
+
 def draft_from_session(doc: dict, params: Optional[Dict[str, str]] = None) -> List[dict]:
     """Recipe steps from a session's successful steps. ``params`` maps a step's seq to a parameter name."""
     params = {str(k): str(v) for k, v in (params or {}).items() if str(v).strip()}
@@ -87,7 +100,8 @@ def draft_from_session(doc: dict, params: Optional[Dict[str, str]] = None) -> Li
             out.append({"kind": kind, "url": str(step.get("url") or "")[:2000], "seq": step.get("seq")})
             continue
         row: Dict[str, Any] = {"kind": "act", "action": step.get("action"), "seq": step.get("seq"),
-                               "page": policy.log_url(step.get("page_url") or "")}
+                               "page": policy.log_url(step.get("page_url") or ""),
+                               "page_query": _query_mark(step.get("page_url") or "")}
         element = step.get("element") or {}
         if element:
             row["target"] = _target(element)
@@ -121,6 +135,7 @@ class RecipeStore:
     def __init__(self, data_dir: Path, *, clock: Callable[[], float] = time.time):
         self.path = Path(data_dir) / "surfer_actions" / "recipes.json"
         self.clock, self.lock = clock, threading.RLock()
+        self._active: set = set()                 # runs this process is replaying right now
 
     def _load(self) -> dict:
         try:
@@ -130,6 +145,13 @@ class RecipeStore:
         data = data if isinstance(data, dict) else {}
         data.setdefault("recipes", [])
         data.setdefault("runs", [])
+        for run in data["runs"]:
+            # A replay lives in the web process. After a restart nobody is running it: it is reported as
+            # interrupted (terminal) and is never resumed or replayed, so no step can happen twice.
+            if run.get("status") == "running" and run.get("id") not in self._active:
+                run.update(status="interrupted", reason="the web service restarted during the replay; steps "
+                           f"1–{max(0, int(run.get('at_step') or 1) - 1)} were done, the step in flight is unknown. "
+                           "Check the page before starting it again", finished=int(self.clock()))
         return data
 
     def _save(self, data: dict) -> None:
@@ -189,6 +211,7 @@ class RecipeStore:
                    "lane": lane, "by": by, "status": "running", "at_step": 0, "steps_total": len(recipe["steps"]),
                    "session_id": "", "reason": "", "started": int(self.clock())}
             data["runs"].append(run)
+            self._active.add(run["id"])
             for row in data["recipes"]:
                 if row["id"] == recipe["id"]:
                     row["runs"] = int(row.get("runs") or 0) + 1
@@ -202,6 +225,8 @@ class RecipeStore:
             if run is None:
                 raise HTTPException(404, "unknown run")
             run.update(changes)
+            if run.get("status") != "running":
+                self._active.discard(run_id)
             self._save(data)
             return dict(run)
 
@@ -269,8 +294,9 @@ async def replay(store: sa.ActionStore, gate: Any, recipes: RecipeStore, run: di
                 if session.get("status") != "active":
                     return stop("stopped", "session_" + str(session.get("status") or "lost"))
                 snapshot = store.snapshot(session_id)
-                if step.get("page") and policy.log_url(snapshot.get("url") or "") != step["page"]:
-                    return stop("stopped", "page_differs")
+                if step.get("page") and (policy.log_url(snapshot.get("url") or "") != step["page"]
+                                         or _query_mark(snapshot.get("url") or "") != step.get("page_query", "")):
+                    return stop("stopped", "page_differs")       # another address or another record (?id=…)
                 args = {"session_id": session_id, "action": step["action"], "wait_seconds": STEP_WAIT_SECONDS}
                 if step.get("target"):
                     ref, problem = match_element(snapshot, step["target"])
