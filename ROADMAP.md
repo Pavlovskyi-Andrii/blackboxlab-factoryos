@@ -37,6 +37,7 @@
   Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Self-test. `surfer_fixture_site.py`, `surfer_fake_browser.py`.
   Goal: a deterministic local site (login form, multi-step form, file upload, delete button, payment button, captcha-like wall) proving: allowlisted fill + submit runs, sensitive steps wait, off-allowlist is refused, secrets never reach snapshots or logs, a takeover continues the session, a recipe replays. After merge: one live session on the owner's own FactoryOS product page if `FACTORY_SURFER_ACTIONS_ENABLED` is on; otherwise it waits for the owner's flag.
   DONE: `python test_surfer_selftest.py` (CI: page double; `RUN_BROWSER_FIXTURE=1`: real Chromium), default verification.
+
 - [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-22: «собери данные с этого сайта, помести их в Google таблицу»)
