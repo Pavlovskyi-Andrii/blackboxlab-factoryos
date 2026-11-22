@@ -46,6 +46,7 @@ from browser_tasks import BrowserTaskStore, install_browser_task_routes
 import web_surfer
 import surfer_actions
 import surfer_policy
+import surfer_owner
 import agent_workspace
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
@@ -1359,6 +1360,7 @@ class _SurferVault:
 SURFER_ACTIONS = surfer_actions.ActionStore(DATA_DIR)
 SURFER_GATE = surfer_policy.PolicyGate(DATA_DIR, vault=_SurferVault())
 surfer_policy.install_routes(app, gate=SURFER_GATE, store=SURFER_ACTIONS, identity=request_identity)
+surfer_owner.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, identity=request_identity)  # T-722 owner page
 def _surfer_lane(request: Request) -> str:
     return agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
 surfer_actions.install_routes(app, store=SURFER_ACTIONS, gate_fn=lambda: SURFER_GATE, identity=request_identity,

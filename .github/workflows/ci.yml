@@ -276,6 +276,8 @@ jobs:
           python test_surfer_actions.py
           python -m py_compile surfer_policy.py test_surfer_policy.py
           python test_surfer_policy.py
+          python -m py_compile surfer_owner.py test_surfer_owner.py
+          FACTORYOS_REQUIRE_NODE=1 python test_surfer_owner.py
           bash -n deploy/install_surfer_worker.sh
           python -m py_compile web_surfer.py test_web_surfer.py
           python test_web_surfer.py
