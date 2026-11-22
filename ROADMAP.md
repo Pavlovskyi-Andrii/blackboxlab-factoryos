@@ -14,13 +14,20 @@
   Goal: server-side, fail closed: `FACTORY_SURFER_ACTIONS_ENABLED` (off by default) + owner pause switch; allowlist store (domain patterns + classes read/navigate/fill/submit/upload + optional vault login), nothing on by default; sensitive steps (payment, delete, security settings, messaging, publishing, leaving the allowlist, a class not switched on) → `needs_owner_confirmation` with a preview; login wall / captcha / SMS code → `waiting_human`; per-day session and step caps; lane identity from the per-lane MCP token, the shared token may not act.
   DONE: `python test_surfer_policy.py`, `python test_surfer_actions.py`, default verification.
 
-- [ ] T-722 Surfer owner page `static/surfer/index.html`: live sessions, Confirm / Reject / Stop, code box, Take over, allowlist, pause, audit
+- [x] T-722 Surfer owner page `static/surfer/index.html`: live sessions, Confirm / Reject / Stop, code box, Take over, allowlist, pause, audit
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1
   Depends: T-721
   Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Owner page.
   Goal: RU/UK/EN page: live session with steps and screenshots, Confirm / Reject / Stop, a box for the SMS code or text the page asks for, Take over (screenshot + click coordinates + typed text), allowlist editor, pause switch, approved upload files, audit history; `GET /api/factory/surfer/owner/pending` (owner-only JSON) for another agent session to mirror; owner runbook + `[HUMAN]` task for the flag and the first allowlist entries.
   DONE: `python test_surfer_owner.py`, `python test_owner_desk.py`, page inline JS `node --check`, default verification.
+
+- [ ] [HUMAN] T-722-H Switch Surfer actions on: `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render and the first allowed sites on the Surfer page
+  Owner: human
+  Depends: T-722, T-714-H
+  Need: nothing acts until the owner sets `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render (not a secret) and enables at least one site with its action classes on `/static/surfer/index.html`. The allowlist is empty by default; his first list (FactoryOS, Google Forms/Sheets, OLX, Render, LinkedIn Developers, GitHub) is offered there as suggestions. Agents need their own lane MCP key (T-624).
+  Runbook: Worker Center → «Нужно от вас» → T-722-H (RU/EN/UK).
+  DONE: the Surfer page says «Действия включены», at least one site is enabled, and an agent's first step is in the action log.
 
 - [ ] T-723 Surfer recipes: save a successful session as a parameterised recipe and replay it without AI
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
