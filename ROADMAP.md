@@ -1,3 +1,18 @@
+- [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-22: «собери данные с этого сайта, помести их в Google таблицу»)
+  Depends: T-560-F, T-625
+  Spec: DECISIONS.md «2026-11-22 — T-725». `google_sheets.py`, `oauth_framework.py` (provider `google_sheets`), `static/sheets/index.html`, MCP tools `sheet_list` / `sheet_read` / `sheet_append` in `app.py`.
+  Goal: OAuth provider `google_sheets` (its own Google client, scope `spreadsheets`, PKCE, refresh after a 401 with a fenced write-back, tokens only in the encrypted vault); owner page (RU/UK/EN) to connect Google, add / create / remove target spreadsheets, switch «agents may append» per sheet and read the history; agents reach only registered sheets and only with a per-lane MCP token; reads and appends bounded per call and per day; formula-like text stored as text; `sheet_append` needs an idempotency key (a retry writes nothing twice, an unknown outcome is never resent); fixed error codes, no token or cell value in errors, logs or the store. Ships dark: `FACTORY_GOOGLE_SHEETS_ENABLED` is off by default.
+  DONE: `python test_google_sheets.py`, `python test_oauth_framework.py`, `python test_owner_desk.py`, default verification, `node --check` of the page script.
+
+- [ ] [HUMAN] T-725-H Create the Google OAuth client for Sheets, add the keys in Render and connect Google
+  Owner: human
+  Depends: T-725, T-560-G
+  Need: owner enables the Google Sheets API in a Google Cloud project, fills in the OAuth consent screen (External, published to production so the refresh token does not expire after 7 days), creates a Web application OAuth client with the redirect `https://blackboxlab-factoryos.onrender.com/api/oauth/google_sheets/callback`, puts FACTORY_OAUTH_GOOGLE_SHEETS_CLIENT_ID / _SECRET and FACTORY_GOOGLE_SHEETS_ENABLED=1 in Render, connects on /static/sheets/index.html and adds a spreadsheet.
+  Runbook: Worker Center → «Нужно от вас» → T-725-H (RU/EN/UK).
+  DONE: an agent appended a test row to the owner's spreadsheet and the history on /static/sheets/index.html shows it.
+
 - [x] T-714 Surfer worker: browser tasks in their own process on EC2, a Surfer lane in Worker Center, a loop-heartbeat watchdog
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-21: «да» — Surfer tasks waited 15:18→16:55 UTC behind a long Claude job and a stalled worker loop)

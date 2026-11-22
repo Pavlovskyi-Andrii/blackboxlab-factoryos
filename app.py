@@ -73,6 +73,7 @@ import linkedin_publisher
 import social_autopilot
 import social_images
 import olx_publisher
+import google_sheets
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
@@ -1993,7 +1994,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS
+]+web_surfer.TOOLS+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2046,6 +2047,9 @@ async def factory_mcp(request: Request):
             elif name in social_autopilot.MCP_TOOL_NAMES:
                 # T-702: agents read the plan and add drafts only; approval and publishing stay owner-only.
                 result=_factory_mcp_text(social_autopilot.call_tool(SOCIAL_AUTOPILOT,name,args,mcp_lane or ""))
+            elif name in google_sheets.MCP_TOOL_NAMES:
+                # T-725: owner-registered spreadsheets only, per-lane token required (the shared token is refused).
+                result=_factory_mcp_text(await asyncio.to_thread(google_sheets.call_tool,GOOGLE_SHEETS,name,args,mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -2149,6 +2153,7 @@ PORTABLE_INTEGRATIONS = {
     "HubSpot": {"category":"crm","auth_mode":"oauth","transport":"direct"},
     "LinkedIn": {"category":"publishing","auth_mode":"oauth","transport":"direct"},
     "OLX": {"category":"marketplace","auth_mode":"oauth","transport":"direct"},
+    "Google Sheets": {"category":"data","auth_mode":"oauth","transport":"direct"},
 }
 CONNECTIONS = {
     "Metricool": {"state":"not_configured","detail":"Publishing workspace not configured"},
@@ -2158,6 +2163,7 @@ CONNECTIONS = {
     "HubSpot": {"state":"not_configured","detail":"CRM / Growth · direct FactoryOS login not configured"},
     "LinkedIn": {"state":"not_configured","detail":"Text posts via the official LinkedIn API · connect on /static/linkedin/"},
     "OLX": {"state":"not_configured","detail":"Adverts via the official OLX Partner API · connect on /static/olx/index.html"},
+    "Google Sheets": {"state":"not_configured","detail":"Agents append rows via the official Sheets API · connect on /static/sheets/index.html"},
     "vidIQ": {"state":"paused","detail":"Paused for now"},
     "LLM": {
         "state":"connected" if FACTORY_LLM_API_KEY else "demo",
@@ -11296,8 +11302,11 @@ OAUTH_FLOW = OAuthFlow(
     vault=_oauth_token_vault(),
     # T-552-YT: real Google transport for YouTube; other providers stay blocked until their adapters exist.
     adapters={"youtube":youtube_publisher.GoogleOAuthAdapter(),"linkedin":linkedin_publisher.LinkedInOAuthAdapter(),
-              "olx":olx_publisher.OlxOAuthAdapter()},
+              "olx":olx_publisher.OlxOAuthAdapter(),"google_sheets":google_sheets.GoogleSheetsOAuthAdapter()},
 )
+# T-725: Google Sheets for agents (owner-registered sheets, bounded, idempotent), off until FACTORY_GOOGLE_SHEETS_ENABLED=1.
+GOOGLE_SHEETS=google_sheets.Sheets(google_sheets.SheetStore(DATA_DIR),OAUTH_FLOW,tenancy.binding_workspace)
+google_sheets.install_routes(app,service=GOOGLE_SHEETS,identity=request_identity)
 # T-700: LinkedIn text posts (owner-only draft → approve → publish), off until FACTORY_LINKEDIN_ENABLED=1.
 linkedin_publisher.install_routes(app,store=linkedin_publisher.PostStore(DATA_DIR),flow=OAUTH_FLOW,
                                   identity=request_identity,workspace=tenancy.binding_workspace)
