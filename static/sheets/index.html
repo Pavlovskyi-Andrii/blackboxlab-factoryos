@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FactoryOS · Google Sheets</title>
+<style>
+:root{--bg:#0b1020;--card:#131a30;--line:#26304f;--text:#e7ecff;--mute:#9aa6c9;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--acc:#60a5fa}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:16px}h1{font-size:22px;margin:8px 0 4px}p.sub{color:var(--mute);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}button{background:#1f2a4a;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+button.primary{background:var(--acc);color:#071022;border-color:var(--acc);font-weight:600}button:disabled{opacity:.45;cursor:not-allowed}
+input[type=text]{flex:1;min-width:200px;background:#0d1328;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit}
+label{display:block;margin:10px 0 4px;color:var(--mute);font-size:13px}
+.chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;border:1px solid var(--line)}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.item{border-top:1px solid var(--line);padding:12px 0}.item:first-child{border-top:0}
+small{color:var(--mute)}a{color:var(--acc);word-break:break-all}select{background:#1f2a4a;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:4px 8px 4px 0;border-top:1px solid var(--line);vertical-align:top}th{color:var(--mute);font-weight:500;border-top:0}
+.scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<main>
+<div class="row" style="justify-content:space-between"><h1 data-t="title"></h1><select id="lang"><option value="ru">RU</option><option value="uk">UK</option><option value="en">EN</option></select></div>
+<p class="sub" data-t="sub"></p>
+<section class="card" id="status"></section>
+<section class="card"><b data-t="addTitle"></b>
+<label data-t="addHint"></label><div class="row"><input type="text" id="url" maxlength="400" placeholder="https://docs.google.com/spreadsheets/d/…"><button class="primary" id="add" data-t="add"></button></div>
+<label data-t="createHint"></label><div class="row"><input type="text" id="newTitle" maxlength="120"><button id="create" data-t="create"></button></div></section>
+<section class="card"><b data-t="targets"></b><div id="list"></div></section>
+<section class="card"><b data-t="limits"></b><div id="limits"></div></section>
+<section class="card"><b data-t="history"></b><div class="scroll" id="hist"></div></section>
+</main>
+<script>
+const T={
+ru:{title:"Google Таблицы для агентов",sub:"Агенты (Claude, ChatGPT) собирают данные и дописывают строки в ваши таблицы через официальный Google Sheets API. Доступны только таблицы из списка ниже; дописывать можно только туда, где вы это включили.",
+ connect:"Подключить Google",disconnect:"Отключить",connected:"Google подключён",notConnected:"Google не подключён",blockers:"Что мешает",ready:"Готово: агенты могут работать с таблицами из списка.",
+ addTitle:"Добавить таблицу",addHint:"Ссылка на вашу Google Таблицу",add:"Добавить",createHint:"Или создать новую пустую таблицу (название)",create:"Создать",
+ targets:"Таблицы, доступные агентам",empty:"Пока нет ни одной таблицы.",allow:"Агенты могут дописывать строки",readOnly:"Агенты могут только читать",remove:"Убрать из списка",askRemove:"Убрать таблицу из списка? Сама таблица в Google останется.",tabs:"Листы",
+ limits:"Лимиты",perCall:"За один вызов: до {r} строк, {c} колонок, {x} ячеек",perDay:"За сутки (UTC): до {r} строк и {x} ячеек за {n} вызовов, {q} чтений",used:"Сегодня использовано: {r} строк, {x} ячеек, {q} чтений",
+ history:"История",noHistory:"Пока пусто.",hWhen:"Когда",hWho:"Кто",hWhat:"Действие",hSheet:"Таблица",hInfo:"Детали",rows:"строк",owner:"вы",
+ act:{add:"таблица добавлена",create:"таблица создана",remove:"таблица убрана",allow_append:"запись разрешена",forbid_append:"запись запрещена",read:"чтение",append:"запись"},
+ st:{appended:"записано",replayed:"повтор: уже записано",unknown:"исход неизвестен — проверьте таблицу",failed:"не записано"},
+ b:{client_not_configured:"нет ключей приложения Google (задача T-725-H)",client_secret_missing:"нет секрета приложения (T-725-H)",adapter_missing:"нет адаптера",vault_unavailable:"хранилище токенов выключено (нужен FACTORY_VAULT_KEY, T-560-G)",vault_unreadable:"хранилище токенов не читается",sheets_not_connected:"Google не подключён",sheets_off:"функция выключена (FACTORY_GOOGLE_SHEETS_ENABLED)"},
+ e:{sheets_url_invalid:"Это не ссылка на Google Таблицу.",sheets_not_found:"Таблица не найдена. Проверьте ссылку.",sheets_forbidden:"У подключённого аккаунта Google нет доступа к этой таблице.",sheets_api_not_enabled:"В проекте Google Cloud не включён Google Sheets API (шаг 1 задачи T-725-H).",sheets_disabled:"Функция выключена (FACTORY_GOOGLE_SHEETS_ENABLED).",sheets_not_connected:"Сначала подключите Google.",sheets_not_ready:"Подключение не готово — см. «Что мешает».",sheets_reconnect_required:"Google просит подключиться заново.",sheets_too_many_targets:"В списке уже максимум таблиц.",sheets_title_required:"Введите название.",sheets_rate_limited:"Google временно ограничил запросы. Повторите позже.",sheets_unreachable:"Google не ответил. Повторите позже."}},
+uk:{title:"Google Таблиці для агентів",sub:"Агенти (Claude, ChatGPT) збирають дані й дописують рядки у ваші таблиці через офіційний Google Sheets API. Доступні лише таблиці зі списку нижче; дописувати можна лише туди, де ви це ввімкнули.",
+ connect:"Підключити Google",disconnect:"Відключити",connected:"Google підключено",notConnected:"Google не підключено",blockers:"Що заважає",ready:"Готово: агенти можуть працювати з таблицями зі списку.",
+ addTitle:"Додати таблицю",addHint:"Посилання на вашу Google Таблицю",add:"Додати",createHint:"Або створити нову порожню таблицю (назва)",create:"Створити",
+ targets:"Таблиці, доступні агентам",empty:"Поки немає жодної таблиці.",allow:"Агенти можуть дописувати рядки",readOnly:"Агенти можуть лише читати",remove:"Прибрати зі списку",askRemove:"Прибрати таблицю зі списку? Сама таблиця в Google залишиться.",tabs:"Аркуші",
+ limits:"Ліміти",perCall:"За один виклик: до {r} рядків, {c} стовпців, {x} клітинок",perDay:"За добу (UTC): до {r} рядків і {x} клітинок за {n} викликів, {q} читань",used:"Сьогодні використано: {r} рядків, {x} клітинок, {q} читань",
+ history:"Історія",noHistory:"Поки порожньо.",hWhen:"Коли",hWho:"Хто",hWhat:"Дія",hSheet:"Таблиця",hInfo:"Деталі",rows:"рядків",owner:"ви",
+ act:{add:"таблицю додано",create:"таблицю створено",remove:"таблицю прибрано",allow_append:"запис дозволено",forbid_append:"запис заборонено",read:"читання",append:"запис"},
+ st:{appended:"записано",replayed:"повтор: уже записано",unknown:"результат невідомий — перевірте таблицю",failed:"не записано"},
+ b:{client_not_configured:"немає ключів застосунку Google (задача T-725-H)",client_secret_missing:"немає секрету застосунку (T-725-H)",adapter_missing:"немає адаптера",vault_unavailable:"сховище токенів вимкнене (потрібен FACTORY_VAULT_KEY, T-560-G)",vault_unreadable:"сховище токенів не читається",sheets_not_connected:"Google не підключено",sheets_off:"функцію вимкнено (FACTORY_GOOGLE_SHEETS_ENABLED)"},
+ e:{sheets_url_invalid:"Це не посилання на Google Таблицю.",sheets_not_found:"Таблицю не знайдено. Перевірте посилання.",sheets_forbidden:"Підключений акаунт Google не має доступу до цієї таблиці.",sheets_api_not_enabled:"У проєкті Google Cloud не ввімкнено Google Sheets API (крок 1 задачі T-725-H).",sheets_disabled:"Функцію вимкнено (FACTORY_GOOGLE_SHEETS_ENABLED).",sheets_not_connected:"Спершу підключіть Google.",sheets_not_ready:"Підключення не готове — див. «Що заважає».",sheets_reconnect_required:"Google просить підключитися заново.",sheets_too_many_targets:"У списку вже максимум таблиць.",sheets_title_required:"Введіть назву.",sheets_rate_limited:"Google тимчасово обмежив запити. Повторіть пізніше.",sheets_unreachable:"Google не відповів. Повторіть пізніше."}},
+en:{title:"Google Sheets for agents",sub:"Agents (Claude, ChatGPT) collect data and append rows to your spreadsheets through the official Google Sheets API. Only the spreadsheets listed below are reachable; appending works only where you switched it on.",
+ connect:"Connect Google",disconnect:"Disconnect",connected:"Google connected",notConnected:"Google not connected",blockers:"What is missing",ready:"Ready: agents can work with the listed spreadsheets.",
+ addTitle:"Add a spreadsheet",addHint:"Link to your Google spreadsheet",add:"Add",createHint:"Or create a new empty spreadsheet (title)",create:"Create",
+ targets:"Spreadsheets agents can reach",empty:"No spreadsheets yet.",allow:"Agents may append rows",readOnly:"Agents may only read",remove:"Remove from the list",askRemove:"Remove the spreadsheet from the list? The spreadsheet itself stays in Google.",tabs:"Tabs",
+ limits:"Limits",perCall:"Per call: up to {r} rows, {c} columns, {x} cells",perDay:"Per day (UTC): up to {r} rows and {x} cells in {n} calls, {q} reads",used:"Used today: {r} rows, {x} cells, {q} reads",
+ history:"History",noHistory:"Nothing yet.",hWhen:"When",hWho:"Who",hWhat:"Action",hSheet:"Spreadsheet",hInfo:"Details",rows:"rows",owner:"you",
+ act:{add:"spreadsheet added",create:"spreadsheet created",remove:"spreadsheet removed",allow_append:"appending allowed",forbid_append:"appending forbidden",read:"read",append:"append"},
+ st:{appended:"appended",replayed:"repeat: already appended",unknown:"unknown outcome — check the spreadsheet",failed:"not appended"},
+ b:{client_not_configured:"no Google app keys (task T-725-H)",client_secret_missing:"no app secret (T-725-H)",adapter_missing:"adapter missing",vault_unavailable:"token vault off (needs FACTORY_VAULT_KEY, T-560-G)",vault_unreadable:"token vault unreadable",sheets_not_connected:"Google not connected",sheets_off:"feature off (FACTORY_GOOGLE_SHEETS_ENABLED)"},
+ e:{sheets_url_invalid:"This is not a Google spreadsheet link.",sheets_not_found:"Spreadsheet not found. Check the link.",sheets_forbidden:"The connected Google account has no access to this spreadsheet.",sheets_api_not_enabled:"Google Sheets API is not enabled in the Google Cloud project (step 1 of T-725-H).",sheets_disabled:"Feature off (FACTORY_GOOGLE_SHEETS_ENABLED).",sheets_not_connected:"Connect Google first.",sheets_not_ready:"The connection is not ready — see “What is missing”.",sheets_reconnect_required:"Google asks you to connect again.",sheets_too_many_targets:"The list is already full.",sheets_title_required:"Enter a title.",sheets_rate_limited:"Google is rate limiting requests. Try again later.",sheets_unreachable:"Google did not answer. Try again later."}}};
+let L=(()=>{try{return localStorage.getItem('sheets_lang')}catch(e){return null}})()||((navigator.language||'ru').slice(0,2));if(!T[L])L='ru';
+const t=k=>T[L][k]||T.en[k]||k;const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fill=(s,o)=>s.replace(/\{(\w)\}/g,(_,k)=>o[k]);
+const say=e=>alert((T[L].e||{})[e.message]||e.message);
+async function api(path,opt){const o=opt||{};const h=o.body?{'content-type':'application/json'}:{};const r=await fetch(path,{credentials:'same-origin',headers:h,...o});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||d.reason||('HTTP '+r.status));return d}
+let S={sheets:[],blockers:[],history:[],usage:{},limits:{}};
+function paint(){document.querySelectorAll('[data-t]').forEach(e=>e.textContent=t(e.dataset.t));$('#lang').value=L;
+ const b=S.blockers||[];$('#status').innerHTML=(S.connected?`<div class="row"><span class="chip ok">●</span> ${esc(t('connected'))} <button id="disc">${esc(t('disconnect'))}</button></div>`:`<div class="row"><span class="chip warn">●</span> ${esc(t('notConnected'))} <button class="primary" id="conn">${esc(t('connect'))}</button></div>`)+
+ (b.length?`<p><small>${esc(t('blockers'))}:</small></p><ul>${b.map(x=>`<li class="warn">${esc((T[L].b||{})[x]||x)}</li>`).join('')}</ul>`:`<p class="ok">${esc(t('ready'))}</p>`);
+ const c=$('#conn');if(c)c.onclick=async()=>{try{const o=await api('/api/oauth/google_sheets/authorize',{method:'POST'});if(o.authorize_url)location.assign(o.authorize_url)}catch(e){alert((T[L].b||{})[e.message]||e.message)}};
+ const dc=$('#disc');if(dc)dc.onclick=async()=>{await api('/api/oauth/google_sheets/disconnect',{method:'POST'}).catch(say);load()};
+ $('#add').disabled=$('#create').disabled=!S.ready;
+ const names={};(S.sheets||[]).forEach(s=>names[s.id]=s.title||s.id);
+ const box=$('#list');box.innerHTML=(S.sheets||[]).length?S.sheets.map(s=>`<div class="item"><b>${esc(s.title||s.id)}</b> <span class="chip ${s.agents_append?'ok':'warn'}">${esc(t(s.agents_append?'allow':'readOnly'))}</span><br><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a><br>${(s.tabs||[]).length?`<small>${esc(t('tabs'))}: ${esc(s.tabs.join(', '))}</small>`:''}<div class="row" style="margin-top:8px"><label style="margin:0;color:var(--text)"><input type="checkbox" data-tg="${esc(s.id)}" ${s.agents_append?'checked':''}> ${esc(t('allow'))}</label><button data-rm="${esc(s.id)}">${esc(t('remove'))}</button></div></div>`).join(''):`<p><small>${esc(t('empty'))}</small></p>`;
+ box.querySelectorAll('[data-tg]').forEach(x=>x.onchange=async()=>{await api('/api/factory/sheets/targets/'+x.dataset.tg+'/append',{method:'POST',body:JSON.stringify({allowed:x.checked})}).catch(say);load()});
+ box.querySelectorAll('[data-rm]').forEach(x=>x.onclick=async()=>{if(!confirm(t('askRemove')))return;await api('/api/factory/sheets/targets/'+x.dataset.rm+'/remove',{method:'POST',body:'{}'}).catch(say);load()});
+ const m=S.limits||{},u=S.usage||{};$('#limits').innerHTML=m.append_max_rows?`<p>${esc(fill(t('perCall'),{r:m.append_max_rows,c:m.append_max_columns,x:m.append_max_cells}))}<br>${esc(fill(t('perDay'),{r:m.append_rows_per_day,x:m.append_cells_per_day,n:m.append_calls_per_day,q:m.reads_per_day}))}<br><small>${esc(fill(t('used'),{r:u.rows||0,x:u.cells||0,q:u.reads||0}))}</small></p>`:'';
+ const h=S.history||[];$('#hist').innerHTML=h.length?`<table><tr><th>${esc(t('hWhen'))}</th><th>${esc(t('hWho'))}</th><th>${esc(t('hWhat'))}</th><th>${esc(t('hSheet'))}</th><th>${esc(t('hInfo'))}</th></tr>${h.map(x=>{const st=x.status?((T[L].st||{})[x.status]||x.status):'';const cls=x.status==='unknown'||x.status==='failed'?'bad':'';
+  const info=[x.action==='append'?`${x.rows||0} ${t('rows')}`:'',x.tab||'',x.range||'',st,x.code||''].filter(Boolean).join(' · ');
+  return `<tr><td>${esc(new Date(x.at*1000).toLocaleString())}</td><td>${esc(x.actor==='owner'?t('owner'):x.actor)}</td><td>${esc((T[L].act||{})[x.action]||x.action)}</td><td>${esc(names[x.sheet_id]||x.title||x.sheet_id)}</td><td class="${cls}">${esc(info)}</td></tr>`}).join('')}</table>`:`<p><small>${esc(t('noHistory'))}</small></p>`;}
+async function load(){try{S=await api('/api/factory/sheets')}catch(e){$('#status').innerHTML=`<p class="bad">${esc(e.message)}</p>`;return}paint()}
+$('#add').onclick=async()=>{const v=$('#url').value.trim();if(!v)return;try{await api('/api/factory/sheets/targets',{method:'POST',body:JSON.stringify({url:v})});$('#url').value=''}catch(e){say(e)}load()};
+$('#create').onclick=async()=>{const v=$('#newTitle').value.trim();if(!v)return;try{await api('/api/factory/sheets/create',{method:'POST',body:JSON.stringify({title:v})});$('#newTitle').value=''}catch(e){say(e)}load()};
+$('#lang').onchange=e=>{L=e.target.value;try{localStorage.setItem('sheets_lang',L)}catch(_){}paint()};
+paint();load();
+</script>
+</body>
+</html>

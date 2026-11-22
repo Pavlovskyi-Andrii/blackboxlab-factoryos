@@ -75,6 +75,21 @@ PROVIDERS = {
         client_id_env="FACTORY_OAUTH_META_APP_ID", client_secret_env="FACTORY_OAUTH_META_APP_SECRET",
         scope_separator=",",
     ),
+    # T-725 (owner 2026-11-22): agents write collected data into the owner's spreadsheets through the Sheets API.
+    # Its own Google OAuth client in its own Google Cloud project (not the YouTube one): Google's revocation can
+    # reach every grant of the client's project, so a shared client or project would let "disconnect Sheets" cut
+    # YouTube. No include_granted_scopes: the token carries the spreadsheets scope only.
+    "google_sheets": OAuthProvider(
+        id="google_sheets", label="Google Sheets", integration="Google Sheets",
+        authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+        token_url="https://oauth2.googleapis.com/token",
+        revoke_url="https://oauth2.googleapis.com/revoke",
+        scopes=("https://www.googleapis.com/auth/spreadsheets",),
+        pkce=True,
+        client_id_env="FACTORY_OAUTH_GOOGLE_SHEETS_CLIENT_ID",
+        client_secret_env="FACTORY_OAUTH_GOOGLE_SHEETS_CLIENT_SECRET",
+        extra_params=(("access_type", "offline"), ("prompt", "consent")),
+    ),
     # T-700 (owner 2026-11-17): member text posts through Share on LinkedIn + Sign In with LinkedIn (OpenID).
     "linkedin": OAuthProvider(
         id="linkedin", label="LinkedIn", integration="LinkedIn",
