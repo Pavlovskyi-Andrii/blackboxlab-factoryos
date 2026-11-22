@@ -160,6 +160,47 @@ class ReplayTest(RecipeHarness):
         self.assertEqual(sr.match_element({"elements": [dict(twin, ref="e1", name="Full  name!")]}, target),
                          ("", "element_not_found"))
 
+    def test_same_path_with_another_record_in_the_query_is_another_page(self):
+        # Codex review on #451: /edit?id=123 recorded, the site lands on /edit?id=456 with the same labels.
+        sid = self.record_wizard()
+        recipe = self.recipes.save(self.store.get(sid), "Wizard")
+        self.close(sid)
+        self.assertEqual(recipe["steps"][1]["page_query"], "")
+        original = self.store.snapshot
+
+        def other_record(session_id):
+            snap = original(session_id)
+            if snap.get("url", "").endswith("/wizard"):
+                snap["url"] += "?id=456"
+            return snap
+        with mock.patch.object(self.store, "snapshot", other_record):
+            run = self.replay(recipe)
+        self.assertEqual((run["status"], run["reason"], run["at_step"]), ("stopped", "page_differs", 2))
+        self.assertEqual(len(self.site.events), 1)
+        self.assertNotEqual(sr._query_mark("https://a.b/edit?id=123"), sr._query_mark("https://a.b/edit?id=456"))
+        self.assertEqual(sr._query_mark("https://a.b/e?x=1&y=2"), sr._query_mark("https://a.b/e?y=2&x=1"))
+        self.assertNotIn("123", sr._query_mark("https://a.b/edit?id=123"))
+
+    def test_a_replay_cut_by_a_restart_is_interrupted_and_never_resumed(self):
+        # Codex review on #451: a run must not stay "running" forever after the web service restarts.
+        sid = self.record_wizard()
+        recipe = self.recipes.save(self.store.get(sid), "Wizard")
+        self.close(sid)
+        run = self.recipes.start_run(recipe, "claude", "claude")
+        self.recipes.update_run(run["id"], at_step=4, session_id="ws_" + "1" * 16)
+        self.assertEqual(self.recipes.run(run["id"])["status"], "running")
+        restarted = sr.RecipeStore(self.dir, clock=self.clock)          # a new web process
+        events, launches = len(self.site.events), self.pw.launches
+        state = asyncio.run(sr.call_tool({"run_id": run["id"]}, store=self.store, gate=self.gate, recipes=restarted,
+                                         lane="claude"))
+        self.assertEqual((state["status"], state["at_step"]), ("interrupted", 4))
+        self.assertIn("restarted", state["reason"])
+        self.assertIn("1–3", state["reason"])
+        for _ in range(5):
+            self.runner.pump()
+        self.assertEqual((len(self.site.events), self.pw.launches), (events, launches))    # nothing was replayed
+        self.assertEqual(restarted.runs()[0]["status"], "interrupted")
+
     def test_a_sensitive_step_waits_for_the_owner_again_on_every_replay(self):
         self.site.signed_in = True
         view = self.open("/account")
@@ -268,6 +309,10 @@ class ToolAndRoutesTest(RecipeHarness):
         self.assertEqual(made["steps"][1], {"kind": "act", "action": "fill", "param": "full_name", "example": "Andrii",
                                             "seq": 2, "element": "Full name"})
         self.assertEqual(self.store.audit_tail(1)[0]["action"], "recipe_save")
+        cleared = {"session": {"id": sid}, "steps": [
+            {"id": "wa_" + "0" * 16, "seq": 1, "kind": "act", "action": "fill", "status": "done", "by": "claude",
+             "element": {"name": "Note", "kind": "input"}}]}
+        self.assertEqual(sa.owner_session_view(self.store, cleared)["steps"][0]["value"], "")   # can be a parameter
         with self.assertRaises(HTTPException) as err:
             call("POST", base, None, {"session_id": "ws_" + "0" * 16, "name": "Other"})
         self.assertEqual(err.exception.status_code, 404)
