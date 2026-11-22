@@ -13,7 +13,8 @@ What this module guarantees:
   owner types is kept in memory only; neither is written to a step, a snapshot or the audit log;
 - every step is written to the audit log (who, lane, URL without query, action, element label, result, screenshot).
 
-T-720 ships the engine closed (``ClosedGate``); the owner's flag, allowlist and caps arrive with T-721.
+The gate (owner flag, pause switch, allowlist, caps, vault access) is ``surfer_policy.PolicyGate`` (T-721);
+``ClosedGate`` is what an app without it gets: nothing may act.
 """
 from __future__ import annotations
 
@@ -179,12 +180,12 @@ def _int_arg(args: dict, name: str, default: int, low: int, high: int) -> int:
 
 
 class ClosedGate:
-    """The gate of T-720: nothing may act. T-721 replaces it with the owner's flag, allowlist and caps."""
+    """Nothing may act. The real gate is ``surfer_policy.PolicyGate`` (owner flag, allowlist, caps)."""
 
     loopback = False
 
     def status(self) -> dict:
-        return {"enabled": False, "reason": "Surfer actions are not switched on yet (T-721: owner flag and allowlist)"}
+        return {"enabled": False, "reason": "Surfer actions are not switched on"}
 
     def require(self, lane: str) -> None:
         raise HTTPException(503, self.status()["reason"])
@@ -206,6 +207,9 @@ class ClosedGate:
 
     def upload(self, asset_id: str) -> Optional[dict]:
         return None
+
+    def has_login_secret(self, login: str) -> bool:
+        return False
 
 
 class ActionStore:
@@ -610,6 +614,17 @@ class ActionStore:
                     elif session["status"] in ("opening", "waiting_human", "needs_owner_confirmation"):
                         session["status"] = "active"
                         session.pop("wait_reason", None)
+                    # T-721 login wall: the saved vault login gets one try; without one, or after a failed try,
+                    # the owner signs in himself (Take over). Nothing is guessed or retried.
+                    if session["status"] == "active" and snap and clean["markers"]["login_wall"] and not ack:
+                        if step.get("on_login_wall") and (step.get("review") or {}).get("klass") == "submit" \
+                                and status == "done":
+                            session["login_submits"] = int(session.get("login_submits") or 0) + 1
+                        has_secret = bool(session.get("login")) and bool(
+                            getattr(gate, "has_login_secret", lambda _login: False)(session["login"]))
+                        if not has_secret or session.get("login_submits"):
+                            session.update(status="waiting_human",
+                                           wait_reason="login_failed" if session.get("login_submits") else "login_required")
             state = body.get("storage_state")
             if step["kind"] == "save_login" and isinstance(state, dict) and session.get("login"):
                 try:
@@ -874,6 +889,8 @@ async def web_act(store: ActionStore, gate: Any, args: dict, lane: str, **kw) ->
         spec["asset_id"] = asset["id"]
         spec["value"] = asset.get("name") or ""
     snap = store.snapshot(session["id"])
+    if (snap.get("markers") or {}).get("login_wall"):
+        spec["on_login_wall"] = True
     element = None
     if ref:
         element = next((e for e in snap.get("elements") or [] if e.get("ref") == ref), None)
