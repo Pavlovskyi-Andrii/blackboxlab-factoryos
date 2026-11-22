@@ -29,11 +29,11 @@
   Runbook: Worker Center → «Нужно от вас» → T-722-H (RU/EN/UK).
   DONE: the Surfer page says «Действия включены», at least one site is enabled, and an agent's first step is in the action log.
 
-- [ ] T-723 Surfer recipes: save a successful session as a parameterised recipe and replay it without AI
+- [x] T-723 Surfer recipes: save a successful session as a parameterised recipe and replay it without AI
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P2
   Depends: T-722
-  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Recipes.
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Recipes; DECISIONS.md «2026-11-22 — T-723». `surfer_recipes.py`, MCP tool `web_recipe`.
   Goal: the owner approves saving a session's successful steps as a recipe with parameters; a replay runs deterministically under the same policy gate, stops at the first mismatch and hands the session to an agent or the owner.
   DONE: `python test_surfer_recipes.py`, default verification.
 
