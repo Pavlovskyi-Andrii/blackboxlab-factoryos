@@ -1082,7 +1082,8 @@ def owner_session_view(store: ActionStore, doc: dict) -> dict:
 
 
 def install_routes(app, *, store: ActionStore, gate_fn: Callable[[], Any], identity: Callable,
-                   authorize_worker: Callable, lane_identity: Callable[[Request], str]) -> None:
+                   authorize_worker: Callable, lane_identity: Callable[[Request], str],
+                   extra_tools: Optional[Dict[str, Callable]] = None) -> None:
     """Agent REST (lane token), worker protocol (worker token) and the owner's read/stop routes."""
 
     async def body_of(request: Request) -> dict:
@@ -1101,6 +1102,8 @@ def install_routes(app, *, store: ActionStore, gate_fn: Callable[[], Any], ident
         lane = lane_identity(request)
         if not lane:
             raise HTTPException(401, "lane MCP token required")
+        if extra_tools and tool in extra_tools:               # T-723 web_recipe: async (args, lane) -> dict
+            return await extra_tools[tool](await body_of(request), lane)
         if tool not in TOOL_NAMES:
             raise HTTPException(404, "unknown tool")
         return await call_tool(tool, await body_of(request), store=store, gate=gate_fn(), lane=lane)

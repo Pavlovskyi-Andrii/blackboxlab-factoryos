@@ -47,6 +47,7 @@ import web_surfer
 import surfer_actions
 import surfer_policy
 import surfer_owner
+import surfer_recipes
 import agent_workspace
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
@@ -1363,8 +1364,13 @@ surfer_policy.install_routes(app, gate=SURFER_GATE, store=SURFER_ACTIONS, identi
 surfer_owner.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, identity=request_identity)  # T-722 owner page
 def _surfer_lane(request: Request) -> str:
     return agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
+SURFER_RECIPES = surfer_recipes.RecipeStore(DATA_DIR)  # T-723: owner-approved recipes, replayed under the same gate
+async def _surfer_recipe_tool(args, lane):
+    return await surfer_recipes.call_tool(args, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, lane=lane)
 surfer_actions.install_routes(app, store=SURFER_ACTIONS, gate_fn=lambda: SURFER_GATE, identity=request_identity,
-                              authorize_worker=_claude_worker_authorized, lane_identity=_surfer_lane)
+                              authorize_worker=_claude_worker_authorized, lane_identity=_surfer_lane,
+                              extra_tools={"web_recipe": _surfer_recipe_tool})
+surfer_recipes.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, identity=request_identity)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
 install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
@@ -2039,7 +2045,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+surfer_actions.TOOLS+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS
+]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2092,6 +2098,8 @@ async def factory_mcp(request: Request):
             elif name in surfer_actions.TOOL_NAMES:
                 # T-720: acting needs the caller's lane identity; the gate (flag, allowlist, caps) is checked inside.
                 result=_factory_mcp_text(await surfer_actions.call_tool(name,args,store=SURFER_ACTIONS,gate=SURFER_GATE,lane=mcp_lane or ""))
+            elif name in surfer_recipes.TOOL_NAMES:
+                result=_factory_mcp_text(await _surfer_recipe_tool(args,mcp_lane or ""))
             elif name in social_autopilot.MCP_TOOL_NAMES:
                 # T-702: agents read the plan and add drafts only; approval and publishing stay owner-only.
                 result=_factory_mcp_text(social_autopilot.call_tool(SOCIAL_AUTOPILOT,name,args,mcp_lane or ""))
