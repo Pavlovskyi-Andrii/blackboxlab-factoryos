@@ -1,3 +1,43 @@
+- [x] T-720 Surfer action sessions (core): a live browser page that acts — web_open / web_act / web_snapshot / web_close
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner brief 2026-11-22: a tool that acts on sites instead of him, in his own signed-in accounts)
+  Depends: T-560, T-624, T-714
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md`; DECISIONS.md «2026-11-22 — T-720». `surfer_actions.py`, `browser_runner/action_policy.py`, `browser_runner/action_session.py`, `autopilot/browser_actions.py`, `autopilot/browser_worker.py`.
+  Goal: a session = one live page on the Surfer worker kept across steps (idle 5 min, 15 min while it waits for the owner, 30 min hard, one at a time). MCP tools and the same over REST (`/api/factory/surfer/agent/{tool}`, lane token): `web_open`, `web_act` (click, fill, select, check, press, upload, scroll, wait_for, back), `web_snapshot` (title, url, text chunk, interactive elements with refs), `web_close`. Secret-field values, cookies and storage are never returned; secrets are filled only by vault reference, resolved when the worker claims the command; the worker replaces every secret it typed in what it reports. Every step is in the audit log. Ships closed (`ClosedGate`) until T-721.
+  DONE: `python test_surfer_actions.py`, `python test_browser_tasks.py`, `python -m autopilot.test_browser_worker`, `python test_web_surfer.py`, `python test_agent_workspace.py`, default verification.
+
+- [ ] T-721 Surfer policy gate: owner flag, allowlist with action classes, sensitive-step confirmation, daily caps
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-720
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Policy gate.
+  Goal: server-side, fail closed: `FACTORY_SURFER_ACTIONS_ENABLED` (off by default) + owner pause switch; allowlist store (domain patterns + classes read/navigate/fill/submit/upload + optional vault login), nothing on by default; sensitive steps (payment, delete, security settings, messaging, publishing, leaving the allowlist, a class not switched on) → `needs_owner_confirmation` with a preview; login wall / captcha / SMS code → `waiting_human`; per-day session and step caps; lane identity from the per-lane MCP token, the shared token may not act.
+  DONE: `python test_surfer_policy.py`, `python test_surfer_actions.py`, default verification.
+
+- [ ] T-722 Surfer owner page `static/surfer/index.html`: live sessions, Confirm / Reject / Stop, code box, Take over, allowlist, pause, audit
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-721
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Owner page.
+  Goal: RU/UK/EN page: live session with steps and screenshots, Confirm / Reject / Stop, a box for the SMS code or text the page asks for, Take over (screenshot + click coordinates + typed text), allowlist editor, pause switch, approved upload files, audit history; `GET /api/factory/surfer/owner/pending` (owner-only JSON) for another agent session to mirror; owner runbook + `[HUMAN]` task for the flag and the first allowlist entries.
+  DONE: `python test_surfer_owner.py`, `python test_owner_desk.py`, page inline JS `node --check`, default verification.
+
+- [ ] T-723 Surfer recipes: save a successful session as a parameterised recipe and replay it without AI
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P2
+  Depends: T-722
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Recipes.
+  Goal: the owner approves saving a session's successful steps as a recipe with parameters; a replay runs deterministically under the same policy gate, stops at the first mismatch and hands the session to an agent or the owner.
+  DONE: `python test_surfer_recipes.py`, default verification.
+
+- [ ] T-724 Surfer self-test: fixture site proving the gate, secrets, takeover and recipe replay; one live session when the owner's flag is on
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-723
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Self-test. `surfer_fixture_site.py`, `surfer_fake_browser.py`.
+  Goal: a deterministic local site (login form, multi-step form, file upload, delete button, payment button, captcha-like wall) proving: allowlisted fill + submit runs, sensitive steps wait, off-allowlist is refused, secrets never reach snapshots or logs, a takeover continues the session, a recipe replays. After merge: one live session on the owner's own FactoryOS product page if `FACTORY_SURFER_ACTIONS_ENABLED` is on; otherwise it waits for the owner's flag.
+  DONE: `python test_surfer_selftest.py` (CI: page double; `RUN_BROWSER_FIXTURE=1`: real Chromium), default verification.
+
 - [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-22: «собери данные с этого сайта, помести их в Google таблицу»)
