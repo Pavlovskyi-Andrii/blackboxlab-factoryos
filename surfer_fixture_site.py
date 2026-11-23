@@ -30,6 +30,11 @@ LOGIN = """<form method="post" action="/login%s"><label>Email <input type="email
 autocomplete="username"></label><label>Password <input type="password" name="password"
 autocomplete="current-password"></label><button type="submit">Sign in</button></form>%s"""
 
+# In-page navigation like GitHub or a single-page app: the URL changes a moment after the click, no new page load.
+SOFT = """<p>Soft navigation page.</p><a id="soft" href="/soft/next">Next section</a>
+<script>document.getElementById('soft').addEventListener('click', function (e) { e.preventDefault();
+setTimeout(function () { history.pushState({}, '', '/soft/next'); document.querySelector('h1').textContent = 'Next section'; }, 1200);
+});</script>"""
 CODE = """<p>We sent a verification code to your phone. Enter the code.</p><form method="post" action="/login/code">
 <label>Code <input type="text" name="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>
 <button type="submit">Continue</button></form>"""
@@ -93,6 +98,8 @@ class FixtureSite:
                     self._send(_page("Fixture home", INDEX))
                 elif path == "/login":
                     self._send(_page("Sign in", LOGIN % ("", "")))
+                elif path in ("/soft", "/soft/next"):
+                    self._send(_page("Soft navigation", SOFT))
                 elif path == "/login/code":
                     self._send(_page("Verification code", CODE))
                 elif path == "/account":
