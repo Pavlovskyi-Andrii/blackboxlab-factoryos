@@ -211,7 +211,8 @@ AGENT_SPECS = {
 }
 
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
-app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+# html=True: a directory URL such as /static/linkedin/ serves its index.html (owner 2026-11-23: runbook links were 404).
+app.mount("/static", StaticFiles(directory=BASE / "static", html=True), name="static")
 
 
 @app.on_event("startup")
