@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import pathlib
+import sys
+import time
 import tempfile
 import threading
 import unittest
@@ -99,6 +101,53 @@ class WorkerTest(unittest.TestCase):
         now["t"] += 10 * 3600
         self.assertFalse(w.check_self())
         self.assertEqual(exits, [bw.EXIT_CODE_STUCK])
+
+    def test_a_beat_that_lands_during_the_check_wins(self):
+        # Codex on #460: the exit decision is serialized with deadline renewal.
+        import threading as th
+        w = self.worker()
+        now = {"t": 1000.0}
+        exits = []
+        w.monotonic, w.exit = (lambda: now["t"]), exits.append
+        w.local_beat("polling", 10)
+        now["t"] += 11                                           # expired ...
+        result = {}
+        with w._watch:                                           # ... but the loop is renewing right now
+            checker = th.Thread(target=lambda: result.setdefault("fired", w.check_self()))
+            checker.start()
+            checker.join(0.2)
+            self.assertTrue(checker.is_alive())                  # the check waits for the renewal
+            w._loop_deadline = now["t"] + 60
+        checker.join(5)
+        self.assertEqual((result["fired"], exits), (False, []))
+        with w._watch:                                           # a stop that lands meanwhile wins too
+            checker = th.Thread(target=lambda: result.update(fired=w.check_self()))
+            now["t"] += 120
+            checker.start()
+            w.stop.set()
+        checker.join(5)
+        self.assertEqual((result["fired"], exits), (False, []))
+
+    def test_a_stalled_loop_exits_the_real_process_with_75(self):
+        import subprocess
+        import textwrap
+        script = textwrap.dedent(f"""
+            import pathlib, sys, time
+            sys.path.insert(0, {str(bw.ROOT)!r})
+            from autopilot import browser_worker as bw
+            bw.SELF_WATCHDOG_EVERY_SECONDS = 0.2
+            bw.TASK_BUDGET_SECONDS = 1
+            def stuck(*, on_claim=None):
+                time.sleep(120)                                  # a pass that never returns
+            w = bw.SurferWorker(repo=pathlib.Path({str(self.repo)!r}), run_one=stuck, configured=lambda: True,
+                                available=lambda: True, post=lambda *a, **k: None, fingerprint=lambda: ())
+            w.run()
+        """)
+        started = time.monotonic()
+        proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, bw.EXIT_CODE_STUCK, proc.stderr[-500:])
+        self.assertLess(time.monotonic() - started, 30)
+        self.assertIn("silent past its deadline", proc.stderr)
 
     def test_a_pass_promises_less_than_the_old_15_minutes(self):
         self.assertLessEqual(bw.TASK_BUDGET_SECONDS, 6 * 60)
