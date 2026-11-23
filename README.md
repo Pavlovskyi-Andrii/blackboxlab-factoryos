@@ -27,6 +27,10 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.18.1 — Surfer: a link click waits for in-page navigation — 2026-11-23
+
+- Surfer: after a click on a link, the agent's snapshot waits briefly for the URL to change, so sites that navigate in-page (GitHub, single-page apps) show the new page instead of the old one. Found in the first clean live session (open the repo page → click Issues) (#456).
+
 ### v5.18.0 — Surfer: login choices, no false code wall — 2026-11-23
 
 - Surfer after the first live session: a code (2FA) wall needs a field that looks like the code box, so a page that only mentions SMS codes no longer stops the agent; the site's "vault login" list shows passwords and saved browser sessions; a new login can be bound and saved after the owner signs in once with Take over; "How the Surfer signs in" help on the Surfer page with a link to Access vault (`/#vault`); the stray "null" under "Add a site" is gone (#455).

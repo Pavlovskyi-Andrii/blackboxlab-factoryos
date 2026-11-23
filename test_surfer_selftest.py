@@ -342,5 +342,28 @@ class SelfTest(unittest.TestCase):
         self.fail("the worker did not close the page")
 
 
+@unittest.skipUnless(REAL, "real Chromium only (RUN_BROWSER_FIXTURE=1)")
+class SoftNavigationTest(unittest.TestCase):
+    def test_link_click_waits_for_in_page_navigation(self):
+        # Live session 2026-11-23: a click on GitHub's Issues tab returned the old page; the URL changed a moment later.
+        from playwright.sync_api import sync_playwright
+        from browser_runner.action_session import ActionSession
+        with fixture.FixtureSite() as site, sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            try:
+                context = browser.new_context()
+                session = ActionSession(context.new_page(), context, loopback=True)
+                policy = {"allow": [{"pattern": "127.0.0.1", "classes": ["read", "navigate"], "enabled": True}]}
+                opened = session.execute({"kind": "open", "url": site.url + "/soft", "policy": policy})
+                page = opened.get("snapshot") or opened
+                ref = next(e["ref"] for e in page["elements"] if e.get("name") == "Next section")
+                done = session.execute({"kind": "act", "action": "click", "ref": ref, "policy": policy})
+                page = done.get("snapshot") or done
+                self.assertEqual(done["status"], "done")
+                self.assertTrue(page["url"].endswith("/soft/next"), page["url"])
+            finally:
+                browser.close()
+
+
 if __name__ == "__main__":
     unittest.main()
