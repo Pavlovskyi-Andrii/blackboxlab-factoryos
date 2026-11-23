@@ -92,6 +92,63 @@ class PendingTest(OwnerHarness):
                 self.assertFalse(re.search(r"[ыэъё]", row["uk"]), key)
 
 
+class AgentPendingTest(OwnerHarness):
+    """T-726: the Claude lane reads the owner's pending list, without anything sensitive, and cannot answer it."""
+
+    def test_claude_reads_a_confirmation_without_screenshot_or_value(self):
+        self.gate.save_entry({**self.entry, "classes": ["read", "navigate"]})
+        view = self.open("/login")
+        self.act(view, "fill", "Email", value="someone@example.test")
+        out = so.agent_pending(self.store, self.gate, "claude", "https://factory.example")
+        (item,) = out["pending"]
+        self.assertEqual((item["kind"], item["site"], item["action"], item["element"], item["reasons"]),
+                         ("confirm", "shop.example", "fill", "Email", ["class_not_allowed"]))
+        self.assertEqual(item["page"], "https://factory.example/static/surfer/index.html")
+        self.assertTrue(item["step_id"].startswith("wa_") and item["session_id"].startswith("ws_"))
+        self.assertEqual(set(item["text"]), {"ru", "uk", "en"})
+        self.assertTrue(item["since"])
+        for key in ("screenshot", "value", "url", "title", "id"):
+            self.assertNotIn(key, item)
+        self.assertNotIn("someone@example.test", json.dumps(out))
+        self.assertEqual(out["count"], 1)
+        self.assertEqual(set(out["gate"]), {"enabled", "paused"})
+
+    def test_a_code_wait_shows_no_code_and_other_lanes_are_refused(self):
+        self.site.sms_step = True
+        view = self.open("/login")
+        self.act(view, "fill", "Email", value_from=f"vault:{LOGIN}#username")
+        self.act(view, "fill", "Password", value_from=f"vault:{LOGIN}#password")
+        self.act(view, "click", "Sign in")
+        (item,) = so.agent_pending(self.store, self.gate, "claude")["pending"]
+        self.assertEqual((item["kind"], item["wait_reason"], item["page"]), ("human", "2fa", so.PAGE))
+        dump = json.dumps(item)
+        for secret in (fixture.PASSWORD, fixture.USERNAME, fixture.SMS_CODE):
+            self.assertNotIn(secret, dump)
+        for lane in ("chatgpt", "gemini", "", "owner"):
+            with self.assertRaises(HTTPException) as err:
+                so.agent_pending(self.store, self.gate, lane)
+            self.assertEqual(err.exception.status_code, 403)
+        self.assertEqual(so.PENDING_TOOL["inputSchema"]["properties"], {})   # read-only: nothing to answer with
+
+
+class AgentPendingAppTest(unittest.TestCase):
+    def test_real_app_lists_surfer_pending_for_claude_only(self):
+        from test_agent_workspace import LANE_TOKENS, SHARED, mcp_call
+        import app as factory
+        _, listed = mcp_call(factory, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, SHARED)
+        self.assertIn("surfer_pending", {t["name"] for t in listed["result"]["tools"]})
+        call = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "surfer_pending", "arguments": {}}}
+        _, out = mcp_call(factory, call, LANE_TOKENS["claude"])
+        self.assertFalse(out["result"].get("isError"), out)
+        body = json.loads(out["result"]["content"][0]["text"])
+        self.assertEqual((body["pending"], body["count"]), ([], 0))
+        self.assertTrue(body["page"].endswith("/static/surfer/index.html"))
+        for token in (SHARED, LANE_TOKENS["chatgpt"]):
+            _, out = mcp_call(factory, call, token)
+            self.assertTrue(out["result"].get("isError"))
+            self.assertIn("Claude lane", out["result"]["content"][0]["text"])
+
+
 class CodeAndTakeoverTest(OwnerHarness):
     def login_until_code(self):
         self.site.sms_step = True

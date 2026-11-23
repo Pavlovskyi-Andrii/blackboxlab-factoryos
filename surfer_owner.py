@@ -125,6 +125,38 @@ def pending_requests(store: sa.ActionStore) -> List[dict]:
     return out
 
 
+# T-726 (owner 2026-11-23 «Да»): the Claude lane may READ what waits for the owner, to mirror it as tickets on the
+# owner's task page. Read-only: answering stays on the Surfer page. No screenshots, values, codes, cookies or URLs.
+PENDING_LANES = frozenset({"claude"})
+AGENT_FIELDS = ("kind", "session_id", "step_id", "lane", "site", "action", "element", "reasons", "wait_reason",
+                "text", "since", "expires_in_seconds")
+PENDING_TOOL = {
+    "name": "surfer_pending",
+    "description": "Read-only list of Surfer requests waiting for the owner right now (a step to confirm, a code or "
+                   "login to type, a takeover), newest first: kind (confirm / human / takeover), session_id, step_id, "
+                   "site, the action and the element label, the reasons, wait_reason, a short RU/UK/EN text, since, "
+                   "expires_in_seconds and the page where the owner answers. Never screenshots, typed values, codes or "
+                   "cookies. You cannot confirm or reject here: the owner answers on the Surfer page. Claude lane only.",
+    "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+}
+PENDING_TOOL_NAMES = frozenset({PENDING_TOOL["name"]})
+
+
+def agent_pending(store: sa.ActionStore, gate: Any, lane: str, base_url: str = "") -> dict:
+    """What `surfer_pending` returns: the owner's pending list without anything sensitive."""
+    if lane not in PENDING_LANES:
+        raise HTTPException(403, "surfer_pending is for the Claude lane token only (FACTORY_MCP_LANE_TOKEN_CLAUDE)")
+    page = (base_url.rstrip("/") + PAGE) if base_url else PAGE
+    items = []
+    for item in pending_requests(store):
+        row = {k: item[k] for k in AGENT_FIELDS if k in item and item[k] not in (None, "", [])}
+        row["page"] = page
+        items.append(row)
+    status = gate.status() if gate is not None else {}
+    return {"pending": items, "count": len(items), "page": page,
+            "gate": {k: status.get(k) for k in ("enabled", "paused") if k in status}}
+
+
 def install_routes(app, *, store: sa.ActionStore, gate: Any, identity: Callable) -> None:
     def owner(request: Request) -> None:
         if (identity(request) or {}).get("role") != "owner":

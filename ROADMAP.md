@@ -48,6 +48,13 @@
   DONE: `python test_surfer_selftest.py` (CI: page double; `RUN_BROWSER_FIXTURE=1`: real Chromium), default verification.
   Progress 2026-11-22: the scenario passes with the page double (CI) and in real Chromium on the loopback fixture site (`RUN_BROWSER_FIXTURE=1`, 21 s, run in the build session). The live session on the owner's FactoryOS page was **not run**. Checked on production 2026-11-23 through `/mcp`: `web_open` with the shared key answers «the shared MCP token may not act», with the Claude lane key «Surfer actions are off: the owner sets FACTORY_SURFER_ACTIONS_ENABLED=1 in Render». It waits for T-722-H. Scope change 2026-11-23: the owner enabled github.com, not the FactoryOS domain, so the live session ran on the public repo page on github.com (open → click Issues → close) on the EC2 Surfer worker, see T-722-H. A session on the owner's FactoryOS page still waits until the owner adds that domain on the Surfer page.
 
+- [x] T-726 Surfer: the Claude lane reads what waits for the owner (`surfer_pending`), to mirror it as tickets on the owner task page
+  Owner: claude-session
+  Priority: P1 (owner 2026-11-23 «Да», relayed by the parent session; `.autopilot/answers.md`)
+  Depends: T-722
+  Goal: read-only MCP tool `surfer_pending` (and `POST /api/factory/surfer/agent/surfer_pending`), Claude lane token only (shared token and other lanes refused): kind (confirm / human / takeover), session_id, step_id, site, action + element label, reasons / wait_reason, RU/UK/EN text, since, expires_in_seconds, link to the Surfer page. Never screenshots, typed values, codes, cookies or URLs. No confirm/reject through this path: the owner answers on the Surfer page.
+  DONE: `python test_surfer_owner.py` (AgentPendingTest, AgentPendingAppTest), default verification.
+
 - [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-22: «собери данные с этого сайта, помести их в Google таблицу»)

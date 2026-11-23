@@ -27,6 +27,11 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.19.0 — Surfer requests mirrored for the owner — 2026-11-23
+
+- `surfer_pending` (MCP, Claude lane only, read-only): what the Surfer waits for from the owner right now — a step to confirm, a code or login, a takeover — with a short RU/UK/EN text and the link to the Surfer page, so Claude can mirror it as tickets on the owner task page. No screenshots, values, codes or URLs; answering stays on the Surfer page (T-726, #458).
+- Surfer link-click wait follow-ups: commit-level URL wait, only timeouts are swallowed, same-page links still wait (#457).
+
 ### v5.18.1 — Surfer: a link click waits for in-page navigation — 2026-11-23
 
 - Surfer: after a click on a link, the agent's snapshot waits briefly for the URL to change, so sites that navigate in-page (GitHub, single-page apps) show the new page instead of the old one. Found in the first clean live session (open the repo page → click Issues) (#456).

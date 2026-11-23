@@ -41,3 +41,6 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 - Google search through Gemini: not wanted (Free tier has no grounding); FACTORY_WEB_SEARCH_PROVIDER removed in Render, Surfer search uses Wikipedia (verified on prod 10:39 UTC).
 - T-607-H Gemini worker on EC2: deferred.
 - T-624: Claude lane token works (Relay write as `claude` verified 10:46 UTC); ChatGPT lane write not yet verified.
+
+## 2026-11-23 — T-726 (relayed by the parent session)
+- Owner answered «Да» to: allow Claude to read the Surfer "waiting for owner" list so it can mirror the requests as tickets on the owner task page. Read-only; the owner still answers on the Surfer page.

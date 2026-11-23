@@ -2406,3 +2406,12 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   key): the first visit waits for him, he signs in with Take over and presses "Save this login", which stores the
   session encrypted under that name. Reversible: unbind or delete the session in Access vault.
 - `/#vault` on the dashboard opens Access vault (the Surfer page links to it).
+
+## 2026-11-23 — T-726 `surfer_pending` for the Claude lane
+
+- Only the `claude` lane token may call it (owner's answer named Claude; ChatGPT/Gemini and the shared token get 403).
+  Widening it later is one constant, `surfer_owner.PENDING_LANES`.
+- It returns an allowlist of fields from the owner's pending list (`AGENT_FIELDS`): no screenshot link, no typed or
+  pending value, no page URL or title (both can carry personal data), no codes or cookies. The element label stays:
+  it is the button or field name the owner needs to recognise the request.
+- Read-only by construction: the tool takes no arguments; confirm / reject / code / takeover stay owner-only routes.
