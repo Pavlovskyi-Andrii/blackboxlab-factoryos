@@ -744,6 +744,15 @@ class McpEndpointTest(unittest.TestCase):
         self.assertEqual(factory.SURFER_ACTIONS.list(), [])
 
 
+class DomQuietTest(unittest.TestCase):
+    def test_the_quiet_wait_is_bounded_and_resolves_by_itself(self):
+        from browser_runner import action_session as s
+        self.assertLessEqual(s.DOM_QUIET_CAP_MS, 3000)
+        self.assertLess(s.DOM_QUIET_MS, s.DOM_QUIET_CAP_MS)
+        self.assertIn("MutationObserver", s.DOM_QUIET_JS)
+        self.assertIn("o.cap", s.DOM_QUIET_JS)                       # the page script stops waiting on its own
+
+
 class CodePromptTest(unittest.TestCase):
     def test_code_wording_needs_a_code_box_not_any_input(self):
         from browser_runner.action_session import code_prompt_on

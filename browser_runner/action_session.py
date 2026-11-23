@@ -167,6 +167,17 @@ MARK_SECRET_JS = r"""() => { const el = document.activeElement;
 
 # Where a code the owner received goes: the one-time-code field, else a short numeric/code-like field, else the
 # focused field. Returns its ref ('' when there is none).
+DOM_QUIET_MS = 500           # no DOM change for this long: the page has finished reacting to the step
+DOM_QUIET_CAP_MS = 3000      # never wait longer than this for it
+DOM_QUIET_JS = r"""(o) => new Promise(resolve => {
+  let timer = null;
+  const done = () => { try { observer.disconnect(); } catch (e) {} clearTimeout(cap); resolve(true); };
+  const observer = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(done, o.quiet); });
+  observer.observe(document.documentElement || document, {subtree: true, childList: true, characterData: true,
+                                                          attributes: true});
+  timer = setTimeout(done, o.quiet);
+  const cap = setTimeout(done, o.cap);
+})"""
 FIND_CODE_FIELD_JS = "() => {" + _PRELUDE + r"""
   const pick = () => {
     const fields = Array.from(document.querySelectorAll('input')).filter(visible).filter(el =>
@@ -348,6 +359,15 @@ class ActionSession:
                 self.page.wait_for_load_state(state, timeout=ms)
             except Exception:
                 pass
+        # T-727: a click often renders its result a moment later with no load event (MyBrief "Show my briefing" fetched
+        # and drew the briefing after the snapshot). Wait until the DOM is quiet for DOM_QUIET_MS, at most
+        # DOM_QUIET_CAP_MS; the script resolves by itself, so a busy page is left to the worker's command deadline.
+        if self.aborted:
+            return
+        try:
+            self.page.evaluate(DOM_QUIET_JS, {"quiet": DOM_QUIET_MS, "cap": DOM_QUIET_CAP_MS})
+        except Exception:
+            pass
 
     def _upload_path(self, cmd: Dict[str, Any]) -> str:
         raw = str(cmd.get("file_path") or "")
