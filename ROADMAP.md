@@ -22,13 +22,14 @@
   Goal: RU/UK/EN page: live session with steps and screenshots, Confirm / Reject / Stop, a box for the SMS code or text the page asks for, Take over (screenshot + click coordinates + typed text), allowlist editor, pause switch, approved upload files, audit history; `GET /api/factory/surfer/owner/pending` (owner-only JSON) for another agent session to mirror; owner runbook + `[HUMAN]` task for the flag and the first allowlist entries.
   DONE: `python test_surfer_owner.py`, `python test_owner_desk.py`, page inline JS `node --check`, default verification.
 
-- [ ] [HUMAN] T-722-H Switch Surfer actions on: `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render and the first allowed sites on the Surfer page
+- [x] [HUMAN] T-722-H Switch Surfer actions on: `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render and the first allowed sites on the Surfer page
   Owner: human
   Depends: T-722, T-714-H
   Need: nothing acts until the owner sets `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render (not a secret) and enables at least one site with its action classes on `/static/surfer/index.html`. The allowlist is empty by default; his first list (FactoryOS, Google Forms/Sheets, OLX, Render, LinkedIn Developers, GitHub) is offered there as suggestions. Agents need their own lane MCP key (T-624).
   Runbook: Worker Center → «Нужно от вас» → T-722-H (RU/EN/UK).
   DONE: the Surfer page says «Действия включены», at least one site is enabled, and an agent's first step is in the action log.
   Progress 2026-11-23: the flag is on («Действия включены»), github.com is enabled with all classes. First live session (Claude lane, `web_open` on the public repo page) ran on the EC2 worker, but stopped as «waiting for you: 2fa» because the README text mentions SMS codes and the page has a «Go to file» box. Fixed: a code prompt now needs a field that looks like the code box. Login choices on the page are explained (vault password / sign in once and save / browser session file), and a new login name can be bound so the owner signs in once with Take over and saves it. Live rerun after the deploy.
+  Verified 2026-11-23 on v5.18.0: a live session (Claude lane) opened the public repo page on github.com with status `done` (no false code wall), clicked the Issues tab and closed; the steps are in the action log. The click snapshot showed the old page because GitHub changes the URL in-page after the click; a link click now waits for that (fixture test `SoftNavigationTest`, v5.18.1).
 
 - [x] T-723 Surfer recipes: save a successful session as a parameterised recipe and replay it without AI
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -45,7 +46,7 @@
   Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Self-test. `surfer_fixture_site.py`, `surfer_fake_browser.py`.
   Goal: a deterministic local site (login form, multi-step form, file upload, delete button, payment button, captcha-like wall) proving: allowlisted fill + submit runs, sensitive steps wait, off-allowlist is refused, secrets never reach snapshots or logs, a takeover continues the session, a recipe replays. After merge: one live session on the owner's own FactoryOS product page if `FACTORY_SURFER_ACTIONS_ENABLED` is on; otherwise it waits for the owner's flag.
   DONE: `python test_surfer_selftest.py` (CI: page double; `RUN_BROWSER_FIXTURE=1`: real Chromium), default verification.
-  Progress 2026-11-22: the scenario passes with the page double (CI) and in real Chromium on the loopback fixture site (`RUN_BROWSER_FIXTURE=1`, 21 s, run in the build session). The live session on the owner's FactoryOS page was **not run**. Checked on production 2026-11-23 through `/mcp`: `web_open` with the shared key answers «the shared MCP token may not act», with the Claude lane key «Surfer actions are off: the owner sets FACTORY_SURFER_ACTIONS_ENABLED=1 in Render». It waits for T-722-H.
+  Progress 2026-11-22: the scenario passes with the page double (CI) and in real Chromium on the loopback fixture site (`RUN_BROWSER_FIXTURE=1`, 21 s, run in the build session). The live session on the owner's FactoryOS page was **not run**. Checked on production 2026-11-23 through `/mcp`: `web_open` with the shared key answers «the shared MCP token may not act», with the Claude lane key «Surfer actions are off: the owner sets FACTORY_SURFER_ACTIONS_ENABLED=1 in Render». It waits for T-722-H. Done 2026-11-23 after T-722-H: live session on github.com (open → click Issues → close) on the EC2 Surfer worker, see T-722-H.
 
 - [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)

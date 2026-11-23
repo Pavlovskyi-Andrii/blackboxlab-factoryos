@@ -31,6 +31,7 @@ MAX_TEXT = 30_000
 MAX_SHOT_BYTES = 1_900_000
 STEP_TIMEOUT_MS = 15_000
 SELECTOR_RE = re.compile(r"^[^\x00-\x1f<>{};]{1,200}$")
+LINK_WAIT_MS = 4000  # how long a link click waits for in-page navigation
 REF_RE = re.compile(r"^e[0-9]{1,6}$")
 _CODE_TEXT_RE = re.compile(
     r"(verification code|security code|enter (?:the )?code|one[- ]time (?:code|password)|sms code|"
@@ -395,7 +396,16 @@ class ActionSession:
         self._step = {"confirmed": bool(verdict["reasons"]), "klass": verdict["klass"]}
         ms = STEP_TIMEOUT_MS
         if action == "click":
+            before = str(self.page.url or "")
             locator.click(timeout=ms)
+            href = str((element or {}).get("href") or "")
+            if href and not href.startswith("#") and not href.lower().startswith("javascript:"):
+                # Sites with in-page navigation (GitHub, SPAs) change the URL after the click returns and never fire a
+                # new load event: wait briefly for the URL to change so the snapshot shows the new page.
+                try:
+                    self.page.wait_for_url(lambda url: str(url) != before, timeout=LINK_WAIT_MS)
+                except Exception:
+                    pass
         elif action == "fill":
             value = str(cmd.get("secret_value") if value_from else cmd.get("value") or "")
             if value_from:
