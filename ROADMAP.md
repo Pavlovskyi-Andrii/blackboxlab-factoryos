@@ -63,6 +63,13 @@
   Goal: after click / press / select / check / back, wait until the DOM is quiet for 500 ms (MutationObserver), at most 3 s, before the snapshot.
   DONE: `RUN_BROWSER_FIXTURE=1 python test_surfer_selftest.py` (LateRenderTest fails without the wait), `python test_surfer_actions.py`, default verification.
 
+- [x] T-729 Coordination guard: no duplicate task numbers, no two agents on one task, no two PRs on the same code
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P0 (owner 2026-11-23, Notion master ТЗ «аудит стану»: reconcile Owner/Depends/Claim/PR before any new work, no duplicates)
+  Spec: DECISIONS.md «2026-11-23 — T-729». `coordination.py`, `GET /api/factory/coordination` (owner), MCP tool `coordination_check`, page `static/coordination/index.html` (UK/RU/EN), sidebar «Координація».
+  Goal: one read model over ROADMAP.md, open PRs with their changed files (GitHub read token), active Relay claims and handoffs. Conflicts: a task number defined twice, one task in two lanes or two PRs, two open PRs changing the same code file, a PR inside another lane's handoff scope. Warnings: a PR naming a task already done on main, Depends: on an unknown task, a claim by a lane that is not the task's Owner. An unreadable source makes the verdict «unknown», never «clear». Agents ask `coordination_check` (task_id, files) before taking work and get safe_to_start yes / no / unknown with reasons and the next free task number. CI test `test_roadmap_integrity.py` fails on duplicate numbers.
+  DONE: `python test_coordination.py`, `python test_roadmap_integrity.py`, `python test_navigation.py`, page inline JS `node --check`, default verification.
+
 - [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-22: «собери данные с этого сайта, помести их в Google таблицу»)
@@ -879,7 +886,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 - [x] T-608 A/B Tester S1 — experiment model and API inside the MVP registry
   Owner: claude
   Priority: P2 (owner said "бери A/B Tester, начни с S1" 2026-11-14)
-  Depends: T-186 registry (#186), #330 merged
+  Depends: #186 registry, #330 merged
   Spec: docs/reviews/MVP_AB_TESTER_S0_REVIEW.md §2.8, §4 corrections 1–13, §6.1–6.2
   Goal: `projects[pid].experiments[exp]` with exactly two branches a/b; SEGMENT_COMPARISON (never a winner) or CONTROLLED_AB (draft only); per-branch, per-revision owner preview approval; owner decision closes; no metrics/publish/spend/outreach writes; copy deny-list; project stage untouched.
   DONE: `python test_mvp_experiments.py` and the MVP suites pass; default verification passes.
