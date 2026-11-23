@@ -168,6 +168,7 @@
   DONE: `python test_mycast_library.py` (buttons, handlers, three locales) + inline-JS `node --check` + default verification; `docs/prototypes/mycast/profile-glass/screens/{a,b,c}.png` at 390 px with no horizontal scroll.
 
 - [ ] [HUMAN] T-645-H Generate, listen to and approve the MyCast demo episodes (Athens, Rome, …)
+  Progress 2026-11-21: public tracks verified on prod — Athens, Rome, Delphi, Pompeii (uk) answer 200; Olympia and all ru tracks are not approved yet.
   Depends: T-645, T-665
   Need: owner (who approved Gemini voicing within the free quota, 2026-11-16) opens the owner console `/factory/mycast-demos` on the FactoryOS host, presses "Generate" (one city or all — T-711: each city has its own pair of hosts; ≤5 per run, ≤10 per day; a Google 429 stops the run, retry the next day), listens to each track and presses "Approve". Runbook in Worker Center → «Ваши задачи».
   DONE: at least the Athens and Rome cards play on a live `/mycast/e/<token>` page.
@@ -540,7 +541,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: `olx_publisher.py` + `static/olx/index.html`: OAuth provider `olx` (`authorization_code`, scopes `v2 read write`, refresh before each write, rotated tokens stored back in the token vault), owner-only advert drafts validated against the documented OLX rules; approval freezes the SHA-256 of the exact advert and the connected OLX account; `FACTORY_OLX_ENABLED=1` gates every OLX write (publish, deactivate) — read-only reference/status calls with the owner's token still work while it is off; publish only when the flag is on, the advert and account still match and nothing was sent before; each advert carries `external_id` = draft id, so timeout/5xx («unknown outcome») or a publish claim left by a crashed process (> 5 min) is resolved by a read-only lookup (exact `external_id` match only) or the owner, never by a resend; read-only category/attribute/city pickers, status refresh and owner-confirmed deactivate; no paid endpoint (packets, paid features) is reachable; fixed error codes, no token or OLX body stored. `publish_approved(...)` is the entry point for T-702.
   DONE: `python test_olx_publisher.py` (adapter + refresh, documented validation rules, fixed codes, approval fence, edit drops approval, one publish, no blind retry, reconcile by exact external_id, stale claim, approval bound to the account, owner-only, flag off → no OLX write, no paid endpoint) + `python test_oauth_framework.py` + default verification.
 
-- [ ] [HUMAN] T-701-H Register the OLX Partner API app and connect the account
+- [x] [HUMAN] T-701-H Register the OLX Partner API app and connect the account
+  Done 2026-11-23: owner confirmed «Готово» on the owner task page after the steps (OLX app approved, Render keys, connect, test advert). Not verified by an agent: the OLX status endpoint is owner-only.
   Depends: T-701, T-560-G
   Need: owner reads the developer portal terms (not readable from FactoryOS: 403), signs in to developer.olx.ua with the OLX account that will own the adverts, submits «Підключити додаток» and waits for OLX's e-mail approval, adds the callback URL `https://blackboxlab-factoryos.onrender.com/api/oauth/olx/callback`, puts FACTORY_OAUTH_OLX_CLIENT_ID / _SECRET and FACTORY_OLX_ENABLED=1 in Render, connects on /static/olx/index.html and publishes one approved test advert. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
   DONE: a test advert published from /static/olx/index.html with its OLX id and status saved.
@@ -553,7 +555,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: a plan per platform with Europe/Kyiv times, filled for free (Content Brain ideas through a fixed template, agents through MCP drafts, the owner on the page — no LLM or paid call); approval modes A «approve the whole plan» (default), C «each post», B «owner rules» (explicit opt-in, off by default); an edit drops the approval; a scheduler (startup hook, every minute) claims each due approved item before sending, never resends an uncertain outcome, marks >6 h overdue items «missed», caps 10 posts/platform/day; kill switch `FACTORY_SOCIAL_AUTOPILOT_ENABLED` (off by default) and an owner «Стоп»; a daily 21:00 Kyiv owner summary through the paired Telegram bot; adapters Telegram channel (Bot API sendMessage, `FACTORY_TELEGRAM_CHANNEL_ID`) and LinkedIn (`linkedin_publisher.send_text`), interface ready for Instagram/TikTok/OLX.
   DONE: `python test_social_autopilot.py` (fake HTTP/clock: adapters and fixed codes, approval fence, modes, kill switch, Stop mid-run, exactly once, no blind retry, restart → uncertain, rules, caps, free plan generator, summary once a day, owner-only routes, MCP drafts only, page RU/UK/EN + `node --check`), `python test_linkedin_publisher.py`, `python test_owner_desk.py` and the default verification pass.
 
-- [ ] [HUMAN] T-702-H Telegram channel for the social autopilot
+- [x] [HUMAN] T-702-H Telegram channel for the social autopilot
+  Done 2026-11-21: owner confirmed the Telegram channel set up on the owner task page (and asked for a teaser image per post → T-713). Not verified by an agent: the channel check is owner-only.
   Depends: T-702
   Need: owner creates or chooses a Telegram channel (public @name recommended), adds the existing FactoryOS bot as admin with «Post Messages», sets `FACTORY_TELEGRAM_CHANNEL_ID=@name` and `FACTORY_SOCIAL_AUTOPILOT_ENABLED=1` in Render, then on /static/social/ runs «Check the Telegram channel» and approves one test post. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
   DONE: a test post went out in the channel at its planned time and its link is in the /static/social/ history.
@@ -967,6 +970,7 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   DONE: `python test_mycast_library.py` plus every `test_mycast*.py`, `python test_owner_desk.py`, the default verification and `node --check` of the extracted configurator JS pass.
 
 - [ ] [HUMAN] T-620-H Approve the MyCast referral terms and turn the offer on
+  Progress 2026-11-21: owner approved the terms (+7 days each, once, after the friend's first episode, max 50) and set FACTORY_MYCAST_REFERRALS=1; prod came back on v5.16.0. Open: one invite tested from a second Telegram account.
   Depends: T-620
   Need: owner signs off the rule (+7 days to each side once, at the friend's first real episode; cap 50; no self/duplicate credit), sets `FACTORY_MYCAST_REFERRALS=1` in Render, and runs one live invite with a second Telegram account. Enforcing the end of free days (`FACTORY_MYCAST_ENFORCE_TRIAL=1`) is a separate later business decision.
   DONE: `/api/mycast/account/config` returns `"referrals_enabled": true` and the live check gave both accounts +7 days exactly once.
