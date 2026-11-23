@@ -38,4 +38,4 @@ files), `render_plan.json`, `film.mp4`, `frames/` (one mid-shot JPEG per shot), 
 ## Not in S1
 
 Narration audio input (S1 lays a silent AAC track and burns the narration in as captions), Media Finisher assembly
-(loudness, private playback; after PR #442), the UI, hybrid/generative renderers (spec only). See ROADMAP T-734.
+(loudness, private playback; after PR #442), the UI, hybrid/generative renderers (spec only). See ROADMAP T-730 «Blocked».

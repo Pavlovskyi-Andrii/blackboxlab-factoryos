@@ -2496,7 +2496,7 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   could be read and no Russian offline voice exists here (no espeak/flite/piper binaries). S1 therefore renders
   original procedural stand-in stills (code-drawn, seeded, `source_type: original_procedural`, `repo://` URL),
   labelled on screen «DEMO · иллюстрация, не фото», with a silent AAC track and the narration as RU captions. The
-  receipt marks `realistic_photo_film` and `narration` BLOCKED (T-734).
+  receipt marks `realistic_photo_film` and `narration` BLOCKED (owner unblock steps: ROADMAP T-730 «Blocked»).
 - The film is private: `--out` inside the repository is refused (except the ignored `data/`); the MP4 is not
   committed or served.
 - CI has no FFmpeg (see mycast-render.yml), so the end-to-end render test skips there and runs where FFmpeg exists;
