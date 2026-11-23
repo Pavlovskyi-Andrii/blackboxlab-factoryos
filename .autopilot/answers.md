@@ -44,3 +44,9 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 
 ## 2026-11-23 — T-726 (relayed by the parent session)
 - Owner answered «Да» to: allow Claude to read the Surfer "waiting for owner" list so it can mirror the requests as tickets on the owner task page. Read-only; the owner still answers on the Surfer page.
+
+## 2026-11-21..23 — owner task page answers
+- T-620-H MyCast referral terms approved: +7 days premium to both, once, when the friend's first episode is out, max 50 friends.
+- T-702-H Telegram channel set up; every post must carry a teaser image (done in T-713).
+- T-701-H OLX partner app approved and connected (owner-confirmed).
+- T-722-H Surfer actions switched on; first allowlisted site blackboxlab-factoryos.onrender.com; agents may read the Surfer pending list (T-726).
