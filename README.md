@@ -27,6 +27,10 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.18.2 — Surfer worker never stays stuck on one page — 2026-11-23
+
+- Surfer: every action command has a 90-second deadline. A page that never answers (a script that does not return) no longer blocks the Surfer worker: the browser is killed, the step reports `worker_timeout`, the session closes and the next session or page read gets a fresh browser. Also: the link-click wait follow-ups (#457) (#459).
+
 ### v5.18.1 — Surfer: a link click waits for in-page navigation — 2026-11-23
 
 - Surfer: after a click on a link, the agent's snapshot waits briefly for the URL to change, so sites that navigate in-page (GitHub, single-page apps) show the new page instead of the old one. Found in the first clean live session (open the repo page → click Issues) (#456).
