@@ -1073,6 +1073,8 @@ def owner_session_view(store: ActionStore, doc: dict) -> dict:
         row["url"] = policy.log_url(step.get("url") or step.get("page_url") or "")
         if step.get("value") not in (None, "") and not element.get("secret") and step.get("kind") == "act":
             row["value"] = str(step["value"])[:200]
+        elif step.get("action") in ("fill", "select") and not step.get("value_from") and not element.get("secret"):
+            row["value"] = ""                              # a fill that cleared the field
         steps.append(row)
     session["steps"] = steps
     snap = store.snapshot(session["id"])
