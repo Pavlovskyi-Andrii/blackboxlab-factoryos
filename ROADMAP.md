@@ -1,3 +1,31 @@
+## UX-first Owner Home + internal Growth Manager (owner 2026-11-23, issue #452 + Amendment A1)
+
+Research, specification and prototype only. No production dashboard change, no publishing, no spend. Owner answers: `.autopilot/answers.md` «#452».
+S5 (implementation) is not on the roadmap until the owner gate.
+
+- [ ] T-726 #452 S0–S1: access, terms and overlap audit + Ploy public UX/functional benchmark
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (direct owner assignment 2026-11-23; runs right after the T-590–T-593 close-out)
+  Spec: Issue #452 §1–§3 and Amendment A1 (A1.1, A1.6). Format precedent: `docs/HERCULES_PUBLIC_COMPETITIVE_TEARDOWN.md`.
+  Goal: Overlap Matrix (existing tasks, files, owners, what #452 adds); Ploy terms quoted with URL and date; Competitor Evidence Ledger and UX pattern inventory from public pages only (no account, no crawling, no copies of Ploy pages or assets); capability matrix Ploy ↔ FactoryOS; two adjacent public UX references.
+  DONE: `docs/research/ploy-public-ux-functional-benchmark.md` exists with every factual claim cited (URL, date, evidence type, confidence) and "not observed" where a screen was not seen; `python test_verification_docs.py`; default verification.
+
+- [ ] T-727 #452 S2: FactoryOS current-state audit, owner-first journeys and two or three IA directions → Checkpoint A
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-726
+  Spec: Issue #452 §4–§5 and Amendment A1 (A1.3, A1.4, A1.5).
+  Goal: route and screen inventory from the code; screenshots from `tools/ui_screenshots.py` (768 px added) of the local fixture, labelled as such; defects ranked by severity; journeys for the owner, a future client and a specialist; navigation before/after with every current route mapped; "one source per status" table for Owner Home; two or three low-fidelity directions with one recommended.
+  DONE: `docs/ux/factoryos-current-state-audit.md` and `docs/ux/factoryos-owner-first-ia-spec.md` exist; screenshots under `docs/screenshots/t-727/`; a short owner summary in Russian is delivered and the owner picks a direction (Checkpoint A) before T-728 starts.
+
+- [ ] T-728 #452 S3–S4: clickable prototype (Owner Home + Growth Manager goal wizard + approval + metrics), Growth Manager RFC and backlog → OWNER GATE
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-727 and the owner's Checkpoint A choice
+  Spec: Issue #452 §5–§10 and Amendment A1 (A1.1, A1.2, A1.4, A1.5, A1.7).
+  Goal: prototype in `docs/prototypes/owner-home-growth/` (fixture data marked DEMO DATA, eight states, EN/UK/RU, phone and desktop), opened behind login through the Learn section; RFC with the mapping table (24 mission fields and 11 states → existing fields/enums or "missing"), executor and cost per step, the designed first-party visit + variant event for MyCast; test plan with expert review, automated checks and a 10–15 minute script for the owner and the 3–4 people he brings; backlog of small tickets with the first PR specified to file level.
+  DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-728/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
+
 - [x] T-720 Surfer action sessions (core): a live browser page that acts — web_open / web_act / web_snapshot / web_close
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner brief 2026-11-22: a tool that acts on sites instead of him, in his own signed-in accounts)
@@ -209,7 +237,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Progress 2026-10-31: T-599-E/F done. Umbrella acceptance `test_t599_acceptance.py` (spec §3 A–E, run in CI via test_relay_execution.py) joins claim → events → lane board → Telegram; refused claims are journalled as `claim_rejected`; blocked lanes show their reason in API/web/Telegram. PR/CI and Issue #67 evidence follow the worker push (not claimed by the agent).
   DONE: deterministic tests A–E pass; no open ROADMAP task lacks Owner; a blocked task no longer stalls the queue; an Owner-assigned task without a claim renders as "assigned, not claimed"; CI-gated PRs; evidence posted to Issue #67.
 
-- [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
+- [x] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
   Owner: claude
   Planner: owner; Executor: Claude Code Pro (primary). P0.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; GitHub Issues #41, #51, #56, #40; PR #43, #42, #60.
@@ -223,30 +251,34 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Re-check (2026-11-01): `autopilot/aws-worker` == `origin/main` == `c2879b9`, so the T-590 slice is merged into main. Deterministic stages are green again (smoke, planner, relay 74, telegram 9, token binding, delegation, autopilot). This run was denied network/`gh`/`curl`, so CI on `c2879b9`, Render `build_sha`, Telegram pairing (HUMAN T-506), the live `/new` trace and the Issue #41 evidence are still unverified.
   Re-check (2026-11-15, run-20261115093856-a5105e): T-506 pairing is done, and the #289 round trip plus Evidence Tiers 1–2.6 are on main. Deterministic stages are green again (smoke, planner, relay 111, telegram 25). This run had no GitHub/Render/network access, so one owner ticket traced end to end (claim → run_id → PR → CI → merge → deployed → Telegram `/task`) with Issue #41 evidence is still unobserved. The task stays open.
   Progress (2026-11-15, P0 tails session): T-506 pairing is done (checked). The live trace is now provable from server facts alone: `relay_acceptance.py` + `/proof R-…` + owner-only `GET /api/relay/{id}/acceptance` judge Telegram intake → one ticket → claim/run_id → running → done → Telegram delivery receipt (the server now records `owner_notified` when the Bot API accepts a worker notice). The remaining live stages are the owner's run in **[HUMAN] T-591-H**; production `/health` answered 502 during this session, so `build_sha` was not compared (T-590-H).
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): the live trace was verified by the server on 2026-11-17 (T-591-H, R-0087 · run-351295eb0d92); code and deterministic tests are on main.
 
-- [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
+- [x] T-591 Telegram live owner acceptance & full operator task lifecycle
   Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; Issue #41 and #51.
   Goal: verify actual owner Telegram chat pairing/webhook and tested /status, /tasks, /task <id>, /history, /roadmap, /github; callbacks for refresh/detail/retry; preserve event history; RU/UK/EN. Only verified ChatGPT actions visible, not fictional live ChatGPT sessions.
   DONE: real test message in paired owner chat -> one ticket -> authenticated Claude claim -> running -> final evidence -> owner reply with exact IDs and GitHub links, redacted transcript and timestamps. If needs owner 2FA, mark HUMAN with exact ask and do not claim done.
   Progress (2026-11-15): code side done and tested (`test_relay_acceptance.py`, run in CI via `test_relay_execution.py`): `/roadmap` is now a real ROADMAP.md view (P0 / HUMAN / next agent tasks; it used to repeat `/tasks`), `/history` is RU/UK/EN, the ticket card has 🔄 Refresh → factual stages + history, `/proof R-…` gives the copyable acceptance transcript (IDs, run_id, UTC times, branch/PR, PR/CI/merge/deploy "not verified" until reconciled). Live part: **[HUMAN] T-591-H**; Owner desk shows its status from the newest Telegram ticket's verdict.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): live acceptance done in T-591-H (server verdict VERIFIED, R-0087).
 
-- [ ] T-591-A Telegram Relay P0 status/queue/stale hotfix (ChatGPT owner, Claude follow-up acceptance)
+- [x] T-591-A Telegram Relay P0 status/queue/stale hotfix (ChatGPT owner, Claude follow-up acceptance)
   Owner: claude. Depends: T-590 (implementation merged in #63; final live acceptance remains T-591).
   Scope: truthful heartbeat vs active task, claimable queue counts, stale-claim handling without auto-rerun, owner retry instructions.
   Test: test_relay_livefix.py and existing Relay suites; CI before merge, then Render and owner live E2E. Never mark T-591 done until actual Telegram task executes.
   Progress (2026-11-15): the hotfix scope is covered by test_relay_livefix.py (in the CI relay suite); a stale or blocked run is never counted by the new acceptance verdict and Retry is the only way back. Closes together with T-591 after **[HUMAN] T-591-H**.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): closes together with T-591; `test_relay_livefix.py` stays in the CI relay suite.
 
-- [ ] T-592 Fix Build Progress / Worker Center factual status and UI freeze
+- [x] T-592 Fix Build Progress / Worker Center factual status and UI freeze
   Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
   Spec: Issues #55, #56, #54, #52 and docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md.
   Goal: reconcile 87% vs 49% metric scopes; distinguish EC2/SSM/systemd/subscription auth/heartbeat/claim/task; fix race for .autopilot/status.json, stale/offline, huge overflow; make owner HUMAN blockers actionable.
   DONE: deterministic tests + screenshot evidence showing same task/stage in Telegram and Web; no ghost running/false progress; columns usable mobile+desktop and consistent stale timestamps; non-main PR/CI.
   Progress (2026-11-15): code is on main via T-596 (separate signals, one read model for web and Telegram, `test_worker_observability.py`), T-595 (columns/overflow, `test_drawers.py`) and the 87%/49% denominators (DECISIONS.md). The Telegram ticket card now has 🔄 Refresh with the same factual stages as `/relay`. What is left is evidence only the owner can produce (a screenshot of the real Telegram next to the web view): **[HUMAN] T-592-H**.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): code and tests are on main. Not observed by Claude: the owner's «Совпадает» press — it stays open as the optional **[HUMAN] T-592-H** (production owner APIs answer 401 to the cloud session).
 
-- [ ] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
+- [x] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
   Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0/P1. Depends: T-590.
   Spec: handoff diagnosis, Issue #40/#49/#50/#47 and ROADMAP T-560-C onward.
@@ -254,6 +286,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
   Progress 2026-10-30: first live claimed runs on EC2 blocked because the agent's Python lived in /tmp/fos-venv (wiped on reboot) and headless `claude -p` denied python3. Delegation now keeps a persistent gitignored `<repo>/.venv` rebuilt only when requirements.txt changes, puts it first on PATH, and pre-allows the CLAUDE.md verification loop (Read/Edit/Write, python, node --check, local git add/commit) while push/deploy stay disallowed.
   Progress (2026-11-15): the deterministic parts are covered on main (T-599 claims/parking, T-598 persisted retries, T-600 usage-limit hold, `autopilot.test_autopilot`, `autopilot.test_delegation`). Not provable from a cloud session: the live EC2 sequence (next safe task after a verified commit) and a day without direct-main pushes or paid spend — **[HUMAN] T-593-H**.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): deterministic parts are on main. Not observed by Claude: the live EC2 sequence and a day without direct-main pushes or paid spend — they stay open as the optional **[HUMAN] T-593-H**.
 
 - [x] [HUMAN] T-591-H Live Telegram acceptance: one test task end to end (closes the live part of T-590 / T-591 / T-591-A)
   Need: owner sends one plain test message in the paired chat, waits for the worker's 🏁 notice, then `/proof R-…`; runbook in Owner desk (RU/EN/UK).

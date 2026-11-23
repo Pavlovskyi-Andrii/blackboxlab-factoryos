@@ -41,3 +41,12 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 - Google search through Gemini: not wanted (Free tier has no grounding); FACTORY_WEB_SEARCH_PROVIDER removed in Render, Surfer search uses Wikipedia (verified on prod 10:39 UTC).
 - T-607-H Gemini worker on EC2: deferred.
 - T-624: Claude lane token works (Relay write as `claude` verified 10:46 UTC); ChatGPT lane write not yet verified.
+
+## #452 (owner 2026-11-23, in the Claude session; T-726 / T-727 / T-728)
+- Amendment A1 to Issue #452 approved («Утверждаю, заводи 3 задачи»).
+- The first screen is designed for the owner **and for future clients**.
+- MyCast pilot audience: a busy person (businesspeople are one example, not the only one) who wants compressed information and to stay in focus on one chosen topic. Channel: Telegram — that is where the listener receives the episodes. Landing languages: English, Ukrainian, Russian.
+- Usability test: the owner will bring 3–4 people for the prototype test.
+- Priority: T-590–T-593 may be closed; #452 starts right after them.
+- Read-only access to `docs.ploy.ai` and `ploy.ai` approved for the cloud environment (public pages only).
+

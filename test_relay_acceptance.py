@@ -238,7 +238,10 @@ class ControlRoomTest(unittest.TestCase):
 
     def test_roadmap_command_reads_the_deployed_file_and_creates_no_ticket(self):
         self.assertEqual(self.s.telegram("/roadmap", 1, lang="en")["action"], "roadmap")
-        self.assertIn("T-591", self.s.last_text())
+        # The reply lists tasks of the real ROADMAP.md next to this test (no pinned task id: tasks get closed).
+        summary = roadmap_summary(Path(__file__).with_name("ROADMAP.md").read_text(encoding="utf-8"))
+        first_open = (summary["p0"] or summary["human"] or summary["next"])[0]["id"]
+        self.assertIn(first_open, self.s.last_text())
         self.assertEqual(self.s.store.list(), [])
 
     def test_history_is_localized(self):
