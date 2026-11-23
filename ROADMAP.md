@@ -3,12 +3,13 @@
 Research, specification and prototype only. No production dashboard change, no publishing, no spend. Owner answers: `.autopilot/answers.md` «#452».
 S5 (implementation) is not on the roadmap until the owner gate.
 
-- [ ] T-726 #452 S0–S1: access, terms and overlap audit + Ploy public UX/functional benchmark
+- [x] T-726 #452 S0–S1: access, terms and overlap audit + Ploy public UX/functional benchmark
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (direct owner assignment 2026-11-23; runs right after the T-590–T-593 close-out)
   Spec: Issue #452 §1–§3 and Amendment A1 (A1.1, A1.6). Format precedent: `docs/HERCULES_PUBLIC_COMPETITIVE_TEARDOWN.md`.
   Goal: Overlap Matrix (existing tasks, files, owners, what #452 adds); Ploy terms quoted with URL and date; Competitor Evidence Ledger and UX pattern inventory from public pages only (no account, no crawling, no copies of Ploy pages or assets); capability matrix Ploy ↔ FactoryOS; two adjacent public UX references.
   DONE: `docs/research/ploy-public-ux-functional-benchmark.md` exists with every factual claim cited (URL, date, evidence type, confidence) and "not observed" where a screen was not seen; `python test_verification_docs.py`; default verification.
+  Done 2026-11-23: 18 docs pages + 3 site pages + terms read through the Markdown interface Ploy publishes for AI tools (no account, no login); 43 ledger rows, 16 patterns with adopt/adapt/reject, 8 rejections, Overlap Matrix, capability matrix, Linear and PostHog as references. Not observed and stated in the document: the authenticated app and every image (so Ploy's visual design is not described).
 
 - [ ] T-727 #452 S2: FactoryOS current-state audit, owner-first journeys and two or three IA directions → Checkpoint A
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
