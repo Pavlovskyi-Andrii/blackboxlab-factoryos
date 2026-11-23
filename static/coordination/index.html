@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FactoryOS · Координація</title>
+<style>
+:root{--bg:#0b1020;--card:#131a30;--line:#26304f;--text:#e7ecff;--mute:#9aa6c9;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--unk:#a5b4fc;--acc:#60a5fa}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:920px;margin:0 auto;padding:16px}h1{font-size:22px;margin:8px 0 4px}h2{font-size:16px;margin:0 0 10px}p.sub{color:var(--mute);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select{background:#1f2a4a;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button:disabled{opacity:.5;cursor:progress}
+.hero{display:flex;gap:14px;align-items:flex-start}.dot{flex:0 0 auto;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-size:22px;font-weight:700;color:#071022}
+.v-clear .dot{background:var(--ok)}.v-attention .dot{background:var(--warn)}.v-conflict .dot{background:var(--bad)}.v-unknown .dot{background:var(--unk)}
+.hero b{font-size:18px;display:block}.hero small{color:var(--mute)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:14px}
+.stat{background:#0d1328;border:1px solid var(--line);border-radius:10px;padding:8px 10px}.stat span{display:block;font-size:20px;font-weight:600}.stat small{color:var(--mute)}
+.f{border-left:4px solid var(--line);background:#0d1328;border-radius:8px;padding:10px 12px;margin:0 0 10px}
+.f.conflict{border-color:var(--bad)}.f.warning{border-color:var(--warn)}.f.unknown{border-color:var(--unk)}
+.f b{display:block}.f .do{margin-top:6px;color:var(--mute);font-size:14px}.f code{background:#1a2342;border-radius:6px;padding:1px 6px;font-size:13px;word-break:break-all}
+.chip{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;border:1px solid var(--line);color:var(--mute);margin-right:4px}
+.chip.conflict{color:var(--bad);border-color:var(--bad)}.chip.warning{color:var(--warn);border-color:var(--warn)}.chip.unknown{color:var(--unk);border-color:var(--unk)}.chip.ok{color:var(--ok);border-color:var(--ok)}
+.w{border-top:1px solid var(--line);padding:10px 0}.w:first-child{border-top:0}
+.w .t{word-break:break-word}.meta{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:4px;color:var(--mute);font-size:13px}.meta b{color:var(--text);font-weight:500}
+a{color:var(--acc)}small{color:var(--mute)}.empty{color:var(--mute)}
+details summary{cursor:pointer;color:var(--mute)}ul{margin:6px 0 0;padding-left:20px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<main>
+<a href="/" style="display:inline-block;margin:0 0 6px;color:inherit;opacity:.7;text-decoration:none;font-size:14px">← FactoryOS</a>
+<div class="row" style="justify-content:space-between"><h1 data-t="title"></h1>
+<div class="row"><button id="refresh" data-t="refresh"></button><label class="sr" for="lang">Language</label><select id="lang"><option value="uk">UK</option><option value="ru">RU</option><option value="en">EN</option></select></div></div>
+<p class="sub" data-t="sub"></p>
+<section class="card" id="hero" aria-live="polite"></section>
+<section class="card"><h2 data-t="findings"></h2><div id="findings"></div></section>
+<section class="card"><h2 data-t="work"></h2><p class="sub" style="margin:0 0 8px" data-t="workHint"></p><div id="work"></div></section>
+<section class="card"><details><summary data-t="how"></summary><div id="how"></div></details></section>
+</main>
+<script>
+const T={
+uk:{title:"Координація: без дублів",sub:"Сервер звіряє ROADMAP, відкриті PR (зі зміненими файлами), claim у Relay і передачі між агентами. Якщо двоє взялися за одне й те саме, ви побачите це тут — до того, як хтось витратить час. Лише читання: тут нічого не запускається.",
+ refresh:"Оновити",loading:"Звіряю…",updated:"Оновлено {t} · кеш {s} с",nextId:"Наступний вільний номер задачі",
+ v:{clear:"Дублів і перетинів немає",attention:"Є що перевірити",conflict:"Є конфлікт: двоє на одній роботі",unknown:"Не все вдалося перевірити"},
+ vd:{clear:"Кожна задача і кожен файл зараз в одних руках.",attention:"Конфліктів немає, але є попередження нижче.",conflict:"Спершу розв'яжіть конфлікти нижче, потім беріть нові задачі.",unknown:"Частину джерел не прочитано, тому «чисто» сказати не можна. Невідомо — це не успіх."},
+ st:{tasks:"задач у ROADMAP",open:"відкритих",human:"чекають на вас",prs:"відкритих PR",claims:"активних claim",handoffs:"передач"},
+ findings:"Що знайдено",noFindings:"Нічого не знайдено.",work:"Хто над чим працює зараз",workHint:"Відкриті PR, активні claim у Relay та передачі між агентами.",noWork:"Зараз немає активної роботи.",
+ state:{queued:"у черзі",claimed:"взято",running:"виконується",checkpoint:"контрольна точка",committed:"є коміт",pushed:"запушено",pr:"PR відкрито",ci:"перевірка CI",review:"на рев'ю"},
+ kind:{pr:"PR",claim:"Claim",handoff:"Передача"},k:{lane:"Агент",task:"Задачі",state:"Стан",files:"Файлів",title:"Назва"},draft:"чернетка",open:"відкритий",noTask:"без номера задачі",
+ sev:{conflict:"конфлікт",warning:"попередження",unknown:"невідомо"},
+ c:{duplicate_task_id:["Номер {task} визначено двічі в ROADMAP (рядки {lines})","Перейменуйте одну з задач на вільний номер ({next}) у тій гілці, де її додали."],
+   task_in_two_places:["Задача {task} одночасно в кількох місцях: {refs}","Залиште одного виконавця: інший закриває свою гілку або передачу з коментарем."],
+   pr_file_overlap:["PR {prs} змінюють ті самі файли ({count})","Злийте спершу один PR, другий оновіть від main; або домовтеся, хто веде ці файли."],
+   pr_in_handoff_scope:["PR {prs} змінює файли з передачі {refs}","Ці файли вже передані іншому агенту. Узгодьте, хто їх веде, перш ніж зливати."],
+   pr_names_done_task:["PR {prs} називає задачу {task}, яка вже виконана на main","Найчастіше це той самий номер для нової роботи. Перейменуйте задачу в гілці на {next}."],
+   unknown_dependency:["Задача {task} залежить від неіснуючої {deps}","Виправте рядок Depends: у ROADMAP."],
+   claimed_by_other_lane:["Задачу {task} взяв {lanes}, а власник у ROADMAP — {owner}","Перевірте, чи це узгоджена передача."],
+   pr_files_unreadable:["Не вдалося прочитати файли PR {prs}","Перетин файлів для нього невідомий. Спробуйте «Оновити» пізніше."],
+   github_truncated:["Відкритих PR більше, ніж прочитано","Список PR неповний, тому перетини невідомі. Закрийте застарілі PR або оновіть пізніше."],
+   source_unreadable:["Джерело «{source}» не прочитано","Для GitHub потрібен ключ читання FACTORY_GITHUB_READ_TOKEN у Render; без нього перетини PR невідомі."]},
+ src:{roadmap:"ROADMAP",github:"GitHub",relay:"Relay",handoffs:"передачі",github_complete:"усі PR"},ledger:"Спільні службові файли (ROADMAP, DECISIONS, CI) змінюють кілька PR — це нормально, але при злитті можливі конфлікти рядків:",
+ how:"Як це працює і що перевіряється",
+ howList:["Один номер задачі — один рядок у ROADMAP.","Одна задача — один виконавець: PR, claim у Relay і передача не повинні розходитися між агентами.","Два відкриті PR не змінюють той самий код.","Агенти питають те саме через інструмент MCP <code>coordination_check</code> перед тим, як узяти задачу.","Тест CI <code>test_roadmap_integrity.py</code> не пропускає дублікати номерів у main."],
+ err:"Не вдалося завантажити: {e}",signin:"Увійдіть у FactoryOS як власник."},
+ru:{title:"Координация: без дублей",sub:"Сервер сверяет ROADMAP, открытые PR (с изменёнными файлами), claim в Relay и передачи между агентами. Если двое взялись за одно и то же, вы увидите это здесь — до того, как кто-то потратит время. Только чтение: здесь ничего не запускается.",
+ refresh:"Обновить",loading:"Сверяю…",updated:"Обновлено {t} · кеш {s} с",nextId:"Следующий свободный номер задачи",
+ v:{clear:"Дублей и пересечений нет",attention:"Есть что проверить",conflict:"Есть конфликт: двое на одной работе",unknown:"Не всё удалось проверить"},
+ vd:{clear:"Каждая задача и каждый файл сейчас в одних руках.",attention:"Конфликтов нет, но есть предупреждения ниже.",conflict:"Сначала разрешите конфликты ниже, потом берите новые задачи.",unknown:"Часть источников не прочитана, поэтому «чисто» сказать нельзя. Неизвестно — не успех."},
+ st:{tasks:"задач в ROADMAP",open:"открытых",human:"ждут вас",prs:"открытых PR",claims:"активных claim",handoffs:"передач"},
+ findings:"Что найдено",noFindings:"Ничего не найдено.",work:"Кто над чем работает сейчас",workHint:"Открытые PR, активные claim в Relay и передачи между агентами.",noWork:"Сейчас нет активной работы.",
+ state:{queued:"в очереди",claimed:"взято",running:"выполняется",checkpoint:"контрольная точка",committed:"есть коммит",pushed:"запушено",pr:"PR открыт",ci:"проверка CI",review:"на ревью"},
+ kind:{pr:"PR",claim:"Claim",handoff:"Передача"},k:{lane:"Агент",task:"Задачи",state:"Состояние",files:"Файлов",title:"Название"},draft:"черновик",open:"открыт",noTask:"без номера задачи",
+ sev:{conflict:"конфликт",warning:"предупреждение",unknown:"неизвестно"},
+ c:{duplicate_task_id:["Номер {task} определён дважды в ROADMAP (строки {lines})","Переименуйте одну из задач на свободный номер ({next}) в той ветке, где её добавили."],
+   task_in_two_places:["Задача {task} сразу в нескольких местах: {refs}","Оставьте одного исполнителя: другой закрывает свою ветку или передачу с комментарием."],
+   pr_file_overlap:["PR {prs} меняют одни и те же файлы ({count})","Слейте сначала один PR, второй обновите от main; или договоритесь, кто ведёт эти файлы."],
+   pr_in_handoff_scope:["PR {prs} меняет файлы из передачи {refs}","Эти файлы уже переданы другому агенту. Согласуйте, кто их ведёт, прежде чем сливать."],
+   pr_names_done_task:["PR {prs} называет задачу {task}, которая уже выполнена на main","Чаще всего это тот же номер для новой работы. Переименуйте задачу в ветке на {next}."],
+   unknown_dependency:["Задача {task} зависит от несуществующей {deps}","Исправьте строку Depends: в ROADMAP."],
+   claimed_by_other_lane:["Задачу {task} взял {lanes}, а владелец в ROADMAP — {owner}","Проверьте, согласованная ли это передача."],
+   pr_files_unreadable:["Не удалось прочитать файлы PR {prs}","Пересечение файлов для него неизвестно. Попробуйте «Обновить» позже."],
+   github_truncated:["Открытых PR больше, чем прочитано","Список PR неполный, поэтому пересечения неизвестны. Закройте устаревшие PR или обновите позже."],
+   source_unreadable:["Источник «{source}» не прочитан","Для GitHub нужен ключ чтения FACTORY_GITHUB_READ_TOKEN в Render; без него пересечения PR неизвестны."]},
+ src:{roadmap:"ROADMAP",github:"GitHub",relay:"Relay",handoffs:"передачи",github_complete:"все PR"},ledger:"Общие служебные файлы (ROADMAP, DECISIONS, CI) меняют несколько PR — это нормально, но при слиянии возможны конфликты строк:",
+ how:"Как это работает и что проверяется",
+ howList:["Один номер задачи — одна строка в ROADMAP.","Одна задача — один исполнитель: PR, claim в Relay и передача не должны расходиться между агентами.","Два открытых PR не меняют один и тот же код.","Агенты спрашивают то же через инструмент MCP <code>coordination_check</code> перед тем, как взять задачу.","Тест CI <code>test_roadmap_integrity.py</code> не пропускает дубли номеров в main."],
+ err:"Не удалось загрузить: {e}",signin:"Войдите в FactoryOS как владелец."},
+en:{title:"Coordination: no duplicate work",sub:"The server cross-checks ROADMAP, open PRs (with their changed files), Relay claims and handoffs between agents. If two agents took the same work, you see it here before anyone wastes time. Read-only: nothing is started from this page.",
+ refresh:"Refresh",loading:"Checking…",updated:"Updated {t} · cache {s} s",nextId:"Next free task number",
+ v:{clear:"No duplicates or overlaps",attention:"Something to check",conflict:"Conflict: two agents on the same work",unknown:"Not everything could be checked"},
+ vd:{clear:"Every task and every file is in one pair of hands right now.",attention:"No conflicts, but see the warnings below.",conflict:"Resolve the conflicts below before taking new tasks.",unknown:"Some sources were not read, so this cannot say “clear”. Unknown is not success."},
+ st:{tasks:"tasks in ROADMAP",open:"open",human:"wait for you",prs:"open PRs",claims:"active claims",handoffs:"handoffs"},
+ findings:"Findings",noFindings:"Nothing found.",work:"Who works on what right now",workHint:"Open PRs, active Relay claims and handoffs between agents.",noWork:"No active work right now.",
+ state:{queued:"queued",claimed:"claimed",running:"running",checkpoint:"checkpoint",committed:"committed",pushed:"pushed",pr:"PR open",ci:"CI running",review:"in review"},
+ kind:{pr:"PR",claim:"Claim",handoff:"Handoff"},k:{lane:"Agent",task:"Tasks",state:"State",files:"Files",title:"Title"},draft:"draft",open:"open",noTask:"no task number",
+ sev:{conflict:"conflict",warning:"warning",unknown:"unknown"},
+ c:{duplicate_task_id:["Task number {task} is defined twice in ROADMAP (lines {lines})","Rename one of them to a free number ({next}) in the branch that added it."],
+   task_in_two_places:["Task {task} is in several places at once: {refs}","Keep one executor: the other closes its branch or handoff with a comment."],
+   pr_file_overlap:["PRs {prs} change the same files ({count})","Merge one PR first and update the other from main, or agree who owns these files."],
+   pr_in_handoff_scope:["PR {prs} changes files of handoff {refs}","These files were handed to another agent. Agree who owns them before merging."],
+   pr_names_done_task:["PR {prs} names task {task}, already done on main","Usually the same number was reused for new work. Rename the task in the branch to {next}."],
+   unknown_dependency:["Task {task} depends on unknown {deps}","Fix the Depends: line in ROADMAP."],
+   claimed_by_other_lane:["Task {task} was claimed by {lanes}, but its ROADMAP owner is {owner}","Check that this handoff was agreed."],
+   pr_files_unreadable:["Could not read the files of PR {prs}","File overlap for it is unknown. Try Refresh later."],
+   github_truncated:["More open PRs than were read","The PR list is incomplete, so overlaps are unknown. Close stale PRs or refresh later."],
+   source_unreadable:["Source “{source}” was not read","GitHub needs the read key FACTORY_GITHUB_READ_TOKEN in Render; without it PR overlaps are unknown."]},
+ src:{roadmap:"ROADMAP",github:"GitHub",relay:"Relay",handoffs:"handoffs",github_complete:"all PRs"},ledger:"Shared ledger files (ROADMAP, DECISIONS, CI) are changed by several PRs. That is expected, but merges may conflict on lines:",
+ how:"How it works and what is checked",
+ howList:["One task number, one ROADMAP line.","One task, one executor: a PR, a Relay claim and a handoff must not split between agents.","Two open PRs do not change the same code.","Agents ask the same through the MCP tool <code>coordination_check</code> before taking a task.","The CI test <code>test_roadmap_integrity.py</code> blocks duplicate task numbers on main."],
+ err:"Could not load: {e}",signin:"Sign in to FactoryOS as the owner."}};
+const store=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}};
+let L=store('coord_lang')||((navigator.language||'uk').slice(0,2));if(L==='ua')L='uk';if(!T[L])L='uk';
+const t=k=>T[L][k]??T.en[k]??k;const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fill=(s,o)=>s.replace(/\{(\w+)\}/g,(_,k)=>o[k]??'');
+const code=a=>(a||[]).map(x=>`<code>${esc(x)}</code>`).join(' ');
+let R=null,busy=false,E='';
+function when(iso){try{return new Date(iso).toLocaleString(L==='uk'?'uk-UA':L==='ru'?'ru-RU':'en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'})}catch(e){return iso}}
+function paint(){
+ document.documentElement.lang=L;document.querySelectorAll('[data-t]').forEach(e=>e.textContent=t(e.dataset.t));$('#lang').value=L;
+ $('#refresh').disabled=busy;$('#refresh').textContent=busy?t('loading'):t('refresh');
+ if(E){$('#hero').className='card v-unknown';$('#hero').innerHTML=`<div class="hero"><div class="dot">?</div><div><b>${esc(fill(t('err'),{e:E}))}</b><small>${E.includes('403')||E.includes('401')?esc(t('signin')):''}</small></div></div>`;return}
+ if(!R){$('#hero').innerHTML=`<p class="empty">${esc(t('loading'))}</p>`;return}
+ const v=R.verdict,icon={clear:'✓',attention:'!',conflict:'×',unknown:'?'}[v]||'?';
+ const w=R.work||[],n=k=>w.filter(x=>x.kind===k).length,rm=R.roadmap||{},S=R.sources||{};
+ const src=Object.entries(S).filter(([k])=>!(k==='github_complete'&&!S.github)).map(([k,ok])=>`<span class="chip ${ok?'ok':'unknown'}">${ok?'✓':'?'} ${esc(t('src')[k]||k)}</span>`).join('');
+ $('#hero').className='card v-'+v;
+ $('#hero').innerHTML=`<div class="hero"><div class="dot" aria-hidden="true">${icon}</div><div><b>${esc(t('v')[v])}</b><small>${esc(t('vd')[v])}</small><div style="margin-top:6px">${src}</div></div></div>
+ <div class="stats">${[[rm.tasks,'tasks'],[rm.open,'open'],[rm.open_human,'human'],[S.github?n('pr'):null,'prs'],[S.relay?n('claim'):null,'claims'],[S.handoffs?n('handoff'):null,'handoffs']].map(([x,k])=>`<div class="stat"><span>${x??'—'}</span><small>${esc(t('st')[k])}</small></div>`).join('')}
+ <div class="stat"><span>${esc(R.next_free_id||'—')}</span><small>${esc(t('nextId'))}</small></div></div>
+ <p style="margin:10px 0 0"><small>${esc(fill(t('updated'),{t:when(R.generated_at),s:R.cache_seconds||0}))}</small></p>`;
+ const F=R.findings||[];
+ $('#findings').innerHTML=F.length?F.map(f=>{const c=(t('c')[f.code])||[f.code,''];
+  const o={task:(f.task_ids||[]).join(', '),lines:(f.lines||[]).join(', '),refs:(f.refs||[]).join(', '),prs:(f.prs||[]).join(' + '),count:f.count||'',next:R.next_free_id||'',deps:(f.depends||[]).join(', '),lanes:(f.lanes||[]).join(', '),owner:f.owner||'',source:t('src')[f.source]||f.source||''};
+  const extra=[f.files&&f.files.length?code(f.files):'',f.titles&&f.titles.length?`<ul>${f.titles.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''].join('');
+  return `<div class="f ${esc(f.severity)}"><span class="chip ${esc(f.severity)}">${esc(t('sev')[f.severity]||f.severity)}</span><b>${esc(fill(c[0],o))}</b>${extra?`<div style="margin-top:4px">${extra}</div>`:''}<div class="do">→ ${esc(fill(c[1],o))}</div></div>`}).join(''):`<p class="empty">✓ ${esc(t('noFindings'))}</p>`;
+ const led=Object.entries(R.shared_ledger||{});if(led.length)$('#findings').innerHTML+=`<p><small>${esc(t('ledger'))}</small> ${led.map(([f,r])=>`<code>${esc(f)}</code> <small>${esc(r.join(', '))}</small>`).join(' · ')}</p>`;
+ $('#work').innerHTML=w.length?w.map(x=>{const title=x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.ref)}</a> ${esc(x.title)}`:`<b>${esc(x.ref)}</b> ${esc(x.title)}`;
+  const ids=(x.task_ids||[]).filter(Boolean);const st=x.state?(t('state')[x.state]||x.state):(x.draft?t('draft'):t('open'));
+  return `<div class="w"><div class="t"><span class="chip">${esc(t('kind')[x.kind]||x.kind)}</span>${title}</div>
+  <div class="meta"><span>${esc(t('k').lane)}: <b>${esc(x.lane)}</b></span><span>${esc(t('k').state)}: <b>${esc(st)}</b></span>${x.files_count!=null?`<span>${esc(t('k').files)}: <b>${x.files_count}</b></span>`:''}<span>${esc(t('k').task)}: ${ids.length?code(ids):`<small>${esc(t('noTask'))}</small>`}</span></div></div>`}).join(''):`<p class="empty">${esc(t('noWork'))}</p>`;
+ $('#how').innerHTML=`<ul>${t('howList').map(x=>`<li>${x}</li>`).join('')}</ul>`;
+}
+async function load(force){busy=true;paint();
+ try{const r=await fetch('/api/factory/coordination'+(force?'?refresh=1':''),{credentials:'same-origin'});const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));R=d;E=''}catch(e){E=e.message}
+ busy=false;paint()}
+$('#lang').onchange=e=>{L=e.target.value;store('coord_lang',L);paint()};
+$('#refresh').onclick=()=>load(true);
+paint();load(false);
+</script>
+</body>
+</html>
