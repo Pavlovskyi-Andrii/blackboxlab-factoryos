@@ -19,6 +19,7 @@ import base64
 import os
 import re
 import time
+from urllib.parse import urljoin
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -31,6 +32,11 @@ MAX_TEXT = 30_000
 MAX_SHOT_BYTES = 1_900_000
 STEP_TIMEOUT_MS = 15_000
 SELECTOR_RE = re.compile(r"^[^\x00-\x1f<>{};]{1,200}$")
+try:  # the worker has Playwright; CI's page double does not
+    from playwright.sync_api import TimeoutError as _PlaywrightTimeout
+except Exception:  # pragma: no cover
+    class _PlaywrightTimeout(Exception):
+        pass
 LINK_WAIT_MS = 4000  # how long a link click waits for in-page navigation
 REF_RE = re.compile(r"^e[0-9]{1,6}$")
 _CODE_TEXT_RE = re.compile(
@@ -399,12 +405,14 @@ class ActionSession:
             before = str(self.page.url or "")
             locator.click(timeout=ms)
             href = str((element or {}).get("href") or "")
-            if href and not href.startswith("#") and not href.lower().startswith("javascript:"):
+            if href and not href.startswith("#") and not href.lower().startswith("javascript:") \
+                    and urljoin(before, href).split("#")[0] != before.split("#")[0]:
                 # Sites with in-page navigation (GitHub, SPAs) change the URL after the click returns and never fire a
-                # new load event: wait briefly for the URL to change so the snapshot shows the new page.
+                # new load event: wait briefly for the URL to change so the snapshot shows the new page. "commit" so a
+                # same-document change does not also wait for the old page's resources; _settle() follows.
                 try:
-                    self.page.wait_for_url(lambda url: str(url) != before, timeout=LINK_WAIT_MS)
-                except Exception:
+                    self.page.wait_for_url(lambda url: str(url) != before, timeout=LINK_WAIT_MS, wait_until="commit")
+                except _PlaywrightTimeout:
                     pass
         elif action == "fill":
             value = str(cmd.get("secret_value") if value_from else cmd.get("value") or "")

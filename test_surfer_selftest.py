@@ -361,6 +361,13 @@ class SoftNavigationTest(unittest.TestCase):
                 page = done.get("snapshot") or done
                 self.assertEqual(done["status"], "done")
                 self.assertTrue(page["url"].endswith("/soft/next"), page["url"])
+                # A link to the page itself does not pay the wait (Codex review on #456).
+                again = session.execute({"kind": "open", "url": site.url + "/soft", "policy": policy})
+                same = next(e["ref"] for e in (again.get("snapshot") or again)["elements"] if e.get("name") == "This page")
+                started = time.monotonic()
+                done = session.execute({"kind": "act", "action": "click", "ref": same, "policy": policy})
+                self.assertEqual(done["status"], "done")
+                self.assertLess(time.monotonic() - started, 3.5)
             finally:
                 browser.close()
 
