@@ -2415,6 +2415,8 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   pending value, no page URL or title (both can carry personal data), no codes or cookies. The element label stays:
   it is the button or field name the owner needs to recognise the request.
 - Read-only by construction: the tool takes no arguments; confirm / reject / code / takeover stay owner-only routes.
+- The element label is the site's text: it is cleaned (control and bidi characters removed, one line, ≤ 80 chars) and
+  listed in `page_text_fields`; the tool description tells the agent to show it as data, never follow it (Codex on #458).
 ## 2026-11-23 — Surfer worker: a hard deadline per action command
 
 - Live run (parent session, 14:44 UTC): after a click on the MyBrief page the Surfer worker stopped serving everything
