@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import pathlib
+import sys
+import time
 import tempfile
 import threading
 import unittest
@@ -46,7 +48,7 @@ class WorkerTest(unittest.TestCase):
         if isinstance(result, tuple):                # ("done", "bt_…"): a task was claimed
             result, task_id = result
             on_claim(task_id)
-            # while the task runs, the local heartbeat says "running" with the task and a 15 min promise
+            # while the task runs, the local heartbeat says "running" with the task and its budget
             beat = hb.read(hb.path_for(self.repo, hb.SURFER_FILE))
             assert beat["state"] == "running" and beat["task"] == task_id, beat
             assert beat["deadline"] - beat["at"] == bw.TASK_BUDGET_SECONDS
@@ -78,6 +80,80 @@ class WorkerTest(unittest.TestCase):
         self.clock.t += bw.HEARTBEAT_SECONDS
         w.pass_once()
         self.assertEqual(len(self.posts), n + 1)
+
+    def test_self_watchdog_exits_when_the_loop_breaks_its_promise(self):
+        # Live run 2026-11-23: the loop hung inside a browser call for 30+ min and the root watchdog did not act.
+        w = self.worker()
+        now = {"t": 1000.0}
+        exits = []
+        w.monotonic, w.exit = (lambda: now["t"]), exits.append
+        self.assertFalse(w.check_self())                         # no beat yet: nothing promised
+        w.local_beat("polling", bw.TASK_BUDGET_SECONDS)
+        now["t"] += bw.TASK_BUDGET_SECONDS - 1
+        self.assertFalse(w.check_self())
+        self.assertEqual(exits, [])
+        now["t"] += 2                                            # the pass is stuck past its promise
+        self.assertTrue(w.check_self())
+        self.assertEqual(exits, [bw.EXIT_CODE_STUCK])
+        w.local_beat("idle", 5 + hb.STALE_AFTER_SECONDS)          # a beat renews the promise
+        self.assertFalse(w.check_self())
+        w.local_beat("stopped", 0)                                # a deliberate stop is never "stuck"
+        now["t"] += 10 * 3600
+        self.assertFalse(w.check_self())
+        self.assertEqual(exits, [bw.EXIT_CODE_STUCK])
+
+    def test_a_beat_that_lands_during_the_check_wins(self):
+        # Codex on #460: the exit decision is serialized with deadline renewal.
+        import threading as th
+        w = self.worker()
+        now = {"t": 1000.0}
+        exits = []
+        w.monotonic, w.exit = (lambda: now["t"]), exits.append
+        w.local_beat("polling", 10)
+        now["t"] += 11                                           # expired ...
+        result = {}
+        with w._watch:                                           # ... but the loop is renewing right now
+            checker = th.Thread(target=lambda: result.setdefault("fired", w.check_self()))
+            checker.start()
+            checker.join(0.2)
+            self.assertTrue(checker.is_alive())                  # the check waits for the renewal
+            w._loop_deadline = now["t"] + 60
+        checker.join(5)
+        self.assertEqual((result["fired"], exits), (False, []))
+        with w._watch:                                           # a stop that lands meanwhile wins too
+            checker = th.Thread(target=lambda: result.update(fired=w.check_self()))
+            now["t"] += 120
+            checker.start()
+            w.stop.set()
+        checker.join(5)
+        self.assertEqual((result["fired"], exits), (False, []))
+
+    def test_a_stalled_loop_exits_the_real_process_with_75(self):
+        import subprocess
+        import textwrap
+        script = textwrap.dedent(f"""
+            import pathlib, sys, time
+            sys.path.insert(0, {str(bw.ROOT)!r})
+            from autopilot import browser_worker as bw
+            bw.SELF_WATCHDOG_EVERY_SECONDS = 0.2
+            bw.TASK_BUDGET_SECONDS = 1
+            def stuck(*, on_claim=None):
+                time.sleep(120)                                  # a pass that never returns
+            w = bw.SurferWorker(repo=pathlib.Path({str(self.repo)!r}), run_one=stuck, configured=lambda: True,
+                                available=lambda: True, post=lambda *a, **k: None, fingerprint=lambda: ())
+            w.run()
+        """)
+        started = time.monotonic()
+        proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, bw.EXIT_CODE_STUCK, proc.stderr[-500:])
+        self.assertLess(time.monotonic() - started, 30)
+        self.assertIn("silent past its deadline", proc.stderr)
+
+    def test_a_pass_promises_less_than_the_old_15_minutes(self):
+        self.assertLessEqual(bw.TASK_BUDGET_SECONDS, 6 * 60)
+        from autopilot import browser_actions as ba
+        worst = ba.STAGE_SECONDS + ba.COMMAND_DEADLINE_SECONDS + ba.EXIT_GRACE_SECONDS + 60   # + result post
+        self.assertLess(worst, bw.TASK_BUDGET_SECONDS)
 
     def test_backoff_on_unreachable_queue_and_reset(self):
         w = self.worker()
