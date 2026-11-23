@@ -30,7 +30,10 @@ during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day
 ### v5.19.0 — Surfer requests mirrored for the owner — 2026-11-23
 
 - `surfer_pending` (MCP, Claude lane only, read-only): what the Surfer waits for from the owner right now — a step to confirm, a code or login, a takeover — with a short RU/UK/EN text and the link to the Surfer page, so Claude can mirror it as tickets on the owner task page. No screenshots, values, codes or URLs; answering stays on the Surfer page (T-726, #458).
-- Surfer link-click wait follow-ups: commit-level URL wait, only timeouts are swallowed, same-page links still wait (#457).
+
+### v5.18.2 — Surfer worker never stays stuck on one page — 2026-11-23
+
+- Surfer: every action command has a 90-second deadline. A page that never answers (a script that does not return) no longer blocks the Surfer worker: the browser is killed, the step reports `worker_timeout`, the session closes and the next session or page read gets a fresh browser. Also: the link-click wait follow-ups (#457) (#459).
 
 ### v5.18.1 — Surfer: a link click waits for in-page navigation — 2026-11-23
 
