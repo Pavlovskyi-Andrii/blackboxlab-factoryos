@@ -37,13 +37,14 @@
   Goal: the owner approves saving a session's successful steps as a recipe with parameters; a replay runs deterministically under the same policy gate, stops at the first mismatch and hands the session to an agent or the owner.
   DONE: `python test_surfer_recipes.py`, default verification.
 
-- [ ] T-724 Surfer self-test: fixture site proving the gate, secrets, takeover and recipe replay; one live session when the owner's flag is on
+- [x] T-724 Surfer self-test: fixture site proving the gate, secrets, takeover and recipe replay; one live session when the owner's flag is on
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1
   Depends: T-723
   Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Self-test. `surfer_fixture_site.py`, `surfer_fake_browser.py`.
   Goal: a deterministic local site (login form, multi-step form, file upload, delete button, payment button, captcha-like wall) proving: allowlisted fill + submit runs, sensitive steps wait, off-allowlist is refused, secrets never reach snapshots or logs, a takeover continues the session, a recipe replays. After merge: one live session on the owner's own FactoryOS product page if `FACTORY_SURFER_ACTIONS_ENABLED` is on; otherwise it waits for the owner's flag.
   DONE: `python test_surfer_selftest.py` (CI: page double; `RUN_BROWSER_FIXTURE=1`: real Chromium), default verification.
+  Progress 2026-11-22: the scenario passes with the page double (CI) and in real Chromium on the loopback fixture site (`RUN_BROWSER_FIXTURE=1`, 21 s, run in the build session). The live session on the owner's FactoryOS page was **not run**. Checked on production 2026-11-23 through `/mcp`: `web_open` with the shared key answers «the shared MCP token may not act», with the Claude lane key «Surfer actions are off: the owner sets FACTORY_SURFER_ACTIONS_ENABLED=1 in Render». It waits for T-722-H.
 
 - [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)

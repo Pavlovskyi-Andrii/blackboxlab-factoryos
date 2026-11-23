@@ -280,6 +280,8 @@ jobs:
           FACTORYOS_REQUIRE_NODE=1 python test_surfer_owner.py
           python -m py_compile surfer_recipes.py test_surfer_recipes.py
           python test_surfer_recipes.py
+          python -m py_compile test_surfer_selftest.py
+          python test_surfer_selftest.py
           bash -n deploy/install_surfer_worker.sh
           python -m py_compile web_surfer.py test_web_surfer.py
           python test_web_surfer.py
