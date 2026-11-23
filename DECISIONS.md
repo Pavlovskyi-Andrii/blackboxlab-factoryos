@@ -2456,3 +2456,18 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - After click / press / select / check / back the session waits, after load states, until the page's DOM has not
   changed for 500 ms, at most 3 s (a MutationObserver in the page, resolving by itself). Costs ≥ 0.5 s per such step;
   a page that keeps animating costs the full 3 s. A page whose script never returns is the worker deadline's job (#459).
+
+## 2026-11-23 — Sidebar reaches every owner page; Surfer replaces the read-only «Browser agent» card
+- Owner 2026-11-23: standalone pages (`/static/surfer/`, `/static/linkedin/` …) had no link from the dashboard, the
+  «Browser agent» card (read-only page reader) made no sense on the home screen, and `/static/linkedin/` answered 404.
+- `/static` is now mounted with `html=True`: a directory URL serves its `index.html` (no-slash URL redirects to it).
+  `/static/` was already a public prefix, so no auth boundary changes; the pages hold no data, their APIs stay gated.
+- Sidebar: «Browser agent» → «Surfer» opens `/static/surfer/index.html`; new entries Google Sheets (automation),
+  Social autopilot / LinkedIn / OLX (review & publish), Decision Memory / MyBrief (MVP Builder). They open in the same
+  tab through `openFactoryPage(name)` with a fixed allowlist of page names, like Learning. LinkedIn and OLX keep their
+  brand names in every language.
+- The read-only card and its session picker left the dashboard; its JS stays (guarded, no element = no-op) and
+  MCP `web_read` is unchanged. The per-login agent switch remains in the vault drawer.
+- «Frequent» block at the top of the sidebar: per-browser click counts in `localStorage` (`factoryos_nav_usage`), the
+  top 4 destinations clicked at least twice; it delegates to the real nav button, hidden in the narrow icon rail.
+- Owner pages linkedin/olx/sheets/social/surfer got a «← FactoryOS» link back to the dashboard.
