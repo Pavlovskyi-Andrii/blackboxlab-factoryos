@@ -27,6 +27,10 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.19.0 — Surfer requests mirrored for the owner — 2026-11-23
+
+- `surfer_pending` (MCP, Claude lane only, read-only): what the Surfer waits for from the owner right now — a step to confirm, a code or login, a takeover — with a short RU/UK/EN text and the link to the Surfer page, so Claude can mirror it as tickets on the owner task page. No screenshots, values, codes or URLs; answering stays on the Surfer page (T-726, #458).
+
 ### v5.18.3 — Surfer worker restarts itself when stuck — 2026-11-23
 
 - Surfer worker: a self-watchdog thread restarts the worker (systemd) when its main loop misses the deadline of its last heartbeat; one pass now promises 6 minutes instead of 15. A stuck worker no longer depends on the external supervisor timer (#460).

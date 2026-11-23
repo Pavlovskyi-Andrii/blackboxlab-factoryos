@@ -85,7 +85,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.18.3"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.19.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -1378,9 +1378,11 @@ def _surfer_lane(request: Request) -> str:
 SURFER_RECIPES = surfer_recipes.RecipeStore(DATA_DIR)  # T-723: owner-approved recipes, replayed under the same gate
 async def _surfer_recipe_tool(args, lane):
     return await surfer_recipes.call_tool(args, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, lane=lane)
+async def _surfer_pending_tool(args, lane):  # T-726: Claude lane reads what waits for the owner (read-only)
+    return surfer_owner.agent_pending(SURFER_ACTIONS, SURFER_GATE, lane, FACTORY_PUBLIC_BASE_URL)
 surfer_actions.install_routes(app, store=SURFER_ACTIONS, gate_fn=lambda: SURFER_GATE, identity=request_identity,
                               authorize_worker=_claude_worker_authorized, lane_identity=_surfer_lane,
-                              extra_tools={"web_recipe": _surfer_recipe_tool})
+                              extra_tools={"web_recipe": _surfer_recipe_tool, "surfer_pending": _surfer_pending_tool})
 surfer_recipes.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, identity=request_identity)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
@@ -2056,7 +2058,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS
+]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2111,6 +2113,8 @@ async def factory_mcp(request: Request):
                 result=_factory_mcp_text(await surfer_actions.call_tool(name,args,store=SURFER_ACTIONS,gate=SURFER_GATE,lane=mcp_lane or ""))
             elif name in surfer_recipes.TOOL_NAMES:
                 result=_factory_mcp_text(await _surfer_recipe_tool(args,mcp_lane or ""))
+            elif name in surfer_owner.PENDING_TOOL_NAMES:
+                result=_factory_mcp_text(await _surfer_pending_tool(args,mcp_lane or ""))
             elif name in social_autopilot.MCP_TOOL_NAMES:
                 # T-702: agents read the plan and add drafts only; approval and publishing stay owner-only.
                 result=_factory_mcp_text(social_autopilot.call_tool(SOCIAL_AUTOPILOT,name,args,mcp_lane or ""))
