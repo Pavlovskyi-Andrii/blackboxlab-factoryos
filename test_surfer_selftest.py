@@ -86,10 +86,9 @@ class World:
     def owner(self, session_id, kind, **payload):
         return self.step(self.store.owner_command(session_id, kind, payload)["id"])
 
-    def stored(self) -> str:
-        return "\n".join(p.read_text(encoding="utf-8", errors="replace")
-                         for p in (self.dir / "surfer_actions").rglob("*")
-                         if p.is_file() and p.suffix in (".json", ".jsonl"))
+    def stored(self) -> bytes:
+        """Every byte the server kept under its data directory: state, snapshots, logs, recipes, screenshots, uploads."""
+        return b"\n".join(p.read_bytes() for p in sorted(self.dir.rglob("*")) if p.is_file())
 
 
 class FakeWorld(World):
@@ -153,10 +152,16 @@ class RealWorld(World):
         done, box = threading.Event(), {}
 
         def job():
-            box["value"] = fn()
-            done.set()
+            try:
+                box["value"] = fn()
+            except BaseException as exc:          # report the real error instead of a 60 s timeout
+                box["error"] = exc
+            finally:
+                done.set()
         self.jobs.put(job)
         assert done.wait(60), "worker thread is stuck"
+        if "error" in box:
+            raise box["error"]
         return box["value"]
 
     def wait_kw(self):
@@ -189,8 +194,9 @@ class SelfTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        self.worker_log = []                       # what the worker would print to its journal on EC2
         for target, value in ((relay_tasks, ("endpoint", mock.Mock(return_value=("https://factory.example", "tok")))),
-                              (browser_actions, ("log", lambda _message: None))):
+                              (browser_actions, ("log", self.worker_log.append))):
             patch = mock.patch.object(target, *value)
             patch.start()
             self.addCleanup(patch.stop)
@@ -311,10 +317,15 @@ class SelfTest(unittest.TestCase):
         stored = w.stored()
         seen = json.dumps(w.views) + json.dumps(w.store.audit_tail(1000)) + json.dumps(recipe)
         cookie = fixture.COOKIE.split("=", 1)[1]
+        journal = "\n".join(self.worker_log)
+        self.assertGreater(len(self.worker_log), 30)                  # the worker did log every command
+        self.assertGreater(len(list((w.dir / "surfer_actions" / "shots").glob("wa_*"))), 20)   # screenshots are scanned too
         for secret in (fixture.PASSWORD, fixture.SMS_CODE, OWNER_TEXT, cookie, "guess-123456"):
-            self.assertNotIn(secret, stored, secret)
+            self.assertNotIn(secret.encode(), stored, secret)
             self.assertNotIn(secret, seen, secret)
-        self.assertNotIn("storage_state", stored)
+            self.assertNotIn(secret, journal, secret)
+        self.assertNotIn(b"storage_state", stored)
+        self.assertNotIn(fixture.USERNAME, journal)
         audit = w.store.audit_tail(1000)
         self.assertEqual({r["value"] for r in audit if r.get("action") in ("human_input", "takeover_type")}, {"***"})
         self.assertTrue(all(r.get("who") for r in audit))
