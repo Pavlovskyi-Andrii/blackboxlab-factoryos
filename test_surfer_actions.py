@@ -99,7 +99,7 @@ class Wire:
         except HTTPException as exc:
             return Response({"detail": exc.detail}, exc.status_code)
 
-    def get(self, url, headers, timeout):
+    def get(self, url, headers, timeout, **_kwargs):
         step_id = url.split("/")[-2]
         _, step = self.store.find_step(step_id)
         info = self.gate.upload(step["asset_id"])
@@ -477,7 +477,9 @@ class LifecycleTest(Harness):
             raise RuntimeError("Connection closed while reading from the driver")
 
         self.runner.deadline_seconds = 0.2
-        self.runner.kill = killed.set
+        self.runner._browser_root = 4242                         # the fake browser has no process
+        self.runner.kill = lambda root: (killed.set(), root == 4242)[1]
+        self.runner.exit = lambda code: self.fail("the worker must not exit when the kill freed the call")
         page = self.runner.session.page
         with mock.patch.object(type(page), "evaluate", stuck, create=True), \
                 mock.patch.object(type(page), "screenshot", lambda *a, **k: (_ for _ in ()).throw(AssertionError("shot")),
@@ -493,6 +495,50 @@ class LifecycleTest(Harness):
         doc = self.store.get(view["session_id"])
         self.assertEqual((doc["session"]["status"], doc["session"]["close_reason"]), ("closed", "worker_lost"))
         self.assertEqual(self.open("/")["status"], "done")        # a new session gets a fresh browser
+
+    def test_a_deadline_that_fires_as_the_command_finishes_changes_nothing(self):
+        # Codex on #459: Timer.cancel() cannot stop a callback that already started. Fire it after the command ended.
+        fired = []
+
+        class CaptureTimer:
+            def __init__(self, _seconds, callback):
+                fired.append(callback)
+                self.daemon = True
+
+            def start(self):
+                pass
+
+            def cancel(self):
+                pass
+        view = self.open("/")
+        self.runner.kill = lambda root: self.fail("killed a browser after its command finished")
+        self.runner.exit = lambda code: self.fail("exited after the command finished")
+        with mock.patch.object(browser_actions.threading, "Timer", CaptureTimer):
+            done = self.act(view, "click", "Start the form")
+        self.assertEqual(done["status"], "done")
+        for callback in fired:                                     # the late deadline callbacks run now
+            callback()
+        self.assertFalse(self.runner.timed_out)
+        self.assertFalse(self.runner.session.aborted)
+        self.assertEqual(self.runner.live, view["session_id"])
+        self.assertEqual(self.act(done, "back")["status"], "done")   # the same browser keeps working
+
+    def test_a_kill_that_frees_nothing_restarts_the_worker(self):
+        import threading
+        view = self.open("/")
+        exited, release = [], threading.Event()
+
+        def stuck(*_args, **_kwargs):
+            release.wait(10)
+            raise RuntimeError("Connection closed")
+        self.runner.deadline_seconds, self.runner.exit_grace_seconds = 0.1, 0.1
+        self.runner._browser_root = None                           # nothing to kill (no /proc, unknown driver)
+        self.runner.kill = lambda root: self.fail("no root to kill")
+        self.runner.exit = lambda code: (exited.append(code), release.set())
+        page = self.runner.session.page
+        with mock.patch.object(type(page), "evaluate", stuck, create=True):
+            self.act(view, "click", "Start the form")
+        self.assertEqual(exited, [browser_actions.EXIT_CODE_STUCK])
 
     def test_read_tasks_borrow_the_live_browser(self):
         self.assertIsNone(self.runner.borrowed_factory())

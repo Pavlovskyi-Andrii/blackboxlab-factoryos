@@ -44,13 +44,12 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 COMMAND_DEADLINE_SECONDS = 90
 
 
-def _descendants(root: int) -> list:
-    """Child processes of ``root`` (Playwright's driver and Chromium), from /proc; [] where /proc is unavailable."""
+def _children_map() -> dict:
     children: dict = {}
     try:
         names = os.listdir("/proc")
     except OSError:
-        return []
+        return children
     for name in names:
         if not name.isdigit():
             continue
@@ -61,6 +60,16 @@ def _descendants(root: int) -> list:
         except (OSError, ValueError, IndexError):
             continue
         children.setdefault(ppid, []).append(int(name))
+    return children
+
+
+def _children(pid: int) -> list:
+    return list(_children_map().get(pid, []))
+
+
+def _descendants(root: int) -> list:
+    """Every process under ``root`` (Chromium and its helpers under the driver), from /proc; [] without /proc."""
+    children = _children_map()
     found, todo = [], [root]
     while todo:
         for child in children.get(todo.pop(), []):
@@ -69,20 +78,37 @@ def _descendants(root: int) -> list:
     return found
 
 
-def kill_browser_processes() -> int:
-    """SIGKILL every descendant of this worker process (only Playwright and Chromium run as children here)."""
-    killed = 0
-    for pid in reversed(_descendants(os.getpid())):
-        try:
-            os.kill(pid, signal.SIGKILL)
-            killed += 1
-        except OSError:
-            pass
-    return killed
+EXIT_GRACE_SECONDS = 20       # the stuck call still has not returned this long after the kill: restart the worker
+EXIT_CODE_STUCK = 75          # systemd (Restart=always) starts a fresh worker
+STAGE_SECONDS = 60            # an approved upload must be downloaded within this, end to end
 
 
 def log(message: str) -> None:
     print(f"surfer-actions: {message}", file=sys.stderr, flush=True)
+
+
+def kill_process_tree(root: int) -> int:
+    """SIGKILL ``root`` (this command's Playwright driver) and everything under it, children first, twice so that a
+    process forked in between is caught as well. Returns how many processes were signalled."""
+    killed = 0
+    for _ in range(2):
+        for pid in list(reversed(_descendants(root))) + [root]:
+            try:
+                os.kill(pid, signal.SIGKILL)
+                killed += 1
+            except OSError:
+                pass
+        time.sleep(0.2)
+    return killed
+
+
+def _driver_pid(playwright: Any) -> Optional[int]:
+    """The Playwright driver's pid (private attribute; None when the shape differs or in tests)."""
+    try:
+        pid = int(playwright._impl_obj._connection._transport._proc.pid)
+        return pid if pid > 1 else None
+    except Exception:
+        return None
 
 
 class _BorrowedBrowser:
@@ -132,8 +158,13 @@ class ActionRunner:
         self._opened = self._last_ok = 0.0
         self.done = self.failed = 0
         self.deadline_seconds = COMMAND_DEADLINE_SECONDS
-        self.kill = kill_browser_processes
+        self.exit_grace_seconds = EXIT_GRACE_SECONDS
+        self.kill = kill_process_tree
+        self.exit = os._exit
         self.timed_out = False
+        self._browser_root: Optional[int] = None   # pid of the Playwright driver this runner started
+        self._watch = threading.Lock()             # command completion vs the deadline callback
+        self._active = ""                          # id of the command being executed ("" when none)
 
     # --- browser lifetime -------------------------------------------------------------------------------------
     def _launch(self, storage_state: Optional[dict]) -> None:
@@ -144,7 +175,10 @@ class ActionRunner:
             self._proxy = self.proxy_factory()
             self._proxy.__enter__()
             args["proxy"] = {"server": self._proxy.url, "bypass": "<-loopback>"}
+        before = set(_children(os.getpid()))
         self._pw = self.start_playwright()
+        new = [pid for pid in _children(os.getpid()) if pid not in before]
+        self._browser_root = _driver_pid(self._pw) or (new[0] if len(new) == 1 else None)
         self._browser = self._pw.chromium.launch(headless=True, **args)
         extra = {"storage_state": storage_state} if isinstance(storage_state, dict) else {}
         self._context = self._browser.new_context(accept_downloads=False, service_workers="block", permissions=[],
@@ -173,7 +207,7 @@ class ActionRunner:
         if self._tmp:
             shutil.rmtree(self._tmp, ignore_errors=True)
         self._pw = self._browser = self._context = self._proxy = self._tmp = None
-        self.session, self.live = None, ""
+        self.session, self.live, self._browser_root = None, "", None
 
     def borrowed_factory(self) -> Optional[Callable[[], Any]]:
         """A playwright_factory for read tasks while a page is live (None otherwise: they start their own)."""
@@ -190,12 +224,22 @@ class ActionRunner:
         return self.http
 
     def _stage_upload(self, base: str, headers: dict, command: dict) -> None:
+        """Download the approved file within STAGE_SECONDS end to end; on failure the step reports the file missing."""
+        started = time.monotonic()
         response = self._http().get(base + f"/api/factory/browser/worker/actions/{command['id']}/file",
-                                    headers=headers, timeout=120)
-        if response.status_code != 200 or len(response.content) > MAX_UPLOAD_BYTES or not self._tmp:
+                                    headers=headers, timeout=(10, 20), stream=True)
+        if response.status_code != 200 or not self._tmp:
             return
+        chunks = getattr(response, "iter_content", None)
+        data = bytearray()
+        for chunk in (chunks(65536) if chunks else [response.content]):
+            data += chunk
+            if len(data) > MAX_UPLOAD_BYTES or time.monotonic() - started > STAGE_SECONDS:
+                log(f"{command['id']} upload file not staged: too large or too slow")
+                getattr(response, "close", lambda: None)()
+                return
         path = pathlib.Path(self._tmp) / staging_name(command.get("file_name") or "upload.bin")
-        path.write_bytes(response.content)
+        path.write_bytes(bytes(data))
         command["file_path"] = str(path)
 
     def pump(self) -> str:
@@ -230,18 +274,38 @@ class ActionRunner:
         state = command.pop("storage_state", None)
         self.timed_out = False
         if command.get("action") == "upload" and self.session is not None:
-            try:                                                   # a download, outside the browser deadline
+            try:                                                   # bounded by STAGE_SECONDS on its own
                 self._stage_upload(base, headers, command)
             except Exception as exc:
                 log(f"{command['id']} upload file not staged: {type(exc).__name__}")
 
-        def _deadline() -> None:
-            self.timed_out = True
-            if self.session is not None:
-                self.session.aborted = True                        # no more calls into the dead driver
-            log(f"{command['id']} {kind}: no answer in {self.deadline_seconds:.0f}s; killing the browser")
-            self.kill()
+        token = command["id"] + ":" + str(time.monotonic())
 
+        def _deadline() -> None:
+            with self._watch:                                      # the command may have finished just now
+                if self._active != token:
+                    return
+                self.timed_out = True
+                if self.session is not None:
+                    self.session.aborted = True                    # no more calls into the dead driver
+                root = self._browser_root
+            log(f"{command['id']} {kind}: no answer in {self.deadline_seconds:.0f}s; killing the browser")
+            killed = self.kill(root) if root else 0
+            if not killed:
+                log(f"{command['id']}: no browser process to kill")
+            escalate = threading.Timer(self.exit_grace_seconds, _escalate)
+            escalate.daemon = True
+            escalate.start()
+
+        def _escalate() -> None:
+            with self._watch:
+                if self._active != token:
+                    return
+            log(f"{command['id']}: still stuck {self.exit_grace_seconds:.0f}s after the kill; restarting the worker")
+            self.exit(EXIT_CODE_STUCK)
+
+        with self._watch:
+            self._active = token
         timer = threading.Timer(self.deadline_seconds, _deadline)
         timer.daemon = True
         timer.start()
@@ -260,6 +324,8 @@ class ActionRunner:
                 self.close()
         finally:
             timer.cancel()
+            with self._watch:
+                self._active = ""
         if self.timed_out:
             body = {"status": "failed", "blocker": "worker_timeout"}
             self.close()                                           # the page is gone; FactoryOS closes the session

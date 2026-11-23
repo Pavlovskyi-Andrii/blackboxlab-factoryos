@@ -2418,6 +2418,13 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   screenshot), the worker's child processes (Playwright driver + Chromium) get SIGKILL, the step reports
   `worker_timeout`, the page is dropped, and the next claim closes the session as `worker_lost`. The next session or
   read starts a fresh browser.
-- The approved-upload download now runs before the timer (its own 120 s HTTP timeout).
+- Only this command's browser is killed: the Playwright driver started by the runner (its pid, or the one new child
+  process at launch) and everything under it, computed at kill time and swept twice. If there is nothing to kill or
+  the call is still stuck 20 s after the kill, the worker exits with code 75 and systemd (Restart=always) starts a
+  fresh one: the hang never outlives ~2 minutes.
+- The deadline callback and command completion share a lock and a per-command token, so a callback that starts just
+  as the command finishes does nothing (Codex on #459).
+- The approved-upload download is its own bounded phase before the timer: 60 s end to end (streamed, size-capped);
+  on failure the step reports the file missing.
 - The exact call that hung on EC2 is not known (the egress proxy path cannot be reproduced here); the deadline covers any
   stuck call. The T-714 loop watchdog stays the backstop for a hang outside an action command.
