@@ -44,6 +44,10 @@ from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
 import web_surfer
+import surfer_actions
+import surfer_policy
+import surfer_owner
+import surfer_recipes
 import agent_workspace
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
@@ -73,6 +77,7 @@ import linkedin_publisher
 import social_autopilot
 import social_images
 import olx_publisher
+import google_sheets
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
@@ -1321,6 +1326,51 @@ def _surfer_session(raw, url: str) -> dict:
 install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized,
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
+# T-720 Surfer action sessions (docs/roadmap/T-720_SURFER_ACTIONS.md) behind the T-721 policy gate: off until the owner
+# sets FACTORY_SURFER_ACTIONS_ENABLED=1, and then only on the sites and action classes of his allowlist.
+class _SurferVault:
+    """What the gate may ask the encrypted vault (T-560-F). Values go only to the worker; nothing is logged."""
+    @staticmethod
+    def _open():
+        return _vault_parts(required=False), tenancy.binding_workspace()
+    def logins(self):
+        parts,workspace=self._open()
+        if not parts:return []
+        return sorted({f"{e['provider']}/{e['account']}" for part in parts for e in part.entries(workspace)})
+    def _ref(self,provider,account):
+        parts,workspace=self._open()
+        ref=parts[0].find_ref(workspace_id=workspace,provider=provider,account_binding_id=account) if parts else None
+        return parts,workspace,ref
+    def has_secret(self,provider,account):
+        parts,workspace,ref=self._ref(provider,account)
+        if not ref:return False
+        info=parts[0].check(ref,workspace_id=workspace,provider=provider,account_binding_id=account)
+        return bool(info.get("ok")) and "password" in (info.get("fields") or [])
+    def secret(self,provider,account,kind):
+        parts,workspace,ref=self._ref(provider,account)
+        if not ref:return ""
+        return parts[0].resolve(ref,workspace_id=workspace,provider=provider,account_binding_id=account,kind=kind).reveal()
+    def storage_state(self,provider,account):
+        return _browser_session_state(provider,account)
+    def save_storage_state(self,provider,account,state):
+        parts,workspace=self._open()
+        if not parts:return False
+        parts[1].capture(workspace_id=workspace,provider=provider,account_binding_id=account,storage_state=state)
+        event(None,f"Vault: browser session saved from a Surfer takeover for {provider}/{account}")
+        return True
+SURFER_ACTIONS = surfer_actions.ActionStore(DATA_DIR)
+SURFER_GATE = surfer_policy.PolicyGate(DATA_DIR, vault=_SurferVault())
+surfer_policy.install_routes(app, gate=SURFER_GATE, store=SURFER_ACTIONS, identity=request_identity)
+surfer_owner.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, identity=request_identity)  # T-722 owner page
+def _surfer_lane(request: Request) -> str:
+    return agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
+SURFER_RECIPES = surfer_recipes.RecipeStore(DATA_DIR)  # T-723: owner-approved recipes, replayed under the same gate
+async def _surfer_recipe_tool(args, lane):
+    return await surfer_recipes.call_tool(args, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, lane=lane)
+surfer_actions.install_routes(app, store=SURFER_ACTIONS, gate_fn=lambda: SURFER_GATE, identity=request_identity,
+                              authorize_worker=_claude_worker_authorized, lane_identity=_surfer_lane,
+                              extra_tools={"web_recipe": _surfer_recipe_tool})
+surfer_recipes.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, identity=request_identity)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
 install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
@@ -1502,6 +1552,8 @@ async def auth_middleware(request: Request, call_next):
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and (_claude_worker_authorized(request) or gemini_worker_api)
     browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
+    # T-720: the Surfer action tools over REST, with the caller's own per-lane MCP token (never the shared one).
+    relay_agent_api=relay_agent_api or (request.url.path.startswith("/api/factory/surfer/agent/") and bool(_surfer_lane(request)))
     owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/") or request.url.path.startswith("/api/factory/surfer/worker/")) and _claude_worker_authorized(request)
     # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
@@ -1993,7 +2045,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS
+]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2043,9 +2095,17 @@ async def factory_mcp(request: Request):
                 result=_factory_mcp_text(data)
             elif name in web_surfer.TOOL_NAMES:
                 result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH,sessions=_surfer_session))
+            elif name in surfer_actions.TOOL_NAMES:
+                # T-720: acting needs the caller's lane identity; the gate (flag, allowlist, caps) is checked inside.
+                result=_factory_mcp_text(await surfer_actions.call_tool(name,args,store=SURFER_ACTIONS,gate=SURFER_GATE,lane=mcp_lane or ""))
+            elif name in surfer_recipes.TOOL_NAMES:
+                result=_factory_mcp_text(await _surfer_recipe_tool(args,mcp_lane or ""))
             elif name in social_autopilot.MCP_TOOL_NAMES:
                 # T-702: agents read the plan and add drafts only; approval and publishing stay owner-only.
                 result=_factory_mcp_text(social_autopilot.call_tool(SOCIAL_AUTOPILOT,name,args,mcp_lane or ""))
+            elif name in google_sheets.MCP_TOOL_NAMES:
+                # T-725: owner-registered spreadsheets only, per-lane token required (the shared token is refused).
+                result=_factory_mcp_text(await asyncio.to_thread(google_sheets.call_tool,GOOGLE_SHEETS,name,args,mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -2149,6 +2209,7 @@ PORTABLE_INTEGRATIONS = {
     "HubSpot": {"category":"crm","auth_mode":"oauth","transport":"direct"},
     "LinkedIn": {"category":"publishing","auth_mode":"oauth","transport":"direct"},
     "OLX": {"category":"marketplace","auth_mode":"oauth","transport":"direct"},
+    "Google Sheets": {"category":"data","auth_mode":"oauth","transport":"direct"},
 }
 CONNECTIONS = {
     "Metricool": {"state":"not_configured","detail":"Publishing workspace not configured"},
@@ -2158,6 +2219,7 @@ CONNECTIONS = {
     "HubSpot": {"state":"not_configured","detail":"CRM / Growth · direct FactoryOS login not configured"},
     "LinkedIn": {"state":"not_configured","detail":"Text posts via the official LinkedIn API · connect on /static/linkedin/"},
     "OLX": {"state":"not_configured","detail":"Adverts via the official OLX Partner API · connect on /static/olx/index.html"},
+    "Google Sheets": {"state":"not_configured","detail":"Agents append rows via the official Sheets API · connect on /static/sheets/index.html"},
     "vidIQ": {"state":"paused","detail":"Paused for now"},
     "LLM": {
         "state":"connected" if FACTORY_LLM_API_KEY else "demo",
@@ -11296,8 +11358,11 @@ OAUTH_FLOW = OAuthFlow(
     vault=_oauth_token_vault(),
     # T-552-YT: real Google transport for YouTube; other providers stay blocked until their adapters exist.
     adapters={"youtube":youtube_publisher.GoogleOAuthAdapter(),"linkedin":linkedin_publisher.LinkedInOAuthAdapter(),
-              "olx":olx_publisher.OlxOAuthAdapter()},
+              "olx":olx_publisher.OlxOAuthAdapter(),"google_sheets":google_sheets.GoogleSheetsOAuthAdapter()},
 )
+# T-725: Google Sheets for agents (owner-registered sheets, bounded, idempotent), off until FACTORY_GOOGLE_SHEETS_ENABLED=1.
+GOOGLE_SHEETS=google_sheets.Sheets(google_sheets.SheetStore(DATA_DIR),OAUTH_FLOW,tenancy.binding_workspace)
+google_sheets.install_routes(app,service=GOOGLE_SHEETS,identity=request_identity)
 # T-700: LinkedIn text posts (owner-only draft → approve → publish), off until FACTORY_LINKEDIN_ENABLED=1.
 linkedin_publisher.install_routes(app,store=linkedin_publisher.PostStore(DATA_DIR),flow=OAUTH_FLOW,
                                   identity=request_identity,workspace=tenancy.binding_workspace)

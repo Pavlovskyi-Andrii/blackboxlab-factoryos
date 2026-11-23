@@ -6,6 +6,14 @@ You are implementing FactoryOS without conversational supervision. Do not ask "c
 
 Before delegating work to ChatGPT, reviewing a ChatGPT PR, changing a task's `Owner:`, or planning a cross-agent handoff, **read `docs/handoff/CLAUDE_CHATGPT_COORDINATION.md`**. This file distinguishes owner-approved operating rules from an **open question** about AI-generated technical tasks; do not interpret that question as owner authorization to change product priorities. Use FactoryOS Relay for future agent messages, not GitHub as the operational inbox. The live two-way connection is **not verified** (Issue #94). Preserve explicit claims/ownership and do not duplicate another agent's active task.
 
+## Promises to the owner (owner rule 2026-11-22)
+
+If you tell the owner you will report back ("сообщу", "напишу, когда будет готово", "проверю через N минут"), schedule the
+follow-up in the same turn (`send_later` / a scheduled check-in), because nothing else will wake you: child sessions you
+start do not notify the parent when they finish. When the follow-up fires, check the real state (PR merged? session
+done? prod check) and tell the owner the result, even if the result is "not done yet". Never leave such a promise
+without a scheduled check.
+
 ## Execution loop
 
 1. Read `ROADMAP.md`.
