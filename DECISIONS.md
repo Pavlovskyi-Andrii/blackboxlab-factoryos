@@ -2394,3 +2394,15 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - **Loopback is test-only:** `PolicyGate(loopback=True)` and `ActionRunner(loopback=True)` are constructor arguments used by the self-test; nothing reads them from the environment, and the app builds its gate without them (asserted in `test_surfer_policy.py`).
 - **Live session after merge:** not run. Acting needs the owner's `FACTORY_SURFER_ACTIONS_ENABLED=1`, one enabled site, the Surfer worker unit (T-714-H) and a lane MCP key (T-624); the build session's credential opens only the read-task routes, so it cannot see or change the owner's switches. It waits for T-722-H.
 
+
+## 2026-11-23 — Surfer: code prompts and logins after the first live session
+
+- A 2FA/code wall is reported only when the page has a one-time-code field, or code wording **and** an input whose label
+  looks like a code box (otp, code, sms, verif, pin, код). Any input was enough before; GitHub's README (it mentions SMS
+  codes) plus its "Go to file" box stopped the first live session as `waiting_human: 2fa`. Missing a real code box is
+  safe: the agent's next step on it still meets the site's own wall, and secrets never auto-fill a code.
+- The site's "vault login" list now shows saved browser sessions too (cookies from Access vault or a Takeover), each
+  marked "password" / "signed-in session". The owner may bind a **new** name (`new_login=true`, only with a working vault
+  key): the first visit waits for him, he signs in with Take over and presses "Save this login", which stores the
+  session encrypted under that name. Reversible: unbind or delete the session in Access vault.
+- `/#vault` on the dashboard opens Access vault (the Surfer page links to it).

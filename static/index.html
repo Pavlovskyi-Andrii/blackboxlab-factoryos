@@ -4991,4 +4991,5 @@ async function vaultRemove(kind,b){
 }
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2300)}
 const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.onopen=()=>ws.send('v4.4');ws.onmessage=()=>refresh();applyLanguage();refresh();
+if(location.hash==='#vault')setTimeout(()=>{try{openVault()}catch(e){}},1200);  // the Surfer page links here
 </script></body></html>
