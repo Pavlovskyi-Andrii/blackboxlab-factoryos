@@ -2501,3 +2501,25 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   committed or served.
 - CI has no FFmpeg (see mycast-render.yml), so the end-to-end render test skips there and runs where FFmpeg exists;
   contracts, gate, plan, commands and the offline/no-network test run in CI.
+## 2026-11-23 — T-729 Coordination guard (owner Notion ТЗ «аудит стану й master ТЗ Claude», step 1)
+- The reconciliation that the ТЗ asks for once is now permanent: `coordination.py` is a pure function over ROADMAP.md, open
+  PRs with changed files, active Relay claims and handoffs; the owner page `/static/coordination/` and the MCP tool
+  `coordination_check` render the same report. Read-only: it never claims, releases or starts anything.
+- Found by the 2026-11-23 reconciliation: the #452 UX branch `ccr-d27f8b6b-foz7f7` (no PR yet) reused T-726/T-727/T-728,
+  while main already has T-726/T-727 (Surfer). That session was asked to renumber to T-731..T-733; T-729 is this guard,
+  T-730 the AI Film Studio S1 session (#433). `test_roadmap_integrity.py` now fails CI on a duplicate number.
+- Shared ledger files (ROADMAP.md, DECISIONS.md, README.md, CLAUDE.md, AGENTS.md, ci.yml, smoke_tests.py,
+  .autopilot/*) are edited by every PR on purpose; they are listed separately, not as code overlap.
+- Unknown is not success: without `FACTORY_GITHUB_READ_TOKEN` (or when GitHub fails) the verdict is «unknown» and
+  `safe_to_start` is «unknown», never «yes». A PR whose file list is unreadable is reported as such.
+- Lane of a PR comes from its branch prefix (`claude/`, `chatgpt/`, `gemini/`; `ccr-…` = Claude cloud session).
+- The page defaults to Ukrainian when the browser language is not RU/EN (owner 2026-11-23: «відлагоджений UA UX»).
+- Review fixes (Codex review on PR #464): every open PR and every changed file is read with paging (300 PRs, 3000 files
+  per PR); more than that is reported as «unknown», never as a silent partial list. Relay claims are read from the whole
+  store, not the newest 500 tickets. `coordination_check` always reads GitHub fresh (the 120 s cache is for the owner
+  page only), and the lane is the authenticated MCP lane: a different `lane` argument is refused, the shared token gets
+  no same-lane exemption. Dependencies match exactly; a bare group number (`T-560`) resolves to its suffixed tasks.
+  Done rows are checked too (fixed ROADMAP T-608 «Depends: T-186» → «#186», an issue, not a task).
+- Not done here: two agents calling `coordination_check` at the same moment can both get «yes». The check is advisory;
+  the exclusive start is the existing atomic Relay claim (`claim_handoff` / `claim_roadmap`, one active claim per scope).
+
