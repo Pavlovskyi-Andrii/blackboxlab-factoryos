@@ -27,7 +27,7 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
-### v5.17.0 — Surfer acts on allowed sites, Google Sheets for agents, post images, Surfer worker — 2026-11-21 … 2026-11-22
+### v5.17.0 — Surfer acts on allowed sites, Google Sheets for agents, post images, Surfer worker — 2026-11-21 … 2026-11-23
 - **Surfer actions (new):** the browser agent can click, fill forms and upload files in the owner's signed-in
   accounts, driven by Claude / ChatGPT through MCP (`web_open`, `web_act`, `web_snapshot`, `web_close`) with their
   own lane key. One live page at a time on the Surfer worker; passwords are filled only by vault reference and never
@@ -42,7 +42,7 @@ during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day
 - **Surfer recipes:** a successful session saved as a recipe with parameters and replayed without AI under the same
   rules (`web_recipe`); it stops at the first mismatch (T-723, #451).
 - **Surfer self-test:** one scenario on a fixture site, in CI with a page double and in real Chromium on request
-  (T-724, #452).
+  (T-724, #453).
 - **Google Sheets for agents:** `sheet_list` / `sheet_read` / `sheet_append` through the official Sheets API, only for
   spreadsheets the owner added, off until `FACTORY_GOOGLE_SHEETS_ENABLED=1`; page `/static/sheets/index.html`
   (T-725, #447).
