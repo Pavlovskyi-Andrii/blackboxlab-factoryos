@@ -2471,3 +2471,33 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - «Frequent» block at the top of the sidebar: per-browser click counts in `localStorage` (`factoryos_nav_usage`), the
   top 4 destinations clicked at least twice; it delegates to the real nav button, hidden in the narrow icon rail.
 - Owner pages linkedin/olx/sheets/social/surfer got a «← FactoryOS» link back to the dashboard.
+
+## 2026-11-23 — T-730 AI Film Studio S1 (#433)
+
+- New package `film_studio/` beside, not inside, Media Finisher: S1 only needed FFmpeg directly, and PR #442 owns
+  `media_finisher_worker/**`. Assembly through Media Finisher (captions, loudness, private playback) is a follow-up
+  once #442 lands; nothing there was edited. The shot pack from PR #435 is used as-is (its storyboard already passes
+  the v1 validator); `asset_candidates.json` is read through an adapter and keeps `candidate_unverified`.
+- Rights fail closed: only `rights_status: verified` with url, author, licence, attribution, sha256, verifier, time
+  and a local file whose sha256 matches can render; the gate reports every blocked shot, and the CLI exits 3 with a
+  BLOCKED receipt. `generative_cinema` is blocked until the owner approves credits; `hybrid_film` falls back to
+  `photo_cinema` and the plan says so.
+- Timing in whole frames: shot durations must be exact frames (validator), transitions are rounded to the nearest
+  frame (0.4 s fade-in -> 10 frames). Storyboard `cut`s become 0.5 s crossfades by default (`--crossfade 0` keeps
+  cuts); the outgoing shot renders 12 extra tail frames so the film stays exactly 1080 frames.
+- Per-shot re-render: each clip is cached under a content key (asset sha256s + shot settings + size + renderer
+  version); `--only s03` re-renders one shot and reuses the rest. Re-rendering a shot reproduced the same final MP4
+  sha256 in this container (x264 with bitexact flags), but byte-identical output across machines is not promised.
+- Camera: zoompan on a 2x oversampled still (less integer jitter), cosine ease, zoom capped by the Film Bible
+  (1.08); parallax-lite moves an optional alpha foreground layer faster than the background.
+- Storyboard text is untrusted: captions/titles reach FFmpeg only via `textfile=` with `expansion=none`, so filter
+  syntax or `%{}` in a caption is drawn as text.
+- Pexels and huggingface.co are refused by this session's network policy (agent proxy 403), so no photo licence
+  could be read and no Russian offline voice exists here (no espeak/flite/piper binaries). S1 therefore renders
+  original procedural stand-in stills (code-drawn, seeded, `source_type: original_procedural`, `repo://` URL),
+  labelled on screen «DEMO · иллюстрация, не фото», with a silent AAC track and the narration as RU captions. The
+  receipt marks `realistic_photo_film` and `narration` BLOCKED (T-734).
+- The film is private: `--out` inside the repository is refused (except the ignored `data/`); the MP4 is not
+  committed or served.
+- CI has no FFmpeg (see mycast-render.yml), so the end-to-end render test skips there and runs where FFmpeg exists;
+  contracts, gate, plan, commands and the offline/no-network test run in CI.
