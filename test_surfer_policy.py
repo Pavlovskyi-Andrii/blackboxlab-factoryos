@@ -64,6 +64,51 @@ class GateTest(unittest.TestCase):
         return self.gate.save_entry({"pattern": "shop.example", "classes": ["read", "navigate", "fill", "submit"],
                                      "enabled": True, **extra})
 
+    def test_new_login_name_only_on_purpose_and_with_a_vault(self):
+        # The owner may bind a name that is not in the vault yet ("sign in once myself and save"), but only on purpose.
+        with self.assertRaises(HTTPException):
+            self.site(login="linkedin/main")
+        self.vault.ready = lambda: True
+        entry = self.site(login="LinkedIn/main", new_login=True)
+        self.assertEqual(entry["login"], "linkedin/main")
+        with self.assertRaises(HTTPException):
+            self.site(pattern="x.example", login="no slash", new_login=True)
+        self.on()
+        self.assertIsNone(self.gate.storage_state("linkedin/main"))
+        self.assertFalse(self.gate.has_login_secret("linkedin/main"))
+        self.assertTrue(self.gate.save_storage_state("linkedin/main", {"cookies": [], "origins": []}))
+        self.assertEqual(self.gate.storage_state("linkedin/main"), {"cookies": [], "origins": []})
+        rows = {r["login"]: r for r in self.gate.login_info()}
+        self.assertTrue(rows["fixture/main"]["password"])
+        self.assertIn("linkedin/main", rows)
+        self.vault.ready = lambda: False
+        with self.assertRaises(HTTPException):
+            self.gate.save_entry({"pattern": "other.example", "classes": ["read"], "login": "new/one", "new_login": True})
+
+    def test_vault_login_info_lists_passwords_and_saved_sessions(self):
+        class Part:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def entries(self, workspace):
+                return self.rows
+        import app as app_module
+        parts = (Part([{"provider": "github", "account": "main", "kinds": ["username", "password"]},
+                       {"provider": "olx", "account": "main", "kinds": ["username"]}]),
+                 Part([{"provider": "google.com", "account": "main"}, {"provider": "github", "account": "main"}]))
+        original = app_module._vault_parts
+        app_module._vault_parts = lambda required=False: parts
+        try:
+            vault = app_module._SurferVault()
+            self.assertEqual(vault.login_info(), [
+                {"login": "github/main", "password": True, "session": True},
+                {"login": "google.com/main", "password": False, "session": True},
+                {"login": "olx/main", "password": False, "session": False}])
+            self.assertEqual(vault.logins(), ["github/main", "google.com/main", "olx/main"])
+            self.assertTrue(vault.ready())
+        finally:
+            app_module._vault_parts = original
+
     def test_off_by_default_and_nothing_on_the_list(self):
         status = self.gate.status()
         self.assertEqual((status["enabled"], status["flag"], status["paused"]), (False, False, False))
