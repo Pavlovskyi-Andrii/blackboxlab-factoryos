@@ -2502,3 +2502,9 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - A pass now promises 6 min instead of 15 (`TASK_BUDGET_SECONDS`): a read is ~90 s, an action command at most
   60 s staging + 90 s deadline + 20 s grace + the result post. The root watchdog also acts sooner with the shorter
   promise. Unit file unchanged: no install step for the owner.
+
+## 2026-11-23 — T-727 DOM quiet wait after a step
+
+- After click / press / select / check / back the session waits, after load states, until the page's DOM has not
+  changed for 500 ms, at most 3 s (a MutationObserver in the page, resolving by itself). Costs ≥ 0.5 s per such step;
+  a page that keeps animating costs the full 3 s. A page whose script never returns is the worker deadline's job (#459).

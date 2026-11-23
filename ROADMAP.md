@@ -57,6 +57,12 @@
   Goal: read-only MCP tool `surfer_pending` (and `POST /api/factory/surfer/agent/surfer_pending`), Claude lane token only (shared token and other lanes refused): kind (confirm / human / takeover), session_id, step_id, site, action + element label, reasons / wait_reason, RU/UK/EN text, since, expires_in_seconds, link to the Surfer page. Never screenshots, typed values, codes, cookies or URLs. No confirm/reject through this path: the owner answers on the Surfer page.
   DONE: `python test_surfer_owner.py` (AgentPendingTest, AgentPendingAppTest), default verification.
 
+- [x] T-727 Surfer: the snapshot after a click shows what the page drew a moment later
+  Owner: claude-session
+  Priority: P1 (live run 2026-11-23 by the parent session: MyBrief "Show my briefing" returned the old text; only a refresh showed the briefing)
+  Goal: after click / press / select / check / back, wait until the DOM is quiet for 500 ms (MutationObserver), at most 3 s, before the snapshot.
+  DONE: `RUN_BROWSER_FIXTURE=1 python test_surfer_selftest.py` (LateRenderTest fails without the wait), `python test_surfer_actions.py`, default verification.
+
 - [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-22: «собери данные с этого сайта, помести их в Google таблицу»)
