@@ -86,6 +86,11 @@ jobs:
         run: |
           python -m py_compile durable_media_finisher.py test_durable_media_finisher.py
           python test_durable_media_finisher.py
+      - name: AI Film Studio contracts, rights gate and shot plan (T-730, offline)
+        run: |
+          python -m pip install --disable-pip-version-check numpy
+          python -m py_compile film_studio/__init__.py film_studio/schema.py film_studio/plan.py film_studio/procedural.py film_studio/render.py film_studio/qa.py test_film_studio.py
+          python test_film_studio.py
       - name: Validate required frontend assets
         run: |
           test -f static/index.html

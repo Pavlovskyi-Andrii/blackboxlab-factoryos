@@ -1,3 +1,14 @@
+## AI Film Studio (#433)
+
+- [x] T-730 AI Film Studio S1: contracts + rights gate + deterministic shot plan + offline Photo Cinema render + QA receipt
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner-approved #433; Relay th_ebeb7e1c851168a7, 2026-11-20..22: «Действуй», «Пиши ему чтоб делал»)
+  Spec: issue #433; shot pack `docs/storyboards/blackbox-lab-45s/` (PR #435); DECISIONS.md «2026-11-23 — T-730». Code: `film_studio/`.
+  Goal: versioned storyboard / film bible / asset manifest with a strict validator (unknown or unverified rights fail closed); per-shot plan in whole frames (45.000 s at 24 fps, 16:9) with content-keyed per-shot re-render; offline FFmpeg 2.5D camera moves + parallax layer + crossfades + DEMO label + RU captions; QA receipt (ffprobe, full decode, frame count, black stretches, per-shot sha256 + licence, voice source, cost $0). Output stays private, never in git.
+  DONE: `python test_film_studio.py`; `python -m film_studio.render --out <private dir> --procedural-standins` gives a PASS receipt; default verification.
+  Result 2026-11-23: the 45 s film renders at 1920x1080 from original procedural stand-in stills (labelled «DEMO · иллюстрация, не фото»), silent AAC track + burned-in captions. Realistic-photo film and narration are blocked.
+  Blocked (owner, not a roadmap task yet): the cloud session's network policy refuses www.pexels.com / images.pexels.com and huggingface.co (HTTP 403 from the agent proxy), so photo licences cannot be read and no offline RU voice can be fetched. To unblock: allow those hosts for the Claude cloud environment, or supply the 7 photos (owned/licensed stills, author + page URL + licence) and a narration recording, or approve a specific offline RU voice after its licence is read. Narration input itself is S2 work (S1 lays a silent track).
+
 - [x] T-720 Surfer action sessions (core): a live browser page that acts — web_open / web_act / web_snapshot / web_close
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner brief 2026-11-22: a tool that acts on sites instead of him, in his own signed-in accounts)
