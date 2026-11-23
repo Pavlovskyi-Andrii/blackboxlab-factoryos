@@ -79,14 +79,14 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Fix 2026-11-23 (live run by the parent session): a stuck browser call blocked the Surfer worker; every action command now has a 90 s deadline that kills the browser, reports `worker_timeout` and frees the slot (`HungPageTest` in real Chromium, `test_a_stuck_command_is_killed_and_reported_and_the_page_freed` in CI).
   Fix 2026-11-23: the root watchdog did not restart the hung worker; the worker now has its own self-watchdog thread (exit 75 → systemd restart when the loop breaks its 6-min promise).
 
-- [x] T-731 Surfer: the Claude lane reads what waits for the owner (`surfer_pending`), to mirror it as tickets on the owner task page
+- [x] T-726 Surfer: the Claude lane reads what waits for the owner (`surfer_pending`), to mirror it as tickets on the owner task page
   Owner: claude-session
   Priority: P1 (owner 2026-11-23 «Да», relayed by the parent session; `.autopilot/answers.md`)
   Depends: T-722
   Goal: read-only MCP tool `surfer_pending` (and `POST /api/factory/surfer/agent/surfer_pending`), Claude lane token only (shared token and other lanes refused): kind (confirm / human / takeover), session_id, step_id, site, action + element label, reasons / wait_reason, RU/UK/EN text, since, expires_in_seconds, link to the Surfer page. Never screenshots, typed values, codes, cookies or URLs. No confirm/reject through this path: the owner answers on the Surfer page.
   DONE: `python test_surfer_owner.py` (AgentPendingTest, AgentPendingAppTest), default verification.
 
-- [x] T-732 Surfer: the snapshot after a click shows what the page drew a moment later
+- [x] T-727 Surfer: the snapshot after a click shows what the page drew a moment later
   Owner: claude-session
   Priority: P1 (live run 2026-11-23 by the parent session: MyBrief "Show my briefing" returned the old text; only a refresh showed the briefing)
   Goal: after click / press / select / check / back, wait until the DOM is quiet for 500 ms (MutationObserver), at most 3 s, before the snapshot.
