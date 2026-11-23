@@ -28,6 +28,7 @@
   Need: nothing acts until the owner sets `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render (not a secret) and enables at least one site with its action classes on `/static/surfer/index.html`. The allowlist is empty by default; his first list (FactoryOS, Google Forms/Sheets, OLX, Render, LinkedIn Developers, GitHub) is offered there as suggestions. Agents need their own lane MCP key (T-624).
   Runbook: Worker Center → «Нужно от вас» → T-722-H (RU/EN/UK).
   DONE: the Surfer page says «Действия включены», at least one site is enabled, and an agent's first step is in the action log.
+  Progress 2026-11-23: the flag is on («Действия включены»), github.com is enabled with all classes. First live session (Claude lane, `web_open` on the public repo page) ran on the EC2 worker, but stopped as «waiting for you: 2fa» because the README text mentions SMS codes and the page has a «Go to file» box. Fixed: a code prompt now needs a field that looks like the code box. Login choices on the page are explained (vault password / sign in once and save / browser session file), and a new login name can be bound so the owner signs in once with Take over and saves it. Live rerun after the deploy.
 
 - [x] T-723 Surfer recipes: save a successful session as a parameterised recipe and replay it without AI
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -69,10 +70,11 @@
   Goal: `python -m autopilot.browser_worker` claims → runs Playwright → reports in a loop (5 s poll, exponential backoff to 120 s while FactoryOS is unreachable, one Chromium, file lock against a second copy, SIGTERM finishes the task, exits on a runner-code change so systemd restarts it on the new code); its own unit (ec2-user, `/etc/factoryos/claude-worker.env`, Restart=always, MemoryMax=1200M); server heartbeat `POST /api/factory/browser/worker/heartbeat` (worker token) → lane `surfer` in Worker Center; the Claude worker runs a browser task only while the Surfer worker's local heartbeat is not alive; both loops beat `.autopilot/{claude-loop,surfer}.json` with a deadline and the existing root supervisor timer restarts a unit whose deadline passed (bounded: 3/h, 5 min start grace).
   DONE: `python -m autopilot.test_browser_worker`, `python -m autopilot.test_supervisor`, `python -m autopilot.test_autopilot`, `python test_browser_tasks.py`, `python test_owner_desk.py`, default verification, dashboard `node --check`.
 
-- [ ] [HUMAN] T-714-H Install the Surfer worker unit on EC2 once (`sudo bash /opt/factoryos/deploy/install_surfer_worker.sh`)
+- [x] [HUMAN] T-714-H Install the Surfer worker unit on EC2 once (`sudo bash /opt/factoryos/deploy/install_surfer_worker.sh`)
   Owner: human
   Depends: T-714
   Runbook: Worker Center → «Нужно от вас» → T-714-H (RU/EN/UK). EC2 Instance Connect → the one command → `systemctl status factoryos-surfer-worker.service --no-pager` → the Surfer row in Worker Center is fresh.
+  Verified 2026-11-23: Worker Center shows the Surfer row «Idle», last active 18 s ago (owner's screenshot), and the first live `web_open` session was executed by that worker (a real GitHub page with a screenshot).
 
 - [x] T-713 Social autopilot: a teaser image in every post (Telegram channel and LinkedIn)
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -313,10 +315,11 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: `post_message`, `list_threads`, `read_thread`, `create_handoff`, `list_handoffs`, `claim_handoff`, `submit_handoff_result`, `release_handoff`, `review_handoff` on `/mcp`, stored in the Relay store; sender derived from a per-lane credential (`FACTORY_MCP_LANE_TOKEN_CLAUDE/_CHATGPT/_GEMINI`), the shared `FACTORY_MCP_TOKEN` only reads threads; claim goes through `RelayQueue.claim_roadmap` (run_id, one claim per task, EC2 worker fenced out); idempotency keys; no owner decisions by agents; credential-shaped text refused; `?key=` query values redacted from the access log.
   DONE: `python test_agent_workspace.py` (lane auth, single claim, replay, secret scrubbing, Relay fencing, lease/release, /mcp handler) plus test_web_surfer.py, test_relay*.py and the default verification green. Done 2026-11-15.
 
-- [ ] [HUMAN] T-624 Per-lane FactoryOS MCP tokens in Render (Claude / ChatGPT / Gemini)
+- [x] [HUMAN] T-624 Per-lane FactoryOS MCP tokens in Render (Claude / ChatGPT / Gemini)
   Depends: T-625
   Need: owner generates three different random tokens (`python -c "import secrets;print(secrets.token_urlsafe(32))"`, one per lane) and adds them in Render → Environment: `FACTORY_MCP_LANE_TOKEN_CLAUDE`, `FACTORY_MCP_LANE_TOKEN_CHATGPT`, optionally `FACTORY_MCP_LANE_TOKEN_GEMINI`; plus `FACTORY_MCP_LANE_URL_KEY=chatgpt` because the ChatGPT connector cannot send headers. Then reconnects ChatGPT with `…/mcp?key=<CHATGPT lane token>` and Claude Code with the Claude lane token as Bearer. Runbook: docs/guides/agent-workspace-mcp.md. Agents never see or set these values.
   DONE: `GET /api/factory/agent-workspace` (signed in) shows `lanes.claude.enabled` and `lanes.chatgpt.enabled` true; `GET /mcp` with each connector reports its own `lane`.
+  Verified 2026-11-23: the three keys are already in Render (adding them again shows «Duplicate key»); `GET /mcp` with the ChatGPT connector answers `"lane":"chatgpt"`, and the Claude connector passed the lane check of `web_open` (the shared key is refused).
 
 - [x] T-626 Worker Center panel for the shared agent workspace
   Owner: claude

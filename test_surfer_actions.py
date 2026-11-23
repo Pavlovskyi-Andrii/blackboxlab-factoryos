@@ -665,5 +665,19 @@ class McpEndpointTest(unittest.TestCase):
         self.assertEqual(factory.SURFER_ACTIONS.list(), [])
 
 
+class CodePromptTest(unittest.TestCase):
+    def test_code_wording_needs_a_code_box_not_any_input(self):
+        from browser_runner.action_session import code_prompt_on
+        readme = "Login walls, captchas and SMS codes go to the owner. Enter the code below to continue."
+        # First live session 2026-11-23: GitHub's README mentioned SMS codes and the page has a "Go to file" box.
+        self.assertFalse(code_prompt_on(readme, [{"kind": "input", "name": "Go to file", "type": "text"},
+                                                 {"kind": "input", "name": "Search", "type": "search"}]))
+        self.assertTrue(code_prompt_on("We sent a verification code. Enter the code.",
+                                       [{"kind": "input", "name": "Verification code", "type": "text"}]))
+        self.assertTrue(code_prompt_on("Введите код из СМС", [{"kind": "input", "name": "Код", "type": "text"}]))
+        self.assertTrue(code_prompt_on("", [{"kind": "input", "name": "x", "autocomplete": "one-time-code"}]))
+        self.assertFalse(code_prompt_on("enter the code", [{"kind": "input", "name": "Code", "type": "password"}]))
+
+
 if __name__ == "__main__":
     unittest.main()

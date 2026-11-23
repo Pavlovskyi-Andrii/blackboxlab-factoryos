@@ -85,7 +85,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.17.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.18.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -1333,10 +1333,21 @@ class _SurferVault:
     @staticmethod
     def _open():
         return _vault_parts(required=False), tenancy.binding_workspace()
-    def logins(self):
+    def ready(self):
+        return bool(_vault_parts(required=False))
+    def login_info(self):
+        """Per saved login 'site/account': is there a password, is there a saved browser session (cookies)."""
         parts,workspace=self._open()
         if not parts:return []
-        return sorted({f"{e['provider']}/{e['account']}" for part in parts for e in part.entries(workspace)})
+        info={}
+        for e in parts[0].entries(workspace):
+            row=info.setdefault(f"{e['provider']}/{e['account']}",{"password":False,"session":False})
+            row["password"]=row["password"] or "password" in (e.get("kinds") or [])
+        for e in parts[1].entries(workspace):
+            info.setdefault(f"{e['provider']}/{e['account']}",{"password":False,"session":False})["session"]=True
+        return [dict(login=k,**v) for k,v in sorted(info.items())]
+    def logins(self):
+        return [row["login"] for row in self.login_info()]
     def _ref(self,provider,account):
         parts,workspace=self._open()
         ref=parts[0].find_ref(workspace_id=workspace,provider=provider,account_binding_id=account) if parts else None

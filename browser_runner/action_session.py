@@ -35,6 +35,20 @@ REF_RE = re.compile(r"^e[0-9]{1,6}$")
 _CODE_TEXT_RE = re.compile(
     r"(verification code|security code|enter (?:the )?code|one[- ]time (?:code|password)|sms code|"
     r"код (?:из|з) (?:смс|sms)|код подтверждения|код підтвердження|введите код|введіть код|одноразов)", re.I)
+# A code prompt needs a field that looks like the code box, not just any input (GitHub's "Go to file" box on a README
+# that mentions "SMS code" was taken for a 2FA wall on the first live session, 2026-11-23).
+_CODE_FIELD_RE = re.compile(r"(otp|totp|\bcode\b|sms|verif|\bpin\b|one[- ]time|код|kod)", re.I)
+
+
+def code_prompt_on(text: str, elements: list) -> bool:
+    """The page asks for a one-time code: a one-time-code field, or code wording plus a field that looks like the box."""
+    if any(e.get("autocomplete") == "one-time-code" for e in elements):
+        return True
+    return bool(_CODE_TEXT_RE.search(text[:4000])) and any(
+        e.get("kind") == "input" and e.get("type") != "password" and _CODE_FIELD_RE.search(str(e.get("name") or ""))
+        for e in elements)
+
+
 _SAFE_UPLOAD_TYPES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".txt", ".pdf", ".mp4", ".mov", ".csv"})
 
 # Fixed scripts: no command input is ever concatenated into them (arguments are passed as data).
@@ -283,8 +297,7 @@ class ActionSession:
             challenge = ""
         visible_password = any(e.get("type") == "password" and e.get("autocomplete") != "new-password"
                                for e in elements)
-        code_prompt = any(e.get("autocomplete") == "one-time-code" for e in elements) or (
-            bool(_CODE_TEXT_RE.search(text[:4000])) and any(e.get("kind") == "input" for e in elements))
+        code_prompt = code_prompt_on(text, elements)
         if not challenge and code_prompt:
             challenge = "2fa"
         return {"url": policy.safe_url(str(page.url or "")), "title": title, "text": text,
