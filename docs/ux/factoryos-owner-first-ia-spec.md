@@ -1,13 +1,14 @@
-# FactoryOS owner-first information architecture (T-727, issue #452 §5)
+# FactoryOS owner-first information architecture (T-732, issue #452 §5)
 
 Date: 2026-11-23 · Author: Claude (interactive session) · Status: **draft for Checkpoint A**.
 The owner chooses one of three directions; this document is written for the recommended one (direction 2) and is
 revised after the choice. Nothing here changes the production dashboard.
 
+Base: `v5.19.1` (9 groups, 37 menu items).
 Inputs: `docs/ux/factoryos-current-state-audit.md` (defects D-01…D-17), `docs/research/ploy-public-ux-functional-benchmark.md`
 (patterns P-01…P-16), owner answers in `.autopilot/answers.md` «#452».
 Owner-facing comparison of the directions: `docs/prototypes/owner-home-growth/checkpoint-a.html`, wireframes in
-`docs/screenshots/t-727/direction-{1,2,3}-wireframe.png`.
+`docs/screenshots/t-732/direction-{1,2,3}-wireframe.png`.
 
 ## 1. Who the first screen is for
 Owner answer 2026-11-23: **the owner and future clients**. So the first screen must work in two situations:
@@ -43,6 +44,7 @@ shortcut into the goal wizard, without making it the main screen.
 | **Agent team** (secondary) | Who works, history, time, tokens, cost, MCP | Agent Office, Agents, Workers, Build Progress, Autopilot, Supervisor, Error Center, Pipeline, Browser agent |
 | **All tools** (secondary) | Every existing studio and page, grouped as today | Everything else |
 
+The "Frequent" block added in `v5.19.1` stays at the top of the sidebar.
 The Control Room page stays available under All tools → Overview for as long as the owner wants it (a flag decides the
 default, §8).
 
@@ -64,16 +66,18 @@ default, §8).
 | Growth & learning → Performance, Analytics | drawers | Results | — |
 | Growth & learning → Experiments | drawer | Results → content experiments (`/api/experiments`) | Kept apart from MVP A/B experiments |
 | Automation & team → Autopilot, Agents, Workers | drawers | Agent team | "You need to do" moves to Needs you |
-| Automation & team → Browser agent | scroll | Agent team → Browser agent; links to `/static/surfer/` | — |
+| Automation & team → Browser agent | page `/static/surfer/` | Agent team → Browser agent | — |
+| Automation & team → Google Sheets | page | All tools → Data → Google Sheets | — |
 | MVP Builder → Projects | page | Home (products) and All tools → MVP Builder | Products on Home come from the same registry |
 | MVP Builder → MyCast podcast | page | Home → MyCast; All tools → MyCast settings | — |
+| MVP Builder → Decision Memory, MyBrief | pages | Home (as product cards) and All tools → MVP Builder | — |
+| Review & publish → Social autopilot, LinkedIn, OLX | pages | Needs you (pending weekly plan) and All tools → Publishing channels | — |
 | Mods & skills → Connected | scroll | All tools → Mods and skills | Own view |
 | Learning → Learning | page | All tools → Learning; "How it works" link on Home | — |
 | System → Build Progress, Release QA | drawers | Agent team → Build progress, Release QA | — |
 | System → Owner console | scroll | Its tabs move: Telegram tasks, Claude↔Codex, Battle runs → Agent team; MyCast listeners, Voice briefs → Results | Card disappears once every tab has a home |
 | System → Brand strategy | scroll | All tools → Brand strategy; step 1 "Goal & KPI" feeds the goal wizard | — |
 | System → Settings | no page (D-16) | All tools → Settings: language, connections, Access vault, flags | Gets a page |
-| Not in the menu: `/static/social/`, `/static/linkedin/`, `/static/olx/`, `/static/sheets/`, `/static/surfer/` | runbook links only (D-09) | All tools → Publishing channels / Data / Browser agent | Added to the menu |
 | `/relay`, `/learn`, MyCast public pages | pages | unchanged | — |
 
 ### 3.3 Addresses for every view (D-08)
@@ -160,7 +164,7 @@ Added as new tokens next to the existing colour variables; existing screens are 
 2. Should Home show the content-production area as a product card ("Blackbox Lab content"), or only MVP products?
    Default: show it as a card while content jobs exist.
 
-## 10. Next (T-728)
+## 10. Next (T-733)
 Clickable prototype in the chosen direction (Home, Needs you, goal wizard, goal page with funnel, A/B compare, eight
 states, EN/UK/RU, phone and desktop), the Growth Manager RFC with the field mapping, and the test script for the owner
 and the 3–4 people he brings.

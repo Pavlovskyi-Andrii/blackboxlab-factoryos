@@ -27,6 +27,22 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.19.1 — Surfer snapshot waits for the page to finish drawing — 2026-11-23
+
+- Surfer: after a click, key press, choice or toggle, the snapshot waits until the page stops changing (0.5 s quiet, at most 3 s), so content drawn a moment later (MyBrief "Show my briefing") is in the answer (T-727, #461).
+
+### v5.19.0 — Surfer requests mirrored for the owner — 2026-11-23
+
+- `surfer_pending` (MCP, Claude lane only, read-only): what the Surfer waits for from the owner right now — a step to confirm, a code or login, a takeover — with a short RU/UK/EN text and the link to the Surfer page, so Claude can mirror it as tickets on the owner task page. No screenshots, values, codes or URLs; answering stays on the Surfer page (T-726, #458).
+
+### v5.18.3 — Surfer worker restarts itself when stuck — 2026-11-23
+
+- Surfer worker: a self-watchdog thread restarts the worker (systemd) when its main loop misses the deadline of its last heartbeat; one pass now promises 6 minutes instead of 15. A stuck worker no longer depends on the external supervisor timer (#460).
+
+### v5.18.2 — Surfer worker never stays stuck on one page — 2026-11-23
+
+- Surfer: every action command has a 90-second deadline. A page that never answers (a script that does not return) no longer blocks the Surfer worker: the browser is killed, the step reports `worker_timeout`, the session closes and the next session or page read gets a fresh browser. Also: the link-click wait follow-ups (#457) (#459).
+
 ### v5.18.1 — Surfer: a link click waits for in-page navigation — 2026-11-23
 
 - Surfer: after a click on a link, the agent's snapshot waits briefly for the URL to change, so sites that navigate in-page (GitHub, single-page apps) show the new page instead of the old one. Found in the first clean live session (open the repo page → click Issues) (#456).

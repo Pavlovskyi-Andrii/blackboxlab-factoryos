@@ -6,7 +6,7 @@ Writes PNGs, report.json, an index.html contact sheet and a Markdown summary int
 Findings (horizontal overflow, uncaught page errors) are reported, not enforced: the job
 fails only if the dashboard cannot be loaded or a scene cannot be captured at all.
 
-Optional switches for UX audits (T-727); the defaults, and so the CI job, are unchanged:
+Optional switches for UX audits (T-732); the defaults, and so the CI job, are unchanged:
   UI_EXTRA_VIEWPORTS=1  also capture 768x1024
   UI_LANGS=en,ru        capture only these languages
   UI_SCENES=home        capture only these scenes

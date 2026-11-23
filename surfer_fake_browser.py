@@ -355,6 +355,9 @@ class FakePage:
                 return ""
             field["secret"] = True
             return field["ref"]
+        if script is session_module.DOM_QUIET_JS:
+            self.quiet_waits = getattr(self, "quiet_waits", 0) + 1
+            return True
         if script is session_module.MARK_SECRET_JS:
             if self.focused is not None:
                 self.focused["secret"] = True

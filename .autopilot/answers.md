@@ -42,11 +42,19 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 - T-607-H Gemini worker on EC2: deferred.
 - T-624: Claude lane token works (Relay write as `claude` verified 10:46 UTC); ChatGPT lane write not yet verified.
 
-## #452 (owner 2026-11-23, in the Claude session; T-726 / T-727 / T-728)
+## 2026-11-23 — T-726 (relayed by the parent session)
+- Owner answered «Да» to: allow Claude to read the Surfer "waiting for owner" list so it can mirror the requests as tickets on the owner task page. Read-only; the owner still answers on the Surfer page.
+
+## 2026-11-21..23 — owner task page answers
+- T-620-H MyCast referral terms approved: +7 days premium to both, once, when the friend's first episode is out, max 50 friends.
+- T-702-H Telegram channel set up; every post must carry a teaser image (done in T-713).
+- T-701-H OLX partner app approved and connected (owner-confirmed).
+- T-722-H Surfer actions switched on; first allowlisted site blackboxlab-factoryos.onrender.com; agents may read the Surfer pending list (T-726).
+
+## #452 (owner 2026-11-23, in the Claude session; T-731 / T-732 / T-733 (first numbered T-726–T-728 on the branch; renumbered because main took T-726/T-727))
 - Amendment A1 to Issue #452 approved («Утверждаю, заводи 3 задачи»).
 - The first screen is designed for the owner **and for future clients**.
 - MyCast pilot audience: a busy person (businesspeople are one example, not the only one) who wants compressed information and to stay in focus on one chosen topic. Channel: Telegram — that is where the listener receives the episodes. Landing languages: English, Ukrainian, Russian.
 - Usability test: the owner will bring 3–4 people for the prototype test.
 - Priority: T-590–T-593 may be closed; #452 starts right after them.
-- Read-only access to `docs.ploy.ai` and `ploy.ai` approved for the cloud environment (public pages only).
-
+- Read-only access to `docs.ploy.ai` and `ploy.ai` approved for the cloud environment (public pages only); `linear.app` and `posthog.com` added the same way for the two reference products.

@@ -131,3 +131,7 @@ How to drive it:
    `run_id` and `session_id`; `web_recipe {"run_id": "rr_…"}` reports `running`, `done` or `stopped` with the step and
    the reason. After `stopped` the session is still open: look at it with `web_snapshot` and continue with `web_act`,
    or close it. A recipe never carries the owner's confirmation: a sensitive step asks him again on every run.
+7. **What waits for the owner** (`surfer_pending`, T-726, Claude lane only, read-only): the current requests: a step to
+   confirm, a code or login to type, a takeover. Each has `kind`, `session_id`, `step_id`, `site`, `action`, `element`,
+   `reasons` / `wait_reason`, a RU/UK/EN `text`, `since`, `expires_in_seconds` and the `page` where the owner answers.
+   No screenshots, values, codes or URLs. Nothing can be confirmed through it.

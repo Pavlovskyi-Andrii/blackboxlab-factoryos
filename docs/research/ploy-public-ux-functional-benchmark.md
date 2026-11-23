@@ -1,4 +1,4 @@
-# Ploy public UX and functional benchmark for FactoryOS (T-726, issue #452 S0–S1)
+# Ploy public UX and functional benchmark for FactoryOS (T-731, issue #452 S0–S1)
 
 Date: 2026-11-23 · Author: Claude (interactive session) · Scope: public pages only, clean-room.
 Format precedent: `docs/HERCULES_PUBLIC_COMPETITIVE_TEARDOWN.md`.
@@ -71,13 +71,13 @@ Ploy's layout, wording or brand.
 
 | Existing task / asset | State on 2026-11-23 | Surfaces and files | What #452 adds | Conflict rule |
 |---|---|---|---|---|
-| #53 / T-594 sidebar groups | Issue open; code on main; ROADMAP unchecked (screenshots outstanding) | `static/index.html` nav markup, `docs/roadmap/T-594_NAV_MAP.md` | A goal-oriented grouping proposal in the IA spec (T-727) | Spec only. Navigation code changes happen in S5 as a follow-up to T-594, never as a parallel rewrite |
+| #53 / T-594 sidebar groups | Issue open; code on main; ROADMAP unchecked (screenshots outstanding) | `static/index.html` nav markup, `docs/roadmap/T-594_NAV_MAP.md` | A goal-oriented grouping proposal in the IA spec (T-732) | Spec only. Navigation code changes happen in S5 as a follow-up to T-594, never as a parallel rewrite |
 | #67 / T-599 verified claims | Done (`[x]`) | `relay_execution.py`, `lane_board.py` | Owner Home reads these as its source for "working now" | Read-only reuse |
-| #47 Connections clarity | Issue open | `frontend/connections_catalog.js`, `connection_capabilities.py` | Audit finding only (T-727) | Not touched |
+| #47 Connections clarity | Issue open | `frontend/connections_catalog.js`, `connection_capabilities.py` | Audit finding only (T-732) | Not touched |
 | #41 Telegram/Relay proof | Issue open; T-590/T-591 closed 2026-11-23 | `relay.py`, `relay_acceptance.py` | Nothing | Not touched |
-| T-595, T-596, T-597, T-602 UI batch | Code on main; unchecked (screenshots outstanding) | drawers, Worker Center, help tips | T-727 screenshots can close their evidence gap as a side effect | Evidence only |
-| `docs/reviews/ui-review-2026-11.md` | Done | 54 CI screenshots, findings P1–P3 | Baseline for the T-727 audit; not repeated | — |
-| #348 / T-608–T-610 A/B tester | Done | `mvp_experiments.py`, `static/mvp-factory/` | Growth Manager uses it as the variant and decision store; proposes "guardrail" and "exposure" as additions | RFC only (T-728) |
+| T-595, T-596, T-597, T-602 UI batch | Code on main; unchecked (screenshots outstanding) | drawers, Worker Center, help tips | T-732 screenshots can close their evidence gap as a side effect | Evidence only |
+| `docs/reviews/ui-review-2026-11.md` | Done | 54 CI screenshots, findings P1–P3 | Baseline for the T-732 audit; not repeated | — |
+| #348 / T-608–T-610 A/B tester | Done | `mvp_experiments.py`, `static/mvp-factory/` | Growth Manager uses it as the variant and decision store; proposes "guardrail" and "exposure" as additions | RFC only (T-733) |
 | T-704 / T-705 Launchpad | Done | `mvp_launchpad.py`, `mvp_launchpad_agents.py`, `docs/specs/BUSINESS_LEAGUE_LAUNCHPAD.md` | Growth Manager uses its test card, funnel and gates; adds the missing Goal entity | RFC only |
 | T-630 / T-634 evolution and quiz | Done | `mvp_evolution.py`, `mvp_quiz.py` | Learning step reads their results | Read-only reuse |
 | T-702 social autopilot | Done; real accounts are owner tasks | `social_autopilot.py` | Distribution step = a draft in the existing weekly plan | No new publisher |
@@ -142,7 +142,7 @@ product does it. "Observed" would mean seen in the running app; no row has that 
 
 Decision: **adopt** = take the general interaction pattern; **adapt** = take the idea, change the mechanics; **reject**.
 "Validated?" states whether any user test backs the pattern **for FactoryOS**. None does yet: every expected effect below
-is a hypothesis to be checked in T-728 with the owner and the 3–4 people he brings.
+is a hypothesis to be checked in T-733 with the owner and the 3–4 people he brings.
 
 | # | Pattern | Problem it solves | Evidence | Strength | Weakness / risk | Decision for FactoryOS | Independent implementation | Validated? |
 |---|---|---|---|---|---|---|---|---|
@@ -202,11 +202,11 @@ No capability is classified "observed".
 
 | Capability (Ploy, documented) | FactoryOS today | Growth Manager decision | Priority | Owner / Depends |
 |---|---|---|---|---|
-| Goal-first onboarding (E-03–E-05) | No goal entity. Brand passport step 1 "Goal & KPI"; MVP brief `goal` field | New thin `goal` entity + wizard | P1 | Claude / T-728 RFC → S5 |
-| Attention queue (E-10) | Open questions card, Owner Desk inside the Workers drawer, approvals in several studios, morning brief in Telegram only | One "Needs you" row composed from those sources | P1 | Claude / T-727 spec → S5 |
-| Goal page (E-12–E-14) | MVP project page + Launchpad tab + experiments view, separate | One projection page per goal | P1 | Claude / T-728 |
+| Goal-first onboarding (E-03–E-05) | No goal entity. Brand passport step 1 "Goal & KPI"; MVP brief `goal` field | New thin `goal` entity + wizard | P1 | Claude / T-733 RFC → S5 |
+| Attention queue (E-10) | Open questions card, Owner Desk inside the Workers drawer, approvals in several studios, morning brief in Telegram only | One "Needs you" row composed from those sources | P1 | Claude / T-732 spec → S5 |
+| Goal page (E-12–E-14) | MVP project page + Launchpad tab + experiments view, separate | One projection page per goal | P1 | Claude / T-733 |
 | Daily check-in with drafts (E-15) | `morning_brief.py` (Telegram), `mvp_cycle.py` phases | Show the brief's items as Home cards; no new scheduler | P2 | Claude / depends on Home |
-| Compare view (E-17) | `docs/prototypes/mvp-builder/ab-branches-preview.html`, experiments preview | Side-by-side A/B approval screen | P1 | Claude / T-728 prototype |
+| Compare view (E-17) | `docs/prototypes/mvp-builder/ab-branches-preview.html`, experiments preview | Side-by-side A/B approval screen | P1 | Claude / T-733 prototype |
 | Experiment with hypothesis and goal (E-18) | `mvp_experiments.py`: hypothesis, primary_metric, two branches, owner-only approval and decision | Reuse as is | — | Done (T-608–T-610) |
 | Guardrail metric (E-18, E-22) | Not found | Optional field, design only | P2 | Claude / RFC |
 | Exposure and visit events (E-31) | Not found for MyCast pages; only invite `ref` | Designed first-party cookieless event; first PR candidate | P1 | Claude / RFC → S5; privacy wording needs owner review |
@@ -261,7 +261,7 @@ Expected effect: the owner can tell a lead from a click from a payment (task T5)
 
 ## 10. Limits of this benchmark
 - It is a reading of documentation. Whether Ploy's users reach their goals faster is unknown.
-- Visual design was not observed (§1.3). The FactoryOS visual direction in T-727/T-728 is therefore designed
+- Visual design was not observed (§1.3). The FactoryOS visual direction in T-732/T-733 is therefore designed
   independently and cannot be a copy.
 - Documentation changes; every row carries its date. Re-check before quoting any row outside this repository.
 - "Used by a competitor" is not "validated". Section 5 marks every transferred pattern as a hypothesis.

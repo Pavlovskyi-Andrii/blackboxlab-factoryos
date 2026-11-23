@@ -226,8 +226,9 @@ def dashboard():
     require('type="password"' in script and "autocomplete=\"new-password\"" in script, "password field not masked")
     require("$('#vaultLoginPass').value=''" in script, "password not cleared after save")
     require("readOnly?'none':''" in script and "vaultOpenBtn" in script, "vault button not hidden for viewers")
-    require('id="brSession"' in html and "body.session={provider:" in script and "function vaultAgentUse(" in script,
-            "T-560-L: session picker / agent switch missing")
+    # Owner 2026-11-23: the read-only «Browser agent» card (and its session picker) left the dashboard; the sidebar opens
+    # the Surfer page. The per-login agent switch stays in the vault drawer.
+    require('id="browserAgentCard"' not in html and "function vaultAgentUse(" in script, "T-560-L: agent switch missing")
     print(f"Vault drawer passed: button, 6 handlers, {len(keys)} keys x EN/UK/RU, masked password cleared after save, hidden for viewers")
 
 

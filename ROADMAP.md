@@ -3,7 +3,7 @@
 Research, specification and prototype only. No production dashboard change, no publishing, no spend. Owner answers: `.autopilot/answers.md` «#452».
 S5 (implementation) is not on the roadmap until the owner gate.
 
-- [x] T-726 #452 S0–S1: access, terms and overlap audit + Ploy public UX/functional benchmark
+- [x] T-731 #452 S0–S1: access, terms and overlap audit + Ploy public UX/functional benchmark
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (direct owner assignment 2026-11-23; runs right after the T-590–T-593 close-out)
   Spec: Issue #452 §1–§3 and Amendment A1 (A1.1, A1.6). Format precedent: `docs/HERCULES_PUBLIC_COMPETITIVE_TEARDOWN.md`.
@@ -11,21 +11,21 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: `docs/research/ploy-public-ux-functional-benchmark.md` exists with every factual claim cited (URL, date, evidence type, confidence) and "not observed" where a screen was not seen; `python test_verification_docs.py`; default verification.
   Done 2026-11-23: 18 docs pages + 3 site pages + terms read through the Markdown interface Ploy publishes for AI tools (no account, no login); 43 ledger rows, 16 patterns with adopt/adapt/reject, 8 rejections, Overlap Matrix, capability matrix, Linear and PostHog as references. Not observed and stated in the document: the authenticated app and every image (so Ploy's visual design is not described).
 
-- [ ] T-727 #452 S2: FactoryOS current-state audit, owner-first journeys and two or three IA directions → Checkpoint A
+- [ ] T-732 #452 S2: FactoryOS current-state audit, owner-first journeys and two or three IA directions → Checkpoint A
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1
-  Depends: T-726
+  Depends: T-731
   Spec: Issue #452 §4–§5 and Amendment A1 (A1.3, A1.4, A1.5).
   Goal: route and screen inventory from the code; screenshots from `tools/ui_screenshots.py` (768 px added) of the local fixture, labelled as such; defects ranked by severity; journeys for the owner, a future client and a specialist; navigation before/after with every current route mapped; "one source per status" table for Owner Home; two or three low-fidelity directions with one recommended.
-  DONE: `docs/ux/factoryos-current-state-audit.md` and `docs/ux/factoryos-owner-first-ia-spec.md` exist; screenshots under `docs/screenshots/t-727/`; a short owner summary in Russian is delivered and the owner picks a direction (Checkpoint A) before T-728 starts.
+  DONE: `docs/ux/factoryos-current-state-audit.md` and `docs/ux/factoryos-owner-first-ia-spec.md` exist; screenshots under `docs/screenshots/t-732/`; a short owner summary in Russian is delivered and the owner picks a direction (Checkpoint A) before T-733 starts.
 
-- [ ] T-728 #452 S3–S4: clickable prototype (Owner Home + Growth Manager goal wizard + approval + metrics), Growth Manager RFC and backlog → OWNER GATE
+- [ ] T-733 #452 S3–S4: clickable prototype (Owner Home + Growth Manager goal wizard + approval + metrics), Growth Manager RFC and backlog → OWNER GATE
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1
-  Depends: T-727 and the owner's Checkpoint A choice
+  Depends: T-732 and the owner's Checkpoint A choice
   Spec: Issue #452 §5–§10 and Amendment A1 (A1.1, A1.2, A1.4, A1.5, A1.7).
   Goal: prototype in `docs/prototypes/owner-home-growth/` (fixture data marked DEMO DATA, eight states, EN/UK/RU, phone and desktop), opened behind login through the Learn section; RFC with the mapping table (24 mission fields and 11 states → existing fields/enums or "missing"), executor and cost per step, the designed first-party visit + variant event for MyCast; test plan with expert review, automated checks and a 10–15 minute script for the owner and the 3–4 people he brings; backlog of small tickets with the first PR specified to file level.
-  DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-728/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
+  DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-733/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
 
 - [x] T-720 Surfer action sessions (core): a live browser page that acts — web_open / web_act / web_snapshot / web_close
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -76,6 +76,21 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Goal: a deterministic local site (login form, multi-step form, file upload, delete button, payment button, captcha-like wall) proving: allowlisted fill + submit runs, sensitive steps wait, off-allowlist is refused, secrets never reach snapshots or logs, a takeover continues the session, a recipe replays. After merge: one live session on the owner's own FactoryOS product page if `FACTORY_SURFER_ACTIONS_ENABLED` is on; otherwise it waits for the owner's flag.
   DONE: `python test_surfer_selftest.py` (CI: page double; `RUN_BROWSER_FIXTURE=1`: real Chromium), default verification.
   Progress 2026-11-22: the scenario passes with the page double (CI) and in real Chromium on the loopback fixture site (`RUN_BROWSER_FIXTURE=1`, 21 s, run in the build session). The live session on the owner's FactoryOS page was **not run**. Checked on production 2026-11-23 through `/mcp`: `web_open` with the shared key answers «the shared MCP token may not act», with the Claude lane key «Surfer actions are off: the owner sets FACTORY_SURFER_ACTIONS_ENABLED=1 in Render». It waits for T-722-H. Scope change 2026-11-23: the owner enabled github.com, not the FactoryOS domain, so the live session ran on the public repo page on github.com (open → click Issues → close) on the EC2 Surfer worker, see T-722-H. A session on the owner's FactoryOS page still waits until the owner adds that domain on the Surfer page.
+  Fix 2026-11-23 (live run by the parent session): a stuck browser call blocked the Surfer worker; every action command now has a 90 s deadline that kills the browser, reports `worker_timeout` and frees the slot (`HungPageTest` in real Chromium, `test_a_stuck_command_is_killed_and_reported_and_the_page_freed` in CI).
+  Fix 2026-11-23: the root watchdog did not restart the hung worker; the worker now has its own self-watchdog thread (exit 75 → systemd restart when the loop breaks its 6-min promise).
+
+- [x] T-731 Surfer: the Claude lane reads what waits for the owner (`surfer_pending`), to mirror it as tickets on the owner task page
+  Owner: claude-session
+  Priority: P1 (owner 2026-11-23 «Да», relayed by the parent session; `.autopilot/answers.md`)
+  Depends: T-722
+  Goal: read-only MCP tool `surfer_pending` (and `POST /api/factory/surfer/agent/surfer_pending`), Claude lane token only (shared token and other lanes refused): kind (confirm / human / takeover), session_id, step_id, site, action + element label, reasons / wait_reason, RU/UK/EN text, since, expires_in_seconds, link to the Surfer page. Never screenshots, typed values, codes, cookies or URLs. No confirm/reject through this path: the owner answers on the Surfer page.
+  DONE: `python test_surfer_owner.py` (AgentPendingTest, AgentPendingAppTest), default verification.
+
+- [x] T-732 Surfer: the snapshot after a click shows what the page drew a moment later
+  Owner: claude-session
+  Priority: P1 (live run 2026-11-23 by the parent session: MyBrief "Show my briefing" returned the old text; only a refresh showed the briefing)
+  Goal: after click / press / select / check / back, wait until the DOM is quiet for 500 ms (MutationObserver), at most 3 s, before the snapshot.
+  DONE: `RUN_BROWSER_FIXTURE=1 python test_surfer_selftest.py` (LateRenderTest fails without the wait), `python test_surfer_actions.py`, default verification.
 
 - [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -182,6 +197,7 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: `python test_mycast_library.py` (buttons, handlers, three locales) + inline-JS `node --check` + default verification; `docs/prototypes/mycast/profile-glass/screens/{a,b,c}.png` at 390 px with no horizontal scroll.
 
 - [ ] [HUMAN] T-645-H Generate, listen to and approve the MyCast demo episodes (Athens, Rome, …)
+  Progress 2026-11-21: public tracks verified on prod — Athens, Rome, Delphi, Pompeii (uk) answer 200; Olympia and all ru tracks are not approved yet.
   Depends: T-645, T-665
   Need: owner (who approved Gemini voicing within the free quota, 2026-11-16) opens the owner console `/factory/mycast-demos` on the FactoryOS host, presses "Generate" (one city or all — T-711: each city has its own pair of hosts; ≤5 per run, ≤10 per day; a Google 429 stops the run, retry the next day), listens to each track and presses "Approve". Runbook in Worker Center → «Ваши задачи».
   DONE: at least the Athens and Rome cards play on a live `/mycast/e/<token>` page.
@@ -559,7 +575,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: `olx_publisher.py` + `static/olx/index.html`: OAuth provider `olx` (`authorization_code`, scopes `v2 read write`, refresh before each write, rotated tokens stored back in the token vault), owner-only advert drafts validated against the documented OLX rules; approval freezes the SHA-256 of the exact advert and the connected OLX account; `FACTORY_OLX_ENABLED=1` gates every OLX write (publish, deactivate) — read-only reference/status calls with the owner's token still work while it is off; publish only when the flag is on, the advert and account still match and nothing was sent before; each advert carries `external_id` = draft id, so timeout/5xx («unknown outcome») or a publish claim left by a crashed process (> 5 min) is resolved by a read-only lookup (exact `external_id` match only) or the owner, never by a resend; read-only category/attribute/city pickers, status refresh and owner-confirmed deactivate; no paid endpoint (packets, paid features) is reachable; fixed error codes, no token or OLX body stored. `publish_approved(...)` is the entry point for T-702.
   DONE: `python test_olx_publisher.py` (adapter + refresh, documented validation rules, fixed codes, approval fence, edit drops approval, one publish, no blind retry, reconcile by exact external_id, stale claim, approval bound to the account, owner-only, flag off → no OLX write, no paid endpoint) + `python test_oauth_framework.py` + default verification.
 
-- [ ] [HUMAN] T-701-H Register the OLX Partner API app and connect the account
+- [x] [HUMAN] T-701-H Register the OLX Partner API app and connect the account
+  Done 2026-11-23: owner confirmed «Готово» on the owner task page after the steps (OLX app approved, Render keys, connect, test advert). Not verified by an agent: the OLX status endpoint is owner-only.
   Depends: T-701, T-560-G
   Need: owner reads the developer portal terms (not readable from FactoryOS: 403), signs in to developer.olx.ua with the OLX account that will own the adverts, submits «Підключити додаток» and waits for OLX's e-mail approval, adds the callback URL `https://blackboxlab-factoryos.onrender.com/api/oauth/olx/callback`, puts FACTORY_OAUTH_OLX_CLIENT_ID / _SECRET and FACTORY_OLX_ENABLED=1 in Render, connects on /static/olx/index.html and publishes one approved test advert. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
   DONE: a test advert published from /static/olx/index.html with its OLX id and status saved.
@@ -572,7 +589,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: a plan per platform with Europe/Kyiv times, filled for free (Content Brain ideas through a fixed template, agents through MCP drafts, the owner on the page — no LLM or paid call); approval modes A «approve the whole plan» (default), C «each post», B «owner rules» (explicit opt-in, off by default); an edit drops the approval; a scheduler (startup hook, every minute) claims each due approved item before sending, never resends an uncertain outcome, marks >6 h overdue items «missed», caps 10 posts/platform/day; kill switch `FACTORY_SOCIAL_AUTOPILOT_ENABLED` (off by default) and an owner «Стоп»; a daily 21:00 Kyiv owner summary through the paired Telegram bot; adapters Telegram channel (Bot API sendMessage, `FACTORY_TELEGRAM_CHANNEL_ID`) and LinkedIn (`linkedin_publisher.send_text`), interface ready for Instagram/TikTok/OLX.
   DONE: `python test_social_autopilot.py` (fake HTTP/clock: adapters and fixed codes, approval fence, modes, kill switch, Stop mid-run, exactly once, no blind retry, restart → uncertain, rules, caps, free plan generator, summary once a day, owner-only routes, MCP drafts only, page RU/UK/EN + `node --check`), `python test_linkedin_publisher.py`, `python test_owner_desk.py` and the default verification pass.
 
-- [ ] [HUMAN] T-702-H Telegram channel for the social autopilot
+- [x] [HUMAN] T-702-H Telegram channel for the social autopilot
+  Done 2026-11-21: owner confirmed the Telegram channel set up on the owner task page (and asked for a teaser image per post → T-713). Not verified by an agent: the channel check is owner-only.
   Depends: T-702
   Need: owner creates or chooses a Telegram channel (public @name recommended), adds the existing FactoryOS bot as admin with «Post Messages», sets `FACTORY_TELEGRAM_CHANNEL_ID=@name` and `FACTORY_SOCIAL_AUTOPILOT_ENABLED=1` in Render, then on /static/social/ runs «Check the Telegram channel» and approves one test post. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
   DONE: a test post went out in the channel at its planned time and its link is in the /static/social/ history.
@@ -986,6 +1004,7 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   DONE: `python test_mycast_library.py` plus every `test_mycast*.py`, `python test_owner_desk.py`, the default verification and `node --check` of the extracted configurator JS pass.
 
 - [ ] [HUMAN] T-620-H Approve the MyCast referral terms and turn the offer on
+  Progress 2026-11-21: owner approved the terms (+7 days each, once, after the friend's first episode, max 50) and set FACTORY_MYCAST_REFERRALS=1; prod came back on v5.16.0. Open: one invite tested from a second Telegram account.
   Depends: T-620
   Need: owner signs off the rule (+7 days to each side once, at the friend's first real episode; cap 50; no self/duplicate credit), sets `FACTORY_MYCAST_REFERRALS=1` in Render, and runs one live invite with a second Telegram account. Enforcing the end of free days (`FACTORY_MYCAST_ENFORCE_TRIAL=1`) is a separate later business decision.
   DONE: `/api/mycast/account/config` returns `"referrals_enabled": true` and the live check gave both accounts +7 days exactly once.

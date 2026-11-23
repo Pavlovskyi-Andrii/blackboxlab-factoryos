@@ -1,6 +1,6 @@
 {
  "captured": "2026-11-23",
- "target": "local fixture, v5.18.1, empty DATA_DIR, no password, no provider keys",
+ "target": "local fixture, v5.19.1 (main e38c88b), empty DATA_DIR, no password, no provider keys",
  "tool": "tools/ui_screenshots.py UI_AUDIT=1 UI_EXTRA_VIEWPORTS=1",
  "results": [
   {
@@ -9,31 +9,31 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7696,
-   "screens_tall": 8.6,
-   "controls_total": 302,
+   "page_height_px": 7469,
+   "screens_tall": 8.3,
+   "controls_total": 304,
    "controls_first_screen": 62,
    "unlabeled_first_screen": 0,
-   "small_targets_first_screen": 21,
+   "small_targets_first_screen": 20,
    "text_nodes_first_screen": 386,
-   "text_below_12px_first_screen": 281,
+   "text_below_12px_first_screen": 279,
    "font_sizes_first_screen": {
     "7": 11,
     "8": 31,
     "9": 26,
-    "10": 50,
+    "10": 48,
     "11": 163,
     "12": 43,
-    "13": 17,
+    "13": 18,
     "14": 15,
     "15": 1,
-    "16": 19,
+    "16": 20,
     "17": 2,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 4694
+   "page_words": 4664
   },
   {
    "lang": "en",
@@ -41,9 +41,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7696,
-   "screens_tall": 8.6,
-   "controls_total": 302,
+   "page_height_px": 7469,
+   "screens_tall": 8.3,
+   "controls_total": 304,
    "controls_first_screen": 59,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 20,
@@ -65,7 +65,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4694
+   "page_words": 4664
   },
   {
    "lang": "en",
@@ -73,25 +73,25 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7696,
-   "screens_tall": 8.6,
-   "controls_total": 400,
+   "page_height_px": 7469,
+   "screens_tall": 8.3,
+   "controls_total": 402,
    "controls_first_screen": 69,
    "unlabeled_first_screen": 0,
-   "small_targets_first_screen": 22,
+   "small_targets_first_screen": 21,
    "text_nodes_first_screen": 473,
-   "text_below_12px_first_screen": 355,
+   "text_below_12px_first_screen": 353,
    "font_sizes_first_screen": {
     "7": 16,
     "8": 85,
     "9": 28,
-    "10": 61,
+    "10": 59,
     "11": 165,
     "12": 43,
-    "13": 17,
+    "13": 18,
     "14": 18,
     "15": 1,
-    "16": 23,
+    "16": 24,
     "17": 6,
     "18": 1,
     "19": 2,
@@ -99,7 +99,7 @@
     "27": 1,
     "54": 1
    },
-   "page_words": 9399
+   "page_words": 9337
   },
   {
    "lang": "en",
@@ -107,32 +107,32 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7696,
-   "screens_tall": 8.6,
-   "controls_total": 436,
+   "page_height_px": 7469,
+   "screens_tall": 8.3,
+   "controls_total": 437,
    "controls_first_screen": 71,
    "unlabeled_first_screen": 6,
-   "small_targets_first_screen": 28,
+   "small_targets_first_screen": 27,
    "text_nodes_first_screen": 556,
-   "text_below_12px_first_screen": 311,
+   "text_below_12px_first_screen": 309,
    "font_sizes_first_screen": {
     "7": 11,
     "8": 31,
     "9": 36,
-    "10": 51,
+    "10": 49,
     "11": 182,
     "12": 168,
-    "13": 28,
+    "13": 29,
     "14": 17,
     "15": 1,
-    "16": 20,
+    "16": 21,
     "17": 2,
     "18": 1,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 5143
+   "page_words": 5083
   },
   {
    "lang": "en",
@@ -140,31 +140,31 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7696,
-   "screens_tall": 8.6,
-   "controls_total": 302,
+   "page_height_px": 7469,
+   "screens_tall": 8.3,
+   "controls_total": 304,
    "controls_first_screen": 62,
    "unlabeled_first_screen": 0,
-   "small_targets_first_screen": 21,
+   "small_targets_first_screen": 20,
    "text_nodes_first_screen": 395,
-   "text_below_12px_first_screen": 290,
+   "text_below_12px_first_screen": 288,
    "font_sizes_first_screen": {
     "7": 11,
     "8": 31,
     "9": 26,
-    "10": 53,
+    "10": 51,
     "11": 169,
     "12": 43,
-    "13": 17,
+    "13": 18,
     "14": 15,
     "15": 1,
-    "16": 19,
+    "16": 20,
     "17": 2,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 4736
+   "page_words": 4706
   },
   {
    "lang": "en",
@@ -172,32 +172,32 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7696,
-   "screens_tall": 8.6,
-   "controls_total": 439,
+   "page_height_px": 7469,
+   "screens_tall": 8.3,
+   "controls_total": 440,
    "controls_first_screen": 74,
    "unlabeled_first_screen": 6,
-   "small_targets_first_screen": 30,
+   "small_targets_first_screen": 29,
    "text_nodes_first_screen": 560,
-   "text_below_12px_first_screen": 314,
+   "text_below_12px_first_screen": 312,
    "font_sizes_first_screen": {
     "7": 11,
     "8": 31,
     "9": 36,
-    "10": 51,
+    "10": 49,
     "11": 185,
     "12": 168,
-    "13": 28,
+    "13": 29,
     "14": 18,
     "15": 1,
-    "16": 20,
+    "16": 21,
     "17": 2,
     "18": 1,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 5166
+   "page_words": 5106
   },
   {
    "lang": "uk",
@@ -205,31 +205,31 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7868,
-   "screens_tall": 8.7,
-   "controls_total": 302,
+   "page_height_px": 7642,
+   "screens_tall": 8.5,
+   "controls_total": 304,
    "controls_first_screen": 62,
    "unlabeled_first_screen": 0,
-   "small_targets_first_screen": 21,
+   "small_targets_first_screen": 20,
    "text_nodes_first_screen": 315,
-   "text_below_12px_first_screen": 215,
+   "text_below_12px_first_screen": 213,
    "font_sizes_first_screen": {
     "7": 10,
     "8": 30,
     "9": 25,
-    "10": 44,
+    "10": 42,
     "11": 106,
     "12": 38,
-    "13": 17,
+    "13": 18,
     "14": 15,
     "15": 1,
-    "16": 19,
+    "16": 20,
     "17": 2,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 4555
+   "page_words": 4535
   },
   {
    "lang": "uk",
@@ -237,9 +237,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7868,
-   "screens_tall": 8.7,
-   "controls_total": 302,
+   "page_height_px": 7642,
+   "screens_tall": 8.5,
+   "controls_total": 304,
    "controls_first_screen": 59,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 20,
@@ -261,7 +261,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4555
+   "page_words": 4535
   },
   {
    "lang": "uk",
@@ -269,25 +269,25 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7868,
-   "screens_tall": 8.7,
+   "page_height_px": 7642,
+   "screens_tall": 8.5,
    "controls_total": 471,
    "controls_first_screen": 84,
    "unlabeled_first_screen": 0,
-   "small_targets_first_screen": 24,
+   "small_targets_first_screen": 23,
    "text_nodes_first_screen": 381,
-   "text_below_12px_first_screen": 246,
+   "text_below_12px_first_screen": 244,
    "font_sizes_first_screen": {
     "7": 15,
     "8": 32,
     "9": 27,
-    "10": 50,
+    "10": 48,
     "11": 122,
     "12": 44,
-    "13": 22,
+    "13": 23,
     "14": 20,
     "15": 1,
-    "16": 24,
+    "16": 25,
     "17": 6,
     "18": 1,
     "19": 2,
@@ -296,7 +296,7 @@
     "27": 1,
     "54": 1
    },
-   "page_words": 11332
+   "page_words": 11165
   },
   {
    "lang": "uk",
@@ -304,32 +304,32 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7868,
-   "screens_tall": 8.7,
-   "controls_total": 436,
+   "page_height_px": 7642,
+   "screens_tall": 8.5,
+   "controls_total": 437,
    "controls_first_screen": 70,
    "unlabeled_first_screen": 5,
-   "small_targets_first_screen": 27,
+   "small_targets_first_screen": 26,
    "text_nodes_first_screen": 482,
-   "text_below_12px_first_screen": 244,
+   "text_below_12px_first_screen": 242,
    "font_sizes_first_screen": {
     "7": 10,
     "8": 30,
     "9": 35,
-    "10": 45,
+    "10": 43,
     "11": 124,
     "12": 161,
-    "13": 28,
+    "13": 29,
     "14": 17,
     "15": 1,
-    "16": 20,
+    "16": 21,
     "17": 2,
     "18": 1,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 4939
+   "page_words": 4893
   },
   {
    "lang": "uk",
@@ -337,31 +337,31 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7868,
-   "screens_tall": 8.7,
-   "controls_total": 302,
+   "page_height_px": 7642,
+   "screens_tall": 8.5,
+   "controls_total": 304,
    "controls_first_screen": 62,
    "unlabeled_first_screen": 0,
-   "small_targets_first_screen": 21,
+   "small_targets_first_screen": 20,
    "text_nodes_first_screen": 324,
-   "text_below_12px_first_screen": 224,
+   "text_below_12px_first_screen": 222,
    "font_sizes_first_screen": {
     "7": 10,
     "8": 30,
     "9": 25,
-    "10": 47,
+    "10": 45,
     "11": 112,
     "12": 38,
-    "13": 17,
+    "13": 18,
     "14": 15,
     "15": 1,
-    "16": 19,
+    "16": 20,
     "17": 2,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 4594
+   "page_words": 4574
   },
   {
    "lang": "uk",
@@ -369,32 +369,32 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7868,
-   "screens_tall": 8.7,
-   "controls_total": 439,
+   "page_height_px": 7642,
+   "screens_tall": 8.5,
+   "controls_total": 440,
    "controls_first_screen": 73,
    "unlabeled_first_screen": 5,
-   "small_targets_first_screen": 29,
+   "small_targets_first_screen": 28,
    "text_nodes_first_screen": 486,
-   "text_below_12px_first_screen": 247,
+   "text_below_12px_first_screen": 245,
    "font_sizes_first_screen": {
     "7": 10,
     "8": 30,
     "9": 35,
-    "10": 45,
+    "10": 43,
     "11": 127,
     "12": 161,
-    "13": 28,
+    "13": 29,
     "14": 18,
     "15": 1,
-    "16": 20,
+    "16": 21,
     "17": 2,
     "18": 1,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 4957
+   "page_words": 4911
   },
   {
    "lang": "ru",
@@ -402,31 +402,31 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7934,
-   "screens_tall": 8.8,
-   "controls_total": 302,
+   "page_height_px": 8078,
+   "screens_tall": 9,
+   "controls_total": 304,
    "controls_first_screen": 62,
    "unlabeled_first_screen": 0,
-   "small_targets_first_screen": 21,
+   "small_targets_first_screen": 20,
    "text_nodes_first_screen": 289,
-   "text_below_12px_first_screen": 196,
+   "text_below_12px_first_screen": 194,
    "font_sizes_first_screen": {
     "7": 10,
     "8": 30,
     "9": 20,
-    "10": 44,
+    "10": 42,
     "11": 92,
     "12": 32,
-    "13": 17,
+    "13": 18,
     "14": 15,
     "15": 1,
-    "16": 19,
+    "16": 20,
     "17": 1,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 4562
+   "page_words": 4886
   },
   {
    "lang": "ru",
@@ -434,9 +434,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 7934,
-   "screens_tall": 8.8,
-   "controls_total": 302,
+   "page_height_px": 8078,
+   "screens_tall": 9,
+   "controls_total": 304,
    "controls_first_screen": 59,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 20,
@@ -458,7 +458,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4562
+   "page_words": 4886
   },
   {
    "lang": "ru",
@@ -466,25 +466,25 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 8304,
-   "screens_tall": 9.2,
+   "page_height_px": 8078,
+   "screens_tall": 9,
    "controls_total": 471,
    "controls_first_screen": 84,
    "unlabeled_first_screen": 0,
-   "small_targets_first_screen": 24,
+   "small_targets_first_screen": 23,
    "text_nodes_first_screen": 355,
-   "text_below_12px_first_screen": 227,
+   "text_below_12px_first_screen": 225,
    "font_sizes_first_screen": {
     "7": 15,
     "8": 32,
     "9": 22,
-    "10": 50,
+    "10": 48,
     "11": 108,
     "12": 38,
-    "13": 22,
+    "13": 23,
     "14": 20,
     "15": 1,
-    "16": 24,
+    "16": 25,
     "17": 5,
     "18": 1,
     "19": 2,
@@ -493,7 +493,7 @@
     "27": 1,
     "54": 1
    },
-   "page_words": 11591
+   "page_words": 11466
   },
   {
    "lang": "ru",
@@ -501,32 +501,32 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 8304,
-   "screens_tall": 9.2,
-   "controls_total": 436,
+   "page_height_px": 8078,
+   "screens_tall": 9,
+   "controls_total": 437,
    "controls_first_screen": 70,
    "unlabeled_first_screen": 5,
-   "small_targets_first_screen": 27,
+   "small_targets_first_screen": 26,
    "text_nodes_first_screen": 455,
-   "text_below_12px_first_screen": 225,
+   "text_below_12px_first_screen": 223,
    "font_sizes_first_screen": {
     "7": 10,
     "8": 30,
     "9": 30,
-    "10": 45,
+    "10": 43,
     "11": 110,
     "12": 154,
-    "13": 28,
+    "13": 29,
     "14": 17,
     "15": 1,
-    "16": 20,
+    "16": 21,
     "17": 1,
     "18": 1,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 5270
+   "page_words": 5226
   },
   {
    "lang": "ru",
@@ -534,31 +534,31 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 8304,
-   "screens_tall": 9.2,
-   "controls_total": 302,
+   "page_height_px": 8078,
+   "screens_tall": 9,
+   "controls_total": 304,
    "controls_first_screen": 62,
    "unlabeled_first_screen": 0,
-   "small_targets_first_screen": 21,
+   "small_targets_first_screen": 20,
    "text_nodes_first_screen": 298,
-   "text_below_12px_first_screen": 205,
+   "text_below_12px_first_screen": 203,
    "font_sizes_first_screen": {
     "7": 10,
     "8": 30,
     "9": 20,
-    "10": 47,
+    "10": 45,
     "11": 98,
     "12": 32,
-    "13": 17,
+    "13": 18,
     "14": 15,
     "15": 1,
-    "16": 19,
+    "16": 20,
     "17": 1,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 4945
+   "page_words": 4925
   },
   {
    "lang": "ru",
@@ -566,32 +566,32 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 8304,
-   "screens_tall": 9.2,
-   "controls_total": 439,
+   "page_height_px": 8078,
+   "screens_tall": 9,
+   "controls_total": 440,
    "controls_first_screen": 73,
    "unlabeled_first_screen": 5,
-   "small_targets_first_screen": 29,
+   "small_targets_first_screen": 28,
    "text_nodes_first_screen": 459,
-   "text_below_12px_first_screen": 228,
+   "text_below_12px_first_screen": 226,
    "font_sizes_first_screen": {
     "7": 10,
     "8": 30,
     "9": 30,
-    "10": 45,
+    "10": 43,
     "11": 113,
     "12": 154,
-    "13": 28,
+    "13": 29,
     "14": 18,
     "15": 1,
-    "16": 20,
+    "16": 21,
     "17": 1,
     "18": 1,
     "19": 2,
     "25": 5,
     "54": 1
    },
-   "page_words": 5288
+   "page_words": 5244
   },
   {
    "lang": "en",
@@ -599,9 +599,9 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9627,
-   "screens_tall": 12.5,
-   "controls_total": 301,
+   "page_height_px": 9400,
+   "screens_tall": 12.2,
+   "controls_total": 303,
    "controls_first_screen": 42,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 14,
@@ -622,7 +622,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5038
+   "page_words": 5008
   },
   {
    "lang": "en",
@@ -630,9 +630,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9627,
-   "screens_tall": 12.5,
-   "controls_total": 301,
+   "page_height_px": 9400,
+   "screens_tall": 12.2,
+   "controls_total": 303,
    "controls_first_screen": 37,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 13,
@@ -653,7 +653,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5038
+   "page_words": 5008
   },
   {
    "lang": "en",
@@ -661,8 +661,8 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9627,
-   "screens_tall": 12.5,
+   "page_height_px": 9400,
+   "screens_tall": 12.2,
    "controls_total": 470,
    "controls_first_screen": 57,
    "unlabeled_first_screen": 0,
@@ -688,7 +688,7 @@
     "27": 1,
     "54": 1
    },
-   "page_words": 11919
+   "page_words": 11784
   },
   {
    "lang": "en",
@@ -696,9 +696,9 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9627,
-   "screens_tall": 12.5,
-   "controls_total": 435,
+   "page_height_px": 9400,
+   "screens_tall": 12.2,
+   "controls_total": 436,
    "controls_first_screen": 46,
    "unlabeled_first_screen": 1,
    "small_targets_first_screen": 16,
@@ -720,7 +720,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5490
+   "page_words": 5430
   },
   {
    "lang": "en",
@@ -728,9 +728,9 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9627,
-   "screens_tall": 12.5,
-   "controls_total": 301,
+   "page_height_px": 9400,
+   "screens_tall": 12.2,
+   "controls_total": 303,
    "controls_first_screen": 42,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 14,
@@ -751,7 +751,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5080
+   "page_words": 5050
   },
   {
    "lang": "en",
@@ -759,9 +759,9 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9627,
-   "screens_tall": 12.5,
-   "controls_total": 438,
+   "page_height_px": 9400,
+   "screens_tall": 12.2,
+   "controls_total": 439,
    "controls_first_screen": 49,
    "unlabeled_first_screen": 1,
    "small_targets_first_screen": 18,
@@ -783,7 +783,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5510
+   "page_words": 5450
   },
   {
    "lang": "uk",
@@ -791,9 +791,9 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9941,
-   "screens_tall": 12.9,
-   "controls_total": 301,
+   "page_height_px": 9715,
+   "screens_tall": 12.6,
+   "controls_total": 303,
    "controls_first_screen": 37,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 14,
@@ -814,7 +814,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4899
+   "page_words": 4879
   },
   {
    "lang": "uk",
@@ -822,9 +822,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9941,
-   "screens_tall": 12.9,
-   "controls_total": 301,
+   "page_height_px": 9715,
+   "screens_tall": 12.6,
+   "controls_total": 303,
    "controls_first_screen": 32,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 13,
@@ -845,7 +845,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4899
+   "page_words": 4879
   },
   {
    "lang": "uk",
@@ -853,8 +853,8 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9941,
-   "screens_tall": 12.9,
+   "page_height_px": 9715,
+   "screens_tall": 12.6,
    "controls_total": 470,
    "controls_first_screen": 52,
    "unlabeled_first_screen": 0,
@@ -880,7 +880,7 @@
     "27": 1,
     "54": 1
    },
-   "page_words": 11691
+   "page_words": 11564
   },
   {
    "lang": "uk",
@@ -888,9 +888,9 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9941,
-   "screens_tall": 12.9,
-   "controls_total": 435,
+   "page_height_px": 9715,
+   "screens_tall": 12.6,
+   "controls_total": 436,
    "controls_first_screen": 41,
    "unlabeled_first_screen": 1,
    "small_targets_first_screen": 16,
@@ -912,7 +912,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5283
+   "page_words": 5237
   },
   {
    "lang": "uk",
@@ -920,9 +920,9 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9941,
-   "screens_tall": 12.9,
-   "controls_total": 301,
+   "page_height_px": 9715,
+   "screens_tall": 12.6,
+   "controls_total": 303,
    "controls_first_screen": 37,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 14,
@@ -943,7 +943,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4938
+   "page_words": 4918
   },
   {
    "lang": "uk",
@@ -951,9 +951,9 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9941,
-   "screens_tall": 12.9,
-   "controls_total": 438,
+   "page_height_px": 9715,
+   "screens_tall": 12.6,
+   "controls_total": 439,
    "controls_first_screen": 44,
    "unlabeled_first_screen": 1,
    "small_targets_first_screen": 18,
@@ -975,7 +975,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5301
+   "page_words": 5255
   },
   {
    "lang": "ru",
@@ -983,9 +983,9 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10012,
-   "screens_tall": 13,
-   "controls_total": 301,
+   "page_height_px": 9785,
+   "screens_tall": 12.7,
+   "controls_total": 303,
    "controls_first_screen": 37,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 14,
@@ -1006,7 +1006,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4906
+   "page_words": 4886
   },
   {
    "lang": "ru",
@@ -1014,9 +1014,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10012,
-   "screens_tall": 13,
-   "controls_total": 301,
+   "page_height_px": 9785,
+   "screens_tall": 12.7,
+   "controls_total": 303,
    "controls_first_screen": 32,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 13,
@@ -1037,7 +1037,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4906
+   "page_words": 4886
   },
   {
    "lang": "ru",
@@ -1045,8 +1045,8 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10012,
-   "screens_tall": 13,
+   "page_height_px": 9785,
+   "screens_tall": 12.7,
    "controls_total": 470,
    "controls_first_screen": 52,
    "unlabeled_first_screen": 0,
@@ -1072,7 +1072,7 @@
     "27": 1,
     "54": 1
    },
-   "page_words": 11591
+   "page_words": 11466
   },
   {
    "lang": "ru",
@@ -1080,9 +1080,9 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10012,
-   "screens_tall": 13,
-   "controls_total": 435,
+   "page_height_px": 9785,
+   "screens_tall": 12.7,
+   "controls_total": 436,
    "controls_first_screen": 41,
    "unlabeled_first_screen": 1,
    "small_targets_first_screen": 16,
@@ -1104,7 +1104,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5270
+   "page_words": 5226
   },
   {
    "lang": "ru",
@@ -1112,9 +1112,9 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10012,
-   "screens_tall": 13,
-   "controls_total": 301,
+   "page_height_px": 9785,
+   "screens_tall": 12.7,
+   "controls_total": 303,
    "controls_first_screen": 37,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 14,
@@ -1135,7 +1135,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4945
+   "page_words": 4925
   },
   {
    "lang": "ru",
@@ -1143,9 +1143,9 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10012,
-   "screens_tall": 13,
-   "controls_total": 438,
+   "page_height_px": 9785,
+   "screens_tall": 12.7,
+   "controls_total": 439,
    "controls_first_screen": 44,
    "unlabeled_first_screen": 1,
    "small_targets_first_screen": 18,
@@ -1167,7 +1167,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5288
+   "page_words": 5244
   },
   {
    "lang": "en",
@@ -1175,13 +1175,13 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16227,
-   "screens_tall": 19.2,
-   "controls_total": 273,
+   "page_height_px": 15849,
+   "screens_tall": 18.8,
+   "controls_total": 275,
    "controls_first_screen": 30,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 9,
-   "text_nodes_first_screen": 68,
+   "text_nodes_first_screen": 69,
    "text_below_12px_first_screen": 32,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1192,9 +1192,9 @@
     "13": 1,
     "14": 14,
     "17": 3,
-    "18": 16
+    "18": 17
    },
-   "page_words": 3983
+   "page_words": 3945
   },
   {
    "lang": "en",
@@ -1202,9 +1202,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16227,
-   "screens_tall": 19.2,
-   "controls_total": 282,
+   "page_height_px": 15849,
+   "screens_tall": 18.8,
+   "controls_total": 284,
    "controls_first_screen": 27,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 11,
@@ -1222,7 +1222,7 @@
     "17": 3,
     "18": 12
    },
-   "page_words": 4054
+   "page_words": 4024
   },
   {
    "lang": "en",
@@ -1230,13 +1230,13 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16227,
-   "screens_tall": 19.2,
+   "page_height_px": 15849,
+   "screens_tall": 18.8,
    "controls_total": 442,
    "controls_first_screen": 40,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 10,
-   "text_nodes_first_screen": 105,
+   "text_nodes_first_screen": 106,
    "text_below_12px_first_screen": 50,
    "font_sizes_first_screen": {
     "7": 8,
@@ -1249,11 +1249,11 @@
     "14": 16,
     "16": 5,
     "17": 7,
-    "18": 17,
+    "18": 18,
     "20": 4,
     "27": 1
    },
-   "page_words": 10864
+   "page_words": 10721
   },
   {
    "lang": "en",
@@ -1261,13 +1261,13 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16227,
-   "screens_tall": 19.2,
-   "controls_total": 407,
+   "page_height_px": 15849,
+   "screens_tall": 18.8,
+   "controls_total": 408,
    "controls_first_screen": 32,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 10,
-   "text_nodes_first_screen": 132,
+   "text_nodes_first_screen": 133,
    "text_below_12px_first_screen": 47,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1280,9 +1280,9 @@
     "14": 15,
     "16": 1,
     "17": 3,
-    "18": 17
+    "18": 18
    },
-   "page_words": 4435
+   "page_words": 4367
   },
   {
    "lang": "en",
@@ -1290,13 +1290,13 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16227,
-   "screens_tall": 19.2,
-   "controls_total": 273,
+   "page_height_px": 15849,
+   "screens_tall": 18.8,
+   "controls_total": 275,
    "controls_first_screen": 30,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 9,
-   "text_nodes_first_screen": 77,
+   "text_nodes_first_screen": 78,
    "text_below_12px_first_screen": 41,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1307,9 +1307,9 @@
     "13": 1,
     "14": 14,
     "17": 3,
-    "18": 16
+    "18": 17
    },
-   "page_words": 4025
+   "page_words": 3987
   },
   {
    "lang": "en",
@@ -1317,13 +1317,13 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16227,
-   "screens_tall": 19.2,
-   "controls_total": 410,
+   "page_height_px": 15849,
+   "screens_tall": 18.8,
+   "controls_total": 411,
    "controls_first_screen": 35,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 12,
-   "text_nodes_first_screen": 136,
+   "text_nodes_first_screen": 137,
    "text_below_12px_first_screen": 50,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1336,9 +1336,9 @@
     "14": 16,
     "16": 1,
     "17": 3,
-    "18": 17
+    "18": 18
    },
-   "page_words": 4455
+   "page_words": 4387
   },
   {
    "lang": "uk",
@@ -1346,13 +1346,13 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16439,
-   "screens_tall": 19.5,
-   "controls_total": 273,
+   "page_height_px": 16061,
+   "screens_tall": 19,
+   "controls_total": 275,
    "controls_first_screen": 29,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 8,
-   "text_nodes_first_screen": 66,
+   "text_nodes_first_screen": 67,
    "text_below_12px_first_screen": 32,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1362,9 +1362,9 @@
     "13": 1,
     "14": 14,
     "17": 3,
-    "18": 16
+    "18": 17
    },
-   "page_words": 3820
+   "page_words": 3791
   },
   {
    "lang": "uk",
@@ -1372,9 +1372,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16439,
-   "screens_tall": 19.5,
-   "controls_total": 282,
+   "page_height_px": 16061,
+   "screens_tall": 19,
+   "controls_total": 284,
    "controls_first_screen": 26,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 10,
@@ -1391,7 +1391,7 @@
     "17": 3,
     "18": 12
    },
-   "page_words": 3891
+   "page_words": 3871
   },
   {
    "lang": "uk",
@@ -1399,13 +1399,13 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16439,
-   "screens_tall": 19.5,
+   "page_height_px": 16061,
+   "screens_tall": 19,
    "controls_total": 442,
    "controls_first_screen": 39,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 9,
-   "text_nodes_first_screen": 101,
+   "text_nodes_first_screen": 102,
    "text_below_12px_first_screen": 50,
    "font_sizes_first_screen": {
     "7": 8,
@@ -1418,11 +1418,11 @@
     "14": 16,
     "16": 5,
     "17": 7,
-    "18": 17,
+    "18": 18,
     "20": 2,
     "27": 1
    },
-   "page_words": 10612
+   "page_words": 10476
   },
   {
    "lang": "uk",
@@ -1430,13 +1430,13 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16439,
-   "screens_tall": 19.5,
-   "controls_total": 407,
+   "page_height_px": 16061,
+   "screens_tall": 19,
+   "controls_total": 408,
    "controls_first_screen": 31,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 9,
-   "text_nodes_first_screen": 125,
+   "text_nodes_first_screen": 126,
    "text_below_12px_first_screen": 45,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1449,9 +1449,9 @@
     "14": 15,
     "16": 1,
     "17": 3,
-    "18": 17
+    "18": 18
    },
-   "page_words": 4204
+   "page_words": 4149
   },
   {
    "lang": "uk",
@@ -1459,13 +1459,13 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16439,
-   "screens_tall": 19.5,
-   "controls_total": 273,
+   "page_height_px": 16061,
+   "screens_tall": 19,
+   "controls_total": 275,
    "controls_first_screen": 29,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 8,
-   "text_nodes_first_screen": 75,
+   "text_nodes_first_screen": 76,
    "text_below_12px_first_screen": 41,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1475,9 +1475,9 @@
     "13": 1,
     "14": 14,
     "17": 3,
-    "18": 16
+    "18": 17
    },
-   "page_words": 3859
+   "page_words": 3830
   },
   {
    "lang": "uk",
@@ -1485,13 +1485,13 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16439,
-   "screens_tall": 19.5,
-   "controls_total": 410,
+   "page_height_px": 16061,
+   "screens_tall": 19,
+   "controls_total": 411,
    "controls_first_screen": 34,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 11,
-   "text_nodes_first_screen": 129,
+   "text_nodes_first_screen": 130,
    "text_below_12px_first_screen": 48,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1504,9 +1504,9 @@
     "14": 16,
     "16": 1,
     "17": 3,
-    "18": 17
+    "18": 18
    },
-   "page_words": 4222
+   "page_words": 4167
   },
   {
    "lang": "ru",
@@ -1514,13 +1514,13 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16694,
-   "screens_tall": 19.8,
-   "controls_total": 273,
+   "page_height_px": 16317,
+   "screens_tall": 19.3,
+   "controls_total": 275,
    "controls_first_screen": 29,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 8,
-   "text_nodes_first_screen": 66,
+   "text_nodes_first_screen": 67,
    "text_below_12px_first_screen": 32,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1530,9 +1530,9 @@
     "13": 1,
     "14": 14,
     "17": 3,
-    "18": 16
+    "18": 17
    },
-   "page_words": 3827
+   "page_words": 3798
   },
   {
    "lang": "ru",
@@ -1540,9 +1540,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16694,
-   "screens_tall": 19.8,
-   "controls_total": 282,
+   "page_height_px": 16317,
+   "screens_tall": 19.3,
+   "controls_total": 284,
    "controls_first_screen": 26,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 10,
@@ -1559,7 +1559,7 @@
     "17": 3,
     "18": 12
    },
-   "page_words": 3898
+   "page_words": 3878
   },
   {
    "lang": "ru",
@@ -1567,13 +1567,13 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16694,
-   "screens_tall": 19.8,
-   "controls_total": 371,
+   "page_height_px": 16317,
+   "screens_tall": 19.3,
+   "controls_total": 373,
    "controls_first_screen": 35,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 9,
-   "text_nodes_first_screen": 110,
+   "text_nodes_first_screen": 111,
    "text_below_12px_first_screen": 63,
    "font_sizes_first_screen": {
     "7": 8,
@@ -1585,10 +1585,10 @@
     "14": 16,
     "16": 4,
     "17": 7,
-    "18": 17,
+    "18": 18,
     "27": 1
    },
-   "page_words": 8389
+   "page_words": 8366
   },
   {
    "lang": "ru",
@@ -1596,13 +1596,13 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16694,
-   "screens_tall": 19.8,
-   "controls_total": 407,
+   "page_height_px": 16317,
+   "screens_tall": 19.3,
+   "controls_total": 408,
    "controls_first_screen": 31,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 9,
-   "text_nodes_first_screen": 129,
+   "text_nodes_first_screen": 130,
    "text_below_12px_first_screen": 47,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1615,9 +1615,9 @@
     "14": 15,
     "16": 1,
     "17": 3,
-    "18": 17
+    "18": 18
    },
-   "page_words": 4191
+   "page_words": 4138
   },
   {
    "lang": "ru",
@@ -1625,13 +1625,13 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16694,
-   "screens_tall": 19.8,
-   "controls_total": 273,
+   "page_height_px": 16317,
+   "screens_tall": 19.3,
+   "controls_total": 275,
    "controls_first_screen": 29,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 8,
-   "text_nodes_first_screen": 75,
+   "text_nodes_first_screen": 76,
    "text_below_12px_first_screen": 41,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1641,9 +1641,9 @@
     "13": 1,
     "14": 14,
     "17": 3,
-    "18": 16
+    "18": 17
    },
-   "page_words": 3866
+   "page_words": 3837
   },
   {
    "lang": "ru",
@@ -1651,13 +1651,13 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 16694,
-   "screens_tall": 19.8,
-   "controls_total": 410,
+   "page_height_px": 16317,
+   "screens_tall": 19.3,
+   "controls_total": 411,
    "controls_first_screen": 34,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 11,
-   "text_nodes_first_screen": 133,
+   "text_nodes_first_screen": 134,
    "text_below_12px_first_screen": 50,
    "font_sizes_first_screen": {
     "7": 3,
@@ -1670,9 +1670,9 @@
     "14": 16,
     "16": 1,
     "17": 3,
-    "18": 17
+    "18": 18
    },
-   "page_words": 4209
+   "page_words": 4156
   },
   {
    "lang": "en",
@@ -1680,9 +1680,9 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9945,
-   "screens_tall": 9.7,
-   "controls_total": 276,
+   "page_height_px": 9718,
+   "screens_tall": 9.5,
+   "controls_total": 278,
    "controls_first_screen": 52,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 11,
@@ -1702,7 +1702,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4946
+   "page_words": 4908
   },
   {
    "lang": "en",
@@ -1710,9 +1710,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9945,
-   "screens_tall": 9.7,
-   "controls_total": 285,
+   "page_height_px": 9718,
+   "screens_tall": 9.5,
+   "controls_total": 287,
    "controls_first_screen": 51,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 14,
@@ -1734,7 +1734,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5022
+   "page_words": 4992
   },
   {
    "lang": "en",
@@ -1742,8 +1742,8 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9945,
-   "screens_tall": 9.7,
+   "page_height_px": 9718,
+   "screens_tall": 9.5,
    "controls_total": 445,
    "controls_first_screen": 73,
    "unlabeled_first_screen": 0,
@@ -1769,7 +1769,7 @@
     "27": 1,
     "54": 1
    },
-   "page_words": 11827
+   "page_words": 11684
   },
   {
    "lang": "en",
@@ -1777,20 +1777,20 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9945,
-   "screens_tall": 9.7,
-   "controls_total": 410,
+   "page_height_px": 9718,
+   "screens_tall": 9.5,
+   "controls_total": 411,
    "controls_first_screen": 64,
    "unlabeled_first_screen": 10,
    "small_targets_first_screen": 22,
-   "text_nodes_first_screen": 495,
-   "text_below_12px_first_screen": 239,
+   "text_nodes_first_screen": 493,
+   "text_below_12px_first_screen": 238,
    "font_sizes_first_screen": {
     "8": 15,
-    "9": 31,
+    "9": 30,
     "10": 29,
     "11": 164,
-    "12": 196,
+    "12": 195,
     "13": 13,
     "14": 16,
     "15": 1,
@@ -1801,7 +1801,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5398
+   "page_words": 5330
   },
   {
    "lang": "en",
@@ -1809,9 +1809,9 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9945,
-   "screens_tall": 9.7,
-   "controls_total": 276,
+   "page_height_px": 9718,
+   "screens_tall": 9.5,
+   "controls_total": 278,
    "controls_first_screen": 52,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 11,
@@ -1831,7 +1831,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4988
+   "page_words": 4950
   },
   {
    "lang": "en",
@@ -1839,20 +1839,20 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 9945,
-   "screens_tall": 9.7,
-   "controls_total": 413,
+   "page_height_px": 9718,
+   "screens_tall": 9.5,
+   "controls_total": 414,
    "controls_first_screen": 67,
    "unlabeled_first_screen": 10,
    "small_targets_first_screen": 24,
-   "text_nodes_first_screen": 499,
-   "text_below_12px_first_screen": 242,
+   "text_nodes_first_screen": 497,
+   "text_below_12px_first_screen": 241,
    "font_sizes_first_screen": {
     "8": 15,
-    "9": 31,
+    "9": 30,
     "10": 29,
     "11": 167,
-    "12": 196,
+    "12": 195,
     "13": 13,
     "14": 17,
     "15": 1,
@@ -1863,7 +1863,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5418
+   "page_words": 5350
   },
   {
    "lang": "uk",
@@ -1871,9 +1871,9 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10262,
-   "screens_tall": 10,
-   "controls_total": 276,
+   "page_height_px": 10036,
+   "screens_tall": 9.8,
+   "controls_total": 278,
    "controls_first_screen": 47,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 11,
@@ -1893,7 +1893,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4807
+   "page_words": 4778
   },
   {
    "lang": "uk",
@@ -1901,9 +1901,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10262,
-   "screens_tall": 10,
-   "controls_total": 285,
+   "page_height_px": 10036,
+   "screens_tall": 9.8,
+   "controls_total": 287,
    "controls_first_screen": 46,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 14,
@@ -1925,7 +1925,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4883
+   "page_words": 4863
   },
   {
    "lang": "uk",
@@ -1933,8 +1933,8 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10262,
-   "screens_tall": 10,
+   "page_height_px": 10036,
+   "screens_tall": 9.8,
    "controls_total": 445,
    "controls_first_screen": 68,
    "unlabeled_first_screen": 0,
@@ -1960,7 +1960,7 @@
     "27": 1,
     "54": 1
    },
-   "page_words": 11599
+   "page_words": 11463
   },
   {
    "lang": "uk",
@@ -1968,20 +1968,20 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10262,
-   "screens_tall": 10,
-   "controls_total": 410,
+   "page_height_px": 10036,
+   "screens_tall": 9.8,
+   "controls_total": 411,
    "controls_first_screen": 59,
    "unlabeled_first_screen": 10,
    "small_targets_first_screen": 22,
-   "text_nodes_first_screen": 379,
+   "text_nodes_first_screen": 378,
    "text_below_12px_first_screen": 140,
    "font_sizes_first_screen": {
     "8": 15,
     "9": 26,
     "10": 24,
     "11": 75,
-    "12": 179,
+    "12": 178,
     "13": 13,
     "14": 16,
     "15": 1,
@@ -1992,7 +1992,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5191
+   "page_words": 5136
   },
   {
    "lang": "uk",
@@ -2000,9 +2000,9 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10262,
-   "screens_tall": 10,
-   "controls_total": 276,
+   "page_height_px": 10036,
+   "screens_tall": 9.8,
+   "controls_total": 278,
    "controls_first_screen": 47,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 11,
@@ -2022,7 +2022,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4846
+   "page_words": 4817
   },
   {
    "lang": "uk",
@@ -2030,20 +2030,20 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10262,
-   "screens_tall": 10,
-   "controls_total": 413,
+   "page_height_px": 10036,
+   "screens_tall": 9.8,
+   "controls_total": 414,
    "controls_first_screen": 62,
    "unlabeled_first_screen": 10,
    "small_targets_first_screen": 24,
-   "text_nodes_first_screen": 383,
+   "text_nodes_first_screen": 382,
    "text_below_12px_first_screen": 143,
    "font_sizes_first_screen": {
     "8": 15,
     "9": 26,
     "10": 24,
     "11": 78,
-    "12": 179,
+    "12": 178,
     "13": 13,
     "14": 17,
     "15": 1,
@@ -2054,7 +2054,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5209
+   "page_words": 5154
   },
   {
    "lang": "ru",
@@ -2062,9 +2062,9 @@
    "scene": "home",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10354,
-   "screens_tall": 10.1,
-   "controls_total": 276,
+   "page_height_px": 10128,
+   "screens_tall": 9.9,
+   "controls_total": 278,
    "controls_first_screen": 47,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 11,
@@ -2084,7 +2084,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4814
+   "page_words": 4785
   },
   {
    "lang": "ru",
@@ -2092,9 +2092,9 @@
    "scene": "menu-open",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10354,
-   "screens_tall": 10.1,
-   "controls_total": 285,
+   "page_height_px": 10128,
+   "screens_tall": 9.9,
+   "controls_total": 287,
    "controls_first_screen": 46,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 14,
@@ -2116,7 +2116,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4890
+   "page_words": 4870
   },
   {
    "lang": "ru",
@@ -2124,8 +2124,8 @@
    "scene": "build-progress",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10354,
-   "screens_tall": 10.1,
+   "page_height_px": 10128,
+   "screens_tall": 9.9,
    "controls_total": 445,
    "controls_first_screen": 68,
    "unlabeled_first_screen": 0,
@@ -2151,7 +2151,7 @@
     "27": 1,
     "54": 1
    },
-   "page_words": 11499
+   "page_words": 11365
   },
   {
    "lang": "ru",
@@ -2159,20 +2159,20 @@
    "scene": "worker-center",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10354,
-   "screens_tall": 10.1,
-   "controls_total": 410,
+   "page_height_px": 10128,
+   "screens_tall": 9.9,
+   "controls_total": 411,
    "controls_first_screen": 57,
    "unlabeled_first_screen": 8,
    "small_targets_first_screen": 20,
    "text_nodes_first_screen": 369,
-   "text_below_12px_first_screen": 130,
+   "text_below_12px_first_screen": 131,
    "font_sizes_first_screen": {
     "8": 15,
-    "9": 25,
+    "9": 26,
     "10": 19,
     "11": 71,
-    "12": 179,
+    "12": 178,
     "13": 13,
     "14": 16,
     "15": 1,
@@ -2183,7 +2183,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5178
+   "page_words": 5125
   },
   {
    "lang": "ru",
@@ -2191,9 +2191,9 @@
    "scene": "help-tip",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10354,
-   "screens_tall": 10.1,
-   "controls_total": 276,
+   "page_height_px": 10128,
+   "screens_tall": 9.9,
+   "controls_total": 278,
    "controls_first_screen": 47,
    "unlabeled_first_screen": 0,
    "small_targets_first_screen": 11,
@@ -2213,7 +2213,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 4853
+   "page_words": 4824
   },
   {
    "lang": "ru",
@@ -2221,20 +2221,20 @@
    "scene": "owner-desk-ask",
    "overflow_px": 0,
    "page_errors": 0,
-   "page_height_px": 10354,
-   "screens_tall": 10.1,
-   "controls_total": 413,
+   "page_height_px": 10128,
+   "screens_tall": 9.9,
+   "controls_total": 414,
    "controls_first_screen": 60,
    "unlabeled_first_screen": 8,
    "small_targets_first_screen": 22,
    "text_nodes_first_screen": 373,
-   "text_below_12px_first_screen": 133,
+   "text_below_12px_first_screen": 134,
    "font_sizes_first_screen": {
     "8": 15,
-    "9": 25,
+    "9": 26,
     "10": 19,
     "11": 74,
-    "12": 179,
+    "12": 178,
     "13": 13,
     "14": 17,
     "15": 1,
@@ -2245,7 +2245,7 @@
     "25": 5,
     "54": 1
    },
-   "page_words": 5196
+   "page_words": 5143
   }
  ]
 }

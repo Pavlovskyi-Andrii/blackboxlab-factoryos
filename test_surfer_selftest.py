@@ -343,6 +343,70 @@ class SelfTest(unittest.TestCase):
 
 
 @unittest.skipUnless(REAL, "real Chromium only (RUN_BROWSER_FIXTURE=1)")
+class HungPageTest(unittest.TestCase):
+    """Live run 2026-11-23: a click left the worker stuck; nothing else was served until the 15-min watchdog."""
+
+    def test_a_stuck_command_is_killed_and_the_slot_is_free_again(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        log = []
+        for target, value in ((relay_tasks, ("endpoint", mock.Mock(return_value=("https://factory.example", "tok")))),
+                              (browser_actions, ("log", log.append))):
+            patch = mock.patch.object(target, *value)
+            patch.start()
+            self.addCleanup(patch.stop)
+        w = RealWorld(pathlib.Path(tmp.name))
+        self.addCleanup(w.close)
+        w.runner.deadline_seconds = 8
+        view = w.tool(sa.web_open, {"url": w.origin + "/busy"})
+        self.assertEqual(view["status"], "done")
+        started = time.monotonic()
+        stuck = w.tool(sa.web_act, {"session_id": view["session_id"], "action": "click",
+                                    "ref": next(e["ref"] for e in view["elements"] if e["name"] == "Freeze")})
+        step = w.store.find_step(stuck["step_id"])[1]
+        for _ in range(300):
+            if step["status"] in sa.STEP_FINAL:
+                break
+            time.sleep(0.1)
+            step = w.store.find_step(stuck["step_id"])[1]
+        self.assertEqual((step["status"], step.get("blocker")), ("failed", "worker_timeout"), log)
+        self.assertLess(time.monotonic() - started, 40)
+        self.assertTrue(any("killing the browser" in line for line in log), log)
+        for _ in range(100):                                   # the next claim closes the dead session
+            if w.store.get(view["session_id"])["session"]["status"] == "closed":
+                break
+            time.sleep(0.1)
+        self.assertEqual(w.store.get(view["session_id"])["session"]["status"], "closed")
+        again = w.tool(sa.web_open, {"url": w.origin + "/soft"})   # a fresh browser serves the next session
+        self.assertEqual((again["status"], again["title"]), ("done", "Soft navigation"))
+
+
+@unittest.skipUnless(REAL, "real Chromium only (RUN_BROWSER_FIXTURE=1)")
+class LateRenderTest(unittest.TestCase):
+    def test_the_click_snapshot_shows_what_the_page_drew_after_it(self):
+        # T-727 live run: "Show my briefing" drew the briefing after the snapshot; only a refresh showed it.
+        from playwright.sync_api import sync_playwright
+        from browser_runner.action_session import ActionSession
+        with fixture.FixtureSite() as site, sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            try:
+                context = browser.new_context()
+                session = ActionSession(context.new_page(), context, loopback=True)
+                policy = {"allow": [{"pattern": "127.0.0.1", "classes": ["read", "navigate"], "enabled": True}]}
+                opened = session.execute({"kind": "open", "url": site.url + "/later", "policy": policy})
+                page = opened.get("snapshot") or opened
+                ref = next(e["ref"] for e in page["elements"] if e.get("name") == "Show my briefing")
+                started = time.monotonic()
+                done = session.execute({"kind": "act", "action": "click", "ref": ref, "policy": policy})
+                page = done.get("snapshot") or done
+                self.assertEqual(done["status"], "done")
+                self.assertIn("Briefing ready", page["text"])
+                self.assertLess(time.monotonic() - started, 8)
+            finally:
+                browser.close()
+
+
+@unittest.skipUnless(REAL, "real Chromium only (RUN_BROWSER_FIXTURE=1)")
 class SoftNavigationTest(unittest.TestCase):
     def test_link_click_waits_for_in_page_navigation(self):
         # Live session 2026-11-23: a click on GitHub's Issues tab returned the old page; the URL changed a moment later.

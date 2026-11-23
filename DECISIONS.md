@@ -2406,3 +2406,68 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   key): the first visit waits for him, he signs in with Take over and presses "Save this login", which stores the
   session encrypted under that name. Reversible: unbind or delete the session in Access vault.
 - `/#vault` on the dashboard opens Access vault (the Surfer page links to it).
+
+## 2026-11-23 — T-726 `surfer_pending` for the Claude lane
+
+- Only the `claude` lane token may call it (owner's answer named Claude; ChatGPT/Gemini and the shared token get 403).
+  Widening it later is one constant, `surfer_owner.PENDING_LANES`.
+- It returns an allowlist of fields from the owner's pending list (`AGENT_FIELDS`): no screenshot link, no typed or
+  pending value, no page URL or title (both can carry personal data), no codes or cookies. The element label stays:
+  it is the button or field name the owner needs to recognise the request.
+- Read-only by construction: the tool takes no arguments; confirm / reject / code / takeover stay owner-only routes.
+- The element label is the site's text: it is cleaned (control and bidi characters removed, one line, ≤ 80 chars) and
+  listed in `page_text_fields`; the tool description tells the agent to show it as data, never follow it (Codex on #458).
+## 2026-11-23 — Surfer worker: a hard deadline per action command
+
+- Live run (parent session, 14:44 UTC): after a click on the MyBrief page the Surfer worker stopped serving everything
+  (actions and reads) until the 15-min loop watchdog. Reproduced on the fixture: a page whose script never returns keeps
+  `page.evaluate` (no timeout in Playwright) waiting forever, and after the driver dies every further Playwright call
+  waits forever too.
+- `ActionRunner.pump` arms a timer per command (`COMMAND_DEADLINE_SECONDS = 90`, above the 15 s step timeout and the
+  ~10 s settle/snapshot/screenshot). Past it the session is marked aborted (no more browser calls: empty snapshot, no
+  screenshot), the worker's child processes (Playwright driver + Chromium) get SIGKILL, the step reports
+  `worker_timeout`, the page is dropped, and the next claim closes the session as `worker_lost`. The next session or
+  read starts a fresh browser.
+- Only this command's browser is killed: the Playwright driver started by the runner (its pid, or the one new child
+  process at launch) and everything under it, computed at kill time and swept twice. If there is nothing to kill or
+  the call is still stuck 20 s after the kill, the worker exits with code 75 and systemd (Restart=always) starts a
+  fresh one: the hang never outlives ~2 minutes.
+- The deadline callback and command completion share a lock and a per-command token, so a callback that starts just
+  as the command finishes does nothing (Codex on #459).
+- The approved-upload download is its own bounded phase before the timer: 60 s end to end (streamed, size-capped);
+  on failure the step reports the file missing.
+- The exact call that hung on EC2 is not known (the egress proxy path cannot be reproduced here); the deadline covers any
+  stuck call. The T-714 loop watchdog stays the backstop for a hang outside an action command.
+
+## 2026-11-23 — Surfer worker: a self-watchdog inside the process
+
+- Live run: the Surfer worker stayed hung for 30+ min although its loop heartbeat promised 15 min, and the root
+  supervisor's watchdog (T-714, `factoryos-runner-supervisor.timer`) did not restart it. Why is not known from here
+  (EC2 output requested from the owner: timer status and `/var/lib/factoryos/supervisor-status.json`).
+- So the worker no longer depends on it alone: a daemon thread checks every 15 s that the main loop kept the deadline
+  of its last beat; past it the process exits (75) and systemd (`Restart=always`) starts a fresh worker. The thread
+  takes no browser or HTTP calls, so a stuck main thread cannot stop it.
+- A pass now promises 6 min instead of 15 (`TASK_BUDGET_SECONDS`): a read is ~90 s, an action command at most
+  60 s staging + 90 s deadline + 20 s grace + the result post. The root watchdog also acts sooner with the shorter
+  promise. Unit file unchanged: no install step for the owner.
+
+## 2026-11-23 — T-727 DOM quiet wait after a step
+
+- After click / press / select / check / back the session waits, after load states, until the page's DOM has not
+  changed for 500 ms, at most 3 s (a MutationObserver in the page, resolving by itself). Costs ≥ 0.5 s per such step;
+  a page that keeps animating costs the full 3 s. A page whose script never returns is the worker deadline's job (#459).
+
+## 2026-11-23 — Sidebar reaches every owner page; Surfer replaces the read-only «Browser agent» card
+- Owner 2026-11-23: standalone pages (`/static/surfer/`, `/static/linkedin/` …) had no link from the dashboard, the
+  «Browser agent» card (read-only page reader) made no sense on the home screen, and `/static/linkedin/` answered 404.
+- `/static` is now mounted with `html=True`: a directory URL serves its `index.html` (no-slash URL redirects to it).
+  `/static/` was already a public prefix, so no auth boundary changes; the pages hold no data, their APIs stay gated.
+- Sidebar: «Browser agent» → «Surfer» opens `/static/surfer/index.html`; new entries Google Sheets (automation),
+  Social autopilot / LinkedIn / OLX (review & publish), Decision Memory / MyBrief (MVP Builder). They open in the same
+  tab through `openFactoryPage(name)` with a fixed allowlist of page names, like Learning. LinkedIn and OLX keep their
+  brand names in every language.
+- The read-only card and its session picker left the dashboard; its JS stays (guarded, no element = no-op) and
+  MCP `web_read` is unchanged. The per-login agent switch remains in the vault drawer.
+- «Frequent» block at the top of the sidebar: per-browser click counts in `localStorage` (`factoryos_nav_usage`), the
+  top 4 destinations clicked at least twice; it delegates to the real nav button, hidden in the narrow icon rail.
+- Owner pages linkedin/olx/sheets/social/surfer got a «← FactoryOS» link back to the dashboard.

@@ -49,7 +49,14 @@ BEFORE = {
     "nav.settings": None,
     "mvp.nav": "openMvpFactory()",
     "mycast.nav": "openMyCastConfigurator()",
-    "nav.browser": "document.querySelector('.brAgentCard').scrollIntoView()",    # owner 2026-11-13: cards had no entry
+    "nav.browser": "openFactoryPage('surfer')",    # owner 2026-11-23: the sidebar opens the Surfer page; the read-only card is gone
+    # Owner 2026-11-23: every standalone owner page has a sidebar entry.
+    "nav.sheets": "openFactoryPage('sheets')",
+    "nav.social": "openFactoryPage('social')",
+    "nav.linkedin": "openFactoryPage('linkedin')",
+    "nav.olx": "openFactoryPage('olx')",
+    "nav.decisionMemory": "openFactoryPage('decision-memory')",
+    "nav.mybrief": "openFactoryPage('mybrief')",
     "nav.ownerHub": "document.querySelector('.ohCard').scrollIntoView()",
     "nav.strategy": "document.querySelector('.stratCard').scrollIntoView()",   # owner 2026-11-14: brand strategy
     "nav.learn": "openLearning()",   # owner 2026-11-14: one Learning section (my learning, explainers, guide)
@@ -119,7 +126,7 @@ def check_routes_and_groups(items):
     return [attr(b[1], "data-nav-id") for b in buttons]
 
 
-PRODUCT_NAMES = {"navGroup.mvp"}
+PRODUCT_NAMES = {"navGroup.mvp", "nav.linkedin", "nav.olx"}
 
 
 def check_locales(tables, nav_ids):
@@ -308,7 +315,7 @@ const out={runs:[],langs:{},fails};
 for(const job of [false,true])for(const id of IDS){
  const e=boot({job}),b=nav(e,id);tap(e,b.querySelector('[data-i18n]'));
  const r={id,job,calls:e.calls.slice(),toasts:e.toasts.slice(),top:e.top,current:current(e),aria:b.getAttribute('aria-current'),crumbs:crumbs(e),
-  scrolled:['pipelineCard','supervisor','errorCenterCard','jobs','brAgentCard','ohCard','stratCard','modsCard'].filter(c=>$$(e,'.'+c).scrolled),studio:$$(e,'#studio').classList.contains('open')};
+  scrolled:['pipelineCard','supervisor','errorCenterCard','jobs','ohCard','stratCard','modsCard'].filter(c=>$$(e,'.'+c).scrolled),studio:$$(e,'#studio').classList.contains('open')};
  if(r.studio){$$(e,'#studio').classList.remove('open');tick(e);r.after=current(e);r.afterCrumbs=crumbs(e)}
  out.runs.push(r);
 }
@@ -389,7 +396,7 @@ def dom_inputs(html, script, i18n, assigns, tr):
         re.search(r'<nav class="navCrumbs"[^>]*></nav>', html),
     ]
     require(all(markup), "sidebar, toggle, backdrop or breadcrumb markup not found for the behaviour run")
-    stubs = '<div id="studio" class="drawer"></div>' + "".join(f'<div class="{c}"></div>' for c in ("pipelineCard", "supervisor", "errorCenterCard", "jobs", "brAgentCard", "ohCard", "stratCard", "modsCard"))
+    stubs = '<div id="studio" class="drawer"></div>' + "".join(f'<div class="{c}"></div>' for c in ("pipelineCard", "supervisor", "errorCenterCard", "jobs", "ohCard", "stratCard", "modsCard"))
     block = re.search(r"^// --- nav:begin.*?^// --- nav:end$", script, re.S | re.M)
     require(block is not None, "nav script block markers missing")
     parts = [
