@@ -31,7 +31,7 @@ autocomplete="username"></label><label>Password <input type="password" name="pas
 autocomplete="current-password"></label><button type="submit">Sign in</button></form>%s"""
 
 # In-page navigation like GitHub or a single-page app: the URL changes a moment after the click, no new page load.
-SOFT = """<p>Soft navigation page.</p><a id="soft" href="/soft/next">Next section</a> <a id="same" href="/soft">This page</a>
+SOFT = """<p>Soft navigation page.</p><a id="soft" href="/soft/next">Next section</a>
 <script>document.getElementById('soft').addEventListener('click', function (e) { e.preventDefault();
 setTimeout(function () { history.pushState({}, '', '/soft/next'); document.querySelector('h1').textContent = 'Next section'; }, 1200);
 });</script>"""

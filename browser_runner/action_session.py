@@ -19,7 +19,6 @@ import base64
 import os
 import re
 import time
-from urllib.parse import urljoin
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -405,8 +404,8 @@ class ActionSession:
             before = str(self.page.url or "")
             locator.click(timeout=ms)
             href = str((element or {}).get("href") or "")
-            if href and not href.startswith("#") and not href.lower().startswith("javascript:") \
-                    and urljoin(before, href).split("#")[0] != before.split("#")[0]:
+            # A link to the page itself still waits: a single-page app may intercept it and navigate later (Codex on #457).
+            if href and not href.startswith("#") and not href.lower().startswith("javascript:"):
                 # Sites with in-page navigation (GitHub, SPAs) change the URL after the click returns and never fire a
                 # new load event: wait briefly for the URL to change so the snapshot shows the new page. "commit" so a
                 # same-document change does not also wait for the old page's resources; _settle() follows.
