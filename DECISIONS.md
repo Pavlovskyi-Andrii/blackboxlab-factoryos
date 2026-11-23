@@ -2485,4 +2485,12 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   `safe_to_start` is «unknown», never «yes». A PR whose file list is unreadable is reported as such.
 - Lane of a PR comes from its branch prefix (`claude/`, `chatgpt/`, `gemini/`; `ccr-…` = Claude cloud session).
 - The page defaults to Ukrainian when the browser language is not RU/EN (owner 2026-11-23: «відлагоджений UA UX»).
+- Review fixes (Codex review on PR #464): every open PR and every changed file is read with paging (300 PRs, 3000 files
+  per PR); more than that is reported as «unknown», never as a silent partial list. Relay claims are read from the whole
+  store, not the newest 500 tickets. `coordination_check` always reads GitHub fresh (the 120 s cache is for the owner
+  page only), and the lane is the authenticated MCP lane: a different `lane` argument is refused, the shared token gets
+  no same-lane exemption. Dependencies match exactly; a bare group number (`T-560`) resolves to its suffixed tasks.
+  Done rows are checked too (fixed ROADMAP T-608 «Depends: T-186» → «#186», an issue, not a task).
+- Not done here: two agents calling `coordination_check` at the same moment can both get «yes». The check is advisory;
+  the exclusive start is the existing atomic Relay claim (`claim_handoff` / `claim_roadmap`, one active claim per scope).
 

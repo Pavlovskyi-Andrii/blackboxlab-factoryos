@@ -96,9 +96,18 @@ def _lane_of_pr(pr: dict) -> str:
     return "unknown"
 
 
+def _dependency_known(dep: str, known: set) -> bool:
+    """Exact ID, or a group number with suffixed tasks (``T-560`` when ``T-560-A`` exists). A suffixed dependency
+    (``T-729-B``) must exist exactly: the base task alone does not define it."""
+    if dep in known:
+        return True
+    return re.fullmatch(r"T-(?:\d+|[A-Z]+)", dep) is not None and any(k.startswith(dep + "-") for k in known)
+
+
 def build_report(roadmap_text: Optional[str], prs: Optional[list], claims: Optional[list],
-                 handoffs: Optional[list], *, now: str = "") -> dict:
-    """The coordination report. ``None`` for a source means "could not be read", ``[]`` means "read, empty"."""
+                 handoffs: Optional[list], *, now: str = "", prs_truncated: bool = False) -> dict:
+    """The coordination report. ``None`` for a source means "could not be read", ``[]`` means "read, empty".
+    ``prs_truncated``: GitHub has more open PRs than were read, so the PR list is not known to be complete."""
     findings: list[dict] = []
     sources = {"roadmap": roadmap_text is not None, "github": prs is not None,
                "relay": claims is not None, "handoffs": handoffs is not None}
@@ -116,8 +125,8 @@ def build_report(roadmap_text: Optional[str], prs: Optional[list], claims: Optio
                 titles=[r["title"] for r in rows])
     known = set(by_id)
     for t in tasks:
-        missing = [d for d in t["depends"] if d not in known and d.split("-")[0] + "-" + d.split("-")[1] not in known]
-        if missing and not t["done"]:
+        missing = [d for d in t["depends"] if not _dependency_known(d, known)]
+        if missing:
             add("warning", "unknown_dependency", task_ids=[t["id"]], depends=missing, lines=[t["line"]])
     status_of = {tid: rows[0] for tid, rows in by_id.items()}
 
@@ -194,6 +203,9 @@ def build_report(roadmap_text: Optional[str], prs: Optional[list], claims: Optio
     for name, ok in sources.items():
         if not ok:
             add("unknown", "source_unreadable", source=name)
+    if prs is not None and prs_truncated:
+        add("unknown", "github_truncated", source="github", detail="more open PRs than were read")
+    sources["github_complete"] = prs is not None and not prs_truncated
 
     findings.sort(key=lambda f: (SEVERITY_RANK.get(f["severity"], 9), f["code"], str(f.get("task_ids") or f.get("prs") or "")))
     counts = {s: sum(1 for f in findings if f["severity"] == s) for s in SEVERITY_RANK}

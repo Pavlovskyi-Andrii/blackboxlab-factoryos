@@ -31,6 +31,7 @@ from telegram_group import GroupBridge, GROUP_TYPES as TELEGRAM_GROUP_TYPES
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
 import coordination
+from github_pages import fetch_all
 from operator_lanes import build_operator_lanes
 from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
@@ -13222,30 +13223,54 @@ def factory_lane_board(request: Request):
     return get_lane_board()
 
 # T-729 Coordination guard: ROADMAP IDs + open PRs (with changed files) + Relay claims + handoffs -> duplicates/overlaps.
-_COORDINATION_CACHE={"at":0.0,"prs":None}
+_COORDINATION_CACHE={"at":0.0,"prs":None,"truncated":False}
 _COORDINATION_LOCK=threading.Lock()
-COORDINATION_TTL=120
+COORDINATION_TTL=120          # owner page only; the agent pre-start check always reads GitHub fresh
+COORDINATION_MAX_PR_PAGES=3   # 300 open PRs; more = "truncated" = unknown, never a silent partial list
+COORDINATION_MAX_FILE_PAGES=30  # GitHub lists at most 3000 files per PR; a longer list is unknown
 
-def _coordination_open_prs(fetch=None,max_prs=25):
-    """Open PRs with their changed files from GitHub (read token). None = GitHub unreadable; a PR whose file list
-    could not be read keeps files=None, so the report says "unknown" instead of "no overlap"."""
+def _coordination_open_prs(fetch=None):
+    """Every open PR with its full list of changed files: ``(prs, truncated)``. ``(None, False)`` = GitHub unreadable.
+    A PR whose files could not be read completely keeps files=None, so the report says "unknown", not "no overlap"."""
     token=_github_read_token()
-    if fetch is None and not token:return None
+    if fetch is None and not token:return None,False
     fetch=fetch or github_fetcher(GITHUB_REPO,token)
-    try:pulls=fetch("/pulls?state=open&per_page=50&sort=updated&direction=desc")
-    except Exception:return None
-    if not isinstance(pulls,list):return None
+    try:pulls,truncated=fetch_all(fetch,"/pulls?state=open&sort=updated&direction=desc",max_pages=COORDINATION_MAX_PR_PAGES)
+    except Exception:return None,False
     out=[]
-    for p in pulls[:max_prs]:
+    for p in pulls:
         if not isinstance(p,dict):continue
         files=None
         try:
-            got=fetch(f"/pulls/{int(p.get('number') or 0)}/files?per_page=100")
-            if isinstance(got,list):files=[str(f.get("filename") or "") for f in got if isinstance(f,dict) and f.get("filename")]
+            got,cut=fetch_all(fetch,f"/pulls/{int(p.get('number') or 0)}/files",max_pages=COORDINATION_MAX_FILE_PAGES)
+            if not cut:files=[str(f.get("filename") or "") for f in got if isinstance(f,dict) and f.get("filename")]
         except Exception:files=None
         out.append({"number":p.get("number"),"title":str(p.get("title") or ""),"branch":str((p.get("head") or {}).get("ref") or ""),
                     "url":str(p.get("html_url") or ""),"draft":bool(p.get("draft")),"files":files})
-    return out
+    return out,truncated
+
+def _coordination_claims():
+    """Active claims of ROADMAP tasks from the whole Relay store (not a newest-N window). None = Relay unreadable."""
+    try:
+        with RELAY_STORE.lock:
+            tickets=[dict(x) for x in RELAY_STORE._load_unlocked()["tickets"] if isinstance(x,dict)]
+        claims=[]
+        for t in tickets:
+            src=t.get("source") or {}
+            if src.get("channel")!="roadmap":continue
+            ex=(RELAY_QUEUE.view(dict(t)).get("execution") or {})
+            if str(ex.get("state") or "") not in coordination.ACTIVE_CLAIM_STATES:continue
+            claims.append({"ticket":t.get("id"),"task_id":src.get("task_id"),"lane":ex.get("owner") or src.get("owner") or "",
+                           "state":ex.get("state") or "","title":t.get("title") or ""})
+        return claims
+    except Exception:return None
+
+def _coordination_handoffs():
+    try:
+        with RELAY_STORE.lock:
+            ws=AGENT_WORKSPACE._ws(RELAY_STORE._load_unlocked())
+            return [dict(h) for h in ws["handoffs"] if isinstance(h,dict)]
+    except Exception:return None
 
 def get_coordination_report(fetch=None,refresh=False):
     roadmap_path=BASE/"ROADMAP.md"
@@ -13253,22 +13278,13 @@ def get_coordination_report(fetch=None,refresh=False):
     except OSError:roadmap=None
     with _COORDINATION_LOCK:
         if refresh or fetch is not None or time.time()-_COORDINATION_CACHE["at"]>COORDINATION_TTL or _COORDINATION_CACHE["prs"] is None:
-            _COORDINATION_CACHE.update(prs=_coordination_open_prs(fetch),at=time.time())
-        prs=_COORDINATION_CACHE["prs"]
-    try:
-        claims=[]
-        for t in RELAY_STORE.list(limit=500):
-            src=t.get("source") or {}
-            if src.get("channel")!="roadmap":continue
-            ex=(RELAY_QUEUE.view(dict(t)).get("execution") or {})
-            claims.append({"ticket":t.get("id"),"task_id":src.get("task_id"),"lane":ex.get("owner") or src.get("owner") or "",
-                           "state":ex.get("state") or "","title":t.get("title") or ""})
-    except Exception:claims=None
-    try:handoffs=AGENT_WORKSPACE.overview().get("handoffs") or []
-    except Exception:handoffs=None
-    report=coordination.build_report(roadmap,prs,claims,handoffs)
+            prs,truncated=_coordination_open_prs(fetch)
+            _COORDINATION_CACHE.update(prs=prs,truncated=truncated,at=time.time())
+        prs,truncated,read_at=_COORDINATION_CACHE["prs"],_COORDINATION_CACHE["truncated"],_COORDINATION_CACHE["at"]
+    report=coordination.build_report(roadmap,prs,_coordination_claims(),_coordination_handoffs(),prs_truncated=truncated)
     report["next_free_id"]=coordination.next_free_id(report)
     report["cache_seconds"]=COORDINATION_TTL
+    report["github_read_age_seconds"]=round(max(0.0,time.time()-read_at)) if prs is not None else None
     return report
 
 @app.get("/api/factory/coordination")
@@ -13279,12 +13295,17 @@ def factory_coordination(request: Request, refresh: int = 0):
     return _redact_board_value(coordination.public_view(report),_board_secret_values())
 
 def _coordination_check_tool(args,lane):
-    """T-729 MCP coordination_check: read-only pre-start answer for any authorized caller."""
-    report=get_coordination_report()
+    """T-729 MCP coordination_check: read-only pre-start answer. Always a fresh GitHub read (no dashboard cache).
+    The lane is the authenticated MCP lane; a different ``lane`` argument is refused. With the shared token no lane is
+    proven, so no same-lane exemption applies."""
     files=args.get("files") or []
     if not isinstance(files,list):raise ValueError("files must be a list of repository paths")
-    out=coordination.agent_check(report,str(args.get("task_id") or ""),[str(f)[:300] for f in files[:200]],
-                                 str(args.get("lane") or lane or ""))
+    asked=str(args.get("lane") or "").strip().lower()
+    if lane and asked and asked!=lane:raise ValueError("lane does not match your MCP lane token")
+    report=get_coordination_report(refresh=True)
+    out=coordination.agent_check(report,str(args.get("task_id") or ""),[str(f)[:300] for f in files[:200]],lane or "")
+    out["lane"]=lane or None
+    if not lane:out["lane_note"]="shared token: no lane proven, so no same-lane exemption was applied"
     return _redact_board_value(out,_board_secret_values())
 
 def _board_secret_values():

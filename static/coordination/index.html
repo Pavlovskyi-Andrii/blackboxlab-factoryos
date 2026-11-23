@@ -61,8 +61,9 @@ uk:{title:"Координація: без дублів",sub:"Сервер зві
    unknown_dependency:["Задача {task} залежить від неіснуючої {deps}","Виправте рядок Depends: у ROADMAP."],
    claimed_by_other_lane:["Задачу {task} взяв {lanes}, а власник у ROADMAP — {owner}","Перевірте, чи це узгоджена передача."],
    pr_files_unreadable:["Не вдалося прочитати файли PR {prs}","Перетин файлів для нього невідомий. Спробуйте «Оновити» пізніше."],
+   github_truncated:["Відкритих PR більше, ніж прочитано","Список PR неповний, тому перетини невідомі. Закрийте застарілі PR або оновіть пізніше."],
    source_unreadable:["Джерело «{source}» не прочитано","Для GitHub потрібен ключ читання FACTORY_GITHUB_READ_TOKEN у Render; без нього перетини PR невідомі."]},
- src:{roadmap:"ROADMAP",github:"GitHub",relay:"Relay",handoffs:"передачі"},ledger:"Спільні службові файли (ROADMAP, DECISIONS, CI) змінюють кілька PR — це нормально, але при злитті можливі конфлікти рядків:",
+ src:{roadmap:"ROADMAP",github:"GitHub",relay:"Relay",handoffs:"передачі",github_complete:"усі PR"},ledger:"Спільні службові файли (ROADMAP, DECISIONS, CI) змінюють кілька PR — це нормально, але при злитті можливі конфлікти рядків:",
  how:"Як це працює і що перевіряється",
  howList:["Один номер задачі — один рядок у ROADMAP.","Одна задача — один виконавець: PR, claim у Relay і передача не повинні розходитися між агентами.","Два відкриті PR не змінюють той самий код.","Агенти питають те саме через інструмент MCP <code>coordination_check</code> перед тим, як узяти задачу.","Тест CI <code>test_roadmap_integrity.py</code> не пропускає дублікати номерів у main."],
  err:"Не вдалося завантажити: {e}",signin:"Увійдіть у FactoryOS як власник."},
@@ -83,8 +84,9 @@ ru:{title:"Координация: без дублей",sub:"Сервер све
    unknown_dependency:["Задача {task} зависит от несуществующей {deps}","Исправьте строку Depends: в ROADMAP."],
    claimed_by_other_lane:["Задачу {task} взял {lanes}, а владелец в ROADMAP — {owner}","Проверьте, согласованная ли это передача."],
    pr_files_unreadable:["Не удалось прочитать файлы PR {prs}","Пересечение файлов для него неизвестно. Попробуйте «Обновить» позже."],
+   github_truncated:["Открытых PR больше, чем прочитано","Список PR неполный, поэтому пересечения неизвестны. Закройте устаревшие PR или обновите позже."],
    source_unreadable:["Источник «{source}» не прочитан","Для GitHub нужен ключ чтения FACTORY_GITHUB_READ_TOKEN в Render; без него пересечения PR неизвестны."]},
- src:{roadmap:"ROADMAP",github:"GitHub",relay:"Relay",handoffs:"передачи"},ledger:"Общие служебные файлы (ROADMAP, DECISIONS, CI) меняют несколько PR — это нормально, но при слиянии возможны конфликты строк:",
+ src:{roadmap:"ROADMAP",github:"GitHub",relay:"Relay",handoffs:"передачи",github_complete:"все PR"},ledger:"Общие служебные файлы (ROADMAP, DECISIONS, CI) меняют несколько PR — это нормально, но при слиянии возможны конфликты строк:",
  how:"Как это работает и что проверяется",
  howList:["Один номер задачи — одна строка в ROADMAP.","Одна задача — один исполнитель: PR, claim в Relay и передача не должны расходиться между агентами.","Два открытых PR не меняют один и тот же код.","Агенты спрашивают то же через инструмент MCP <code>coordination_check</code> перед тем, как взять задачу.","Тест CI <code>test_roadmap_integrity.py</code> не пропускает дубли номеров в main."],
  err:"Не удалось загрузить: {e}",signin:"Войдите в FactoryOS как владелец."},
@@ -105,8 +107,9 @@ en:{title:"Coordination: no duplicate work",sub:"The server cross-checks ROADMAP
    unknown_dependency:["Task {task} depends on unknown {deps}","Fix the Depends: line in ROADMAP."],
    claimed_by_other_lane:["Task {task} was claimed by {lanes}, but its ROADMAP owner is {owner}","Check that this handoff was agreed."],
    pr_files_unreadable:["Could not read the files of PR {prs}","File overlap for it is unknown. Try Refresh later."],
+   github_truncated:["More open PRs than were read","The PR list is incomplete, so overlaps are unknown. Close stale PRs or refresh later."],
    source_unreadable:["Source “{source}” was not read","GitHub needs the read key FACTORY_GITHUB_READ_TOKEN in Render; without it PR overlaps are unknown."]},
- src:{roadmap:"ROADMAP",github:"GitHub",relay:"Relay",handoffs:"handoffs"},ledger:"Shared ledger files (ROADMAP, DECISIONS, CI) are changed by several PRs. That is expected, but merges may conflict on lines:",
+ src:{roadmap:"ROADMAP",github:"GitHub",relay:"Relay",handoffs:"handoffs",github_complete:"all PRs"},ledger:"Shared ledger files (ROADMAP, DECISIONS, CI) are changed by several PRs. That is expected, but merges may conflict on lines:",
  how:"How it works and what is checked",
  howList:["One task number, one ROADMAP line.","One task, one executor: a PR, a Relay claim and a handoff must not split between agents.","Two open PRs do not change the same code.","Agents ask the same through the MCP tool <code>coordination_check</code> before taking a task.","The CI test <code>test_roadmap_integrity.py</code> blocks duplicate task numbers on main."],
  err:"Could not load: {e}",signin:"Sign in to FactoryOS as the owner."}};
@@ -125,7 +128,7 @@ function paint(){
  if(!R){$('#hero').innerHTML=`<p class="empty">${esc(t('loading'))}</p>`;return}
  const v=R.verdict,icon={clear:'✓',attention:'!',conflict:'×',unknown:'?'}[v]||'?';
  const w=R.work||[],n=k=>w.filter(x=>x.kind===k).length,rm=R.roadmap||{},S=R.sources||{};
- const src=Object.entries(R.sources||{}).map(([k,ok])=>`<span class="chip ${ok?'ok':'unknown'}">${ok?'✓':'?'} ${esc(t('src')[k]||k)}</span>`).join('');
+ const src=Object.entries(S).filter(([k])=>!(k==='github_complete'&&!S.github)).map(([k,ok])=>`<span class="chip ${ok?'ok':'unknown'}">${ok?'✓':'?'} ${esc(t('src')[k]||k)}</span>`).join('');
  $('#hero').className='card v-'+v;
  $('#hero').innerHTML=`<div class="hero"><div class="dot" aria-hidden="true">${icon}</div><div><b>${esc(t('v')[v])}</b><small>${esc(t('vd')[v])}</small><div style="margin-top:6px">${src}</div></div></div>
  <div class="stats">${[[rm.tasks,'tasks'],[rm.open,'open'],[rm.open_human,'human'],[S.github?n('pr'):null,'prs'],[S.relay?n('claim'):null,'claims'],[S.handoffs?n('handoff'):null,'handoffs']].map(([x,k])=>`<div class="stat"><span>${x??'—'}</span><small>${esc(t('st')[k])}</small></div>`).join('')}

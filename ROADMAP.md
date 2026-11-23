@@ -882,7 +882,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 - [x] T-608 A/B Tester S1 — experiment model and API inside the MVP registry
   Owner: claude
   Priority: P2 (owner said "бери A/B Tester, начни с S1" 2026-11-14)
-  Depends: T-186 registry (#186), #330 merged
+  Depends: #186 registry, #330 merged
   Spec: docs/reviews/MVP_AB_TESTER_S0_REVIEW.md §2.8, §4 corrections 1–13, §6.1–6.2
   Goal: `projects[pid].experiments[exp]` with exactly two branches a/b; SEGMENT_COMPARISON (never a winner) or CONTROLLED_AB (draft only); per-branch, per-revision owner preview approval; owner decision closes; no metrics/publish/spend/outreach writes; copy deny-list; project stage untouched.
   DONE: `python test_mvp_experiments.py` and the MVP suites pass; default verification passes.

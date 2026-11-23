@@ -95,6 +95,22 @@ class ReportTest(unittest.TestCase):
         self.assertIn("pr_files_unreadable", {f["code"] for f in r["findings"]})
 
 
+class DependencyTest(unittest.TestCase):
+    def test_suffixed_dependency_must_exist_exactly(self):
+        text = ROADMAP.replace(", T-999", ", T-729-BOG")
+        bad = [f for f in co.build_report(text, [], [], [])["findings"] if f["code"] == "unknown_dependency"]
+        self.assertEqual(bad[0]["depends"], ["T-729-BOG"])
+
+    def test_group_number_resolves_to_its_suffixed_tasks(self):
+        text = ROADMAP.replace(", T-999", ", T-725")   # only T-725-H exists: T-725 names the group
+        self.assertNotIn("unknown_dependency", {f["code"] for f in co.build_report(text, [], [], [])["findings"]})
+
+    def test_done_rows_are_checked_too(self):
+        text = ROADMAP.replace(", T-999", "").replace("  Depends: T-726\n", "  Depends: T-555\n")
+        bad = [f for f in co.build_report(text, [], [], [])["findings"] if f["code"] == "unknown_dependency"]
+        self.assertEqual((bad[0]["task_ids"], bad[0]["depends"]), (["T-727"], ["T-555"]))
+
+
 class AgentCheckTest(unittest.TestCase):
     def setUp(self):
         self.report = co.build_report(ROADMAP.replace(", T-999", ""),
@@ -123,6 +139,12 @@ class AgentCheckTest(unittest.TestCase):
         report = co.build_report(ROADMAP, None, [], [])
         self.assertEqual(co.agent_check(report, "T-800", ["x.py"])["safe_to_start"], "unknown")
 
+    def test_truncated_pr_list_is_unknown(self):
+        report = co.build_report(ROADMAP.replace(", T-999", ""), [], [], [], prs_truncated=True)
+        self.assertEqual(report["verdict"], "unknown")
+        self.assertIn("github_truncated", {f["code"] for f in report["findings"]})
+        self.assertEqual(co.agent_check(report, "T-800", ["x.py"])["safe_to_start"], "unknown")
+
     def test_bad_task_id_is_refused(self):
         with self.assertRaises(ValueError):
             co.agent_check(self.report, "rm -rf", [])
@@ -138,13 +160,20 @@ class AppTest(unittest.TestCase):
         cls.factory, cls.lane_tokens, cls.shared, cls.mcp_call = factory, LANE_TOKENS, SHARED, staticmethod(mcp_call)
 
     def fake_github(self, pulls, files):
+        """GitHub double with real paging (per_page / page), so limits are exercised the way GitHub applies them."""
+        from urllib.parse import parse_qs, urlparse
+
         def fetch(path):
+            q = parse_qs(urlparse(path).query)
+            per, page = int(q.get("per_page", ["30"])[0]), int(q.get("page", ["1"])[0])
             if path.startswith("/pulls?"):
-                return pulls
-            number = int(path.split("/")[2])
-            if files.get(number) == "boom":
-                raise OSError("github down")
-            return [{"filename": f} for f in files.get(number, [])]
+                rows = pulls
+            else:
+                number = int(path.split("/")[2])
+                if files.get(number) == "boom":
+                    raise OSError("github down")
+                rows = [{"filename": f} for f in files.get(number, [])]
+            return rows[(page - 1) * per: page * per]
         return fetch
 
     def test_report_reads_open_prs_and_their_files(self):
@@ -163,9 +192,79 @@ class AppTest(unittest.TestCase):
         self.assertIn("pr_files_unreadable", {f["code"] for f in report["findings"]})
         self.assertNotEqual(report["verdict"], "clear")
 
+    def test_conflict_in_pr_26_and_on_file_101_is_found(self):
+        pulls = [{"number": n, "title": "p%d" % n, "head": {"ref": "gemini/p%d" % n}} for n in range(1, 32)]
+        files = {n: ["docs/p%d.md" % n] for n in range(1, 32)}
+        files[26] = ["docs/f%03d.md" % i for i in range(100)] + ["app.py"]   # app.py is file 101 of PR 26
+        files[3] = ["app.py"]
+        report = self.factory.get_coordination_report(fetch=self.fake_github(pulls, files))
+        f = [x for x in report["findings"] if x["code"] == "pr_file_overlap"]
+        self.assertEqual((sorted(f[0]["prs"]), f[0]["files"]), (["#26", "#3"], ["app.py"]))
+        self.assertTrue(report["sources"]["github_complete"])
+
+    def test_more_prs_than_the_page_limit_are_unknown(self):
+        pulls = [{"number": n, "title": "p", "head": {"ref": "claude/p"}} for n in range(1, 302)]
+        with mock.patch.object(self.factory, "COORDINATION_MAX_PR_PAGES", 3):
+            report = self.factory.get_coordination_report(fetch=self.fake_github(pulls, {}))
+        self.assertEqual(report["verdict"], "unknown")
+        self.assertIn("github_truncated", {f["code"] for f in report["findings"]})
+
+    def test_too_many_files_in_one_pr_are_unknown(self):
+        pulls = [{"number": 9, "title": "big", "head": {"ref": "claude/big"}}]
+        with mock.patch.object(self.factory, "COORDINATION_MAX_FILE_PAGES", 2):
+            report = self.factory.get_coordination_report(fetch=self.fake_github(pulls, {9: ["f%d" % i for i in range(250)]}))
+        self.assertIn("pr_files_unreadable", {f["code"] for f in report["findings"]})
+
+    def test_active_claim_beyond_the_newest_500_tickets_is_seen(self):
+        store = self.factory.RELAY_STORE
+        with store.lock:
+            state = store._load_unlocked()
+            saved = list(state["tickets"])
+            old = {"id": "R-OLD1", "title": "T-777 old claim", "status": "working", "created_at": "2020-01-01T00:00:00+00:00",
+                   "updated_at": "2020-01-01T00:00:00+00:00", "source": {"channel": "roadmap", "task_id": "T-777", "owner": "gemini"},
+                   "execution": {"state": "running", "owner": "gemini", "claimed_at": "2099-01-01T00:00:00+00:00",
+                                 "last_seen_at": "2099-01-01T00:00:00+00:00"}}
+            filler = [{"id": "R-F%04d" % i, "title": "f", "status": "done", "created_at": "2026-11-23T00:00:00+00:00",
+                       "updated_at": "2026-11-23T00:00:%02d+00:00" % (i % 60), "source": {"channel": "telegram"}} for i in range(600)]
+            state["tickets"] = filler + [old]
+            store._save_unlocked(state)
+        try:
+            claims = self.factory._coordination_claims()
+            self.assertEqual([c["task_id"] for c in claims], ["T-777"])
+        finally:
+            with store.lock:
+                state = store._load_unlocked()
+                state["tickets"] = saved
+                store._save_unlocked(state)
+
+    def test_mcp_lane_comes_from_the_token(self):
+        call = {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {"name": "coordination_check", "arguments": {"task_id": "T-800", "lane": "claude"}}}
+        with mock.patch.object(self.factory, "_coordination_open_prs", return_value=([], False)):
+            _, out = self.mcp_call(self.factory, call, self.lane_tokens["chatgpt"])
+            self.assertTrue(out["result"].get("isError"))
+            self.assertIn("lane", out["result"]["content"][0]["text"])
+            _, out = self.mcp_call(self.factory, call, self.lane_tokens["claude"])
+            self.assertFalse(out["result"].get("isError"), out)
+            self.assertEqual(json.loads(out["result"]["content"][0]["text"])["lane"], "claude")
+            _, out = self.mcp_call(self.factory, call, self.shared)        # shared token: no lane proven
+            body = json.loads(out["result"]["content"][0]["text"])
+            self.assertIsNone(body["lane"])
+            self.assertIn("lane_note", body)
+
+    def test_mcp_check_reads_github_fresh_inside_the_page_cache_window(self):
+        reads = iter([([], False), ([{"number": 50, "title": "new", "branch": "gemini/x", "url": "", "files": ["film_studio/a.py"]}], False)])
+        with mock.patch.object(self.factory, "_coordination_open_prs", side_effect=lambda fetch=None: next(reads)):
+            self.factory.get_coordination_report(refresh=True)          # owner page snapshot: no PRs
+            call = {"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                    "params": {"name": "coordination_check", "arguments": {"files": ["film_studio/a.py"]}}}
+            _, out = self.mcp_call(self.factory, call, self.lane_tokens["claude"])
+        body = json.loads(out["result"]["content"][0]["text"])
+        self.assertEqual(body["safe_to_start"], "no", body)
+
     def test_no_read_token_means_github_unknown(self):
         with mock.patch.object(self.factory, "_github_read_token", return_value=""):
-            self.assertIsNone(self.factory._coordination_open_prs())
+            self.assertEqual(self.factory._coordination_open_prs(), (None, False))
 
     def test_api_is_owner_only(self):
         from fastapi import HTTPException
@@ -176,7 +275,7 @@ class AppTest(unittest.TestCase):
                 self.factory.factory_coordination(req)
             self.assertEqual(ctx.exception.status_code, 403)
         with mock.patch.object(self.factory, "request_identity", return_value={"role": "owner"}), \
-                mock.patch.object(self.factory, "_coordination_open_prs", return_value=[]):
+                mock.patch.object(self.factory, "_coordination_open_prs", return_value=([], False)):
             body = self.factory.factory_coordination(req, refresh=1)
         self.assertIn(body["verdict"], ("clear", "attention"))
         self.assertFalse([k for k in body if k.startswith("_")])
@@ -186,8 +285,7 @@ class AppTest(unittest.TestCase):
         self.assertIn("coordination_check", {t["name"] for t in listed["result"]["tools"]})
         call = {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                 "params": {"name": "coordination_check", "arguments": {"task_id": "T-726", "files": ["coordination.py"]}}}
-        with mock.patch.object(self.factory, "_coordination_open_prs", return_value=[]):
-            self.factory._COORDINATION_CACHE["at"] = 0
+        with mock.patch.object(self.factory, "_coordination_open_prs", return_value=([], False)):
             _, out = self.mcp_call(self.factory, call, self.lane_tokens["chatgpt"])
         self.assertFalse(out["result"].get("isError"), out)
         body = json.loads(out["result"]["content"][0]["text"])
