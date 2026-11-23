@@ -129,6 +129,17 @@ class RouteAuthFixes(unittest.TestCase):
         self.assertIn(b"launchpad.html?project='+encodeURIComponent(p.id)", cards)
 
 
+class StaticDirectoryIndexTest(unittest.TestCase):
+    def test_directory_urls_serve_their_index_page(self):
+        # Owner 2026-11-23: the T-700-H runbook link /static/linkedin/ answered 404.
+        for name, marker in (("linkedin", b"FactoryOS \xc2\xb7 LinkedIn"), ("surfer", b"FactoryOS \xc2\xb7 Surfer"), ("olx", b"FactoryOS \xc2\xb7 OLX")):
+            status, page = call("GET", f"/static/{name}/")
+            self.assertEqual(status, 200, name)
+            self.assertIn(marker, page)
+            self.assertIn(b'<a href="/"', page)   # every owner page leads back to the dashboard
+        self.assertEqual(call("GET", "/static/no-such-page/")[0], 404)
+
+
 class BridgeTokenTest(unittest.TestCase):
     def test_c4_dedicated_bridge_token_replaces_the_mcp_token(self):
         class Req:
