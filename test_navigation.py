@@ -52,6 +52,7 @@ BEFORE = {
     "nav.browser": "openFactoryPage('surfer')",    # owner 2026-11-23: the sidebar opens the Surfer page; the read-only card is gone
     # Owner 2026-11-23: every standalone owner page has a sidebar entry.
     "nav.sheets": "openFactoryPage('sheets')",
+    "nav.coordination": "openFactoryPage('coordination')",   # T-729: duplicate / overlap guard
     "nav.social": "openFactoryPage('social')",
     "nav.linkedin": "openFactoryPage('linkedin')",
     "nav.olx": "openFactoryPage('olx')",

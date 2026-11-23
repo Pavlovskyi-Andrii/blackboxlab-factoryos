@@ -2471,3 +2471,18 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - «Frequent» block at the top of the sidebar: per-browser click counts in `localStorage` (`factoryos_nav_usage`), the
   top 4 destinations clicked at least twice; it delegates to the real nav button, hidden in the narrow icon rail.
 - Owner pages linkedin/olx/sheets/social/surfer got a «← FactoryOS» link back to the dashboard.
+
+## 2026-11-23 — T-729 Coordination guard (owner Notion ТЗ «аудит стану й master ТЗ Claude», step 1)
+- The reconciliation that the ТЗ asks for once is now permanent: `coordination.py` is a pure function over ROADMAP.md, open
+  PRs with changed files, active Relay claims and handoffs; the owner page `/static/coordination/` and the MCP tool
+  `coordination_check` render the same report. Read-only: it never claims, releases or starts anything.
+- Found by the 2026-11-23 reconciliation: the #452 UX branch `ccr-d27f8b6b-foz7f7` (no PR yet) reused T-726/T-727/T-728,
+  while main already has T-726/T-727 (Surfer). That session was asked to renumber to T-731..T-733; T-729 is this guard,
+  T-730 the AI Film Studio S1 session (#433). `test_roadmap_integrity.py` now fails CI on a duplicate number.
+- Shared ledger files (ROADMAP.md, DECISIONS.md, README.md, CLAUDE.md, AGENTS.md, ci.yml, smoke_tests.py,
+  .autopilot/*) are edited by every PR on purpose; they are listed separately, not as code overlap.
+- Unknown is not success: without `FACTORY_GITHUB_READ_TOKEN` (or when GitHub fails) the verdict is «unknown» and
+  `safe_to_start` is «unknown», never «yes». A PR whose file list is unreadable is reported as such.
+- Lane of a PR comes from its branch prefix (`claude/`, `chatgpt/`, `gemini/`; `ccr-…` = Claude cloud session).
+- The page defaults to Ukrainian when the browser language is not RU/EN (owner 2026-11-23: «відлагоджений UA UX»).
+

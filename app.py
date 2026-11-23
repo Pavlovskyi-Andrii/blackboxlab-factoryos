@@ -30,6 +30,7 @@ from voice_transcribe import VoiceTranscriber
 from telegram_group import GroupBridge, GROUP_TYPES as TELEGRAM_GROUP_TYPES
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
+import coordination
 from operator_lanes import build_operator_lanes
 from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
@@ -2059,7 +2060,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS
+]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2122,6 +2123,9 @@ async def factory_mcp(request: Request):
             elif name in google_sheets.MCP_TOOL_NAMES:
                 # T-725: owner-registered spreadsheets only, per-lane token required (the shared token is refused).
                 result=_factory_mcp_text(await asyncio.to_thread(google_sheets.call_tool,GOOGLE_SHEETS,name,args,mcp_lane or ""))
+            elif name in coordination.MCP_TOOL_NAMES:
+                # T-729: may this lane start this task / change these files without duplicating open work?
+                result=_factory_mcp_text(await asyncio.to_thread(_coordination_check_tool,args,mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -13216,6 +13220,72 @@ def factory_lane_board(request: Request):
     identity=request_identity(request) or {}
     if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
     return get_lane_board()
+
+# T-729 Coordination guard: ROADMAP IDs + open PRs (with changed files) + Relay claims + handoffs -> duplicates/overlaps.
+_COORDINATION_CACHE={"at":0.0,"prs":None}
+_COORDINATION_LOCK=threading.Lock()
+COORDINATION_TTL=120
+
+def _coordination_open_prs(fetch=None,max_prs=25):
+    """Open PRs with their changed files from GitHub (read token). None = GitHub unreadable; a PR whose file list
+    could not be read keeps files=None, so the report says "unknown" instead of "no overlap"."""
+    token=_github_read_token()
+    if fetch is None and not token:return None
+    fetch=fetch or github_fetcher(GITHUB_REPO,token)
+    try:pulls=fetch("/pulls?state=open&per_page=50&sort=updated&direction=desc")
+    except Exception:return None
+    if not isinstance(pulls,list):return None
+    out=[]
+    for p in pulls[:max_prs]:
+        if not isinstance(p,dict):continue
+        files=None
+        try:
+            got=fetch(f"/pulls/{int(p.get('number') or 0)}/files?per_page=100")
+            if isinstance(got,list):files=[str(f.get("filename") or "") for f in got if isinstance(f,dict) and f.get("filename")]
+        except Exception:files=None
+        out.append({"number":p.get("number"),"title":str(p.get("title") or ""),"branch":str((p.get("head") or {}).get("ref") or ""),
+                    "url":str(p.get("html_url") or ""),"draft":bool(p.get("draft")),"files":files})
+    return out
+
+def get_coordination_report(fetch=None,refresh=False):
+    roadmap_path=BASE/"ROADMAP.md"
+    try:roadmap=roadmap_path.read_text(encoding="utf-8") if roadmap_path.exists() else None
+    except OSError:roadmap=None
+    with _COORDINATION_LOCK:
+        if refresh or fetch is not None or time.time()-_COORDINATION_CACHE["at"]>COORDINATION_TTL or _COORDINATION_CACHE["prs"] is None:
+            _COORDINATION_CACHE.update(prs=_coordination_open_prs(fetch),at=time.time())
+        prs=_COORDINATION_CACHE["prs"]
+    try:
+        claims=[]
+        for t in RELAY_STORE.list(limit=500):
+            src=t.get("source") or {}
+            if src.get("channel")!="roadmap":continue
+            ex=(RELAY_QUEUE.view(dict(t)).get("execution") or {})
+            claims.append({"ticket":t.get("id"),"task_id":src.get("task_id"),"lane":ex.get("owner") or src.get("owner") or "",
+                           "state":ex.get("state") or "","title":t.get("title") or ""})
+    except Exception:claims=None
+    try:handoffs=AGENT_WORKSPACE.overview().get("handoffs") or []
+    except Exception:handoffs=None
+    report=coordination.build_report(roadmap,prs,claims,handoffs)
+    report["next_free_id"]=coordination.next_free_id(report)
+    report["cache_seconds"]=COORDINATION_TTL
+    return report
+
+@app.get("/api/factory/coordination")
+def factory_coordination(request: Request, refresh: int = 0):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    report=get_coordination_report(refresh=bool(refresh))
+    return _redact_board_value(coordination.public_view(report),_board_secret_values())
+
+def _coordination_check_tool(args,lane):
+    """T-729 MCP coordination_check: read-only pre-start answer for any authorized caller."""
+    report=get_coordination_report()
+    files=args.get("files") or []
+    if not isinstance(files,list):raise ValueError("files must be a list of repository paths")
+    out=coordination.agent_check(report,str(args.get("task_id") or ""),[str(f)[:300] for f in files[:200]],
+                                 str(args.get("lane") or lane or ""))
+    return _redact_board_value(out,_board_secret_values())
 
 def _board_secret_values():
     return sorted([s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,
