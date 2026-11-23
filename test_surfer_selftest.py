@@ -382,6 +382,31 @@ class HungPageTest(unittest.TestCase):
 
 
 @unittest.skipUnless(REAL, "real Chromium only (RUN_BROWSER_FIXTURE=1)")
+class LateRenderTest(unittest.TestCase):
+    def test_the_click_snapshot_shows_what_the_page_drew_after_it(self):
+        # T-727 live run: "Show my briefing" drew the briefing after the snapshot; only a refresh showed it.
+        from playwright.sync_api import sync_playwright
+        from browser_runner.action_session import ActionSession
+        with fixture.FixtureSite() as site, sync_playwright() as pw:
+            browser = pw.chromium.launch()
+            try:
+                context = browser.new_context()
+                session = ActionSession(context.new_page(), context, loopback=True)
+                policy = {"allow": [{"pattern": "127.0.0.1", "classes": ["read", "navigate"], "enabled": True}]}
+                opened = session.execute({"kind": "open", "url": site.url + "/later", "policy": policy})
+                page = opened.get("snapshot") or opened
+                ref = next(e["ref"] for e in page["elements"] if e.get("name") == "Show my briefing")
+                started = time.monotonic()
+                done = session.execute({"kind": "act", "action": "click", "ref": ref, "policy": policy})
+                page = done.get("snapshot") or done
+                self.assertEqual(done["status"], "done")
+                self.assertIn("Briefing ready", page["text"])
+                self.assertLess(time.monotonic() - started, 8)
+            finally:
+                browser.close()
+
+
+@unittest.skipUnless(REAL, "real Chromium only (RUN_BROWSER_FIXTURE=1)")
 class SoftNavigationTest(unittest.TestCase):
     def test_link_click_waits_for_in_page_navigation(self):
         # Live session 2026-11-23: a click on GitHub's Issues tab returned the old page; the URL changed a moment later.
