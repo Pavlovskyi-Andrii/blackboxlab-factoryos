@@ -461,6 +461,39 @@ class LifecycleTest(Harness):
         self.runner.pump()
         self.assertEqual(self.runner.live, "")
 
+    def test_a_stuck_command_is_killed_and_reported_and_the_page_freed(self):
+        # Live run 2026-11-23: a click never returned and the worker served nothing else. Here the "browser" blocks
+        # until the deadline kill, as Playwright does when its driver dies; then any further call would block forever.
+        import threading
+        view = self.open("/")
+        killed = threading.Event()
+        calls = []
+
+        def stuck(_page_call, *args, **kwargs):
+            calls.append("evaluate")
+            if killed.is_set():
+                raise AssertionError("a browser call after the kill would wait forever on a dead driver")
+            killed.wait(10)
+            raise RuntimeError("Connection closed while reading from the driver")
+
+        self.runner.deadline_seconds = 0.2
+        self.runner.kill = killed.set
+        page = self.runner.session.page
+        with mock.patch.object(type(page), "evaluate", stuck, create=True), \
+                mock.patch.object(type(page), "screenshot", lambda *a, **k: (_ for _ in ()).throw(AssertionError("shot")),
+                                  create=True):
+            out = self.act(view, "click", "Start the form")
+        self.assertTrue(killed.is_set())
+        self.assertEqual(calls, ["evaluate"])                     # nothing after the kill
+        step = self.store.find_step(out["step_id"])[1]
+        self.assertEqual((step["status"], step.get("blocker")), ("failed", "worker_timeout"))
+        self.assertEqual(self.runner.live, "")                    # the page is gone, the slot is free
+        self.assertEqual(self.pw.contexts[-1].closed, False)      # no close call into the dead driver
+        self.runner.pump()
+        doc = self.store.get(view["session_id"])
+        self.assertEqual((doc["session"]["status"], doc["session"]["close_reason"]), ("closed", "worker_lost"))
+        self.assertEqual(self.open("/")["status"], "done")        # a new session gets a fresh browser
+
     def test_read_tasks_borrow_the_live_browser(self):
         self.assertIsNone(self.runner.borrowed_factory())
         self.open("/")

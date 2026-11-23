@@ -2406,3 +2406,18 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   key): the first visit waits for him, he signs in with Take over and presses "Save this login", which stores the
   session encrypted under that name. Reversible: unbind or delete the session in Access vault.
 - `/#vault` on the dashboard opens Access vault (the Surfer page links to it).
+
+## 2026-11-23 — Surfer worker: a hard deadline per action command
+
+- Live run (parent session, 14:44 UTC): after a click on the MyBrief page the Surfer worker stopped serving everything
+  (actions and reads) until the 15-min loop watchdog. Reproduced on the fixture: a page whose script never returns keeps
+  `page.evaluate` (no timeout in Playwright) waiting forever, and after the driver dies every further Playwright call
+  waits forever too.
+- `ActionRunner.pump` arms a timer per command (`COMMAND_DEADLINE_SECONDS = 90`, above the 15 s step timeout and the
+  ~10 s settle/snapshot/screenshot). Past it the session is marked aborted (no more browser calls: empty snapshot, no
+  screenshot), the worker's child processes (Playwright driver + Chromium) get SIGKILL, the step reports
+  `worker_timeout`, the page is dropped, and the next claim closes the session as `worker_lost`. The next session or
+  read starts a fresh browser.
+- The approved-upload download now runs before the timer (its own 120 s HTTP timeout).
+- The exact call that hung on EC2 is not known (the egress proxy path cannot be reproduced here); the deadline covers any
+  stuck call. The T-714 loop watchdog stays the backstop for a hang outside an action command.

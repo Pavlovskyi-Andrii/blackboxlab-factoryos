@@ -35,6 +35,10 @@ SOFT = """<p>Soft navigation page.</p><a id="soft" href="/soft/next">Next sectio
 <script>document.getElementById('soft').addEventListener('click', function (e) { e.preventDefault();
 setTimeout(function () { history.pushState({}, '', '/soft/next'); document.querySelector('h1').textContent = 'Next section'; }, 1200);
 });</script>"""
+# A button whose script never returns (a busy loop): the page's main thread is stuck, like a hung site.
+BUSY = """<p>Busy page.</p><button id="freeze" type="button">Freeze</button>
+<script>document.getElementById('freeze').addEventListener('click', function () {
+var t = Date.now(); while (Date.now() - t < 600000) {} });</script>"""
 CODE = """<p>We sent a verification code to your phone. Enter the code.</p><form method="post" action="/login/code">
 <label>Code <input type="text" name="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>
 <button type="submit">Continue</button></form>"""
@@ -98,6 +102,8 @@ class FixtureSite:
                     self._send(_page("Fixture home", INDEX))
                 elif path == "/login":
                     self._send(_page("Sign in", LOGIN % ("", "")))
+                elif path == "/busy":
+                    self._send(_page("Busy", BUSY))
                 elif path in ("/soft", "/soft/next"):
                     self._send(_page("Soft navigation", SOFT))
                 elif path == "/login/code":

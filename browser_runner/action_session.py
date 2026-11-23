@@ -208,6 +208,9 @@ class ActionSession:
         self.upload_dir = Path(upload_dir) if upload_dir else None
         self.clock = clock
         self.secrets: List[str] = []
+        # Set by the worker when it killed a stuck browser: after that every Playwright call would wait forever on the
+        # dead driver, so the rest of the command touches nothing (empty snapshot, no screenshot).
+        self.aborted = False
         self.policy: Dict[str, Any] = {"allow": [], "extra_origins": [], "takeover": False}
         self.events: List[Dict[str, str]] = []
         self._step: Dict[str, Any] = {}
@@ -278,29 +281,26 @@ class ActionSession:
             pass
 
     # --- reading ------------------------------------------------------------------------------------------------
+    def _safe(self, call: Callable[[], Any], default: Any) -> Any:
+        """One browser call for the snapshot; nothing at all once the worker aborted the command."""
+        if self.aborted:
+            return default
+        try:
+            return call()
+        except Exception:
+            return default
+
     def snapshot(self) -> Dict[str, Any]:
         page = self.page
-        try:
-            data = page.evaluate(SNAPSHOT_JS, {"max": MAX_ELEMENTS}) or {}
-        except Exception:
-            data = {}
-        try:
-            read = page.evaluate(_READ_PAGE_JS) or {}
-        except Exception:
-            read = {}
+        data = self._safe(lambda: page.evaluate(SNAPSHOT_JS, {"max": MAX_ELEMENTS}), None) or {}
+        read = self._safe(lambda: page.evaluate(_READ_PAGE_JS), None) or {}
         elements = [e for e in (data.get("elements") or []) if isinstance(e, dict)][:MAX_ELEMENTS]
         for element in elements:
             if element.get("secret"):
                 element.pop("value", None)
         text = str(read.get("text") or "")[:MAX_TEXT]
-        try:
-            title = str(page.title() or "")[:300]
-        except Exception:
-            title = str(read.get("title") or "")[:300]
-        try:
-            challenge = _challenge(page)
-        except Exception:
-            challenge = ""
+        title = str(self._safe(lambda: page.title(), None) or read.get("title") or "")[:300]
+        challenge = self._safe(lambda: _challenge(page), "")
         visible_password = any(e.get("type") == "password" and e.get("autocomplete") != "new-password"
                                for e in elements)
         code_prompt = code_prompt_on(text, elements)
@@ -314,6 +314,8 @@ class ActionSession:
                             "code_prompt": bool(code_prompt)}}
 
     def _screenshot(self) -> str:
+        if self.aborted:
+            return ""
         try:
             raw = self.page.screenshot(type="png", full_page=False, timeout=8000)
             if len(raw) > MAX_SHOT_BYTES:
@@ -523,7 +525,7 @@ class ActionSession:
         except Exception as exc:                            # no raw browser errors: they can carry URLs and DOM
             body = {"status": "failed", "blocker": _error_code(exc)}
         left = [e for e in self.events if e["event"] in ("left_allowlist", "insecure_navigation", "submit_not_allowed")]
-        if left and body.get("status") in ("done", "failed"):
+        if left and body.get("status") in ("done", "failed") and not self.aborted:
             body.update(status="blocked", blocker=left[0]["event"], redirect_to=left[0]["url"])
             try:                                            # the refused navigation left Chromium's error page
                 if not str(self.page.url or "").startswith("http"):

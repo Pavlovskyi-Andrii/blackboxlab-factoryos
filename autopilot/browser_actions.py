@@ -13,11 +13,14 @@ Nothing here is logged except command ids, kinds and statuses: no values, no URL
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import shutil
+import signal
 import socket
 import sys
 import tempfile
+import threading
 import time
 from typing import Any, Callable, Optional
 
@@ -34,6 +37,48 @@ LIVE_POLL_SECONDS = 1.0                  # how often the worker asks for the nex
 UNREACHABLE_CLOSE_SECONDS = 120          # FactoryOS unreachable this long: close the page (fail safe)
 HARD_LIFETIME_SECONDS = 35 * 60          # the server closes at 30 min; this is the local backstop
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+# Live run 2026-11-23: one click left the worker stuck inside a browser call, so it served nothing else (actions and
+# reads) until the 15-min loop watchdog. Playwright's sync calls cannot be cancelled from another thread, and some
+# (page.evaluate) have no timeout at all: past this deadline the browser processes are killed, which makes the stuck
+# call fail at once; the step reports worker_timeout and the page is closed, freeing the single slot.
+COMMAND_DEADLINE_SECONDS = 90
+
+
+def _descendants(root: int) -> list:
+    """Child processes of ``root`` (Playwright's driver and Chromium), from /proc; [] where /proc is unavailable."""
+    children: dict = {}
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return []
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/stat", "rb") as handle:
+                stat = handle.read().decode("ascii", "replace")
+            ppid = int(stat.rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        children.setdefault(ppid, []).append(int(name))
+    found, todo = [], [root]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            found.append(child)
+            todo.append(child)
+    return found
+
+
+def kill_browser_processes() -> int:
+    """SIGKILL every descendant of this worker process (only Playwright and Chromium run as children here)."""
+    killed = 0
+    for pid in reversed(_descendants(os.getpid())):
+        try:
+            os.kill(pid, signal.SIGKILL)
+            killed += 1
+        except OSError:
+            pass
+    return killed
 
 
 def log(message: str) -> None:
@@ -86,6 +131,9 @@ class ActionRunner:
         self._tmp: Optional[str] = None
         self._opened = self._last_ok = 0.0
         self.done = self.failed = 0
+        self.deadline_seconds = COMMAND_DEADLINE_SECONDS
+        self.kill = kill_browser_processes
+        self.timed_out = False
 
     # --- browser lifetime -------------------------------------------------------------------------------------
     def _launch(self, storage_state: Optional[dict]) -> None:
@@ -107,8 +155,11 @@ class ActionRunner:
         self._opened = self.clock()
 
     def close(self) -> None:
-        for closer in (getattr(self._context, "close", None), getattr(self._browser, "close", None),
-                       getattr(self._pw, "stop", None)):
+        # After a deadline kill the context and the browser are already gone: closing them would wait on the dead
+        # driver, so only the Playwright handle is stopped.
+        dead = self.timed_out
+        for closer in (None if dead else getattr(self._context, "close", None),
+                       None if dead else getattr(self._browser, "close", None), getattr(self._pw, "stop", None)):
             try:
                 if closer:
                     closer()
@@ -177,6 +228,23 @@ class ActionRunner:
             return "idle"
         kind = str(command.get("kind") or "")
         state = command.pop("storage_state", None)
+        self.timed_out = False
+        if command.get("action") == "upload" and self.session is not None:
+            try:                                                   # a download, outside the browser deadline
+                self._stage_upload(base, headers, command)
+            except Exception as exc:
+                log(f"{command['id']} upload file not staged: {type(exc).__name__}")
+
+        def _deadline() -> None:
+            self.timed_out = True
+            if self.session is not None:
+                self.session.aborted = True                        # no more calls into the dead driver
+            log(f"{command['id']} {kind}: no answer in {self.deadline_seconds:.0f}s; killing the browser")
+            self.kill()
+
+        timer = threading.Timer(self.deadline_seconds, _deadline)
+        timer.daemon = True
+        timer.start()
         try:
             if kind == "open":
                 self._launch(state if isinstance(state, dict) else None)
@@ -185,13 +253,16 @@ class ActionRunner:
             if self.session is None:
                 body = {"status": "failed", "blocker": "worker_lost"}
             else:
-                if command.get("action") == "upload":
-                    self._stage_upload(base, headers, command)
                 body = self.session.execute(command)
         except Exception as exc:
             body = {"status": "failed", "blocker": f"worker_{type(exc).__name__}"}
             if kind == "open":
                 self.close()
+        finally:
+            timer.cancel()
+        if self.timed_out:
+            body = {"status": "failed", "blocker": "worker_timeout"}
+            self.close()                                           # the page is gone; FactoryOS closes the session
         command.pop("secret_value", None)
         log(f"{command['id']} {kind} {command.get('action') or ''} -> {body.get('status')} {body.get('blocker') or ''}".rstrip())
         try:
