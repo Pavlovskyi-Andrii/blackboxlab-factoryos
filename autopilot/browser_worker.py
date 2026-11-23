@@ -43,8 +43,13 @@ POLL_SECONDS = max(2, min(60, int(os.environ.get("FACTORY_SURFER_POLL_SECONDS", 
 MAX_BACKOFF_SECONDS = 120
 UNAVAILABLE_SECONDS = 60                 # no token / no Chromium: check again every minute, quietly
 HEARTBEAT_SECONDS = 30
-TASK_BUDGET_SECONDS = 15 * 60            # a browser task is bounded (~90 s); the beat before it promises 15 min
+# A read task is bounded (~90 s); an action command by browser_actions (60 s staging + 90 s deadline + 20 s grace).
+# The beat before a pass promises 6 min: past it the loop is hung (live run 2026-11-23: a stuck browser call kept the
+# worker silent for 30+ min while the root supervisor's watchdog did not restart it).
+TASK_BUDGET_SECONDS = 6 * 60
 EXIT_CODE_UPDATED = 0                    # Restart=always brings it back on the new code
+EXIT_CODE_STUCK = 75                     # the self-watchdog: systemd (Restart=always) starts a fresh worker
+SELF_WATCHDOG_EVERY_SECONDS = 15
 CODE_FILES = ("autopilot/browser_worker.py", "autopilot/browser_tasks.py", "autopilot/worker_heartbeat.py",
               "autopilot/relay_tasks.py", "autopilot/browser_actions.py")
 
@@ -123,9 +128,30 @@ class SurferWorker:
         self.last_result = ""
         self.task_id = ""
         self._last_server_beat = 0.0
+        self._loop_deadline = 0.0            # monotonic time by which the loop promised its next beat
+        self.exit = os._exit
+        self.monotonic = time.monotonic
+
+    # --- self-watchdog ----------------------------------------------------------------------------------------
+    def check_self(self) -> bool:
+        """True (and the process exits) when the main loop broke the deadline its last beat promised. It does not
+        rely on the root supervisor timer: a hung loop is restarted by systemd within the budget plus one check."""
+        deadline = self._loop_deadline                  # read once: the loop may renew or clear it meanwhile
+        if not deadline or self.stop.is_set() or self.monotonic() <= deadline:
+            return False
+        log(f"main loop silent past its deadline (task {self.task_id or '-'}); exiting so systemd restarts the worker")
+        self.exit(EXIT_CODE_STUCK)
+        return True
+
+    def _self_watchdog(self) -> None:
+        while not self.stop.is_set():
+            time.sleep(SELF_WATCHDOG_EVERY_SECONDS)
+            if self.check_self():
+                return
 
     # --- heartbeats -------------------------------------------------------------------------------------------
     def local_beat(self, state: str, budget: float) -> None:
+        self._loop_deadline = self.monotonic() + max(0.0, float(budget)) if state != "stopped" else 0.0
         worker_heartbeat.beat(self.beat_path, budget_seconds=budget, state=state, task=self.task_id,
                               now=self.clock(), done=self.done, failed=self.failed)
 
@@ -202,6 +228,7 @@ class SurferWorker:
     def run(self, max_passes: Optional[int] = None) -> int:
         log(f"started (pid {os.getpid()}, poll {POLL_SECONDS}s)")
         self.local_beat("starting", worker_heartbeat.STALE_AFTER_SECONDS)
+        threading.Thread(target=self._self_watchdog, name="surfer-self-watchdog", daemon=True).start()
         self.server_beat("idle", force=True)
         passes = 0
         code = 0

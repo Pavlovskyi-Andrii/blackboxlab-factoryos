@@ -46,7 +46,7 @@ class WorkerTest(unittest.TestCase):
         if isinstance(result, tuple):                # ("done", "bt_…"): a task was claimed
             result, task_id = result
             on_claim(task_id)
-            # while the task runs, the local heartbeat says "running" with the task and a 15 min promise
+            # while the task runs, the local heartbeat says "running" with the task and its budget
             beat = hb.read(hb.path_for(self.repo, hb.SURFER_FILE))
             assert beat["state"] == "running" and beat["task"] == task_id, beat
             assert beat["deadline"] - beat["at"] == bw.TASK_BUDGET_SECONDS
@@ -78,6 +78,33 @@ class WorkerTest(unittest.TestCase):
         self.clock.t += bw.HEARTBEAT_SECONDS
         w.pass_once()
         self.assertEqual(len(self.posts), n + 1)
+
+    def test_self_watchdog_exits_when_the_loop_breaks_its_promise(self):
+        # Live run 2026-11-23: the loop hung inside a browser call for 30+ min and the root watchdog did not act.
+        w = self.worker()
+        now = {"t": 1000.0}
+        exits = []
+        w.monotonic, w.exit = (lambda: now["t"]), exits.append
+        self.assertFalse(w.check_self())                         # no beat yet: nothing promised
+        w.local_beat("polling", bw.TASK_BUDGET_SECONDS)
+        now["t"] += bw.TASK_BUDGET_SECONDS - 1
+        self.assertFalse(w.check_self())
+        self.assertEqual(exits, [])
+        now["t"] += 2                                            # the pass is stuck past its promise
+        self.assertTrue(w.check_self())
+        self.assertEqual(exits, [bw.EXIT_CODE_STUCK])
+        w.local_beat("idle", 5 + hb.STALE_AFTER_SECONDS)          # a beat renews the promise
+        self.assertFalse(w.check_self())
+        w.local_beat("stopped", 0)                                # a deliberate stop is never "stuck"
+        now["t"] += 10 * 3600
+        self.assertFalse(w.check_self())
+        self.assertEqual(exits, [bw.EXIT_CODE_STUCK])
+
+    def test_a_pass_promises_less_than_the_old_15_minutes(self):
+        self.assertLessEqual(bw.TASK_BUDGET_SECONDS, 6 * 60)
+        from autopilot import browser_actions as ba
+        worst = ba.STAGE_SECONDS + ba.COMMAND_DEADLINE_SECONDS + ba.EXIT_GRACE_SECONDS + 60   # + result post
+        self.assertLess(worst, bw.TASK_BUDGET_SECONDS)
 
     def test_backoff_on_unreachable_queue_and_reset(self):
         w = self.worker()

@@ -2428,3 +2428,15 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   on failure the step reports the file missing.
 - The exact call that hung on EC2 is not known (the egress proxy path cannot be reproduced here); the deadline covers any
   stuck call. The T-714 loop watchdog stays the backstop for a hang outside an action command.
+
+## 2026-11-23 — Surfer worker: a self-watchdog inside the process
+
+- Live run: the Surfer worker stayed hung for 30+ min although its loop heartbeat promised 15 min, and the root
+  supervisor's watchdog (T-714, `factoryos-runner-supervisor.timer`) did not restart it. Why is not known from here
+  (EC2 output requested from the owner: timer status and `/var/lib/factoryos/supervisor-status.json`).
+- So the worker no longer depends on it alone: a daemon thread checks every 15 s that the main loop kept the deadline
+  of its last beat; past it the process exits (75) and systemd (`Restart=always`) starts a fresh worker. The thread
+  takes no browser or HTTP calls, so a stuck main thread cannot stop it.
+- A pass now promises 6 min instead of 15 (`TASK_BUDGET_SECONDS`): a read is ~90 s, an action command at most
+  60 s staging + 90 s deadline + 20 s grace + the result post. The root watchdog also acts sooner with the shorter
+  promise. Unit file unchanged: no install step for the owner.
