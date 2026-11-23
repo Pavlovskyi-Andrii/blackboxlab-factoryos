@@ -5,6 +5,13 @@ Writes PNGs, report.json, an index.html contact sheet and a Markdown summary int
 
 Findings (horizontal overflow, uncaught page errors) are reported, not enforced: the job
 fails only if the dashboard cannot be loaded or a scene cannot be captured at all.
+
+Optional switches for UX audits (T-727); the defaults, and so the CI job, are unchanged:
+  UI_EXTRA_VIEWPORTS=1  also capture 768x1024
+  UI_LANGS=en,ru        capture only these languages
+  UI_SCENES=home        capture only these scenes
+  UI_AUDIT=1            add a full-page screenshot and first-screen measurements to report.json
+  UI_CHROMIUM_PATH=...  use this Chromium binary instead of the one Playwright downloaded
 """
 from __future__ import annotations
 
@@ -20,12 +27,16 @@ from playwright.sync_api import sync_playwright
 BASE_URL = os.environ.get("UI_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 OUT = pathlib.Path(os.environ.get("UI_SHOTS_DIR", "ui-screenshots"))
 SETTLE_MS = int(os.environ.get("UI_SETTLE_MS", "1500"))
-LANGS = ("en", "uk", "ru")
+LANGS = tuple(x for x in os.environ.get("UI_LANGS", "en,uk,ru").split(",") if x)
+AUDIT = os.environ.get("UI_AUDIT") == "1"
+CHROMIUM_PATH = os.environ.get("UI_CHROMIUM_PATH", "")
 VIEWPORTS = {
     "desktop-1440x900": {"width": 1440, "height": 900, "mobile": False},
     "tablet-1024x768": {"width": 1024, "height": 768, "mobile": False},
     "mobile-390x844": {"width": 390, "height": 844, "mobile": True},
 }
+if os.environ.get("UI_EXTRA_VIEWPORTS") == "1":
+    VIEWPORTS["tablet-768x1024"] = {"width": 768, "height": 1024, "mobile": True}
 # (scene, roadmap task it documents, JS run after load; None = page as loaded)
 SCENES = (
     ("home", "T-594", None),
@@ -36,6 +47,36 @@ SCENES = (
     ("owner-desk-ask", "owner desk", "(async () => { await openDelegationCenter(); "
      "(document.querySelector('.odAskStep')||{click(){throw new Error('no owner desk on page')}}).click(); })()"),
 )
+if os.environ.get("UI_SCENES"):
+    SCENES = tuple(x for x in SCENES if x[0] in os.environ["UI_SCENES"].split(","))
+
+# First-screen measurements for a UX audit: what a person meets before any scrolling or clicking.
+AUDIT_JS = """() => {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const shown = el => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && +cs.opacity > 0.05; };
+  const inFirst = el => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw; };
+  const controls = [...document.querySelectorAll('button,a[href],input,select,textarea,[role=button]')].filter(shown);
+  const first = controls.filter(inFirst);
+  const name = el => (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || el.placeholder || '').trim();
+  const sizes = {}; let small = 0, texts = 0;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.nodeValue.trim() || !n.parentElement || !shown(n.parentElement) || !inFirst(n.parentElement)) continue;
+    const px = Math.round(parseFloat(getComputedStyle(n.parentElement).fontSize));
+    sizes[px] = (sizes[px] || 0) + 1; texts++; if (px < 12) small++;
+  }
+  const headings = [...document.querySelectorAll('h1,h2,h3')].filter(el => shown(el) && inFirst(el)).map(el => el.innerText.trim().slice(0, 80));
+  return {
+    page_height_px: document.documentElement.scrollHeight, screens_tall: +(document.documentElement.scrollHeight / vh).toFixed(1),
+    controls_total: controls.length, controls_first_screen: first.length,
+    unlabeled_first_screen: first.filter(el => !name(el)).length,
+    small_targets_first_screen: first.filter(el => { const r = el.getBoundingClientRect(); return r.width < 32 || r.height < 32; }).length,
+    text_nodes_first_screen: texts, text_below_12px_first_screen: small, font_sizes_first_screen: sizes,
+    headings_first_screen: headings,
+    page_words: (document.body.innerText || '').split(/\\s+/).length,
+  };
+}"""
 
 
 def capture(page, lang: str, viewport: str, scene: str, action: str | None) -> dict:
@@ -54,8 +95,12 @@ def capture(page, lang: str, viewport: str, scene: str, action: str | None) -> d
     name = f"{lang}/{viewport}/{scene}.png"
     (OUT / lang / viewport).mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(OUT / name))
-    return {"lang": lang, "viewport": viewport, "scene": scene, "file": name,
-            "overflow_px": int(overflow), "page_errors": errors, "action_error": action_error}
+    result = {"lang": lang, "viewport": viewport, "scene": scene, "file": name,
+              "overflow_px": int(overflow), "page_errors": errors, "action_error": action_error}
+    if AUDIT:
+        result["audit"] = page.evaluate(AUDIT_JS)
+        page.screenshot(path=str(OUT / lang / viewport / f"{scene}-full.png"), full_page=True)
+    return result
 
 
 def write_reports(results: list[dict]) -> int:
@@ -110,7 +155,7 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     results: list[dict] = []
     with sync_playwright() as pw:
-        browser = pw.chromium.launch()
+        browser = pw.chromium.launch(executable_path=CHROMIUM_PATH) if CHROMIUM_PATH else pw.chromium.launch()
         try:
             for viewport, spec in VIEWPORTS.items():
                 context = browser.new_context(
