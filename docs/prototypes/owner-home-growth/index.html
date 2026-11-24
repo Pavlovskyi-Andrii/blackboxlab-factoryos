@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FactoryOS Owner Home</title>
+<style>
+/* Clickable prototype for issue #452 (T-733), direction 2 «Products and goals».
+   Self-contained: served by /learn/view/owner-home in a CSP sandbox (no network, no storage guaranteed).
+   Layout: product shell (sidebar on wide, bottom tabs on narrow) under a separate amber prototype bar. */
+:root{
+  --bg:#050a10;--panel:#0a1420;--panel2:#0e1a2a;--line:#193149;--line2:#264b69;
+  --text:#f3f8ff;--muted:#93a6b9;--cyan:#27caff;--blue:#2677ff;--green:#34dc7d;--amber:#ffb63a;--red:#ff6b6b;
+  --proto:#2a2008;--proto-line:#8a6a1c;
+  --f12:12px;--f14:14px;--f16:16px;--f20:20px;--f28:28px;
+  --s4:4px;--s8:8px;--s12:12px;--s16:16px;--s24:24px;--s32:32px;
+  --r:10px;
+  --font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:var(--f14)/1.5 var(--font)}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ---- prototype bar (not part of the product) ---- */
+.proto{background:var(--proto);border-bottom:1px dashed var(--proto-line);padding:8px max(16px,env(safe-area-inset-left,0px));display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:var(--f12)}
+.proto b{color:var(--amber);letter-spacing:.08em}
+.proto label{display:flex;gap:6px;align-items:center;color:#e9d9b0}
+.proto select,.proto button{background:#1b1505;border:1px solid var(--proto-line);border-radius:6px;padding:4px 8px;min-height:30px}
+.proto .langs{display:flex;gap:4px}
+.proto .langs button[aria-pressed="true"]{background:var(--amber);color:#1b1505;font-weight:700}
+
+/* ---- app shell ---- */
+.stage{padding:16px max(16px,env(safe-area-inset-left,0px)) 40px max(16px,env(safe-area-inset-right,0px))}
+@media (max-width:600px){.stage{padding:0 0 24px}.app{border:0;border-radius:0}}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:720px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--bg);max-width:1360px;margin:0 auto}
+.app.framed{max-width:390px;min-height:780px}
+.side{background:var(--panel);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:4px}
+.brand{font-weight:700;font-size:var(--f16);padding:4px 8px 16px}
+.brand small{display:block;font-weight:500;color:var(--muted);font-size:var(--f12)}
+.nav{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:8px;padding:10px 10px;color:var(--muted);min-height:40px}
+.nav:hover{color:var(--text);background:var(--panel2)}
+.nav[aria-current="page"]{background:var(--panel2);border-color:var(--line2);color:var(--text)}
+.count{min-width:22px;padding:0 6px;border-radius:999px;background:var(--amber);color:#1b1505;font-weight:700;font-size:var(--f12);text-align:center}
+.sep{height:1px;background:var(--line);margin:8px 4px}
+.side .grow{flex:1}
+.proBtn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:10px;min-height:40px;text-align:left}
+.proBtn small{color:var(--muted);font-size:var(--f12)}
+.main{min-width:0;display:flex;flex-direction:column}
+.head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.head h1{font-size:var(--f20);margin:0;line-height:1.25;text-wrap:balance}
+.head .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.demo{font-size:var(--f12);letter-spacing:.08em;color:var(--amber);border:1px solid var(--amber);border-radius:6px;padding:2px 8px;white-space:nowrap}
+.body{padding:24px;display:flex;flex-direction:column;gap:24px;min-width:0}
+.tabbar{display:none}
+
+/* ---- narrow (phone) layout: set by width of .app, not the window ---- */
+.app.narrow{grid-template-columns:1fr}
+.app.narrow .side{display:none}
+.app.narrow .head{padding:12px 16px}
+.app.narrow .body{padding:16px 16px 96px;gap:16px}
+.app.narrow .tabbar{display:flex;position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px));justify-content:space-around;margin-top:auto}
+.tab{background:none;border:0;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px;min-height:48px;min-width:64px;padding:4px 6px;font-size:var(--f12);border-radius:8px}
+.tab[aria-current="page"]{color:var(--cyan)}
+.tab .count{font-size:var(--f12)}
+.app.narrow .btn{min-height:44px}
+.app.narrow .grid3,.app.narrow .grid2,.app.narrow .cmp{grid-template-columns:1fr}
+
+/* ---- components ---- */
+h2{font-size:var(--f16);margin:0 0 var(--s12);text-wrap:balance}
+h3{font-size:var(--f14);margin:0}
+p{margin:0}
+.muted{color:var(--muted)}
+.lead{font-size:var(--f16);color:var(--muted);max-width:68ch}
+.label{font-size:var(--f12);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 var(--s8)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card.need{border-color:var(--amber)}
+.card.bad{border-color:var(--red)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row .grow{flex:1;min-width:0}
+.grid3{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;align-items:start}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 14px;min-height:36px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);font-weight:600;white-space:nowrap;text-decoration:none}
+.btn:hover{border-color:var(--cyan)}
+.btn.pri{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.ghost{background:none}
+.btn.danger{border-color:var(--red);color:var(--red);background:none}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:var(--f12);padding:2px 10px;border-radius:999px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.need{color:var(--amber);border-color:var(--amber)}
+.pill.work{color:var(--cyan);border-color:var(--cyan)}
+.pill.done{color:var(--green);border-color:var(--green)}
+.pill.stop{color:var(--red);border-color:var(--red)}
+.pill.wait,.pill.off{color:var(--muted)}
+.strip{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--amber);border-radius:var(--r);padding:12px 16px}
+.strip .grow{flex:1;min-width:200px}
+.banner{border-radius:var(--r);padding:12px 16px;border:1px solid var(--line2);background:var(--panel2);display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.banner.warn{border-color:var(--amber)}
+.banner.bad{border-color:var(--red)}
+.banner .grow{flex:1;min-width:200px}
+.funnel{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.funnel table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.funnel th,.funnel td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:var(--f14)}
+.funnel tr:last-child td{border-bottom:0}
+.funnel th{font-size:var(--f12);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.funnel td.n{text-align:right;white-space:nowrap}
+.na{color:var(--muted);font-style:italic}
+.tw{overflow-x:auto}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.steps li{display:grid;grid-template-columns:24px 1fr auto;gap:10px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--line)}
+.steps li:last-child{border-bottom:0}
+.dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--line2);justify-self:center}
+.dot.done{background:var(--green);border-color:var(--green)}
+.dot.work{background:var(--cyan);border-color:var(--cyan)}
+.dot.need{background:var(--amber);border-color:var(--amber)}
+.dot.stop{background:var(--red);border-color:var(--red)}
+.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.log li{display:grid;grid-template-columns:72px 1fr;gap:10px}
+.log time{color:var(--muted);font-variant-numeric:tabular-nums}
+.kv{display:grid;grid-template-columns:minmax(110px,max-content) 1fr;gap:6px 14px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0}
+.empty{border:1px dashed var(--line2);border-radius:var(--r);padding:24px;display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+.hero{display:flex;flex-direction:column;gap:16px;padding:8px 0}
+.hero h2{font-size:var(--f28);line-height:1.2;margin:0;max-width:22ch}
+.how{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;counter-reset:h;list-style:none;margin:0;padding:0}
+.how li{counter-increment:h;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:4px}
+.how li::before{content:counter(h);font-weight:700;color:var(--cyan)}
+/* wizard */
+.wiz{max-width:640px;display:flex;flex-direction:column;gap:16px}
+.progress{display:flex;gap:4px}
+.progress span{flex:1;height:4px;border-radius:2px;background:var(--line)}
+.progress span.on{background:var(--cyan)}
+.choice{display:flex;flex-direction:column;gap:8px}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line2);border-radius:8px;background:var(--panel);min-height:44px}
+.opt:has(input:checked){border-color:var(--cyan);background:var(--panel2)}
+.opt input{margin-top:3px;accent-color:var(--cyan)}
+.field{display:flex;flex-direction:column;gap:6px}
+.field input,.field textarea{background:var(--panel);border:1px solid var(--line2);border-radius:8px;padding:10px 12px;min-height:44px}
+.field textarea{min-height:88px;resize:vertical}
+.wizActions{display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap}
+.app.narrow .wizActions{position:sticky;bottom:64px;background:var(--bg);padding:8px 0;border-top:1px solid var(--line)}
+.summary dd .unk{color:var(--amber)}
+/* compare */
+.cmpbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+.seg button{background:none;border:0;padding:8px 16px;min-height:40px}
+.seg button[aria-pressed="true"]{background:var(--panel2);color:var(--cyan);font-weight:700}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.land{background:#f6f3ee;color:#16202b;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:12px;min-width:0;border:3px solid transparent}
+.land.win{border-color:var(--green)}
+.land .tag{font-size:var(--f12);font-weight:700;letter-spacing:.08em;color:#5b6775}
+.land h4{font-size:22px;line-height:1.2;margin:0;text-wrap:balance}
+.land p{color:#38444f}
+.land .cta{align-self:flex-start;background:#1f5eff;color:#fff;border-radius:8px;padding:10px 16px;font-weight:700}
+.land .sample{display:flex;gap:10px;align-items:center;background:#e7e1d6;border-radius:8px;padding:10px 12px;font-size:var(--f14)}
+.land .sample i{width:28px;height:28px;border-radius:50%;background:#16202b;display:inline-block;flex:none}
+.land .foot{font-size:var(--f12);color:#5b6775}
+.show-diff .land mark{background:#ffe48a;color:inherit;padding:0 2px;border-radius:3px}
+.land mark{background:none;color:inherit}
+.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.checks li{display:flex;gap:8px;align-items:flex-start}
+.ok{color:var(--green);font-weight:700}.warn{color:var(--amber);font-weight:700}.no{color:var(--red);font-weight:700}
+.decide{display:flex;flex-direction:column;gap:12px}
+.consequence{border-left:3px solid var(--cyan);padding:8px 12px;background:var(--panel2);border-radius:0 8px 8px 0}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--panel2);border:1px solid var(--cyan);border-radius:10px;padding:10px 16px;max-width:min(92vw,520px);z-index:20}
+.pro{display:flex;flex-direction:column;gap:16px}
+.pro .mock{border:1px dashed var(--line2);border-radius:var(--r);padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.pro .mock span{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:var(--f12);color:var(--muted)}
+.list{display:flex;flex-direction:column;gap:10px}
+.tools{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.tools .card button{text-align:left;background:none;border:0;padding:6px 0;color:var(--text);min-height:32px}
+.tools .card button:hover{color:var(--cyan)}
+</style>
+</head>
+<body>
+<div class="proto" role="region" aria-label="Prototype controls">
+  <b id="pLabel">PROTOTYPE · DEMO DATA</b>
+  <label><span id="pState">State</span>
+    <select id="stateSel"></select>
+  </label>
+  <label><span id="pFrame">Phone frame</span> <input type="checkbox" id="frameChk"></label>
+  <div class="langs" role="group" aria-label="Language">
+    <button type="button" data-lang="en">EN</button><button type="button" data-lang="uk">UK</button><button type="button" data-lang="ru">RU</button>
+  </div>
+  <span id="pNote" class="muted"></span>
+</div>
+<div class="stage"><div class="app" id="app"></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+"use strict";
+/* ================= strings (EN canonical; UK and RU must have the same keys) ================= */
+const L = {
+en:{
+ pLabel:"PROTOTYPE · DEMO DATA",pState:"State",pFrame:"Phone frame",pNote:"Numbers, names and times are examples. Nothing is saved or sent.",
+ s_new:"New user",s_empty:"Empty: products, no goals",s_working:"Working",s_approval:"Awaiting approval",s_completed:"Completed",s_failed:"Failed",s_offline:"Offline",s_budget:"Low budget",
+ brandSub:"Your products, goals and results",
+ nav_home:"Home",nav_needs:"Needs you",nav_results:"Results",nav_team:"Agent team",nav_tools:"All tools",nav_more:"More",
+ pro:"Pro version",proHint:"current full dashboard",simple:"Simple view",demo:"DEMO DATA",
+ t_home:"Your products",t_needs:"Needs you",t_results:"Results",t_team:"Agent team",t_tools:"All tools",t_goal:"MyCast · goal",t_compare:"Compare landing variants",t_wizard:"New goal",t_pro:"Pro version",
+ promise:"Set a goal for a product. Agents research, prepare variants and measure. You decide what goes out.",
+ newGoal:"New goal",
+ needsStrip:"Needs you · {n}",more:"{n} more",open:"Open",later:"Later",compare:"Compare",answer:"Answer",howTo:"How to do it",retry:"Retry",runbook:"Open the guide",
+ noGoal:"No goal yet",setGoal:"Set a goal",openGoal:"Open goal",evidence:"Evidence",next:"Next step",
+ goalMy:"First 100 genuine registrations · Telegram · until 31 Dec",
+ dmStage:"Project stage: specification.",contentCard:"Blackbox Lab content",contentSub:"2 production jobs. No posts this week.",
+ w_none:"Nobody is working right now.",w_noneNeeds:"Nobody is working right now. {n} things wait for you.",
+ workingNow:"Working now",spend:"Spend",spend0:"$0 today",spend0sub:"Paid services are off · limit $10 a day",
+ spendLow:"$9.40 of $10 today",spendLowSub:"Paid steps wait until 00:00 UTC. Free steps continue.",
+ st_need:"Needs you",st_work:"Working",st_wait:"Waiting",st_done:"Done, checked",st_stop:"Stopped",st_off:"No connection",st_pause:"Paused",
+ f_exposure:"Seen in Telegram",f_visit:"Visited the page",f_signup:"Registered",f_active:"First episode received",f_pay:"Paid",
+ notMeasured:"not measured",notConnected:"not connected",
+ nx_working:"Research is running. Nothing waits for you on this goal.",nx_approval:"Compare landing variants A and B.",nx_completed:"Approve the next experiment.",nx_failed:"Research stopped. Retry or open the guide.",nx_offline:"Waiting for an agent to reconnect.",nx_budget:"Hypotheses are being written. Image step waits for the budget.",
+ newTitle:"FactoryOS grows your products",newLead:"Add a product, set one clear goal, and decide which drafts go out. Agents do the research, the drafts and the measuring. Nothing is published without your yes.",
+ how1:"Add a product",how1s:"A name and a link is enough.",how2:"Set a goal",how2s:"For example: first 100 genuine registrations.",how3:"Decide",how3s:"Compare variants side by side. Approve or reject.",how4:"See results",how4s:"Measured numbers only. Unknown is shown as unknown.",
+ addFirst:"Add your first product",seeExample:"See an example",howWorks:"How FactoryOS works",
+ emptyTitle:"No goals yet",emptyLead:"Your products are here. Give one of them a goal to start.",
+ // needs
+ n_compare:"MyCast: compare landing variants A and B",n_compareS:"Drafts are ready. Nothing is published without a separate yes. Cost $0.",
+ n_dm:"AI Decision Memory: the researcher asks one question",n_dmS:"«Who decides in your team: one person or a group?» · 2 days",
+ n_pay:"Connect a payment provider for MyCast",n_payS:"Without it the «Paid» step cannot be measured.",
+ n_next:"MyCast: approve the next experiment",n_nextS:"Proposed: test the morning time of the episode. Cost $0.",
+ n_stop:"Stopped: MyCast research",n_stopS:"The Surfer lost the page at 03:41 (site did not answer). Work done so far is saved.",
+ n_budget:"Daily limit almost used",n_budgetS:"$9.40 of $10. Raise the limit or wait until 00:00 UTC.",
+ k_approve:"Approve",k_answer:"Answer",k_setup:"Set up",k_stopped:"Stopped",
+ laterDone:"Moved to tomorrow 09:00. It comes back by itself.",nextApproved:"Approved. The next experiment starts with research. Nothing is published.",
+ needsEmpty:"Nothing waits for you.",needsEmptyS:"New requests from agents appear here and in Telegram.",
+ // offline
+ offTitle:"No agent is connected.",offSub:"Last sign of life 03:58. Work is saved and continues when an agent reconnects. The numbers below are from 03:58.",
+ failTitle:"One step stopped.",failSub:"Research for MyCast stopped at 03:41. Nothing was lost.",
+ budgetTitle:"The daily limit is almost used.",budgetSub:"Paid steps wait. Free steps continue.",
+ // team
+ lane_claude:"Claude",lane_chatgpt:"ChatGPT",lane_gemini:"Gemini",lane_surfer:"Surfer (browser)",
+ lw_claude:"MyCast research · took the task at 14:02 · last sign of life 2 min ago",lw_surfer:"Reading public pages · 15 of 40",
+ lw_budget:"Writing hypotheses · took the task at 04:05 · last sign of life 1 min ago",
+ lane_idle:"Not working on anything",lane_off:"No connection since 03:58",lane_stop:"Stopped at 03:41: the site did not answer",
+ teamPro:"History, tokens, cost per run and MCP settings are in the Pro version.",
+ // tools
+ tg_content:"Content",tg_publish:"Publishing",tg_mvp:"MVP Builder",tg_team:"Team and system",tg_data:"Data and learning",
+ toolPro:"Opens in the Pro version",
+ // goal page
+ g_outcome:"Goal",g_channel:"Channel",g_audience:"Audience",g_period:"Until",g_langs:"Landing languages",g_budget:"Budget",
+ g_audVal:"Busy people who want short, compressed news on one chosen topic",g_genuine:"Genuine = a real sign-in, not the owner, not a test account, counted once.",
+ g_plan:"Plan",g_log:"Work log",g_hyp:"Hypotheses",g_var:"Variants",g_ev:"Evidence",g_funnel:"Funnel",
+ p_research:"Research",p_hyp:"Two hypotheses",p_var:"Two landing drafts",p_qa:"Quality check",p_decide:"Your decision",p_dist:"Publication draft",p_measure:"Measure",p_learn:"Learn and propose next",
+ hA:"A · One short episode on your own topic every morning makes busy people sign up.",hB:"B · Hearing a one-minute example first makes more of them sign up.",
+ hMetric:"Measured by: registrations out of page visits, per variant.",
+ ev_level:"Evidence level",ev1:"Competitor and audience notes, 6 public sources with dates",ev2:"Two landing drafts in EN, UK, RU",ev3:"Quality check report",ev4:"Your decision with time and reason",
+ lv_claimed:"claimed",lv_linked:"linked",lv_checked:"checked",lv_accepted:"accepted",
+ denomNote:"Each step shows its own count and the step it is counted from. Small numbers are shown as counts, not percentages.",
+ resultNote:"B has more registrations (15 vs 9). With numbers this small the difference can still be chance. You chose B as the next version, not as a proven winner.",
+ learn:"Learning summary",learnS:"Visitors who heard the example registered more often. Next: test the episode time (7:00 vs 8:30). Cost $0.",
+ // compare
+ c_show:"Show differences",c_ch:"Channel: Telegram · Languages: EN, UK, RU · Cost $0",
+ c_qa:"Quality check",c_decide:"Your decision",
+ qa1:"Facts match MyCast pages",qa2:"EN, UK and RU texts complete",qa3:"Works on a 390 px phone",qa4:"Links and sign-up form work (test account, excluded from results)",qa5:"Visit and variant counter",qa5s:"not built yet: visits will show as «not measured»",qa6:"No third-party scripts, no cookies",
+ cons:"Choosing a variant marks it as the version to test next. Nothing is published. Publishing is a separate step with its own approval.",
+ chooseA:"Choose A",chooseB:"Choose B",rejectBoth:"Reject both",reason:"Reason (required to reject)",reasonPh:"For example: the headline promises too much",
+ decided:"Decision recorded: {v} · you · {time}. Nothing was published.",rejected:"Both variants rejected. Reason saved. Agents will prepare new drafts.",
+ needReason:"Write a reason first.",undo:"Undo",
+ lA:"VARIANT A",lB:"VARIANT B",
+ a_h:"Your topic. Ten minutes. Every morning in Telegram.",a_p:"MyCast turns the news on the topic you choose into a short podcast episode.",a_cta:"Create my podcast",
+ b_h:"Stay in focus on what matters to you.",b_p:"One topic you choose. One short episode each morning in Telegram.",b_cta:"Listen and create mine",b_sample:"Listen to a one-minute example",
+ land_foot:"Free to start · Cancel any time",
+ // wizard
+ wz_step:"Step {i} of {n}",back:"Back",cont:"Continue",start:"Start the goal",
+ wz1:"Which product?",wz1new:"A new product",wz1name:"Product name",wz1link:"Link (optional)",
+ wz2:"What result do you want?",wz2a:"First 100 genuine registrations",wz2b:"50 people receive their first episode",wz2c:"Something else",wz2other:"Describe the result",
+ wz3:"Who is it for?",wz3hint:"Write it the way you would explain it to a friend.",
+ wz4:"Where will people see it?",wz4hint:"Only drafts are prepared. Nothing is posted without your separate approval.",ch_tg:"Telegram",ch_li:"LinkedIn",ch_direct:"Direct link only",
+ wz5:"By when?",wz5hint:"A date helps the agents plan the measuring window.",
+ wz6:"Here is what I understood",wz6hint:"Check it. Anything marked «unknown» is not guessed. Edit any line.",
+ unknown:"unknown",editLine:"Edit",
+ wz_next:"What happens after Start",wz_nextS:"One planned run starts: research first. You will see who took it and when. Nothing is published, no money is spent.",
+ started:"Goal started. Research waits for an agent to take it.",
+ // pro
+ proTitle:"The current full dashboard opens here",proLead:"Control Room, Agent Office, Build Progress and all 37 menu items stay exactly as they are. Nothing was removed.",
+ proRemember:"This browser remembers your choice. The next time FactoryOS opens in this view.",proBack:"Back to the simple view",
+ proNote:"In the prototype this is a placeholder. In the product the button opens the real dashboard.",
+ remembered:"Remembered in this browser: {v}.",
+ linkLearn:"In the product this opens the Learning section.",
+ results_intro:"What actually happened, per product. A click is not a registration, and a registration is not a payment.",
+ r_click:"Click",r_clickS:"someone opened the page from a post",r_lead:"Registration",r_leadS:"someone created an account with a real sign-in",r_pay:"Payment",r_payS:"a confirmed payment receipt (not connected yet)",
+ r_none:"No goal has measurements yet.",
+ col_step:"Step",col_count:"Count",col_from:"Counted from",col_a:"A",col_b:"B",
+ v_a:"variant A",v_b:"variant B"
+},
+uk:{
+ pLabel:"ПРОТОТИП · ДЕМО-ДАНІ",pState:"Стан",pFrame:"Рамка телефона",pNote:"Числа, назви й час — приклади. Нічого не зберігається і не надсилається.",
+ s_new:"Новий користувач",s_empty:"Порожньо: продукти без цілей",s_working:"Іде робота",s_approval:"Чекає погодження",s_completed:"Завершено",s_failed:"Помилка",s_offline:"Немає зв'язку",s_budget:"Бюджет закінчується",
+ brandSub:"Ваші продукти, цілі та результати",
+ nav_home:"Головна",nav_needs:"Потрібно від вас",nav_results:"Результати",nav_team:"Команда агентів",nav_tools:"Усі інструменти",nav_more:"Ще",
+ pro:"Pro-версія",proHint:"поточна повна панель",simple:"Проста версія",demo:"ДЕМО-ДАНІ",
+ t_home:"Ваші продукти",t_needs:"Потрібно від вас",t_results:"Результати",t_team:"Команда агентів",t_tools:"Усі інструменти",t_goal:"MyCast · ціль",t_compare:"Порівняння варіантів лендингу",t_wizard:"Нова ціль",t_pro:"Pro-версія",
+ promise:"Поставте продукту ціль. Агенти досліджують, готують варіанти й вимірюють. Ви вирішуєте, що виходить у світ.",
+ newGoal:"Нова ціль",
+ needsStrip:"Потрібно від вас · {n}",more:"ще {n}",open:"Відкрити",later:"Пізніше",compare:"Порівняти",answer:"Відповісти",howTo:"Як це зробити",retry:"Повторити",runbook:"Відкрити інструкцію",
+ noGoal:"Цілі ще немає",setGoal:"Поставити ціль",openGoal:"Відкрити ціль",evidence:"Докази",next:"Наступний крок",
+ goalMy:"Перші 100 справжніх реєстрацій · Telegram · до 31 грудня",
+ dmStage:"Етап проєкту: специфікація.",contentCard:"Контент Blackbox Lab",contentSub:"2 виробничі задачі. Публікацій цього тижня немає.",
+ w_none:"Зараз ніхто не працює.",w_noneNeeds:"Зараз ніхто не працює. На вас чекають {n}.",
+ workingNow:"Працюють зараз",spend:"Витрати",spend0:"$0 сьогодні",spend0sub:"Платні сервіси вимкнені · ліміт $10 на день",
+ spendLow:"$9,40 з $10 сьогодні",spendLowSub:"Платні кроки чекають до 00:00 UTC. Безкоштовні тривають.",
+ st_need:"Потрібно від вас",st_work:"Працює",st_wait:"Чекає",st_done:"Готово, перевірено",st_stop:"Зупинено",st_off:"Немає зв'язку",st_pause:"Пауза",
+ f_exposure:"Побачили в Telegram",f_visit:"Відкрили сторінку",f_signup:"Зареєструвалися",f_active:"Отримали перший випуск",f_pay:"Оплатили",
+ notMeasured:"не вимірюється",notConnected:"не підключено",
+ nx_working:"Іде дослідження. На цій цілі від вас нічого не потрібно.",nx_approval:"Порівняйте варіанти лендингу A і B.",nx_completed:"Погодьте наступний експеримент.",nx_failed:"Дослідження зупинилося. Повторіть або відкрийте інструкцію.",nx_offline:"Чекаємо, поки агент знову підключиться.",nx_budget:"Пишуться гіпотези. Крок із зображеннями чекає бюджету.",
+ newTitle:"FactoryOS вирощує ваші продукти",newLead:"Додайте продукт, поставте одну зрозумілу ціль і вирішуйте, які чернетки виходять у світ. Агенти досліджують, готують чернетки й вимірюють. Без вашого «так» нічого не публікується.",
+ how1:"Додайте продукт",how1s:"Достатньо назви й посилання.",how2:"Поставте ціль",how2s:"Наприклад: перші 100 справжніх реєстрацій.",how3:"Вирішуйте",how3s:"Порівнюйте варіанти поруч. Погоджуйте або відхиляйте.",how4:"Дивіться результат",how4s:"Лише виміряні числа. Невідоме показано як невідоме.",
+ addFirst:"Додати перший продукт",seeExample:"Подивитися приклад",howWorks:"Як працює FactoryOS",
+ emptyTitle:"Цілей ще немає",emptyLead:"Ваші продукти тут. Поставте одному з них ціль, щоб почати.",
+ n_compare:"MyCast: порівняти варіанти лендингу A і B",n_compareS:"Чернетки готові. Без окремого «так» нічого не публікується. Вартість $0.",
+ n_dm:"AI Decision Memory: дослідник ставить одне запитання",n_dmS:"«Хто ухвалює рішення у вашій команді: одна людина чи група?» · 2 дні",
+ n_pay:"Підключити платіжний сервіс для MyCast",n_payS:"Без нього крок «Оплатили» не виміряти.",
+ n_next:"MyCast: погодити наступний експеримент",n_nextS:"Пропозиція: перевірити ранковий час випуску. Вартість $0.",
+ n_stop:"Зупинено: дослідження MyCast",n_stopS:"Surfer втратив сторінку о 03:41 (сайт не відповів). Зроблене збережено.",
+ n_budget:"Денний ліміт майже вичерпано",n_budgetS:"$9,40 з $10. Підніміть ліміт або зачекайте до 00:00 UTC.",
+ k_approve:"Погодити",k_answer:"Відповісти",k_setup:"Налаштувати",k_stopped:"Зупинено",
+ laterDone:"Перенесено на завтра 09:00. Повернеться саме.",nextApproved:"Погоджено. Наступний експеримент почнеться з дослідження. Нічого не публікується.",
+ needsEmpty:"Від вас нічого не потрібно.",needsEmptyS:"Нові запити агентів з'являться тут і в Telegram.",
+ offTitle:"Жоден агент не підключений.",offSub:"Остання ознака життя о 03:58. Роботу збережено, вона продовжиться, коли агент підключиться. Числа нижче — станом на 03:58.",
+ failTitle:"Один крок зупинився.",failSub:"Дослідження для MyCast зупинилося о 03:41. Нічого не втрачено.",
+ budgetTitle:"Денний ліміт майже вичерпано.",budgetSub:"Платні кроки чекають. Безкоштовні тривають.",
+ lane_claude:"Claude",lane_chatgpt:"ChatGPT",lane_gemini:"Gemini",lane_surfer:"Surfer (браузер)",
+ lw_claude:"Дослідження MyCast · узяв задачу о 14:02 · ознака життя 2 хв тому",lw_surfer:"Читає публічні сторінки · 15 із 40",
+ lw_budget:"Пише гіпотези · узяв задачу о 04:05 · ознака життя 1 хв тому",
+ lane_idle:"Нічим не зайнятий",lane_off:"Немає зв'язку з 03:58",lane_stop:"Зупинився о 03:41: сайт не відповів",
+ teamPro:"Історія, токени, вартість кожного запуску й налаштування MCP — у Pro-версії.",
+ tg_content:"Контент",tg_publish:"Публікації",tg_mvp:"MVP Builder",tg_team:"Команда й система",tg_data:"Дані й навчання",
+ toolPro:"Відкривається в Pro-версії",
+ g_outcome:"Ціль",g_channel:"Канал",g_audience:"Аудиторія",g_period:"До",g_langs:"Мови лендингу",g_budget:"Бюджет",
+ g_audVal:"Зайняті люди, яким потрібні короткі стислі новини на одну обрану тему",g_genuine:"Справжня = реальний вхід, не власник, не тестовий акаунт, рахується один раз.",
+ g_plan:"План",g_log:"Журнал робіт",g_hyp:"Гіпотези",g_var:"Варіанти",g_ev:"Докази",g_funnel:"Воронка",
+ p_research:"Дослідження",p_hyp:"Дві гіпотези",p_var:"Дві чернетки лендингу",p_qa:"Перевірка якості",p_decide:"Ваше рішення",p_dist:"Чернетка публікації",p_measure:"Вимірювання",p_learn:"Висновки й наступний крок",
+ hA:"A · Один короткий випуск на вашу тему щоранку спонукає зайнятих людей зареєструватися.",hB:"B · Якщо спершу почути приклад на хвилину, реєструється більше людей.",
+ hMetric:"Як вимірюємо: реєстрації від відвідувань сторінки, окремо для кожного варіанта.",
+ ev_level:"Рівень доказу",ev1:"Нотатки про конкурентів і аудиторію, 6 публічних джерел із датами",ev2:"Дві чернетки лендингу EN, UK, RU",ev3:"Звіт перевірки якості",ev4:"Ваше рішення з часом і причиною",
+ lv_claimed:"заявлено",lv_linked:"є посилання",lv_checked:"перевірено",lv_accepted:"прийнято",
+ denomNote:"Кожен крок показує власне число й крок, від якого його рахують. Малі числа показані як кількість, а не відсотки.",
+ resultNote:"У B більше реєстрацій (15 проти 9). При таких малих числах різниця ще може бути випадковою. Ви обрали B як наступну версію, а не як доведеного переможця.",
+ learn:"Висновки",learnS:"Відвідувачі, які почули приклад, реєструвалися частіше. Далі: перевірити час випуску (7:00 проти 8:30). Вартість $0.",
+ c_show:"Показати відмінності",c_ch:"Канал: Telegram · Мови: EN, UK, RU · Вартість $0",
+ c_qa:"Перевірка якості",c_decide:"Ваше рішення",
+ qa1:"Факти збігаються зі сторінками MyCast",qa2:"Тексти EN, UK і RU повні",qa3:"Працює на телефоні 390 px",qa4:"Посилання й форма реєстрації працюють (тестовий акаунт, не входить у результати)",qa5:"Лічильник відвідувань і варіантів",qa5s:"ще не створено: відвідування показуватимуться як «не вимірюється»",qa6:"Без сторонніх скриптів і cookies",
+ cons:"Вибір варіанта позначає його як версію для наступного тесту. Нічого не публікується. Публікація — окремий крок зі своїм погодженням.",
+ chooseA:"Обрати A",chooseB:"Обрати B",rejectBoth:"Відхилити обидва",reason:"Причина (потрібна для відхилення)",reasonPh:"Наприклад: заголовок обіцяє забагато",
+ decided:"Рішення записано: {v} · ви · {time}. Нічого не опубліковано.",rejected:"Обидва варіанти відхилено. Причину збережено. Агенти підготують нові чернетки.",
+ needReason:"Спершу напишіть причину.",undo:"Скасувати",
+ lA:"ВАРІАНТ A",lB:"ВАРІАНТ B",
+ a_h:"Ваша тема. Десять хвилин. Щоранку в Telegram.",a_p:"MyCast перетворює новини на обрану вами тему на короткий випуск подкасту.",a_cta:"Створити мій подкаст",
+ b_h:"Будьте у фокусі того, що для вас важливо.",b_p:"Одна тема на ваш вибір. Один короткий випуск щоранку в Telegram.",b_cta:"Послухати й створити свій",b_sample:"Послухайте приклад на одну хвилину",
+ land_foot:"Почати безкоштовно · Скасувати будь-коли",
+ wz_step:"Крок {i} з {n}",back:"Назад",cont:"Далі",start:"Запустити ціль",
+ wz1:"Який продукт?",wz1new:"Новий продукт",wz1name:"Назва продукту",wz1link:"Посилання (необов'язково)",
+ wz2:"Який результат потрібен?",wz2a:"Перші 100 справжніх реєстрацій",wz2b:"50 людей отримали перший випуск",wz2c:"Інше",wz2other:"Опишіть результат",
+ wz3:"Для кого це?",wz3hint:"Напишіть так, як пояснили б другові.",
+ wz4:"Де люди це побачать?",wz4hint:"Готуються лише чернетки. Без вашого окремого погодження нічого не публікується.",ch_tg:"Telegram",ch_li:"LinkedIn",ch_direct:"Лише пряме посилання",
+ wz5:"До якої дати?",wz5hint:"Дата допомагає агентам спланувати період вимірювання.",
+ wz6:"Ось що я зрозумів",wz6hint:"Перевірте. Позначене «невідомо» не вгадується. Будь-який рядок можна змінити.",
+ unknown:"невідомо",editLine:"Змінити",
+ wz_next:"Що станеться після запуску",wz_nextS:"Почнеться один запланований запуск: спершу дослідження. Ви побачите, хто його взяв і коли. Нічого не публікується, гроші не витрачаються.",
+ started:"Ціль запущено. Дослідження чекає, поки агент його візьме.",
+ proTitle:"Тут відкривається поточна повна панель",proLead:"Центр керування, офіс агентів, прогрес розробки й усі 37 пунктів меню залишаються як є. Нічого не прибрано.",
+ proRemember:"Цей браузер запам'ятовує ваш вибір. Наступного разу FactoryOS відкриється в цьому вигляді.",proBack:"Повернутися до простої версії",
+ proNote:"У прототипі це заглушка. У продукті кнопка відкриває справжню панель.",
+ remembered:"Запам'ятано в цьому браузері: {v}.",
+ linkLearn:"У продукті це відкриває розділ «Навчання».",
+ results_intro:"Що насправді сталося, за продуктами. Клік — не реєстрація, а реєстрація — не оплата.",
+ r_click:"Клік",r_clickS:"хтось відкрив сторінку з допису",r_lead:"Реєстрація",r_leadS:"хтось створив акаунт через реальний вхід",r_pay:"Оплата",r_payS:"підтверджена квитанція оплати (ще не підключено)",
+ r_none:"Жодна ціль ще не має вимірювань.",
+ col_step:"Крок",col_count:"Кількість",col_from:"Від чого рахуємо",col_a:"A",col_b:"B",
+ v_a:"варіант A",v_b:"варіант B"
+},
+ru:{
+ pLabel:"ПРОТОТИП · ДЕМО-ДАННЫЕ",pState:"Состояние",pFrame:"Рамка телефона",pNote:"Числа, названия и время — примеры. Ничего не сохраняется и не отправляется.",
+ s_new:"Новый пользователь",s_empty:"Пусто: продукты без целей",s_working:"Идёт работа",s_approval:"Ждёт согласования",s_completed:"Завершено",s_failed:"Ошибка",s_offline:"Нет связи",s_budget:"Бюджет на исходе",
+ brandSub:"Ваши продукты, цели и результаты",
+ nav_home:"Главная",nav_needs:"Нужно от вас",nav_results:"Результаты",nav_team:"Команда агентов",nav_tools:"Все инструменты",nav_more:"Ещё",
+ pro:"Pro-версия",proHint:"текущая полная панель",simple:"Простая версия",demo:"ДЕМО-ДАННЫЕ",
+ t_home:"Ваши продукты",t_needs:"Нужно от вас",t_results:"Результаты",t_team:"Команда агентов",t_tools:"Все инструменты",t_goal:"MyCast · цель",t_compare:"Сравнение вариантов лендинга",t_wizard:"Новая цель",t_pro:"Pro-версия",
+ promise:"Поставьте продукту цель. Агенты исследуют, готовят варианты и измеряют. Вы решаете, что выходит в мир.",
+ newGoal:"Новая цель",
+ needsStrip:"Нужно от вас · {n}",more:"ещё {n}",open:"Открыть",later:"Позже",compare:"Сравнить",answer:"Ответить",howTo:"Как это сделать",retry:"Повторить",runbook:"Открыть инструкцию",
+ noGoal:"Цели пока нет",setGoal:"Поставить цель",openGoal:"Открыть цель",evidence:"Доказательства",next:"Следующий шаг",
+ goalMy:"Первые 100 настоящих регистраций · Telegram · до 31 декабря",
+ dmStage:"Этап проекта: спецификация.",contentCard:"Контент Blackbox Lab",contentSub:"2 производственные задачи. Публикаций на этой неделе нет.",
+ w_none:"Сейчас никто не работает.",w_noneNeeds:"Сейчас никто не работает. Вас ждут: {n}.",
+ workingNow:"Работают сейчас",spend:"Расходы",spend0:"$0 сегодня",spend0sub:"Платные сервисы выключены · лимит $10 в день",
+ spendLow:"$9,40 из $10 сегодня",spendLowSub:"Платные шаги ждут до 00:00 UTC. Бесплатные продолжаются.",
+ st_need:"Нужно от вас",st_work:"Работает",st_wait:"Ждёт",st_done:"Готово, проверено",st_stop:"Остановлено",st_off:"Нет связи",st_pause:"Пауза",
+ f_exposure:"Увидели в Telegram",f_visit:"Открыли страницу",f_signup:"Зарегистрировались",f_active:"Получили первый выпуск",f_pay:"Оплатили",
+ notMeasured:"не измеряется",notConnected:"не подключено",
+ nx_working:"Идёт исследование. По этой цели от вас ничего не нужно.",nx_approval:"Сравните варианты лендинга A и B.",nx_completed:"Согласуйте следующий эксперимент.",nx_failed:"Исследование остановилось. Повторите или откройте инструкцию.",nx_offline:"Ждём, пока агент снова подключится.",nx_budget:"Пишутся гипотезы. Шаг с картинками ждёт бюджета.",
+ newTitle:"FactoryOS растит ваши продукты",newLead:"Добавьте продукт, поставьте одну понятную цель и решайте, какие черновики выходят в мир. Агенты исследуют, готовят черновики и измеряют. Без вашего «да» ничего не публикуется.",
+ how1:"Добавьте продукт",how1s:"Достаточно названия и ссылки.",how2:"Поставьте цель",how2s:"Например: первые 100 настоящих регистраций.",how3:"Решайте",how3s:"Сравнивайте варианты рядом. Согласуйте или отклоните.",how4:"Смотрите результат",how4s:"Только измеренные числа. Неизвестное показано как неизвестное.",
+ addFirst:"Добавить первый продукт",seeExample:"Посмотреть пример",howWorks:"Как работает FactoryOS",
+ emptyTitle:"Целей пока нет",emptyLead:"Ваши продукты здесь. Поставьте одному из них цель, чтобы начать.",
+ n_compare:"MyCast: сравнить варианты лендинга A и B",n_compareS:"Черновики готовы. Без отдельного «да» ничего не публикуется. Стоимость $0.",
+ n_dm:"AI Decision Memory: исследователь задаёт один вопрос",n_dmS:"«Кто принимает решения в вашей команде: один человек или группа?» · 2 дня",
+ n_pay:"Подключить платёжный сервис для MyCast",n_payS:"Без него шаг «Оплатили» не измерить.",
+ n_next:"MyCast: согласовать следующий эксперимент",n_nextS:"Предложение: проверить утреннее время выпуска. Стоимость $0.",
+ n_stop:"Остановлено: исследование MyCast",n_stopS:"Surfer потерял страницу в 03:41 (сайт не ответил). Сделанное сохранено.",
+ n_budget:"Дневной лимит почти исчерпан",n_budgetS:"$9,40 из $10. Поднимите лимит или подождите до 00:00 UTC.",
+ k_approve:"Согласовать",k_answer:"Ответить",k_setup:"Настроить",k_stopped:"Остановлено",
+ laterDone:"Перенесено на завтра 09:00. Вернётся само.",nextApproved:"Согласовано. Следующий эксперимент начнётся с исследования. Ничего не публикуется.",
+ needsEmpty:"От вас ничего не нужно.",needsEmptyS:"Новые запросы агентов появятся здесь и в Telegram.",
+ offTitle:"Ни один агент не подключён.",offSub:"Последний признак жизни в 03:58. Работа сохранена и продолжится, когда агент подключится. Числа ниже — на 03:58.",
+ failTitle:"Один шаг остановился.",failSub:"Исследование для MyCast остановилось в 03:41. Ничего не потеряно.",
+ budgetTitle:"Дневной лимит почти исчерпан.",budgetSub:"Платные шаги ждут. Бесплатные продолжаются.",
+ lane_claude:"Claude",lane_chatgpt:"ChatGPT",lane_gemini:"Gemini",lane_surfer:"Surfer (браузер)",
+ lw_claude:"Исследование MyCast · взял задачу в 14:02 · признак жизни 2 мин назад",lw_surfer:"Читает публичные страницы · 15 из 40",
+ lw_budget:"Пишет гипотезы · взял задачу в 04:05 · признак жизни 1 мин назад",
+ lane_idle:"Ничем не занят",lane_off:"Нет связи с 03:58",lane_stop:"Остановился в 03:41: сайт не ответил",
+ teamPro:"История, токены, стоимость каждого запуска и настройки MCP — в Pro-версии.",
+ tg_content:"Контент",tg_publish:"Публикации",tg_mvp:"MVP Builder",tg_team:"Команда и система",tg_data:"Данные и обучение",
+ toolPro:"Открывается в Pro-версии",
+ g_outcome:"Цель",g_channel:"Канал",g_audience:"Аудитория",g_period:"До",g_langs:"Языки лендинга",g_budget:"Бюджет",
+ g_audVal:"Занятые люди, которым нужны короткие сжатые новости по одной выбранной теме",g_genuine:"Настоящая = реальный вход, не владелец, не тестовый аккаунт, считается один раз.",
+ g_plan:"План",g_log:"Журнал работ",g_hyp:"Гипотезы",g_var:"Варианты",g_ev:"Доказательства",g_funnel:"Воронка",
+ p_research:"Исследование",p_hyp:"Две гипотезы",p_var:"Два черновика лендинга",p_qa:"Проверка качества",p_decide:"Ваше решение",p_dist:"Черновик публикации",p_measure:"Измерение",p_learn:"Выводы и следующий шаг",
+ hA:"A · Один короткий выпуск по вашей теме каждое утро побуждает занятых людей зарегистрироваться.",hB:"B · Если сначала услышать пример на минуту, регистрируется больше людей.",
+ hMetric:"Как измеряем: регистрации от посещений страницы, отдельно для каждого варианта.",
+ ev_level:"Уровень доказательства",ev1:"Заметки о конкурентах и аудитории, 6 публичных источников с датами",ev2:"Два черновика лендинга EN, UK, RU",ev3:"Отчёт проверки качества",ev4:"Ваше решение со временем и причиной",
+ lv_claimed:"заявлено",lv_linked:"есть ссылка",lv_checked:"проверено",lv_accepted:"принято",
+ denomNote:"Каждый шаг показывает своё число и шаг, от которого его считают. Малые числа показаны количеством, а не процентами.",
+ resultNote:"У B больше регистраций (15 против 9). При таких малых числах разница ещё может быть случайной. Вы выбрали B как следующую версию, а не как доказанного победителя.",
+ learn:"Выводы",learnS:"Посетители, которые услышали пример, регистрировались чаще. Дальше: проверить время выпуска (7:00 против 8:30). Стоимость $0.",
+ c_show:"Показать отличия",c_ch:"Канал: Telegram · Языки: EN, UK, RU · Стоимость $0",
+ c_qa:"Проверка качества",c_decide:"Ваше решение",
+ qa1:"Факты совпадают со страницами MyCast",qa2:"Тексты EN, UK и RU полные",qa3:"Работает на телефоне 390 px",qa4:"Ссылки и форма регистрации работают (тестовый аккаунт, не входит в результаты)",qa5:"Счётчик посещений и вариантов",qa5s:"ещё не создан: посещения будут показаны как «не измеряется»",qa6:"Без сторонних скриптов и cookies",
+ cons:"Выбор варианта отмечает его как версию для следующего теста. Ничего не публикуется. Публикация — отдельный шаг со своим согласованием.",
+ chooseA:"Выбрать A",chooseB:"Выбрать B",rejectBoth:"Отклонить оба",reason:"Причина (нужна для отклонения)",reasonPh:"Например: заголовок обещает слишком много",
+ decided:"Решение записано: {v} · вы · {time}. Ничего не опубликовано.",rejected:"Оба варианта отклонены. Причина сохранена. Агенты подготовят новые черновики.",
+ needReason:"Сначала напишите причину.",undo:"Отменить",
+ lA:"ВАРИАНТ A",lB:"ВАРИАНТ B",
+ a_h:"Ваша тема. Десять минут. Каждое утро в Telegram.",a_p:"MyCast превращает новости по выбранной вами теме в короткий выпуск подкаста.",a_cta:"Создать мой подкаст",
+ b_h:"Будьте в фокусе того, что для вас важно.",b_p:"Одна тема на ваш выбор. Один короткий выпуск каждое утро в Telegram.",b_cta:"Послушать и создать свой",b_sample:"Послушайте пример на одну минуту",
+ land_foot:"Начать бесплатно · Отменить в любой момент",
+ wz_step:"Шаг {i} из {n}",back:"Назад",cont:"Дальше",start:"Запустить цель",
+ wz1:"Какой продукт?",wz1new:"Новый продукт",wz1name:"Название продукта",wz1link:"Ссылка (необязательно)",
+ wz2:"Какой результат нужен?",wz2a:"Первые 100 настоящих регистраций",wz2b:"50 человек получили первый выпуск",wz2c:"Другое",wz2other:"Опишите результат",
+ wz3:"Для кого это?",wz3hint:"Напишите так, как объяснили бы другу.",
+ wz4:"Где люди это увидят?",wz4hint:"Готовятся только черновики. Без вашего отдельного согласования ничего не публикуется.",ch_tg:"Telegram",ch_li:"LinkedIn",ch_direct:"Только прямая ссылка",
+ wz5:"К какой дате?",wz5hint:"Дата помогает агентам спланировать период измерения.",
+ wz6:"Вот что я понял",wz6hint:"Проверьте. Помеченное «неизвестно» не угадывается. Любую строку можно изменить.",
+ unknown:"неизвестно",editLine:"Изменить",
+ wz_next:"Что будет после запуска",wz_nextS:"Начнётся один запланированный запуск: сначала исследование. Вы увидите, кто его взял и когда. Ничего не публикуется, деньги не тратятся.",
+ started:"Цель запущена. Исследование ждёт, пока агент его возьмёт.",
+ proTitle:"Здесь открывается текущая полная панель",proLead:"Центр управления, офис агентов, прогресс разработки и все 37 пунктов меню остаются как есть. Ничего не убрано.",
+ proRemember:"Этот браузер запоминает ваш выбор. В следующий раз FactoryOS откроется в этом виде.",proBack:"Вернуться к простой версии",
+ proNote:"В прототипе это заглушка. В продукте кнопка открывает настоящую панель.",
+ remembered:"Запомнено в этом браузере: {v}.",
+ linkLearn:"В продукте это открывает раздел «Обучение».",
+ results_intro:"Что на самом деле произошло, по продуктам. Клик — не регистрация, а регистрация — не оплата.",
+ r_click:"Клик",r_clickS:"кто-то открыл страницу из поста",r_lead:"Регистрация",r_leadS:"кто-то создал аккаунт через реальный вход",r_pay:"Оплата",r_payS:"подтверждённая квитанция оплаты (ещё не подключено)",
+ r_none:"Ни у одной цели пока нет измерений.",
+ col_step:"Шаг",col_count:"Количество",col_from:"От чего считаем",col_a:"A",col_b:"B",
+ v_a:"вариант A",v_b:"вариант B"
+}};
+
+/* ================= prototype state ================= */
+const STATES = ["new","empty","working","approval","completed","failed","offline","budget"];
+const VIEWS = ["home","needs","results","team","tools","goal-mycast","compare","wizard","pro"];
+const S = {lang:"ru",state:"approval",view:"home",framed:false,diff:true,side:"A",decision:null,later:{},wiz:{step:1,product:"mycast",newName:"",newLink:"",result:"a",other:"",audience:"",ch:{tg:true,li:false,direct:false},until:"2026-12-31",edit:null},mode:"simple"};
+const mem = {};
+function store(k,v){try{localStorage.setItem(k,v)}catch(e){mem[k]=v}}
+function load(k){try{const v=localStorage.getItem(k);return v===null?mem[k]:v}catch(e){return mem[k]}}
+
+const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function t(k,vars){let s=(L[S.lang]&&L[S.lang][k]);if(s===undefined)s=L.en[k];if(s===undefined)s=k;if(vars)for(const v in vars)s=s.split("{"+v+"}").join(vars[v]);return s}
+const $ = sel => document.querySelector(sel);
+
+/* ================= data per state (DEMO) ================= */
+function D(){
+ const st=S.state;
+ const products = st==="new"?[]:["mycast","dm","content"];
+ const hasGoal = !["new","empty"].includes(st);
+ const needs = ({
+  new:[],empty:[],
+  working:["dm"],
+  approval:["compare","dm","pay"],
+  completed:["next","pay"],
+  failed:["stop","dm"],
+  offline:["compare"],
+  budget:["budget","dm"]
+ })[st].filter(id=>!S.later[id] && !(id==="compare" && S.decision));
+ const mycastStatus = ({empty:null,working:"work",approval:"need",completed:"done",failed:"stop",offline:"off",budget:"work"})[st]||null;
+ const lanes = {
+  claude: ({working:["work","lw_claude"],budget:["work","lw_budget"],offline:["off","lane_off"],failed:["wait","lane_idle"]})[st]||["wait","lane_idle"],
+  chatgpt: st==="offline"?["off","lane_off"]:["off","lane_off"],
+  gemini: ["off","lane_off"],
+  surfer: ({working:["work","lw_surfer"],failed:["stop","lane_stop"],offline:["off","lane_off"]})[st]||["wait","lane_idle"]
+ };
+ const plan = ({
+  working:{research:"work"},
+  approval:{research:"done",hyp:"done",var:"done",qa:"done",decide:"need"},
+  completed:{research:"done",hyp:"done",var:"done",qa:"done",decide:"done",dist:"done",measure:"done",learn:"done"},
+  failed:{research:"stop"},
+  offline:{research:"done",hyp:"done",var:"done",qa:"done",decide:"need"},
+  budget:{research:"done",hyp:"work"}
+ })[st]||{};
+ if(S.decision && plan.decide==="need") plan.decide="done";
+ return {products,hasGoal,needs,mycastStatus,lanes,plan,measured:st==="completed"};
+}
+const NEED = {
+ compare:{kind:"need",k:"k_approve",title:"n_compare",sub:"n_compareS",act:["compare","go:compare"]},
+ dm:{kind:"need",k:"k_answer",title:"n_dm",sub:"n_dmS",act:["answer","toast:linkAnswer"]},
+ pay:{kind:"need",k:"k_setup",title:"n_pay",sub:"n_payS",act:["howTo","go:pro"]},
+ next:{kind:"need",k:"k_approve",title:"n_next",sub:"n_nextS",act:["k_approve","approveNext"]},
+ stop:{kind:"stop",k:"k_stopped",title:"n_stop",sub:"n_stopS",act:["retry","retry"]},
+ budget:{kind:"need",k:"k_setup",title:"n_budget",sub:"n_budgetS",act:["howTo","go:pro"]}
+};
+
+/* ================= rendering ================= */
+const pill = (kind,label) => `<span class="pill ${kind}">${esc(label)}</span>`;
+const stWord = {need:"st_need",work:"st_work",wait:"st_wait",done:"st_done",stop:"st_stop",off:"st_off",pause:"st_pause"};
+
+function render(){
+ document.documentElement.lang = S.lang==="uk"?"uk":S.lang;
+ document.title = "FactoryOS · "+t("t_"+titleKey());
+ ["pLabel","pState","pFrame","pNote"].forEach(id=>$("#"+id).textContent=t(id));
+ const sel=$("#stateSel"); sel.innerHTML=STATES.map(s=>`<option value="${s}"${s===S.state?" selected":""}>${esc(t("s_"+s))}</option>`).join("");
+ document.querySelectorAll("[data-lang]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.lang===S.lang)));
+ const d=D();
+ const app=$("#app"); app.classList.toggle("framed",S.framed);
+ lastNarrow = app.clientWidth<760; app.classList.toggle("narrow",lastNarrow);
+ const nNeeds=d.needs.length;
+ const navItem=(v,label,count)=>`<button class="nav" data-go="${v}"${current(v)?' aria-current="page"':""}><span>${esc(label)}</span>${count?`<span class="count">${count}</span>`:""}</button>`;
+ app.innerHTML = `
+ <nav class="side" aria-label="Main">
+  <div class="brand">FactoryOS<small>${esc(t("brandSub"))}</small></div>
+  ${navItem("home",t("nav_home"))}${navItem("needs",t("nav_needs"),nNeeds)}${navItem("results",t("nav_results"))}
+  <div class="sep"></div>
+  ${navItem("team",t("nav_team"))}${navItem("tools",t("nav_tools"))}
+  <div class="grow"></div>
+  <button class="proBtn" data-act="pro"><span>${esc(t("pro"))}<br><small>${esc(t("proHint"))}</small></span><span aria-hidden="true">→</span></button>
+ </nav>
+ <div class="main">
+  <header class="head">
+   <h1>${esc(t("t_"+titleKey()))}</h1>
+   <div class="tools"><span class="demo">${esc(t("demo"))}</span>${S.view==="pro"?`<button class="btn" data-act="simple">${esc(t("simple"))}</button>`:`<button class="btn ghost" data-act="pro">${esc(t("pro"))}</button>`}${S.view==="home"&&d.products.length?`<button class="btn pri" data-go="wizard">+ ${esc(t("newGoal"))}</button>`:""}</div>
+  </header>
+  <main class="body" id="view">${views[viewKey()](d)}</main>
+  <nav class="tabbar" aria-label="Main">
+   ${tab("home",t("nav_home"))}${tab("needs",t("nav_needs"),nNeeds)}${tab("results",t("nav_results"))}${tab("tools",t("nav_more"))}
+  </nav>
+ </div>`;
+}
+function tab(v,label,count){const on=v==="tools"?["tools","team","pro"].includes(S.view):current(v);return `<button class="tab" data-go="${v}"${on?' aria-current="page"':""}><span>${esc(label)}</span>${count?`<span class="count">${count}</span>`:""}</button>`}
+function current(v){return S.view===v||(v==="home"&&["goal-mycast","compare","wizard"].includes(S.view))}
+function viewKey(){return S.view==="goal-mycast"?"goal":S.view}
+function titleKey(){return ({"goal-mycast":"goal"})[S.view]||S.view}
+
+function banners(){
+ if(S.state==="offline") return `<div class="banner bad" role="status"><div class="grow"><b>${esc(t("offTitle"))}</b><p class="muted">${esc(t("offSub"))}</p></div><button class="btn" data-go="team">${esc(t("nav_team"))}</button></div>`;
+ if(S.state==="failed") return `<div class="banner bad" role="status"><div class="grow"><b>${esc(t("failTitle"))}</b><p class="muted">${esc(t("failSub"))}</p></div><button class="btn pri" data-act="retry">${esc(t("retry"))}</button><button class="btn" data-act="toast:linkRunbook">${esc(t("runbook"))}</button></div>`;
+ if(S.state==="budget") return `<div class="banner warn" role="status"><div class="grow"><b>${esc(t("budgetTitle"))}</b><p class="muted">${esc(t("budgetSub"))}</p></div><button class="btn" data-act="pro">${esc(t("howTo"))}</button></div>`;
+ return "";
+}
+function needCard(id){const n=NEED[id];return `<div class="card ${n.kind==="stop"?"bad":"need"}"><div class="row">${pill(n.kind==="stop"?"stop":"need",t(n.k))}<h3 class="grow">${esc(t(n.title))}</h3></div><p class="muted">${esc(t(n.sub))}</p><div class="row"><button class="btn pri" data-act="${n.act[1]}">${esc(t(n.act[0]))}</button><button class="btn ghost" data-act="later:${id}">${esc(t("later"))}</button></div></div>`}
+
+function funnelRows(d,compact){
+ const m=d.measured;
+ const rows=[
+  ["f_exposure",null,null,"—"],
+  ["f_visit",m?"214 / 198":null,null,"f_exposure"],
+  ["f_signup",m?"9 / 15":(d.hasGoal?"12":"0"),null,"f_visit"],
+  ["f_active",m?"5 / 10":(d.hasGoal?"7":"0"),null,"f_signup"],
+  ["f_pay",null,"notConnected","f_active"]
+ ];
+ if(compact) return rows.filter((r,i)=>i>0).map(r=>`<tr><td>${esc(t(r[0]))}</td><td class="n">${r[1]!==null?esc(r[1]):`<span class="na">${esc(t(r[2]||"notMeasured"))}</span>`}</td></tr>`).join("");
+ return rows.map(r=>`<tr><td>${esc(t(r[0]))}</td><td class="n">${r[1]!==null?esc(r[1]):`<span class="na">${esc(t(r[2]||"notMeasured"))}</span>`}</td><td class="muted">${r[3]==="—"?"—":esc(t(r[3]))}</td></tr>`).join("");
+}
+
+function productCard(id,d){
+ if(id==="mycast"){
+  const st=d.mycastStatus;
+  if(!d.hasGoal) return `<div class="card"><div class="row"><h3 class="grow">MyCast</h3></div><p class="muted">${esc(t("noGoal"))}</p><div class="row"><button class="btn pri" data-go="wizard" data-prod="mycast" data-quick="1">${esc(t("setGoal"))}</button></div></div>`;
+  return `<div class="card${st==="need"?" need":st==="stop"?" bad":""}"><div class="row"><h3 class="grow">MyCast</h3>${pill(st,t(stWord[st]))}</div>
+   <p class="muted">${esc(t("goalMy"))}</p>
+   <div class="funnel"><table><caption class="sr">${esc(t("g_funnel"))}</caption><tbody>${funnelRows(d,true)}</tbody></table></div>
+   <p><span class="muted">${esc(t("next"))}:</span> ${esc(t("nx_"+S.state))}</p>
+   <div class="row">${st==="need"?`<button class="btn pri" data-go="compare">${esc(t("compare"))}</button>`:""}<button class="btn" data-go="goal-mycast">${esc(t("openGoal"))}</button><button class="btn ghost" data-go="results">${esc(t("evidence"))}</button></div></div>`;
+ }
+ if(id==="dm"){
+  const asks=d.needs.includes("dm");
+  return `<div class="card${asks?" need":""}"><div class="row"><h3 class="grow">AI Decision Memory</h3>${asks?pill("need",t("st_need")):""}</div><p class="muted">${esc(t("noGoal"))}. ${esc(t("dmStage"))}</p><div class="row"><button class="btn pri" data-go="wizard" data-prod="dm" data-quick="1">${esc(t("setGoal"))}</button>${asks?`<button class="btn" data-act="toast:linkAnswer">${esc(t("answer"))}</button>`:""}</div></div>`;
+ }
+ return `<div class="card"><div class="row"><h3 class="grow">${esc(t("contentCard"))}</h3>${pill("wait",t("st_pause"))}</div><p class="muted">${esc(t("contentSub"))}</p><div class="row"><button class="btn" data-act="pro">${esc(t("open"))}</button></div></div>`;
+}
+
+function workingBlock(d){
+ const on=Object.entries(d.lanes).filter(([,v])=>v[0]==="work");
+ const inner = on.length? on.map(([k,v])=>`<div class="row">${pill("work",t("st_work"))}<span class="grow"><b>${esc(t("lane_"+k))}</b> · ${esc(t(v[1]))}</span></div>`).join("")
+  : `<p class="muted">${esc(d.needs.length?t("w_noneNeeds",{n:d.needs.length}):t("w_none"))}</p>`;
+ return `<div class="card"><p class="label">${esc(t("workingNow"))}</p>${inner}</div>`;
+}
+function spendBlock(){
+ const low=S.state==="budget";
+ return `<div class="card${low?" need":""}"><p class="label">${esc(t("spend"))}</p><b>${esc(t(low?"spendLow":"spend0"))}</b><p class="muted">${esc(t(low?"spendLowSub":"spend0sub"))}</p></div>`;
+}
+
+const views = {
+ home(d){
+  if(S.state==="new") return `
+   <section class="hero"><h2>${esc(t("newTitle"))}</h2><p class="lead">${esc(t("newLead"))}</p>
+   <div class="row"><button class="btn pri" data-go="wizard" data-prod="new">${esc(t("addFirst"))}</button><button class="btn" data-act="state:approval">${esc(t("seeExample"))}</button><button class="btn ghost" data-act="toast:linkLearn">${esc(t("howWorks"))}</button></div></section>
+   <ol class="how"><li><b>${esc(t("how1"))}</b><span class="muted">${esc(t("how1s"))}</span></li><li><b>${esc(t("how2"))}</b><span class="muted">${esc(t("how2s"))}</span></li><li><b>${esc(t("how3"))}</b><span class="muted">${esc(t("how3s"))}</span></li><li><b>${esc(t("how4"))}</b><span class="muted">${esc(t("how4s"))}</span></li></ol>
+   <div class="grid2">${workingBlock(d)}${spendBlock()}</div>`;
+  const strip = d.needs.length?`<div class="strip">${pill("need",t("needsStrip",{n:d.needs.length}))}<b class="grow">${esc(t(NEED[d.needs[0]].title))}</b><button class="btn pri" data-act="${NEED[d.needs[0]].act[1]}">${esc(t(NEED[d.needs[0]].act[0]))}</button>${d.needs.length>1?`<button class="btn" data-go="needs">${esc(t("more",{n:d.needs.length-1}))}</button>`:""}</div>`:"";
+  return `<p class="lead">${esc(t("promise"))}</p>${banners()}${strip}
+   ${S.state==="empty"?`<div class="empty"><b>${esc(t("emptyTitle"))}</b><p class="muted">${esc(t("emptyLead"))}</p></div>`:""}
+   <section class="grid3" aria-label="${esc(t("t_home"))}">${d.products.map(p=>productCard(p,d)).join("")}</section>
+   <div class="grid2">${workingBlock(d)}${spendBlock()}</div>`;
+ },
+ needs(d){
+  if(!d.needs.length) return `${banners()}<div class="empty"><b>${esc(t("needsEmpty"))}</b><p class="muted">${esc(t("needsEmptyS"))}</p></div>`;
+  return `${banners()}<div class="list">${d.needs.map(needCard).join("")}</div>`;
+ },
+ results(d){
+  const defs=`<dl class="kv"><dt>${esc(t("r_click"))}</dt><dd>${esc(t("r_clickS"))}</dd><dt>${esc(t("r_lead"))}</dt><dd>${esc(t("r_leadS"))}</dd><dt>${esc(t("r_pay"))}</dt><dd>${esc(t("r_payS"))}</dd></dl>`;
+  if(!d.hasGoal) return `<p class="lead">${esc(t("results_intro"))}</p><div class="card">${defs}</div><div class="empty"><b>${esc(t("r_none"))}</b><button class="btn pri" data-go="wizard">${esc(t("newGoal"))}</button></div>`;
+  return `<p class="lead">${esc(t("results_intro"))}</p>${banners()}
+   <section class="card"><div class="row"><h2 class="grow" style="margin:0">MyCast</h2>${pill(d.mycastStatus,t(stWord[d.mycastStatus]))}</div><p class="muted">${esc(t("goalMy"))}</p>
+   <div class="funnel tw"><table><thead><tr><th>${esc(t("col_step"))}</th><th class="n">${esc(t("col_count"))}${d.measured?" (A / B)":""}</th><th>${esc(t("col_from"))}</th></tr></thead><tbody>${funnelRows(d,false)}</tbody></table></div>
+   <p class="muted">${esc(t("denomNote"))}</p>${d.measured?`<p>${esc(t("resultNote"))}</p>`:""}</section>
+   <div class="card">${defs}</div>`;
+ },
+ team(d){
+  const rows=Object.entries(d.lanes).map(([k,v])=>`<div class="card"><div class="row"><h3 class="grow">${esc(t("lane_"+k))}</h3>${pill(v[0],t(stWord[v[0]]))}</div><p class="muted">${esc(t(v[1]))}</p></div>`).join("");
+  return `${banners()}<div class="grid2">${rows}</div><div class="banner"><p class="grow">${esc(t("teamPro"))}</p><button class="btn" data-act="pro">${esc(t("pro"))}</button></div>`;
+ },
+ tools(){
+  const G=[
+   ["tg_content",["New Job","Jobs","Discovery","Revideo","Content Brain","Media Finisher"]],
+   ["tg_publish",["Review","Publish","Social autopilot","LinkedIn","OLX"]],
+   ["tg_mvp",["Projects","MyCast podcast","Decision Memory","MyBrief","Launchpad"]],
+   ["tg_team",["Agent Office","Workers","Build Progress","Autopilot","Supervisor","Error Center","Release QA","Browser agent"]],
+   ["tg_data",["Performance","Analytics","Experiments","Google Sheets","Brand strategy","Mods & skills","Learning"]]
+  ];
+  return `<p class="muted">${esc(t("toolPro"))}</p><div class="tools">${G.map(([g,items])=>`<div class="card"><p class="label">${esc(t(g))}</p>${items.map(i=>`<button data-act="pro">${esc(i)}</button>`).join("")}</div>`).join("")}</div>
+   <div class="row"><button class="btn" data-go="team">${esc(t("nav_team"))}</button><button class="btn" data-act="pro">${esc(t("pro"))}</button></div>`;
+ },
+ goal(d){
+  if(!d.hasGoal) return `<div class="empty"><b>${esc(t("noGoal"))}</b><button class="btn pri" data-go="wizard">${esc(t("setGoal"))}</button></div>`;
+  const steps=["research","hyp","var","qa","decide","dist","measure","learn"];
+  const plan=steps.map(s=>{const st=d.plan[s]||"wait";return `<li><span class="dot ${st}"></span><span>${esc(t("p_"+s))}</span><span>${st==="wait"?`<span class="muted">${esc(t("st_wait"))}</span>`:pill(st,t(stWord[st]))}</span></li>`}).join("");
+  const showHyp = d.plan.hyp==="done";
+  const log = [
+   ["14:02",S.lang==="en"?"Claude took «MyCast research» (run-8f2c)":S.lang==="uk"?"Claude узяв «Дослідження MyCast» (run-8f2c)":"Claude взял «Исследование MyCast» (run-8f2c)"],
+   ...(d.plan.research==="done"?[["15:20",t("ev1")+" · "+t("lv_linked")]]:[]),
+   ...(d.plan.var==="done"?[["16:05",t("ev2")]]:[]),
+   ...(d.plan.qa==="done"?[["16:30",t("ev3")+" · "+t("lv_checked")]]:[]),
+   ...(d.plan.decide==="done"?[["17:12",t("ev4")]]:[]),
+   ...(S.state==="failed"?[["03:41",t("n_stopS")]]:[])
+  ].reverse();
+  return `${banners()}
+   <section class="card"><dl class="kv"><dt>${esc(t("g_outcome"))}</dt><dd><b>${esc(t("wz2a"))}</b><br><span class="muted">${esc(t("g_genuine"))}</span></dd><dt>${esc(t("g_audience"))}</dt><dd>${esc(t("g_audVal"))}</dd><dt>${esc(t("g_channel"))}</dt><dd>Telegram</dd><dt>${esc(t("g_langs"))}</dt><dd>EN, UK, RU</dd><dt>${esc(t("g_period"))}</dt><dd>31.12.2026</dd><dt>${esc(t("g_budget"))}</dt><dd>$0</dd></dl></section>
+   ${d.needs.filter(n=>["compare","next","stop"].includes(n)).map(needCard).join("")}
+   <div class="grid2">
+    <section class="card"><h2>${esc(t("g_funnel"))}</h2><div class="funnel tw"><table><thead><tr><th>${esc(t("col_step"))}</th><th class="n">${esc(t("col_count"))}</th><th>${esc(t("col_from"))}</th></tr></thead><tbody>${funnelRows(d,false)}</tbody></table></div><p class="muted">${esc(t("denomNote"))}</p>${d.measured?`<p>${esc(t("resultNote"))}</p><div class="consequence"><b>${esc(t("learn"))}</b><p>${esc(t("learnS"))}</p></div>`:""}</section>
+    <section class="card"><h2>${esc(t("g_plan"))}</h2><ol class="steps">${plan}</ol></section>
+   </div>
+   ${showHyp?`<section class="card"><h2>${esc(t("g_hyp"))}</h2><p>${esc(t("hA"))}</p><p>${esc(t("hB"))}</p><p class="muted">${esc(t("hMetric"))}</p>${d.plan.var==="done"?`<div class="row"><button class="btn" data-go="compare">${esc(t("compare"))}</button></div>`:""}</section>`:""}
+   <div class="grid2">
+    <section class="card"><h2>${esc(t("g_log"))}</h2><ul class="log">${log.map(([tm,x])=>`<li><time>${tm}</time><span>${esc(x)}</span></li>`).join("")}</ul></section>
+    <section class="card"><h2>${esc(t("g_ev"))}</h2><ul class="log">${[["ev1","lv_linked",d.plan.research==="done"],["ev2","lv_linked",d.plan.var==="done"],["ev3","lv_checked",d.plan.qa==="done"],["ev4","lv_accepted",d.plan.decide==="done"]].filter(x=>x[2]).map(([e,l])=>`<li><time>${esc(t(l))}</time><span>${esc(t(e))}</span></li>`).join("")||`<li><time>—</time><span class="muted">${esc(t("st_wait"))}</span></li>`}</ul></section>
+   </div>`;
+ },
+ compare(){
+  const land=(v)=>{const a=v==="A";const win=S.decision===v;
+   return `<article class="land${win?" win":""}" aria-label="${esc(t(a?"lA":"lB"))}"><span class="tag">${esc(t(a?"lA":"lB"))}</span>
+    <h4><mark>${esc(t(a?"a_h":"b_h"))}</mark></h4><p><mark>${esc(t(a?"a_p":"b_p"))}</mark></p>
+    ${a?"":`<div class="sample"><mark style="display:contents"><i aria-hidden="true"></i>${esc(t("b_sample"))} · 1:00</mark></div>`}
+    <span class="cta"><mark style="background:none;color:inherit">${esc(t(a?"a_cta":"b_cta"))}</mark></span><span class="foot">${esc(t("land_foot"))}</span></article>`};
+  const narrow=$("#app").classList.contains("narrow");
+  const qa=[["ok","qa1"],["ok","qa2"],["ok","qa3"],["ok","qa4"],["warn","qa5","qa5s"],["ok","qa6"]].map(([c,k,s])=>`<li><span class="${c}" aria-hidden="true">${c==="ok"?"✓":"!"}</span><span>${esc(t(k))}${s?` — <span class="muted">${esc(t(s))}</span>`:""}</span></li>`).join("");
+  const decided = S.decision? `<div class="consequence" role="status"><b>${esc(S.decision==="rejected"?t("rejected"):t("decided",{v:t(S.decision==="A"?"v_a":"v_b"),time:"04:31"}))}</b></div><div class="row"><button class="btn" data-act="undo">${esc(t("undo"))}</button><button class="btn pri" data-go="goal-mycast">${esc(t("openGoal"))}</button></div>`
+   : `<p class="consequence">${esc(t("cons"))}</p>
+      <div class="row"><button class="btn pri" data-act="decide:A">${esc(t("chooseA"))}</button><button class="btn pri" data-act="decide:B">${esc(t("chooseB"))}</button><button class="btn ghost" data-act="later:compare">${esc(t("later"))}</button></div>
+      <div class="field"><label for="reason">${esc(t("reason"))}</label><input id="reason" placeholder="${esc(t("reasonPh"))}"></div>
+      <div class="row"><button class="btn danger" data-act="reject">${esc(t("rejectBoth"))}</button></div>`;
+  return `<div class="cmpbar"><span class="muted grow">${esc(t("c_ch"))}</span>
+    <label class="row"><input type="checkbox" id="diffChk"${S.diff?" checked":""}> ${esc(t("c_show"))}</label>
+    ${narrow?`<div class="seg" role="group"><button data-act="side:A" aria-pressed="${S.side==="A"}">A</button><button data-act="side:B" aria-pressed="${S.side==="B"}">B</button></div>`:""}</div>
+   <div class="cmp${S.diff?" show-diff":""}">${narrow?land(S.side):land("A")+land("B")}</div>
+   <div class="grid2">
+    <section class="card"><h2>${esc(t("g_hyp"))}</h2><p>${esc(t("hA"))}</p><p>${esc(t("hB"))}</p><p class="muted">${esc(t("hMetric"))}</p></section>
+    <section class="card"><h2>${esc(t("c_qa"))}</h2><ul class="checks">${qa}</ul></section>
+   </div>
+   <section class="card decide"><h2>${esc(t("c_decide"))}</h2>${decided}</section>`;
+ },
+ wizard(){
+  const W=S.wiz, N=6, i=W.step;
+  const prog=`<div class="progress" aria-hidden="true">${Array.from({length:N},(_,k)=>`<span class="${k<i?"on":""}"></span>`).join("")}</div><p class="muted">${esc(t("wz_step",{i,n:N}))}</p>`;
+  const radio=(name,val,label,checked)=>`<label class="opt"><input type="radio" name="${name}" value="${val}"${checked?" checked":""}><span>${esc(label)}</span></label>`;
+  const aud = W.audience || t("g_audVal");
+  let body="";
+  if(i===1) body=`<h2>${esc(t("wz1"))}</h2><div class="choice">${S.state==="new"?"":radio("product","mycast","MyCast",W.product==="mycast")+radio("product","dm","AI Decision Memory",W.product==="dm")}${radio("product","new",t("wz1new"),W.product==="new"||S.state==="new")}</div>
+   ${(W.product==="new"||S.state==="new")?`<div class="field"><label for="wzName">${esc(t("wz1name"))}</label><input id="wzName" value="${esc(W.newName)}"></div><div class="field"><label for="wzLink">${esc(t("wz1link"))}</label><input id="wzLink" value="${esc(W.newLink)}" inputmode="url"></div>`:""}`;
+  if(i===2) body=`<h2>${esc(t("wz2"))}</h2><div class="choice">${radio("result","a",t("wz2a"),W.result==="a")}${radio("result","b",t("wz2b"),W.result==="b")}${radio("result","c",t("wz2c"),W.result==="c")}</div>${W.result==="c"?`<div class="field"><label for="wzOther">${esc(t("wz2other"))}</label><input id="wzOther" value="${esc(W.other)}"></div>`:""}${W.result==="a"?`<p class="muted">${esc(t("g_genuine"))}</p>`:""}`;
+  if(i===3) body=`<h2>${esc(t("wz3"))}</h2><p class="muted">${esc(t("wz3hint"))}</p><div class="field"><label class="sr" for="wzAud">${esc(t("g_audience"))}</label><textarea id="wzAud">${esc(aud)}</textarea></div>`;
+  if(i===4) body=`<h2>${esc(t("wz4"))}</h2><p class="muted">${esc(t("wz4hint"))}</p><div class="choice">${["tg","li","direct"].map(c=>`<label class="opt"><input type="checkbox" name="ch" value="${c}"${W.ch[c]?" checked":""}><span>${esc(t("ch_"+(c==="direct"?"direct":c)))}</span></label>`).join("")}</div>`;
+  if(i===5) body=`<h2>${esc(t("wz5"))}</h2><p class="muted">${esc(t("wz5hint"))}</p><div class="field"><label class="sr" for="wzUntil">${esc(t("g_period"))}</label><input id="wzUntil" type="date" value="${esc(W.until)}"></div>`;
+  if(i===6){
+   const prod = (W.product==="new"||S.state==="new") ? (W.newName||"") : (W.product==="dm"?"AI Decision Memory":"MyCast");
+   const res = W.result==="a"?t("wz2a"):W.result==="b"?t("wz2b"):W.other;
+   const chans = ["tg","li","direct"].filter(c=>W.ch[c]).map(c=>t("ch_"+c)).join(", ");
+   const line=(k,v,step)=>`<dt>${esc(t(k))}</dt><dd>${v?esc(v):`<span class="unk">${esc(t("unknown"))}</span>`} <button class="btn ghost" style="min-height:28px;padding:2px 8px" data-act="wizgo:${step}">${esc(t("editLine"))}</button></dd>`;
+   body=`<h2>${esc(t("wz6"))}</h2><p class="muted">${esc(t("wz6hint"))}</p><dl class="kv summary">${line("wz1",prod,1)}${line("g_outcome",res,2)}${line("g_audience",aud,3)}${line("g_channel",chans,4)}${line("g_period",W.until,5)}<dt>${esc(t("g_budget"))}</dt><dd>$0</dd></dl>
+    <div class="consequence"><b>${esc(t("wz_next"))}</b><p>${esc(t("wz_nextS"))}</p></div>`;
+  }
+  return `<div class="wiz">${prog}${body}<div class="wizActions"><button class="btn" data-act="wizback"${i===1?" disabled":""}>${esc(t("back"))}</button>${i<N?`<button class="btn pri" data-act="wiznext">${esc(t("cont"))}</button>`:`<button class="btn pri" data-act="wizstart">${esc(t("start"))}</button>`}</div></div>`;
+ },
+ pro(){
+  const blocks=["Control Room","Agent Office","Connections","Content / Promotion","MVP Builder · Projects","Open questions","Owner console","Brand strategy","Mods & skills","Supervisor","Error Center","Worker results"];
+  return `<section class="pro"><h2>${esc(t("proTitle"))}</h2><p class="lead">${esc(t("proLead"))}</p><div class="mock" aria-hidden="true">${blocks.map(b=>`<span>${esc(b)}</span>`).join("")}</div>
+   <p>${esc(t("proRemember"))}</p><p class="muted">${esc(t("proNote"))}</p><div class="row"><button class="btn pri" data-act="simple">${esc(t("proBack"))}</button></div></section>`;
+ }
+};
+
+/* ================= behaviour ================= */
+let toastTimer=0;
+function toast(msg){const el=$("#toast");el.textContent=msg;el.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.hidden=true,3600)}
+function go(v){if(!VIEWS.includes(v))v="home";if(location.hash!=="#"+v){location.hash=v}else{S.view=v;render();focusMain()}}
+function focusMain(){const h=document.querySelector(".head h1");if(h){h.setAttribute("tabindex","-1");h.focus({preventScroll:true})}}
+function syncWizInputs(){
+ const W=S.wiz;
+ const r=document.querySelector('input[name="product"]:checked');if(r)W.product=r.value;
+ const res=document.querySelector('input[name="result"]:checked');if(res)W.result=res.value;
+ const v=id=>{const el=document.getElementById(id);return el?el.value:null};
+ if(v("wzName")!==null)W.newName=v("wzName").trim();
+ if(v("wzLink")!==null)W.newLink=v("wzLink").trim();
+ if(v("wzOther")!==null)W.other=v("wzOther").trim();
+ if(v("wzAud")!==null)W.audience=v("wzAud").trim();
+ if(v("wzUntil")!==null)W.until=v("wzUntil");
+ document.querySelectorAll('input[name="ch"]').forEach(c=>W.ch[c.value]=c.checked);
+}
+function setMode(m){S.mode=m;store("factoryos_home_view",m);toast(t("remembered",{v:t(m==="pro"?"pro":"simple")}))}
+
+document.addEventListener("click",e=>{
+ const g=e.target.closest("[data-go]");
+ if(g){if(g.dataset.go==="wizard"){S.wiz.step=g.dataset.quick?6:1;if(g.dataset.prod)S.wiz.product=g.dataset.prod;else if(S.state==="new")S.wiz.product="new"}go(g.dataset.go);return}
+ const b=e.target.closest("[data-act]");if(!b)return;
+ const [a,arg]=b.dataset.act.split(/:(.*)/s);
+ if(a==="go"){go(arg);return}
+ if(a==="pro"){setMode("pro");go("pro");return}
+ if(a==="simple"){setMode("simple");go("home");return}
+ if(a==="approveNext"){S.later.next=true;toast(t("nextApproved"));render();return}
+ if(a==="later"){S.later[arg]=true;toast(t("laterDone"));render();return}
+ if(a==="state"){S.state=arg;S.decision=null;S.later={};render();return}
+ if(a==="retry"){S.state="working";S.later={};toast(t("st_work")+" · "+t("lw_claude"));render();return}
+ if(a==="toast"){toast(arg==="linkLearn"?t("linkLearn"):t("proNote"));return}
+ if(a==="decide"){S.decision=arg;render();focusMain();return}
+ if(a==="reject"){const r=$("#reason");if(!r||!r.value.trim()){toast(t("needReason"));if(r)r.focus();return}S.decision="rejected";render();return}
+ if(a==="undo"){S.decision=null;render();return}
+ if(a==="side"){S.side=arg;render();return}
+ if(a==="wizback"){syncWizInputs();S.wiz.step=Math.max(1,S.wiz.step-1);render();focusMain();return}
+ if(a==="wiznext"){syncWizInputs();S.wiz.step=Math.min(6,S.wiz.step+1);render();focusMain();return}
+ if(a==="wizgo"){syncWizInputs();S.wiz.step=+arg;render();focusMain();return}
+ if(a==="wizstart"){syncWizInputs();if(S.state==="new"||S.state==="empty")S.state="working";toast(t("started"));go("goal-mycast");return}
+});
+document.addEventListener("change",e=>{
+ if(e.target.id==="stateSel"){S.state=e.target.value;S.decision=null;S.later={};render();return}
+ if(e.target.id==="frameChk"){S.framed=e.target.checked;render();return}
+ if(e.target.id==="diffChk"){S.diff=e.target.checked;render();return}
+ if(e.target.name==="product"||e.target.name==="result"){syncWizInputs();render()}
+});
+document.querySelectorAll("[data-lang]").forEach(b=>b.addEventListener("click",()=>{S.lang=b.dataset.lang;store("factoryos_lang",S.lang);render()}));
+window.addEventListener("hashchange",()=>{const v=location.hash.slice(1);S.view=VIEWS.includes(v)?v:"home";render();focusMain()});
+
+let lastNarrow=null;
+if(window.ResizeObserver){new ResizeObserver(()=>{const app=$("#app");const n=app.clientWidth<760;if(n!==lastNarrow)render()}).observe($("#app"))}else{window.addEventListener("resize",render)}
+
+/* boot: language from ?lang=, saved choice, or the browser; view from the hash or the remembered mode */
+(function boot(){
+ let q=null;try{q=new URLSearchParams(location.search).get("lang")}catch(e){}
+ const nav=(navigator.language||"").slice(0,2);
+ S.lang=["en","uk","ru"].includes(q)?q:(["en","uk","ru"].includes(load("factoryos_lang"))?load("factoryos_lang"):(nav==="en"?"en":nav==="ru"?"ru":"uk"));
+ let st=null;try{st=new URLSearchParams(location.search).get("state")}catch(e){}
+ if(STATES.includes(st))S.state=st;
+ S.mode=load("factoryos_home_view")==="pro"?"pro":"simple";
+ const h=location.hash.slice(1);
+ S.view=VIEWS.includes(h)?h:(S.mode==="pro"?"pro":"home");
+ render();
+})();
+</script>
+</body>
+</html>

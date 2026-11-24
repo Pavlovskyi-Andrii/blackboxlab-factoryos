@@ -60,6 +60,12 @@ CATALOG = (
      "desc": {"ru": "Как идея раздваивается на две аудитории со своими лендингами и промо. Вчерашний HTML из PR #347; это прототип, A/B Tester ещё не построен.",
               "uk": "Як ідея роздвоюється на дві аудиторії зі своїми лендингами та промо. Вчорашній HTML з PR #347; це прототип, A/B Tester ще не побудовано.",
               "en": "How one idea splits into two audiences with their own landings and promo. Yesterday's HTML from PR #347; a prototype — A/B Tester is not built yet."}},
+    {"id": "owner-home", "section": "explainers", "kind": "html", "path": "docs/prototypes/owner-home-growth/index.html", "lang": "ru",
+     "title": {"ru": "Новая главная: продукты и цели (прототип)", "uk": "Нова головна: продукти й цілі (прототип)",
+               "en": "New home: products and goals (prototype)"},
+     "desc": {"ru": "Кликабельный прототип #452: главная, «нужно от вас», мастер цели, сравнение A/B, результаты, кнопка «Pro-версия». Восемь состояний, три языка, телефон и компьютер. Демо-данные.",
+              "uk": "Клікабельний прототип #452: головна, «потрібно від вас», майстер цілі, порівняння A/B, результати, кнопка «Pro-версія». Вісім станів, три мови, телефон і комп'ютер. Демо-дані.",
+              "en": "Clickable prototype for #452: home, needs you, goal wizard, A/B compare, results and a «Pro version» switch. Eight states, three languages, phone and desktop. Demo data."}},
     # --- Как это работает --------------------------------------------------------------------------------------------
     {"id": "how-it-works", "section": "guide", "kind": "md", "path": "docs/guide/how-factoryos-works.md", "lang": "ru",
      "title": {"ru": "Как устроен FactoryOS — гайд по проекту", "uk": "Як влаштований FactoryOS — гайд по проєкту", "en": "How FactoryOS works — project guide"},

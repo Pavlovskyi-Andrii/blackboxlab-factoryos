@@ -1,0 +1,387 @@
+<title>FactoryOS Checkpoint A</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one reading column for the decision, wireframes break out as wide dark "screens" that always wear the
+   FactoryOS product look (their colours do not follow the page theme on purpose). */
+:root{
+  --bg:#07101a;--surface:#0c1826;--surface2:#101f31;--line:#1d3650;--text:#eef5fd;--muted:#8fa3b8;
+  --accent:#27caff;--accent-ink:#04121d;--good:#34dc7d;--warn:#ffb63a;--bad:#ff6b6b;
+  /* product look for wireframes: fixed */
+  --m-bg:#050a10;--m-panel:#0a1420;--m-panel2:#0e1a2a;--m-line:#193149;--m-line2:#264b69;--m-text:#f3f8ff;
+  --m-muted:#7c90a4;--m-cyan:#27caff;--m-blue:#2677ff;--m-green:#34dc7d;--m-amber:#ffb63a;
+  --font:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){
+  --bg:#f3f6fa;--surface:#ffffff;--surface2:#e9eef5;--line:#cfd9e5;--text:#0d1b2a;--muted:#52647a;
+  --accent:#0a6fb0;--accent-ink:#ffffff;--good:#11834a;--warn:#93600a;--bad:#b3261e;color-scheme:light}}
+:root[data-theme="light"]{
+  --bg:#f3f6fa;--surface:#ffffff;--surface2:#e9eef5;--line:#cfd9e5;--text:#0d1b2a;--muted:#52647a;
+  --accent:#0a6fb0;--accent-ink:#ffffff;--good:#11834a;--warn:#93600a;--bad:#b3261e;color-scheme:light}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font:15px/1.55 var(--font);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-block:28px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:34px}
+.col{max-width:70ch}
+h1{font-size:28px;line-height:1.15;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-size:20px;line-height:1.25;margin:0 0 12px;text-wrap:balance}
+h3{font-size:16px;margin:0 0 6px}
+p{margin:0 0 10px}
+.eyebrow{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.lead{font-size:17px;color:var(--text)}
+.muted{color:var(--muted)}
+.ask{border:1px solid var(--accent);border-radius:12px;padding:16px 18px;background:var(--surface)}
+.ask b{color:var(--accent)}
+ol.blockers{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;counter-reset:b}
+ol.blockers li{counter-increment:b;display:grid;grid-template-columns:28px 1fr;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+ol.blockers li::before{content:counter(b);font-weight:700;color:var(--warn);font-variant-numeric:tabular-nums}
+ol.blockers strong{display:block}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+th{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600;white-space:nowrap}
+td.n{text-align:right;white-space:nowrap}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.box{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:14px 16px;min-width:0}
+.box ul{margin:0;padding-left:18px}.box li{margin:0 0 6px}
+.tag{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.tag.rec{border-color:var(--good);color:var(--good)}
+.dir{display:flex;flex-direction:column;gap:14px;padding-top:26px;border-top:1px solid var(--line)}
+.dirhead{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline}
+.dirhead h2{margin:0}
+.screens{display:flex;gap:18px;align-items:flex-start;overflow-x:auto;padding-bottom:6px}
+.cap{font-size:12px;color:var(--muted);margin:6px 0 0}
+.pc{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.pc .box h3{font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.yes{color:var(--good);font-weight:600}.mid{color:var(--warn);font-weight:600}.no{color:var(--bad);font-weight:600}
+
+/* ---------- wireframes (fixed product look) ---------- */
+.mock,.phone{background:var(--m-bg);color:var(--m-text);border:1px solid var(--m-line2);font:12px/1.4 var(--font);flex:none;position:relative}
+.mock{width:700px;border-radius:12px;display:grid;grid-template-columns:132px 1fr;overflow:hidden}
+.phone{width:264px;border-radius:26px;padding:14px 12px 16px;display:flex;flex-direction:column;gap:9px}
+.demo{position:absolute;right:10px;top:8px;z-index:1;font-size:9px;letter-spacing:.1em;color:var(--m-amber);border:1px solid var(--m-amber);border-radius:4px;padding:1px 5px;background:var(--m-bg)}
+.m-side{background:var(--m-panel);border-right:1px solid var(--m-line);padding:12px 9px;display:flex;flex-direction:column;gap:4px}
+.m-brand{font-weight:700;font-size:12px;margin:0 0 10px 4px}
+.m-nav{padding:6px 8px;border-radius:7px;color:var(--m-muted)}
+.m-nav.on{background:var(--m-panel2);color:var(--m-text);border:1px solid var(--m-line2)}
+.m-nav small{float:right;color:var(--m-amber);font-weight:700}
+.m-sep{height:1px;background:var(--m-line);margin:6px 2px}
+.m-main{padding:14px 16px 34px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.m-h{font-size:15px;font-weight:700;margin:0}
+.m-sub{color:var(--m-muted);font-size:11px;margin:0}
+.m-lab{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--m-muted);margin:4px 0 0}
+.m-lab b{color:var(--m-amber)}
+.m-card{background:var(--m-panel);border:1px solid var(--m-line);border-radius:9px;padding:9px 10px;display:flex;flex-direction:column;gap:5px;min-width:0}
+.m-card.need{border-color:var(--m-amber)}
+.m-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.m-grow{flex:1;min-width:0}
+.m-t{font-weight:600}
+.m-m{color:var(--m-muted);font-size:11px}
+.m-btn{display:inline-block;padding:4px 9px;border-radius:7px;border:1px solid var(--m-line2);color:var(--m-text);font-size:11px;font-weight:600;white-space:nowrap}
+.m-btn.pri{background:var(--m-blue);border-color:var(--m-blue)}
+.m-pill{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid var(--m-line2);color:var(--m-muted);white-space:nowrap}
+.m-pill.a{border-color:var(--m-amber);color:var(--m-amber)}.m-pill.g{border-color:var(--m-green);color:var(--m-green)}.m-pill.c{border-color:var(--m-cyan);color:var(--m-cyan)}
+.m-grid{display:grid;gap:9px}
+.m-g2{grid-template-columns:1fr 1fr}.m-g3{grid-template-columns:1.5fr 1fr 1fr}.m-g21{grid-template-columns:1.6fr 1fr}
+.mock>.demo{top:auto;bottom:9px}
+.m-fun{display:flex;flex-direction:column;border:1px solid var(--m-line);border-radius:7px;background:var(--m-panel2)}
+.m-fun div{display:flex;justify-content:space-between;gap:8px;padding:3px 8px;border-bottom:1px solid var(--m-line);font-size:11px}
+.m-fun div:last-child{border-bottom:0}
+.m-fun span{color:var(--m-muted)}
+.m-fun b{font-variant-numeric:tabular-nums}
+.m-fun .na b{color:var(--m-muted);font-weight:500;font-style:italic}
+.m-input{border:1px solid var(--m-cyan);border-radius:10px;padding:10px 12px;color:var(--m-muted);background:var(--m-panel)}
+.m-bar{display:flex;justify-content:space-between;align-items:center}
+.m-tabs{display:flex;justify-content:space-around;border-top:1px solid var(--m-line);padding-top:8px;margin-top:2px;color:var(--m-muted);font-size:10px}
+.m-tabs b{color:var(--m-cyan)}
+</style>
+
+<div class="wrap">
+
+<header class="col">
+  <p class="eyebrow">FactoryOS · задача #452 · контрольный показ A · 23.11.2026</p>
+  <h1>Каким будет первый экран FactoryOS: выберите одно из трёх направлений</h1>
+  <p class="lead" style="margin-top:12px">Разбор Ploy и аудит текущего интерфейса готовы. Прежде чем строить кликабельный прототип, мне нужно одно ваше решение: в каком направлении его делать.</p>
+  <div class="ask">
+    <p style="margin:0"><b>Что нужно от вас:</b> ответьте в чате «1», «2» или «3». Я рекомендую <b>направление 2</b>. Можно добавить «2, но…» с правками. Картинки ниже черновые: это схема расположения, а не финальный дизайн.</p>
+  </div>
+</header>
+
+<section>
+  <h2>Что мешает сейчас: пять главных проблем</h2>
+  <p class="col muted">Снято с локальной копии FactoryOS v5.19.1 без данных. Ваш настоящий экран с данными я не видел: продакшен отвечает моей сессии отказом в доступе, и обходить вход я не стал. С реальными данными страница длиннее, так что цифры ниже — нижняя граница.</p>
+  <ol class="blockers">
+    <li><div><strong>Первый экран не отвечает на вопрос «что это и что мне делать».</strong>Единственное описание — мелкая строка «центр управления AI-производством контента». Она описывает одну из пяти частей продукта. Самый крупный элемент экрана — декоративный офис агентов.</div></li>
+    <li><div><strong>То, что ждёт вашего решения, спрятано.</strong>В тестовой копии 19 задач для владельца и 2 открытых вопроса. На первом экране нет ни одной и нет даже счётчика. Путь: меню → «Автоматизация и команда» → «Воркеры».</div></li>
+    <li><div><strong>В продукте нет понятия «цель».</strong>Можно создать задачу на видео или MVP-проект. Сказать системе «вырасти MyCast» и следить за этим одним делом негде.</div></li>
+    <li><div><strong>Пять разных формулировок статуса на одном экране.</strong>«Фабрика онлайн · нет активного запуска», «19 агентов наготове», «Офлайн», «Простаивает · Auto → ChatGPT · auth pending», «Готово к запуску». Понять, работает ли что-то сейчас, нельзя. Офис агентов выглядит живым, когда всё стоит.</div></li>
+    <li><div><strong>Одна страница из 12 блоков, мелкий текст.</strong>Длина — 8,3 экрана на компьютере и 18,8 на телефоне. 72 % текста первого экрана мельче 12 px, самый мелкий — 7 px.</div></li>
+  </ol>
+  <div class="tw" style="margin-top:14px">
+    <table>
+      <thead><tr><th>Замер первого экрана</th><th class="n">Компьютер 1440</th><th class="n">Планшет 768</th><th class="n">Телефон 390</th></tr></thead>
+      <tbody>
+        <tr><td>Длина страницы, экранов</td><td class="n">8,3</td><td class="n">9,5</td><td class="n">18,8</td></tr>
+        <tr><td>Кнопок и ссылок на первом экране / на странице</td><td class="n">62 / 304</td><td class="n">52 / 278</td><td class="n">30 / 275</td></tr>
+        <tr><td>Текст мельче 12 px на первом экране</td><td class="n">72 %</td><td class="n">70 %</td><td class="n">46 %</td></tr>
+        <tr><td>Слов на странице</td><td class="n">4 664</td><td class="n">4 908</td><td class="n">3 945</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cap">Что работает и остаётся как есть: нет горизонтальной прокрутки и ошибок на всех ширинах, меню на телефоне с подсказками, три языка под контролем тестов.</p>
+</section>
+
+<section>
+  <h2>Что берём у Ploy и что не берём</h2>
+  <p class="col muted">Прочитана только их публичная документация (21 страница) и условия использования. Аккаунт не создавался, внутренний интерфейс и картинки я не видел, поэтому внешний вид Ploy не копируется: его просто нет в материалах. Берутся общие приёмы.</p>
+  <div class="two">
+    <div class="box">
+      <h3>Берём</h3>
+      <ul>
+        <li><b>Начинать с цели, а не с инструмента.</b> Первый вопрос — какой результат нужен.</li>
+        <li><b>Одна короткая очередь «нужно от вас»</b> с двумя видами карточек: ответить или согласовать.</li>
+        <li><b>Одна страница на цель:</b> результат одной фразой, очередь, журнал работ, варианты.</li>
+        <li><b>Сначала черновик, публикация отдельно.</b> «Выбрать победителя» и «опубликовать» — два разных действия.</li>
+        <li><b>Статус говорит правду и что делать:</b> «данных пока нет», «собираем посетителей», «приостановлено: причина».</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Не берём</h3>
+      <ul>
+        <li>Публикацию первого результата без вопроса: у нас согласование обязательно.</li>
+        <li>Чат как главный интерфейс: в форме с реальными полями проще проверить, что сделано.</li>
+        <li>Конструктор сайтов, хостинг, домены, рекламу, рассылки.</li>
+        <li>Определение личности посетителей: риск по персональным данным и платные базы.</li>
+        <li>Словарь из 16 терминов. На первом экране FactoryOS будет четыре слова: продукт, цель, вариант, результат.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="cap">У FactoryOS уже есть то, чего в документации Ploy нет: проверяемое выполнение (кто взял задачу, когда был последний признак жизни), уровни доказательств и согласование, зашитое в код. Новый экран должен это показывать простыми словами.</p>
+</section>
+
+<!-- ============ DIRECTION 1 ============ -->
+<section class="dir">
+  <div class="dirhead"><h2>Направление 1. «Сегодня»</h2><span class="tag">очередь на первом месте</span></div>
+  <p class="col">Экран устроен по времени: что ждёт вас, что в работе, что сделано со вчера. Продукты — справа, как фильтр.</p>
+  <div class="screens">
+    <div>
+      <div class="mock">
+        <span class="demo">ДЕМО-ДАННЫЕ</span>
+        <div class="m-side">
+          <p class="m-brand">FactoryOS</p>
+          <div class="m-nav on">Сегодня <small>3</small></div>
+          <div class="m-nav">Продукты</div>
+          <div class="m-nav">Цели</div>
+          <div class="m-sep"></div>
+          <div class="m-nav">Команда агентов</div>
+          <div class="m-nav">Все инструменты</div>
+        </div>
+        <div class="m-main">
+          <div><p class="m-h">Доброе утро. Вас ждут 3 решения.</p><p class="m-sub">FactoryOS ведёт ваши продукты: агенты готовят работу, вы решаете, что выходит в мир.</p></div>
+          <div class="m-grid m-g21">
+            <div class="m-grid">
+              <p class="m-lab">Нужно от вас · <b>3</b></p>
+              <div class="m-card need"><div class="m-row"><span class="m-pill a">согласовать</span><span class="m-t m-grow">MyCast: сравнить варианты лендинга A и B</span></div><div class="m-row"><span class="m-m m-grow">Черновики готовы · публикации не будет без отдельного «да» · $0</span><span class="m-btn pri">Сравнить</span></div></div>
+              <div class="m-card need"><div class="m-row"><span class="m-pill a">ответить</span><span class="m-t m-grow">AI Decision Memory: уточнить спецификацию</span></div><div class="m-row"><span class="m-m m-grow">Вопрос от исследователя · 2 дня</span><span class="m-btn">Открыть</span><span class="m-btn">Позже</span></div></div>
+              <div class="m-card need"><div class="m-row"><span class="m-pill a">настроить</span><span class="m-t m-grow">Платёжный провайдер для MyCast</span></div><div class="m-row"><span class="m-m m-grow">Без него шаг «оплата» не измеряется</span><span class="m-btn">Как сделать</span></div></div>
+              <p class="m-lab">В работе сейчас</p>
+              <div class="m-card"><div class="m-row"><span class="m-pill c">работает</span><span class="m-t m-grow">Claude · прототип главной (T-733)</span><span class="m-m">взял в 14:02 · на связи 2 мин назад</span></div></div>
+              <p class="m-lab">Готово со вчера</p>
+              <div class="m-card"><div class="m-row"><span class="m-pill g">проверено</span><span class="m-t m-grow">Разбор Ploy · 43 строки доказательств</span><span class="m-m">коммит · CI</span></div></div>
+            </div>
+            <div class="m-grid" style="align-content:start">
+              <p class="m-lab">Продукты</p>
+              <div class="m-card"><span class="m-t">MyCast</span><span class="m-m">Цель: 100 настоящих регистраций</span><span class="m-m">12 из 100</span></div>
+              <div class="m-card"><span class="m-t">AI Decision Memory</span><span class="m-m">Цели нет</span></div>
+              <div class="m-card"><span class="m-t">Контент Blackbox Lab</span><span class="m-m">2 задачи</span></div>
+              <span class="m-btn pri" style="text-align:center">+ Поставить цель</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">Компьютер</p>
+    </div>
+    <div>
+      <div class="phone">
+        <span class="demo">ДЕМО</span>
+        <div><p class="m-h">Вас ждут 3 решения</p><p class="m-sub">Агенты готовят, вы решаете.</p></div>
+        <div class="m-card need"><span class="m-pill a" style="align-self:flex-start">согласовать</span><span class="m-t">MyCast: варианты A и B</span><span class="m-m">Черновики · $0</span><span class="m-btn pri" style="text-align:center">Сравнить</span></div>
+        <div class="m-card need"><span class="m-t">Decision Memory: уточнить</span><div class="m-row"><span class="m-btn">Открыть</span><span class="m-btn">Позже</span></div></div>
+        <div class="m-card need"><span class="m-t">Платёжный провайдер</span><span class="m-m">ещё 1 →</span></div>
+        <p class="m-lab">В работе</p>
+        <div class="m-card"><span class="m-t">Claude · прототип главной</span><span class="m-m">на связи 2 мин назад</span></div>
+        <div class="m-tabs"><b>Сегодня</b><span>Продукты</span><span>Агенты</span><span>Ещё</span></div>
+      </div>
+      <p class="cap">Телефон</p>
+    </div>
+  </div>
+  <div class="pc">
+    <div class="box"><h3>Сильные стороны</h3><ul><li>Лучший экран для ежедневной работы владельца.</li><li>Согласование видно сразу на телефоне.</li><li>Проще всего собрать: почти все данные уже есть.</li></ul></div>
+    <div class="box"><h3>Слабые стороны</h3><ul><li>Новому клиенту показывать нечего: очередь пуста, продукт не объяснён.</li><li>Результаты продуктов на втором плане.</li><li>Похож на трекер задач, а не на «управляю бизнесом».</li></ul></div>
+  </div>
+</section>
+
+<!-- ============ DIRECTION 2 ============ -->
+<section class="dir">
+  <div class="dirhead"><h2>Направление 2. «Продукты и цели»</h2><span class="tag rec">рекомендую</span></div>
+  <p class="col">Главное на экране — ваши продукты. У каждого видна цель, честная воронка и следующий шаг. Над ними — узкая полоса «нужно от вас», которая исчезает, когда ждать нечего. Агенты и все инструменты — на один шаг глубже.</p>
+  <div class="screens">
+    <div>
+      <div class="mock">
+        <span class="demo">ДЕМО-ДАННЫЕ</span>
+        <div class="m-side">
+          <p class="m-brand">FactoryOS</p>
+          <div class="m-nav on">Главная</div>
+          <div class="m-nav">Нужно от вас <small>3</small></div>
+          <div class="m-nav">Результаты</div>
+          <div class="m-sep"></div>
+          <div class="m-nav">Команда агентов</div>
+          <div class="m-nav">Все инструменты</div>
+        </div>
+        <div class="m-main">
+          <div class="m-bar"><div><p class="m-h">Ваши продукты растут здесь</p><p class="m-sub">Поставьте цель. Агенты исследуют, готовят варианты и измеряют. Вы решаете, что выходит в мир.</p></div><span class="m-btn pri">+ Новая цель</span></div>
+          <div class="m-card need"><div class="m-row"><span class="m-pill a">нужно от вас · 3</span><span class="m-t m-grow">MyCast: сравнить варианты лендинга A и B</span><span class="m-btn pri">Сравнить</span><span class="m-btn">ещё 2</span></div></div>
+          <div class="m-grid m-g3">
+            <div class="m-card">
+              <div class="m-row"><span class="m-t m-grow">MyCast</span><span class="m-pill c">идёт</span></div>
+              <span class="m-m">Цель: первые 100 настоящих регистраций · Telegram · до 31.12</span>
+              <div class="m-fun"><div class="na"><span>показы</span><b>не измеряется</b></div><div class="na"><span>визиты</span><b>не измеряется</b></div><div><span>регистрации</span><b>12</b></div><div><span>первый выпуск</span><b>7</b></div><div class="na"><span>оплата</span><b>не подключена</b></div></div>
+              <span class="m-m">Следующий шаг: согласовать вариант лендинга</span>
+              <div class="m-row"><span class="m-btn">Открыть цель</span><span class="m-btn">Доказательства</span></div>
+            </div>
+            <div class="m-card">
+              <div class="m-row"><span class="m-t m-grow">AI Decision Memory</span><span class="m-pill a">ждёт вас</span></div>
+              <span class="m-m">Цели нет. Проект на этапе «спецификация».</span>
+              <span class="m-m">Следующий шаг: ответить на вопрос исследователя</span>
+              <div class="m-row"><span class="m-btn pri">Поставить цель</span></div>
+            </div>
+            <div class="m-card">
+              <div class="m-row"><span class="m-t m-grow">Контент Blackbox Lab</span><span class="m-pill">пауза</span></div>
+              <span class="m-m">2 задачи. Публикаций на этой неделе нет.</span>
+              <div class="m-row"><span class="m-btn">Открыть</span></div>
+            </div>
+          </div>
+          <div class="m-grid m-g2">
+            <div class="m-card"><p class="m-lab" style="margin:0">Работают сейчас</p><div class="m-row"><span class="m-pill c">работает</span><span class="m-grow">Claude · прототип главной</span><span class="m-m">2 мин назад</span></div><span class="m-m">ChatGPT, Gemini: не на связи</span></div>
+            <div class="m-card"><p class="m-lab" style="margin:0">Расходы</p><span class="m-t">$0 сегодня</span><span class="m-m">Платные сервисы выключены · лимит $10 в день</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">Компьютер</p>
+    </div>
+    <div>
+      <div class="phone">
+        <span class="demo">ДЕМО</span>
+        <div><p class="m-h">Ваши продукты</p><p class="m-sub">Цель → варианты → ваше решение → результат</p></div>
+        <div class="m-card need"><div class="m-row"><span class="m-pill a">нужно от вас · 3</span></div><span class="m-t">MyCast: варианты A и B</span><div class="m-row"><span class="m-btn pri">Сравнить</span><span class="m-btn">ещё 2</span></div></div>
+        <div class="m-card"><div class="m-row"><span class="m-t m-grow">MyCast</span><span class="m-pill c">идёт</span></div><span class="m-m">100 настоящих регистраций</span><div class="m-fun"><div class="na"><span>визиты</span><b>не измеряется</b></div><div><span>регистрации</span><b>12</b></div><div><span>первый выпуск</span><b>7</b></div></div></div>
+        <div class="m-card"><div class="m-row"><span class="m-t m-grow">AI Decision Memory</span><span class="m-pill a">ждёт вас</span></div><span class="m-btn pri" style="text-align:center">Поставить цель</span></div>
+        <div class="m-tabs"><b>Главная</b><span>От вас · 3</span><span>Агенты</span><span>Ещё</span></div>
+      </div>
+      <p class="cap">Телефон</p>
+    </div>
+  </div>
+  <div class="pc">
+    <div class="box"><h3>Сильные стороны</h3><ul><li>Подходит обоим: вы видите результаты своих продуктов, будущий клиент — свой продукт и кнопку «поставить цель».</li><li>Сам объясняет, что такое FactoryOS: продукты, цели, результат.</li><li>Пустое состояние естественное: «добавьте первый продукт».</li><li>Согласование остаётся на первом экране телефона.</li></ul></div>
+    <div class="box"><h3>Слабые стороны</h3><ul><li>Нужна новая сущность «цель» (небольшая, остальное уже есть в коде).</li><li>Воронка честно покажет «не измеряется» там, где счётчиков пока нет. Это правда, но выглядит скромно.</li><li>При 10+ продуктах сетку придётся сворачивать в список.</li></ul></div>
+  </div>
+</section>
+
+<!-- ============ DIRECTION 3 ============ -->
+<section class="dir">
+  <div class="dirhead"><h2>Направление 3. «Диалог»</h2><span class="tag">как у Ploy</span></div>
+  <p class="col">Первый экран — одно поле «Что делаем?» и подсказки. Всё остальное приходит как ответы и карточки в ленте.</p>
+  <div class="screens">
+    <div>
+      <div class="mock">
+        <span class="demo">ДЕМО-ДАННЫЕ</span>
+        <div class="m-side">
+          <p class="m-brand">FactoryOS</p>
+          <div class="m-nav on">Спросить</div>
+          <div class="m-nav">Нужно от вас <small>3</small></div>
+          <div class="m-nav">Продукты</div>
+          <div class="m-sep"></div>
+          <div class="m-nav">Команда агентов</div>
+          <div class="m-nav">Все инструменты</div>
+        </div>
+        <div class="m-main">
+          <div style="text-align:center;padding:18px 40px 4px"><p class="m-h" style="font-size:18px">Что делаем сегодня?</p><p class="m-sub">Опишите результат своими словами или выберите готовую цель.</p></div>
+          <div class="m-input" style="margin:0 60px">Например: привести первых 100 слушателей в MyCast…</div>
+          <div class="m-row" style="justify-content:center"><span class="m-btn">Вырастить MyCast</span><span class="m-btn">Проверить идею MVP</span><span class="m-btn">Что ждёт моего решения?</span><span class="m-btn">Что сделано за неделю?</span></div>
+          <p class="m-lab">Лента</p>
+          <div class="m-card need"><div class="m-row"><span class="m-pill a">согласовать</span><span class="m-t m-grow">MyCast: готовы варианты лендинга A и B</span><span class="m-btn pri">Сравнить</span></div></div>
+          <div class="m-card"><div class="m-row"><span class="m-pill c">работает</span><span class="m-grow">Claude собирает прототип главной</span><span class="m-m">2 мин назад</span></div></div>
+          <div class="m-card"><div class="m-row"><span class="m-pill g">проверено</span><span class="m-grow">Разбор Ploy готов</span><span class="m-m">вчера</span></div></div>
+        </div>
+      </div>
+      <p class="cap">Компьютер</p>
+    </div>
+    <div>
+      <div class="phone">
+        <span class="demo">ДЕМО</span>
+        <div style="text-align:center;padding-top:10px"><p class="m-h">Что делаем сегодня?</p></div>
+        <div class="m-input">Опишите результат…</div>
+        <div class="m-row"><span class="m-btn">Вырастить MyCast</span><span class="m-btn">Что ждёт меня?</span></div>
+        <p class="m-lab">Лента</p>
+        <div class="m-card need"><span class="m-t">MyCast: варианты A и B</span><span class="m-btn pri" style="text-align:center">Сравнить</span></div>
+        <div class="m-card"><span class="m-m">Claude собирает прототип</span></div>
+        <div class="m-tabs"><b>Спросить</b><span>От вас · 3</span><span>Продукты</span><span>Ещё</span></div>
+      </div>
+      <p class="cap">Телефон</p>
+    </div>
+  </div>
+  <div class="pc">
+    <div class="box"><h3>Сильные стороны</h3><ul><li>Самый простой на вид первый экран.</li><li>Знакомо всем, кто пользовался чат-ассистентами.</li></ul></div>
+    <div class="box"><h3>Слабые стороны</h3><ul><li>Чтобы поле отвечало, нужен постоянно работающий ИИ на сервере, а платные вызовы моделей правилами проекта по умолчанию запрещены.</li><li>Пустое поле не объясняет, что продукт умеет: человек должен сам придумать вопрос.</li><li>Состояние продуктов и результаты не видны, пока не спросишь.</li><li>Ближе всего к Ploy: выше риск выглядеть копией.</li></ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>Сравнение</h2>
+  <p class="col muted">Это моя экспертная оценка, а не результат теста с людьми. Тест будет на прототипе: с вами и 3–4 людьми, которых вы приведёте.</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Критерий</th><th>1. Сегодня</th><th>2. Продукты и цели</th><th>3. Диалог</th></tr></thead>
+      <tbody>
+        <tr><td>Новый человек за 10 секунд понимает, что это</td><td class="mid">средне</td><td class="yes">да</td><td class="mid">средне</td></tr>
+        <tr><td>Удобно владельцу каждый день</td><td class="yes">да</td><td class="yes">да</td><td class="mid">средне</td></tr>
+        <tr><td>Подходит будущему клиенту с пустым аккаунтом</td><td class="no">слабо</td><td class="yes">да</td><td class="mid">средне</td></tr>
+        <tr><td>Согласование на первом экране телефона</td><td class="yes">да</td><td class="yes">да</td><td class="yes">да</td></tr>
+        <tr><td>Видны результаты продукта</td><td class="mid">мелко</td><td class="yes">да</td><td class="no">по запросу</td></tr>
+        <tr><td>Собирается из того, что уже есть, за $0</td><td class="yes">да</td><td class="yes">да, плюс «цель»</td><td class="no">нужен ИИ на сервере</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Путь «вырастить MyCast»: сейчас и после</h2>
+  <div class="two">
+    <div class="box">
+      <h3>Сейчас</h3>
+      <ul>
+        <li>Начать как одно дело нельзя: цели нет.</li>
+        <li>Гипотеза и аудитория — на странице Launchpad, варианты A/B — в MVP Builder, регистрации — во вкладке «Пульт владельца», план публикаций — на отдельной странице. Пять разных мест.</li>
+        <li>Визиты и показы не считаются, оплаты нет.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>После (в прототипе)</h3>
+      <ul>
+        <li>Главная → «Новая цель» → MyCast, аудитория «занятой человек, который хочет быть в фокусе своей темы», канал Telegram.</li>
+        <li>Агенты готовят две гипотезы и два черновика лендинга на трёх языках.</li>
+        <li>Вы сравниваете A и B рядом и решаете. Публикация — отдельное «да».</li>
+        <li>Одна страница цели: воронка с пометкой, что измерено, а что нет, журнал работ, доказательства, следующий шаг.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="col">
+  <h2>Что дальше</h2>
+  <p>После вашего выбора я собираю кликабельный прототип в выбранном направлении: главная, мастер цели, сравнение A/B, метрики. Восемь состояний (новый пользователь, пусто, в работе, ждёт согласования, готово, ошибка, нет связи, бюджет на исходе), три языка, телефон и компьютер. Вместе с ним — техническое описание Growth Manager и сценарий теста на 10–15 минут для вас и ваших 3–4 человек.</p>
+  <p class="muted">Продакшен-дашборд не меняется. Ничего не публикуется. Расходов нет.</p>
+</section>
+
+</div>
