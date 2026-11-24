@@ -35,6 +35,21 @@ python test_film_studio.py
 Output directory: `assets/` (stand-in stills + manifest), `shots/` (one cached clip per shot), `text/` (caption
 files), `render_plan.json`, `film.mp4`, `frames/` (one mid-shot JPEG per shot), `qa_receipt.json`.
 
+## Narration and owner photos (S2, T-735)
+
+```bash
+# one WAV per shot from the storyboard voiceover, offline with a local Piper model (download it once, privately)
+python -m film_studio.narration --model /private/voices/ru_RU-dmitri-medium.onnx --out /private/vo \
+  --dataset-licence "CC0" --model-url https://huggingface.co/rhasspy/piper-voices/tree/main/ru/ru_RU/dmitri/medium
+# render with narration (placed per shot, mixed to -16 LUFS / -1.5 dBTP, measured again in qa_receipt.json)
+python -m film_studio.render --out /private/film --manifest /private/assets/asset_manifest.json --narration /private/vo/narration.json
+```
+
+`narration.json` (`film-studio/narration/v1`) pins every WAV by sha256; a line that would run into the next shot is
+refused. An owner recording uses `"source": "owner_recording"` with a `consent` note. An owner photo replaces a stock
+shot with a manifest asset `"source_type": "owner_supplied"`, `"url": "owner://…"`, `"substitutes_for": "<storyboard
+asset id>"`. Owner photos and voice stay in the private directory, never in git.
+
 ## Not in S1
 
 Narration audio input (S1 lays a silent AAC track and burns the narration in as captions), Media Finisher assembly
