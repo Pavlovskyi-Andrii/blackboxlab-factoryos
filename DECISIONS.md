@@ -2523,3 +2523,20 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Not done here: two agents calling `coordination_check` at the same moment can both get «yes». The check is advisory;
   the exclusive start is the existing atomic Relay claim (`claim_handoff` / `claim_roadmap`, one active claim per scope).
 
+## 2026-11-24 — T-735 AI Film Studio S2: narration and owner photo
+- Owner 2026-11-24 allowed Pexels and Hugging Face for the Claude cloud environment (hosts added: www.pexels.com,
+  images.pexels.com, huggingface.co and its download CDNs) and sent a portrait and a 13 s voice sample.
+- Voice: Piper `ru_RU-dmitri-medium` (MODEL_CARD: dataset CC0). `ru_RU-ruslan` (CC BY-NC-SA) and `ru_RU-irina`
+  (licence unknown) are not used. The model is downloaded once into a private directory; synthesis is offline.
+- Narration contract `film-studio/narration/v1`: one sha256-pinned WAV per shot, placed 0.25 s after the cut, refused
+  if it would run into the next shot; mix normalised to -16 LUFS / -1.5 dBTP (FFmpeg loudnorm) and measured again by QA.
+- An owner photo replaces a stock shot through the existing manifest field `substitutes_for` (now also in `--manifest`
+  mode). It is placed on a dark 16:9 canvas with a feathered edge for the titles; the face is not retouched.
+- The owner's photo and voice are personal data: they stay in the private render directory, never in git, never
+  published; the film went to the owner only (Claude session file).
+- Pexels: images download from images.pexels.com, but the photo and licence pages answer a Cloudflare bot challenge
+  to this data-centre session, so the author cannot be read and the shot is not marked verified. The rights gate is
+  unchanged. Next: the Pexels API with the owner's free key, or owner photos.
+- The voice sample was transcribed offline with faster-whisper `small` (CPU) only to read the owner's instruction;
+  it is not used to clone the voice. Cloning needs a separate owner choice of model and licence.
+
