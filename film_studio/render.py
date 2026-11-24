@@ -166,8 +166,13 @@ def shot_command(plan: Dict[str, Any], shot: Dict[str, Any], *, manifest_dir: Pa
     return argv
 
 
-def assemble_command(plan: Dict[str, Any], clips: Sequence[Path], out_mp4: Path) -> List[str]:
-    """Join shot clips (crossfade or cut) and add the audio bed; the result is exactly total_frames long."""
+LOUDNESS = {"I": -16.0, "TP": -1.5, "LRA": 11.0}   # web/podcast target, measured again by the QA receipt
+
+
+def assemble_command(plan: Dict[str, Any], clips: Sequence[Path], out_mp4: Path,
+                     narration: Optional[Sequence[Dict[str, Any]]] = None) -> List[str]:
+    """Join shot clips (crossfade or cut) and add the audio: a silent bed, plus each narration line placed at its
+    shot (adelay) and the mix normalised to LOUDNESS. The result is exactly total_frames long."""
     fps, shots = plan["fps"], plan["shots"]
     if len(clips) != len(shots):
         raise RenderError("one clip per shot is required")
@@ -176,7 +181,23 @@ def assemble_command(plan: Dict[str, Any], clips: Sequence[Path], out_mp4: Path)
         argv += ["-i", str(c)]
     duration = plan["total_frames"] / fps
     argv += ["-f", "lavfi", "-t", f"{duration:.6f}", "-i", "anullsrc=r=48000:cl=stereo"]
+    lines = list(narration or [])
+    for line in lines:
+        argv += ["-i", str(line["path"])]
     graph = [f"[{i}:v]settb=AVTB,setpts=PTS-STARTPTS[c{i}]" for i in range(len(clips))]
+    bed = len(clips)
+    audio_map = f"{bed}:a"
+    if lines:
+        labels = []
+        for k, line in enumerate(lines):
+            ms = int(round(float(line["start_sec"]) * 1000))
+            graph.append(f"[{bed + 1 + k}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                         f"adelay={ms}|{ms}[n{k}]")
+            labels.append(f"[n{k}]")
+        graph.append(f"[{bed}:a]{''.join(labels)}amix=inputs={len(lines) + 1}:duration=first:normalize=0:"
+                     f"dropout_transition=0,loudnorm=I={LOUDNESS['I']}:TP={LOUDNESS['TP']}:LRA={LOUDNESS['LRA']},"
+                     f"aresample=48000,apad,atrim=0:{duration:.6f}[aout]")
+        audio_map = "[aout]"
     cur, elapsed = "c0", shots[0]["frames"]
     for i in range(1, len(shots)):
         t_in = shots[i]["transition_in"]
@@ -189,7 +210,7 @@ def assemble_command(plan: Dict[str, Any], clips: Sequence[Path], out_mp4: Path)
         cur = nxt
         elapsed += shots[i]["frames"]
     graph.append(f"[{cur}]fps={fps},format=yuv420p[vout]")
-    argv += ["-filter_complex", ";".join(graph), "-map", "[vout]", "-map", f"{len(clips)}:a",
+    argv += ["-filter_complex", ";".join(graph), "-map", "[vout]", "-map", audio_map,
              "-frames:v", str(plan["total_frames"]), "-r", str(fps),
              "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-profile:v", "high", "-pix_fmt", "yuv420p",
              "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-t", f"{duration:.6f}",
@@ -264,6 +285,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--only", action="append", default=[], help="re-render this shot (repeatable)")
     p.add_argument("--crossfade", type=float, default=0.5, help="crossfade seconds at storyboard cuts (0 = cut)")
     p.add_argument("--dry-run", action="store_true", help="validate and print the plan; run nothing")
+    p.add_argument("--narration", help="narration.json (film-studio/narration/v1): one WAV line per shot")
     a = p.parse_args(argv)
 
     out = Path(a.out)
@@ -288,6 +310,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     overrides[s["shot_id"]] = asset["id"]
     elif a.manifest:
         manifest, mdir = validate_asset_manifest(_load(Path(a.manifest))), Path(a.manifest).resolve().parent
+        # A manifest asset that `substitutes_for` a storyboard asset replaces it in that shot (e.g. an owner photo).
+        for asset in manifest["assets"]:
+            for s in storyboard["shots"]:
+                if asset.get("substitutes_for") == s["asset_id"]:
+                    overrides[s["shot_id"]] = asset["id"]
     else:
         manifest, mdir = manifest_from_candidates(_load(Path(a.candidates))), Path(a.candidates).resolve().parent
 
@@ -304,6 +331,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     (out / "render_plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    voice = None
+    if a.narration:
+        from .narration import load as load_narration
+        try:
+            voice = load_narration(Path(a.narration), plan)
+        except ValidationError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
     if a.dry_run:
         fonts = {"regular": "DejaVuSans.ttf", "bold": "DejaVuSans-Bold.ttf"}
         cmds = [shot_command(plan, s, manifest_dir=mdir, work=out, out_clip=clip_path(out, s), fonts=fonts)
@@ -317,9 +352,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     records = render_shots(plan, manifest_dir=mdir, work=out, only=a.only)
     film = out / "film.mp4"
     tmp = out / "film.part.mp4"
-    run(assemble_command(plan, [out / r["clip"] for r in records], tmp), out)
+    run(assemble_command(plan, [out / r["clip"] for r in records], tmp, (voice or {}).get("lines")), out)
     tmp.replace(film)
-    receipt = qa.run_qa(film, plan, records, manifest_dir=mdir, frames_dir=out / "frames")
+    receipt = qa.run_qa(film, plan, records, manifest_dir=mdir, frames_dir=out / "frames", narration=voice)
     (out / "qa_receipt.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({k: receipt[k] for k in ("status", "film", "milestones")}, ensure_ascii=False, indent=2))
     return 0 if receipt["status"] == "PASS" else 4

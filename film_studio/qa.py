@@ -19,9 +19,22 @@ VOICE_NONE = {
                "absent; the Piper RU voice models (huggingface.co) and other downloads are refused by this "
                "session's network policy; paid TTS is not allowed"),
 }
-REALISTIC_BLOCKED = ("photographic milestone not reached: www.pexels.com is refused by this session's network policy "
-                     "(HTTP 403 from the agent proxy), so no candidate photo licence/author could be read or "
-                     "verified and no photo was downloaded; every shot uses an original procedural stand-in still")
+REALISTIC_BLOCKED = ("photographic milestone not reached: the www.pexels.com photo and licence pages answer a Cloudflare "
+                     "bot challenge (HTTP 403) to this data-centre session, so no candidate photo's author or licence "
+                     "could be read or verified (needs the Pexels API with the owner's free key, or owner-supplied "
+                     "photos); stock shots use original procedural stand-in stills")
+
+
+def loudness(path: Path) -> Dict[str, Any]:
+    """Integrated loudness (LUFS), true peak (dBTP) and mean volume (dB) of the film's audio, measured by FFmpeg."""
+    p = _run(["ffmpeg", "-nostdin", "-hide_banner", "-i", str(path), "-map", "0:a:0", "-af",
+              "ebur128=peak=true,volumedetect", "-f", "null", "-"])
+    err = p.stderr
+    def last(pattern: str):
+        found = re.findall(pattern, err)
+        return float(found[-1]) if found else None
+    return {"integrated_lufs": last(r"I:\s+(-?[\d.]+) LUFS"), "true_peak_dbtp": last(r"Peak:\s+(-?[\d.]+) dBFS"),
+            "mean_volume_db": last(r"mean_volume:\s+(-?[\d.]+) dB")}
 
 
 def _run(argv: List[str], timeout: int = 600) -> subprocess.CompletedProcess:
@@ -70,7 +83,7 @@ def _check(name: str, ok: bool, measured: Any, expected: Any) -> Dict[str, Any]:
 
 
 def run_qa(film: Path, plan: Dict[str, Any], shot_records: List[Dict[str, Any]], *, manifest_dir: Path,
-           frames_dir: Path) -> Dict[str, Any]:
+           frames_dir: Path, narration: Dict[str, Any] = None) -> Dict[str, Any]:
     probe = ffprobe(film)
     v = next((s for s in probe["streams"] if s["codec_type"] == "video"), {})
     a = next((s for s in probe["streams"] if s["codec_type"] == "audio"), {})
@@ -120,8 +133,24 @@ def run_qa(film: Path, plan: Dict[str, Any], shot_records: List[Dict[str, Any]],
     frames = sample_frames(film, plan, frames_dir)
     checks.append(_check("sampled mid-shot frames", all(f["ok"] for f in frames), sum(f["ok"] for f in frames),
                          len(frames)))
+    voice, loud = VOICE_NONE, None
+    if narration and narration.get("lines"):
+        loud = loudness(film)
+        lufs, peak = loud.get("integrated_lufs"), loud.get("true_peak_dbtp")
+        checks.append(_check("narration is audible", loud.get("mean_volume_db") is not None
+                             and loud["mean_volume_db"] > -45, loud.get("mean_volume_db"), "> -45 dB mean"))
+        checks.append(_check("integrated loudness (LUFS)", lufs is not None and -18.0 <= lufs <= -14.0, lufs,
+                             "-16 ±2 LUFS"))
+        checks.append(_check("true peak (dBTP)", peak is not None and peak <= -0.5, peak, "<= -0.5 dBTP"))
+        on_disk = [sha256_file(Path(x["path"])) == x["sha256"] for x in narration["lines"]]
+        checks.append(_check("narration WAV sha256 re-verified", all(on_disk), sum(on_disk), len(on_disk)))
+        voice = {"source": narration["voice"].get("source"), "voice": narration["voice"],
+                 "narration_sha256": narration.get("file_sha256"),
+                 "lines": [{k: x[k] for k in ("shot_id", "sha256", "start_sec", "duration_sec")}
+                           for x in narration["lines"]],
+                 "captions": "narration text also burned in as RU captions"}
     status = "PASS" if all(c["result"] == "PASS" for c in checks) else "FAIL"
-    standins = all(x["asset"]["source_type"] == "original_procedural" for x in shots)
+    standins = any(x["asset"]["source_type"] == "original_procedural" for x in shots)
     return {
         "schema": SCHEMA_QA_RECEIPT,
         "status": status,
@@ -136,15 +165,17 @@ def run_qa(film: Path, plan: Dict[str, Any], shot_records: List[Dict[str, Any]],
         "renderer": RENDERER_VERSION,
         "checks": checks,
         "shots": shots,
-        "voice": VOICE_NONE,
+        "voice": voice,
+        "loudness": loud,
         "cost": {"usd": 0.0, "paid_calls": 0, "network_calls_by_renderer": 0,
                  "note": "offline FFmpeg + Pillow on the session's container; no provider was called"},
         "milestones": {
             "technical_render": status,
             "realistic_photo_film": "BLOCKED" if standins else "NOT_ASSESSED",
             "realistic_photo_film_reason": REALISTIC_BLOCKED if standins else "",
-            "narration": "BLOCKED",
-            "narration_reason": VOICE_NONE["reason"],
+            "narration": status if loud else "BLOCKED",
+            "narration_reason": "" if loud else VOICE_NONE["reason"],
+            "owner_assets": [x["shot_id"] for x in shots if x["asset"]["source_type"] == "owner_supplied"],
             "owner_review": "PENDING (private; nothing published)",
         },
         "sampled_frames": frames,

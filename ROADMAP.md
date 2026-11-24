@@ -40,6 +40,16 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Result 2026-11-23: the 45 s film renders at 1920x1080 from original procedural stand-in stills (labelled «DEMO · иллюстрация, не фото»), silent AAC track + burned-in captions. Realistic-photo film and narration are blocked.
   Blocked (owner, not a roadmap task yet): the cloud session's network policy refuses www.pexels.com / images.pexels.com and huggingface.co (HTTP 403 from the agent proxy), so photo licences cannot be read and no offline RU voice can be fetched. To unblock: allow those hosts for the Claude cloud environment, or supply the 7 photos (owned/licensed stills, author + page URL + licence) and a narration recording, or approve a specific offline RU voice after its licence is read. Narration input itself is S2 work (S1 lays a silent track).
 
+- [x] T-735 AI Film Studio S2: narration lines per shot (offline Piper voice or owner recording), loudness-normalised mix, owner photo substitutes a stock shot
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-24: allowed Pexels + Hugging Face for the environment, sent a portrait and a voice sample)
+  Depends: T-730
+  Spec: DECISIONS.md «2026-11-24 — T-735». `film_studio/narration.py` (`film-studio/narration/v1`), `render.py --narration`, manifest `substitutes_for` in `--manifest` mode, QA receipt loudness checks.
+  Goal: one WAV per shot (sha256-pinned, starts 0.25 s after the cut, must end before the shot ends), mixed and normalised to -16 LUFS / -1.5 dBTP; QA measures integrated loudness, true peak and audibility; voice source and licence recorded (Piper model sha256 + dataset licence, or the owner's consent for a recording). An owner-supplied photo can replace a storyboard shot through `substitutes_for`. Owner photos and voice never go into git.
+  DONE: `python test_film_studio.py` (narration contract, placement, refusal cases, owner substitution, e2e render with loudness), default verification.
+  Result 2026-11-24: private 45 s film v2 (1920x1080, 24 fps, 1080 frames) with RU narration by Piper ru_RU-dmitri-medium (dataset CC0) at -15.5 LUFS / -1.4 dBTP and the owner's portrait as the final shot; QA PASS; sent to the owner privately in the Claude session, not published, not in git.
+  Blocked: stock shots s01–s06 are still procedural stand-ins. www.pexels.com answers a Cloudflare bot challenge to the data-centre session (the host is allowed, the page is not served), so a photo's author and licence cannot be read. Unblock: a free Pexels API key from the owner's Pexels account (host api.pexels.com), or the owner sends photos for those shots. Narration in the owner's own voice: the owner records the 7 lines, or approves voice cloning with a named model and licence (private demo only).
+
 - [x] T-720 Surfer action sessions (core): a live browser page that acts — web_open / web_act / web_snapshot / web_close
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner brief 2026-11-22: a tool that acts on sites instead of him, in his own signed-in accounts)
