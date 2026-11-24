@@ -1,8 +1,8 @@
 # FactoryOS owner-first information architecture (T-732, issue #452 §5)
 
-Date: 2026-11-23 · Author: Claude (interactive session) · Status: **draft for Checkpoint A**.
-The owner chooses one of three directions; this document is written for the recommended one (direction 2) and is
-revised after the choice. Nothing here changes the production dashboard.
+Date: 2026-11-23, revised 2026-11-24 · Author: Claude (interactive session) · Status: **direction 2 chosen by the owner**
+(2026-11-24, `.autopilot/answers.md` «#452 Checkpoint A»), with a visible switch to the current full dashboard. Nothing
+here changes the production dashboard. Clickable prototype: `docs/prototypes/owner-home-growth/index.html`.
 
 Base: `v5.19.1` (9 groups, 37 menu items).
 Inputs: `docs/ux/factoryos-current-state-audit.md` (defects D-01…D-17), `docs/research/ploy-public-ux-functional-benchmark.md`
@@ -86,6 +86,16 @@ the exact place: `#home`, `#needs`, `#results`, `#team`, `#tools`, `#goal-<id>`,
 Existing `#vault` keeps working. The router shows the view in `location.hash` on load and on `hashchange`; an unknown
 hash opens Home. Drawers keep their current open functions, so old handlers and tests stay valid.
 
+### 3.4 «Pro version» switch (owner 2026-11-24)
+- Home shows a visible «Pro version» button in the header on every width, and the sidebar shows it again at the
+  bottom with the hint «current full dashboard». On a phone it sits in the header next to the title.
+- It opens today's dashboard unchanged: Control Room, all 37 menu items, every drawer. The dashboard header gets a
+  «Simple view» button that returns to Home.
+- The choice is remembered per browser (`localStorage` key `factoryos_home_view` = `simple` | `pro`; the value is
+  read in try/catch, and a browser that blocks storage simply opens Home). A hash in the link wins over the remembered
+  choice, so Telegram links still open the exact place.
+- With `FACTORY_OWNER_HOME_ENABLED` off, the button does not exist and the dashboard is the only view.
+
 ## 4. Home: what is drawn and where each value comes from
 Rule (Amendment A1.3): **a tile without a backend source is not drawn**. An empty section is hidden, not shown as zero.
 
@@ -159,10 +169,11 @@ Added as new tokens next to the existing colour variables; existing screens are 
 - On = Home is the default view; Control Room remains in All tools.
 - Every new view only reads existing APIs except the goal entity; switching the flag off loses nothing.
 
-## 9. Open for the owner (Checkpoint A)
-1. Direction: 1, 2 or 3 (recommended 2).
-2. Should Home show the content-production area as a product card ("Blackbox Lab content"), or only MVP products?
-   Default: show it as a card while content jobs exist.
+## 9. Checkpoint A, decided 2026-11-24
+1. Direction 2, plus the «Pro version» switch (§3.4).
+2. Content card: not answered; the default applies (a card while content jobs exist).
+3. Quick start: the «Set a goal» button on a product card opens the prefilled summary step directly (measured: 2 clicks
+   instead of 7; `docs/research/growth-manager-test-plan-and-findings.md` §2).
 
 ## 10. Next (T-733)
 Clickable prototype in the chosen direction (Home, Needs you, goal wizard, goal page with funnel, A/B compare, eight

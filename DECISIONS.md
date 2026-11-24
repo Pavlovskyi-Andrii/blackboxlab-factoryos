@@ -2523,3 +2523,15 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Not done here: two agents calling `coordination_check` at the same moment can both get «yes». The check is advisory;
   the exclusive start is the existing atomic Relay claim (`claim_handoff` / `claim_roadmap`, one active claim per scope).
 
+
+## 2026-11-24 — T-731…T-733 UX-first Owner Home and Growth Manager (#452)
+- Ploy was benchmarked from its public documentation only, fetched as Markdown (the interface its docs publish for AI
+  tools). No account, no app screens, no images. Its terms forbid competitive use of the service and automated access
+  to it, so the service itself was never used. Linear and PostHog docs were the two adjacent references.
+- Owner chose direction 2 «Products and goals» (2026-11-24) and asked to keep the current dashboard one click away as
+  «Pro version», remembered per browser. Prototype in the Learning sandbox; no production dashboard change.
+- The Growth Manager reuses the Launchpad, A/B experiments, evidence levels, Discovery agents, Relay claims and the
+  social weekly plan. The only proposed new storage is a Goal list inside the MVP registry record and a first-party
+  MyCast visit counter without cookies or stored IP. Details and backlog: `docs/architecture/internal-growth-manager-rfc.md`.
+- Product cards open the goal summary prefilled (2 clicks to start a goal; the 6-step wizard measured 7).
+- Reversible: the prototype is one HTML file and one Learning catalog entry; the RFC is a proposal.

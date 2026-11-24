@@ -20,13 +20,14 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: `docs/ux/factoryos-current-state-audit.md` and `docs/ux/factoryos-owner-first-ia-spec.md` exist; screenshots under `docs/screenshots/t-732/`; a short owner summary in Russian is delivered and the owner picks a direction (Checkpoint A) before T-733 starts.
   Done 2026-11-24: audit (re-measured on v5.19.1), IA spec and Checkpoint A page delivered 2026-11-23. Owner chose direction 2 «Продукты и цели» plus a visible switch to the current full dashboard («Pro version») and back, remembered per browser (owner 2026-11-24 ~04:10 UTC, relayed to this session by the coordination session; `.autopilot/answers.md` «#452 Checkpoint A»).
 
-- [ ] T-733 #452 S3–S4: clickable prototype (Owner Home + Growth Manager goal wizard + approval + metrics), Growth Manager RFC and backlog → OWNER GATE
+- [x] T-733 #452 S3–S4: clickable prototype (Owner Home + Growth Manager goal wizard + approval + metrics), Growth Manager RFC and backlog → OWNER GATE
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1
   Depends: T-732 and the owner's Checkpoint A choice
   Spec: Issue #452 §5–§10 and Amendment A1 (A1.1, A1.2, A1.4, A1.5, A1.7).
   Goal: prototype in `docs/prototypes/owner-home-growth/` (fixture data marked DEMO DATA, eight states, EN/UK/RU, phone and desktop), opened behind login through the Learn section; RFC with the mapping table (24 mission fields and 11 states → existing fields/enums or "missing"), executor and cost per step, the designed first-party visit + variant event for MyCast; test plan with expert review, automated checks and a 10–15 minute script for the owner and the 3–4 people he brings; backlog of small tickets with the first PR specified to file level.
   DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-733/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
+  Done 2026-11-24: prototype `docs/prototypes/owner-home-growth/index.html` (Learning → «New home: products and goals»; 8 states × 9 views × EN/UK/RU, phone and desktop, «Pro version» switch remembered per browser), RFC with field and state mapping and backlog B-01…B-08 (first PR: first-party visit counter), test plan with automated results (432 renders clean; T1–T7 scripted: T2 = 2 clicks), decision record, screenshots `docs/screenshots/t-733/`, `test_owner_home_prototype.py` in CI. People test: NOT STARTED (owner brings 3–4 people). S5 waits for the owner gate.
 
 ## AI Film Studio (#433)
 
