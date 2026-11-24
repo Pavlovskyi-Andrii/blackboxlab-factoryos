@@ -29,6 +29,19 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-733/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
   Done 2026-11-24: prototype `docs/prototypes/owner-home-growth/index.html` (Learning → «New home: products and goals»; 8 states × 9 views × EN/UK/RU, phone and desktop, «Pro version» switch remembered per browser), RFC with field and state mapping and backlog B-01…B-08 (first PR: first-party visit counter), test plan with automated results (432 renders clean; T1–T7 scripted: T2 = 2 clicks), decision record, screenshots `docs/screenshots/t-733/`, `test_owner_home_prototype.py` in CI. People test: NOT STARTED (owner brings 3–4 people). S5 waits for the owner gate.
 
+## Faceless Creator A/B (#469, owner 2026-11-24)
+
+- [x] T-737 #469 S1: private 9:16 face-switch clip (one clothed synthetic presenter, three fictional faces) with a QA receipt that measures the switch; scripts A (privacy) and B (creative control)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-24: «второй приоритет — Faceless Creator, Issue #469», after T-736)
+  Depends: T-730
+  Spec: issue #469 «first measurable deliverable»; Relay th_b91be476434e470b (audit / decision); DECISIONS.md «2026-11-24 — T-737»; `film_studio/face_switch.py`, `film_studio/README.md` «Faceless Creator A/B».
+  Goal: 25–40 s, 1080x1920, H.264 + AAC; the same body, hoodie, room and voice before and after each snap, only the fictional face changes; «AI · SYNTHETIC DEMO» on every frame, 18+ / no-guarantee disclaimer on the end card; QA receipt from the decoded MP4 (ffprobe, full decode, 9:16, frame count, loudness, black stretches, label, and per switch the mean change of the face area against body and room); $0, offline, private output only.
+  DONE: `python test_face_switch.py`; `python -m film_studio.face_switch --variant A|B --out <private dir>` gives `qa_receipt.json` status PASS; default verification; both clips sent privately to the owner for a 1–10 score.
+  Result 2026-11-24: A 28.7 s (860 frames) and B 26.4 s (793 frames), both PASS; face area change 29.5–31.8 vs body/room ≤ 2.3 (ratio 13–32); -16 LUFS / -1.6 dBTP; voice espeak-ng `en-us+f3` (robotic, offline); about 110 s per render on 2 CPUs; sent to the owner in the Claude session, not published, not in git. Not claimed: photorealism, audience demand, an A/B winner, any owner score.
+  Blocked (photorealism, owner choice): no generative model is reachable at $0 from this environment (huggingface.co answers 403 through the agent proxy, no GPU). Unblock: allow huggingface.co for the Claude cloud environment again (then an open-weights model on CPU, licence checked before use), or send 2–3 synthetic frames of one clothed character from an already paid tool where only the face differs.
+  Next (S2, not started): owner score 1–10 + notes per branch and version in the A/B tester (T-608), «Generate 2 concepts» wiring, re-render only the stage the owner flags, v1/v2 side by side.
+
 ## AI Film Studio (#433)
 
 - [x] T-730 AI Film Studio S1: contracts + rights gate + deterministic shot plan + offline Photo Cinema render + QA receipt
