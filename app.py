@@ -30,6 +30,8 @@ from voice_transcribe import VoiceTranscriber
 from telegram_group import GroupBridge, GROUP_TYPES as TELEGRAM_GROUP_TYPES
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
+import coordination
+from github_pages import fetch_all
 from operator_lanes import build_operator_lanes
 from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
@@ -85,7 +87,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.16.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.19.1"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -211,7 +213,8 @@ AGENT_SPECS = {
 }
 
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
-app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+# html=True: a directory URL such as /static/linkedin/ serves its index.html (owner 2026-11-23: runbook links were 404).
+app.mount("/static", StaticFiles(directory=BASE / "static", html=True), name="static")
 
 
 @app.on_event("startup")
@@ -1333,10 +1336,21 @@ class _SurferVault:
     @staticmethod
     def _open():
         return _vault_parts(required=False), tenancy.binding_workspace()
-    def logins(self):
+    def ready(self):
+        return bool(_vault_parts(required=False))
+    def login_info(self):
+        """Per saved login 'site/account': is there a password, is there a saved browser session (cookies)."""
         parts,workspace=self._open()
         if not parts:return []
-        return sorted({f"{e['provider']}/{e['account']}" for part in parts for e in part.entries(workspace)})
+        info={}
+        for e in parts[0].entries(workspace):
+            row=info.setdefault(f"{e['provider']}/{e['account']}",{"password":False,"session":False})
+            row["password"]=row["password"] or "password" in (e.get("kinds") or [])
+        for e in parts[1].entries(workspace):
+            info.setdefault(f"{e['provider']}/{e['account']}",{"password":False,"session":False})["session"]=True
+        return [dict(login=k,**v) for k,v in sorted(info.items())]
+    def logins(self):
+        return [row["login"] for row in self.login_info()]
     def _ref(self,provider,account):
         parts,workspace=self._open()
         ref=parts[0].find_ref(workspace_id=workspace,provider=provider,account_binding_id=account) if parts else None
@@ -1367,9 +1381,11 @@ def _surfer_lane(request: Request) -> str:
 SURFER_RECIPES = surfer_recipes.RecipeStore(DATA_DIR)  # T-723: owner-approved recipes, replayed under the same gate
 async def _surfer_recipe_tool(args, lane):
     return await surfer_recipes.call_tool(args, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, lane=lane)
+async def _surfer_pending_tool(args, lane):  # T-726: Claude lane reads what waits for the owner (read-only)
+    return surfer_owner.agent_pending(SURFER_ACTIONS, SURFER_GATE, lane, FACTORY_PUBLIC_BASE_URL)
 surfer_actions.install_routes(app, store=SURFER_ACTIONS, gate_fn=lambda: SURFER_GATE, identity=request_identity,
                               authorize_worker=_claude_worker_authorized, lane_identity=_surfer_lane,
-                              extra_tools={"web_recipe": _surfer_recipe_tool})
+                              extra_tools={"web_recipe": _surfer_recipe_tool, "surfer_pending": _surfer_pending_tool})
 surfer_recipes.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, identity=request_identity)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
@@ -2045,7 +2061,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS
+]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2100,12 +2116,17 @@ async def factory_mcp(request: Request):
                 result=_factory_mcp_text(await surfer_actions.call_tool(name,args,store=SURFER_ACTIONS,gate=SURFER_GATE,lane=mcp_lane or ""))
             elif name in surfer_recipes.TOOL_NAMES:
                 result=_factory_mcp_text(await _surfer_recipe_tool(args,mcp_lane or ""))
+            elif name in surfer_owner.PENDING_TOOL_NAMES:
+                result=_factory_mcp_text(await _surfer_pending_tool(args,mcp_lane or ""))
             elif name in social_autopilot.MCP_TOOL_NAMES:
                 # T-702: agents read the plan and add drafts only; approval and publishing stay owner-only.
                 result=_factory_mcp_text(social_autopilot.call_tool(SOCIAL_AUTOPILOT,name,args,mcp_lane or ""))
             elif name in google_sheets.MCP_TOOL_NAMES:
                 # T-725: owner-registered spreadsheets only, per-lane token required (the shared token is refused).
                 result=_factory_mcp_text(await asyncio.to_thread(google_sheets.call_tool,GOOGLE_SHEETS,name,args,mcp_lane or ""))
+            elif name in coordination.MCP_TOOL_NAMES:
+                # T-729: may this lane start this task / change these files without duplicating open work?
+                result=_factory_mcp_text(await asyncio.to_thread(_coordination_check_tool,args,mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -13200,6 +13221,92 @@ def factory_lane_board(request: Request):
     identity=request_identity(request) or {}
     if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
     return get_lane_board()
+
+# T-729 Coordination guard: ROADMAP IDs + open PRs (with changed files) + Relay claims + handoffs -> duplicates/overlaps.
+_COORDINATION_CACHE={"at":0.0,"prs":None,"truncated":False}
+_COORDINATION_LOCK=threading.Lock()
+COORDINATION_TTL=120          # owner page only; the agent pre-start check always reads GitHub fresh
+COORDINATION_MAX_PR_PAGES=3   # 300 open PRs; more = "truncated" = unknown, never a silent partial list
+COORDINATION_MAX_FILE_PAGES=30  # GitHub lists at most 3000 files per PR; a longer list is unknown
+
+def _coordination_open_prs(fetch=None):
+    """Every open PR with its full list of changed files: ``(prs, truncated)``. ``(None, False)`` = GitHub unreadable.
+    A PR whose files could not be read completely keeps files=None, so the report says "unknown", not "no overlap"."""
+    token=_github_read_token()
+    if fetch is None and not token:return None,False
+    fetch=fetch or github_fetcher(GITHUB_REPO,token)
+    try:pulls,truncated=fetch_all(fetch,"/pulls?state=open&sort=updated&direction=desc",max_pages=COORDINATION_MAX_PR_PAGES)
+    except Exception:return None,False
+    out=[]
+    for p in pulls:
+        if not isinstance(p,dict):continue
+        files=None
+        try:
+            got,cut=fetch_all(fetch,f"/pulls/{int(p.get('number') or 0)}/files",max_pages=COORDINATION_MAX_FILE_PAGES)
+            if not cut:files=[str(f.get("filename") or "") for f in got if isinstance(f,dict) and f.get("filename")]
+        except Exception:files=None
+        out.append({"number":p.get("number"),"title":str(p.get("title") or ""),"branch":str((p.get("head") or {}).get("ref") or ""),
+                    "url":str(p.get("html_url") or ""),"draft":bool(p.get("draft")),"files":files})
+    return out,truncated
+
+def _coordination_claims():
+    """Active claims of ROADMAP tasks from the whole Relay store (not a newest-N window). None = Relay unreadable."""
+    try:
+        with RELAY_STORE.lock:
+            tickets=[dict(x) for x in RELAY_STORE._load_unlocked()["tickets"] if isinstance(x,dict)]
+        claims=[]
+        for t in tickets:
+            src=t.get("source") or {}
+            if src.get("channel")!="roadmap":continue
+            ex=(RELAY_QUEUE.view(dict(t)).get("execution") or {})
+            if str(ex.get("state") or "") not in coordination.ACTIVE_CLAIM_STATES:continue
+            claims.append({"ticket":t.get("id"),"task_id":src.get("task_id"),"lane":ex.get("owner") or src.get("owner") or "",
+                           "state":ex.get("state") or "","title":t.get("title") or ""})
+        return claims
+    except Exception:return None
+
+def _coordination_handoffs():
+    try:
+        with RELAY_STORE.lock:
+            ws=AGENT_WORKSPACE._ws(RELAY_STORE._load_unlocked())
+            return [dict(h) for h in ws["handoffs"] if isinstance(h,dict)]
+    except Exception:return None
+
+def get_coordination_report(fetch=None,refresh=False):
+    roadmap_path=BASE/"ROADMAP.md"
+    try:roadmap=roadmap_path.read_text(encoding="utf-8") if roadmap_path.exists() else None
+    except OSError:roadmap=None
+    with _COORDINATION_LOCK:
+        if refresh or fetch is not None or time.time()-_COORDINATION_CACHE["at"]>COORDINATION_TTL or _COORDINATION_CACHE["prs"] is None:
+            prs,truncated=_coordination_open_prs(fetch)
+            _COORDINATION_CACHE.update(prs=prs,truncated=truncated,at=time.time())
+        prs,truncated,read_at=_COORDINATION_CACHE["prs"],_COORDINATION_CACHE["truncated"],_COORDINATION_CACHE["at"]
+    report=coordination.build_report(roadmap,prs,_coordination_claims(),_coordination_handoffs(),prs_truncated=truncated)
+    report["next_free_id"]=coordination.next_free_id(report)
+    report["cache_seconds"]=COORDINATION_TTL
+    report["github_read_age_seconds"]=round(max(0.0,time.time()-read_at)) if prs is not None else None
+    return report
+
+@app.get("/api/factory/coordination")
+def factory_coordination(request: Request, refresh: int = 0):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    report=get_coordination_report(refresh=bool(refresh))
+    return _redact_board_value(coordination.public_view(report),_board_secret_values())
+
+def _coordination_check_tool(args,lane):
+    """T-729 MCP coordination_check: read-only pre-start answer. Always a fresh GitHub read (no dashboard cache).
+    The lane is the authenticated MCP lane; a different ``lane`` argument is refused. With the shared token no lane is
+    proven, so no same-lane exemption applies."""
+    files=args.get("files") or []
+    if not isinstance(files,list):raise ValueError("files must be a list of repository paths")
+    asked=str(args.get("lane") or "").strip().lower()
+    if lane and asked and asked!=lane:raise ValueError("lane does not match your MCP lane token")
+    report=get_coordination_report(refresh=True)
+    out=coordination.agent_check(report,str(args.get("task_id") or ""),[str(f)[:300] for f in files[:200]],lane or "")
+    out["lane"]=lane or None
+    if not lane:out["lane_note"]="shared token: no lane proven, so no same-lane exemption was applied"
+    return _redact_board_value(out,_board_secret_values())
 
 def _board_secret_values():
     return sorted([s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,

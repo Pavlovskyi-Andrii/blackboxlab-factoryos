@@ -70,6 +70,9 @@ class NoVault:
     def logins(self) -> List[str]:
         return []
 
+    def ready(self) -> bool:
+        return False
+
     def secret(self, provider: str, account: str, kind: str) -> str:
         return ""
 
@@ -215,6 +218,22 @@ class PolicyGate:
         except Exception:
             return []
 
+    def vault_ready(self) -> bool:
+        try:
+            return bool(getattr(self.vault, "ready", lambda: bool(self.logins()))())
+        except Exception:
+            return False
+
+    def login_info(self) -> List[dict]:
+        """What each saved login holds (a password, a saved browser session); no values. For the owner page."""
+        try:
+            rows = getattr(self.vault, "login_info", None)
+            rows = rows() if rows else [{"login": x, "password": True, "session": False} for x in self.vault.logins()]
+            return [{"login": str(r["login"]), "password": bool(r.get("password")), "session": bool(r.get("session"))}
+                    for r in rows if LOGIN_RE.fullmatch(str(r.get("login") or ""))]
+        except Exception:
+            return []
+
     def save_entry(self, body: dict) -> dict:
         pattern = policy.clean_pattern(body.get("pattern"))
         if not pattern:
@@ -224,8 +243,14 @@ class PolicyGate:
         if "read" not in classes:
             classes = ["read"] + classes
         login = str(body.get("login") or "").strip()
-        if login and (not LOGIN_RE.fullmatch(login) or login not in self.logins()):
-            raise HTTPException(400, "login must be a saved vault login 'site/account' (Access vault)")
+        login = login.lower() if body.get("new_login") is True else login
+        if login and not LOGIN_RE.fullmatch(login):
+            raise HTTPException(400, "login must look like 'site/account', e.g. linkedin/main")
+        # A new name is allowed only on purpose (new_login) and with a working vault: the owner then signs in once
+        # himself (Take over) and presses "Save this login", which stores the browser session under that name.
+        if login and login not in self.logins() and not (body.get("new_login") is True and self.vault_ready()):
+            raise HTTPException(400, "login must be a saved vault login 'site/account' (Access vault), or a new name "
+                                     "with new_login=true once the vault key is set")
         note = " ".join(str(body.get("note") or "").split())[:120]
         with self.lock:
             data = self._load()
@@ -322,7 +347,8 @@ def install_routes(app, *, gate: PolicyGate, store: Any, identity: Callable) -> 
 
     def state() -> dict:
         taken = {e["pattern"] for e in gate.entries()}
-        return {"gate": gate.status(), "allow": gate.entries(), "logins": gate.logins(),
+        return {"gate": gate.status(), "allow": gate.entries(), "logins": gate.logins(), "login_info": gate.login_info(),
+                "vault_ready": gate.vault_ready(),
                 "classes": list(policy.ACTION_CLASSES),
                 "presets": [dict(p) for p in PRESETS if p["pattern"] not in taken]}
 

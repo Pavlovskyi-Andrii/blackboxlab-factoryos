@@ -1,3 +1,14 @@
+## AI Film Studio (#433)
+
+- [x] T-730 AI Film Studio S1: contracts + rights gate + deterministic shot plan + offline Photo Cinema render + QA receipt
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner-approved #433; Relay th_ebeb7e1c851168a7, 2026-11-20..22: «Действуй», «Пиши ему чтоб делал»)
+  Spec: issue #433; shot pack `docs/storyboards/blackbox-lab-45s/` (PR #435); DECISIONS.md «2026-11-23 — T-730». Code: `film_studio/`.
+  Goal: versioned storyboard / film bible / asset manifest with a strict validator (unknown or unverified rights fail closed); per-shot plan in whole frames (45.000 s at 24 fps, 16:9) with content-keyed per-shot re-render; offline FFmpeg 2.5D camera moves + parallax layer + crossfades + DEMO label + RU captions; QA receipt (ffprobe, full decode, frame count, black stretches, per-shot sha256 + licence, voice source, cost $0). Output stays private, never in git.
+  DONE: `python test_film_studio.py`; `python -m film_studio.render --out <private dir> --procedural-standins` gives a PASS receipt; default verification.
+  Result 2026-11-23: the 45 s film renders at 1920x1080 from original procedural stand-in stills (labelled «DEMO · иллюстрация, не фото»), silent AAC track + burned-in captions. Realistic-photo film and narration are blocked.
+  Blocked (owner, not a roadmap task yet): the cloud session's network policy refuses www.pexels.com / images.pexels.com and huggingface.co (HTTP 403 from the agent proxy), so photo licences cannot be read and no offline RU voice can be fetched. To unblock: allow those hosts for the Claude cloud environment, or supply the 7 photos (owned/licensed stills, author + page URL + licence) and a narration recording, or approve a specific offline RU voice after its licence is read. Narration input itself is S2 work (S1 lays a silent track).
+
 - [x] T-720 Surfer action sessions (core): a live browser page that acts — web_open / web_act / web_snapshot / web_close
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner brief 2026-11-22: a tool that acts on sites instead of him, in his own signed-in accounts)
@@ -22,12 +33,14 @@
   Goal: RU/UK/EN page: live session with steps and screenshots, Confirm / Reject / Stop, a box for the SMS code or text the page asks for, Take over (screenshot + click coordinates + typed text), allowlist editor, pause switch, approved upload files, audit history; `GET /api/factory/surfer/owner/pending` (owner-only JSON) for another agent session to mirror; owner runbook + `[HUMAN]` task for the flag and the first allowlist entries.
   DONE: `python test_surfer_owner.py`, `python test_owner_desk.py`, page inline JS `node --check`, default verification.
 
-- [ ] [HUMAN] T-722-H Switch Surfer actions on: `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render and the first allowed sites on the Surfer page
+- [x] [HUMAN] T-722-H Switch Surfer actions on: `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render and the first allowed sites on the Surfer page
   Owner: human
   Depends: T-722, T-714-H
   Need: nothing acts until the owner sets `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render (not a secret) and enables at least one site with its action classes on `/static/surfer/index.html`. The allowlist is empty by default; his first list (FactoryOS, Google Forms/Sheets, OLX, Render, LinkedIn Developers, GitHub) is offered there as suggestions. Agents need their own lane MCP key (T-624).
   Runbook: Worker Center → «Нужно от вас» → T-722-H (RU/EN/UK).
   DONE: the Surfer page says «Действия включены», at least one site is enabled, and an agent's first step is in the action log.
+  Progress 2026-11-23: the flag is on («Действия включены»), github.com is enabled with all classes. First live session (Claude lane, `web_open` on the public repo page) ran on the EC2 worker, but stopped as «waiting for you: 2fa» because the README text mentions SMS codes and the page has a «Go to file» box. Fixed: a code prompt now needs a field that looks like the code box. Login choices on the page are explained (vault password / sign in once and save / browser session file), and a new login name can be bound so the owner signs in once with Take over and saves it. Live rerun after the deploy.
+  Verified 2026-11-23 on v5.18.0: a live session (Claude lane) opened the public repo page on github.com with status `done` (no false code wall), clicked the Issues tab and closed; the steps are in the action log. The click snapshot showed the old page because GitHub changes the URL in-page after the click; a link click now waits for that (fixture test `SoftNavigationTest`, v5.18.1).
 
 - [x] T-723 Surfer recipes: save a successful session as a parameterised recipe and replay it without AI
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -37,13 +50,36 @@
   Goal: the owner approves saving a session's successful steps as a recipe with parameters; a replay runs deterministically under the same policy gate, stops at the first mismatch and hands the session to an agent or the owner.
   DONE: `python test_surfer_recipes.py`, default verification.
 
-- [ ] T-724 Surfer self-test: fixture site proving the gate, secrets, takeover and recipe replay; one live session when the owner's flag is on
+- [x] T-724 Surfer self-test: fixture site proving the gate, secrets, takeover and recipe replay; one live session when the owner's flag is on
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1
   Depends: T-723
   Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Self-test. `surfer_fixture_site.py`, `surfer_fake_browser.py`.
   Goal: a deterministic local site (login form, multi-step form, file upload, delete button, payment button, captcha-like wall) proving: allowlisted fill + submit runs, sensitive steps wait, off-allowlist is refused, secrets never reach snapshots or logs, a takeover continues the session, a recipe replays. After merge: one live session on the owner's own FactoryOS product page if `FACTORY_SURFER_ACTIONS_ENABLED` is on; otherwise it waits for the owner's flag.
   DONE: `python test_surfer_selftest.py` (CI: page double; `RUN_BROWSER_FIXTURE=1`: real Chromium), default verification.
+  Progress 2026-11-22: the scenario passes with the page double (CI) and in real Chromium on the loopback fixture site (`RUN_BROWSER_FIXTURE=1`, 21 s, run in the build session). The live session on the owner's FactoryOS page was **not run**. Checked on production 2026-11-23 through `/mcp`: `web_open` with the shared key answers «the shared MCP token may not act», with the Claude lane key «Surfer actions are off: the owner sets FACTORY_SURFER_ACTIONS_ENABLED=1 in Render». It waits for T-722-H. Scope change 2026-11-23: the owner enabled github.com, not the FactoryOS domain, so the live session ran on the public repo page on github.com (open → click Issues → close) on the EC2 Surfer worker, see T-722-H. A session on the owner's FactoryOS page still waits until the owner adds that domain on the Surfer page.
+  Fix 2026-11-23 (live run by the parent session): a stuck browser call blocked the Surfer worker; every action command now has a 90 s deadline that kills the browser, reports `worker_timeout` and frees the slot (`HungPageTest` in real Chromium, `test_a_stuck_command_is_killed_and_reported_and_the_page_freed` in CI).
+  Fix 2026-11-23: the root watchdog did not restart the hung worker; the worker now has its own self-watchdog thread (exit 75 → systemd restart when the loop breaks its 6-min promise).
+
+- [x] T-726 Surfer: the Claude lane reads what waits for the owner (`surfer_pending`), to mirror it as tickets on the owner task page
+  Owner: claude-session
+  Priority: P1 (owner 2026-11-23 «Да», relayed by the parent session; `.autopilot/answers.md`)
+  Depends: T-722
+  Goal: read-only MCP tool `surfer_pending` (and `POST /api/factory/surfer/agent/surfer_pending`), Claude lane token only (shared token and other lanes refused): kind (confirm / human / takeover), session_id, step_id, site, action + element label, reasons / wait_reason, RU/UK/EN text, since, expires_in_seconds, link to the Surfer page. Never screenshots, typed values, codes, cookies or URLs. No confirm/reject through this path: the owner answers on the Surfer page.
+  DONE: `python test_surfer_owner.py` (AgentPendingTest, AgentPendingAppTest), default verification.
+
+- [x] T-727 Surfer: the snapshot after a click shows what the page drew a moment later
+  Owner: claude-session
+  Priority: P1 (live run 2026-11-23 by the parent session: MyBrief "Show my briefing" returned the old text; only a refresh showed the briefing)
+  Goal: after click / press / select / check / back, wait until the DOM is quiet for 500 ms (MutationObserver), at most 3 s, before the snapshot.
+  DONE: `RUN_BROWSER_FIXTURE=1 python test_surfer_selftest.py` (LateRenderTest fails without the wait), `python test_surfer_actions.py`, default verification.
+
+- [x] T-729 Coordination guard: no duplicate task numbers, no two agents on one task, no two PRs on the same code
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P0 (owner 2026-11-23, Notion master ТЗ «аудит стану»: reconcile Owner/Depends/Claim/PR before any new work, no duplicates)
+  Spec: DECISIONS.md «2026-11-23 — T-729». `coordination.py`, `GET /api/factory/coordination` (owner), MCP tool `coordination_check`, page `static/coordination/index.html` (UK/RU/EN), sidebar «Координація».
+  Goal: one read model over ROADMAP.md, open PRs with their changed files (GitHub read token), active Relay claims and handoffs. Conflicts: a task number defined twice, one task in two lanes or two PRs, two open PRs changing the same code file, a PR inside another lane's handoff scope. Warnings: a PR naming a task already done on main, Depends: on an unknown task, a claim by a lane that is not the task's Owner. An unreadable source makes the verdict «unknown», never «clear». Agents ask `coordination_check` (task_id, files) before taking work and get safe_to_start yes / no / unknown with reasons and the next free task number. CI test `test_roadmap_integrity.py` fails on duplicate numbers.
+  DONE: `python test_coordination.py`, `python test_roadmap_integrity.py`, `python test_navigation.py`, page inline JS `node --check`, default verification.
 
 - [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -68,10 +104,11 @@
   Goal: `python -m autopilot.browser_worker` claims → runs Playwright → reports in a loop (5 s poll, exponential backoff to 120 s while FactoryOS is unreachable, one Chromium, file lock against a second copy, SIGTERM finishes the task, exits on a runner-code change so systemd restarts it on the new code); its own unit (ec2-user, `/etc/factoryos/claude-worker.env`, Restart=always, MemoryMax=1200M); server heartbeat `POST /api/factory/browser/worker/heartbeat` (worker token) → lane `surfer` in Worker Center; the Claude worker runs a browser task only while the Surfer worker's local heartbeat is not alive; both loops beat `.autopilot/{claude-loop,surfer}.json` with a deadline and the existing root supervisor timer restarts a unit whose deadline passed (bounded: 3/h, 5 min start grace).
   DONE: `python -m autopilot.test_browser_worker`, `python -m autopilot.test_supervisor`, `python -m autopilot.test_autopilot`, `python test_browser_tasks.py`, `python test_owner_desk.py`, default verification, dashboard `node --check`.
 
-- [ ] [HUMAN] T-714-H Install the Surfer worker unit on EC2 once (`sudo bash /opt/factoryos/deploy/install_surfer_worker.sh`)
+- [x] [HUMAN] T-714-H Install the Surfer worker unit on EC2 once (`sudo bash /opt/factoryos/deploy/install_surfer_worker.sh`)
   Owner: human
   Depends: T-714
   Runbook: Worker Center → «Нужно от вас» → T-714-H (RU/EN/UK). EC2 Instance Connect → the one command → `systemctl status factoryos-surfer-worker.service --no-pager` → the Surfer row in Worker Center is fresh.
+  Verified 2026-11-23: Worker Center shows the Surfer row «Idle», last active 18 s ago (owner's screenshot), and the first live `web_open` session was executed by that worker (a real GitHub page with a screenshot).
 
 - [x] T-713 Social autopilot: a teaser image in every post (Telegram channel and LinkedIn)
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -149,6 +186,7 @@
   DONE: `python test_mycast_library.py` (buttons, handlers, three locales) + inline-JS `node --check` + default verification; `docs/prototypes/mycast/profile-glass/screens/{a,b,c}.png` at 390 px with no horizontal scroll.
 
 - [ ] [HUMAN] T-645-H Generate, listen to and approve the MyCast demo episodes (Athens, Rome, …)
+  Progress 2026-11-21: public tracks verified on prod — Athens, Rome, Delphi, Pompeii (uk) answer 200; Olympia and all ru tracks are not approved yet.
   Depends: T-645, T-665
   Need: owner (who approved Gemini voicing within the free quota, 2026-11-16) opens the owner console `/factory/mycast-demos` on the FactoryOS host, presses "Generate" (one city or all — T-711: each city has its own pair of hosts; ≤5 per run, ≤10 per day; a Google 429 stops the run, retry the next day), listens to each track and presses "Approve". Runbook in Worker Center → «Ваши задачи».
   DONE: at least the Athens and Rome cards play on a live `/mycast/e/<token>` page.
@@ -312,10 +350,11 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: `post_message`, `list_threads`, `read_thread`, `create_handoff`, `list_handoffs`, `claim_handoff`, `submit_handoff_result`, `release_handoff`, `review_handoff` on `/mcp`, stored in the Relay store; sender derived from a per-lane credential (`FACTORY_MCP_LANE_TOKEN_CLAUDE/_CHATGPT/_GEMINI`), the shared `FACTORY_MCP_TOKEN` only reads threads; claim goes through `RelayQueue.claim_roadmap` (run_id, one claim per task, EC2 worker fenced out); idempotency keys; no owner decisions by agents; credential-shaped text refused; `?key=` query values redacted from the access log.
   DONE: `python test_agent_workspace.py` (lane auth, single claim, replay, secret scrubbing, Relay fencing, lease/release, /mcp handler) plus test_web_surfer.py, test_relay*.py and the default verification green. Done 2026-11-15.
 
-- [ ] [HUMAN] T-624 Per-lane FactoryOS MCP tokens in Render (Claude / ChatGPT / Gemini)
+- [x] [HUMAN] T-624 Per-lane FactoryOS MCP tokens in Render (Claude / ChatGPT / Gemini)
   Depends: T-625
   Need: owner generates three different random tokens (`python -c "import secrets;print(secrets.token_urlsafe(32))"`, one per lane) and adds them in Render → Environment: `FACTORY_MCP_LANE_TOKEN_CLAUDE`, `FACTORY_MCP_LANE_TOKEN_CHATGPT`, optionally `FACTORY_MCP_LANE_TOKEN_GEMINI`; plus `FACTORY_MCP_LANE_URL_KEY=chatgpt` because the ChatGPT connector cannot send headers. Then reconnects ChatGPT with `…/mcp?key=<CHATGPT lane token>` and Claude Code with the Claude lane token as Bearer. Runbook: docs/guides/agent-workspace-mcp.md. Agents never see or set these values.
   DONE: `GET /api/factory/agent-workspace` (signed in) shows `lanes.claude.enabled` and `lanes.chatgpt.enabled` true; `GET /mcp` with each connector reports its own `lane`.
+  Verified 2026-11-23: the three keys are already in Render (adding them again shows «Duplicate key»); `GET /mcp` with the ChatGPT connector answers `"lane":"chatgpt"`, and the Claude connector passed the lane check of `web_open` (the shared key is refused).
 
 - [x] T-626 Worker Center panel for the shared agent workspace
   Owner: claude
@@ -520,7 +559,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: `olx_publisher.py` + `static/olx/index.html`: OAuth provider `olx` (`authorization_code`, scopes `v2 read write`, refresh before each write, rotated tokens stored back in the token vault), owner-only advert drafts validated against the documented OLX rules; approval freezes the SHA-256 of the exact advert and the connected OLX account; `FACTORY_OLX_ENABLED=1` gates every OLX write (publish, deactivate) — read-only reference/status calls with the owner's token still work while it is off; publish only when the flag is on, the advert and account still match and nothing was sent before; each advert carries `external_id` = draft id, so timeout/5xx («unknown outcome») or a publish claim left by a crashed process (> 5 min) is resolved by a read-only lookup (exact `external_id` match only) or the owner, never by a resend; read-only category/attribute/city pickers, status refresh and owner-confirmed deactivate; no paid endpoint (packets, paid features) is reachable; fixed error codes, no token or OLX body stored. `publish_approved(...)` is the entry point for T-702.
   DONE: `python test_olx_publisher.py` (adapter + refresh, documented validation rules, fixed codes, approval fence, edit drops approval, one publish, no blind retry, reconcile by exact external_id, stale claim, approval bound to the account, owner-only, flag off → no OLX write, no paid endpoint) + `python test_oauth_framework.py` + default verification.
 
-- [ ] [HUMAN] T-701-H Register the OLX Partner API app and connect the account
+- [x] [HUMAN] T-701-H Register the OLX Partner API app and connect the account
+  Done 2026-11-23: owner confirmed «Готово» on the owner task page after the steps (OLX app approved, Render keys, connect, test advert). Not verified by an agent: the OLX status endpoint is owner-only.
   Depends: T-701, T-560-G
   Need: owner reads the developer portal terms (not readable from FactoryOS: 403), signs in to developer.olx.ua with the OLX account that will own the adverts, submits «Підключити додаток» and waits for OLX's e-mail approval, adds the callback URL `https://blackboxlab-factoryos.onrender.com/api/oauth/olx/callback`, puts FACTORY_OAUTH_OLX_CLIENT_ID / _SECRET and FACTORY_OLX_ENABLED=1 in Render, connects on /static/olx/index.html and publishes one approved test advert. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
   DONE: a test advert published from /static/olx/index.html with its OLX id and status saved.
@@ -533,7 +573,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: a plan per platform with Europe/Kyiv times, filled for free (Content Brain ideas through a fixed template, agents through MCP drafts, the owner on the page — no LLM or paid call); approval modes A «approve the whole plan» (default), C «each post», B «owner rules» (explicit opt-in, off by default); an edit drops the approval; a scheduler (startup hook, every minute) claims each due approved item before sending, never resends an uncertain outcome, marks >6 h overdue items «missed», caps 10 posts/platform/day; kill switch `FACTORY_SOCIAL_AUTOPILOT_ENABLED` (off by default) and an owner «Стоп»; a daily 21:00 Kyiv owner summary through the paired Telegram bot; adapters Telegram channel (Bot API sendMessage, `FACTORY_TELEGRAM_CHANNEL_ID`) and LinkedIn (`linkedin_publisher.send_text`), interface ready for Instagram/TikTok/OLX.
   DONE: `python test_social_autopilot.py` (fake HTTP/clock: adapters and fixed codes, approval fence, modes, kill switch, Stop mid-run, exactly once, no blind retry, restart → uncertain, rules, caps, free plan generator, summary once a day, owner-only routes, MCP drafts only, page RU/UK/EN + `node --check`), `python test_linkedin_publisher.py`, `python test_owner_desk.py` and the default verification pass.
 
-- [ ] [HUMAN] T-702-H Telegram channel for the social autopilot
+- [x] [HUMAN] T-702-H Telegram channel for the social autopilot
+  Done 2026-11-21: owner confirmed the Telegram channel set up on the owner task page (and asked for a teaser image per post → T-713). Not verified by an agent: the channel check is owner-only.
   Depends: T-702
   Need: owner creates or chooses a Telegram channel (public @name recommended), adds the existing FactoryOS bot as admin with «Post Messages», sets `FACTORY_TELEGRAM_CHANNEL_ID=@name` and `FACTORY_SOCIAL_AUTOPILOT_ENABLED=1` in Render, then on /static/social/ runs «Check the Telegram channel» and approves one test post. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
   DONE: a test post went out in the channel at its planned time and its link is in the /static/social/ history.
@@ -852,7 +893,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 - [x] T-608 A/B Tester S1 — experiment model and API inside the MVP registry
   Owner: claude
   Priority: P2 (owner said "бери A/B Tester, начни с S1" 2026-11-14)
-  Depends: T-186 registry (#186), #330 merged
+  Depends: #186 registry, #330 merged
   Spec: docs/reviews/MVP_AB_TESTER_S0_REVIEW.md §2.8, §4 corrections 1–13, §6.1–6.2
   Goal: `projects[pid].experiments[exp]` with exactly two branches a/b; SEGMENT_COMPARISON (never a winner) or CONTROLLED_AB (draft only); per-branch, per-revision owner preview approval; owner decision closes; no metrics/publish/spend/outreach writes; copy deny-list; project stage untouched.
   DONE: `python test_mvp_experiments.py` and the MVP suites pass; default verification passes.
@@ -947,6 +988,7 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   DONE: `python test_mycast_library.py` plus every `test_mycast*.py`, `python test_owner_desk.py`, the default verification and `node --check` of the extracted configurator JS pass.
 
 - [ ] [HUMAN] T-620-H Approve the MyCast referral terms and turn the offer on
+  Progress 2026-11-21: owner approved the terms (+7 days each, once, after the friend's first episode, max 50) and set FACTORY_MYCAST_REFERRALS=1; prod came back on v5.16.0. Open: one invite tested from a second Telegram account.
   Depends: T-620
   Need: owner signs off the rule (+7 days to each side once, at the friend's first real episode; cap 50; no self/duplicate credit), sets `FACTORY_MYCAST_REFERRALS=1` in Render, and runs one live invite with a second Telegram account. Enforcing the end of free days (`FACTORY_MYCAST_ENFORCE_TRIAL=1`) is a separate later business decision.
   DONE: `/api/mycast/account/config` returns `"referrals_enabled": true` and the live check gave both accounts +7 days exactly once.

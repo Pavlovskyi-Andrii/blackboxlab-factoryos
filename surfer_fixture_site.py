@@ -30,6 +30,20 @@ LOGIN = """<form method="post" action="/login%s"><label>Email <input type="email
 autocomplete="username"></label><label>Password <input type="password" name="password"
 autocomplete="current-password"></label><button type="submit">Sign in</button></form>%s"""
 
+# In-page navigation like GitHub or a single-page app: the URL changes a moment after the click, no new page load.
+SOFT = """<p>Soft navigation page.</p><a id="soft" href="/soft/next">Next section</a>
+<script>document.getElementById('soft').addEventListener('click', function (e) { e.preventDefault();
+setTimeout(function () { history.pushState({}, '', '/soft/next'); document.querySelector('h1').textContent = 'Next section'; }, 1200);
+});</script>"""
+# A button whose script never returns (a busy loop): the page's main thread is stuck, like a hung site.
+BUSY = """<p>Busy page.</p><button id="freeze" type="button">Freeze</button>
+<script>document.getElementById('freeze').addEventListener('click', function () {
+var t = Date.now(); while (Date.now() - t < 600000) {} });</script>"""
+# T-727: a button whose result is drawn a moment after the click, with no navigation (like MyBrief's briefing).
+LATER = """<p>Later page.</p><button id="show" type="button">Show my briefing</button><div id="out"></div>
+<script>document.getElementById('show').addEventListener('click', function () {
+setTimeout(function () { document.getElementById('out').textContent = 'Briefing ready: three items for today.'; }, 200);
+});</script>"""
 CODE = """<p>We sent a verification code to your phone. Enter the code.</p><form method="post" action="/login/code">
 <label>Code <input type="text" name="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>
 <button type="submit">Continue</button></form>"""
@@ -93,6 +107,12 @@ class FixtureSite:
                     self._send(_page("Fixture home", INDEX))
                 elif path == "/login":
                     self._send(_page("Sign in", LOGIN % ("", "")))
+                elif path == "/later":
+                    self._send(_page("Later", LATER))
+                elif path == "/busy":
+                    self._send(_page("Busy", BUSY))
+                elif path in ("/soft", "/soft/next"):
+                    self._send(_page("Soft navigation", SOFT))
                 elif path == "/login/code":
                     self._send(_page("Verification code", CODE))
                 elif path == "/account":

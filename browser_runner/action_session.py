@@ -31,10 +31,30 @@ MAX_TEXT = 30_000
 MAX_SHOT_BYTES = 1_900_000
 STEP_TIMEOUT_MS = 15_000
 SELECTOR_RE = re.compile(r"^[^\x00-\x1f<>{};]{1,200}$")
+try:  # the worker has Playwright; CI's page double does not
+    from playwright.sync_api import TimeoutError as _PlaywrightTimeout
+except Exception:  # pragma: no cover
+    class _PlaywrightTimeout(Exception):
+        pass
+LINK_WAIT_MS = 4000  # how long a link click waits for in-page navigation
 REF_RE = re.compile(r"^e[0-9]{1,6}$")
 _CODE_TEXT_RE = re.compile(
     r"(verification code|security code|enter (?:the )?code|one[- ]time (?:code|password)|sms code|"
     r"код (?:из|з) (?:смс|sms)|код подтверждения|код підтвердження|введите код|введіть код|одноразов)", re.I)
+# A code prompt needs a field that looks like the code box, not just any input (GitHub's "Go to file" box on a README
+# that mentions "SMS code" was taken for a 2FA wall on the first live session, 2026-11-23).
+_CODE_FIELD_RE = re.compile(r"(otp|totp|\bcode\b|sms|verif|\bpin\b|one[- ]time|код|kod)", re.I)
+
+
+def code_prompt_on(text: str, elements: list) -> bool:
+    """The page asks for a one-time code: a one-time-code field, or code wording plus a field that looks like the box."""
+    if any(e.get("autocomplete") == "one-time-code" for e in elements):
+        return True
+    return bool(_CODE_TEXT_RE.search(text[:4000])) and any(
+        e.get("kind") == "input" and e.get("type") != "password" and _CODE_FIELD_RE.search(str(e.get("name") or ""))
+        for e in elements)
+
+
 _SAFE_UPLOAD_TYPES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".txt", ".pdf", ".mp4", ".mov", ".csv"})
 
 # Fixed scripts: no command input is ever concatenated into them (arguments are passed as data).
@@ -147,6 +167,17 @@ MARK_SECRET_JS = r"""() => { const el = document.activeElement;
 
 # Where a code the owner received goes: the one-time-code field, else a short numeric/code-like field, else the
 # focused field. Returns its ref ('' when there is none).
+DOM_QUIET_MS = 500           # no DOM change for this long: the page has finished reacting to the step
+DOM_QUIET_CAP_MS = 3000      # never wait longer than this for it
+DOM_QUIET_JS = r"""(o) => new Promise(resolve => {
+  let timer = null;
+  const done = () => { try { observer.disconnect(); } catch (e) {} clearTimeout(cap); resolve(true); };
+  const observer = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(done, o.quiet); });
+  observer.observe(document.documentElement || document, {subtree: true, childList: true, characterData: true,
+                                                          attributes: true});
+  timer = setTimeout(done, o.quiet);
+  const cap = setTimeout(done, o.cap);
+})"""
 FIND_CODE_FIELD_JS = "() => {" + _PRELUDE + r"""
   const pick = () => {
     const fields = Array.from(document.querySelectorAll('input')).filter(visible).filter(el =>
@@ -188,6 +219,9 @@ class ActionSession:
         self.upload_dir = Path(upload_dir) if upload_dir else None
         self.clock = clock
         self.secrets: List[str] = []
+        # Set by the worker when it killed a stuck browser: after that every Playwright call would wait forever on the
+        # dead driver, so the rest of the command touches nothing (empty snapshot, no screenshot).
+        self.aborted = False
         self.policy: Dict[str, Any] = {"allow": [], "extra_origins": [], "takeover": False}
         self.events: List[Dict[str, str]] = []
         self._step: Dict[str, Any] = {}
@@ -258,33 +292,29 @@ class ActionSession:
             pass
 
     # --- reading ------------------------------------------------------------------------------------------------
+    def _safe(self, call: Callable[[], Any], default: Any) -> Any:
+        """One browser call for the snapshot; nothing at all once the worker aborted the command."""
+        if self.aborted:
+            return default
+        try:
+            return call()
+        except Exception:
+            return default
+
     def snapshot(self) -> Dict[str, Any]:
         page = self.page
-        try:
-            data = page.evaluate(SNAPSHOT_JS, {"max": MAX_ELEMENTS}) or {}
-        except Exception:
-            data = {}
-        try:
-            read = page.evaluate(_READ_PAGE_JS) or {}
-        except Exception:
-            read = {}
+        data = self._safe(lambda: page.evaluate(SNAPSHOT_JS, {"max": MAX_ELEMENTS}), None) or {}
+        read = self._safe(lambda: page.evaluate(_READ_PAGE_JS), None) or {}
         elements = [e for e in (data.get("elements") or []) if isinstance(e, dict)][:MAX_ELEMENTS]
         for element in elements:
             if element.get("secret"):
                 element.pop("value", None)
         text = str(read.get("text") or "")[:MAX_TEXT]
-        try:
-            title = str(page.title() or "")[:300]
-        except Exception:
-            title = str(read.get("title") or "")[:300]
-        try:
-            challenge = _challenge(page)
-        except Exception:
-            challenge = ""
+        title = str(self._safe(lambda: page.title(), None) or read.get("title") or "")[:300]
+        challenge = self._safe(lambda: _challenge(page), "")
         visible_password = any(e.get("type") == "password" and e.get("autocomplete") != "new-password"
                                for e in elements)
-        code_prompt = any(e.get("autocomplete") == "one-time-code" for e in elements) or (
-            bool(_CODE_TEXT_RE.search(text[:4000])) and any(e.get("kind") == "input" for e in elements))
+        code_prompt = code_prompt_on(text, elements)
         if not challenge and code_prompt:
             challenge = "2fa"
         return {"url": policy.safe_url(str(page.url or "")), "title": title, "text": text,
@@ -295,6 +325,8 @@ class ActionSession:
                             "code_prompt": bool(code_prompt)}}
 
     def _screenshot(self) -> str:
+        if self.aborted:
+            return ""
         try:
             raw = self.page.screenshot(type="png", full_page=False, timeout=8000)
             if len(raw) > MAX_SHOT_BYTES:
@@ -327,6 +359,15 @@ class ActionSession:
                 self.page.wait_for_load_state(state, timeout=ms)
             except Exception:
                 pass
+        # T-727: a click often renders its result a moment later with no load event (MyBrief "Show my briefing" fetched
+        # and drew the briefing after the snapshot). Wait until the DOM is quiet for DOM_QUIET_MS, at most
+        # DOM_QUIET_CAP_MS; the script resolves by itself, so a busy page is left to the worker's command deadline.
+        if self.aborted:
+            return
+        try:
+            self.page.evaluate(DOM_QUIET_JS, {"quiet": DOM_QUIET_MS, "cap": DOM_QUIET_CAP_MS})
+        except Exception:
+            pass
 
     def _upload_path(self, cmd: Dict[str, Any]) -> str:
         raw = str(cmd.get("file_path") or "")
@@ -382,7 +423,18 @@ class ActionSession:
         self._step = {"confirmed": bool(verdict["reasons"]), "klass": verdict["klass"]}
         ms = STEP_TIMEOUT_MS
         if action == "click":
+            before = str(self.page.url or "")
             locator.click(timeout=ms)
+            href = str((element or {}).get("href") or "")
+            # A link to the page itself still waits: a single-page app may intercept it and navigate later (Codex on #457).
+            if href and not href.startswith("#") and not href.lower().startswith("javascript:"):
+                # Sites with in-page navigation (GitHub, SPAs) change the URL after the click returns and never fire a
+                # new load event: wait briefly for the URL to change so the snapshot shows the new page. "commit" so a
+                # same-document change does not also wait for the old page's resources; _settle() follows.
+                try:
+                    self.page.wait_for_url(lambda url: str(url) != before, timeout=LINK_WAIT_MS, wait_until="commit")
+                except _PlaywrightTimeout:
+                    pass
         elif action == "fill":
             value = str(cmd.get("secret_value") if value_from else cmd.get("value") or "")
             if value_from:
@@ -493,7 +545,7 @@ class ActionSession:
         except Exception as exc:                            # no raw browser errors: they can carry URLs and DOM
             body = {"status": "failed", "blocker": _error_code(exc)}
         left = [e for e in self.events if e["event"] in ("left_allowlist", "insecure_navigation", "submit_not_allowed")]
-        if left and body.get("status") in ("done", "failed"):
+        if left and body.get("status") in ("done", "failed") and not self.aborted:
             body.update(status="blocked", blocker=left[0]["event"], redirect_to=left[0]["url"])
             try:                                            # the refused navigation left Chromium's error page
                 if not str(self.page.url or "").startswith("http"):

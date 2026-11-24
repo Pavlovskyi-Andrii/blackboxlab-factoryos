@@ -99,7 +99,7 @@ class Wire:
         except HTTPException as exc:
             return Response({"detail": exc.detail}, exc.status_code)
 
-    def get(self, url, headers, timeout):
+    def get(self, url, headers, timeout, **_kwargs):
         step_id = url.split("/")[-2]
         _, step = self.store.find_step(step_id)
         info = self.gate.upload(step["asset_id"])
@@ -461,6 +461,85 @@ class LifecycleTest(Harness):
         self.runner.pump()
         self.assertEqual(self.runner.live, "")
 
+    def test_a_stuck_command_is_killed_and_reported_and_the_page_freed(self):
+        # Live run 2026-11-23: a click never returned and the worker served nothing else. Here the "browser" blocks
+        # until the deadline kill, as Playwright does when its driver dies; then any further call would block forever.
+        import threading
+        view = self.open("/")
+        killed = threading.Event()
+        calls = []
+
+        def stuck(_page_call, *args, **kwargs):
+            calls.append("evaluate")
+            if killed.is_set():
+                raise AssertionError("a browser call after the kill would wait forever on a dead driver")
+            killed.wait(10)
+            raise RuntimeError("Connection closed while reading from the driver")
+
+        self.runner.deadline_seconds = 0.2
+        self.runner._browser_root = 4242                         # the fake browser has no process
+        self.runner.kill = lambda root: (killed.set(), root == 4242)[1]
+        self.runner.exit = lambda code: self.fail("the worker must not exit when the kill freed the call")
+        page = self.runner.session.page
+        with mock.patch.object(type(page), "evaluate", stuck, create=True), \
+                mock.patch.object(type(page), "screenshot", lambda *a, **k: (_ for _ in ()).throw(AssertionError("shot")),
+                                  create=True):
+            out = self.act(view, "click", "Start the form")
+        self.assertTrue(killed.is_set())
+        self.assertEqual(calls, ["evaluate"])                     # nothing after the kill
+        step = self.store.find_step(out["step_id"])[1]
+        self.assertEqual((step["status"], step.get("blocker")), ("failed", "worker_timeout"))
+        self.assertEqual(self.runner.live, "")                    # the page is gone, the slot is free
+        self.assertEqual(self.pw.contexts[-1].closed, False)      # no close call into the dead driver
+        self.runner.pump()
+        doc = self.store.get(view["session_id"])
+        self.assertEqual((doc["session"]["status"], doc["session"]["close_reason"]), ("closed", "worker_lost"))
+        self.assertEqual(self.open("/")["status"], "done")        # a new session gets a fresh browser
+
+    def test_a_deadline_that_fires_as_the_command_finishes_changes_nothing(self):
+        # Codex on #459: Timer.cancel() cannot stop a callback that already started. Fire it after the command ended.
+        fired = []
+
+        class CaptureTimer:
+            def __init__(self, _seconds, callback):
+                fired.append(callback)
+                self.daemon = True
+
+            def start(self):
+                pass
+
+            def cancel(self):
+                pass
+        view = self.open("/")
+        self.runner.kill = lambda root: self.fail("killed a browser after its command finished")
+        self.runner.exit = lambda code: self.fail("exited after the command finished")
+        with mock.patch.object(browser_actions.threading, "Timer", CaptureTimer):
+            done = self.act(view, "click", "Start the form")
+        self.assertEqual(done["status"], "done")
+        for callback in fired:                                     # the late deadline callbacks run now
+            callback()
+        self.assertFalse(self.runner.timed_out)
+        self.assertFalse(self.runner.session.aborted)
+        self.assertEqual(self.runner.live, view["session_id"])
+        self.assertEqual(self.act(done, "back")["status"], "done")   # the same browser keeps working
+
+    def test_a_kill_that_frees_nothing_restarts_the_worker(self):
+        import threading
+        view = self.open("/")
+        exited, release = [], threading.Event()
+
+        def stuck(*_args, **_kwargs):
+            release.wait(10)
+            raise RuntimeError("Connection closed")
+        self.runner.deadline_seconds, self.runner.exit_grace_seconds = 0.1, 0.1
+        self.runner._browser_root = None                           # nothing to kill (no /proc, unknown driver)
+        self.runner.kill = lambda root: self.fail("no root to kill")
+        self.runner.exit = lambda code: (exited.append(code), release.set())
+        page = self.runner.session.page
+        with mock.patch.object(type(page), "evaluate", stuck, create=True):
+            self.act(view, "click", "Start the form")
+        self.assertEqual(exited, [browser_actions.EXIT_CODE_STUCK])
+
     def test_read_tasks_borrow_the_live_browser(self):
         self.assertIsNone(self.runner.borrowed_factory())
         self.open("/")
@@ -663,6 +742,29 @@ class McpEndpointTest(unittest.TestCase):
         self.assertTrue(error)
         self.assertIn("FACTORY_SURFER_ACTIONS_ENABLED", text)      # off until the owner sets the flag (T-721)
         self.assertEqual(factory.SURFER_ACTIONS.list(), [])
+
+
+class DomQuietTest(unittest.TestCase):
+    def test_the_quiet_wait_is_bounded_and_resolves_by_itself(self):
+        from browser_runner import action_session as s
+        self.assertLessEqual(s.DOM_QUIET_CAP_MS, 3000)
+        self.assertLess(s.DOM_QUIET_MS, s.DOM_QUIET_CAP_MS)
+        self.assertIn("MutationObserver", s.DOM_QUIET_JS)
+        self.assertIn("o.cap", s.DOM_QUIET_JS)                       # the page script stops waiting on its own
+
+
+class CodePromptTest(unittest.TestCase):
+    def test_code_wording_needs_a_code_box_not_any_input(self):
+        from browser_runner.action_session import code_prompt_on
+        readme = "Login walls, captchas and SMS codes go to the owner. Enter the code below to continue."
+        # First live session 2026-11-23: GitHub's README mentioned SMS codes and the page has a "Go to file" box.
+        self.assertFalse(code_prompt_on(readme, [{"kind": "input", "name": "Go to file", "type": "text"},
+                                                 {"kind": "input", "name": "Search", "type": "search"}]))
+        self.assertTrue(code_prompt_on("We sent a verification code. Enter the code.",
+                                       [{"kind": "input", "name": "Verification code", "type": "text"}]))
+        self.assertTrue(code_prompt_on("Введите код из СМС", [{"kind": "input", "name": "Код", "type": "text"}]))
+        self.assertTrue(code_prompt_on("", [{"kind": "input", "name": "x", "autocomplete": "one-time-code"}]))
+        self.assertFalse(code_prompt_on("enter the code", [{"kind": "input", "name": "Code", "type": "password"}]))
 
 
 if __name__ == "__main__":

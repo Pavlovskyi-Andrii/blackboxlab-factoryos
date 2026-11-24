@@ -282,6 +282,13 @@ class FakePage:
         self._load(url)
         return type("Response", (), {"status": 200})()
 
+    def wait_for_url(self, predicate, *, timeout: int, wait_until: str) -> None:
+        """Navigation here is synchronous: the URL has changed by now or it never will."""
+        self.waits = getattr(self, "waits", 0) + 1
+        if not predicate(self.url):
+            from browser_runner.action_session import _PlaywrightTimeout
+            raise _PlaywrightTimeout("url did not change")
+
     def go_back(self, *, wait_until: str, timeout: int) -> None:
         if self.history:
             self._load(self.history.pop())
@@ -348,6 +355,9 @@ class FakePage:
                 return ""
             field["secret"] = True
             return field["ref"]
+        if script is session_module.DOM_QUIET_JS:
+            self.quiet_waits = getattr(self, "quiet_waits", 0) + 1
+            return True
         if script is session_module.MARK_SECRET_JS:
             if self.focused is not None:
                 self.focused["secret"] = True
