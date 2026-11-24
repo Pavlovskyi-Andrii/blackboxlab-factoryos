@@ -91,6 +91,8 @@ jobs:
           python -m pip install --disable-pip-version-check numpy
           python -m py_compile film_studio/__init__.py film_studio/schema.py film_studio/plan.py film_studio/procedural.py film_studio/render.py film_studio/qa.py test_film_studio.py
           python test_film_studio.py
+          python -m py_compile film_studio/face_switch.py test_face_switch.py
+          python test_face_switch.py
       - name: Validate required frontend assets
         run: |
           test -f static/index.html

@@ -2589,3 +2589,27 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   Claude's ACKs and results. Whether ChatGPT can run on a schedule with this connector is not verified here.
 - Not done here: a live run needs this PR merged, Render deployed, and one `request_task` call from ChatGPT's own
   connector; the first measured ACK latency is recorded in ROADMAP T-736 after that run.
+
+## 2026-11-24 — T-737 Faceless Creator A/B S1: procedural 2.5D face switch (#469)
+
+- **Decision:** the first #469 clip is strategy 1 of the issue (2.5D from original keyframes), drawn procedurally in
+  `film_studio/face_switch.py`: one clothed fictional presenter, a constant body / hoodie / room layer, and three
+  fictional face sprites (hair colour and fringe, eyes, brows, nose, lips, face shape) swapped on a "snap" (punch-in,
+  white flash, short glitch, sparkles, snap sound).
+  **Reason:** at $0 in this environment it is the only path that can be finished and verified now: no generative
+  model is reachable (huggingface.co is refused by the agent proxy, no GPU), and the issue rules out paid generation.
+  Continuity of body, wardrobe and room holds by construction because only the face sprite changes.
+- **Decision:** the QA receipt measures the switch on the decoded MP4: for each snap, a frame 0.30 s before and
+  0.75 s after (after the flash, glitch, punch-in and sparkles), the mean absolute change inside the face area and in
+  three still areas (hoodie, room left, room right). Pass: face ≥ 18, still ≤ 8, ratio ≥ 3. Overlays are placed
+  outside those areas; the camera push is continuous over the whole clip so the room does not jump at a snap.
+  **Reason:** "the face visibly changed, the rest did not" becomes a number from the delivered file, not a claim.
+- **Decision:** voice = local espeak-ng (`en-us+f3`) when installed, else captions only with the receipt saying so;
+  the mouth follows the voice loudness. Music bed and snap sound are synthesised in the module. Loudness -16 LUFS with
+  true peak ≤ -1 dBTP (loudnorm targets -2 dBTP because AAC adds about 0.5 dB).
+  **Reason:** offline and $0; the robotic voice is a known quality limit, stated to the owner, not hidden.
+- **Decision:** the clip is labelled «AI · SYNTHETIC DEMO» on every frame (the receipt checks the label pixels in
+  three frames) and ends with an 18+ / no-guarantee-of-anonymity-or-earnings line; the scripts contain no promise of
+  anonymity or income (a test enforces the word list). Output is refused inside the repository (except `data/`).
+- Not decided here: photorealistic presenters (owner choice: allow huggingface.co again for the Claude environment, or
+  supply synthetic frames), and S2 (owner score 1–10, notes, versions, one-click wiring).
