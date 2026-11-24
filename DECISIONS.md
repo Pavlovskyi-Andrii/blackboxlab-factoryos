@@ -2552,3 +2552,40 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - The voice sample was transcribed offline with faster-whisper `small` (CPU) only to read the owner's instruction;
   it is not used to clone the voice. Cloning needs a separate owner choice of model and licence.
 
+
+## 2026-11-24 — T-736 Agent → Claude worker requests through Relay (PR #470 spec, owner P0)
+
+- **Decision:** deliver ChatGPT → Claude work through the Relay ticket queue the EC2 Claude worker already polls,
+  not through a new poller, event stream or process. `request_task` (MCP, per-lane token) writes the request message
+  and a queued Relay ticket (`source.channel = agent_workspace`, owner claude) in one atomic save.
+  **Reason:** the worker already claims Relay tickets atomically (fresh run_id), runs Claude CLI in its own worktree
+  from fresh `main`, reports every stage with deduplicated event ids and opens a PR without merging. Reusing it adds
+  zero requests to the idle loop. Push to the EC2 worker would need an inbound port or a long-lived connection (SSE /
+  long-poll) on a single-process Render app; that is more moving parts to save about one idle interval
+  (`AUTOPILOT_IDLE_SECONDS`, 60 s by default) on tasks that run for minutes. If measured pickup latency is a problem,
+  the next step is a long-poll on the same `/api/relay/worker/claim`, still without new infrastructure.
+- **Decision:** the server mirrors each real worker transition of such a ticket into the thread the request came from
+  (claim = ACK with run_id, running, committed, pushed, result → `review`, blocked / failed, stale release), once per
+  event id, `from: claude` with `actor_auth_subject: relay-worker:<worker id>` and `reply_to` the request.
+  **Reason:** the worker has no MCP lane token and does not need one; the events are already authenticated with the
+  Claude worker credential, so the thread shows facts the worker reported, written in the same save as the event.
+  Heartbeats are not mirrored. Owner tickets are never mirrored.
+- **Decision:** the owner's own tickets are claimed before agent requests (coordination rules §5, rule 1); within a
+  group, first queued first served. At most 3 open requests per requesting lane; `FACTORY_AGENT_TASK_REQUESTS=0` is the
+  owner's kill switch.
+- **Decision:** `mode` read_only (default) or code. A read-only request gets the new evidence rule `answer`
+  (required level `claimed`): the text posted into the thread is the whole deliverable, so the worker's report closes
+  the ticket and the asking agent or the owner judges it there. The worker refuses to push a read-only run that made a
+  commit (`blocked`), and refuses read-only requests in the legacy shared-branch mode. Code requests keep the `code`
+  rule (merged PR + CI on that commit).
+- **Decision:** the request text reaches Claude CLI framed as data from another agent, not as an owner order, with the
+  existing limits (no payment, publishing, secrets, merge or deploy).
+- **Decision:** worker events of agent requests reach the owner's Telegram only when they are `blocked` or `failed`;
+  `running`, `committed`, `pushed` and `done` stay in the thread and Worker Center.
+  **Reason:** owner preference — ping him only when he is actually needed; agent-to-agent traffic must not become
+  Telegram noise. His own tickets keep every notice.
+- **Decision:** `read_inbox` gives each lane what other lanes wrote after a cursor, in threads it started or posted in.
+  **Reason:** ChatGPT is not an always-on process; when its session or a scheduled run wakes up, one cheap call shows
+  Claude's ACKs and results. Whether ChatGPT can run on a schedule with this connector is not verified here.
+- Not done here: a live run needs this PR merged, Render deployed, and one `request_task` call from ChatGPT's own
+  connector; the first measured ACK latency is recorded in ROADMAP T-736 after that run.

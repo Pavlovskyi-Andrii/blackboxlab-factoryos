@@ -8,6 +8,7 @@ publishing are started here.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import re
 import secrets
 from typing import Any
@@ -173,10 +174,32 @@ def safe_evidence(source: Any) -> dict:
     return result
 
 
+def _is_agent_request(ticket: dict) -> bool:
+    """T-736: a task another agent asked the Claude worker for through the MCP workspace (agent_workspace.py)."""
+    return (ticket.get("source") or {}).get("channel") == "agent_workspace"
+
+
+def owner_notice_wanted(ticket: dict, stage: str) -> bool:
+    """T-736: agent-to-agent requests ping the owner's Telegram only when he may be needed (blocked / failed); their
+    progress and results are in the Relay thread. The owner's own tickets keep every notice."""
+    return not _is_agent_request(ticket) or stage in ("blocked", "failed")
+
+
 class RelayQueue:
     def __init__(self, store, stale_seconds: int = 180):
         self.store = store
         self.stale_seconds = max(60, min(900, int(stale_seconds)))
+        # T-736: called as observer(state, ticket, action, history_entry) under store.lock, before the save, for every
+        # claim / worker event / stale release, so a listener's own writes into `state` land in the same atomic save.
+        self.observers: list = []
+
+    def _notify_unlocked(self, state: dict, item: dict, action: str, entry: dict) -> None:
+        for observer in list(self.observers):
+            try:
+                observer(state, item, action, entry)
+            except Exception as exc:  # an observer never breaks a claim or a worker event
+                print(json.dumps({"event": "RELAY_OBSERVER_FAILED", "action": action, "error": type(exc).__name__}),
+                      flush=True)
 
     def view(self, ticket: dict) -> dict:
         item = dict(ticket)
@@ -365,16 +388,20 @@ class RelayQueue:
                     if self.view(dict(item))["execution"].get("state") != "stale":
                         return None
                     self._release_stale_unlocked(item, worker_id)
+                    self._notify_unlocked(state, item, "stale_released", item["history"][-1])
                     released = True
             if released:
                 self.store._save_unlocked(state)
             pending = [item for item in state["tickets"] if item.get("status") == "inbox"
                        and (item.get("execution") or {}).get("state") == "queued" and _claude_claimable(item)]
-            pending.sort(key=lambda item: (item.get("execution") or {}).get("queued_at") or "")
+            # Owner priority rule 1 (docs/handoff/CLAUDE_CHATGPT_COORDINATION.md §5): the owner's own tickets go
+            # before tasks other agents requested (T-736); within each group, first queued first served.
+            pending.sort(key=lambda item: (_is_agent_request(item), (item.get("execution") or {}).get("queued_at") or ""))
             if not pending:
                 return None
             item = pending[0]
             self._claim_unlocked(item, worker_id, "Claude worker забрал задание")
+            self._notify_unlocked(state, item, "claimed", item["history"][-1])
             self.store._save_unlocked(state)
             return self.view(dict(item))
 
@@ -759,6 +786,7 @@ class RelayQueue:
                 if event_id:
                     entry["event_id"] = event_id
                 item.setdefault("history", []).append(entry)
+                self._notify_unlocked(state, item, stage, entry)
                 self.store._save_unlocked(state)
                 return self.view(dict(item))
         raise KeyError(tid)
