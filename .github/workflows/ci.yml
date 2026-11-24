@@ -86,6 +86,11 @@ jobs:
         run: |
           python -m py_compile durable_media_finisher.py test_durable_media_finisher.py
           python test_durable_media_finisher.py
+      - name: AI Film Studio contracts, rights gate and shot plan (T-730, offline)
+        run: |
+          python -m pip install --disable-pip-version-check numpy
+          python -m py_compile film_studio/__init__.py film_studio/schema.py film_studio/plan.py film_studio/procedural.py film_studio/render.py film_studio/qa.py test_film_studio.py
+          python test_film_studio.py
       - name: Validate required frontend assets
         run: |
           test -f static/index.html
@@ -299,6 +304,11 @@ jobs:
           python test_google_sheets.py
           python -c "from pathlib import Path; h=Path('static/sheets/index.html').read_text(encoding='utf-8'); Path('/tmp/sheets-ui.js').write_text(h.rsplit('<script>',1)[1].split('</script>',1)[0], encoding='utf-8')"
           node --check /tmp/sheets-ui.js
+          python -m py_compile coordination.py test_coordination.py test_roadmap_integrity.py
+          python test_roadmap_integrity.py
+          python test_coordination.py
+          python -c "from pathlib import Path; h=Path('static/coordination/index.html').read_text(encoding='utf-8'); Path('/tmp/coordination-ui.js').write_text(h.rsplit('<script>',1)[1].split('</script>',1)[0], encoding='utf-8')"
+          node --check /tmp/coordination-ui.js
           python -m py_compile test_browser_reading.py tools/surfer_benchmark.py
           python test_browser_reading.py
           python -m py_compile agent_workspace.py test_agent_workspace.py

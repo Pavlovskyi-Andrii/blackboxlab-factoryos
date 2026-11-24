@@ -11,13 +11,14 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: `docs/research/ploy-public-ux-functional-benchmark.md` exists with every factual claim cited (URL, date, evidence type, confidence) and "not observed" where a screen was not seen; `python test_verification_docs.py`; default verification.
   Done 2026-11-23: 18 docs pages + 3 site pages + terms read through the Markdown interface Ploy publishes for AI tools (no account, no login); 43 ledger rows, 16 patterns with adopt/adapt/reject, 8 rejections, Overlap Matrix, capability matrix, Linear and PostHog as references. Not observed and stated in the document: the authenticated app and every image (so Ploy's visual design is not described).
 
-- [ ] T-732 #452 S2: FactoryOS current-state audit, owner-first journeys and two or three IA directions → Checkpoint A
+- [x] T-732 #452 S2: FactoryOS current-state audit, owner-first journeys and two or three IA directions → Checkpoint A
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1
   Depends: T-731
   Spec: Issue #452 §4–§5 and Amendment A1 (A1.3, A1.4, A1.5).
   Goal: route and screen inventory from the code; screenshots from `tools/ui_screenshots.py` (768 px added) of the local fixture, labelled as such; defects ranked by severity; journeys for the owner, a future client and a specialist; navigation before/after with every current route mapped; "one source per status" table for Owner Home; two or three low-fidelity directions with one recommended.
   DONE: `docs/ux/factoryos-current-state-audit.md` and `docs/ux/factoryos-owner-first-ia-spec.md` exist; screenshots under `docs/screenshots/t-732/`; a short owner summary in Russian is delivered and the owner picks a direction (Checkpoint A) before T-733 starts.
+  Done 2026-11-24: audit (re-measured on v5.19.1), IA spec and Checkpoint A page delivered 2026-11-23. Owner chose direction 2 «Продукты и цели» plus a visible switch to the current full dashboard («Pro version») and back, remembered per browser (owner 2026-11-24 ~04:10 UTC, relayed to this session by the coordination session; `.autopilot/answers.md` «#452 Checkpoint A»).
 
 - [ ] T-733 #452 S3–S4: clickable prototype (Owner Home + Growth Manager goal wizard + approval + metrics), Growth Manager RFC and backlog → OWNER GATE
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -26,6 +27,17 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Spec: Issue #452 §5–§10 and Amendment A1 (A1.1, A1.2, A1.4, A1.5, A1.7).
   Goal: prototype in `docs/prototypes/owner-home-growth/` (fixture data marked DEMO DATA, eight states, EN/UK/RU, phone and desktop), opened behind login through the Learn section; RFC with the mapping table (24 mission fields and 11 states → existing fields/enums or "missing"), executor and cost per step, the designed first-party visit + variant event for MyCast; test plan with expert review, automated checks and a 10–15 minute script for the owner and the 3–4 people he brings; backlog of small tickets with the first PR specified to file level.
   DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-733/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
+
+## AI Film Studio (#433)
+
+- [x] T-730 AI Film Studio S1: contracts + rights gate + deterministic shot plan + offline Photo Cinema render + QA receipt
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner-approved #433; Relay th_ebeb7e1c851168a7, 2026-11-20..22: «Действуй», «Пиши ему чтоб делал»)
+  Spec: issue #433; shot pack `docs/storyboards/blackbox-lab-45s/` (PR #435); DECISIONS.md «2026-11-23 — T-730». Code: `film_studio/`.
+  Goal: versioned storyboard / film bible / asset manifest with a strict validator (unknown or unverified rights fail closed); per-shot plan in whole frames (45.000 s at 24 fps, 16:9) with content-keyed per-shot re-render; offline FFmpeg 2.5D camera moves + parallax layer + crossfades + DEMO label + RU captions; QA receipt (ffprobe, full decode, frame count, black stretches, per-shot sha256 + licence, voice source, cost $0). Output stays private, never in git.
+  DONE: `python test_film_studio.py`; `python -m film_studio.render --out <private dir> --procedural-standins` gives a PASS receipt; default verification.
+  Result 2026-11-23: the 45 s film renders at 1920x1080 from original procedural stand-in stills (labelled «DEMO · иллюстрация, не фото»), silent AAC track + burned-in captions. Realistic-photo film and narration are blocked.
+  Blocked (owner, not a roadmap task yet): the cloud session's network policy refuses www.pexels.com / images.pexels.com and huggingface.co (HTTP 403 from the agent proxy), so photo licences cannot be read and no offline RU voice can be fetched. To unblock: allow those hosts for the Claude cloud environment, or supply the 7 photos (owned/licensed stills, author + page URL + licence) and a narration recording, or approve a specific offline RU voice after its licence is read. Narration input itself is S2 work (S1 lays a silent track).
 
 - [x] T-720 Surfer action sessions (core): a live browser page that acts — web_open / web_act / web_snapshot / web_close
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -91,6 +103,13 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Priority: P1 (live run 2026-11-23 by the parent session: MyBrief "Show my briefing" returned the old text; only a refresh showed the briefing)
   Goal: after click / press / select / check / back, wait until the DOM is quiet for 500 ms (MutationObserver), at most 3 s, before the snapshot.
   DONE: `RUN_BROWSER_FIXTURE=1 python test_surfer_selftest.py` (LateRenderTest fails without the wait), `python test_surfer_actions.py`, default verification.
+
+- [x] T-729 Coordination guard: no duplicate task numbers, no two agents on one task, no two PRs on the same code
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P0 (owner 2026-11-23, Notion master ТЗ «аудит стану»: reconcile Owner/Depends/Claim/PR before any new work, no duplicates)
+  Spec: DECISIONS.md «2026-11-23 — T-729». `coordination.py`, `GET /api/factory/coordination` (owner), MCP tool `coordination_check`, page `static/coordination/index.html` (UK/RU/EN), sidebar «Координація».
+  Goal: one read model over ROADMAP.md, open PRs with their changed files (GitHub read token), active Relay claims and handoffs. Conflicts: a task number defined twice, one task in two lanes or two PRs, two open PRs changing the same code file, a PR inside another lane's handoff scope. Warnings: a PR naming a task already done on main, Depends: on an unknown task, a claim by a lane that is not the task's Owner. An unreadable source makes the verdict «unknown», never «clear». Agents ask `coordination_check` (task_id, files) before taking work and get safe_to_start yes / no / unknown with reasons and the next free task number. CI test `test_roadmap_integrity.py` fails on duplicate numbers.
+  DONE: `python test_coordination.py`, `python test_roadmap_integrity.py`, `python test_navigation.py`, page inline JS `node --check`, default verification.
 
 - [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -909,7 +928,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 - [x] T-608 A/B Tester S1 — experiment model and API inside the MVP registry
   Owner: claude
   Priority: P2 (owner said "бери A/B Tester, начни с S1" 2026-11-14)
-  Depends: T-186 registry (#186), #330 merged
+  Depends: #186 registry, #330 merged
   Spec: docs/reviews/MVP_AB_TESTER_S0_REVIEW.md §2.8, §4 corrections 1–13, §6.1–6.2
   Goal: `projects[pid].experiments[exp]` with exactly two branches a/b; SEGMENT_COMPARISON (never a winner) or CONTROLLED_AB (draft only); per-branch, per-revision owner preview approval; owner decision closes; no metrics/publish/spend/outreach writes; copy deny-list; project stage untouched.
   DONE: `python test_mvp_experiments.py` and the MVP suites pass; default verification passes.

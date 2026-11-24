@@ -58,3 +58,9 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 - Usability test: the owner will bring 3–4 people for the prototype test.
 - Priority: T-590–T-593 may be closed; #452 starts right after them.
 - Read-only access to `docs.ploy.ai` and `ploy.ai` approved for the cloud environment (public pages only); `linear.app` and `posthog.com` added the same way for the two reference products.
+
+## #452 Checkpoint A (owner 2026-11-24 ~04:10 UTC, relayed to the #452 session by the coordination session)
+- Owner's words: «давай вариант 2. только оставь кнопку типа переключить на про версию сайта (типа на текущую версию)».
+- Direction 2 «Продукты и цели» is chosen for T-733.
+- The new home keeps a visible switch to the current full dashboard («Pro version» / «Pro-версія» / «Pro-версия») and a way back; nothing of the current UI is removed; the choice is remembered per browser.
+- Blackbox Lab content card: not answered; default applies (a separate product card while content jobs exist).
