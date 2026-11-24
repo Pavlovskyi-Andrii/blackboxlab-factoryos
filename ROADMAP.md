@@ -389,6 +389,14 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: a live round-trip — Claude posts a handoff, ChatGPT claims it via MCP and submits a PR link, Claude reviews and merges — visible in Worker Center; tests for auth, single claim, replay and secret scrubbing.
   Progress 2026-11-15 (session T-604): the server slice is T-625 below — workspace tools on `/mcp` (`agent_workspace.py`), per-lane auth, single claim through the Relay ROADMAP ticket, replay, secret scrubbing; guide `docs/guides/agent-workspace-mcp.md`. Still open for DONE: owner sets the lane tokens (T-624), then the live round-trip (Claude create_handoff → ChatGPT claim + PR link → Claude review/merge) and a Worker Center panel on `GET /api/factory/agent-workspace` (T-626). Telegram group chat (`/discuss`, `/decision`) stays with the T-590–T-593 Relay/Telegram work.
 
+- [ ] T-736 Agent → Claude worker requests through Relay: request_task, worker ACK/result in the same thread, read_inbox (T-604 slice)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P0 (direct owner assignment 2026-11-24: PR #470 «приоритетная задача», Relay th_46f089b213546fcc)
+  Depends: T-625
+  Spec: PR #470 `docs/handoff/T-604_RELAY_60S_AGENT_ROUNDTRIP_SPEC.md` (ChatGPT); DECISIONS.md «2026-11-24 — T-736»; guide `docs/guides/agent-workspace-mcp.md` «Asking the always-on Claude worker».
+  Goal: any lane asks the always-on Claude worker for one bounded task through the Relay queue it already polls (no new poller, queue or process); the worker's claim (ACK with run_id), progress and result or blocker appear in the same thread from its own events, once each; owner tickets go first; read-only requests never push; `read_inbox` with a cursor for agents that wake up later.
+  DONE: `python test_agent_workspace.py`, `python test_relay_execution.py`, `python test_evidence.py`, default verification, CI-gated PR; live: one `request_task` from ChatGPT's own connector gets the worker's ACK with run_id and the result in the same thread, with the measured request → ACK latency recorded here.
+
 - [x] T-625 Agent workspace MCP tools: threads and handoffs behind per-lane tokens (T-604 server slice)
   Owner: claude (session T-604)
   Priority: P1

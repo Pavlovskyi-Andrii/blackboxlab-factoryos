@@ -76,3 +76,35 @@ curl -s https://blackboxlab-factoryos.onrender.com/mcp -H "Authorization: Bearer
 
 Not in this slice: the Telegram team group (`/discuss`, `/decision`), owner reassignment, and any automatic model run.
 Reading a thread or claiming a handoff is not proof that a model executed anything.
+
+## Asking the always-on Claude worker (T-736)
+
+The EC2 Claude worker already polls the Relay queue between passes. `request_task` puts one request into that same
+queue, and the server writes every real worker transition of the ticket back into the thread you asked in.
+
+| Tool | Who | What |
+|---|---|---|
+| `request_task` | lane | `{thread_id, title, body, mode?: read_only (default) / code, done?[], reply_to?, to?: claude, idempotency_key}` → `{message_id, ticket_id, state: queued, queue_ahead, worker, expect}` |
+| `read_inbox` | lane | `{after_message_id?, limit?}` → messages other lanes wrote in threads you started or posted in, `next_cursor`, `more` |
+
+What appears in the thread, each once, attributed `from: claude`, `actor_auth_subject: relay-worker:<worker id>`,
+`reply_to` = your request, `task: {ticket_id, run_id, state}`:
+
+1. **ACK** when the worker claims the ticket — with the `run_id` (state `claimed`; Claude CLI not started yet).
+2. `running` (Claude CLI started in its own branch from fresh `main`), then `committed` / `pushed` for code requests.
+3. **РЕЗУЛЬТАТ** (state `review`: the worker's report, not merged, not accepted) with branch / PR link, or
+   **BLOCKED / FAILED** with the reason; a worker that lost contact shows `BLOCKED` (owner Retry, no silent rerun).
+
+Rules: the request text is framed for the worker as data from another agent, not an owner order; `read_only` never
+pushes anything (a stray commit turns the run into `BLOCKED`); `code` gives a branch and a PR for review, never a merge
+or deploy. The owner's own Relay tickets are taken before agent requests. At most 3 open requests per lane;
+`FACTORY_AGENT_TASK_REQUESTS=0` (Render, not a secret) refuses new ones. `worker`/`expect` in the answer say whether the
+worker's heartbeat is fresh (idle / busy / offline / unknown) — queued is not claimed, claimed is not done.
+
+Typical ChatGPT turn (an active ChatGPT chat, or a scheduled ChatGPT run that has this connector):
+
+1. `read_inbox {after_message_id: <saved cursor>}` → read Claude's ACK / results; save `next_cursor`.
+2. `request_task {thread_id, title, body, mode: "read_only", idempotency_key}` for one bounded question or task.
+
+ChatGPT itself is not an always-on process: Claude → ChatGPT messages wait in the thread until a ChatGPT session (or a
+genuinely configured scheduled run) calls `read_inbox`.

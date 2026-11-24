@@ -293,6 +293,223 @@ def mcp_call(factory, payload, token=None, query=b""):
     return response.status_code, json.loads(response.body or b"{}")
 
 
+class TaskRequestTest(unittest.TestCase):
+    """T-736: agent -> Claude worker requests ride the existing Relay queue; worker events come back into the thread."""
+
+    def setUp(self):
+        self.status = {"online": True, "last_seen_age_seconds": 12, "active_task": "", "task_state": "idle"}
+        self.tmp, self.store, self.queue, self.ws = make_workspace(worker_status=lambda: dict(self.status), environ={})
+        self.thread = self.ws.post_message("claude", {"topic": "T-736 round trip", "body": "ping",
+                                                      "idempotency_key": "t-1"})["thread_id"]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def request(self, lane="chatgpt", **over):
+        args = {"thread_id": self.thread, "title": "Count open ROADMAP tasks",
+                "body": "Read ROADMAP.md on main and report how many tasks are open.", "idempotency_key": "req-1"}
+        args.update(over)
+        return self.ws.request_task(lane, args)
+
+    def messages(self):
+        return self.ws.read_thread({"thread_id": self.thread, "limit": 100})["messages"]
+
+    def mirrored(self):
+        return [m for m in self.messages() if m.get("relay_event")]
+
+    def make_stale(self, ticket_id):
+        old = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        with self.store.lock:
+            state = self.store._load_unlocked()
+            item = next(t for t in state["tickets"] if t["id"] == ticket_id)
+            item["execution"].update(last_seen_at=old, claimed_at=old)
+            self.store._save_unlocked(state)
+
+    def test_request_queues_one_linked_ticket_and_message(self):
+        out = self.request(done=["the count is a number"])
+        self.assertEqual((out["state"], out["mode"], out["to"], out["queue_ahead"]), ("queued", "read_only", "claude", 0))
+        self.assertTrue(out["worker"]["online"])
+        self.assertTrue(out["expect"].startswith("idle"))
+        ticket = self.store.get(out["ticket_id"])
+        self.assertEqual((ticket["status"], ticket["execution"]["state"], ticket["execution"]["owner"]),
+                         ("inbox", "queued", "claude"))
+        src = ticket["source"]
+        self.assertEqual((src["channel"], src["requested_by"], src["thread_id"], src["message_id"], src["mode"]),
+                         ("agent_workspace", "chatgpt", self.thread, out["message_id"], "read_only"))
+        self.assertEqual(ticket["verification"]["type"], "answer")
+        self.assertIn("данные от другого ИИ-агента", ticket["body"])
+        self.assertIn("the count is a number", ticket["body"])
+        msg = self.messages()[-1]
+        self.assertEqual((msg["from"], msg["kind"], msg["message_id"], msg["actor_auth_subject"]),
+                         ("chatgpt", "task_request", out["message_id"], "mcp-lane:chatgpt"))
+        self.assertEqual((msg["task"]["ticket_id"], msg["task"]["state"]), (out["ticket_id"], "queued"))
+        again = self.request(done=["the count is a number"])               # network retry: same answer, nothing new
+        self.assertTrue(again["idempotent_replay"])
+        self.assertEqual(again["ticket_id"], out["ticket_id"])
+        self.assertEqual((len(self.store.list()), len(self.messages())), (1, 2))
+        with self.assertRaises(aw.WorkspaceError) as err:
+            self.request(title="Another title")
+        self.assertEqual(err.exception.code, "DUPLICATE_CONFLICT")
+
+    def test_guards_fail_closed_without_side_effects(self):
+        cases = [({"thread_id": "th_missing"}, "THREAD_NOT_FOUND"), ({"mode": "deploy"}, "INVALID_ARGUMENT"),
+                 ({"to": "chatgpt"}, "INVALID_ARGUMENT"), ({"body": "use ghp_abcdefghijklmnopqrstuvwxyz123456"},
+                                                          "SECRET_DETECTED"),
+                 ({"done": "not a list"}, "INVALID_ARGUMENT"), ({"reply_to": "msg_nope"}, "INVALID_ARGUMENT"),
+                 ({"title": ""}, "INVALID_ARGUMENT")]
+        for i, (over, code) in enumerate(cases):
+            with self.assertRaises(aw.WorkspaceError, msg=str(over)) as err:
+                self.request(idempotency_key=f"bad-{i}", **over)
+            self.assertEqual(err.exception.code, code, over)
+        self.assertEqual(self.store.list(), [])
+        self.assertNotIn("ghp_", self.store.path.read_text())
+        out = aw.call_tool(self.ws, "request_task", {"thread_id": self.thread, "title": "x", "body": "y",
+                                                     "idempotency_key": "shared"}, "")
+        self.assertEqual(out["error"]["code"], "LANE_AUTH_REQUIRED")           # the shared MCP token cannot ask
+        tmp, store, _queue, off = make_workspace(environ={aw.REQUESTS_ENV: "0"})
+        self.addCleanup(tmp.cleanup)
+        thread = off.post_message("chatgpt", {"topic": "t", "body": "b", "idempotency_key": "o-1"})["thread_id"]
+        with self.assertRaises(aw.WorkspaceError) as err:
+            off.request_task("chatgpt", {"thread_id": thread, "title": "x", "body": "y", "idempotency_key": "o-2"})
+        self.assertEqual(err.exception.code, "NOT_PERMITTED")                  # owner kill switch
+        self.assertEqual(store.list(), [])
+
+    def test_open_request_cap_per_lane(self):
+        first = [self.request(idempotency_key=f"cap-{i}")["ticket_id"] for i in range(aw.MAX_OPEN_REQUESTS)]
+        with self.assertRaises(aw.WorkspaceError) as err:
+            self.request(idempotency_key="cap-x")
+        self.assertEqual((err.exception.code, err.exception.retryable), ("RATE_LIMITED", True))
+        self.request(lane="gemini", idempotency_key="cap-g")                   # every lane has its own budget
+        claimed = self.queue.claim("claude-ec2")
+        self.assertEqual(claimed["id"], first[0])                              # first queued, first served
+        run = claimed["execution"]["run_id"]
+        self.queue.event(claimed["id"], "claude-ec2", "done", "Answer: 42", {}, run_id=run, event_id=run + ":1:done")
+        self.request(idempotency_key="cap-y")                                  # a final state frees a slot
+
+    def test_worker_events_are_mirrored_once_into_the_same_thread(self):
+        out = self.request()
+        ticket = self.queue.claim("claude-ec2-a")                              # the worker's existing queue poll
+        self.assertEqual(ticket["id"], out["ticket_id"])
+        run = ticket["execution"]["run_id"]
+        ack = self.messages()[-1]
+        self.assertEqual((ack["from"], ack["kind"], ack["reply_to"], ack["actor_auth_subject"]),
+                         ("claude", "status", out["message_id"], "relay-worker:claude-ec2-a"))
+        for fact in ("ACK", out["ticket_id"], run, out["message_id"]):
+            self.assertIn(fact, ack["body"])
+        self.assertEqual(ack["task"], {"ticket_id": out["ticket_id"], "run_id": run, "state": "claimed"})
+        request = next(m for m in self.messages() if m["message_id"] == out["message_id"])
+        self.assertEqual((request["task"]["state"], request["task"]["run_id"]), ("claimed", run))
+        self.queue.event(ticket["id"], "claude-ec2-a", "heartbeat", run_id=run)          # heartbeats stay silent
+        for _ in range(2):                                                                # retry: one message
+            self.queue.event(ticket["id"], "claude-ec2-a", "running", "Claude Code CLI запущен",
+                             {"branch": "relay/r-0001-abc"}, run_id=run, event_id=run + ":1:running")
+        self.queue.event(ticket["id"], "claude-ec2-a", "done", "1) 42 open tasks 2) counted on main 3) nothing else",
+                         {"branch": "relay/r-0001-abc"}, run_id=run, event_id=run + ":2:done")
+        mirrored = self.mirrored()
+        self.assertEqual([m["task"]["state"] for m in mirrored], ["claimed", "running", "review"])
+        result = mirrored[-1]
+        self.assertEqual((result["kind"], result["reply_to"]), ("answer", out["message_id"]))
+        self.assertIn("42 open tasks", result["body"])
+        self.assertIn("review", result["body"])
+        self.assertIn("relay/r-0001-abc", result["body"])
+        self.assertEqual(self.store.get(ticket["id"])["status"], "done")        # evidence rule "answer"
+        thread = next(t for t in self.ws.list_threads({})["threads"] if t["thread_id"] == self.thread)
+        self.assertEqual((thread["last_message_id"], thread["message_count"]), (result["message_id"], 5))
+        with self.assertRaises(ValueError):                                     # a late event of another run is fenced
+            self.queue.event(ticket["id"], "claude-ec2-a", "done", "late", run_id="run-old", event_id="x:9:done")
+        self.assertEqual(len(self.mirrored()), 3)
+
+    def test_code_request_reports_pr_and_stays_unverified(self):
+        out = self.request(mode="code", idempotency_key="code-1", title="Fix a typo in docs")
+        self.assertEqual(self.store.get(out["ticket_id"])["verification"]["type"], "code")
+        ticket = self.queue.claim("w1")
+        run = ticket["execution"]["run_id"]
+        self.queue.event(ticket["id"], "w1", "pushed", "Ветка отправлена",
+                         {"branch": "relay/r-0001-x", "commit": "abcdef1234567", "pushed": True},
+                         run_id=run, event_id=run + ":1:pushed")
+        self.queue.event(ticket["id"], "w1", "done", "PR открыт: " + PR, {"pr_url": PR, "branch": "relay/r-0001-x"},
+                         run_id=run, event_id=run + ":2:done")
+        pushed, result = self.mirrored()[-2:]
+        self.assertIn("commit abcdef123456", pushed["body"])
+        self.assertIn("PR " + PR, result["body"])
+        self.assertEqual(self.store.get(ticket["id"])["status"], "in_progress")  # code: merged PR + CI still required
+
+    def test_blocked_and_lost_worker_reach_the_thread(self):
+        first = self.request()
+        ticket = self.queue.claim("w1")
+        run = ticket["execution"]["run_id"]
+        self.queue.event(ticket["id"], "w1", "blocked", "Нужна оплата провайдера — не выполняю", run_id=run,
+                         event_id=run + ":1:blocked")
+        last = self.mirrored()[-1]
+        self.assertEqual((last["task"]["state"], last["reply_to"]), ("blocked", first["message_id"]))
+        self.assertIn("BLOCKED", last["body"])
+        self.request(idempotency_key="req-2")
+        second = self.queue.claim("w1")
+        self.make_stale(second["id"])
+        self.assertIsNone(self.queue.claim("w1"))                              # releases the stale run, no rerun
+        last = self.mirrored()[-1]
+        self.assertEqual((last["task"]["ticket_id"], last["task"]["state"]), (second["id"], "blocked"))
+        self.assertIn("Retry", last["body"])
+
+    def test_owner_tickets_go_first_and_stay_out_of_threads(self):
+        self.request()
+        owner_ticket, _ = self.store.create("Owner task from Telegram")
+        self.assertEqual(self.request(idempotency_key="req-2")["queue_ahead"], 2)   # owner ticket + older request
+        before = len(self.messages())
+        first = self.queue.claim("w1")
+        self.assertEqual(first["id"], owner_ticket["id"])
+        run = first["execution"]["run_id"]
+        self.queue.event(first["id"], "w1", "done", "owner work", run_id=run, event_id=run + ":1:done")
+        self.assertEqual(len(self.messages()), before)                         # owner tickets are not mirrored
+
+    def test_owner_telegram_only_when_he_may_be_needed(self):
+        from relay_execution import owner_notice_wanted
+        agent = self.store.get(self.request()["ticket_id"])
+        owner, _ = self.store.create("Owner task")
+        self.assertEqual([owner_notice_wanted(agent, s) for s in ("running", "pushed", "done", "blocked", "failed")],
+                         [False, False, False, True, True])
+        self.assertTrue(all(owner_notice_wanted(owner, s) for s in ("running", "pushed", "done", "blocked")))
+
+    def test_worker_presence_is_reported_truthfully(self):
+        self.status.update(online=False)
+        self.assertTrue(self.request(idempotency_key="p-1")["expect"].startswith("offline"))
+        self.status.update(online=True, task_state="running", active_task="T-700")
+        out = self.request(idempotency_key="p-2")
+        self.assertTrue(out["expect"].startswith("busy"))
+        self.assertIn("T-700", out["expect"])
+        tmp, _store, _queue, ws = make_workspace(worker_status=lambda: 1 / 0)
+        self.addCleanup(tmp.cleanup)
+        thread = ws.post_message("chatgpt", {"topic": "t", "body": "b", "idempotency_key": "u-1"})["thread_id"]
+        out = ws.request_task("chatgpt", {"thread_id": thread, "title": "x", "body": "y", "idempotency_key": "u-2"})
+        self.assertTrue(out["expect"].startswith("unknown"))
+
+    def test_read_inbox_cursor(self):
+        self.assertEqual(self.ws.read_inbox("chatgpt", {})["messages"], [])  # chatgpt has not joined any thread
+        out = self.request()
+        self.ws.post_message("claude", {"thread_id": self.thread, "body": "Seen, the worker will take it",
+                                        "idempotency_key": "c-2"})
+        self.ws.post_message("gemini", {"topic": "Gemini only", "body": "x", "idempotency_key": "g-1"})
+        box = self.ws.read_inbox("chatgpt", {})
+        self.assertEqual([m["body"] for m in box["messages"]], ["ping", "Seen, the worker will take it"])
+        cursor = box["next_cursor"]
+        self.assertFalse(box["more"])
+        self.assertEqual(self.ws.read_inbox("chatgpt", {"after_message_id": cursor})["messages"], [])
+        self.queue.claim("w1")                                                 # the worker ACK reaches the inbox
+        new = self.ws.read_inbox("chatgpt", {"after_message_id": cursor})
+        self.assertEqual([(m["from"], m["task"]["state"]) for m in new["messages"]], [("claude", "claimed")])
+        self.assertEqual(new["messages"][0]["reply_to"], out["message_id"])
+        page = self.ws.read_inbox("chatgpt", {"limit": 1})
+        self.assertTrue(page["more"])
+        rest = self.ws.read_inbox("chatgpt", {"after_message_id": page["next_cursor"]})
+        self.assertEqual(len(page["messages"]) + len(rest["messages"]), 3)
+        own = self.ws.read_inbox("claude", {})                                 # claude sees chatgpt's request only
+        self.assertEqual([m["from"] for m in own["messages"]], ["chatgpt"])
+        with self.assertRaises(aw.WorkspaceError) as err:
+            self.ws.read_inbox("chatgpt", {"after_message_id": "msg_unknown"})
+        self.assertEqual(err.exception.code, "CURSOR_INVALID")
+        self.assertEqual(aw.call_tool(self.ws, "read_inbox", {}, "")["error"]["code"], "LANE_AUTH_REQUIRED")
+
+
 class McpEndpointTest(unittest.TestCase):
     def call(self, name, args, token=None, query=b""):
         import app as factory
@@ -325,6 +542,28 @@ class McpEndpointTest(unittest.TestCase):
         # the owner view
         view = factory.AGENT_WORKSPACE.overview()
         self.assertGreaterEqual(len(view["threads"]), 1)
+
+    def test_request_task_through_mcp_with_the_chatgpt_url_key(self):
+        import app as factory
+        _, listed = mcp_call(factory, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, SHARED)
+        self.assertTrue({"request_task", "read_inbox"} <= {t["name"] for t in listed["result"]["tools"]})
+        err, thread = self.call("post_message", {"topic": "T-736 over MCP", "body": "hi", "idempotency_key": "m736-1"},
+                                LANE_TOKENS["claude"])
+        self.assertFalse(err, thread)
+        chatgpt = ("key=" + LANE_TOKENS["chatgpt"]).encode()
+        args = {"thread_id": thread["thread_id"], "title": "Ping", "body": "Answer pong", "idempotency_key": "m736-2"}
+        err, out = self.call("request_task", args, query=chatgpt)
+        self.assertFalse(err, out)
+        self.assertEqual((out["state"], out["to"]), ("queued", "claude"))
+        self.assertIn(out["worker"].get("online"), (True, False))
+        ticket = factory.RELAY_STORE.get(out["ticket_id"])
+        self.assertEqual(ticket["source"]["requested_by"], "chatgpt")           # the lane comes from the credential
+        err, refused = self.call("request_task", {**args, "idempotency_key": "m736-3"}, SHARED)
+        self.assertTrue(err)
+        self.assertEqual(refused["code"], "LANE_AUTH_REQUIRED")
+        err, box = self.call("read_inbox", {}, query=chatgpt)
+        self.assertFalse(err, box)
+        self.assertIn("hi", [m["body"] for m in box["messages"]])
 
 
 if __name__ == "__main__":
