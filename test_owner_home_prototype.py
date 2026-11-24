@@ -39,6 +39,13 @@ class OwnerHomePrototypeTest(unittest.TestCase):
         self.assertEqual(ROOT / item["path"], PAGE)
         self.assertEqual(set(item["title"]), {"ru", "uk", "en"})
 
+    def test_one_plain_script_block(self):
+        # CI runs `node --check` on the text between the last bare <script> and </script>: that must be all the code.
+        html = PAGE.read_text(encoding="utf-8")
+        self.assertEqual(len(re.findall(r"<script\b", html)), 1, "keep all code in one script block")
+        self.assertEqual(html.count("<script>"), 1, "the script tag has no attributes, so the CI extraction finds it")
+        self.assertNotRegex(html, r"\son[a-z]+=", "no inline event-handler attributes outside the checked script")
+
     def test_no_network_resources(self):
         html = PAGE.read_text(encoding="utf-8")
         self.assertIsNone(re.search(r"https?://", html), "the sandbox blocks every external load; keep the page inline")
