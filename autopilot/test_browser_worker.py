@@ -189,11 +189,58 @@ class WorkerTest(unittest.TestCase):
         self.assertFalse(hb.alive(path, now=self.clock.t + 1))   # the Claude worker's fallback may take over
 
     def test_runner_code_change_exits_between_tasks(self):
-        versions = iter([("v1",), ("v2",)])
-        w = self.worker(fingerprint=lambda: next(versions))
-        self.results = ["idle"]
-        self.assertEqual(w.run(), bw.EXIT_CODE_UPDATED)
-        self.assertEqual(self.calls, 1)
+        code = ["v1"]
+        mono = [0.0]
+        with mock.patch.object(bw.time, "monotonic", lambda: mono[0]):
+            w = self.worker(fingerprint=lambda: code[0])
+        w.monotonic = lambda: mono[0]
+
+        def wait(seconds):
+            mono[0] += max(seconds, 5)
+            return False
+        w.stop.wait = wait
+        code[0] = "v2"                                          # merged while the worker runs
+        self.assertEqual(w.run(max_passes=200), bw.EXIT_CODE_UPDATED)
+        # not before MIN_UPTIME, and only after the new code was seen on two checks
+        self.assertGreaterEqual(mono[0], bw.MIN_UPTIME_SECONDS + bw.CODE_CHECK_SECONDS)
+
+    def test_no_exit_loop_when_only_mtimes_or_pyc_change(self):
+        """EC2 2026-11-25: 'runner code changed' 6-17 s after every start → start-limit-hit. Same bytes ≠ change."""
+        import os
+        root = self.repo
+        for rel in bw.CODE_FILES + ("browser_runner/core.py",):
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(f"# {rel}\n", encoding="utf-8")
+        before = bw.code_fingerprint(root)
+        later = time.time() + 100
+        for rel in bw.CODE_FILES:                               # a checkout rewrites the same bytes
+            os.utime(root / rel, (later, later))
+        (root / "browser_runner" / "__pycache__").mkdir()
+        (root / "browser_runner" / "__pycache__" / "core.cpython-312.pyc").write_bytes(b"pyc")
+        (root / "autopilot" / "__pycache__").mkdir(exist_ok=True)
+        (root / "autopilot" / "__pycache__" / "browser_worker.cpython-312.pyc").write_bytes(b"pyc")
+        self.assertEqual(bw.code_fingerprint(root), before)
+        (root / "browser_runner" / "core.py").write_text("# changed\n", encoding="utf-8")
+        self.assertNotEqual(bw.code_fingerprint(root), before)
+
+    def test_a_branch_flip_back_is_not_a_change(self):
+        code, mono = ["v1"], [0.0]
+        with mock.patch.object(bw.time, "monotonic", lambda: mono[0]):
+            w = self.worker(fingerprint=lambda: code[0])
+        w.monotonic = lambda: mono[0]
+        mono[0] = bw.MIN_UPTIME_SECONDS + 1
+        code[0] = "v2"
+        self.assertFalse(w.code_changed())                       # first sighting
+        code[0] = "v1"                                           # the checkout went back
+        mono[0] += bw.CODE_CHECK_SECONDS
+        self.assertFalse(w.code_changed())
+        code[0] = "v2"
+        mono[0] += bw.CODE_CHECK_SECONDS
+        self.assertFalse(w.code_changed())                       # sighting resets
+        mono[0] += 1
+        self.assertFalse(w.code_changed())                       # checks are spaced CODE_CHECK_SECONDS
+        mono[0] += bw.CODE_CHECK_SECONDS
+        self.assertTrue(w.code_changed())
 
     def test_tasks_run_one_at_a_time(self):
         active, peak = [0], [0]

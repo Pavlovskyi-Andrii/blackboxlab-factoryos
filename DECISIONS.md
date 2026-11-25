@@ -2673,5 +2673,13 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   leftover Chromium). At one exit per 10 min the unit stays under its StartLimitBurst (5 per 600 s); a host without
   Chromium restarts quietly every 10 min instead of beating "unavailable" for ever. An external systemd `WatchdogSec`
   was not added: it would be satisfied by the same beats that hid this stall.
+- **Second cause (owner's EC2 journal, 20:55–20:58 UTC):** a restart loop. Every start logged "runner code changed on
+  disk" 6–17 s later, exit 0, restart after 10 s, until systemd's `start-limit-hit` (5 starts per 600 s). The detector
+  compared (mtime, size) of the runner files, and something in the shared checkout rewrote them with the same bytes.
+  **Decision:** the fingerprint is a sha256 of the file *contents* (tracked `.py` only, never `__pycache__`), checked
+  at most once a minute, not before 5 min of uptime, and a new hash must be seen on two checks in a row (a branch
+  flip that goes back is no change). The unit allows 20 starts per 15 min with `RestartSec=15s`. The unit file
+  change takes effect only after the owner reruns `sudo bash /opt/factoryos/deploy/install_surfer_worker.sh`; the
+  detector fix alone already stops the loop.
 - Checked and not changed: server-side read claims do not depend on action sessions (`surfer_actions` has its own
   claim route), so an idle or `waiting_human` action session never blocks the read queue on the server.
