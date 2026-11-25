@@ -38,6 +38,7 @@ def _launch_probe() -> None:
         p.chromium.launch(headless=True).close()
 
 
+LAST_ERROR = {"claim": ""}   # T-728: the last claim failure, reported in the Surfer heartbeat ("" once a claim works)
 READY_CACHE_SECONDS = 600
 RETRY_SECONDS = 60          # a failed probe is retried after a minute, so a fresh install is picked up (Codex on #336)
 _READY = {"at": 0.0, "ok": False}
@@ -166,10 +167,18 @@ def run_one(*, http=None, runner=run_playwright, available=playwright_available,
     headers = {"Authorization": "Bearer " + token}
     try:
         r = http.post(url + "/api/factory/browser/worker/claim", headers=headers, json={}, timeout=30)
-        task = r.json().get("task") if r.status_code == 200 else None
+        if r.status_code != 200:
+            # T-728: a refused claim (401 token, 5xx) used to read as "idle": the worker beat "idle" for ever and the
+            # queue never moved. Now it is an error the heartbeat reports (last_error) and the worker backs off.
+            LAST_ERROR["claim"] = f"claim_http_{r.status_code}"
+            log(f"claim refused: HTTP {r.status_code}")
+            return "error"
+        task = r.json().get("task")
     except Exception as exc:
+        LAST_ERROR["claim"] = f"claim_{type(exc).__name__}"
         log(f"queue unavailable: {type(exc).__name__}")
         return "error"
+    LAST_ERROR["claim"] = ""
     if not task:
         return "idle"
     if on_claim:

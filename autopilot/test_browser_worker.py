@@ -189,11 +189,58 @@ class WorkerTest(unittest.TestCase):
         self.assertFalse(hb.alive(path, now=self.clock.t + 1))   # the Claude worker's fallback may take over
 
     def test_runner_code_change_exits_between_tasks(self):
-        versions = iter([("v1",), ("v2",)])
-        w = self.worker(fingerprint=lambda: next(versions))
-        self.results = ["idle"]
-        self.assertEqual(w.run(), bw.EXIT_CODE_UPDATED)
-        self.assertEqual(self.calls, 1)
+        code = ["v1"]
+        mono = [0.0]
+        with mock.patch.object(bw.time, "monotonic", lambda: mono[0]):
+            w = self.worker(fingerprint=lambda: code[0])
+        w.monotonic = lambda: mono[0]
+
+        def wait(seconds):
+            mono[0] += max(seconds, 5)
+            return False
+        w.stop.wait = wait
+        code[0] = "v2"                                          # merged while the worker runs
+        self.assertEqual(w.run(max_passes=200), bw.EXIT_CODE_UPDATED)
+        # not before MIN_UPTIME, and only after the new code was seen on two checks
+        self.assertGreaterEqual(mono[0], bw.MIN_UPTIME_SECONDS + bw.CODE_CHECK_SECONDS)
+
+    def test_no_exit_loop_when_only_mtimes_or_pyc_change(self):
+        """EC2 2026-11-25: 'runner code changed' 6-17 s after every start → start-limit-hit. Same bytes ≠ change."""
+        import os
+        root = self.repo
+        for rel in bw.CODE_FILES + ("browser_runner/core.py",):
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(f"# {rel}\n", encoding="utf-8")
+        before = bw.code_fingerprint(root)
+        later = time.time() + 100
+        for rel in bw.CODE_FILES:                               # a checkout rewrites the same bytes
+            os.utime(root / rel, (later, later))
+        (root / "browser_runner" / "__pycache__").mkdir()
+        (root / "browser_runner" / "__pycache__" / "core.cpython-312.pyc").write_bytes(b"pyc")
+        (root / "autopilot" / "__pycache__").mkdir(exist_ok=True)
+        (root / "autopilot" / "__pycache__" / "browser_worker.cpython-312.pyc").write_bytes(b"pyc")
+        self.assertEqual(bw.code_fingerprint(root), before)
+        (root / "browser_runner" / "core.py").write_text("# changed\n", encoding="utf-8")
+        self.assertNotEqual(bw.code_fingerprint(root), before)
+
+    def test_a_branch_flip_back_is_not_a_change(self):
+        code, mono = ["v1"], [0.0]
+        with mock.patch.object(bw.time, "monotonic", lambda: mono[0]):
+            w = self.worker(fingerprint=lambda: code[0])
+        w.monotonic = lambda: mono[0]
+        mono[0] = bw.MIN_UPTIME_SECONDS + 1
+        code[0] = "v2"
+        self.assertFalse(w.code_changed())                       # first sighting
+        code[0] = "v1"                                           # the checkout went back
+        mono[0] += bw.CODE_CHECK_SECONDS
+        self.assertFalse(w.code_changed())
+        code[0] = "v2"
+        mono[0] += bw.CODE_CHECK_SECONDS
+        self.assertFalse(w.code_changed())                       # sighting resets
+        mono[0] += 1
+        self.assertFalse(w.code_changed())                       # checks are spaced CODE_CHECK_SECONDS
+        mono[0] += bw.CODE_CHECK_SECONDS
+        self.assertTrue(w.code_changed())
 
     def test_tasks_run_one_at_a_time(self):
         active, peak = [0], [0]
@@ -249,6 +296,116 @@ class RunOneTest(unittest.TestCase):
             self.assertEqual(result, "done")
             self.assertEqual(seen, [("claim", "bt_0123456789abcdef"), ("run", "bt_0123456789abcdef")])
             self.assertEqual(browser_tasks.run_one(http=Http(fail=True), available=lambda: True), "error")
+
+
+class QueueNeverSilentTest(unittest.TestCase):
+    """T-728: a worker that cannot claim says so; a live action session never parks read tasks."""
+
+    def test_refused_claim_is_an_error_not_idle(self):
+        class Http:
+            def post(self, url, headers, json, timeout):
+                class R:
+                    status_code = 401
+
+                    def json(self):
+                        return {"detail": "Worker token required"}
+                return R()
+        with mock.patch.object(browser_tasks.relay_tasks, "configured", return_value=True), \
+                mock.patch.object(browser_tasks.relay_tasks, "endpoint", return_value=("https://f", "tok")):
+            self.assertEqual(browser_tasks.run_one(http=Http(), available=lambda: True), "error")
+            self.assertEqual(browser_tasks.LAST_ERROR["claim"], "claim_http_401")
+        posts = []
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(bw.relay_tasks, "endpoint", return_value=("https://factory.example", "tok")):
+            w = bw.SurferWorker(repo=pathlib.Path(d), run_one=lambda **k: "error", configured=lambda: True,
+                                available=lambda: True, clock=Clock(), fingerprint=lambda: ("same",),
+                                post=lambda url, headers, json, timeout: posts.append(json) or Resp())
+            w.pass_once()
+        self.assertEqual((posts[-1]["state"], posts[-1]["last_error"]), ("queue_unreachable", "claim_http_401"))
+        browser_tasks.LAST_ERROR["claim"] = ""
+
+    def test_live_action_browser_skips_the_launch_probe_and_reads_still_claim(self):
+        class Actions:
+            live = "as_1"
+
+            def borrowed_factory(self):
+                return lambda: "borrowed"
+
+            def pump(self):
+                return "idle"
+
+            def close(self):
+                pass
+        seen = []
+
+        def run_one(*, on_claim=None, available=None, runner=None):
+            seen.append(available())
+            return "idle"
+        probe = mock.Mock(return_value=False)                  # a second Chromium would not start under the cap
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(bw.relay_tasks, "endpoint", return_value=("https://factory.example", "tok")):
+            w = bw.SurferWorker(repo=pathlib.Path(d), run_one=run_one, configured=lambda: True, available=probe,
+                                clock=Clock(), fingerprint=lambda: ("same",), actions=Actions(),
+                                post=lambda *a, **k: Resp())
+            result, _ = w.pass_once()
+        self.assertEqual((result, seen), ("idle", [True]))      # it asked the server for a read task
+        probe.assert_not_called()
+
+    def test_runner_holding_playwright_without_a_page_skips_the_probe(self):
+        class Actions:
+            live = ""
+
+            def borrowed_factory(self):
+                return None
+
+            def holds_playwright(self):
+                return True                              # a session is being opened / its Playwright still runs
+
+            def pump(self):
+                return "idle"
+        calls = []
+        probe = mock.Mock(return_value=False)
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(bw.relay_tasks, "endpoint", return_value=("https://factory.example", "tok")):
+            w = bw.SurferWorker(repo=pathlib.Path(d), run_one=lambda **k: calls.append(1) or "idle",
+                                configured=lambda: True, available=probe, clock=Clock(),
+                                fingerprint=lambda: ("same",), actions=Actions(), post=lambda *a, **k: Resp())
+            self.assertEqual(w.pass_once()[0], "idle")
+        self.assertEqual(calls, [1])
+        probe.assert_not_called()
+
+    def test_unavailable_still_pumps_actions_and_exits_after_ten_minutes(self):
+        class Actions:
+            live = ""
+            pumps = 0
+
+            def borrowed_factory(self):
+                return None
+
+            def holds_playwright(self):
+                return False
+
+            def pump(self):
+                Actions.pumps += 1
+                return "idle"
+        exits, mono = [], [1000.0]
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(bw.relay_tasks, "endpoint", return_value=("https://factory.example", "tok")):
+            w = bw.SurferWorker(repo=pathlib.Path(d), run_one=lambda **k: "idle", configured=lambda: True,
+                                available=lambda: False, clock=Clock(), fingerprint=lambda: ("same",),
+                                actions=Actions(), post=lambda *a, **k: Resp())
+            w.exit, w.monotonic = exits.append, lambda: mono[0]
+            self.assertEqual(w.pass_once()[0], "unavailable")
+            self.assertEqual((Actions.pumps, exits), (1, []))   # a live session can still close on its lifetime
+            mono[0] += bw.UNAVAILABLE_EXIT_SECONDS - 1
+            w.pass_once()
+            self.assertEqual(exits, [])
+            mono[0] += 2
+            w.pass_once()
+            self.assertEqual(exits, [bw.EXIT_CODE_STUCK])        # systemd starts a fresh worker
+            w.available = lambda: True                           # a working pass resets the stretch
+            w.pass_once()
+            self.assertEqual(w._unavailable_since, 0.0)
 
 
 class HeartbeatFileTest(unittest.TestCase):
