@@ -56,6 +56,9 @@ catalog and refuses anything else without running it.
 ## Executor (`autopilot/ops_agent.py`)
 
 `factoryos-ops-agent.service` (oneshot, root) + `factoryos-ops-agent.timer` (every 30 s). Up to 3 requests per run.
-Installed once by the owner: `sudo bash /opt/factoryos/deploy/install_ops_agent.sh` (`[HUMAN] T-740-H`). Restart-loop
+Installed once by the owner: `sudo bash /opt/factoryos/deploy/install_ops_agent.sh` (`[HUMAN] T-740-H`). The script
+copies the agent code to the root-owned `/usr/local/lib/factoryos-ops` (the unit runs that copy, never files that git
+rewrites in the ec2-user checkout; re-run the script to update the agent) and also runs
+`deploy/install_surfer_worker.sh`, so the T-728 Surfer unit limits land with the same command. Restart-loop
 detection in the Surfer worker itself stays with T-728 (PR #477); this task only adds the remote `restart`
 (reset-failed + restart clears `start-limit-hit`).

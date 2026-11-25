@@ -415,6 +415,10 @@ class DeployFilesTest(unittest.TestCase):
         self.assertIn("OnUnitInactiveSec=30s", timer)
         script = (self.ROOT / "deploy/install_ops_agent.sh").read_text()
         self.assertIn("set -euo pipefail", script)
+        self.assertIn("WorkingDirectory=/usr/local/lib/factoryos-ops", svc)  # root-owned copy, not the git checkout
+        for module in ("ops_catalog.py", "ops_agent", "supervisor", "worker_heartbeat"):
+            self.assertIn(module, script)
+        self.assertIn('bash "$REPO/deploy/install_surfer_worker.sh"', script)  # one owner command applies T-728 too
         for forbidden in ("ssh-keygen", "authorized_keys", "aws configure", "curl ", "AWS_SECRET"):
             self.assertNotIn(forbidden, script)
 

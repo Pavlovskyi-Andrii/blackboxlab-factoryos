@@ -2667,6 +2667,12 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Telegram: restart / install requests notify the owner when queued and when they end (done / failed / expired),
   through the T-738 owner-chat sender. Read ops do not notify. Notifications sit in an outbox in the store and are sent
   after the request handler returns, so a slow Telegram call never blocks a claim.
+- The root agent runs a root-owned copy in `/usr/local/lib/factoryos-ops` made by the install script, not the
+  ec2-user checkout: the Claude worker's git operations rewrite that tree while it runs (parent session, 2026-11-25),
+  and a root process should not execute files the worker user can change. Cost: an agent update needs the install
+  script again (the T-740-H command is idempotent).
+- One owner command: `install_ops_agent.sh` also runs `install_surfer_worker.sh` (idempotent) so the T-728 Surfer
+  unit limits (#477) are applied at the same time; a Surfer failure is reported but does not undo the ops agent.
 - Restart-loop detection inside the Surfer worker stays with T-728 (PR #477, `autopilot/browser_worker.py`); this task
   does not touch that file.
 ## 2026-11-25 — T-728 Surfer queue cannot stall silently

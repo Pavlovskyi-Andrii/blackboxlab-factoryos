@@ -58,7 +58,7 @@ S5 (implementation) is not on the roadmap until the owner gate.
 - [ ] [HUMAN] T-740-H Install the ops agent on EC2 once and switch the Ops relay on
   Owner: human
   Depends: T-740
-  Need: one command in EC2 Instance Connect (`sudo bash /opt/factoryos/deploy/install_ops_agent.sh`, reads no secret) and `FACTORY_OPS_RELAY_ENABLED=1` in Render (not a secret). After that agents check, read logs and restart the workers without you.
+  Need: one command in EC2 Instance Connect (`sudo bash /opt/factoryos/deploy/install_ops_agent.sh`, reads no secret; it also applies the T-728 Surfer unit via `install_surfer_worker.sh`) and `FACTORY_OPS_RELAY_ENABLED=1` in Render (not a secret). After that agents check, read logs and restart the workers without you.
   Runbook: Worker Center → «Нужно от вас» → T-740-H (RU/EN/UK).
   DONE: Worker Center → technical details → «Ops relay» shows «On» and the EC2 ops agent «polling», and a Claude `host` request is `done`.
 

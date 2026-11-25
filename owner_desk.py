@@ -93,7 +93,7 @@ RUNBOOKS: list[dict[str, Any]] = [
                     {"when": "EC2 Instance Connect не подключается", "then": "Используйте Connect → Session Manager; команды те же."}]},
             {"id": "install", "title": "Установите ops-агент",
              "do": ["Скопируйте и выполните одну команду: sudo bash /opt/factoryos/deploy/install_ops_agent.sh",
-                    "Скрипт можно запускать повторно: он копирует сервис и таймер factoryos-ops-agent, включает таймер (раз в 30 секунд) и один раз запускает агента. Секретов он не читает и не спрашивает, порты не открывает."],
+                    "Скрипт можно запускать повторно: он копирует агента в /usr/local/lib/factoryos-ops, ставит сервис и таймер factoryos-ops-agent (раз в 30 секунд), запускает агента один раз и заодно применяет новые настройки Surfer-воркера (тот же install_surfer_worker.sh, отдельно его запускать не нужно). Секретов он не читает и не спрашивает, порты не открывает."],
              "check": "В конце написано «OK: factoryos-ops-agent.timer is active».",
              "if": [{"when": "Написано NOT RUNNING", "then": "Выполните journalctl -u factoryos-ops-agent.service -n 50 --no-pager и задайте мне вопрос по этому шагу с последними строками (в них нет секретов)."},
                     {"when": "Написано Missing /etc/factoryos/claude-worker.env", "then": "Claude-воркер не спарен на этом EC2. Задайте мне вопрос по этому шагу: это отдельная задача."}]},
