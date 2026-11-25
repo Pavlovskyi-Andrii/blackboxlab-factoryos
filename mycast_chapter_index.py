@@ -29,7 +29,6 @@ def validate_chapters(sections: Iterable[MeasuredSection], duration_ms: int) -> 
             raise ValueError("each chapter needs a non-empty title")
         if any(ord(char) < 32 or ord(char) == 127 for char in item.title):
             raise ValueError("chapter titles must not contain control characters")
-            raise ValueError("each chapter needs a non-empty title")
         start, end = item.start_ms, item.end_ms
         if type(start) is not int or (end is not None and type(end) is not int):
             raise ValueError("chapter offsets must be integer milliseconds")
