@@ -39,6 +39,21 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: `python test_worker_offline_alert.py`; smoke block «T-738»; default verification; CI green.
   Not proven live: the first real alert comes with the next real silence (or the owner stops the worker for 15 minutes). Root cause of the 2026-11-24 silence is still open.
 
+- [x] T-740 Ops relay: Claude checks and restarts the EC2 workers through FactoryOS (pull-based, allowlisted, no shell)
+  Owner: claude-session (interactive Claude session; the EC2 worker must NOT pick this up)
+  Priority: P1 (owner 2026-11-25: «нужно сделать так, чтобы у тебя был доступ к этому инстансу… придумай способ»; the Surfer worker needed two manual restarts in 3 days, one in a `start-limit-hit` loop). Briefed as "T-729", which is the Coordination guard; T-739 is PR #476.
+  Spec: `docs/roadmap/T-740_OPS_RELAY.md`; DECISIONS.md «2026-11-25 — T-740». `ops_catalog.py`, `ops_relay.py`, `autopilot/ops_agent.py`, `deploy/systemd/factoryos-ops-agent.{service,timer}`, `deploy/install_ops_agent.sh`.
+  Goal: MCP `ops_request` / `ops_result` (Claude lane token only) queue fixed ops — status, journal (≤180 min, ≤300 lines), host, restart (Surfer / Claude worker only), sync_checkout, install_surfer_unit — that the root ops agent on EC2 pulls every 30 s with the existing worker token, runs as argv lists (60 s, 32 KB, redacted) and reports back. Flag `FACTORY_OPS_RELAY_ENABLED` (off), op classes `FACTORY_OPS_RELAY_CLASSES` (default read + restart), 30 ops/day, 6 restarts/unit/day, audit, owner JSON `/api/ops/owner`, Worker Center card, Telegram on restarts. No SSH, no AWS keys, no shell, no push.
+  DONE: `python test_ops_relay.py`; smoke block «T-740»; default verification; CI green.
+  Not proven live: waits for T-740-H (the agent installed on EC2 and the flag on in Render); then one `ops_request op=host` from a Claude session must come back `done`.
+
+- [ ] [HUMAN] T-740-H Install the ops agent on EC2 once and switch the Ops relay on
+  Owner: human
+  Depends: T-740
+  Need: one command in EC2 Instance Connect (`sudo bash /opt/factoryos/deploy/install_ops_agent.sh`, reads no secret) and `FACTORY_OPS_RELAY_ENABLED=1` in Render (not a secret). After that agents check, read logs and restart the workers without you.
+  Runbook: Worker Center → «Нужно от вас» → T-740-H (RU/EN/UK).
+  DONE: Worker Center → technical details → «Ops relay» shows «On» and the EC2 ops agent «polling», and a Claude `host` request is `done`.
+
 ## Faceless Creator A/B (#469, owner 2026-11-24)
 
 - [x] T-737 #469 S1: private 9:16 face-switch clip (one clothed synthetic presenter, three fictional faces) with a QA receipt that measures the switch; scripts A (privacy) and B (creative control)

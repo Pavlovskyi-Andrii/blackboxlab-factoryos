@@ -42,6 +42,8 @@ jobs:
           python -m pip install requests
           python -m py_compile autopilot/delegation.py autopilot/autopilot.py autopilot/claude_pro_worker.py autopilot/relay_tasks.py autopilot/mods_runtime.py autopilot/mp4_check.py
           python -m py_compile browser_runner/action_policy.py browser_runner/action_session.py autopilot/browser_actions.py autopilot/browser_worker.py autopilot/browser_tasks.py
+          python -m py_compile ops_catalog.py autopilot/ops_agent.py
+          python -c "import autopilot.ops_agent, ops_catalog; print('EC2 ops agent Python 3.9 import OK')"
           python -c "import autopilot.autopilot; import autopilot.claude_pro_worker; print('EC2 worker Python 3.9 import OK')"
       - uses: actions/setup-python@v5
         with:
@@ -164,6 +166,8 @@ jobs:
           python test_mycast_subtopics.py
           python -m py_compile worker_offline_alert.py test_worker_offline_alert.py
           python test_worker_offline_alert.py
+          python -m py_compile ops_catalog.py ops_relay.py autopilot/ops_agent.py test_ops_relay.py
+          python test_ops_relay.py
           python -m py_compile mvp_cycle.py test_mvp_cycle.py
           python test_mvp_cycle.py
           python -m py_compile mvp_pipeline.py test_mvp_pipeline.py
