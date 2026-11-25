@@ -2636,3 +2636,28 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   discovering it from a missing episode.
 - Not decided here: alerts for the Surfer and Gemini lanes; the root cause of the 2026-11-24 silence (needs
   `uptime -s` and the worker journal for 22:00–22:10 UTC from the owner).
+
+## 2026-11-25 — T-728 Surfer queue cannot stall silently
+
+- **Decision:** the server sweeps the read-task queue on every claim, task read and health read: a `running` task whose
+  lease expired goes back to `queued` in its place until it was handed out `MAX_ATTEMPTS` (2) times, then fails with
+  blocker `lease_expired`; a `queued` task nobody claimed for 30 minutes fails with `queue_timeout` and the worker
+  verdict at that moment. `LEASE_SECONDS` drops 600 → 300 (a read task is bounded at ~90 s plus the report).
+  **Reason:** before, an expired lease was simply handed out again for ever (a page that kills the worker would be
+  retried on every restart), and with no worker queued tasks waited without limit and filled the 20-task cap. Failing
+  with an honest code lets the agent move on to another source.
+- **Decision:** the worker treats a non-200 claim answer (401 token, 5xx) as an error (`claim_http_<code>`), backs off and
+  reports it in the heartbeat as `last_error`; before, it returned "idle" and beat "idle" for ever while the queue never
+  moved. While an action session holds a live Chromium, the worker skips the extra launch probe (the live browser
+  proves Chromium works) and reads borrow that browser; before, a failed second launch under the unit's 1.2 GB cap
+  parked the worker in "unavailable": no read claims and no action pumping.
+- **Decision:** queue health is agent-readable without owner access: `GET /api/factory/browser/agent/queue` (browser-agent
+  token) and a `queue` block with hints on every queued `web_task` / `web_read` answer (MCP and agent REST). Verdicts:
+  `worker_offline` (no heartbeat for 3+ min or stopped), `worker_unavailable` (Chromium cannot start),
+  `worker_cannot_claim` (claims refused), `worker_not_claiming` (beats but has not asked for a task for 2+ min while the
+  oldest queued task waits 2+ min), `queue_blocked` (asks but the queue does not move), `ok`. The server records the
+  last claim request and the last task handed out in `DATA_DIR/surfer_claims.json`; Worker Center's Surfer lane carries
+  the same `queue_health`.
+  **Reason:** in the 2026-11-25 incident the parent session could not tell a dead worker from a blocked queue.
+- Checked and not changed: server-side read claims do not depend on action sessions (`surfer_actions` has its own
+  claim route), so an idle or `waiting_human` action session never blocks the read queue on the server.

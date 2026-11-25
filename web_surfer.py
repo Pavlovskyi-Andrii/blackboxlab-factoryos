@@ -139,6 +139,11 @@ TOOL_NAMES = frozenset(t["name"] for t in TOOLS)
 
 # What an agent should do about each blocker (T-670, Surfer benchmark 2026-11-16). Prefix match on the blocker code.
 BLOCKER_HINTS = (
+    ("lease_expired", "The Surfer worker took this page twice and never reported back (it crashed or hung on it). "
+                      "Retry once with web_read; if it fails again, read the page from another source."),
+    ("queue_timeout", "No Surfer worker picked this task up for 30 minutes (see 'worker' in the result and "
+                      "GET /api/factory/browser/agent/queue). Tell the owner the Surfer worker is down; meanwhile "
+                      "use another source."),
     ("host_not_public", "The address does not resolve to a public server (typo, a domain that does not exist, or an "
                         "internal host). Check the URL; web_search can find the right one."),
     ("net_err_name_not_resolved", "The domain does not exist (DNS). Check the URL; web_search can find the right one."),
@@ -163,6 +168,19 @@ BLOCKER_HINTS = (
     ("session_unavailable", "The saved login for this site is not available; the owner has to save it again."),
     ("worker_", "The browser agent crashed on this page. Retry once; report the task_id if it repeats."),
 )
+
+
+QUEUE_HINTS = {
+    "worker_offline": "The Surfer worker is offline (no heartbeat for 3+ minutes): queued pages wait until it is back "
+                      "and fail as queue_timeout after 30 minutes. Tell the owner; meanwhile use another source.",
+    "worker_unavailable": "The Surfer worker is alive but reports Chromium cannot start, so it does not take pages. "
+                          "Tell the owner; meanwhile use another source.",
+    "worker_cannot_claim": "The Surfer worker is alive but its requests for tasks fail (see queue.worker.last_error). "
+                           "Tell the owner; meanwhile use another source.",
+    "worker_not_claiming": "The Surfer worker beats but has not asked for a task for 2+ minutes. Tell the owner; "
+                           "meanwhile use another source.",
+    "queue_blocked": "The worker asks for tasks but this queue has not moved for 2+ minutes. Tell the owner.",
+}
 
 
 def _blocker_hint(blocker: str) -> str:
@@ -238,6 +256,17 @@ def task_view(task: dict, store=None, *, offset: int = 0, max_chars: int = READ_
             ahead = sum(1 for t in store.list() if t["status"] in ("queued", "running")
                         and t.get("created", 0) <= task.get("created", 0) and t["id"] != task["id"])
             view["queue_ahead"] = ahead
+        health = store.queue_health() if store is not None and hasattr(store, "queue_health") else None
+        if health:
+            # T-728: an agent can tell "worker down" from "queue blocked" without owner access.
+            view["queue"] = {k: health[k] for k in ("verdict", "queued", "running", "oldest_queued_age_seconds")}
+            view["queue"]["worker"] = {k: health["worker"][k] for k in
+                                       ("state", "heartbeat_age_seconds", "last_poll_age_seconds", "last_error")}
+            if health.get("head"):
+                view["queue"]["head"] = health["head"]
+            hint = QUEUE_HINTS.get(health["verdict"])
+            if hint:
+                view["hints"] = [hint]
         view["next"] = "call web_task with this task_id in 5-10 seconds"
         return view
     page = store.page(task["id"]) if store is not None and hasattr(store, "page") else {}

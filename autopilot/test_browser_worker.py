@@ -251,6 +251,60 @@ class RunOneTest(unittest.TestCase):
             self.assertEqual(browser_tasks.run_one(http=Http(fail=True), available=lambda: True), "error")
 
 
+class QueueNeverSilentTest(unittest.TestCase):
+    """T-728: a worker that cannot claim says so; a live action session never parks read tasks."""
+
+    def test_refused_claim_is_an_error_not_idle(self):
+        class Http:
+            def post(self, url, headers, json, timeout):
+                class R:
+                    status_code = 401
+
+                    def json(self):
+                        return {"detail": "Worker token required"}
+                return R()
+        with mock.patch.object(browser_tasks.relay_tasks, "configured", return_value=True), \
+                mock.patch.object(browser_tasks.relay_tasks, "endpoint", return_value=("https://f", "tok")):
+            self.assertEqual(browser_tasks.run_one(http=Http(), available=lambda: True), "error")
+            self.assertEqual(browser_tasks.LAST_ERROR["claim"], "claim_http_401")
+        posts = []
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(bw.relay_tasks, "endpoint", return_value=("https://factory.example", "tok")):
+            w = bw.SurferWorker(repo=pathlib.Path(d), run_one=lambda **k: "error", configured=lambda: True,
+                                available=lambda: True, clock=Clock(), fingerprint=lambda: ("same",),
+                                post=lambda url, headers, json, timeout: posts.append(json) or Resp())
+            w.pass_once()
+        self.assertEqual((posts[-1]["state"], posts[-1]["last_error"]), ("queue_unreachable", "claim_http_401"))
+        browser_tasks.LAST_ERROR["claim"] = ""
+
+    def test_live_action_browser_skips_the_launch_probe_and_reads_still_claim(self):
+        class Actions:
+            live = "as_1"
+
+            def borrowed_factory(self):
+                return lambda: "borrowed"
+
+            def pump(self):
+                return "idle"
+
+            def close(self):
+                pass
+        seen = []
+
+        def run_one(*, on_claim=None, available=None, runner=None):
+            seen.append(available())
+            return "idle"
+        probe = mock.Mock(return_value=False)                  # a second Chromium would not start under the cap
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(bw.relay_tasks, "endpoint", return_value=("https://factory.example", "tok")):
+            w = bw.SurferWorker(repo=pathlib.Path(d), run_one=run_one, configured=lambda: True, available=probe,
+                                clock=Clock(), fingerprint=lambda: ("same",), actions=Actions(),
+                                post=lambda *a, **k: Resp())
+            result, _ = w.pass_once()
+        self.assertEqual((result, seen), ("idle", [True]))      # it asked the server for a read task
+        probe.assert_not_called()
+
+
 class HeartbeatFileTest(unittest.TestCase):
     def test_alive_and_deadline(self):
         with tempfile.TemporaryDirectory() as d:

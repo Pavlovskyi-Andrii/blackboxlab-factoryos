@@ -179,7 +179,8 @@ class SurferWorker:
         self._last_server_beat = now
         payload = {"state": state, "task_id": self.task_id, "node_id": socket.gethostname()[:80], "pid": os.getpid(),
                    "version": self.version, "started_at": int(self.started), "tasks_done": self.done,
-                   "tasks_failed": self.failed, "last_result": self.last_result[:80]}
+                   "tasks_failed": self.failed, "last_result": self.last_result[:80],
+                   "last_error": str(getattr(browser_tasks, "LAST_ERROR", {}).get("claim") or "")[:80]}
         try:
             if self.post is None:
                 import requests
@@ -198,17 +199,19 @@ class SurferWorker:
     # --- loop -------------------------------------------------------------------------------------------------
     def pass_once(self) -> tuple[str, float]:
         """One claim/run/report pass. Returns (result, seconds to wait before the next pass)."""
-        if not self.configured() or not self.available():
+        # T-720: while an action session holds Chromium, a read task opens its own anonymous context in that browser.
+        # T-728: that live browser already proves Chromium works, so no second launch probe then: under the unit's
+        # memory cap the probe could fail and park the worker in "unavailable" (no claims, no action pumping).
+        borrowed = self.actions.borrowed_factory() if self.actions else None
+        if not self.configured() or not (borrowed or self.available()):
             self.local_beat("unavailable", UNAVAILABLE_SECONDS + worker_heartbeat.STALE_AFTER_SECONDS)
             self.server_beat("unavailable")
             return "unavailable", UNAVAILABLE_SECONDS
         self.local_beat("polling", TASK_BUDGET_SECONDS)
         self.task_id = ""
-        # T-720: while an action session holds Chromium, a read task opens its own anonymous context in that browser.
-        borrowed = self.actions.borrowed_factory() if self.actions else None
         if borrowed:
             import functools
-            result = self.run_one(on_claim=self._claimed, runner=functools.partial(
+            result = self.run_one(on_claim=self._claimed, available=lambda: True, runner=functools.partial(
                 browser_tasks.run_playwright, playwright_factory=borrowed))
         else:
             result = self.run_one(on_claim=self._claimed)
