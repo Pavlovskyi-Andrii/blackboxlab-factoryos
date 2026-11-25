@@ -25,7 +25,10 @@ def validate_chapters(sections: Iterable[MeasuredSection], duration_ms: int) -> 
     previous_end = 0
     result = []
     for index, item in enumerate(items):
-        if not isinstance(item, MeasuredSection) or not item.title.strip():
+        if not isinstance(item, MeasuredSection) or not isinstance(item.title, str) or not item.title.strip():
+            raise ValueError("each chapter needs a non-empty title")
+        if any(ord(char) < 32 or ord(char) == 127 for char in item.title):
+            raise ValueError("chapter titles must not contain control characters")
             raise ValueError("each chapter needs a non-empty title")
         start, end = item.start_ms, item.end_ms
         if type(start) is not int or (end is not None and type(end) is not int):
