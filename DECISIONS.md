@@ -2300,3 +2300,396 @@ Requested in Relay by ChatGPT («OWNER DIRECT CONTINUATION», 2026-11-20); #428 
 - **Decision (P1):** the ASS caption style wraps (`WrapStyle: 0`); the caption-box estimate models the wrap. **Reason:** a three-word Russian caption ran into the right safe zone on a rendered frame.
 - **Decision (P2):** Remotion renders with `--color-space bt709 --pixel-format yuv420p` (was full-range `yuvj420p`). Checked on a rendered frame: same picture, standard levels. Cost seen on one run: render time 84 s → about 130 s for 27 s of video; not measured further.
 - **Not done:** an authenticated preview proxy in FactoryOS for playback after the link expires (the durable media archive already serves the stored copy); two-pass loudnorm to hit the target more closely; real faster-whisper and owner footage (still blocked on the owner's clip and the worker image).
+## 2026-11-21 — T-713 Social autopilot: a teaser image in every post
+
+Owner 2026-11-21: «добавлять фото в каждый пост (в фото должно отображаться небольшой визуальный тизер того, что в тексте)».
+
+- **Decision:** the default image is a 1080×1080 PNG card rendered on the server with Pillow (already a dependency for the MyCast share card): the post's hook as the headline (its first line, or the first sentence of a long first line, ≤110 chars), the next sentence as a sub-line (≤150 chars), the topic as a chip, a BlackBoxLab wordmark, a footer «Подробнее — в посте →» in the post's language (RU/UK/EN by its letters), and an accent pair picked from a hash of the text so neighbouring posts differ. Deterministic, ~0.2–0.4 s, zero network, zero spend. **Reason:** the owner's Gemini key is Free tier and image models have 0 quota; a paid generator is not allowed by default.
+- **Decision:** fonts are the DejaVu Sans files already in the repo (`static/mycast-configurator/fonts/`), Cyrillic-safe and present on Render. Emoji and other glyphs DejaVu cannot draw are dropped from the card (they stay in the post text); no colour-emoji font is shipped.
+- **Decision:** `social_images.ImageGenerator` is the adapter interface. `generator_from_env(env, ai=...)` returns the template card unless the owner sets `FACTORY_SOCIAL_AI_IMAGES=1` **and** an AI generator is wired in `app.py`; none is today. An AI generator that fails (quota, network, non-PNG) falls back to the template card, and the item records which one drew it.
+- **Decision:** the image's SHA-256 is part of the approval: `approval_hash(platform, text, image_sha)`. The scheduler reads the stored bytes, checks them against that SHA and passes the same SHA to `claim`; a swapped or lost file is never sent (`image_missing`, the item waits). Items without an image (stores without images, T-702 tests) keep the old hash.
+- **Decision:** editing the text re-renders the image and drops the approval (an edit always dropped it); changing only the time keeps the same image file. Delete and history trimming remove the image files.
+- **Decision:** items made before T-713 (and items whose render failed or whose file is gone) get an image on the next page load, scheduler tick or app start (`Store.ensure_images`). An item that was already approved goes back to draft with «image added — approve again», because the owner never saw that image. Approval (single or whole plan) is refused for an item that has no image yet.
+- **Decision:** images live in `DATA_DIR/social_images/<item id>-<sha prefix>.png` and are served by `GET /api/factory/social/items/{id}/image` to the owner only, also after publishing (the platform has its own copy), with `Cache-Control: private`.
+- **Decision (Telegram caption limit):** a post whose text fits a caption (≤1024 UTF-16 units) is one `sendPhoto` with the text as caption. A longer post is `sendPhoto` with the card's headline as caption, then `sendMessage` with the full text as a reply to the photo. If the photo went out and the text did not (any error, incl. a definite 400), the item becomes «uncertain» with the photo link in its result: the owner checks the channel and confirms; it is never resent automatically, so a photo is never posted twice. A refused photo is a plain failure (nothing was posted). Still no `parse_mode` anywhere. Rejected alternative: splitting the text into a caption part and a rest part — two halves of one post read badly and both carry the same partial-failure risk.
+- **Decision (LinkedIn):** done in this PR, not split into T-713-B. `linkedin_publisher.upload_image` calls the Images API `initializeUpload` (same `LinkedIn-Version` and Rest.li headers), PUTs the bytes to the returned upload URL, then the post carries `content.media.id` (+ `altText` = the headline). Every failure before the post call is certain (no post exists yet; an orphan uploaded image is harmless), so the uncertain/exactly-once rules are unchanged. The bearer token is sent only to an upload URL on `linkedin.com`/`licdn.com` over HTTPS. Not verified against the live API (T-700-H is still open); the standalone LinkedIn drafts page (`/static/linkedin/`, T-700) stays text-only.
+
+## 2026-11-21 — T-714 Surfer worker in its own process, Surfer lane, loop-heartbeat watchdog
+
+Owner 2026-11-21: «да». Seen live the same day: Surfer tasks waited 15:18→16:55 UTC because `autopilot.py` ran `browser_tasks.run_one()` only between coding jobs, and the worker loop had stalled while its heartbeat thread still reported «Свободен».
+
+- **Decision:** the Surfer runs as `python -m autopilot.browser_worker` under its own unit `factoryos-surfer-worker.service` on the same EC2, same user (ec2-user), checkout (`/opt/factoryos`) and env file (`/etc/factoryos/claude-worker.env`) as the Claude worker; it uses the same worker token, so no new secret. **Reason:** independent of coding jobs, nothing new to provision.
+- **Decision:** exactly-once stays on the server (`BrowserTaskStore.claim` under a lock with a 600 s lease, unchanged). Locally a non-blocking `flock` on `.autopilot/surfer.lock` keeps a second copy from starting a second Chromium. The in-loop `browser_tasks.run_one()` stays as a fallback and runs only when the Surfer worker's local heartbeat is not alive (`worker_heartbeat.alive`); a stopping worker writes a deadline of "now", so the fallback takes over at once. A rare overlap (heartbeat expires during a task) still cannot double-run a task: the server hands each task out once per lease.
+- **Decision:** concurrency 1, poll every 5 s while idle, the next task at once after one finishes, exponential backoff 10 → 120 s while FactoryOS is unreachable, a 60 s pause while Chromium/token are unavailable. Memory is bounded by the unit (`MemoryHigh=900M`, `MemoryMax=1200M`) and by closing Chromium after every task. SIGTERM finishes the current (bounded ~90 s) task (`TimeoutStopSec=180`). When runner files change on disk (the Claude worker merges main into the checkout) the loop exits 0 between tasks and `Restart=always` starts it on the new code, mirroring the Claude worker's re-exec.
+- **Decision (watchdog):** loop heartbeat files + the existing root supervisor timer, not systemd `WatchdogSec`/sd_notify. Each loop writes `.autopilot/claude-loop.json` / `.autopilot/surfer.json` from the loop itself (never a side thread) with `deadline` = now + 15 min (+ the longest deliberate sleep), or + max(task timeout, 1 h) right before a Claude CLI run. `supervisor.run_watchdog` (every minute, already installed by T-562) restarts an active unit whose deadline passed: not within 5 min of start, not when the file was never written since the unit started (old code, or a different checkout), at most 3 restarts per hour per unit with a 2 min cooldown, then `needs_owner`. A Surfer unit in `failed` (systemd's own start limit hit) gets the same bounded `reset-failed` + restart; a deliberately stopped (`inactive`) unit is left alone. The Claude worker is checked only when the T-562 gates say it should be running. Verdicts go to the supervisor report as `watchdog_claude_worker` / `watchdog_surfer_worker`. **Reason:** `WatchdogSec` needs `Type=notify` and a ping from the main process; for the Claude worker the hung part is the `autopilot.autopilot` child, and changing that unit would need another owner step. The supervisor reaches EC2 through the normal branch sync, so the Claude worker's watchdog needs no owner action at all.
+- **Decision:** the Surfer heartbeat goes to `POST /api/factory/browser/worker/heartbeat` (worker token, under the existing `/api/factory/browser/worker/` auth prefix) and is stored as bounded, secret-free fields in `DATA_DIR/surfer_heartbeat.json`. `get_lane_board()` adds `lanes.surfer` (working while a task runs within the lease, idle ≤ 180 s, blocked when Chromium is unavailable, stale ≤ 1 h, offline after or when stopped) with the queued count; Worker Center «Сейчас работают» shows it. Telegram `/status` and the lane columns keep the three coding lanes: Surfer takes no ROADMAP tasks.
+- **Owner step:** a new systemd unit needs root once: T-714-H, `sudo bash /opt/factoryos/deploy/install_surfer_worker.sh` (idempotent). Until then nothing changes for the owner: the Claude worker keeps running browser tasks in its loop, now also guarded by the watchdog.
+
+## 2026-11-22 — T-720 Surfer action sessions (core)
+
+Owner brief 2026-11-22 (quiz answers, the spec): `docs/roadmap/T-720_SURFER_ACTIONS.md`. The Surfer was read-only; the owner wants a tool that clicks, fills forms and uploads files in accounts he is already signed in to, driven by Claude/ChatGPT through MCP.
+
+- **Decision:** the worker polls. Render cannot reach EC2, so `surfer_actions.ActionStore` keeps one command at a time and the Surfer worker asks for it (`POST /api/factory/browser/worker/actions/claim`, worker token, 1 s while a page is live, with the normal 5 s pass otherwise) and reports to `…/actions/{id}/result`. The MCP call waits up to ~45 s for the report; a slower step answers `running` and the agent calls `web_snapshot`.
+- **Decision:** one live session at a time, idle 5 min, 15 min while it waits for the owner, 30 min hard, 200 steps. The worker also closes the page by itself when FactoryOS is unreachable for 2 min or after 35 min. **Reason:** one Chromium within the unit's 1.2 GB; a forgotten page must not stay signed in.
+- **Decision:** read tasks keep running while a session is live: the read executor gets a `playwright_factory` that lends it the live Chromium, where it opens its own anonymous context (no cookies of the session) and closes only that. **Reason:** otherwise `web_read` would again wait behind a long job, which T-714 just fixed. Checked on real Chromium 2026-11-22.
+- **Decision:** element refs are `data-fos-ref="eN"` attributes stamped by the snapshot script. Before acting the worker describes the element again and compares kind, type, label, link and form target with what the agent (or the confirming owner) saw; a difference is `stale_ref`. Main frame only in v1 (no iframes, no shadow DOM); a new tab is closed and reported; downloads are off.
+- **Decision (secrets):** `value_from: 'vault:site/account#password'` is resolved by the server from the encrypted vault at the moment the worker claims the command and travels only in that response (the vault key lives on Render, not on EC2); it is not stored in the step, the snapshot or the audit log. `#password` goes only into a `type=password` field and only on a site whose allowlist entry names that login; a typed value into a secret field is refused. The worker keeps the passwords it typed in memory for the session and replaces them in everything it reports (a "show password" toggle was tested). Screenshots go to the owner only.
+- **Decision:** every step is reviewed twice with the same pure module `browser_runner/action_policy.py`: on the server from the agent's snapshot, and on the worker from the element as it is right before the action. A step given by CSS selector is reviewed on the worker only and comes back as `needs_confirmation` when it needs the owner.
+- **Decision:** the network guard of an action session: a main-frame navigation outside the allowed sites is aborted in the browser (reported as `left_allowlist` with the target); a form POST navigation needs the `submit` class or a confirmed step; the allowed site's own XHR may write; third-party writes are dropped; plain http is refused. Every connection still goes through `PublicOnlyProxy`. No user-agent or fingerprint changes.
+- **Decision:** `web_open` outside the allowlist is **refused**; inside a live session a step that leaves the allowlist or needs a class the owner did not switch on **waits for his confirmation**. **Reason:** the brief says both "anything outside the allowlist needs confirmation" and (T-724) "off-allowlist is refused"; a refusal at the door keeps agents from queueing confirmations for arbitrary sites, while a step the owner can see on a screenshot is his to decide.
+- **Decision:** T-720 ships closed: `ClosedGate` refuses every tool call; the flag, allowlist and caps arrive with T-721. The tools are already listed in `/mcp`.
+- **Decision:** lane identity is required; the shared `FACTORY_MCP_TOKEN` gets "may not act". A lane sees only its own sessions.
+- **Needs the dedicated Surfer worker:** action sessions run only in `autopilot.browser_worker` (T-714-H installs its unit). The Claude worker's in-loop fallback keeps running read tasks only.
+
+## 2026-11-22 — T-721 Surfer policy gate
+
+Owner 2026-11-22: «сам, на разрешённых сайтах» — an allowlist of sites and action classes; inside it the Surfer acts without asking; payment, deleting, security settings, messages to people and anything outside the allowlist always wait for his confirmation.
+
+- **Decision:** two switches, both the owner's: `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render (off by default; values other than 1/true/yes/on are off) and a pause switch on the page, kept in `DATA_DIR/surfer_actions/policy.json`. Pausing closes the live session. With either off, the gate returns an empty allowlist and resolves no vault value, so a command already queued cannot act.
+- **Decision:** the allowlist starts **empty**. The owner's first list (FactoryOS, Google Forms/Sheets, OLX, Render, LinkedIn Developers, GitHub) is offered as presets he adds himself; an added entry is still off until he enables it. `read` is implied by an enabled entry; `navigate`, `fill`, `submit`, `upload` are separate boxes.
+- **Decision:** a pattern is a domain and covers its subdomains (`olx.ua` → `www.olx.ua`, `m.olx.ua`); the longest matching pattern wins, so a narrower entry can restrict a subdomain. Shared suffixes (`com.ua`, `onrender.com`, `github.io`, `google.com`, …), IP addresses and single labels are refused. Paths are not part of a pattern in v1: `github.com` allows the whole site with the chosen classes, and the step classifier guards the dangerous buttons.
+- **Decision (what always waits for the owner):** payment/purchase, delete, security settings, messaging, **publishing** (CLAUDE.md: never weaken the approval gate before publishing), a navigation that leaves the allowlist, a write on a page outside it, a class not switched on for the site, and a button without a readable label. The words are matched in EN/RU/UK on the element's label, its link target and its form target. A link to a section (Billing, Security) is reading and is allowed; a button or a form inside it is not. **Known limit:** it is a heuristic. A false alarm costs one confirmation; a site allowed with `submit` is a site the owner trusts agents to submit ordinary forms on. Sending a contact form on his own MVP also asks (the word "Send"); a per-site relaxation was not added without his decision.
+- **Decision:** the owner's confirmation is bound to the element he saw (fingerprint: kind, type, label, link, form target) and to the reasons shown; if the page changed, the step fails as `stale_ref` instead of clicking something else. Confirming a step that leaves the allowlist allows that one origin for navigation in that session only; writes there still ask.
+- **Decision (login wall):** a login form with a vault login bound to the site gets **one** attempt by vault reference; after a failed attempt, or when no login is bound, the session is `waiting_human` (`login_failed` / `login_required`). A code prompt, captcha or anti-bot page is `waiting_human` at once. Nothing is retried, guessed or solved.
+- **Decision:** a vault login is usable only through an **enabled allowlist entry that names it** (`login: site/account`); the T-560-L "allow agents" switch of `web_read` is a separate consent and is not reused. Saving a session after a takeover goes through `EncryptedSessionStore.capture`, which resets that `web_read` switch (new cookies = new consent), as before.
+- **Decision:** caps per UTC day: 40 sessions and 600 steps by default (`FACTORY_SURFER_ACTIONS_MAX_SESSIONS_PER_DAY`, `…_MAX_STEPS_PER_DAY`, bounded at 500 / 5000 so a typo cannot remove them). Every queued command counts, snapshots included.
+- **Decision:** approved upload files live in `DATA_DIR/surfer_actions/uploads/` (≤ 10 MB, images / pdf / txt / csv / mp4 / mov, 30 files); an agent can name only such an id (`su_…`). **Reason:** "owner-approved FactoryOS asset id only"; the media archive has no approval flag, so the Surfer keeps its own short shelf.
+
+## 2026-11-22 — T-725 Google Sheets for agents through the official Sheets API
+
+Owner 2026-11-22: «собери данные с этого сайта, помести их в Google таблицу». Agents read pages with the Surfer and write rows with `sheet_append`; nothing clicks in a browser.
+
+- **Decision (scope):** `https://www.googleapis.com/auth/spreadsheets`, not `drive.file`. **Reason:** `drive.file` reaches only files the app created or the user picked in Google Picker; "paste the link of my existing spreadsheet" does not work with it without shipping Picker (a Google-hosted script and an API key on the owner page). The wider scope is narrowed on the server: agents reach only spreadsheets registered on `/static/sheets/index.html`. `drive.file` + Picker stays a possible later tightening.
+- **Decision (client):** a dedicated Google OAuth client in its **own Google Cloud project**, `FACTORY_OAUTH_GOOGLE_SHEETS_CLIENT_ID` / `_SECRET`; the YouTube client (`FACTORY_OAUTH_GOOGLE_CLIENT_*`) and its project are not reused. **Reason:** «disconnect» revokes the token at Google, and Google's consent and revocation can cover every client of the same project (not verified here against the live API), so a shared client or project could let «disconnect Sheets» also cut YouTube. The runbook therefore asks for a new project. `include_granted_scopes` is not sent: the Sheets token carries one scope.
+- **Decision:** no identity scope (`openid email`). The connection is shown as «Google Sheets» without the account's e-mail. **Reason:** least access; the owner knows which account they connected.
+- **Decision:** the callback refuses a grant without the spreadsheets scope (`sheets_scope_missing`: Google lets the user untick it) and one without a refresh token (`sheets_refresh_token_missing`).
+- **Decision (refresh):** `TokenSet` has no issue time, so the access token is used until Google answers 401, then refreshed once and the call repeated (a 401 wrote nothing). The write-back is a compare-and-set under `OAuthFlow.lock`, as in `olx_publisher.fresh_tokens`: a disconnect or reconnect during the refresh wins.
+- **Decision (allowlist):** the owner adds a spreadsheet by URL; FactoryOS reads its title and tab names from Google first, so a sheet the connected account cannot open is never registered. Reading is allowed for every registered sheet; appending needs the per-sheet switch, off by default. At most 20 sheets.
+- **Decision (lane token):** all three tools refuse the shared `FACTORY_MCP_TOKEN` (`sheets_lane_token_required`), also `sheet_list`. **Reason:** every call needs an author in the history.
+- **Decision (limits):** read — a fully bounded A1 range (`A1:F50`), ≤500 rows and ≤5000 cells, 500 reads a day; append — ≤200 rows, ≤50 columns, ≤2000 cells, ≤2000 characters per cell per call; 2000 rows, 20000 cells and 300 calls a day (UTC). Constants in `google_sheets.py`; no env knobs until the owner hits a limit.
+- **Decision (formula injection):** rows are sent with `valueInputOption=USER_ENTERED`, and text that starts with `=`, `+`, `-`, `@`, tab or CR (also after leading spaces) gets a leading apostrophe, so Sheets stores it as text and hides the apostrophe. A plain number such as `-5` or `+7` is left alone. **Reason:** `RAW` would also be safe but shows the apostrophe in the cell and keeps every number and date as text; `USER_ENTERED` gives the owner real numbers and dates. A cell longer than the limit is refused, never cut silently.
+- **Decision (idempotency):** `sheet_append` requires `idempotency_key`. The claim (key, SHA-256 of sheet + tab + rows, row count) is written to `DATA_DIR/google_sheets.json` before the request. Same key and same rows after success: the stored result, no request. Same key with other rows: `sheets_idempotency_conflict`. Timeout, 5xx or a claim left by a crash: `sheets_append_outcome_unknown`, never resent — the agent reads the sheet and decides. A certain refusal (4xx) frees the key and returns the daily budget. Keys are per lane and kept 7 days; a record is removed only by age, never to make room. The store stays bounded by a cap of 300 append calls a day (at most 2100 records), so agents send rows in batches. After 7 days a key is forgotten and a retry with it would be a new append.
+- **Decision (audit):** the store keeps the last 300 actions (who, what, which sheet, tab, row and cell counts, status, idempotency key, the range Google reported). Cell values are never stored or logged.
+- **Decision:** with `FACTORY_GOOGLE_SHEETS_ENABLED` off, every Google call is refused (agents and the owner page); connecting Google and removing a sheet still work.
+- **Decision:** «create spreadsheet» is on the owner page only; agents have no create tool.
+- **Not done:** no version bump in this PR (another session is merging T-720..T-724; the next release PR lists T-725). Not verified against the live Google API: that needs the owner's client (T-725-H). Publishing the consent screen to production (runbook step 2) avoids Google's 7-day refresh-token expiry for apps in Testing.
+
+## 2026-11-22 — T-722 Surfer owner page
+
+- **Decision:** one page, `static/surfer/index.html` (RU/UK/EN, same shell as the OLX and Sheets pages): the gate state with the pause switch, the open session (steps, last screenshot, Confirm / Reject, code box, Take over, Stop), the allowlist editor with the presets, approved upload files, past sessions and the action log. It polls every 2.5 s while a session is open, every 10 s otherwise. Text that comes from sites (labels, titles, URLs) is inserted only as text nodes; the page never parses HTML.
+- **Decision (code box):** the code the owner types goes to `POST …/sessions/{id}/input`, is kept in the web process memory until the worker claims the command and is never written to a step, a snapshot or the log (`***`). The worker puts it into the one-time-code field (else a short code-like field, else the focused one) and marks that field secret. After a web-service restart in between the command fails as `empty_input` and the owner types it again. The session leaves `waiting_human` by itself once the page stops asking.
+- **Decision (Take over):** a simple remote view, enough to finish a login: the last screenshot, a click at picture coordinates (scaled to the 1280×800 viewport), typed text, Enter / Tab / Backspace / Escape, scroll, refresh. While the owner drives, the agent's `web_act` answers 409, the step classifier does not apply (he is acting himself), and navigation may pass through other public sites (an SSO page); when he gives the page back the strict guard applies again. Everything he types is treated as a secret: the field is marked, the text is replaced in snapshots and logged as `***`.
+- **Decision:** "Save this login to the vault" stores the browser's storage state through `EncryptedSessionStore.capture` for the vault login bound to the site, and only on the owner's click. The state travels worker → server once and is not written anywhere else.
+- **Decision:** "All good, continue" (`takeover {on:false}` from `waiting_human`) acknowledges the current page: a captcha widget that does not block it no longer sends the agent back to the owner on the same URL.
+- **Decision (mirror):** `GET /api/factory/surfer/owner/pending` (owner session) lists what waits for the owner: kind `confirm` / `human` / `takeover`, the lane, the site, the action, the element label, the reasons, seconds left, a link to the page and to the screenshot, and a ready sentence in RU/UK/EN. A parent Claude session reads it and puts the request on the owner's task page; it carries no values and no secrets.
+- **Owner step:** T-722-H (runbook RU/EN/UK): T-714-H done, `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render, the first sites on the page.
+
+## 2026-11-22 — T-723 Surfer recipes
+
+Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a successful run can be saved as a recipe and replayed without AI.
+
+- **Decision:** saving is the owner's act on the Surfer page («Сохранить как рецепт» under a session, `POST /api/factory/surfer/owner/recipes`); agents have no tool that saves. A recipe is built from the session's steps that finished `done` and were made by the agent: `open` / `goto` with the address, and each action with the element's label, kind, type and form path, plus the value. Snapshots, refused, rejected and failed steps are left out.
+- **Decision (parameters):** on saving the owner names the values that change between runs (`{"<step number>": "city"}`); only a typed or chosen value can be a parameter. A replay must receive every parameter. A vault reference stays a reference and can never be a parameter; a secret-field value cannot exist in a step at all.
+- **Decision:** where the owner acted himself (typed a code, drove the page) the recipe has a `handoff` step and a replay stops there. In practice a replay stops earlier, at the page that asks for the code.
+- **Decision (same gate):** a replay is not a second executor. It calls the same `web_open` / `web_act` functions an agent calls, under the lane that recorded the recipe, so the flag, pause, allowlist, step review, daily caps, vault rules and audit log apply unchanged. A step the owner confirmed in the recorded session **waits for him again on every replay**: a recipe never carries a confirmation.
+- **Decision (deterministic, no AI):** each element is found again in the fresh snapshot by exact label + kind + type + form path and must match exactly once; the page must be the recorded one: origin + path, and the same query string (`/edit?id=123` is not `/edit?id=456`; only a hash of the query is kept in the recipe, because a query can carry tokens). The first step that is not `done` stops the run with the reason (`element_not_found`, `element_ambiguous`, `page_differs`, `needs_owner_confirmation`, a login or captcha reason, a gate refusal). The session stays open, so the agent (`web_snapshot` / `web_act`) or the owner (the page) continues; it closes by the usual idle timeout.
+- **Decision:** `web_recipe` (MCP and REST, lane token): `{}` lists recipes without values, `{recipe, params}` starts a replay as a background task of the web process and returns `run_id` + `session_id` at once, `{run_id}` reports. The owner can start one from the page; the session then belongs to the recipe's lane so that agent can pick it up. A web-service restart during a replay makes the run `interrupted` (a terminal state that says which steps were done); it is never resumed or replayed, so no step can run twice, and the session closes by timeout (Codex review on #451).
+- **Limits:** 50 recipes, 80 steps each, the last 30 runs are kept.
+
+## 2026-11-22 — T-724 Surfer self-test
+
+- **Decision:** one fixture, two faces. `surfer_fixture_site.py` is a real loopback HTTP site (login with an optional SMS-code step, two-step form, file upload, account page with a delete and a payment button, captcha-like wall, "show password" toggle, a link to another site) that records what it received. `surfer_fake_browser.py` models the same pages for CI, where there is no Chromium; requests of the double still pass through the executor's real network guard.
+- **Decision:** `test_surfer_selftest.py` runs one scenario through the real store, gate, tools, worker runner and executor: off-allowlist refused before any browser starts; login by vault reference; the owner types the SMS code; delete rejected and payment confirmed; the two-step form and an approved upload; a takeover that types a note and saves the login; the captcha wall; a recipe recorded, saved with a parameter and replayed. At the end it searches everything the server stored, everything the agent saw, the audit log and the recipe for the password, the code, the owner's typed text and the session cookie.
+- **Decision:** CI runs it with the double; `RUN_BROWSER_FIXTURE=1` runs the same scenario in real Chromium with the worker on its own thread (as on EC2). That mode is not in CI (no browser there; the existing convention of `test_browser_playwright.py`). It passed in the build session on 2026-11-22 (Chromium 1243, Playwright 1.63).
+- **Loopback is test-only:** `PolicyGate(loopback=True)` and `ActionRunner(loopback=True)` are constructor arguments used by the self-test; nothing reads them from the environment, and the app builds its gate without them (asserted in `test_surfer_policy.py`).
+- **Live session after merge:** not run. Acting needs the owner's `FACTORY_SURFER_ACTIONS_ENABLED=1`, one enabled site, the Surfer worker unit (T-714-H) and a lane MCP key (T-624); the build session's credential opens only the read-task routes, so it cannot see or change the owner's switches. It waits for T-722-H.
+
+
+## 2026-11-23 — Surfer: code prompts and logins after the first live session
+
+- A 2FA/code wall is reported only when the page has a one-time-code field, or code wording **and** an input whose label
+  looks like a code box (otp, code, sms, verif, pin, код). Any input was enough before; GitHub's README (it mentions SMS
+  codes) plus its "Go to file" box stopped the first live session as `waiting_human: 2fa`. Missing a real code box is
+  safe: the agent's next step on it still meets the site's own wall, and secrets never auto-fill a code.
+- The site's "vault login" list now shows saved browser sessions too (cookies from Access vault or a Takeover), each
+  marked "password" / "signed-in session". The owner may bind a **new** name (`new_login=true`, only with a working vault
+  key): the first visit waits for him, he signs in with Take over and presses "Save this login", which stores the
+  session encrypted under that name. Reversible: unbind or delete the session in Access vault.
+- `/#vault` on the dashboard opens Access vault (the Surfer page links to it).
+
+## 2026-11-23 — T-726 `surfer_pending` for the Claude lane
+
+- Only the `claude` lane token may call it (owner's answer named Claude; ChatGPT/Gemini and the shared token get 403).
+  Widening it later is one constant, `surfer_owner.PENDING_LANES`.
+- It returns an allowlist of fields from the owner's pending list (`AGENT_FIELDS`): no screenshot link, no typed or
+  pending value, no page URL or title (both can carry personal data), no codes or cookies. The element label stays:
+  it is the button or field name the owner needs to recognise the request.
+- Read-only by construction: the tool takes no arguments; confirm / reject / code / takeover stay owner-only routes.
+- The element label is the site's text: it is cleaned (control and bidi characters removed, one line, ≤ 80 chars) and
+  listed in `page_text_fields`; the tool description tells the agent to show it as data, never follow it (Codex on #458).
+## 2026-11-23 — Surfer worker: a hard deadline per action command
+
+- Live run (parent session, 14:44 UTC): after a click on the MyBrief page the Surfer worker stopped serving everything
+  (actions and reads) until the 15-min loop watchdog. Reproduced on the fixture: a page whose script never returns keeps
+  `page.evaluate` (no timeout in Playwright) waiting forever, and after the driver dies every further Playwright call
+  waits forever too.
+- `ActionRunner.pump` arms a timer per command (`COMMAND_DEADLINE_SECONDS = 90`, above the 15 s step timeout and the
+  ~10 s settle/snapshot/screenshot). Past it the session is marked aborted (no more browser calls: empty snapshot, no
+  screenshot), the worker's child processes (Playwright driver + Chromium) get SIGKILL, the step reports
+  `worker_timeout`, the page is dropped, and the next claim closes the session as `worker_lost`. The next session or
+  read starts a fresh browser.
+- Only this command's browser is killed: the Playwright driver started by the runner (its pid, or the one new child
+  process at launch) and everything under it, computed at kill time and swept twice. If there is nothing to kill or
+  the call is still stuck 20 s after the kill, the worker exits with code 75 and systemd (Restart=always) starts a
+  fresh one: the hang never outlives ~2 minutes.
+- The deadline callback and command completion share a lock and a per-command token, so a callback that starts just
+  as the command finishes does nothing (Codex on #459).
+- The approved-upload download is its own bounded phase before the timer: 60 s end to end (streamed, size-capped);
+  on failure the step reports the file missing.
+- The exact call that hung on EC2 is not known (the egress proxy path cannot be reproduced here); the deadline covers any
+  stuck call. The T-714 loop watchdog stays the backstop for a hang outside an action command.
+
+## 2026-11-23 — Surfer worker: a self-watchdog inside the process
+
+- Live run: the Surfer worker stayed hung for 30+ min although its loop heartbeat promised 15 min, and the root
+  supervisor's watchdog (T-714, `factoryos-runner-supervisor.timer`) did not restart it. Why is not known from here
+  (EC2 output requested from the owner: timer status and `/var/lib/factoryos/supervisor-status.json`).
+- So the worker no longer depends on it alone: a daemon thread checks every 15 s that the main loop kept the deadline
+  of its last beat; past it the process exits (75) and systemd (`Restart=always`) starts a fresh worker. The thread
+  takes no browser or HTTP calls, so a stuck main thread cannot stop it.
+- A pass now promises 6 min instead of 15 (`TASK_BUDGET_SECONDS`): a read is ~90 s, an action command at most
+  60 s staging + 90 s deadline + 20 s grace + the result post. The root watchdog also acts sooner with the shorter
+  promise. Unit file unchanged: no install step for the owner.
+
+## 2026-11-23 — T-727 DOM quiet wait after a step
+
+- After click / press / select / check / back the session waits, after load states, until the page's DOM has not
+  changed for 500 ms, at most 3 s (a MutationObserver in the page, resolving by itself). Costs ≥ 0.5 s per such step;
+  a page that keeps animating costs the full 3 s. A page whose script never returns is the worker deadline's job (#459).
+
+## 2026-11-23 — Sidebar reaches every owner page; Surfer replaces the read-only «Browser agent» card
+- Owner 2026-11-23: standalone pages (`/static/surfer/`, `/static/linkedin/` …) had no link from the dashboard, the
+  «Browser agent» card (read-only page reader) made no sense on the home screen, and `/static/linkedin/` answered 404.
+- `/static` is now mounted with `html=True`: a directory URL serves its `index.html` (no-slash URL redirects to it).
+  `/static/` was already a public prefix, so no auth boundary changes; the pages hold no data, their APIs stay gated.
+- Sidebar: «Browser agent» → «Surfer» opens `/static/surfer/index.html`; new entries Google Sheets (automation),
+  Social autopilot / LinkedIn / OLX (review & publish), Decision Memory / MyBrief (MVP Builder). They open in the same
+  tab through `openFactoryPage(name)` with a fixed allowlist of page names, like Learning. LinkedIn and OLX keep their
+  brand names in every language.
+- The read-only card and its session picker left the dashboard; its JS stays (guarded, no element = no-op) and
+  MCP `web_read` is unchanged. The per-login agent switch remains in the vault drawer.
+- «Frequent» block at the top of the sidebar: per-browser click counts in `localStorage` (`factoryos_nav_usage`), the
+  top 4 destinations clicked at least twice; it delegates to the real nav button, hidden in the narrow icon rail.
+- Owner pages linkedin/olx/sheets/social/surfer got a «← FactoryOS» link back to the dashboard.
+
+## 2026-11-23 — T-730 AI Film Studio S1 (#433)
+
+- New package `film_studio/` beside, not inside, Media Finisher: S1 only needed FFmpeg directly, and PR #442 owns
+  `media_finisher_worker/**`. Assembly through Media Finisher (captions, loudness, private playback) is a follow-up
+  once #442 lands; nothing there was edited. The shot pack from PR #435 is used as-is (its storyboard already passes
+  the v1 validator); `asset_candidates.json` is read through an adapter and keeps `candidate_unverified`.
+- Rights fail closed: only `rights_status: verified` with url, author, licence, attribution, sha256, verifier, time
+  and a local file whose sha256 matches can render; the gate reports every blocked shot, and the CLI exits 3 with a
+  BLOCKED receipt. `generative_cinema` is blocked until the owner approves credits; `hybrid_film` falls back to
+  `photo_cinema` and the plan says so.
+- Timing in whole frames: shot durations must be exact frames (validator), transitions are rounded to the nearest
+  frame (0.4 s fade-in -> 10 frames). Storyboard `cut`s become 0.5 s crossfades by default (`--crossfade 0` keeps
+  cuts); the outgoing shot renders 12 extra tail frames so the film stays exactly 1080 frames.
+- Per-shot re-render: each clip is cached under a content key (asset sha256s + shot settings + size + renderer
+  version); `--only s03` re-renders one shot and reuses the rest. Re-rendering a shot reproduced the same final MP4
+  sha256 in this container (x264 with bitexact flags), but byte-identical output across machines is not promised.
+- Camera: zoompan on a 2x oversampled still (less integer jitter), cosine ease, zoom capped by the Film Bible
+  (1.08); parallax-lite moves an optional alpha foreground layer faster than the background.
+- Storyboard text is untrusted: captions/titles reach FFmpeg only via `textfile=` with `expansion=none`, so filter
+  syntax or `%{}` in a caption is drawn as text.
+- Pexels and huggingface.co are refused by this session's network policy (agent proxy 403), so no photo licence
+  could be read and no Russian offline voice exists here (no espeak/flite/piper binaries). S1 therefore renders
+  original procedural stand-in stills (code-drawn, seeded, `source_type: original_procedural`, `repo://` URL),
+  labelled on screen «DEMO · иллюстрация, не фото», with a silent AAC track and the narration as RU captions. The
+  receipt marks `realistic_photo_film` and `narration` BLOCKED (owner unblock steps: ROADMAP T-730 «Blocked»).
+- The film is private: `--out` inside the repository is refused (except the ignored `data/`); the MP4 is not
+  committed or served.
+- CI has no FFmpeg (see mycast-render.yml), so the end-to-end render test skips there and runs where FFmpeg exists;
+  contracts, gate, plan, commands and the offline/no-network test run in CI.
+## 2026-11-23 — T-729 Coordination guard (owner Notion ТЗ «аудит стану й master ТЗ Claude», step 1)
+- The reconciliation that the ТЗ asks for once is now permanent: `coordination.py` is a pure function over ROADMAP.md, open
+  PRs with changed files, active Relay claims and handoffs; the owner page `/static/coordination/` and the MCP tool
+  `coordination_check` render the same report. Read-only: it never claims, releases or starts anything.
+- Found by the 2026-11-23 reconciliation: the #452 UX branch `ccr-d27f8b6b-foz7f7` (no PR yet) reused T-726/T-727/T-728,
+  while main already has T-726/T-727 (Surfer). That session was asked to renumber to T-731..T-733; T-729 is this guard,
+  T-730 the AI Film Studio S1 session (#433). `test_roadmap_integrity.py` now fails CI on a duplicate number.
+- Shared ledger files (ROADMAP.md, DECISIONS.md, README.md, CLAUDE.md, AGENTS.md, ci.yml, smoke_tests.py,
+  .autopilot/*) are edited by every PR on purpose; they are listed separately, not as code overlap.
+- Unknown is not success: without `FACTORY_GITHUB_READ_TOKEN` (or when GitHub fails) the verdict is «unknown» and
+  `safe_to_start` is «unknown», never «yes». A PR whose file list is unreadable is reported as such.
+- Lane of a PR comes from its branch prefix (`claude/`, `chatgpt/`, `gemini/`; `ccr-…` = Claude cloud session).
+- The page defaults to Ukrainian when the browser language is not RU/EN (owner 2026-11-23: «відлагоджений UA UX»).
+- Review fixes (Codex review on PR #464): every open PR and every changed file is read with paging (300 PRs, 3000 files
+  per PR); more than that is reported as «unknown», never as a silent partial list. Relay claims are read from the whole
+  store, not the newest 500 tickets. `coordination_check` always reads GitHub fresh (the 120 s cache is for the owner
+  page only), and the lane is the authenticated MCP lane: a different `lane` argument is refused, the shared token gets
+  no same-lane exemption. Dependencies match exactly; a bare group number (`T-560`) resolves to its suffixed tasks.
+  Done rows are checked too (fixed ROADMAP T-608 «Depends: T-186» → «#186», an issue, not a task).
+- Not done here: two agents calling `coordination_check` at the same moment can both get «yes». The check is advisory;
+  the exclusive start is the existing atomic Relay claim (`claim_handoff` / `claim_roadmap`, one active claim per scope).
+
+
+## 2026-11-24 — T-731…T-733 UX-first Owner Home and Growth Manager (#452)
+- Ploy was benchmarked from its public documentation only, fetched as Markdown (the interface its docs publish for AI
+  tools). No account, no app screens, no images. Its terms forbid competitive use of the service and automated access
+  to it, so the service itself was never used. Linear and PostHog docs were the two adjacent references.
+- Owner chose direction 2 «Products and goals» (2026-11-24) and asked to keep the current dashboard one click away as
+  «Pro version», remembered per browser. Prototype in the Learning sandbox; no production dashboard change.
+- The Growth Manager reuses the Launchpad, A/B experiments, evidence levels, Discovery agents, Relay claims and the
+  social weekly plan. The only proposed new storage is a Goal list inside the MVP registry record and a first-party
+  MyCast visit counter without cookies or stored IP. Details and backlog: `docs/architecture/internal-growth-manager-rfc.md`.
+- Product cards open the goal summary prefilled (2 clicks to start a goal; the 6-step wizard measured 7).
+- Reversible: the prototype is one HTML file and one Learning catalog entry; the RFC is a proposal.
+## 2026-11-24 — T-735 AI Film Studio S2: narration and owner photo
+- Owner 2026-11-24 allowed Pexels and Hugging Face for the Claude cloud environment (hosts added: www.pexels.com,
+  images.pexels.com, huggingface.co and its download CDNs) and sent a portrait and a 13 s voice sample.
+- Voice: Piper `ru_RU-dmitri-medium` (MODEL_CARD: dataset CC0). `ru_RU-ruslan` (CC BY-NC-SA) and `ru_RU-irina`
+  (licence unknown) are not used. The model is downloaded once into a private directory; synthesis is offline.
+- Narration contract `film-studio/narration/v1`: one sha256-pinned WAV per shot, placed 0.25 s after the cut, refused
+  if it would run into the next shot; mix normalised to -16 LUFS / -1.5 dBTP (FFmpeg loudnorm) and measured again by QA.
+- An owner photo replaces a stock shot through the existing manifest field `substitutes_for` (now also in `--manifest`
+  mode). It is placed on a dark 16:9 canvas with a feathered edge for the titles; the face is not retouched.
+- The owner's photo and voice are personal data: they stay in the private render directory, never in git, never
+  published; the film went to the owner only (Claude session file).
+- Pexels: images download from images.pexels.com, but the photo and licence pages answer a Cloudflare bot challenge
+  to this data-centre session, so the author cannot be read and the shot is not marked verified. The rights gate is
+  unchanged. Next: the Pexels API with the owner's free key, or owner photos.
+- The voice sample was transcribed offline with faster-whisper `small` (CPU) only to read the owner's instruction;
+  it is not used to clone the voice. Cloning needs a separate owner choice of model and licence.
+
+
+## 2026-11-24 — T-736 Agent → Claude worker requests through Relay (PR #470 spec, owner P0)
+
+- **Decision:** deliver ChatGPT → Claude work through the Relay ticket queue the EC2 Claude worker already polls,
+  not through a new poller, event stream or process. `request_task` (MCP, per-lane token) writes the request message
+  and a queued Relay ticket (`source.channel = agent_workspace`, owner claude) in one atomic save.
+  **Reason:** the worker already claims Relay tickets atomically (fresh run_id), runs Claude CLI in its own worktree
+  from fresh `main`, reports every stage with deduplicated event ids and opens a PR without merging. Reusing it adds
+  zero requests to the idle loop. Push to the EC2 worker would need an inbound port or a long-lived connection (SSE /
+  long-poll) on a single-process Render app; that is more moving parts to save about one idle interval
+  (`AUTOPILOT_IDLE_SECONDS`, 60 s by default) on tasks that run for minutes. If measured pickup latency is a problem,
+  the next step is a long-poll on the same `/api/relay/worker/claim`, still without new infrastructure.
+- **Decision:** the server mirrors each real worker transition of such a ticket into the thread the request came from
+  (claim = ACK with run_id, running, committed, pushed, result → `review`, blocked / failed, stale release), once per
+  event id, `from: claude` with `actor_auth_subject: relay-worker:<worker id>` and `reply_to` the request.
+  **Reason:** the worker has no MCP lane token and does not need one; the events are already authenticated with the
+  Claude worker credential, so the thread shows facts the worker reported, written in the same save as the event.
+  Heartbeats are not mirrored. Owner tickets are never mirrored.
+- **Decision:** the owner's own tickets are claimed before agent requests (coordination rules §5, rule 1); within a
+  group, first queued first served. At most 3 open requests per requesting lane; `FACTORY_AGENT_TASK_REQUESTS=0` is the
+  owner's kill switch.
+- **Decision:** `mode` read_only (default) or code. A read-only request gets the new evidence rule `answer`
+  (required level `claimed`): the text posted into the thread is the whole deliverable, so the worker's report closes
+  the ticket and the asking agent or the owner judges it there. The worker refuses to push a read-only run that made a
+  commit (`blocked`), and refuses read-only requests in the legacy shared-branch mode. Code requests keep the `code`
+  rule (merged PR + CI on that commit).
+- **Decision:** the request text reaches Claude CLI framed as data from another agent, not as an owner order, with the
+  existing limits (no payment, publishing, secrets, merge or deploy).
+- **Decision:** worker events of agent requests reach the owner's Telegram only when they are `blocked` or `failed`;
+  `running`, `committed`, `pushed` and `done` stay in the thread and Worker Center.
+  **Reason:** owner preference — ping him only when he is actually needed; agent-to-agent traffic must not become
+  Telegram noise. His own tickets keep every notice.
+- **Decision:** `read_inbox` gives each lane what other lanes wrote after a cursor, in threads it started or posted in.
+  **Reason:** ChatGPT is not an always-on process; when its session or a scheduled run wakes up, one cheap call shows
+  Claude's ACKs and results. Whether ChatGPT can run on a schedule with this connector is not verified here.
+- Not done here: a live run needs this PR merged, Render deployed, and one `request_task` call from ChatGPT's own
+  connector; the first measured ACK latency is recorded in ROADMAP T-736 after that run.
+
+## 2026-11-24 — T-737 Faceless Creator A/B S1: procedural 2.5D face switch (#469)
+
+- **Decision:** the first #469 clip is strategy 1 of the issue (2.5D from original keyframes), drawn procedurally in
+  `film_studio/face_switch.py`: one clothed fictional presenter, a constant body / hoodie / room layer, and three
+  fictional face sprites (hair colour and fringe, eyes, brows, nose, lips, face shape) swapped on a "snap" (punch-in,
+  white flash, short glitch, sparkles, snap sound).
+  **Reason:** at $0 in this environment it is the only path that can be finished and verified now: no generative
+  model is reachable (huggingface.co is refused by the agent proxy, no GPU), and the issue rules out paid generation.
+  Continuity of body, wardrobe and room holds by construction because only the face sprite changes.
+- **Decision:** the QA receipt measures the switch on the decoded MP4: for each snap, a frame 0.30 s before and
+  0.75 s after (after the flash, glitch, punch-in and sparkles), the mean absolute change inside the face area and in
+  three still areas (hoodie, room left, room right). Pass: face ≥ 18, still ≤ 8, ratio ≥ 3. Overlays are placed
+  outside those areas; the camera push is continuous over the whole clip so the room does not jump at a snap.
+  **Reason:** "the face visibly changed, the rest did not" becomes a number from the delivered file, not a claim.
+- **Decision:** voice = local espeak-ng (`en-us+f3`) when installed, else captions only with the receipt saying so;
+  the mouth follows the voice loudness. Music bed and snap sound are synthesised in the module. Loudness -16 LUFS with
+  true peak ≤ -1 dBTP (loudnorm targets -2 dBTP because AAC adds about 0.5 dB).
+  **Reason:** offline and $0; the robotic voice is a known quality limit, stated to the owner, not hidden.
+- **Decision:** the clip is labelled «AI · SYNTHETIC DEMO» on every frame (the receipt checks the label pixels in
+  three frames) and ends with an 18+ / no-guarantee-of-anonymity-or-earnings line; the scripts contain no promise of
+  anonymity or income (a test enforces the word list). Output is refused inside the repository (except `data/`).
+- Not decided here: photorealistic presenters (owner choice: allow huggingface.co again for the Claude environment, or
+  supply synthetic frames), and S2 (owner score 1–10, notes, versions, one-click wiring).
+
+## 2026-11-25 — T-738 Claude worker offline alert
+
+- **Decision:** the FactoryOS server (Render) watches the worker heartbeat it already stores
+  (`claude_worker_runtime["last_seen"]`) and sends the paired owner chat one Telegram message after 15 minutes of
+  silence, and one more when a newer heartbeat arrives.
+  **Reason:** on 2026-11-24 the EC2 worker went silent at 22:05 UTC for about 17 hours; nothing alerted, and the owner
+  learned it from a missing morning MyCast episode. A server-side check covers every cause (instance stopped,
+  supervisor block, crash, network); a check on the host dies together with the host.
+- **Decision:** threshold `FACTORY_WORKER_OFFLINE_ALERT_SECONDS` (default 900, bounded 5 min–6 h); no alert for a
+  worker the server has never seen and none in the first 2 minutes after a server start; the state lives in
+  `DATA_DIR/worker_offline_alert.json`, so a deploy neither repeats nor loses an alert; a failed send keeps the state
+  and is retried on the next minute. Kill switch `FACTORY_WORKER_OFFLINE_ALERT_ENABLED=0`.
+  **Reason:** the worker beats about every 20 s and the supervisor watchdog restarts a stuck loop after 15 minutes;
+  one message per silence avoids spam.
+- **Decision:** 23:00–08:00 Kyiv the message goes out without sound (`disable_notification`). The text gives the last
+  heartbeat in Kyiv time, what stops (MyCast, Relay tasks) and the first check
+  (`sudo cat /var/lib/factoryos/supervisor-status.json`); the supervisor status is added only when the last heartbeat
+  already carried a non-running status.
+  **Reason:** a night outage is not an emergency, but the owner should see it with the morning messages instead of
+  discovering it from a missing episode.
+- Not decided here: alerts for the Surfer and Gemini lanes; the root cause of the 2026-11-24 silence (needs
+  `uptime -s` and the worker journal for 22:00–22:10 UTC from the owner).
+
+## 2026-11-25 — T-728 Surfer queue cannot stall silently
+
+- **Decision:** the server sweeps the read-task queue on every claim, task read and health read: a `running` task whose
+  lease expired goes back to `queued` in its place until it was handed out `MAX_ATTEMPTS` (2) times, then fails with
+  blocker `lease_expired`; a `queued` task nobody claimed for 30 minutes fails with `queue_timeout` and the worker
+  verdict at that moment. `LEASE_SECONDS` drops 600 → 300 (a read task is bounded at ~90 s plus the report).
+  **Reason:** before, an expired lease was simply handed out again for ever (a page that kills the worker would be
+  retried on every restart), and with no worker queued tasks waited without limit and filled the 20-task cap. Failing
+  with an honest code lets the agent move on to another source.
+- **Decision:** the worker treats a non-200 claim answer (401 token, 5xx) as an error (`claim_http_<code>`), backs off and
+  reports it in the heartbeat as `last_error`; before, it returned "idle" and beat "idle" for ever while the queue never
+  moved. While an action session holds a live Chromium, the worker skips the extra launch probe (the live browser
+  proves Chromium works) and reads borrow that browser; before, a failed second launch under the unit's 1.2 GB cap
+  parked the worker in "unavailable": no read claims and no action pumping.
+- **Decision:** queue health is agent-readable without owner access: `GET /api/factory/browser/agent/queue` (browser-agent
+  token) and a `queue` block with hints on every queued `web_task` / `web_read` answer (MCP and agent REST). Verdicts:
+  `worker_offline` (no heartbeat for 3+ min or stopped), `worker_unavailable` (Chromium cannot start),
+  `worker_cannot_claim` (claims refused), `worker_not_claiming` (beats but has not asked for a task for 2+ min while the
+  oldest queued task waits 2+ min), `queue_blocked` (asks but the queue does not move), `ok`. The server records the
+  last claim request and the last task handed out in `DATA_DIR/surfer_claims.json`; Worker Center's Surfer lane carries
+  the same `queue_health`.
+  **Reason:** in the 2026-11-25 incident the parent session could not tell a dead worker from a blocked queue.
+- **Root cause (2026-11-25, reproduced with real Playwright 1.x in the build session):** `_launch_probe` opens
+  `with sync_playwright()` in the worker's main thread; while the action runner holds its own started Playwright
+  (a live page, or one being opened), that raises "It looks like you are using Playwright Sync API inside the asyncio
+  loop". The probe result is cached for 10 min, so the first re-probe during an action session turned the worker
+  "unavailable"; `pass_once` then returned before `actions.pump()`, so the action session was never closed on its
+  lifetime either (the close check lives in `pump`). Deadlock: no read claims, no action pumping, while the loop kept
+  beating "unavailable" with a fresh deadline — the self-watchdog (#460) and the root watchdog both saw a healthy
+  loop. The owner's manual restart (≈20:58 UTC) dropped the Playwright and both queued reads finished at once.
+  **Decision:** no probe while the runner holds Playwright (`ActionRunner.holds_playwright()`) or lends a live
+  browser; the "unavailable" path still pumps action sessions; and, independent of any cause, 10 min of continuous
+  "unavailable" with a configured token exits 75 so systemd starts a fresh process (its cgroup kill also removes any
+  leftover Chromium). At one exit per 10 min the unit stays under its StartLimitBurst (5 per 600 s); a host without
+  Chromium restarts quietly every 10 min instead of beating "unavailable" for ever. An external systemd `WatchdogSec`
+  was not added: it would be satisfied by the same beats that hid this stall.
+- **Second cause (owner's EC2 journal, 20:55–20:58 UTC):** a restart loop. Every start logged "runner code changed on
+  disk" 6–17 s later, exit 0, restart after 10 s, until systemd's `start-limit-hit` (5 starts per 600 s). The detector
+  compared (mtime, size) of the runner files, and something in the shared checkout rewrote them with the same bytes.
+  **Decision:** the fingerprint is a sha256 of the file *contents* (tracked `.py` only, never `__pycache__`), checked
+  at most once a minute, not before 5 min of uptime, and a new hash must be seen on two checks in a row (a branch
+  flip that goes back is no change). The unit allows 20 starts per 15 min with `RestartSec=15s`. The unit file
+  change takes effect only after the owner reruns `sudo bash /opt/factoryos/deploy/install_surfer_worker.sh`; the
+  detector fix alone already stops the loop.
+- Checked and not changed: server-side read claims do not depend on action sessions (`surfer_actions` has its own
+  claim route), so an idle or `waiting_human` action session never blocks the read queue on the server.

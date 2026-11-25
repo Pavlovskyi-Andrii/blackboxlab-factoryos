@@ -1,0 +1,38 @@
+# T-714 Surfer worker: FactoryOS browser tasks (MCP web_read / web_task, agent REST) in their own process, so a long
+# Claude CLI job no longer freezes the Surfer queue. Install with: sudo bash deploy/install_surfer_worker.sh
+# Same host, user, checkout and env file as factoryos-claude-worker.service; no new secret, no paid API.
+# Liveness: the loop beats /opt/factoryos/.autopilot/surfer.json; the root supervisor timer
+# (factoryos-runner-supervisor.timer, every minute) restarts this unit when that heartbeat is 15+ min overdue.
+[Unit]
+Description=FactoryOS Surfer worker (browser tasks, anonymous Chromium, one at a time)
+After=network-online.target
+Wants=network-online.target
+# T-728: a burst of planned exits (code update, self-watchdog) must not hit the start limit (2026-11-25: 5 exits in
+# ~1 min → start-limit-hit → no Surfer). 20 starts per 15 min; past that the root supervisor resets and retries.
+StartLimitIntervalSec=900
+StartLimitBurst=20
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/opt/factoryos
+# FACTORYOS_URL and FACTORY_CLAUDE_WORKER_TOKEN (root-owned, chmod 600); the unit reads only what it needs.
+EnvironmentFile=/etc/factoryos/claude-worker.env
+Environment=AUTOPILOT_REPO=/opt/factoryos
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m autopilot.browser_worker
+# Always: it also exits 0 on purpose when the runner code changed on disk, to come back on the new code.
+Restart=always
+RestartSec=15s
+# SIGTERM lets the current task finish (a task is bounded at ~90 s) before the worker exits.
+KillMode=mixed
+TimeoutStopSec=180
+# One Chromium at a time; keep the whole unit's memory bounded so it cannot starve the Claude worker.
+MemoryHigh=900M
+MemoryMax=1200M
+TasksMax=512
+NoNewPrivileges=true
+UMask=0022
+
+[Install]
+WantedBy=multi-user.target

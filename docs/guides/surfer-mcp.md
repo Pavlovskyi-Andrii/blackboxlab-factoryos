@@ -90,3 +90,48 @@ Example: `{"url": "https://github.com/notifications", "session": "github/main"}`
 
 The same `/mcp` endpoint also carries the Claude ↔ ChatGPT ↔ Gemini workspace (threads and handoffs on Relay).
 Writing there needs a per-lane token instead of `FACTORY_MCP_TOKEN`: see `docs/guides/agent-workspace-mcp.md`.
+
+## Acting on a site: `web_open`, `web_act`, `web_snapshot`, `web_close` (T-720, T-721)
+
+Reading is open to every connected agent. **Acting** (clicks, forms, uploads in the owner's signed-in accounts) is a
+separate, gated surface. Full spec: `docs/roadmap/T-720_SURFER_ACTIONS.md`.
+
+- It is **off** until the owner sets `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render, and works only on the sites and
+  action classes he enabled on the Surfer page (`/static/surfer/index.html`). Nothing is on by default.
+- It needs your **own lane token** (`FACTORY_MCP_LANE_TOKEN_CLAUDE` / `_CHATGPT` / `_GEMINI`); the shared MCP token
+  may read but not act. The same tools are available over REST: `POST /api/factory/surfer/agent/{tool}`.
+- One live session at a time: idle 5 min, 30 min at most. Close it with `web_close`.
+
+| Tool | Input | Output |
+|---|---|---|
+| `web_open` | `{url, session?, session_id?}` | opens a live page (or navigates an existing session) → snapshot |
+| `web_act` | `{session_id, action, ref \| selector, value?, value_from?, key?, asset_id?}` | one step → new snapshot |
+| `web_snapshot` | `{session_id, step_id?, offset?, max_chars?, max_elements?, filter?, refresh?}` | the page and the state of a step |
+| `web_close` | `{session_id}` | closes the page |
+
+How to drive it:
+
+1. `web_open {"url": "https://…"}` → `elements: [{ref: "e4", kind: "input", name: "City"}, …]` and a chunk of text.
+2. `web_act {"session_id": "ws_…", "action": "fill", "ref": "e4", "value": "Kyiv"}`; then `click` the button's ref.
+   Actions: `click`, `fill`, `select`, `check`, `press`, `upload`, `scroll`, `wait_for`, `back`.
+3. Login fields: `"value_from": "vault:site/account#username"` and `"#password"`. You never see the value, and a
+   secret field accepts nothing else. A snapshot never contains secret-field values, cookies or screenshots.
+4. Read `status` on every answer:
+   - `done` — continue with the new refs (refs change when the page changes; an old one is `stale_ref`).
+   - `running` — call `web_snapshot {session_id, step_id}` in a few seconds.
+   - `needs_owner_confirmation` — payment, delete, security settings, a message to someone, publishing, or a step
+     outside what the owner enabled. Tell the owner what you are about to do; he confirms or rejects it on the
+     Surfer page; poll `web_snapshot` with the `step_id`. Do not retry the step.
+   - `waiting_human` — a login the vault could not finish, a captcha, or a code sent to the owner. FactoryOS never
+     solves or bypasses these: the owner takes over on the Surfer page.
+   - `refused` / `blocked` / `failed` — see `blocker` and `hints`.
+5. Daily caps apply (40 sessions, 600 steps by default); the answer is HTTP 429 until 00:00 UTC.
+6. **Recipes** (`web_recipe`, T-723): the owner can save a successful session as a recipe. `web_recipe {}` lists them
+   (`name`, `site`, `params`); `web_recipe {"recipe": "name", "params": {…}}` replays one without AI and returns
+   `run_id` and `session_id`; `web_recipe {"run_id": "rr_…"}` reports `running`, `done` or `stopped` with the step and
+   the reason. After `stopped` the session is still open: look at it with `web_snapshot` and continue with `web_act`,
+   or close it. A recipe never carries the owner's confirmation: a sensitive step asks him again on every run.
+7. **What waits for the owner** (`surfer_pending`, T-726, Claude lane only, read-only): the current requests: a step to
+   confirm, a code or login to type, a takeover. Each has `kind`, `session_id`, `step_id`, `site`, `action`, `element`,
+   `reasons` / `wait_reason`, a RU/UK/EN `text`, `since`, `expires_in_seconds` and the `page` where the owner answers.
+   No screenshots, values, codes or URLs. Nothing can be confirmed through it.

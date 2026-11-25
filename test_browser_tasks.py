@@ -109,6 +109,53 @@ class StoreTest(unittest.TestCase):
         self.s.create("https://shop.example/now-fits", [])
 
 
+class SurferLaneTest(unittest.TestCase):
+    """T-714: the Surfer worker heartbeat → the "surfer" lane in Worker Center."""
+
+    def test_heartbeat_route_lane_states_and_sanitizing(self):
+        from fastapi import FastAPI
+        clock = Clock()
+        with tempfile.TemporaryDirectory() as d:
+            store = bt.BrowserTaskStore(pathlib.Path(d), clock=clock)
+            self.assertEqual(store.surfer_lane()["state"], "offline")              # never seen
+            app = FastAPI()
+            bt.install_browser_task_routes(app, store, identity=lambda r: {"role": "owner"},
+                                           authorize_worker=lambda r: getattr(r, "worker", False))
+            h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+
+            class Req:
+                def __init__(self, body=None, worker=False):
+                    self.body, self.worker = body, worker
+
+                async def json(self):
+                    return self.body
+            route = h[("POST", "/api/factory/browser/worker/heartbeat")]
+            with self.assertRaises(HTTPException) as e:
+                asyncio.run(route(Req({"state": "idle"})))
+            self.assertEqual(e.exception.status_code, 401)                        # worker token only
+            store.create("https://shop.example/", [])
+            lane = asyncio.run(route(Req({"state": "idle", "node_id": "ip-10-0-0-1<script>", "version": "abc123",
+                                          "token": "tok-secret", "tasks_done": 3}, worker=True)))["lane"]
+            self.assertEqual((lane["lane"], lane["state"], lane["queue_depth"], lane["tasks_done"]), ("surfer", "idle", 1, 3))
+            self.assertEqual(lane["node_id"], "ip-10-0-0-1script")
+            self.assertNotIn("tok-secret", (pathlib.Path(d) / "surfer_heartbeat.json").read_text())
+            asyncio.run(route(Req({"state": "running", "task_id": "bt_0123456789abcdef"}, worker=True)))
+            lane = store.surfer_lane()
+            self.assertEqual((lane["state"], lane["task_id"], lane["stage"]), ("working", "bt_0123456789abcdef", "running"))
+            self.assertTrue(lane["last_event"]["at"].endswith("Z"))
+            asyncio.run(route(Req({"state": "running", "task_id": "../../etc"}, worker=True)))
+            self.assertEqual(store.surfer_lane()["task_id"], "")                  # not a task id → dropped
+            asyncio.run(route(Req({"state": "unavailable"}, worker=True)))
+            self.assertEqual((store.surfer_lane()["state"], store.surfer_lane()["reason"]), ("blocked", "chromium_unavailable"))
+            asyncio.run(route(Req({"state": "idle"}, worker=True)))
+            clock.t += bt.SURFER_ONLINE_SECONDS + 1
+            self.assertEqual(store.surfer_lane()["state"], "stale")
+            clock.t += bt.SURFER_OFFLINE_SECONDS
+            self.assertEqual(store.surfer_lane()["state"], "offline")
+            asyncio.run(route(Req({"state": "stopped"}, worker=True)))
+            self.assertEqual(store.surfer_lane()["state"], "offline")             # stopped on purpose
+
+
 class RoutesTest(unittest.TestCase):
     def test_owner_and_worker_auth(self):
         from fastapi import FastAPI
@@ -261,7 +308,99 @@ class AgentTokenTest(unittest.TestCase):
             self.assertFalse(factory._browser_agent_authorized(R("Bearer " + long)))    # must not reuse the worker token
         self.assertEqual({r.path for r in factory.app.routes if "/browser/agent/" in getattr(r, "path", "")},
                          {"/api/factory/browser/agent/tasks", "/api/factory/browser/agent/tasks/{task_id}",
-                          "/api/factory/browser/agent/tasks/{task_id}/screenshot"})
+                          "/api/factory/browser/agent/tasks/{task_id}/screenshot", "/api/factory/browser/agent/queue"})
+
+
+class QueueHealthTest(unittest.TestCase):
+    """T-728 (2026-11-25 incident: two web_read tasks sat "queued" with the same queue_ahead for 15+ min)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.clock = Clock()
+        self.s = bt.BrowserTaskStore(pathlib.Path(self.tmp.name), clock=self.clock)
+        self.addCleanup(self.tmp.cleanup)
+
+    def beat(self, state="idle", **extra):
+        self.s.record_heartbeat(dict({"state": state}, **extra))
+
+    def test_poison_head_task_fails_as_lease_expired_and_the_queue_moves(self):
+        head = self.s.create("https://shop.example/hangs", [])
+        nxt = self.s.create("https://shop.example/next", [])
+        self.assertEqual(self.s.claim()["id"], head["id"])                  # attempt 1: the worker dies on it
+        self.clock.t += bt.LEASE_SECONDS + 1
+        self.assertEqual(self.s.claim()["id"], head["id"])                  # requeued in place, attempt 2
+        self.clock.t += bt.LEASE_SECONDS + 1
+        self.assertEqual(self.s.claim()["id"], nxt["id"])                   # the head no longer blocks the queue
+        failed = self.s.get(head["id"])
+        self.assertEqual((failed["status"], failed["result"]["blocker"], failed["result"]["attempts"]),
+                         ("failed", "lease_expired", 2))
+        with self.assertRaises(HTTPException):                              # a late result for it is refused
+            self.s.finish(head["id"], {"status": "done"})
+
+    def test_expired_lease_is_swept_on_read_without_any_claim(self):
+        head = self.s.create("https://shop.example/a", [])
+        self.s.claim()
+        self.clock.t += bt.LEASE_SECONDS + 1
+        self.assertEqual(self.s.get(head["id"])["status"], "queued")       # honest state even with no worker
+        self.assertEqual(self.s.get(head["id"])["attempts"], 1)
+
+    def test_never_claimed_task_fails_as_queue_timeout_and_frees_the_slot(self):
+        task = self.s.create("https://shop.example/a", [])
+        self.clock.t += bt.QUEUED_MAX_SECONDS + 1
+        out = self.s.get(task["id"])
+        self.assertEqual((out["status"], out["result"]["blocker"], out["result"]["worker"]),
+                         ("failed", "queue_timeout", "worker_offline"))
+        self.assertEqual(self.s.queue_health()["queued"], 0)
+
+    def test_verdicts_tell_worker_down_from_not_claiming_from_queue_blocked(self):
+        self.assertEqual(self.s.queue_health()["verdict"], "worker_offline")        # never beat
+        self.beat()
+        self.assertEqual(self.s.queue_health()["verdict"], "ok")                    # alive, empty queue
+        task = self.s.create("https://shop.example/a", [])
+        self.clock.t += bt.STUCK_SECONDS + 1
+        self.beat()                                                                  # beats, never asks for tasks
+        health = self.s.queue_health()
+        self.assertEqual(health["verdict"], "worker_not_claiming")
+        self.assertEqual((health["head"]["task_id"], health["head"]["status"]), (task["id"], "queued"))
+        self.assertGreater(health["oldest_queued_age_seconds"], bt.STUCK_SECONDS)
+        self.assertIsNone(health["worker"]["last_poll_age_seconds"])
+        self.s._write_poll(self.clock.t, "")                                         # it polls but gets nothing
+        self.assertEqual(self.s.queue_health()["verdict"], "queue_blocked")
+        self.beat("unavailable")
+        self.assertEqual(self.s.queue_health()["verdict"], "worker_unavailable")    # Chromium cannot start
+        self.beat("queue_unreachable", last_error="claim_http_401")
+        health = self.s.queue_health()
+        self.assertEqual((health["verdict"], health["worker"]["last_error"]), ("worker_cannot_claim", "claim_http_401"))
+        self.beat("idle")
+        self.assertEqual(self.s.claim()["id"], task["id"])
+        health = self.s.queue_health()
+        self.assertEqual((health["verdict"], health["running"], health["worker"]["last_claimed_task"]),
+                         ("ok", 1, task["id"]))
+        self.assertEqual(health["head"]["lease_left_seconds"], bt.LEASE_SECONDS)
+        self.clock.t += bt.SURFER_ONLINE_SECONDS + 1
+        self.assertEqual(self.s.queue_health()["verdict"], "worker_offline")
+        self.assertIn("queue_health", self.s.surfer_lane())
+
+    def test_agent_queue_route_and_web_task_view(self):
+        from fastapi import FastAPI
+        import web_surfer
+        app = FastAPI()
+        bt.install_browser_task_routes(app, self.s, identity=lambda r: {}, authorize_worker=lambda r: False,
+                                       authorize_agent=lambda r: r == "agent")
+        route = next(r for r in app.routes if getattr(r, "path", "") == "/api/factory/browser/agent/queue")
+        with self.assertRaises(HTTPException) as e:
+            route.endpoint("nobody")
+        self.assertEqual(e.exception.status_code, 401)
+        self.assertEqual(route.endpoint("agent")["verdict"], "worker_offline")
+        task = self.s.create("https://shop.example/a", [], source="mcp")
+        view = web_surfer.web_task(self.s, {"task_id": task["id"]})
+        self.assertEqual((view["status"], view["queue"]["verdict"], view["queue"]["head"]["task_id"]),
+                         ("queued", "worker_offline", task["id"]))
+        self.assertIn("offline", view["hints"][0])
+        self.clock.t += bt.QUEUED_MAX_SECONDS + 1
+        view = web_surfer.web_task(self.s, {"task_id": task["id"]})
+        self.assertEqual((view["status"], view["blocker"]), ("failed", "queue_timeout"))
+        self.assertIn("30 minutes", view["hints"][0])
 
 
 class _Frame:

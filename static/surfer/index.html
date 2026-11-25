@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FactoryOS · Surfer</title>
+<style>
+:root{--bg:#0b1020;--card:#131a30;--line:#26304f;--text:#e7ecff;--mute:#9aa6c9;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--acc:#60a5fa}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:16px}h1{font-size:22px;margin:8px 0 4px}h2{font-size:16px;margin:0 0 8px}p.sub{color:var(--mute);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.between{justify-content:space-between}
+button{background:#1f2a4a;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+button.primary{background:var(--acc);color:#071022;border-color:var(--acc);font-weight:600}button.danger{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.45;cursor:not-allowed}button.small{padding:4px 9px;font-size:13px}
+input[type=text],select{background:#0d1328;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;max-width:100%}
+label.box{display:inline-flex;gap:5px;align-items:center;margin-right:10px;font-size:14px}
+.chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;border:1px solid var(--line)}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}small,.mute{color:var(--mute)}a{color:var(--acc)}
+.need{border-color:var(--warn)}.need h2{color:var(--warn)}
+.screen{position:relative;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#000;margin:10px 0}
+.screen img{display:block;width:100%;height:auto}.screen.live img{cursor:crosshair}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:5px 6px;border-top:1px solid var(--line);vertical-align:top;word-break:break-word}
+th{color:var(--mute);font-weight:500;border-top:0}.site{border-top:1px solid var(--line);padding:10px 0}.site:first-child{border-top:0}
+details summary{cursor:pointer;color:var(--mute)}.msg{min-height:20px;margin:6px 0;font-size:14px}
+code{background:#0d1328;border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+</style>
+</head>
+<body>
+<main>
+<a href="/" style="display:inline-block;margin:0 0 6px;color:inherit;opacity:.7;text-decoration:none;font-size:14px">← FactoryOS</a>
+<div class="row between"><h1 data-t="title"></h1><select id="lang"><option value="ru">RU</option><option value="uk">UK</option><option value="en">EN</option></select></div>
+<p class="sub" data-t="sub"></p>
+<section class="card" id="gate"></section>
+<div id="msg" class="msg"></div>
+<section class="card" id="live"></section>
+<section class="card"><h2 data-t="allowTitle"></h2><p class="mute" data-t="allowSub"></p><div id="allow"></div></section>
+<section class="card"><h2 data-t="filesTitle"></h2><p class="mute" data-t="filesSub"></p><div id="files"></div></section>
+<section class="card"><h2 data-t="recTitle"></h2><p class="mute" data-t="recSub"></p><div id="recipes"></div></section>
+<section class="card"><details id="pastBox"><summary data-t="pastTitle"></summary><div id="past"></div></details></section>
+<section class="card"><details id="auditBox"><summary data-t="auditTitle"></summary><div id="audit"></div></details></section>
+</main>
+<script>
+const T={
+ru:{title:"Surfer · действия на сайтах",sub:"Браузерный агент нажимает, заполняет формы и загружает файлы в ваших аккаунтах — только на сайтах из вашего списка. Оплата, удаление, настройки безопасности, сообщения людям и публикации всегда ждут вашего подтверждения. Капчи и коды он не решает: их вводите вы.",
+gateOn:"Действия включены",gateOff:"Действия выключены",gatePaused:"На паузе",flagOff:"Выключено в Render: задайте FACTORY_SURFER_ACTIONS_ENABLED=1 (задача T-722-H).",pause:"Пауза: остановить всё",unpause:"Снять паузу",usage:"Сегодня: сессий {s} из {sc}, шагов {t} из {tc}",sites:"Сайтов включено: {n}",
+noLive:"Сейчас нет открытой сессии. Она появится здесь, когда агент вызовет web_open.",liveTitle:"Открытая сессия",lane:"агент",page:"страница",st_opening:"открывается",st_active:"работает агент",st_waiting_human:"ждёт вас",st_needs_owner_confirmation:"ждёт подтверждения",st_takeover:"управляете вы",st_closed:"закрыта",
+needConfirm:"Нужно ваше подтверждение",wants:"Агент хочет: {action} «{element}»",withValue:"значение: {value}",because:"Почему спрашивает: {why}",confirm:"Подтвердить этот шаг",reject:"Отклонить",
+needHuman:"Сайт ждёт вас",codeLabel:"Код или текст, который просит страница",codeSend:"Ввести",codeEnter:"и нажать Enter",takeover:"Взять управление",giveBack:"Вернуть агенту",resume:"Всё в порядке, продолжать",stop:"Остановить сессию",
+takeHint:"Вы управляете страницей: нажимайте прямо на снимок. Текст вводится в поле, по которому вы нажали.",typeLabel:"Текст для ввода",typeSend:"Напечатать",refresh:"Обновить снимок",saveLogin:"Сохранить вход в хранилище",scrollUp:"Вверх",scrollDown:"Вниз",noShot:"Снимка пока нет",
+steps:"Шаги",who:"кто",action:"действие",element:"элемент",result:"результат",shot:"снимок",open:"открыть",
+a_click:"нажать",a_fill:"заполнить поле",a_select:"выбрать в списке",a_check:"переключить",a_press:"нажать клавишу в поле",a_upload:"загрузить файл в",a_goto:"открыть адрес",
+r_payment:"оплата или покупка",r_delete:"удаление",r_security:"безопасность или доступ",r_messaging:"сообщение людям",r_publish:"публикация",r_leaves_allowlist:"уход с разрешённых сайтов",r_off_allowlist:"сайт вне списка",r_class_not_allowed:"этот тип действий не включён",r_unlabeled_control:"кнопка без подписи",
+w_captcha:"капча",w_bot_challenge:"проверка «вы не робот»",w_2fa:"код из СМС или приложения",w_security_challenge:"проверка безопасности",w_login_required:"нужно войти, сохранённого входа нет",w_login_failed:"сохранённый вход не сработал",
+allowTitle:"Разрешённые сайты",allowSub:"Список пуст, пока вы сами не добавите сайт и не включите его. «Чтение» включено всегда; остальное — по галочкам. Домен покрывает свои поддомены.",
+c_read:"чтение",c_navigate:"переходы и клики",c_fill:"заполнение полей",c_submit:"отправка форм",c_upload:"загрузка файлов",enabled:"включён",login:"вход из хранилища",noLogin:"без входа",li_pw:"пароль",li_sess:"вход сохранён",li_none:"пока пусто: войдите сами и сохраните",newLogin:"+ новый вход: войду сам и сохраню…",newLoginName:"имя, например linkedin/main",vaultLink:"Открыть хранилище доступа",loginHelpTitle:"Как Surfer входит в ваш аккаунт — какой способ выбрать",loginHelp1:"1. Пароль в хранилище (удобно для простых сайтов). В FactoryOS → «Хранилище доступа» → «Логины и пароли» сохраните логин и пароль (сайт, например github, аккаунт main). Здесь у сайта выберите его в «вход из хранилища» и нажмите «Сохранить». Агент сам заполнит форму входа, пароль он не видит. Если сайт попросит код из СМС — вы вводите его на этой странице.",loginHelp2:"2. Войти один раз самому и сохранить вход (лучше для Google, LinkedIn, OLX — сайтов с кодами и проверками). В «вход из хранилища» выберите «+ новый вход», впишите имя (например linkedin/main), «Сохранить». Попросите агента открыть сайт: сессия встанет «ждёт вас» → «Взять управление» → войдите сами на снимке (логин, пароль, код) → «Сохранить вход в хранилище». Дальше агент заходит уже вошедшим, пока сайт не попросит войти снова.",loginHelp3:"3. Готовый вход из своего браузера. В «Хранилище доступа» → «Сессии браузера» загрузите state.json или экспорт Cookie-Editor — он появится здесь в списке с пометкой «вход сохранён».",loginHelp4:"Можно совмещать: пароль + сохранённый вход. Сначала используется сохранённый вход; если он истёк — пароль; если и это не помогло или нужен код — сессия ждёт вас. Без входа агент видит сайт как гость.",save:"Сохранить",del:"Удалить",addSite:"Добавить сайт",domain:"домен, например olx.ua",presets:"Предложения (выключены, пока не добавите):",add:"добавить",emptyAllow:"Сайтов нет.",
+filesTitle:"Файлы, которые агент может загружать",filesSub:"Агент загружает на сайт только файлы из этого списка (до 10 МБ: картинки, pdf, txt, csv, mp4, mov).",upload:"Добавить файл",emptyFiles:"Файлов нет.",
+recTitle:"Рецепты",recSub:"Удачную сессию можно сохранить как рецепт и повторять без ИИ. Повтор идёт по тем же правилам: те же разрешённые сайты и те же подтверждения. На первом расхождении он останавливается и оставляет страницу агенту или вам.",recSave:"Сохранить как рецепт",recName:"название рецепта",recParam:"имя параметра (латиницей) или пусто",recHint:"Значения, которые должны меняться при каждом запуске, сделайте параметрами: впишите имя, например city.",recRun:"Запустить",recRuns:"Последние запуски",recEmpty:"Рецептов нет.",recSteps:"шагов: {n}",rs_running:"идёт",rs_done:"выполнен",rs_stopped:"остановлен",rs_interrupted:"прерван перезапуском",
+pastTitle:"Прошлые сессии",auditTitle:"Журнал действий",emptyPast:"Пока пусто.",when:"когда",site:"сайт",
+saved:"Сохранено",sent:"Отправлено",error:"Ошибка: ",confirmStop:"Закрыть страницу агента?",confirmPause:"Остановить все действия Surfer?"},
+uk:{title:"Surfer · дії на сайтах",sub:"Браузерний агент натискає, заповнює форми й завантажує файли у ваших акаунтах — лише на сайтах із вашого списку. Оплата, видалення, налаштування безпеки, повідомлення людям і публікації завжди чекають вашого підтвердження. Капчі й коди він не розв'язує: їх вводите ви.",
+gateOn:"Дії увімкнено",gateOff:"Дії вимкнено",gatePaused:"На паузі",flagOff:"Вимкнено в Render: задайте FACTORY_SURFER_ACTIONS_ENABLED=1 (задача T-722-H).",pause:"Пауза: зупинити все",unpause:"Зняти паузу",usage:"Сьогодні: сесій {s} із {sc}, кроків {t} із {tc}",sites:"Сайтів увімкнено: {n}",
+noLive:"Зараз немає відкритої сесії. Вона з'явиться тут, коли агент викличе web_open.",liveTitle:"Відкрита сесія",lane:"агент",page:"сторінка",st_opening:"відкривається",st_active:"працює агент",st_waiting_human:"чекає на вас",st_needs_owner_confirmation:"чекає підтвердження",st_takeover:"керуєте ви",st_closed:"закрита",
+needConfirm:"Потрібне ваше підтвердження",wants:"Агент хоче: {action} «{element}»",withValue:"значення: {value}",because:"Чому питає: {why}",confirm:"Підтвердити цей крок",reject:"Відхилити",
+needHuman:"Сайт чекає на вас",codeLabel:"Код або текст, який просить сторінка",codeSend:"Ввести",codeEnter:"і натиснути Enter",takeover:"Взяти керування",giveBack:"Повернути агенту",resume:"Усе гаразд, продовжувати",stop:"Зупинити сесію",
+takeHint:"Ви керуєте сторінкою: натискайте просто на знімок. Текст вводиться в поле, на яке ви натиснули.",typeLabel:"Текст для введення",typeSend:"Надрукувати",refresh:"Оновити знімок",saveLogin:"Зберегти вхід у сховище",scrollUp:"Вгору",scrollDown:"Вниз",noShot:"Знімка поки немає",
+steps:"Кроки",who:"хто",action:"дія",element:"елемент",result:"результат",shot:"знімок",open:"відкрити",
+a_click:"натиснути",a_fill:"заповнити поле",a_select:"вибрати у списку",a_check:"перемкнути",a_press:"натиснути клавішу в полі",a_upload:"завантажити файл у",a_goto:"відкрити адресу",
+r_payment:"оплата або покупка",r_delete:"видалення",r_security:"безпека чи доступ",r_messaging:"повідомлення людям",r_publish:"публікація",r_leaves_allowlist:"вихід із дозволених сайтів",r_off_allowlist:"сайт поза списком",r_class_not_allowed:"цей тип дій не ввімкнено",r_unlabeled_control:"кнопка без підпису",
+w_captcha:"капча",w_bot_challenge:"перевірка «ви не робот»",w_2fa:"код із СМС або застосунку",w_security_challenge:"перевірка безпеки",w_login_required:"потрібно увійти, збереженого входу немає",w_login_failed:"збережений вхід не спрацював",
+allowTitle:"Дозволені сайти",allowSub:"Список порожній, доки ви самі не додасте сайт і не ввімкнете його. «Читання» ввімкнено завжди; решта — за галочками. Домен охоплює свої піддомени.",
+c_read:"читання",c_navigate:"переходи та кліки",c_fill:"заповнення полів",c_submit:"надсилання форм",c_upload:"завантаження файлів",enabled:"увімкнено",login:"вхід зі сховища",noLogin:"без входу",li_pw:"пароль",li_sess:"вхід збережено",li_none:"поки порожньо: увійдіть самі та збережіть",newLogin:"+ новий вхід: увійду сам і збережу…",newLoginName:"ім'я, наприклад linkedin/main",vaultLink:"Відкрити сховище доступу",loginHelpTitle:"Як Surfer входить у ваш акаунт — який спосіб обрати",loginHelp1:"1. Пароль у сховищі (зручно для простих сайтів). У FactoryOS → «Сховище доступу» → «Логіни та паролі» збережіть логін і пароль (сайт, наприклад github, акаунт main). Тут у сайту виберіть його у «вхід зі сховища» і натисніть «Зберегти». Агент сам заповнить форму входу, пароля він не бачить. Якщо сайт попросить код зі СМС — ви вводите його на цій сторінці.",loginHelp2:"2. Увійти один раз самому і зберегти вхід (краще для Google, LinkedIn, OLX — сайтів з кодами і перевірками). У «вхід зі сховища» виберіть «+ новий вхід», впишіть ім'я (наприклад linkedin/main), «Зберегти». Попросіть агента відкрити сайт: сесія стане «чекає на вас» → «Взяти керування» → увійдіть самі на знімку (логін, пароль, код) → «Зберегти вхід у сховище». Далі агент заходить уже залогіненим, поки сайт не попросить увійти знову.",loginHelp3:"3. Готовий вхід зі свого браузера. У «Сховище доступу» → «Сесії браузера» завантажте state.json або експорт Cookie-Editor — він з'явиться тут у списку з позначкою «вхід збережено».",loginHelp4:"Можна поєднувати: пароль + збережений вхід. Спочатку використовується збережений вхід; якщо він застарів — пароль; якщо й це не допомогло або потрібен код — сесія чекає на вас. Без входу агент бачить сайт як гість.",save:"Зберегти",del:"Видалити",addSite:"Додати сайт",domain:"домен, наприклад olx.ua",presets:"Пропозиції (вимкнені, доки не додасте):",add:"додати",emptyAllow:"Сайтів немає.",
+filesTitle:"Файли, які агент може завантажувати",filesSub:"Агент завантажує на сайт лише файли з цього списку (до 10 МБ: зображення, pdf, txt, csv, mp4, mov).",upload:"Додати файл",emptyFiles:"Файлів немає.",
+recTitle:"Рецепти",recSub:"Вдалу сесію можна зберегти як рецепт і повторювати без ШІ. Повтор іде за тими самими правилами: ті самі дозволені сайти й ті самі підтвердження. На першій розбіжності він зупиняється і залишає сторінку агентові або вам.",recSave:"Зберегти як рецепт",recName:"назва рецепта",recParam:"ім'я параметра (латиницею) або порожньо",recHint:"Значення, які мають змінюватися під час кожного запуску, зробіть параметрами: впишіть ім'я, наприклад city.",recRun:"Запустити",recRuns:"Останні запуски",recEmpty:"Рецептів немає.",recSteps:"кроків: {n}",rs_running:"триває",rs_done:"виконано",rs_stopped:"зупинено",rs_interrupted:"перервано перезапуском",
+pastTitle:"Минулі сесії",auditTitle:"Журнал дій",emptyPast:"Поки порожньо.",when:"коли",site:"сайт",
+saved:"Збережено",sent:"Надіслано",error:"Помилка: ",confirmStop:"Закрити сторінку агента?",confirmPause:"Зупинити всі дії Surfer?"},
+en:{title:"Surfer · actions on sites",sub:"The browser agent clicks, fills forms and uploads files in your accounts — only on the sites in your list. Payment, deleting, security settings, messages to people and publishing always wait for your confirmation. It never solves captchas or codes: you type them.",
+gateOn:"Actions are on",gateOff:"Actions are off",gatePaused:"Paused",flagOff:"Off in Render: set FACTORY_SURFER_ACTIONS_ENABLED=1 (task T-722-H).",pause:"Pause: stop everything",unpause:"Resume",usage:"Today: {s} of {sc} sessions, {t} of {tc} steps",sites:"Sites enabled: {n}",
+noLive:"No session is open right now. It appears here when an agent calls web_open.",liveTitle:"Open session",lane:"agent",page:"page",st_opening:"opening",st_active:"the agent is working",st_waiting_human:"waiting for you",st_needs_owner_confirmation:"waiting for confirmation",st_takeover:"you are driving",st_closed:"closed",
+needConfirm:"Your confirmation is needed",wants:"The agent wants to: {action} “{element}”",withValue:"value: {value}",because:"Why it asks: {why}",confirm:"Confirm this step",reject:"Reject",
+needHuman:"The site is waiting for you",codeLabel:"The code or text the page asks for",codeSend:"Enter it",codeEnter:"and press Enter",takeover:"Take over",giveBack:"Give back to the agent",resume:"All good, continue",stop:"Stop the session",
+takeHint:"You are driving the page: click right on the picture. Text goes into the field you clicked.",typeLabel:"Text to type",typeSend:"Type",refresh:"Refresh the picture",saveLogin:"Save this login to the vault",scrollUp:"Up",scrollDown:"Down",noShot:"No picture yet",
+steps:"Steps",who:"who",action:"action",element:"element",result:"result",shot:"picture",open:"open",
+a_click:"click",a_fill:"fill the field",a_select:"choose in the list",a_check:"toggle",a_press:"press a key in",a_upload:"upload a file to",a_goto:"open the address",
+r_payment:"payment or purchase",r_delete:"deleting",r_security:"security or access",r_messaging:"a message to people",r_publish:"publishing",r_leaves_allowlist:"leaving the allowed sites",r_off_allowlist:"a site outside the list",r_class_not_allowed:"this kind of action is not switched on",r_unlabeled_control:"a button without a label",
+w_captcha:"captcha",w_bot_challenge:"anti-bot check",w_2fa:"a code from SMS or an app",w_security_challenge:"security check",w_login_required:"sign-in needed, no saved login",w_login_failed:"the saved login did not work",
+allowTitle:"Allowed sites",allowSub:"The list is empty until you add a site and switch it on yourself. “Read” is always on; the rest follows the boxes. A domain covers its subdomains.",
+c_read:"read",c_navigate:"links and clicks",c_fill:"filling fields",c_submit:"submitting forms",c_upload:"uploading files",enabled:"on",login:"vault login",noLogin:"no login",li_pw:"password",li_sess:"signed-in session",li_none:"empty yet: sign in yourself and save",newLogin:"+ new login: I sign in myself and save…",newLoginName:"name, e.g. linkedin/main",vaultLink:"Open the access vault",loginHelpTitle:"How the Surfer signs in to your account — which way to choose",loginHelp1:"1. Password in the vault (easy for simple sites). In FactoryOS → Access vault → Logins and passwords save the login and password (site e.g. github, account main). Here pick it in “vault login” for the site and press Save. The agent fills the sign-in form itself and never sees the password. If the site asks for an SMS code, you type it on this page.",loginHelp2:"2. Sign in once yourself and save the session (best for Google, LinkedIn, OLX — sites with codes and checks). In “vault login” choose “+ new login”, type a name (e.g. linkedin/main), Save. Ask the agent to open the site: the session will wait for you → Take over → sign in yourself on the picture (login, password, code) → Save this login to the vault. After that the agent arrives already signed in until the site asks again.",loginHelp3:"3. A ready session from your own browser. In Access vault → Browser sessions upload state.json or a Cookie-Editor export — it shows up here marked “signed-in session”.",loginHelp4:"You can combine them: password + saved session. The saved session is used first; if it expired, the password; if that fails too or a code is needed, the session waits for you. With no login the agent sees the site as a guest.",save:"Save",del:"Delete",addSite:"Add a site",domain:"domain, e.g. olx.ua",presets:"Suggestions (off until you add them):",add:"add",emptyAllow:"No sites.",
+filesTitle:"Files the agent may upload",filesSub:"The agent uploads to a site only files from this list (up to 10 MB: images, pdf, txt, csv, mp4, mov).",upload:"Add a file",emptyFiles:"No files.",
+recTitle:"Recipes",recSub:"A successful session can be saved as a recipe and repeated without AI. A replay follows the same rules: the same allowed sites and the same confirmations. At the first mismatch it stops and leaves the page to the agent or to you.",recSave:"Save as a recipe",recName:"recipe name",recParam:"parameter name (latin) or empty",recHint:"Turn the values that should change on every run into parameters: type a name, for example city.",recRun:"Run",recRuns:"Latest runs",recEmpty:"No recipes.",recSteps:"steps: {n}",rs_running:"running",rs_done:"done",rs_stopped:"stopped",rs_interrupted:"interrupted by a restart",
+pastTitle:"Past sessions",auditTitle:"Action log",emptyPast:"Nothing yet.",when:"when",site:"site",
+saved:"Saved",sent:"Sent",error:"Error: ",confirmStop:"Close the agent's page?",confirmPause:"Stop every Surfer action?"}
+};
+const API="/api/factory/surfer/owner";
+let lang=(()=>{try{return localStorage.getItem("fos_lang")}catch(e){return null}})()||(navigator.language||"ru").slice(0,2);
+if(!T[lang])lang="ru";
+let S={gate:{},allow:[],logins:[],presets:[],classes:[],sessions:[],uploads:[],audit:[],recipes:[],runs:[]};
+let helpOpen=false,shotKey="",pastKey="",recKey="",busy=false,timer=null,allowDirty=false;
+const $=id=>document.getElementById(id);
+const tr=(k,v)=>{let s=(T[lang][k]??T.en[k]??k);for(const n in (v||{}))s=s.replace("{"+n+"}",v[n]);return s};
+function h(tag,props,...kids){const el=document.createElement(tag);for(const k in (props||{})){const v=props[k];if(k==="class")el.className=v;else if(k.startsWith("on"))el.addEventListener(k.slice(2),v);else if(v===true)el.setAttribute(k,"");else if(v!==false&&v!=null)el.setAttribute(k,v)}
+  for(const kid of kids.flat()){if(kid==null||kid===false)continue;el.append(kid.nodeType?kid:document.createTextNode(String(kid)))}return el}
+function say(text,bad){const m=$("msg");m.textContent=text||"";m.className="msg "+(bad?"bad":"ok");if(text&&!bad)setTimeout(()=>{if(m.textContent===text)m.textContent=""},4000)}
+async function api(path,body){const opt=body===undefined?{}:{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)};
+  const r=await fetch(API+path,opt);let data={};try{data=await r.json()}catch(e){}
+  if(!r.ok)throw new Error(typeof data.detail==="string"?data.detail:("HTTP "+r.status));return data}
+async function act(fn,okText){if(busy)return;busy=true;try{await fn();allowDirty=false;if(okText)say(okText);await load()}catch(e){say(tr("error")+e.message,true)}finally{busy=false}}
+const when=ts=>ts?new Date(ts*1000).toLocaleTimeString():"";
+const reasons=list=>(list||[]).map(r=>tr("r_"+r)).join(", ");
+
+function renderGate(){const g=S.gate||{},box=$("gate");box.replaceChildren();
+  const state=g.enabled?h("span",{class:"chip ok"},tr("gateOn")):g.paused?h("span",{class:"chip warn"},tr("gatePaused")):h("span",{class:"chip bad"},tr("gateOff"));
+  const u=g.usage||{},c=g.caps||{};
+  box.append(h("div",{class:"row between"},h("div",{class:"row"},state,h("small",null,tr("usage",{s:u.sessions||0,sc:c.sessions||0,t:u.steps||0,tc:c.steps||0})),h("small",null,tr("sites",{n:g.sites_enabled||0}))),
+    g.flag?h("button",{class:g.paused?"primary":"danger",onclick:()=>{if(!g.paused&&!confirm(tr("confirmPause")))return;act(()=>api("/policy/pause",{paused:!g.paused}))}},tr(g.paused?"unpause":"pause")):null));
+  if(!g.flag)box.append(h("p",{class:"warn"},tr("flagOff")))}
+
+function shot(session){const id=session.screen;if(!id)return h("p",{class:"mute"},tr("noShot"));
+  const live=session.status==="takeover";
+  const img=h("img",{src:API+"/steps/"+id+"/screenshot",alt:""});
+  if(live)img.addEventListener("click",ev=>{const r=img.getBoundingClientRect();if(!img.naturalWidth)return;
+    const x=(ev.clientX-r.left)*img.naturalWidth/r.width,y=(ev.clientY-r.top)*img.naturalHeight/r.height;
+    act(()=>api("/sessions/"+session.id+"/control",{kind:"click",x:x,y:y}))});
+  return h("div",{class:"screen"+(live?" live":"")},img)}
+
+function renderLive(){const box=$("live");const s=S.sessions.find(x=>x.status!=="closed");
+  const need=s&&["waiting_human","needs_owner_confirmation","takeover"].includes(s.status);box.className="card"+(need?" need":"");
+  if(!s){box.replaceChildren(h("p",{class:"mute"},tr("noLive")));shotKey="";return}
+  const key=[s.id,s.status,s.screen,s.steps.length,(s.steps[s.steps.length-1]||{}).status,lang].join("|");
+  if(key===shotKey)return;                      /* nothing changed: keep the inputs the owner is typing into */
+  shotKey=key;
+  const kids=[h("div",{class:"row between"},h("h2",null,tr("liveTitle")),h("span",{class:"chip "+(need?"warn":"ok")},tr("st_"+s.status))),
+    h("div",{class:"mute"},tr("lane")+": "+(s.lane||"?")+(s.agent?" ("+s.agent+")":"")+" · "+tr("page")+": "+((s.page||{}).title||"")+" — "+((s.page||{}).url||s.start_url||""))];
+  const step=s.steps.find(x=>x.status==="needs_owner_confirmation");
+  if(step){kids.push(h("h2",null,tr("needConfirm")),
+    h("p",null,tr("wants",{action:tr("a_"+(step.action||step.kind)),element:(step.element||{}).name||step.url||""})+(step.value?" · "+tr("withValue",{value:step.value}):"")+(step.value_from?" · "+step.value_from:"")),
+    h("p",{class:"warn"},tr("because",{why:reasons((step.review||{}).reasons)})),
+    h("div",{class:"row"},h("button",{class:"primary",onclick:()=>act(()=>api("/steps/"+step.id+"/confirm",{}),tr("sent"))},tr("confirm")),
+      h("button",{class:"danger",onclick:()=>act(()=>api("/steps/"+step.id+"/reject",{}),tr("sent"))},tr("reject"))))}
+  if(s.status==="waiting_human"){const code=h("input",{type:"text",id:"code",autocomplete:"off",maxlength:"200",placeholder:tr("codeLabel")}),enter=h("input",{type:"checkbox",id:"codeEnter",checked:true});
+    kids.push(h("h2",null,tr("needHuman")+": "+tr("w_"+(s.wait_reason||"security_challenge"))),
+      h("div",{class:"row"},code,h("label",{class:"box"},enter,tr("codeEnter")),
+        h("button",{class:"primary",onclick:()=>{const text=code.value;if(!text)return;code.value="";act(()=>api("/sessions/"+s.id+"/input",{text:text,submit:enter.checked}),tr("sent"))}},tr("codeSend"))),
+      h("div",{class:"row"},h("button",{onclick:()=>act(()=>api("/sessions/"+s.id+"/takeover",{on:true}))},tr("takeover")),
+        h("button",{onclick:()=>act(()=>api("/sessions/"+s.id+"/takeover",{on:false}))},tr("resume"))))}
+  if(s.status==="active")kids.push(h("div",{class:"row"},h("button",{onclick:()=>act(()=>api("/sessions/"+s.id+"/takeover",{on:true}))},tr("takeover"))));
+  if(s.status==="takeover"){const text=h("input",{type:"text",id:"typed",autocomplete:"off",maxlength:"500",placeholder:tr("typeLabel")});
+    const ctl=(body,ok)=>act(()=>api("/sessions/"+s.id+"/control",body),ok);
+    kids.push(h("p",{class:"warn"},tr("takeHint")),
+      h("div",{class:"row"},text,h("button",{class:"primary",onclick:()=>{const v=text.value;if(!v)return;text.value="";ctl({kind:"type",text:v})}},tr("typeSend")),
+        ...["Enter","Tab","Backspace","Escape"].map(k=>h("button",{class:"small",onclick:()=>ctl({kind:"key",key:k})},k)),
+        h("button",{class:"small",onclick:()=>ctl({kind:"scroll",dy:-600})},tr("scrollUp")),h("button",{class:"small",onclick:()=>ctl({kind:"scroll",dy:600})},tr("scrollDown")),
+        h("button",{class:"small",onclick:()=>ctl({kind:"refresh"})},tr("refresh"))),
+      h("div",{class:"row"},s.login?h("button",{onclick:()=>ctl({kind:"save_login"},tr("sent"))},tr("saveLogin")+" ("+s.login+")"):null,
+        h("button",{class:"primary",onclick:()=>act(()=>api("/sessions/"+s.id+"/takeover",{on:false}))},tr("giveBack"))))}
+  kids.push(shot(s),h("div",{class:"row"},h("button",{class:"danger",onclick:()=>{if(confirm(tr("confirmStop")))act(()=>api("/sessions/"+s.id+"/stop",{}))}},tr("stop"))),stepsTable(s),recipeForm(s));
+  box.replaceChildren(...kids)}
+
+function stepsTable(s){const rows=s.steps.slice(-40).reverse().map(x=>h("tr",null,h("td",null,String(x.seq)),h("td",null,x.by||""),h("td",null,(x.action||x.kind)+(x.key?" "+x.key:"")),
+  h("td",null,((x.element||{}).name||x.url||"")+(x.value?" = "+x.value:"")+(x.value_from?" = "+x.value_from:"")),
+  h("td",{class:x.status==="done"?"ok":["failed","blocked","refused","rejected"].includes(x.status)?"bad":"warn"},x.status+(x.blocker?" · "+x.blocker:"")+(((x.review||{}).reasons||[]).length?" · "+reasons(x.review.reasons):"")),
+  h("td",null,x.screenshot?h("a",{href:API+"/steps/"+x.id+"/screenshot",target:"_blank",rel:"noopener"},tr("open")):"")));
+  return h("details",{open:s.status!=="closed"},h("summary",null,tr("steps")+" ("+s.steps.length+")"),h("table",null,h("tr",null,...["#","who","action","element","result","shot"].map(k=>h("th",null,k==="#"?"#":tr(k)))),...rows))}
+
+function siteRow(e){const boxes={};const classRow=h("div",null,...S.classes.map(c=>{const b=h("input",{type:"checkbox",checked:c==="read"||e.classes.includes(c),disabled:c==="read"});boxes[c]=b;return h("label",{class:"box"},b,tr("c_"+c))}));
+  const on=h("input",{type:"checkbox",checked:!!e.enabled});
+  const info=(S.loginInfo&&S.loginInfo.length)?S.loginInfo:S.logins.map(l=>({login:l,password:true,session:false}));
+  const known=info.some(r=>r.login===e.login);
+  const label=r=>r.login+" — "+([r.password?tr("li_pw"):"",r.session?tr("li_sess"):""].filter(Boolean).join(" + ")||tr("li_none"));
+  const login=h("select",null,h("option",{value:""},tr("noLogin")),
+    ...info.map(r=>h("option",{value:r.login,selected:r.login===e.login},label(r))),
+    e.login&&!known?h("option",{value:e.login,selected:true},label({login:e.login})):null,
+    S.vaultReady?h("option",{value:"__new"},tr("newLogin")):null);
+  const fresh=h("input",{type:"text",placeholder:tr("newLoginName"),maxlength:"121",style:"display:none"});
+  login.addEventListener("change",()=>{fresh.style.display=login.value==="__new"?"":"none";if(login.value==="__new")fresh.focus()});
+  const body=()=>{const isNew=login.value==="__new";return {id:e.id,pattern:e.pattern,classes:S.classes.filter(c=>boxes[c].checked),enabled:on.checked,
+    login:isNew?fresh.value.trim():login.value,new_login:isNew||(!!e.login&&login.value===e.login&&!known),note:e.note||""}};
+  return h("div",{class:"site"},h("div",{class:"row between"},h("b",null,e.pattern),h("span",{class:"chip "+(e.enabled?"ok":"")},e.enabled?tr("enabled"):"—")),e.note?h("small",null,e.note):null,classRow,
+    h("div",{class:"row"},h("label",{class:"box"},on,tr("enabled")),h("label",{class:"box"},tr("login")+": ",login),fresh,
+      h("button",{class:"primary small",onclick:()=>act(()=>api("/policy/allow",body()),tr("saved"))},tr("save")),
+      h("button",{class:"danger small",onclick:()=>act(()=>api("/policy/allow/"+e.id+"/delete",{}))},tr("del"))))}
+function renderAllow(){const box=$("allow");if(allowDirty)return;        /* unsaved boxes are not wiped by the refresh */
+  const domain=h("input",{type:"text",id:"newSite",placeholder:tr("domain"),maxlength:"100"});
+  box.replaceChildren(h("details",{class:"site",open:helpOpen,ontoggle:ev=>{helpOpen=ev.target.open}},h("summary",null,tr("loginHelpTitle")),
+      ...["loginHelp1","loginHelp2","loginHelp3","loginHelp4"].map(k=>h("p",null,tr(k))),
+      h("p",null,h("a",{href:"/#vault",target:"_blank",rel:"noopener"},tr("vaultLink")))),
+    ...(S.allow.length?S.allow.map(siteRow):[h("p",{class:"mute"},tr("emptyAllow"))]),
+    h("div",{class:"row",style:"margin-top:10px"},domain,h("button",{onclick:()=>{const v=domain.value.trim();if(v)act(()=>api("/policy/allow",{pattern:v,classes:["read","navigate"],enabled:false}),tr("saved"))}},tr("addSite"))),
+    S.presets.length?h("div",{style:"margin-top:10px"},h("small",null,tr("presets")),h("div",{class:"row"},...S.presets.map(p=>h("button",{class:"small",title:p.note||"",onclick:()=>act(()=>api("/policy/allow",{pattern:p.pattern,classes:p.classes,enabled:false,note:p.note}),tr("saved"))},p.pattern+" · "+tr("add"))))):"")}
+
+function renderFiles(){const box=$("files");const pick=h("input",{type:"file",id:"pick"});
+  pick.addEventListener("change",()=>{const f=pick.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const b64=String(rd.result).split(",")[1]||"";act(()=>api("/uploads",{name:f.name,data_b64:b64}),tr("saved"))};rd.readAsDataURL(f)});
+  box.replaceChildren(S.uploads.length?h("table",null,...S.uploads.map(u=>h("tr",null,h("td",null,u.name),h("td",null,h("code",null,u.id)),h("td",null,Math.ceil(u.bytes/1024)+" KB"),
+    h("td",null,h("button",{class:"danger small",onclick:()=>act(()=>api("/uploads/"+u.id+"/delete",{}))},tr("del")))))):h("p",{class:"mute"},tr("emptyFiles")),
+    h("div",{class:"row",style:"margin-top:8px"},h("label",null,tr("upload")+": "),pick))}
+
+function recipeForm(s){const name=h("input",{type:"text",placeholder:tr("recName"),maxlength:"60"});
+  const fills=s.steps.filter(x=>x.status==="done"&&x.by!=="owner"&&["fill","select"].includes(x.action)&&x.value!=null&&!x.value_from);
+  const inputs=fills.map(x=>[x.seq,h("input",{type:"text",placeholder:tr("recParam"),maxlength:"30"})]);
+  return h("details",null,h("summary",null,tr("recSave")),h("p",{class:"mute"},tr("recHint")),h("div",{class:"row"},name),
+    ...inputs.map((pair,i)=>h("div",{class:"row"},h("small",null,"#"+pair[0]+" "+((fills[i].element||{}).name||"")+" = "+fills[i].value),pair[1])),
+    h("div",{class:"row"},h("button",{class:"primary small",onclick:()=>{const params={};inputs.forEach(pair=>{const v=pair[1].value.trim();if(v)params[pair[0]]=v});
+      act(()=>api("/recipes",{session_id:s.id,name:name.value,params:params}),tr("saved"))}},tr("save"))))}
+function renderPast(){const past=S.sessions.filter(x=>x.status==="closed").slice(0,15);const key=past.map(x=>x.id).join()+lang;if(key===pastKey)return;pastKey=key;
+  $("past").replaceChildren(...(past.length?past.map(s=>h("div",{class:"site"},h("div",{class:"mute"},when(s.created)+" · "+(s.lane||"")+" · "+(s.start_url||"")+" · "+(s.close_reason||"")),stepsTable(s),recipeForm(s))):[h("p",{class:"mute"},tr("emptyPast"))]))}
+function renderRecipes(){const key=JSON.stringify([S.recipes.map(r=>r.id),S.runs.map(r=>[r.id,r.status,r.at_step]),lang]);if(key===recKey)return;recKey=key;
+  const rows=S.recipes.map(r=>{const inputs=r.params.map(n=>[n,h("input",{type:"text",placeholder:n,maxlength:"500"})]);
+    return h("div",{class:"site"},h("div",{class:"row between"},h("b",null,r.name),h("small",null,r.site+" · "+tr("recSteps",{n:r.steps.length})+" · "+(r.lane||""))),
+      h("div",{class:"row"},...inputs.map(pair=>pair[1]),
+        h("button",{class:"primary small",onclick:()=>{const params={};inputs.forEach(pair=>{params[pair[0]]=pair[1].value});act(()=>api("/recipes/"+r.id+"/run",{params:params}),tr("sent"))}},tr("recRun")),
+        h("button",{class:"danger small",onclick:()=>act(()=>api("/recipes/"+r.id+"/delete",{}))},tr("del"))))});
+  const runs=S.runs.length?h("details",null,h("summary",null,tr("recRuns")),h("table",null,...S.runs.map(r=>h("tr",null,h("td",null,when(r.started)),h("td",null,r.recipe),h("td",null,r.by||""),
+    h("td",{class:r.status==="done"?"ok":r.status==="stopped"?"warn":""},tr("rs_"+r.status)+" · "+r.at_step+"/"+r.steps_total+(r.reason?" · "+r.reason:"")))))):null;
+  $("recipes").replaceChildren(...(rows.length?rows:[h("p",{class:"mute"},tr("recEmpty"))]),runs)}
+function renderAudit(){$("audit").replaceChildren(S.audit.length?h("table",null,h("tr",null,...["when","who","site","action","element","result"].map(k=>h("th",null,tr(k)))),
+  ...S.audit.map(a=>h("tr",null,h("td",null,(a.at||"").replace("T"," ").replace("Z","")),h("td",null,a.who||""),h("td",null,a.url||""),h("td",null,(a.action||"")+(a.value?" = "+a.value:"")),h("td",null,a.element||""),
+    h("td",null,(a.result||"")+(a.blocker?" · "+a.blocker:"")+((a.reasons||[]).length?" · "+reasons(a.reasons):""))))):h("p",{class:"mute"},tr("emptyPast")))}
+
+function renderStatic(){document.documentElement.lang=lang;document.querySelectorAll("[data-t]").forEach(el=>{el.textContent=tr(el.dataset.t)});$("lang").value=lang}
+function render(){renderGate();renderLive();renderAllow();if(!$("files").contains(document.activeElement))renderFiles();if(!$("recipes").contains(document.activeElement))renderRecipes();if(!$("past").contains(document.activeElement))renderPast();if($("auditBox").open)renderAudit()}
+async function load(){try{const [pol,ses,up,rec]=await Promise.all([api("/policy"),api("/sessions"),api("/uploads"),api("/recipes")]);S.recipes=rec.recipes;S.runs=rec.runs;
+    S.gate=pol.gate;S.allow=pol.allow;S.logins=pol.logins;S.loginInfo=pol.login_info||[];S.vaultReady=!!pol.vault_ready;S.presets=pol.presets;S.classes=pol.classes;S.uploads=up.uploads;S.sessions=ses.sessions;
+    const live=S.sessions.find(x=>x.status!=="closed");if(live){const one=await api("/sessions/"+live.id);Object.assign(live,one.session)}
+    if($("auditBox").open)S.audit=(await api("/audit?limit=150")).audit;
+    render();schedule(live?2500:10000)}catch(e){say(tr("error")+e.message,true);schedule(15000)}}
+function schedule(ms){clearTimeout(timer);timer=setTimeout(load,ms)}
+$("lang").addEventListener("change",ev=>{lang=ev.target.value;try{localStorage.setItem("fos_lang",lang)}catch(e){}shotKey="";pastKey="";recKey="";renderStatic();render()});
+$("allow").addEventListener("input",()=>{allowDirty=true});
+$("auditBox").addEventListener("toggle",()=>{if($("auditBox").open)load()});
+renderStatic();load();
+</script>
+</body>
+</html>

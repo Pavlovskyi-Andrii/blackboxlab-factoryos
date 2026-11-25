@@ -29,7 +29,9 @@ except Exception:  # tzdata missing: label the fallback honestly instead of pret
 SIGNALS = ("host", "ec2_api", "systemd", "oauth", "heartbeat", "relay_claim", "current_task")
 SIGNAL_STATES = ("ok", "warn", "fail", "idle", "unknown")
 SUPERVISOR_FIELDS = ("checked_at", "status", "reason", "service_state", "subscription_authenticated",
-                     "restart_attempts_last_hour", "recovery_action")
+                     "restart_attempts_last_hour", "recovery_action",
+                     # T-714: the loop-heartbeat watchdog's verdict per unit, e.g. "ok", "restart:loop_heartbeat_stale".
+                     "watchdog_claude_worker", "watchdog_surfer_worker")
 SUPERVISOR_STALE_SECONDS = 600  # the supervisor timer runs every minute
 HEATMAP_DAYS = 28
 ACTIVE = ("claimed", "running", "checkpoint", "committed", "pushed")

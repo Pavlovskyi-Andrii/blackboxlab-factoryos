@@ -27,6 +27,69 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.19.1 — Surfer snapshot waits for the page to finish drawing — 2026-11-23
+
+- Surfer: after a click, key press, choice or toggle, the snapshot waits until the page stops changing (0.5 s quiet, at most 3 s), so content drawn a moment later (MyBrief "Show my briefing") is in the answer (T-727, #461).
+
+### v5.19.0 — Surfer requests mirrored for the owner — 2026-11-23
+
+- `surfer_pending` (MCP, Claude lane only, read-only): what the Surfer waits for from the owner right now — a step to confirm, a code or login, a takeover — with a short RU/UK/EN text and the link to the Surfer page, so Claude can mirror it as tickets on the owner task page. No screenshots, values, codes or URLs; answering stays on the Surfer page (T-726, #458).
+
+### v5.18.3 — Surfer worker restarts itself when stuck — 2026-11-23
+
+- Surfer worker: a self-watchdog thread restarts the worker (systemd) when its main loop misses the deadline of its last heartbeat; one pass now promises 6 minutes instead of 15. A stuck worker no longer depends on the external supervisor timer (#460).
+
+### v5.18.2 — Surfer worker never stays stuck on one page — 2026-11-23
+
+- Surfer: every action command has a 90-second deadline. A page that never answers (a script that does not return) no longer blocks the Surfer worker: the browser is killed, the step reports `worker_timeout`, the session closes and the next session or page read gets a fresh browser. Also: the link-click wait follow-ups (#457) (#459).
+
+### v5.18.1 — Surfer: a link click waits for in-page navigation — 2026-11-23
+
+- Surfer: after a click on a link, the agent's snapshot waits briefly for the URL to change, so sites that navigate in-page (GitHub, single-page apps) show the new page instead of the old one. Found in the first clean live session (open the repo page → click Issues) (#456).
+
+### v5.18.0 — Surfer: login choices, no false code wall — 2026-11-23
+
+- Surfer after the first live session: a code (2FA) wall needs a field that looks like the code box, so a page that only mentions SMS codes no longer stops the agent; the site's "vault login" list shows passwords and saved browser sessions; a new login can be bound and saved after the owner signs in once with Take over; "How the Surfer signs in" help on the Surfer page with a link to Access vault (`/#vault`); the stray "null" under "Add a site" is gone (#455).
+
+### v5.17.0 — Surfer acts on allowed sites, Google Sheets for agents, post images, Surfer worker — 2026-11-21 … 2026-11-23
+- **Surfer actions (new):** the browser agent can click, fill forms and upload files in the owner's signed-in
+  accounts, driven by Claude / ChatGPT through MCP (`web_open`, `web_act`, `web_snapshot`, `web_close`) with their
+  own lane key. One live page at a time on the Surfer worker; passwords are filled only by vault reference and never
+  shown; every step is in the action log (T-720, #448).
+- **Surfer policy gate:** off until the owner sets `FACTORY_SURFER_ACTIONS_ENABLED=1`; an allowlist of sites with
+  action classes that starts empty; payment, delete, security settings, messages to people, publishing and anything
+  outside the list wait for the owner's confirmation; login walls, captchas and SMS codes go to the owner and are
+  never solved; daily caps (T-721, #449).
+- **Surfer page** `/static/surfer/index.html` (RU/UK/EN): the open session with screenshots, Confirm / Reject / Stop,
+  a box for the SMS code, Take over, the allowlist, a pause switch, approved upload files, the action log. Owner
+  runbook T-722-H (T-722, #450).
+- **Surfer recipes:** a successful session saved as a recipe with parameters and replayed without AI under the same
+  rules (`web_recipe`); it stops at the first mismatch (T-723, #451).
+- **Surfer self-test:** one scenario on a fixture site, in CI with a page double and in real Chromium on request
+  (T-724, #453).
+- **Google Sheets for agents:** `sheet_list` / `sheet_read` / `sheet_append` through the official Sheets API, only for
+  spreadsheets the owner added, off until `FACTORY_GOOGLE_SHEETS_ENABLED=1`; page `/static/sheets/index.html`
+  (T-725, #447).
+- **Social autopilot:** every post gets a teaser image (Telegram photo, LinkedIn Images API) (T-713, #444).
+- **Surfer worker:** browser tasks run in their own process on EC2 with a Surfer lane in Worker Center and a
+  loop-heartbeat watchdog; owner step T-714-H installs the unit (T-714, #445).
+- **Rules and answers:** a promise to report back is always scheduled (#446); owner answers of 2026-11-21 (#441).
+
+### v5.16.0 — Launchpad Discovery agents, agent workspace panel, AI Video Editor decisions, worker catch-up — 2026-11-21
+- **MVP Builder · Launchpad (Business League L2):** the manual MyCast D1–D3 run is imported as the benchmark (the
+  MyCast board no longer starts empty; its G1/G2 stay proposals), an owner-started Discovery run fills D1–D3 from
+  fetched public sources on the free Gemini key, and the Launchpad page shows a read-only comparison of agent output
+  against the benchmark (EN/UK/RU). A quote, price or date that is not in the fetched text becomes "unknown" (T-705, #439).
+- **Worker Center:** a panel for the shared agent workspace, inside the technical details (T-626, #439).
+- **MVP workers:** versioned contracts for the 13 logical roles (T-631, #439).
+- **AI Media Finisher → AI Video Editor v1:** word-safe edit decisions with reasons, confidence and undo, a measured QA
+  report and render metrics as review evidence; a final file that does not decode fails the job. No real render or
+  pilot is claimed yet (R-0089, #428).
+- **Owner Issue intake:** GitHub Issues are polled every 120 s instead of 300 s (#413).
+- **EC2 worker:** it was 50 commits behind `main` since 2026-11-17 because of a merge conflict; it is back on current
+  code, so the Surfer fix for ids with dots (T-674) now runs on production reads.
+- **Docs:** FactoryOS architecture map (#417); Film Studio 45 s storyboard package, rights-gated (#435).
+
 ### v5.15.0 — Business League Launchpad in MVP Builder, MyCast render without apt — 2026-11-20 … 2026-11-21
 - **MVP Builder · Launchpad (Business League L1):** a board per project that takes an idea to first sales through
   checks D1–D7, a 7-day MVP, channels and gates G1–G5. Facts need a source and a date, missing data stays

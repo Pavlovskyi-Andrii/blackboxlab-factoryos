@@ -1,3 +1,196 @@
+## UX-first Owner Home + internal Growth Manager (owner 2026-11-23, issue #452 + Amendment A1)
+
+Research, specification and prototype only. No production dashboard change, no publishing, no spend. Owner answers: `.autopilot/answers.md` «#452».
+S5 (implementation) is not on the roadmap until the owner gate.
+
+- [x] T-731 #452 S0–S1: access, terms and overlap audit + Ploy public UX/functional benchmark
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (direct owner assignment 2026-11-23; runs right after the T-590–T-593 close-out)
+  Spec: Issue #452 §1–§3 and Amendment A1 (A1.1, A1.6). Format precedent: `docs/HERCULES_PUBLIC_COMPETITIVE_TEARDOWN.md`.
+  Goal: Overlap Matrix (existing tasks, files, owners, what #452 adds); Ploy terms quoted with URL and date; Competitor Evidence Ledger and UX pattern inventory from public pages only (no account, no crawling, no copies of Ploy pages or assets); capability matrix Ploy ↔ FactoryOS; two adjacent public UX references.
+  DONE: `docs/research/ploy-public-ux-functional-benchmark.md` exists with every factual claim cited (URL, date, evidence type, confidence) and "not observed" where a screen was not seen; `python test_verification_docs.py`; default verification.
+  Done 2026-11-23: 18 docs pages + 3 site pages + terms read through the Markdown interface Ploy publishes for AI tools (no account, no login); 43 ledger rows, 16 patterns with adopt/adapt/reject, 8 rejections, Overlap Matrix, capability matrix, Linear and PostHog as references. Not observed and stated in the document: the authenticated app and every image (so Ploy's visual design is not described).
+
+- [x] T-732 #452 S2: FactoryOS current-state audit, owner-first journeys and two or three IA directions → Checkpoint A
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-731
+  Spec: Issue #452 §4–§5 and Amendment A1 (A1.3, A1.4, A1.5).
+  Goal: route and screen inventory from the code; screenshots from `tools/ui_screenshots.py` (768 px added) of the local fixture, labelled as such; defects ranked by severity; journeys for the owner, a future client and a specialist; navigation before/after with every current route mapped; "one source per status" table for Owner Home; two or three low-fidelity directions with one recommended.
+  DONE: `docs/ux/factoryos-current-state-audit.md` and `docs/ux/factoryos-owner-first-ia-spec.md` exist; screenshots under `docs/screenshots/t-732/`; a short owner summary in Russian is delivered and the owner picks a direction (Checkpoint A) before T-733 starts.
+  Done 2026-11-24: audit (re-measured on v5.19.1), IA spec and Checkpoint A page delivered 2026-11-23. Owner chose direction 2 «Продукты и цели» plus a visible switch to the current full dashboard («Pro version») and back, remembered per browser (owner 2026-11-24 ~04:10 UTC, relayed to this session by the coordination session; `.autopilot/answers.md` «#452 Checkpoint A»).
+
+- [x] T-733 #452 S3–S4: clickable prototype (Owner Home + Growth Manager goal wizard + approval + metrics), Growth Manager RFC and backlog → OWNER GATE
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-732 and the owner's Checkpoint A choice
+  Spec: Issue #452 §5–§10 and Amendment A1 (A1.1, A1.2, A1.4, A1.5, A1.7).
+  Goal: prototype in `docs/prototypes/owner-home-growth/` (fixture data marked DEMO DATA, eight states, EN/UK/RU, phone and desktop), opened behind login through the Learn section; RFC with the mapping table (24 mission fields and 11 states → existing fields/enums or "missing"), executor and cost per step, the designed first-party visit + variant event for MyCast; test plan with expert review, automated checks and a 10–15 minute script for the owner and the 3–4 people he brings; backlog of small tickets with the first PR specified to file level.
+  DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-733/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
+  Done 2026-11-24: prototype `docs/prototypes/owner-home-growth/index.html` (Learning → «New home: products and goals»; 8 states × 9 views × EN/UK/RU, phone and desktop, «Pro version» switch remembered per browser), RFC with field and state mapping and backlog B-01…B-08 (first PR: first-party visit counter), test plan with automated results (432 renders clean; T1–T7 scripted: T2 = 2 clicks), decision record, screenshots `docs/screenshots/t-733/`, `test_owner_home_prototype.py` in CI. People test: NOT STARTED (owner brings 3–4 people). S5 waits for the owner gate.
+
+## Worker reliability (MyCast incident, owner 2026-11-25)
+
+- [x] T-738 Owner alert in Telegram when the Claude worker stops sending heartbeats, and when it is back
+  Owner: claude-session (interactive Claude session)
+  Priority: P1 (owner 2026-11-25: «розберись з цією помилкою»; the morning MyCast did not arrive because the worker was silent for about 17 hours and nothing alerted)
+  Spec: DECISIONS.md «2026-11-25 — T-738»; `worker_offline_alert.py`; Relay th_fe5e4dff6d283a88.
+  Goal: one message to the paired owner chat after 15 minutes without a heartbeat (without sound 23:00–08:00 Kyiv) and one when the worker is back; no repeat after a deploy; $0, no new service.
+  DONE: `python test_worker_offline_alert.py`; smoke block «T-738»; default verification; CI green.
+  Not proven live: the first real alert comes with the next real silence (or the owner stops the worker for 15 minutes). Root cause of the 2026-11-24 silence is still open.
+
+- [x] T-728 Surfer queue: a stuck head task cannot block reads; agents can tell "worker down" from "queue blocked"
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (incident 2026-11-25 20:37 UTC, relayed by the parent session: two MCP web_read tasks stayed "queued" with the same queue_ahead for 15+ min)
+  Spec: DECISIONS.md «2026-11-25 — T-728». `browser_tasks.py`, `web_surfer.py`, `autopilot/browser_tasks.py`, `autopilot/browser_worker.py`.
+  Goal: a running task whose lease (now 300 s) expired is requeued once, then fails as `lease_expired`; a task nobody claimed for 30 min fails as `queue_timeout` (frees the 20-task cap); a refused claim (401/5xx) is a worker error with `last_error` in the heartbeat, no longer a silent "idle"; a live action session's browser counts as "Chromium works", so a failing second launch probe never parks reads; `GET /api/factory/browser/agent/queue` (browser-agent token) and `queue` + hints on every queued `web_task`/`web_read` answer give the verdict (worker_offline / worker_unavailable / worker_cannot_claim / worker_not_claiming / queue_blocked / ok), oldest queued age, the head task, worker heartbeat / last poll / last claim.
+  DONE: `python test_browser_tasks.py` (QueueHealthTest), `python -m autopilot.test_browser_worker` (QueueNeverSilentTest), `python test_web_surfer.py`, default verification, CI green.
+  Root cause (reproduced with real Playwright): the launch probe fails while the action runner holds its Playwright → "unavailable" loop that skipped `pump()` and kept beating, so no watchdog fired; fixed (no probe while Playwright is held, pump in the unavailable path, exit 75 after 10 min unavailable). Second cause (EC2 journal): restart loop from the (mtime, size) code-change detector → `start-limit-hit`; now a content hash, settled over two checks after 5 min uptime; unit 20 starts / 15 min (owner reruns `install_surfer_worker.sh` to apply the unit change).
+
+## Faceless Creator A/B (#469, owner 2026-11-24)
+
+- [x] T-737 #469 S1: private 9:16 face-switch clip (one clothed synthetic presenter, three fictional faces) with a QA receipt that measures the switch; scripts A (privacy) and B (creative control)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-24: «второй приоритет — Faceless Creator, Issue #469», after T-736)
+  Depends: T-730
+  Spec: issue #469 «first measurable deliverable»; Relay th_b91be476434e470b (audit / decision); DECISIONS.md «2026-11-24 — T-737»; `film_studio/face_switch.py`, `film_studio/README.md` «Faceless Creator A/B».
+  Goal: 25–40 s, 1080x1920, H.264 + AAC; the same body, hoodie, room and voice before and after each snap, only the fictional face changes; «AI · SYNTHETIC DEMO» on every frame, 18+ / no-guarantee disclaimer on the end card; QA receipt from the decoded MP4 (ffprobe, full decode, 9:16, frame count, loudness, black stretches, label, and per switch the mean change of the face area against body and room); $0, offline, private output only.
+  DONE: `python test_face_switch.py`; `python -m film_studio.face_switch --variant A|B --out <private dir>` gives `qa_receipt.json` status PASS; default verification; both clips sent privately to the owner for a 1–10 score.
+  Result 2026-11-24: A 28.7 s (860 frames) and B 26.4 s (793 frames), both PASS; face area change 29.5–31.8 vs body/room ≤ 2.3 (ratio 13–32); -16 LUFS / -1.6 dBTP; voice espeak-ng `en-us+f3` (robotic, offline); about 110 s per render on 2 CPUs; sent to the owner in the Claude session, not published, not in git. Not claimed: photorealism, audience demand, an A/B winner, any owner score.
+  Blocked (photorealism, owner choice): no generative model is reachable at $0 from this environment (huggingface.co answers 403 through the agent proxy, no GPU). Unblock: allow huggingface.co for the Claude cloud environment again (then an open-weights model on CPU, licence checked before use), or send 2–3 synthetic frames of one clothed character from an already paid tool where only the face differs.
+  Next (S2, not started): owner score 1–10 + notes per branch and version in the A/B tester (T-608), «Generate 2 concepts» wiring, re-render only the stage the owner flags, v1/v2 side by side.
+  Owner review 2026-11-24 (23:12 Kyiv): A and B scored 0/10 — the drawn style and the espeak voice are rejected; FactoryOS needs photorealism. Owner's direction: prompt → candidate photos from 4–5 image models → pick one → image-to-video (Seedance 2.5 named as a likely option). That is a paid path: nothing is generated until the owner approves a provider, an API key and a spend limit. The procedural renderer stays only as the offline assembler / QA for real clips.
+
+## AI Film Studio (#433)
+
+- [x] T-730 AI Film Studio S1: contracts + rights gate + deterministic shot plan + offline Photo Cinema render + QA receipt
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner-approved #433; Relay th_ebeb7e1c851168a7, 2026-11-20..22: «Действуй», «Пиши ему чтоб делал»)
+  Spec: issue #433; shot pack `docs/storyboards/blackbox-lab-45s/` (PR #435); DECISIONS.md «2026-11-23 — T-730». Code: `film_studio/`.
+  Goal: versioned storyboard / film bible / asset manifest with a strict validator (unknown or unverified rights fail closed); per-shot plan in whole frames (45.000 s at 24 fps, 16:9) with content-keyed per-shot re-render; offline FFmpeg 2.5D camera moves + parallax layer + crossfades + DEMO label + RU captions; QA receipt (ffprobe, full decode, frame count, black stretches, per-shot sha256 + licence, voice source, cost $0). Output stays private, never in git.
+  DONE: `python test_film_studio.py`; `python -m film_studio.render --out <private dir> --procedural-standins` gives a PASS receipt; default verification.
+  Result 2026-11-23: the 45 s film renders at 1920x1080 from original procedural stand-in stills (labelled «DEMO · иллюстрация, не фото»), silent AAC track + burned-in captions. Realistic-photo film and narration are blocked.
+  Blocked (owner, not a roadmap task yet): the cloud session's network policy refuses www.pexels.com / images.pexels.com and huggingface.co (HTTP 403 from the agent proxy), so photo licences cannot be read and no offline RU voice can be fetched. To unblock: allow those hosts for the Claude cloud environment, or supply the 7 photos (owned/licensed stills, author + page URL + licence) and a narration recording, or approve a specific offline RU voice after its licence is read. Narration input itself is S2 work (S1 lays a silent track).
+
+- [x] T-735 AI Film Studio S2: narration lines per shot (offline Piper voice or owner recording), loudness-normalised mix, owner photo substitutes a stock shot
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-24: allowed Pexels + Hugging Face for the environment, sent a portrait and a voice sample)
+  Depends: T-730
+  Spec: DECISIONS.md «2026-11-24 — T-735». `film_studio/narration.py` (`film-studio/narration/v1`), `render.py --narration`, manifest `substitutes_for` in `--manifest` mode, QA receipt loudness checks.
+  Goal: one WAV per shot (sha256-pinned, starts 0.25 s after the cut, must end before the shot ends), mixed and normalised to -16 LUFS / -1.5 dBTP; QA measures integrated loudness, true peak and audibility; voice source and licence recorded (Piper model sha256 + dataset licence, or the owner's consent for a recording). An owner-supplied photo can replace a storyboard shot through `substitutes_for`. Owner photos and voice never go into git.
+  DONE: `python test_film_studio.py` (narration contract, placement, refusal cases, owner substitution, e2e render with loudness), default verification.
+  Result 2026-11-24: private 45 s film v2 (1920x1080, 24 fps, 1080 frames) with RU narration by Piper ru_RU-dmitri-medium (dataset CC0) at -15.5 LUFS / -1.4 dBTP and the owner's portrait as the final shot; QA PASS; sent to the owner privately in the Claude session, not published, not in git.
+  Blocked: stock shots s01–s06 are still procedural stand-ins. www.pexels.com answers a Cloudflare bot challenge to the data-centre session (the host is allowed, the page is not served), so a photo's author and licence cannot be read. Unblock: a free Pexels API key from the owner's Pexels account (host api.pexels.com), or the owner sends photos for those shots. Narration in the owner's own voice: the owner records the 7 lines, or approves voice cloning with a named model and licence (private demo only).
+
+- [x] T-720 Surfer action sessions (core): a live browser page that acts — web_open / web_act / web_snapshot / web_close
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner brief 2026-11-22: a tool that acts on sites instead of him, in his own signed-in accounts)
+  Depends: T-560, T-624, T-714
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md`; DECISIONS.md «2026-11-22 — T-720». `surfer_actions.py`, `browser_runner/action_policy.py`, `browser_runner/action_session.py`, `autopilot/browser_actions.py`, `autopilot/browser_worker.py`.
+  Goal: a session = one live page on the Surfer worker kept across steps (idle 5 min, 15 min while it waits for the owner, 30 min hard, one at a time). MCP tools and the same over REST (`/api/factory/surfer/agent/{tool}`, lane token): `web_open`, `web_act` (click, fill, select, check, press, upload, scroll, wait_for, back), `web_snapshot` (title, url, text chunk, interactive elements with refs), `web_close`. Secret-field values, cookies and storage are never returned; secrets are filled only by vault reference, resolved when the worker claims the command; the worker replaces every secret it typed in what it reports. Every step is in the audit log. Ships closed (`ClosedGate`) until T-721.
+  DONE: `python test_surfer_actions.py`, `python test_browser_tasks.py`, `python -m autopilot.test_browser_worker`, `python test_web_surfer.py`, `python test_agent_workspace.py`, default verification.
+
+- [x] T-721 Surfer policy gate: owner flag, allowlist with action classes, sensitive-step confirmation, daily caps
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-720
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Policy gate; DECISIONS.md «2026-11-22 — T-721». `surfer_policy.py`, `browser_runner/action_policy.py`, `surfer_actions.py`.
+  Goal: server-side, fail closed: `FACTORY_SURFER_ACTIONS_ENABLED` (off by default) + owner pause switch; allowlist store (domain patterns + classes read/navigate/fill/submit/upload + optional vault login), nothing on by default; sensitive steps (payment, delete, security settings, messaging, publishing, leaving the allowlist, a class not switched on) → `needs_owner_confirmation` with a preview; login wall / captcha / SMS code → `waiting_human`; per-day session and step caps; lane identity from the per-lane MCP token, the shared token may not act.
+  DONE: `python test_surfer_policy.py`, `python test_surfer_actions.py`, default verification.
+
+- [x] T-722 Surfer owner page `static/surfer/index.html`: live sessions, Confirm / Reject / Stop, code box, Take over, allowlist, pause, audit
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-721
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Owner page.
+  Goal: RU/UK/EN page: live session with steps and screenshots, Confirm / Reject / Stop, a box for the SMS code or text the page asks for, Take over (screenshot + click coordinates + typed text), allowlist editor, pause switch, approved upload files, audit history; `GET /api/factory/surfer/owner/pending` (owner-only JSON) for another agent session to mirror; owner runbook + `[HUMAN]` task for the flag and the first allowlist entries.
+  DONE: `python test_surfer_owner.py`, `python test_owner_desk.py`, page inline JS `node --check`, default verification.
+
+- [x] [HUMAN] T-722-H Switch Surfer actions on: `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render and the first allowed sites on the Surfer page
+  Owner: human
+  Depends: T-722, T-714-H
+  Need: nothing acts until the owner sets `FACTORY_SURFER_ACTIONS_ENABLED=1` in Render (not a secret) and enables at least one site with its action classes on `/static/surfer/index.html`. The allowlist is empty by default; his first list (FactoryOS, Google Forms/Sheets, OLX, Render, LinkedIn Developers, GitHub) is offered there as suggestions. Agents need their own lane MCP key (T-624).
+  Runbook: Worker Center → «Нужно от вас» → T-722-H (RU/EN/UK).
+  DONE: the Surfer page says «Действия включены», at least one site is enabled, and an agent's first step is in the action log.
+  Progress 2026-11-23: the flag is on («Действия включены»), github.com is enabled with all classes. First live session (Claude lane, `web_open` on the public repo page) ran on the EC2 worker, but stopped as «waiting for you: 2fa» because the README text mentions SMS codes and the page has a «Go to file» box. Fixed: a code prompt now needs a field that looks like the code box. Login choices on the page are explained (vault password / sign in once and save / browser session file), and a new login name can be bound so the owner signs in once with Take over and saves it. Live rerun after the deploy.
+  Verified 2026-11-23 on v5.18.0: a live session (Claude lane) opened the public repo page on github.com with status `done` (no false code wall), clicked the Issues tab and closed; the steps are in the action log. The click snapshot showed the old page because GitHub changes the URL in-page after the click; a link click now waits for that (fixture test `SoftNavigationTest`, v5.18.1).
+
+- [x] T-723 Surfer recipes: save a successful session as a parameterised recipe and replay it without AI
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P2
+  Depends: T-722
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Recipes; DECISIONS.md «2026-11-22 — T-723». `surfer_recipes.py`, MCP tool `web_recipe`.
+  Goal: the owner approves saving a session's successful steps as a recipe with parameters; a replay runs deterministically under the same policy gate, stops at the first mismatch and hands the session to an agent or the owner.
+  DONE: `python test_surfer_recipes.py`, default verification.
+
+- [x] T-724 Surfer self-test: fixture site proving the gate, secrets, takeover and recipe replay; one live session when the owner's flag is on
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-723
+  Spec: `docs/roadmap/T-720_SURFER_ACTIONS.md` § Self-test. `surfer_fixture_site.py`, `surfer_fake_browser.py`.
+  Goal: a deterministic local site (login form, multi-step form, file upload, delete button, payment button, captcha-like wall) proving: allowlisted fill + submit runs, sensitive steps wait, off-allowlist is refused, secrets never reach snapshots or logs, a takeover continues the session, a recipe replays. After merge: one live session on the owner's own FactoryOS product page if `FACTORY_SURFER_ACTIONS_ENABLED` is on; otherwise it waits for the owner's flag.
+  DONE: `python test_surfer_selftest.py` (CI: page double; `RUN_BROWSER_FIXTURE=1`: real Chromium), default verification.
+  Progress 2026-11-22: the scenario passes with the page double (CI) and in real Chromium on the loopback fixture site (`RUN_BROWSER_FIXTURE=1`, 21 s, run in the build session). The live session on the owner's FactoryOS page was **not run**. Checked on production 2026-11-23 through `/mcp`: `web_open` with the shared key answers «the shared MCP token may not act», with the Claude lane key «Surfer actions are off: the owner sets FACTORY_SURFER_ACTIONS_ENABLED=1 in Render». It waits for T-722-H. Scope change 2026-11-23: the owner enabled github.com, not the FactoryOS domain, so the live session ran on the public repo page on github.com (open → click Issues → close) on the EC2 Surfer worker, see T-722-H. A session on the owner's FactoryOS page still waits until the owner adds that domain on the Surfer page.
+  Fix 2026-11-23 (live run by the parent session): a stuck browser call blocked the Surfer worker; every action command now has a 90 s deadline that kills the browser, reports `worker_timeout` and frees the slot (`HungPageTest` in real Chromium, `test_a_stuck_command_is_killed_and_reported_and_the_page_freed` in CI).
+  Fix 2026-11-23: the root watchdog did not restart the hung worker; the worker now has its own self-watchdog thread (exit 75 → systemd restart when the loop breaks its 6-min promise).
+
+- [x] T-726 Surfer: the Claude lane reads what waits for the owner (`surfer_pending`), to mirror it as tickets on the owner task page
+  Owner: claude-session
+  Priority: P1 (owner 2026-11-23 «Да», relayed by the parent session; `.autopilot/answers.md`)
+  Depends: T-722
+  Goal: read-only MCP tool `surfer_pending` (and `POST /api/factory/surfer/agent/surfer_pending`), Claude lane token only (shared token and other lanes refused): kind (confirm / human / takeover), session_id, step_id, site, action + element label, reasons / wait_reason, RU/UK/EN text, since, expires_in_seconds, link to the Surfer page. Never screenshots, typed values, codes, cookies or URLs. No confirm/reject through this path: the owner answers on the Surfer page.
+  DONE: `python test_surfer_owner.py` (AgentPendingTest, AgentPendingAppTest), default verification.
+
+- [x] T-727 Surfer: the snapshot after a click shows what the page drew a moment later
+  Owner: claude-session
+  Priority: P1 (live run 2026-11-23 by the parent session: MyBrief "Show my briefing" returned the old text; only a refresh showed the briefing)
+  Goal: after click / press / select / check / back, wait until the DOM is quiet for 500 ms (MutationObserver), at most 3 s, before the snapshot.
+  DONE: `RUN_BROWSER_FIXTURE=1 python test_surfer_selftest.py` (LateRenderTest fails without the wait), `python test_surfer_actions.py`, default verification.
+
+- [x] T-729 Coordination guard: no duplicate task numbers, no two agents on one task, no two PRs on the same code
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P0 (owner 2026-11-23, Notion master ТЗ «аудит стану»: reconcile Owner/Depends/Claim/PR before any new work, no duplicates)
+  Spec: DECISIONS.md «2026-11-23 — T-729». `coordination.py`, `GET /api/factory/coordination` (owner), MCP tool `coordination_check`, page `static/coordination/index.html` (UK/RU/EN), sidebar «Координація».
+  Goal: one read model over ROADMAP.md, open PRs with their changed files (GitHub read token), active Relay claims and handoffs. Conflicts: a task number defined twice, one task in two lanes or two PRs, two open PRs changing the same code file, a PR inside another lane's handoff scope. Warnings: a PR naming a task already done on main, Depends: on an unknown task, a claim by a lane that is not the task's Owner. An unreadable source makes the verdict «unknown», never «clear». Agents ask `coordination_check` (task_id, files) before taking work and get safe_to_start yes / no / unknown with reasons and the next free task number. CI test `test_roadmap_integrity.py` fails on duplicate numbers.
+  DONE: `python test_coordination.py`, `python test_roadmap_integrity.py`, `python test_navigation.py`, page inline JS `node --check`, default verification.
+
+- [x] T-725 Google Sheets for agents: collected data goes into the owner's spreadsheet through the official Sheets API
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-22: «собери данные с этого сайта, помести их в Google таблицу»)
+  Depends: T-560-F, T-625
+  Spec: DECISIONS.md «2026-11-22 — T-725». `google_sheets.py`, `oauth_framework.py` (provider `google_sheets`), `static/sheets/index.html`, MCP tools `sheet_list` / `sheet_read` / `sheet_append` in `app.py`.
+  Goal: OAuth provider `google_sheets` (its own Google client, scope `spreadsheets`, PKCE, refresh after a 401 with a fenced write-back, tokens only in the encrypted vault); owner page (RU/UK/EN) to connect Google, add / create / remove target spreadsheets, switch «agents may append» per sheet and read the history; agents reach only registered sheets and only with a per-lane MCP token; reads and appends bounded per call and per day; formula-like text stored as text; `sheet_append` needs an idempotency key (a retry writes nothing twice, an unknown outcome is never resent); fixed error codes, no token or cell value in errors, logs or the store. Ships dark: `FACTORY_GOOGLE_SHEETS_ENABLED` is off by default.
+  DONE: `python test_google_sheets.py`, `python test_oauth_framework.py`, `python test_owner_desk.py`, default verification, `node --check` of the page script.
+
+- [ ] [HUMAN] T-725-H Create the Google OAuth client for Sheets, add the keys in Render and connect Google
+  Owner: human
+  Depends: T-725, T-560-G
+  Need: owner creates a new Google Cloud project (not the one used for YouTube: disconnecting Sheets must not touch YouTube), enables the Google Sheets API in it, fills in the OAuth consent screen (External, published to production so the refresh token does not expire after 7 days), creates a Web application OAuth client with the redirect `https://blackboxlab-factoryos.onrender.com/api/oauth/google_sheets/callback`, puts FACTORY_OAUTH_GOOGLE_SHEETS_CLIENT_ID / _SECRET and FACTORY_GOOGLE_SHEETS_ENABLED=1 in Render, connects on /static/sheets/index.html and adds a spreadsheet.
+  Runbook: Worker Center → «Нужно от вас» → T-725-H (RU/EN/UK).
+  DONE: an agent appended a test row to the owner's spreadsheet and the history on /static/sheets/index.html shows it.
+
+- [x] T-714 Surfer worker: browser tasks in their own process on EC2, a Surfer lane in Worker Center, a loop-heartbeat watchdog
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-21: «да» — Surfer tasks waited 15:18→16:55 UTC behind a long Claude job and a stalled worker loop)
+  Depends: T-560, T-562
+  Spec: DECISIONS.md «2026-11-21 — T-714». `autopilot/browser_worker.py`, `autopilot/worker_heartbeat.py`, `autopilot/supervisor.py`, `autopilot/autopilot.py`, `browser_tasks.py`, `deploy/systemd/factoryos-surfer-worker.service`, `deploy/install_surfer_worker.sh`.
+  Goal: `python -m autopilot.browser_worker` claims → runs Playwright → reports in a loop (5 s poll, exponential backoff to 120 s while FactoryOS is unreachable, one Chromium, file lock against a second copy, SIGTERM finishes the task, exits on a runner-code change so systemd restarts it on the new code); its own unit (ec2-user, `/etc/factoryos/claude-worker.env`, Restart=always, MemoryMax=1200M); server heartbeat `POST /api/factory/browser/worker/heartbeat` (worker token) → lane `surfer` in Worker Center; the Claude worker runs a browser task only while the Surfer worker's local heartbeat is not alive; both loops beat `.autopilot/{claude-loop,surfer}.json` with a deadline and the existing root supervisor timer restarts a unit whose deadline passed (bounded: 3/h, 5 min start grace).
+  DONE: `python -m autopilot.test_browser_worker`, `python -m autopilot.test_supervisor`, `python -m autopilot.test_autopilot`, `python test_browser_tasks.py`, `python test_owner_desk.py`, default verification, dashboard `node --check`.
+
+- [x] [HUMAN] T-714-H Install the Surfer worker unit on EC2 once (`sudo bash /opt/factoryos/deploy/install_surfer_worker.sh`)
+  Owner: human
+  Depends: T-714
+  Runbook: Worker Center → «Нужно от вас» → T-714-H (RU/EN/UK). EC2 Instance Connect → the one command → `systemctl status factoryos-surfer-worker.service --no-pager` → the Surfer row in Worker Center is fresh.
+  Verified 2026-11-23: Worker Center shows the Surfer row «Idle», last active 18 s ago (owner's screenshot), and the first live `web_open` session was executed by that worker (a real GitHub page with a screenshot).
+
+- [x] T-713 Social autopilot: a teaser image in every post (Telegram channel and LinkedIn)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-21: «добавлять фото в каждый пост (в фото должно отображаться небольшой визуальный тизер того, что в тексте)»)
+  Depends: T-702
+  Spec: DECISIONS.md «2026-11-21 — T-713». `social_images.py`, `social_autopilot.py`, `linkedin_publisher.py`, `static/social/index.html`.
+  Goal: every plan item gets a 1080×1080 teaser card rendered locally with Pillow (the post's hook as headline, next sentence, topic chip, BlackBoxLab style, DejaVu fonts; zero spend); an AI generator can be plugged in through `ImageGenerator` only behind the owner opt-in `FACTORY_SOCIAL_AI_IMAGES=1` (off, none wired); the image SHA-256 is part of the approval, editing the text redraws the image and drops the approval, older items get an image and go back to draft; images in DATA_DIR, owner-only route; preview next to every item on `/static/social/`; Telegram `sendPhoto` (long posts: photo with the headline, then the full text as a reply; a half-sent post is «uncertain», never resent); LinkedIn Images API (initializeUpload → PUT → post with `content.media.id`).
+  DONE: `python test_social_images.py` (teaser extraction, deterministic Cyrillic PNG, AI opt-in + fallback, approval covers the image, edit redraws, swapped/lost file never sent, legacy backfill, Telegram photo/caption/reply/partial failure, LinkedIn upload flow and host check, owner-only image route, page keys), `python test_social_autopilot.py`, `python test_linkedin_publisher.py`, default verification, page `node --check`; screenshots `docs/screenshots/t-713/`.
+
 - [x] T-712 FactoryOS login: "Forgot password?" — `/login` in the owner's private Telegram chat gives a one-time sign-in link
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-20: «добавь кнопку восстановить пароль» after not finding the password)
@@ -66,6 +259,7 @@
   DONE: `python test_mycast_library.py` (buttons, handlers, three locales) + inline-JS `node --check` + default verification; `docs/prototypes/mycast/profile-glass/screens/{a,b,c}.png` at 390 px with no horizontal scroll.
 
 - [ ] [HUMAN] T-645-H Generate, listen to and approve the MyCast demo episodes (Athens, Rome, …)
+  Progress 2026-11-21: public tracks verified on prod — Athens, Rome, Delphi, Pompeii (uk) answer 200; Olympia and all ru tracks are not approved yet.
   Depends: T-645, T-665
   Need: owner (who approved Gemini voicing within the free quota, 2026-11-16) opens the owner console `/factory/mycast-demos` on the FactoryOS host, presses "Generate" (one city or all — T-711: each city has its own pair of hosts; ≤5 per run, ≤10 per day; a Google 429 stops the run, retry the next day), listens to each track and presses "Approve". Runbook in Worker Center → «Ваши задачи».
   DONE: at least the Athens and Rome cards play on a live `/mycast/e/<token>` page.
@@ -122,7 +316,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Progress 2026-10-31: T-599-E/F done. Umbrella acceptance `test_t599_acceptance.py` (spec §3 A–E, run in CI via test_relay_execution.py) joins claim → events → lane board → Telegram; refused claims are journalled as `claim_rejected`; blocked lanes show their reason in API/web/Telegram. PR/CI and Issue #67 evidence follow the worker push (not claimed by the agent).
   DONE: deterministic tests A–E pass; no open ROADMAP task lacks Owner; a blocked task no longer stalls the queue; an Owner-assigned task without a claim renders as "assigned, not claimed"; CI-gated PRs; evidence posted to Issue #67.
 
-- [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
+- [x] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
   Owner: claude
   Planner: owner; Executor: Claude Code Pro (primary). P0.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; GitHub Issues #41, #51, #56, #40; PR #43, #42, #60.
@@ -136,30 +330,34 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Re-check (2026-11-01): `autopilot/aws-worker` == `origin/main` == `c2879b9`, so the T-590 slice is merged into main. Deterministic stages are green again (smoke, planner, relay 74, telegram 9, token binding, delegation, autopilot). This run was denied network/`gh`/`curl`, so CI on `c2879b9`, Render `build_sha`, Telegram pairing (HUMAN T-506), the live `/new` trace and the Issue #41 evidence are still unverified.
   Re-check (2026-11-15, run-20261115093856-a5105e): T-506 pairing is done, and the #289 round trip plus Evidence Tiers 1–2.6 are on main. Deterministic stages are green again (smoke, planner, relay 111, telegram 25). This run had no GitHub/Render/network access, so one owner ticket traced end to end (claim → run_id → PR → CI → merge → deployed → Telegram `/task`) with Issue #41 evidence is still unobserved. The task stays open.
   Progress (2026-11-15, P0 tails session): T-506 pairing is done (checked). The live trace is now provable from server facts alone: `relay_acceptance.py` + `/proof R-…` + owner-only `GET /api/relay/{id}/acceptance` judge Telegram intake → one ticket → claim/run_id → running → done → Telegram delivery receipt (the server now records `owner_notified` when the Bot API accepts a worker notice). The remaining live stages are the owner's run in **[HUMAN] T-591-H**; production `/health` answered 502 during this session, so `build_sha` was not compared (T-590-H).
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): the live trace was verified by the server on 2026-11-17 (T-591-H, R-0087 · run-351295eb0d92); code and deterministic tests are on main.
 
-- [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
+- [x] T-591 Telegram live owner acceptance & full operator task lifecycle
   Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; Issue #41 and #51.
   Goal: verify actual owner Telegram chat pairing/webhook and tested /status, /tasks, /task <id>, /history, /roadmap, /github; callbacks for refresh/detail/retry; preserve event history; RU/UK/EN. Only verified ChatGPT actions visible, not fictional live ChatGPT sessions.
   DONE: real test message in paired owner chat -> one ticket -> authenticated Claude claim -> running -> final evidence -> owner reply with exact IDs and GitHub links, redacted transcript and timestamps. If needs owner 2FA, mark HUMAN with exact ask and do not claim done.
   Progress (2026-11-15): code side done and tested (`test_relay_acceptance.py`, run in CI via `test_relay_execution.py`): `/roadmap` is now a real ROADMAP.md view (P0 / HUMAN / next agent tasks; it used to repeat `/tasks`), `/history` is RU/UK/EN, the ticket card has 🔄 Refresh → factual stages + history, `/proof R-…` gives the copyable acceptance transcript (IDs, run_id, UTC times, branch/PR, PR/CI/merge/deploy "not verified" until reconciled). Live part: **[HUMAN] T-591-H**; Owner desk shows its status from the newest Telegram ticket's verdict.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): live acceptance done in T-591-H (server verdict VERIFIED, R-0087).
 
-- [ ] T-591-A Telegram Relay P0 status/queue/stale hotfix (ChatGPT owner, Claude follow-up acceptance)
+- [x] T-591-A Telegram Relay P0 status/queue/stale hotfix (ChatGPT owner, Claude follow-up acceptance)
   Owner: claude. Depends: T-590 (implementation merged in #63; final live acceptance remains T-591).
   Scope: truthful heartbeat vs active task, claimable queue counts, stale-claim handling without auto-rerun, owner retry instructions.
   Test: test_relay_livefix.py and existing Relay suites; CI before merge, then Render and owner live E2E. Never mark T-591 done until actual Telegram task executes.
   Progress (2026-11-15): the hotfix scope is covered by test_relay_livefix.py (in the CI relay suite); a stale or blocked run is never counted by the new acceptance verdict and Retry is the only way back. Closes together with T-591 after **[HUMAN] T-591-H**.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): closes together with T-591; `test_relay_livefix.py` stays in the CI relay suite.
 
-- [ ] T-592 Fix Build Progress / Worker Center factual status and UI freeze
+- [x] T-592 Fix Build Progress / Worker Center factual status and UI freeze
   Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
   Spec: Issues #55, #56, #54, #52 and docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md.
   Goal: reconcile 87% vs 49% metric scopes; distinguish EC2/SSM/systemd/subscription auth/heartbeat/claim/task; fix race for .autopilot/status.json, stale/offline, huge overflow; make owner HUMAN blockers actionable.
   DONE: deterministic tests + screenshot evidence showing same task/stage in Telegram and Web; no ghost running/false progress; columns usable mobile+desktop and consistent stale timestamps; non-main PR/CI.
   Progress (2026-11-15): code is on main via T-596 (separate signals, one read model for web and Telegram, `test_worker_observability.py`), T-595 (columns/overflow, `test_drawers.py`) and the 87%/49% denominators (DECISIONS.md). The Telegram ticket card now has 🔄 Refresh with the same factual stages as `/relay`. What is left is evidence only the owner can produce (a screenshot of the real Telegram next to the web view): **[HUMAN] T-592-H**.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»). **Acceptance waived by the owner, not met:** code and tests are on main, but the live Telegram ↔ web comparison in DONE has no evidence. It moved to the optional **[HUMAN] T-592-H** (production owner APIs answer 401 to the cloud session).
 
-- [ ] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
+- [x] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
   Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0/P1. Depends: T-590.
   Spec: handoff diagnosis, Issue #40/#49/#50/#47 and ROADMAP T-560-C onward.
@@ -167,6 +365,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
   Progress 2026-10-30: first live claimed runs on EC2 blocked because the agent's Python lived in /tmp/fos-venv (wiped on reboot) and headless `claude -p` denied python3. Delegation now keeps a persistent gitignored `<repo>/.venv` rebuilt only when requirements.txt changes, puts it first on PATH, and pre-allows the CLAUDE.md verification loop (Read/Edit/Write, python, node --check, local git add/commit) while push/deploy stay disallowed.
   Progress (2026-11-15): the deterministic parts are covered on main (T-599 claims/parking, T-598 persisted retries, T-600 usage-limit hold, `autopilot.test_autopilot`, `autopilot.test_delegation`). Not provable from a cloud session: the live EC2 sequence (next safe task after a verified commit) and a day without direct-main pushes or paid spend — **[HUMAN] T-593-H**.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»). **Acceptance waived by the owner, not met:** the deterministic parts are on main, but the live EC2 backlog run and the observation period (no direct-main pushes, no paid spend) in DONE have no evidence. They moved to the optional **[HUMAN] T-593-H**.
 
 - [x] [HUMAN] T-591-H Live Telegram acceptance: one test task end to end (closes the live part of T-590 / T-591 / T-591-A)
   Need: owner sends one plain test message in the paired chat, waits for the worker's 🏁 notice, then `/proof R-…`; runbook in Owner desk (RU/EN/UK).
@@ -222,6 +421,16 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: a live round-trip — Claude posts a handoff, ChatGPT claims it via MCP and submits a PR link, Claude reviews and merges — visible in Worker Center; tests for auth, single claim, replay and secret scrubbing.
   Progress 2026-11-15 (session T-604): the server slice is T-625 below — workspace tools on `/mcp` (`agent_workspace.py`), per-lane auth, single claim through the Relay ROADMAP ticket, replay, secret scrubbing; guide `docs/guides/agent-workspace-mcp.md`. Still open for DONE: owner sets the lane tokens (T-624), then the live round-trip (Claude create_handoff → ChatGPT claim + PR link → Claude review/merge) and a Worker Center panel on `GET /api/factory/agent-workspace` (T-626). Telegram group chat (`/discuss`, `/decision`) stays with the T-590–T-593 Relay/Telegram work.
 
+- [x] T-736 Agent → Claude worker requests through Relay: request_task, worker ACK/result in the same thread, read_inbox (T-604 slice)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P0 (direct owner assignment 2026-11-24: PR #470 «приоритетная задача», Relay th_46f089b213546fcc)
+  Depends: T-625
+  Spec: PR #470 `docs/handoff/T-604_RELAY_60S_AGENT_ROUNDTRIP_SPEC.md` (ChatGPT); DECISIONS.md «2026-11-24 — T-736»; guide `docs/guides/agent-workspace-mcp.md` «Asking the always-on Claude worker».
+  Goal: any lane asks the always-on Claude worker for one bounded task through the Relay queue it already polls (no new poller, queue or process); the worker's claim (ACK with run_id), progress and result or blocker appear in the same thread from its own events, once each; owner tickets go first; read-only requests never push; `read_inbox` with a cursor for agents that wake up later.
+  DONE: `python test_agent_workspace.py`, `python test_relay_execution.py`, `python test_evidence.py`, default verification, CI-gated PR; live: one `request_task` from ChatGPT's own connector gets the worker's ACK with run_id and the result in the same thread, with the measured request → ACK latency recorded here.
+  Done 2026-11-24: PR #471 (merge 5797f1d, CI green, Render deployed 19:20 UTC). Live run, Relay th_46f089b213546fcc: ChatGPT `request_task` 21:04:13 UTC (msg_90507b729fdfc3cf, ticket R-0100, read_only) → ACK from relay-worker claude-ip-172-31-5-222 (EC2) 21:04:26 with run-a215b173eef2 (12.8 s) → running 21:04:27 on relay/r-0100-b173eef2 → result 21:04:38 (24.8 s in total): «37» open tasks read from main 5797f1d, no change, no commit; independently recounted: 37. One sample with an idle worker.
+  Still open under T-604 acceptance (not this task): ≥ 5 timed runs for a p95, latency while the worker is busy, a restart/redeploy run, and ChatGPT waking up on its own (today it acts only when a ChatGPT session is opened).
+
 - [x] T-625 Agent workspace MCP tools: threads and handoffs behind per-lane tokens (T-604 server slice)
   Owner: claude (session T-604)
   Priority: P1
@@ -229,10 +438,11 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: `post_message`, `list_threads`, `read_thread`, `create_handoff`, `list_handoffs`, `claim_handoff`, `submit_handoff_result`, `release_handoff`, `review_handoff` on `/mcp`, stored in the Relay store; sender derived from a per-lane credential (`FACTORY_MCP_LANE_TOKEN_CLAUDE/_CHATGPT/_GEMINI`), the shared `FACTORY_MCP_TOKEN` only reads threads; claim goes through `RelayQueue.claim_roadmap` (run_id, one claim per task, EC2 worker fenced out); idempotency keys; no owner decisions by agents; credential-shaped text refused; `?key=` query values redacted from the access log.
   DONE: `python test_agent_workspace.py` (lane auth, single claim, replay, secret scrubbing, Relay fencing, lease/release, /mcp handler) plus test_web_surfer.py, test_relay*.py and the default verification green. Done 2026-11-15.
 
-- [ ] [HUMAN] T-624 Per-lane FactoryOS MCP tokens in Render (Claude / ChatGPT / Gemini)
+- [x] [HUMAN] T-624 Per-lane FactoryOS MCP tokens in Render (Claude / ChatGPT / Gemini)
   Depends: T-625
   Need: owner generates three different random tokens (`python -c "import secrets;print(secrets.token_urlsafe(32))"`, one per lane) and adds them in Render → Environment: `FACTORY_MCP_LANE_TOKEN_CLAUDE`, `FACTORY_MCP_LANE_TOKEN_CHATGPT`, optionally `FACTORY_MCP_LANE_TOKEN_GEMINI`; plus `FACTORY_MCP_LANE_URL_KEY=chatgpt` because the ChatGPT connector cannot send headers. Then reconnects ChatGPT with `…/mcp?key=<CHATGPT lane token>` and Claude Code with the Claude lane token as Bearer. Runbook: docs/guides/agent-workspace-mcp.md. Agents never see or set these values.
   DONE: `GET /api/factory/agent-workspace` (signed in) shows `lanes.claude.enabled` and `lanes.chatgpt.enabled` true; `GET /mcp` with each connector reports its own `lane`.
+  Verified 2026-11-23: the three keys are already in Render (adding them again shows «Duplicate key»); `GET /mcp` with the ChatGPT connector answers `"lane":"chatgpt"`, and the Claude connector passed the lane check of `web_open` (the shared key is refused).
 
 - [x] T-626 Worker Center panel for the shared agent workspace
   Owner: claude
@@ -437,7 +647,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: `olx_publisher.py` + `static/olx/index.html`: OAuth provider `olx` (`authorization_code`, scopes `v2 read write`, refresh before each write, rotated tokens stored back in the token vault), owner-only advert drafts validated against the documented OLX rules; approval freezes the SHA-256 of the exact advert and the connected OLX account; `FACTORY_OLX_ENABLED=1` gates every OLX write (publish, deactivate) — read-only reference/status calls with the owner's token still work while it is off; publish only when the flag is on, the advert and account still match and nothing was sent before; each advert carries `external_id` = draft id, so timeout/5xx («unknown outcome») or a publish claim left by a crashed process (> 5 min) is resolved by a read-only lookup (exact `external_id` match only) or the owner, never by a resend; read-only category/attribute/city pickers, status refresh and owner-confirmed deactivate; no paid endpoint (packets, paid features) is reachable; fixed error codes, no token or OLX body stored. `publish_approved(...)` is the entry point for T-702.
   DONE: `python test_olx_publisher.py` (adapter + refresh, documented validation rules, fixed codes, approval fence, edit drops approval, one publish, no blind retry, reconcile by exact external_id, stale claim, approval bound to the account, owner-only, flag off → no OLX write, no paid endpoint) + `python test_oauth_framework.py` + default verification.
 
-- [ ] [HUMAN] T-701-H Register the OLX Partner API app and connect the account
+- [x] [HUMAN] T-701-H Register the OLX Partner API app and connect the account
+  Done 2026-11-23: owner confirmed «Готово» on the owner task page after the steps (OLX app approved, Render keys, connect, test advert). Not verified by an agent: the OLX status endpoint is owner-only.
   Depends: T-701, T-560-G
   Need: owner reads the developer portal terms (not readable from FactoryOS: 403), signs in to developer.olx.ua with the OLX account that will own the adverts, submits «Підключити додаток» and waits for OLX's e-mail approval, adds the callback URL `https://blackboxlab-factoryos.onrender.com/api/oauth/olx/callback`, puts FACTORY_OAUTH_OLX_CLIENT_ID / _SECRET and FACTORY_OLX_ENABLED=1 in Render, connects on /static/olx/index.html and publishes one approved test advert. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
   DONE: a test advert published from /static/olx/index.html with its OLX id and status saved.
@@ -450,7 +661,8 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: a plan per platform with Europe/Kyiv times, filled for free (Content Brain ideas through a fixed template, agents through MCP drafts, the owner on the page — no LLM or paid call); approval modes A «approve the whole plan» (default), C «each post», B «owner rules» (explicit opt-in, off by default); an edit drops the approval; a scheduler (startup hook, every minute) claims each due approved item before sending, never resends an uncertain outcome, marks >6 h overdue items «missed», caps 10 posts/platform/day; kill switch `FACTORY_SOCIAL_AUTOPILOT_ENABLED` (off by default) and an owner «Стоп»; a daily 21:00 Kyiv owner summary through the paired Telegram bot; adapters Telegram channel (Bot API sendMessage, `FACTORY_TELEGRAM_CHANNEL_ID`) and LinkedIn (`linkedin_publisher.send_text`), interface ready for Instagram/TikTok/OLX.
   DONE: `python test_social_autopilot.py` (fake HTTP/clock: adapters and fixed codes, approval fence, modes, kill switch, Stop mid-run, exactly once, no blind retry, restart → uncertain, rules, caps, free plan generator, summary once a day, owner-only routes, MCP drafts only, page RU/UK/EN + `node --check`), `python test_linkedin_publisher.py`, `python test_owner_desk.py` and the default verification pass.
 
-- [ ] [HUMAN] T-702-H Telegram channel for the social autopilot
+- [x] [HUMAN] T-702-H Telegram channel for the social autopilot
+  Done 2026-11-21: owner confirmed the Telegram channel set up on the owner task page (and asked for a teaser image per post → T-713). Not verified by an agent: the channel check is owner-only.
   Depends: T-702
   Need: owner creates or chooses a Telegram channel (public @name recommended), adds the existing FactoryOS bot as admin with «Post Messages», sets `FACTORY_TELEGRAM_CHANNEL_ID=@name` and `FACTORY_SOCIAL_AUTOPILOT_ENABLED=1` in Render, then on /static/social/ runs «Check the Telegram channel» and approves one test post. Runbook in Worker Center → «Ваши задачи» (RU/UK/EN).
   DONE: a test post went out in the channel at its planned time and its link is in the /static/social/ history.
@@ -769,7 +981,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
 - [x] T-608 A/B Tester S1 — experiment model and API inside the MVP registry
   Owner: claude
   Priority: P2 (owner said "бери A/B Tester, начни с S1" 2026-11-14)
-  Depends: T-186 registry (#186), #330 merged
+  Depends: #186 registry, #330 merged
   Spec: docs/reviews/MVP_AB_TESTER_S0_REVIEW.md §2.8, §4 corrections 1–13, §6.1–6.2
   Goal: `projects[pid].experiments[exp]` with exactly two branches a/b; SEGMENT_COMPARISON (never a winner) or CONTROLLED_AB (draft only); per-branch, per-revision owner preview approval; owner decision closes; no metrics/publish/spend/outreach writes; copy deny-list; project stage untouched.
   DONE: `python test_mvp_experiments.py` and the MVP suites pass; default verification passes.
@@ -864,6 +1076,7 @@ Plan: owner's Claude doc «DAG-оркестраторы для AI — иссле
   DONE: `python test_mycast_library.py` plus every `test_mycast*.py`, `python test_owner_desk.py`, the default verification and `node --check` of the extracted configurator JS pass.
 
 - [ ] [HUMAN] T-620-H Approve the MyCast referral terms and turn the offer on
+  Progress 2026-11-21: owner approved the terms (+7 days each, once, after the friend's first episode, max 50) and set FACTORY_MYCAST_REFERRALS=1; prod came back on v5.16.0. Open: one invite tested from a second Telegram account.
   Depends: T-620
   Need: owner signs off the rule (+7 days to each side once, at the friend's first real episode; cap 50; no self/duplicate credit), sets `FACTORY_MYCAST_REFERRALS=1` in Render, and runs one live invite with a second Telegram account. Enforcing the end of free days (`FACTORY_MYCAST_ENFORCE_TRIAL=1`) is a separate later business decision.
   DONE: `/api/mycast/account/config` returns `"referrals_enabled": true` and the live check gave both accounts +7 days exactly once.
@@ -1039,6 +1252,7 @@ Plan and file map: DECISIONS.md «2026-11-15 — T-630». IDs T-630+ chosen to s
   Progress 2026-11-15 (owner chose Google-account login, no API key): runtime implemented — `autopilot/gemini_worker.py` (separate checkout/branch, lane heartbeat), Gemini CLI adapter in `autopilot/delegation.py` (Google login enforced, API-key variables stripped and refused, push/merge/deploy shell excluded, quota → `subscription_limit`), Gemini lane takes only `Owner: gemini`, narrow server token `FACTORY_GEMINI_WORKER_TOKEN` (lane-gemini claim/events/heartbeat only). `python test_gemini_worker.py` covers auth, no runtime, own-lane claim, token scope, quota, redaction. Runbook: `docs/handoff/GEMINI_EC2_WORKER.md`. Still open: owner setup (T-607-H) and the live probe (T-607-P).
 
 - [ ] [HUMAN] T-607-H Set up the Gemini worker on EC2
+  Deferred 2026-11-18 by the owner (owner task page: «Отложить»): the Claude worker and Claude sessions cover the load; do not raise it in owner task lists until the owner asks again.
   Need: owner logs Gemini CLI in with Google on EC2 (no API key), sets the same `FACTORY_GEMINI_WORKER_TOKEN` in Render and in `~/.config/factoryos/gemini-worker.env`, creates the `~/factoryos-gemini` checkout on `autopilot/gemini-worker` and enables `factoryos-gemini-worker.service`. Steps: `docs/handoff/GEMINI_EC2_WORKER.md`.
   DONE: FactoryOS Workers shows the Gemini lane online with `auth_mode=google_account`.
 

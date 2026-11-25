@@ -17,18 +17,21 @@ textarea{width:100%;min-height:110px}label{display:block;margin:6px 0}
 .chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;border:1px solid var(--line)}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 .item{border-top:1px solid var(--line);padding:10px 0}.item:first-child{border-top:0}.text{white-space:pre-wrap;word-break:break-word;margin:6px 0}
 .day{margin:12px 0 4px;font-weight:600;color:var(--acc)}small{color:var(--mute)}a{color:var(--acc);word-break:break-all}
+.ib{display:flex;gap:12px;align-items:flex-start}.ib>div{flex:1;min-width:0}.thumb{flex:none;display:block;width:150px;height:150px;border-radius:10px;border:1px solid var(--line);background:#0d1328;object-fit:cover}
+@media(max-width:520px){.thumb{width:96px;height:96px}}
 fieldset{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0}legend{color:var(--mute);padding:0 6px}
 </style>
 </head>
 <body>
 <main>
+<a href="/" style="display:inline-block;margin:0 0 6px;color:inherit;opacity:.7;text-decoration:none;font-size:14px">← FactoryOS</a>
 <div class="row" style="justify-content:space-between"><h1 data-t="title"></h1><select id="lang"><option value="ru">RU</option><option value="uk">UK</option><option value="en">EN</option></select></div>
 <p class="sub" data-t="sub"></p>
 <section class="card" id="status"></section>
 <section class="card"><h2 data-t="modeTitle"></h2><div id="mode"></div></section>
 <section class="card"><div class="row" style="justify-content:space-between"><h2 data-t="planTitle"></h2>
 <div class="row"><button id="gen" data-t="generate"></button><button class="primary" id="approvePlan" data-t="approvePlan"></button></div></div>
-<small id="genInfo"></small><div id="plan"></div></section>
+<small id="genInfo"></small><p><small data-t="imgNote"></small></p><div id="plan"></div></section>
 <section class="card"><h2 data-t="newItem"></h2>
 <div class="row"><select id="nPlatform"><option value="telegram">Telegram</option><option value="linkedin">LinkedIn</option></select>
 <input type="datetime-local" id="nWhen"><small data-t="kyiv"></small></div>
@@ -43,12 +46,13 @@ ru:{title:"Соцсети · автопилот",sub:"FactoryOS составля
  approve:"Одобрить",edit:"Изменить",del:"Удалить",confirmYes:"Пост есть (вставить ссылку)",confirmNo:"Поста нет",empty:"В плане пока ничего нет.",noHistory:"Пока ничего не отправлялось.",
  mPlan:"A — одобряю весь план одним нажатием",mEach:"C — одобряю каждый пост отдельно",mRules:"B — по моим правилам (посты, прошедшие правила, выходят сами)",optIn:"Я включаю режим правил: посты, прошедшие правила, публикуются без моего отдельного одобрения",
  rPlatforms:"Платформы (через запятую)",rTopics:"Темы (через запятую; пусто = любые)",rBanned:"Запрещённые слова",rMax:"Максимум постов в день на платформу",rTone:"Тон (подсказка для авторов черновиков)",days:"Дней в плане",slots:"Время слотов",saveSettings:"Сохранить настройки",
+ imgNote:"К каждому посту FactoryOS рисует картинку-тизер (бесплатно, на сервере). Вы одобряете пост вместе с картинкой; изменили текст — картинка обновится, одобрение снимется.",imgAlt:"Картинка поста",
  askUrl:"Вставьте ссылку на пост",askEdit:"Текст поста",askWhen:"Время (ГГГГ-ММ-ДДTЧЧ:ММ, Киев)",askApprovePlan:"Одобрить все черновики плана? Каждый выйдет в своё время.",askStop:"Остановить автопилот? Ни один пост не уйдёт, пока вы не нажмёте «Возобновить».",
  gen:(r)=>`Создано черновиков: ${r.created.length}; пустых слотов: ${r.empty_slots} (идеи из Content Brain закончились — допишите сами или попросите агента).`,approved:n=>`Одобрено: ${n}`,
  st:{draft:"ждёт одобрения",approved:"одобрен — выйдет сам",publishing:"отправляется",published:"опубликован",failed:"не отправлен",uncertain:"исход неизвестен — проверьте вручную",missed:"пропущен (не отправлен вовремя)"},
  by:{owner_plan:"одобрен планом",owner_item:"одобрен вами",rules:"одобрен вашими правилами"},
  b:{autopilot_disabled:"автопилот выключен (FACTORY_SOCIAL_AUTOPILOT_ENABLED, задача T-702-H)",paused:"нажата «Стоп»",telegram_bot_missing:"нет бота Telegram",telegram_channel_missing:"не задан канал (FACTORY_TELEGRAM_CHANNEL_ID, T-702-H)",telegram_channel_invalid:"неверный ID канала",client_not_configured:"нет ключей приложения LinkedIn (T-700-H)",client_secret_missing:"нет секрета приложения LinkedIn (T-700-H)",vault_unavailable:"хранилище токенов выключено (T-560-G)",vault_unreadable:"хранилище токенов не читается",linkedin_not_connected:"LinkedIn не подключён (/static/linkedin/)",linkedin_publishing_off:"публикация LinkedIn выключена (FACTORY_LINKEDIN_ENABLED)",adapter_missing:"нет адаптера",
-  platform_not_allowed:"платформа не в правилах",banned_word:"есть запрещённое слово",topic_not_allowed:"тема не из правил",daily_limit:"лимит постов на сегодня",too_short:"слишком короткий",hard_daily_cap:"жёсткий лимит 10 в день",
+  platform_not_allowed:"платформа не в правилах",banned_word:"есть запрещённое слово",topic_not_allowed:"тема не из правил",daily_limit:"лимит постов на сегодня",too_short:"слишком короткий",hard_daily_cap:"жёсткий лимит 10 в день",image_added_reapprove:"добавлена картинка — одобрите пост ещё раз",image_missing:"картинка поста не найдена — измените пост, чтобы нарисовать её заново",
   telegram_ready:"канал готов: бот — администратор",telegram_bot_not_admin:"бот не администратор канала",telegram_channel_not_found:"канал не найден",telegram_auth_failed:"бот не авторизован",telegram_unreachable:"Telegram недоступен"}},
 uk:{title:"Соцмережі · автопілот",sub:"FactoryOS складає план дописів, ви схвалюєте — і дописи виходять самі в призначений час (час Києва). Без вашого схвалення (або ваших правил) нічого не публікується.",
  modeTitle:"Як схвалювати",planTitle:"План по днях",generate:"Запропонувати план на тиждень",approvePlan:"Схвалити весь план",newItem:"Новий допис",kyiv:"час Києва",save:"Додати в план",history:"Історія",
@@ -56,12 +60,13 @@ uk:{title:"Соцмережі · автопілот",sub:"FactoryOS склада
  approve:"Схвалити",edit:"Змінити",del:"Видалити",confirmYes:"Допис є (вставити посилання)",confirmNo:"Допису немає",empty:"У плані поки нічого немає.",noHistory:"Поки нічого не надсилалося.",
  mPlan:"A — схвалюю весь план одним натисканням",mEach:"C — схвалюю кожен допис окремо",mRules:"B — за моїми правилами (дописи, що пройшли правила, виходять самі)",optIn:"Я вмикаю режим правил: дописи, що пройшли правила, публікуються без мого окремого схвалення",
  rPlatforms:"Платформи (через кому)",rTopics:"Теми (через кому; порожньо = будь-які)",rBanned:"Заборонені слова",rMax:"Максимум дописів на день на платформу",rTone:"Тон (підказка для авторів чернеток)",days:"Днів у плані",slots:"Час слотів",saveSettings:"Зберегти налаштування",
+ imgNote:"До кожного допису FactoryOS малює картинку-тизер (безкоштовно, на сервері). Ви схвалюєте допис разом із картинкою; змінили текст — картинка оновиться, схвалення зніметься.",imgAlt:"Картинка допису",
  askUrl:"Вставте посилання на допис",askEdit:"Текст допису",askWhen:"Час (РРРР-ММ-ДДTГГ:ХХ, Київ)",askApprovePlan:"Схвалити всі чернетки плану? Кожна вийде у свій час.",askStop:"Зупинити автопілот? Жоден допис не піде, доки ви не натиснете «Відновити».",
  gen:(r)=>`Створено чернеток: ${r.created.length}; порожніх слотів: ${r.empty_slots} (ідеї з Content Brain закінчилися — допишіть самі або попросіть агента).`,approved:n=>`Схвалено: ${n}`,
  st:{draft:"чекає схвалення",approved:"схвалено — вийде сам",publishing:"надсилається",published:"опубліковано",failed:"не надіслано",uncertain:"результат невідомий — перевірте вручну",missed:"пропущено (не надіслано вчасно)"},
  by:{owner_plan:"схвалено планом",owner_item:"схвалено вами",rules:"схвалено вашими правилами"},
  b:{autopilot_disabled:"автопілот вимкнено (FACTORY_SOCIAL_AUTOPILOT_ENABLED, задача T-702-H)",paused:"натиснуто «Стоп»",telegram_bot_missing:"немає бота Telegram",telegram_channel_missing:"не задано канал (FACTORY_TELEGRAM_CHANNEL_ID, T-702-H)",telegram_channel_invalid:"неправильний ID каналу",client_not_configured:"немає ключів застосунку LinkedIn (T-700-H)",client_secret_missing:"немає секрету застосунку LinkedIn (T-700-H)",vault_unavailable:"сховище токенів вимкнене (T-560-G)",vault_unreadable:"сховище токенів не читається",linkedin_not_connected:"LinkedIn не підключено (/static/linkedin/)",linkedin_publishing_off:"публікацію LinkedIn вимкнено (FACTORY_LINKEDIN_ENABLED)",adapter_missing:"немає адаптера",
-  platform_not_allowed:"платформа не в правилах",banned_word:"є заборонене слово",topic_not_allowed:"тема не з правил",daily_limit:"ліміт дописів на сьогодні",too_short:"закороткий",hard_daily_cap:"жорсткий ліміт 10 на день",
+  platform_not_allowed:"платформа не в правилах",banned_word:"є заборонене слово",topic_not_allowed:"тема не з правил",daily_limit:"ліміт дописів на сьогодні",too_short:"закороткий",hard_daily_cap:"жорсткий ліміт 10 на день",image_added_reapprove:"додано картинку — схваліть допис ще раз",image_missing:"картинку допису не знайдено — змініть допис, щоб намалювати її знову",
   telegram_ready:"канал готовий: бот — адміністратор",telegram_bot_not_admin:"бот не адміністратор каналу",telegram_channel_not_found:"канал не знайдено",telegram_auth_failed:"бот не авторизований",telegram_unreachable:"Telegram недоступний"}},
 en:{title:"Social · autopilot",sub:"FactoryOS drafts a post plan, you approve it, and posts go out by themselves at their time (Kyiv time). Nothing is published without your approval (or your rules).",
  modeTitle:"How to approve",planTitle:"Plan by day",generate:"Propose a week plan",approvePlan:"Approve the whole plan",newItem:"New post",kyiv:"Kyiv time",save:"Add to plan",history:"History",
@@ -69,12 +74,13 @@ en:{title:"Social · autopilot",sub:"FactoryOS drafts a post plan, you approve i
  approve:"Approve",edit:"Edit",del:"Delete",confirmYes:"Post exists (paste link)",confirmNo:"No post",empty:"The plan is empty.",noHistory:"Nothing sent yet.",
  mPlan:"A — I approve the whole plan with one click",mEach:"C — I approve every post separately",mRules:"B — by my rules (posts that pass the rules go out by themselves)",optIn:"I turn on rules mode: posts that pass the rules are published without my separate approval",
  rPlatforms:"Platforms (comma-separated)",rTopics:"Topics (comma-separated; empty = any)",rBanned:"Banned words",rMax:"Max posts per day per platform",rTone:"Tone (guidance for draft writers)",days:"Days in the plan",slots:"Slot times",saveSettings:"Save settings",
+ imgNote:"FactoryOS draws a teaser image for every post (free, on the server). You approve the post together with its image; edit the text and the image is redrawn and the approval dropped.",imgAlt:"Post image",
  askUrl:"Paste the post URL",askEdit:"Post text",askWhen:"Time (YYYY-MM-DDTHH:MM, Kyiv)",askApprovePlan:"Approve every draft in the plan? Each goes out at its time.",askStop:"Stop the autopilot? No post goes out until you press Resume.",
  gen:(r)=>`Drafts created: ${r.created.length}; empty slots: ${r.empty_slots} (Content Brain ideas ran out — write them yourself or ask an agent).`,approved:n=>`Approved: ${n}`,
  st:{draft:"waits for approval",approved:"approved — goes out by itself",publishing:"sending",published:"published",failed:"not sent",uncertain:"unknown outcome — check manually",missed:"missed (not sent in time)"},
  by:{owner_plan:"approved with the plan",owner_item:"approved by you",rules:"approved by your rules"},
  b:{autopilot_disabled:"autopilot off (FACTORY_SOCIAL_AUTOPILOT_ENABLED, task T-702-H)",paused:"Stop is pressed",telegram_bot_missing:"no Telegram bot",telegram_channel_missing:"no channel set (FACTORY_TELEGRAM_CHANNEL_ID, T-702-H)",telegram_channel_invalid:"invalid channel ID",client_not_configured:"no LinkedIn app keys (T-700-H)",client_secret_missing:"no LinkedIn app secret (T-700-H)",vault_unavailable:"token vault off (T-560-G)",vault_unreadable:"token vault unreadable",linkedin_not_connected:"LinkedIn not connected (/static/linkedin/)",linkedin_publishing_off:"LinkedIn publishing off (FACTORY_LINKEDIN_ENABLED)",adapter_missing:"adapter missing",
-  platform_not_allowed:"platform not in the rules",banned_word:"contains a banned word",topic_not_allowed:"topic not in the rules",daily_limit:"daily post limit reached",too_short:"too short",hard_daily_cap:"hard cap of 10 per day",
+  platform_not_allowed:"platform not in the rules",banned_word:"contains a banned word",topic_not_allowed:"topic not in the rules",daily_limit:"daily post limit reached",too_short:"too short",hard_daily_cap:"hard cap of 10 per day",image_added_reapprove:"image added — approve the post again",image_missing:"post image not found — edit the post to redraw it",
   telegram_ready:"channel ready: the bot is an admin",telegram_bot_not_admin:"the bot is not a channel admin",telegram_channel_not_found:"channel not found",telegram_auth_failed:"bot not authorized",telegram_unreachable:"Telegram unreachable"}}};
 let L=(()=>{try{return localStorage.getItem('social_lang')}catch(e){return null}})()||((navigator.language||'ru').slice(0,2));if(!T[L])L='ru';
 const t=k=>T[L][k]!==undefined?T[L][k]:(T.en[k]!==undefined?T.en[k]:k);const $=s=>document.querySelector(s);
@@ -116,8 +122,8 @@ function itemHtml(i,withActions){const st=(T[L].st||{})[i.status]||i.status;cons
  if(i.status==='uncertain')btn+=`<button data-a="yes" data-id="${i.id}">${esc(t('confirmYes'))}</button><button data-a="no" data-id="${i.id}">${esc(t('confirmNo'))}</button>`;
  const by=i.approved_by?` · ${esc((T[L].by||{})[i.approved_by]||i.approved_by)}`:'';
  const wait=(i.waiting||[]).length&&['draft','approved'].includes(i.status)?`<div><small class="warn">${esc(i.waiting.map(bl).join(' · '))}</small></div>`:'';
- return `<div class="item"><span class="chip ${cls}">${esc(st)}</span> <b>${esc(i.planned_local.slice(11))}</b> <span class="chip">${esc(i.platform)}</span> <small>${esc(i.created_by||'')}${by}</small>${wait}<div class="text">${esc(i.text)}</div>`+
-  (r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`:'')+(r.code?`<small class="bad"> ${esc(r.code)}</small>`:'')+`<div class="row">${btn}</div></div>`}
+ return `<div class="item"><span class="chip ${cls}">${esc(st)}</span> <b>${esc(i.planned_local.slice(11))}</b> <span class="chip">${esc(i.platform)}</span> <small>${esc(i.created_by||'')}${by}</small>${wait}<div class="ib">${i.image_url?`<a href="${esc(i.image_url)}" target="_blank" rel="noopener"><img class="thumb" src="${esc(i.image_url)}" alt="${esc(t('imgAlt')+': '+((i.image||{}).headline||''))}" loading="lazy" width="150" height="150"></a>`:''}<div><div class="text">${esc(i.text)}</div>`+
+  (r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`:'')+(r.code?`<small class="bad"> ${esc(r.code)}</small>`:'')+`</div></div><div class="row">${btn}</div></div>`}
 function paintPlan(){const open=(S.items||[]).filter(i=>i.status==='draft'||i.status==='approved');
  if(!open.length){$('#plan').innerHTML=`<p><small>${esc(t('empty'))}</small></p>`}
  else{let h='',day='';for(const i of open){const d=i.planned_local.slice(0,10);if(d!==day){day=d;h+=`<div class="day">${esc(new Date(d+'T12:00:00').toLocaleDateString(L,{weekday:'long',day:'numeric',month:'long'}))}</div>`}h+=itemHtml(i,true)}$('#plan').innerHTML=h}

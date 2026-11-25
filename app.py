@@ -30,10 +30,13 @@ from voice_transcribe import VoiceTranscriber
 from telegram_group import GroupBridge, GROUP_TYPES as TELEGRAM_GROUP_TYPES
 from relay_execution import RelayQueue
 from lane_board import build_lane_board
+import coordination
+from github_pages import fetch_all
 from operator_lanes import build_operator_lanes
 from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
+import worker_offline_alert
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from relay_acceptance import latest_telegram_acceptance
 from telegram_web_compare import StaleComparison, TelegramViewLog, compare as telegram_web_compare, confirmation_for, owner_status as telegram_compare_status
@@ -44,6 +47,10 @@ from faceless_crm import FacelessCrm, install_faceless_crm_routes, register_crm_
 from open_questions import install_open_questions_routes
 from browser_tasks import BrowserTaskStore, install_browser_task_routes
 import web_surfer
+import surfer_actions
+import surfer_policy
+import surfer_owner
+import surfer_recipes
 import agent_workspace
 from mvp_pipeline import ArtifactStore as MvpArtifacts, Pipeline as MvpPipeline
 from mvp_cycle import AGENTS as MVP_AGENTS, AGENT_IDS as MVP_AGENT_IDS, AgentChat, agent_prompt as mvp_agent_prompt, cycle_view as mvp_cycle_view
@@ -71,7 +78,9 @@ from oauth_framework import OAuthError, OAuthFlow, UnavailableTokenVault
 import youtube_publisher
 import linkedin_publisher
 import social_autopilot
+import social_images
 import olx_publisher
+import google_sheets
 import workspace_tenancy as tenancy
 from battle_runs import BattleError, BattleStore
 from telegram_battles import BattleTelegram
@@ -79,7 +88,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.15.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.19.1"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -205,7 +214,8 @@ AGENT_SPECS = {
 }
 
 app = FastAPI(title="Blackbox Lab FactoryOS v3")
-app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+# html=True: a directory URL such as /static/linkedin/ serves its index.html (owner 2026-11-23: runbook links were 404).
+app.mount("/static", StaticFiles(directory=BASE / "static", html=True), name="static")
 
 
 @app.on_event("startup")
@@ -261,6 +271,9 @@ claude_worker_runtime={"last_seen":0.0,"node":{},"active_task_id":"","last_error
 CLAUDE_WORKER_RESULTS_FILE = DATA_DIR / "claude_worker_results.json"
 # T-536-B: last sanitized heartbeat survives restarts; the TTL still decides online/stale.
 CLAUDE_WORKER_HEARTBEAT_FILE = DATA_DIR / "claude_worker_heartbeat.json"
+# T-738: one Telegram alert per worker silence (and one when it is back); see worker_offline_alert.py.
+WORKER_OFFLINE_ALERT_STATE_FILE = DATA_DIR / "worker_offline_alert.json"
+_SERVER_STARTED_AT = time.time()
 _claude_worker_results_lock=threading.Lock()
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
 FACTORY_GOOGLE_CLIENT_SECRET = os.environ.get("FACTORY_GOOGLE_CLIENT_SECRET","").strip()   # MyCast calendar OAuth only
@@ -822,7 +835,15 @@ def _mcp_lane_forbidden_tokens():
     """T-604: a per-lane MCP token must not reuse the shared MCP token or any other FactoryOS credential."""
     return _agent_relay_forbidden_tokens()+(os.environ.get("FACTORY_CLAUDE_RELAY_TOKEN",""),os.environ.get("FACTORY_CODEX_RELAY_TOKEN",""))
 
-AGENT_WORKSPACE = agent_workspace.AgentWorkspace(RELAY_STORE, RELAY_QUEUE, known_secrets=_mcp_lane_forbidden_tokens)
+def _agent_workspace_worker_status():
+    """T-736: what request_task tells the asking agent about the Claude worker (heartbeat facts only, no node details)."""
+    last=float(claude_worker_runtime.get("last_seen") or 0)
+    return {"online":bool(last) and _claude_worker_online(),"last_seen_age_seconds":round(time.time()-last) if last else None,
+            "active_task":str(claude_worker_runtime.get("active_task_id") or "")[:80],
+            "task_state":str((claude_worker_runtime.get("node") or {}).get("status") or "")[:40]}
+
+AGENT_WORKSPACE = agent_workspace.AgentWorkspace(RELAY_STORE, RELAY_QUEUE, known_secrets=_mcp_lane_forbidden_tokens,
+                                                 worker_status=_agent_workspace_worker_status)
 agent_workspace.install_routes(app, AGENT_WORKSPACE, lambda: agent_workspace.lane_status(forbidden=_mcp_lane_forbidden_tokens()))
 agent_workspace.install_access_log_redaction()
 
@@ -1320,6 +1341,64 @@ def _surfer_session(raw, url: str) -> dict:
 install_browser_task_routes(app, BROWSER_TASKS, identity=request_identity, authorize_worker=_claude_worker_authorized,
                             authorize_agent=_browser_agent_authorized,
                             session_domains=_browser_session_domains, session_state=_browser_session_state)
+# T-720 Surfer action sessions (docs/roadmap/T-720_SURFER_ACTIONS.md) behind the T-721 policy gate: off until the owner
+# sets FACTORY_SURFER_ACTIONS_ENABLED=1, and then only on the sites and action classes of his allowlist.
+class _SurferVault:
+    """What the gate may ask the encrypted vault (T-560-F). Values go only to the worker; nothing is logged."""
+    @staticmethod
+    def _open():
+        return _vault_parts(required=False), tenancy.binding_workspace()
+    def ready(self):
+        return bool(_vault_parts(required=False))
+    def login_info(self):
+        """Per saved login 'site/account': is there a password, is there a saved browser session (cookies)."""
+        parts,workspace=self._open()
+        if not parts:return []
+        info={}
+        for e in parts[0].entries(workspace):
+            row=info.setdefault(f"{e['provider']}/{e['account']}",{"password":False,"session":False})
+            row["password"]=row["password"] or "password" in (e.get("kinds") or [])
+        for e in parts[1].entries(workspace):
+            info.setdefault(f"{e['provider']}/{e['account']}",{"password":False,"session":False})["session"]=True
+        return [dict(login=k,**v) for k,v in sorted(info.items())]
+    def logins(self):
+        return [row["login"] for row in self.login_info()]
+    def _ref(self,provider,account):
+        parts,workspace=self._open()
+        ref=parts[0].find_ref(workspace_id=workspace,provider=provider,account_binding_id=account) if parts else None
+        return parts,workspace,ref
+    def has_secret(self,provider,account):
+        parts,workspace,ref=self._ref(provider,account)
+        if not ref:return False
+        info=parts[0].check(ref,workspace_id=workspace,provider=provider,account_binding_id=account)
+        return bool(info.get("ok")) and "password" in (info.get("fields") or [])
+    def secret(self,provider,account,kind):
+        parts,workspace,ref=self._ref(provider,account)
+        if not ref:return ""
+        return parts[0].resolve(ref,workspace_id=workspace,provider=provider,account_binding_id=account,kind=kind).reveal()
+    def storage_state(self,provider,account):
+        return _browser_session_state(provider,account)
+    def save_storage_state(self,provider,account,state):
+        parts,workspace=self._open()
+        if not parts:return False
+        parts[1].capture(workspace_id=workspace,provider=provider,account_binding_id=account,storage_state=state)
+        event(None,f"Vault: browser session saved from a Surfer takeover for {provider}/{account}")
+        return True
+SURFER_ACTIONS = surfer_actions.ActionStore(DATA_DIR)
+SURFER_GATE = surfer_policy.PolicyGate(DATA_DIR, vault=_SurferVault())
+surfer_policy.install_routes(app, gate=SURFER_GATE, store=SURFER_ACTIONS, identity=request_identity)
+surfer_owner.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, identity=request_identity)  # T-722 owner page
+def _surfer_lane(request: Request) -> str:
+    return agent_workspace.lane_identity(request, forbidden=_mcp_lane_forbidden_tokens())
+SURFER_RECIPES = surfer_recipes.RecipeStore(DATA_DIR)  # T-723: owner-approved recipes, replayed under the same gate
+async def _surfer_recipe_tool(args, lane):
+    return await surfer_recipes.call_tool(args, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, lane=lane)
+async def _surfer_pending_tool(args, lane):  # T-726: Claude lane reads what waits for the owner (read-only)
+    return surfer_owner.agent_pending(SURFER_ACTIONS, SURFER_GATE, lane, FACTORY_PUBLIC_BASE_URL)
+surfer_actions.install_routes(app, store=SURFER_ACTIONS, gate_fn=lambda: SURFER_GATE, identity=request_identity,
+                              authorize_worker=_claude_worker_authorized, lane_identity=_surfer_lane,
+                              extra_tools={"web_recipe": _surfer_recipe_tool, "surfer_pending": _surfer_pending_tool})
+surfer_recipes.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, identity=request_identity)
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
 install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
@@ -1501,6 +1580,8 @@ async def auth_middleware(request: Request, call_next):
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and (_claude_worker_authorized(request) or gemini_worker_api)
     browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
+    # T-720: the Surfer action tools over REST, with the caller's own per-lane MCP token (never the shared one).
+    relay_agent_api=relay_agent_api or (request.url.path.startswith("/api/factory/surfer/agent/") and bool(_surfer_lane(request)))
     owner_desk_worker_api=(request.url.path.startswith("/api/factory/owner-desk/worker/") or request.url.path.startswith("/api/factory/mycast/worker/") or request.url.path.startswith("/api/factory/voice/worker/") or request.url.path.startswith("/api/factory/gemini/worker/") or request.url.path.startswith("/api/factory/team-tasks/worker/") or request.url.path.startswith("/api/factory/browser/worker/") or request.url.path.startswith("/api/factory/surfer/worker/")) and _claude_worker_authorized(request)
     # #114 C-1: worker POSTs need the worker's own token; an owner browser session must not stand in for a runner.
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
@@ -1992,7 +2073,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS
+]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2042,9 +2123,22 @@ async def factory_mcp(request: Request):
                 result=_factory_mcp_text(data)
             elif name in web_surfer.TOOL_NAMES:
                 result=_factory_mcp_text(await web_surfer.call_tool(name,args,store=BROWSER_TASKS,search=WEB_SEARCH,sessions=_surfer_session))
+            elif name in surfer_actions.TOOL_NAMES:
+                # T-720: acting needs the caller's lane identity; the gate (flag, allowlist, caps) is checked inside.
+                result=_factory_mcp_text(await surfer_actions.call_tool(name,args,store=SURFER_ACTIONS,gate=SURFER_GATE,lane=mcp_lane or ""))
+            elif name in surfer_recipes.TOOL_NAMES:
+                result=_factory_mcp_text(await _surfer_recipe_tool(args,mcp_lane or ""))
+            elif name in surfer_owner.PENDING_TOOL_NAMES:
+                result=_factory_mcp_text(await _surfer_pending_tool(args,mcp_lane or ""))
             elif name in social_autopilot.MCP_TOOL_NAMES:
                 # T-702: agents read the plan and add drafts only; approval and publishing stay owner-only.
                 result=_factory_mcp_text(social_autopilot.call_tool(SOCIAL_AUTOPILOT,name,args,mcp_lane or ""))
+            elif name in google_sheets.MCP_TOOL_NAMES:
+                # T-725: owner-registered spreadsheets only, per-lane token required (the shared token is refused).
+                result=_factory_mcp_text(await asyncio.to_thread(google_sheets.call_tool,GOOGLE_SHEETS,name,args,mcp_lane or ""))
+            elif name in coordination.MCP_TOOL_NAMES:
+                # T-729: may this lane start this task / change these files without duplicating open work?
+                result=_factory_mcp_text(await asyncio.to_thread(_coordination_check_tool,args,mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -2148,6 +2242,7 @@ PORTABLE_INTEGRATIONS = {
     "HubSpot": {"category":"crm","auth_mode":"oauth","transport":"direct"},
     "LinkedIn": {"category":"publishing","auth_mode":"oauth","transport":"direct"},
     "OLX": {"category":"marketplace","auth_mode":"oauth","transport":"direct"},
+    "Google Sheets": {"category":"data","auth_mode":"oauth","transport":"direct"},
 }
 CONNECTIONS = {
     "Metricool": {"state":"not_configured","detail":"Publishing workspace not configured"},
@@ -2157,6 +2252,7 @@ CONNECTIONS = {
     "HubSpot": {"state":"not_configured","detail":"CRM / Growth · direct FactoryOS login not configured"},
     "LinkedIn": {"state":"not_configured","detail":"Text posts via the official LinkedIn API · connect on /static/linkedin/"},
     "OLX": {"state":"not_configured","detail":"Adverts via the official OLX Partner API · connect on /static/olx/index.html"},
+    "Google Sheets": {"state":"not_configured","detail":"Agents append rows via the official Sheets API · connect on /static/sheets/index.html"},
     "vidIQ": {"state":"paused","detail":"Paused for now"},
     "LLM": {
         "state":"connected" if FACTORY_LLM_API_KEY else "demo",
@@ -8363,6 +8459,40 @@ async def report_llm_readiness():
 async def restore_claude_worker_heartbeat():
     _restore_claude_worker_heartbeat()
 
+def _worker_offline_alert_send(text: str, silent: bool) -> bool:
+    """T-738: owner chat only; True only when Telegram accepted the message (never raises)."""
+    chat_id=str(_telegram_load_state().get("chat_id") or "").strip()
+    if not chat_id or not FACTORY_TELEGRAM_BOT_TOKEN:
+        return False
+    try:
+        _telegram_api("sendMessage",{"chat_id":chat_id,"text":str(text)[:4000],"disable_notification":bool(silent)})
+        return True
+    except Exception:
+        return False
+
+def worker_offline_alert_once(now: Optional[float]=None) -> str:
+    node=claude_worker_runtime.get("node") or {}
+    return worker_offline_alert.tick(
+        last_seen=float(claude_worker_runtime.get("last_seen") or 0),now=now or time.time(),
+        started_at=_SERVER_STARTED_AT,state_path=WORKER_OFFLINE_ALERT_STATE_FILE,
+        send=_worker_offline_alert_send,supervisor=node.get("supervisor") if isinstance(node,dict) else None)
+
+async def worker_offline_alert_loop():
+    await asyncio.sleep(60)
+    while True:
+        try:
+            result=await asyncio.to_thread(worker_offline_alert_once)
+            if result in ("offline","back","send_failed"):
+                print(json.dumps({"event":"WORKER_OFFLINE_ALERT","result":result}),flush=True)
+        except Exception as exc:
+            print(json.dumps({"event":"WORKER_OFFLINE_ALERT_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def start_worker_offline_alert():
+    if worker_offline_alert.enabled():
+        asyncio.create_task(worker_offline_alert_loop())
+
 @app.on_event("startup")
 async def start_builder_reconciler():
     asyncio.create_task(builder_reconcile_loop())
@@ -11295,8 +11425,11 @@ OAUTH_FLOW = OAuthFlow(
     vault=_oauth_token_vault(),
     # T-552-YT: real Google transport for YouTube; other providers stay blocked until their adapters exist.
     adapters={"youtube":youtube_publisher.GoogleOAuthAdapter(),"linkedin":linkedin_publisher.LinkedInOAuthAdapter(),
-              "olx":olx_publisher.OlxOAuthAdapter()},
+              "olx":olx_publisher.OlxOAuthAdapter(),"google_sheets":google_sheets.GoogleSheetsOAuthAdapter()},
 )
+# T-725: Google Sheets for agents (owner-registered sheets, bounded, idempotent), off until FACTORY_GOOGLE_SHEETS_ENABLED=1.
+GOOGLE_SHEETS=google_sheets.Sheets(google_sheets.SheetStore(DATA_DIR),OAUTH_FLOW,tenancy.binding_workspace)
+google_sheets.install_routes(app,service=GOOGLE_SHEETS,identity=request_identity)
 # T-700: LinkedIn text posts (owner-only draft → approve → publish), off until FACTORY_LINKEDIN_ENABLED=1.
 linkedin_publisher.install_routes(app,store=linkedin_publisher.PostStore(DATA_DIR),flow=OAUTH_FLOW,
                                   identity=request_identity,workspace=tenancy.binding_workspace)
@@ -11309,8 +11442,10 @@ olx_publisher.install_routes(app,store=olx_publisher.AdvertStore(DATA_DIR),flow=
 SOCIAL_TELEGRAM=social_autopilot.TelegramChannelAdapter(
     token=lambda: FACTORY_TELEGRAM_BOT_TOKEN,
     channel=lambda: os.environ.get("FACTORY_TELEGRAM_CHANNEL_ID","").strip())
+# T-713: every post carries a teaser image rendered locally (zero spend); an AI generator stays off unless the owner
+# sets FACTORY_SOCIAL_AI_IMAGES=1 and one is wired here (none is today).
 SOCIAL_AUTOPILOT=social_autopilot.Autopilot(
-    social_autopilot.Store(DATA_DIR),
+    social_autopilot.Store(DATA_DIR,images=social_images.ImageMaker(DATA_DIR,social_images.generator_from_env())),
     {"telegram":SOCIAL_TELEGRAM,
      "linkedin":social_autopilot.LinkedInAdapter(OAUTH_FLOW,tenancy.binding_workspace)},
     notify=lambda text: _telegram_send(text),
@@ -11318,6 +11453,10 @@ SOCIAL_AUTOPILOT=social_autopilot.Autopilot(
 social_autopilot.install_routes(app,pilot=SOCIAL_AUTOPILOT,identity=request_identity,telegram=SOCIAL_TELEGRAM)
 
 async def social_autopilot_loop():
+    try:
+        await asyncio.to_thread(SOCIAL_AUTOPILOT.store.ensure_images)   # T-713: images for items made before images
+    except Exception as exc:
+        print(json.dumps({"event":"SOCIAL_AUTOPILOT_IMAGES","status":"error","error":type(exc).__name__}),flush=True)
     while True:
         try:
             result=await asyncio.to_thread(SOCIAL_AUTOPILOT.tick)
@@ -13117,14 +13256,103 @@ def get_lane_board():
     team=_TEAM_TASKS_CACHE.peek() if "_TEAM_TASKS_CACHE" in globals() else None
     activity={k:{"done_7d":a.get("done_7d"),"last_activity_at":a.get("last_activity_at")}
               for k,a in ((team or {}).get("agents") or {}).items() if k in ("claude","chatgpt","gemini")}
-    return build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds,
-                            github_activity=activity)
+    board=build_lane_board(_parse_roadmap_tasks(),RELAY_STORE.list(limit=500),beats,stale_seconds=RELAY_QUEUE.stale_seconds,
+                           github_activity=activity)
+    # T-714: the dedicated Surfer worker (browser tasks) beside the coding lanes; it never takes ROADMAP tasks.
+    board["lanes"]["surfer"]=BROWSER_TASKS.surfer_lane()
+    return board
 
 @app.get("/api/factory/lane-board")
 def factory_lane_board(request: Request):
     identity=request_identity(request) or {}
     if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
     return get_lane_board()
+
+# T-729 Coordination guard: ROADMAP IDs + open PRs (with changed files) + Relay claims + handoffs -> duplicates/overlaps.
+_COORDINATION_CACHE={"at":0.0,"prs":None,"truncated":False}
+_COORDINATION_LOCK=threading.Lock()
+COORDINATION_TTL=120          # owner page only; the agent pre-start check always reads GitHub fresh
+COORDINATION_MAX_PR_PAGES=3   # 300 open PRs; more = "truncated" = unknown, never a silent partial list
+COORDINATION_MAX_FILE_PAGES=30  # GitHub lists at most 3000 files per PR; a longer list is unknown
+
+def _coordination_open_prs(fetch=None):
+    """Every open PR with its full list of changed files: ``(prs, truncated)``. ``(None, False)`` = GitHub unreadable.
+    A PR whose files could not be read completely keeps files=None, so the report says "unknown", not "no overlap"."""
+    token=_github_read_token()
+    if fetch is None and not token:return None,False
+    fetch=fetch or github_fetcher(GITHUB_REPO,token)
+    try:pulls,truncated=fetch_all(fetch,"/pulls?state=open&sort=updated&direction=desc",max_pages=COORDINATION_MAX_PR_PAGES)
+    except Exception:return None,False
+    out=[]
+    for p in pulls:
+        if not isinstance(p,dict):continue
+        files=None
+        try:
+            got,cut=fetch_all(fetch,f"/pulls/{int(p.get('number') or 0)}/files",max_pages=COORDINATION_MAX_FILE_PAGES)
+            if not cut:files=[str(f.get("filename") or "") for f in got if isinstance(f,dict) and f.get("filename")]
+        except Exception:files=None
+        out.append({"number":p.get("number"),"title":str(p.get("title") or ""),"branch":str((p.get("head") or {}).get("ref") or ""),
+                    "url":str(p.get("html_url") or ""),"draft":bool(p.get("draft")),"files":files})
+    return out,truncated
+
+def _coordination_claims():
+    """Active claims of ROADMAP tasks from the whole Relay store (not a newest-N window). None = Relay unreadable."""
+    try:
+        with RELAY_STORE.lock:
+            tickets=[dict(x) for x in RELAY_STORE._load_unlocked()["tickets"] if isinstance(x,dict)]
+        claims=[]
+        for t in tickets:
+            src=t.get("source") or {}
+            if src.get("channel")!="roadmap":continue
+            ex=(RELAY_QUEUE.view(dict(t)).get("execution") or {})
+            if str(ex.get("state") or "") not in coordination.ACTIVE_CLAIM_STATES:continue
+            claims.append({"ticket":t.get("id"),"task_id":src.get("task_id"),"lane":ex.get("owner") or src.get("owner") or "",
+                           "state":ex.get("state") or "","title":t.get("title") or ""})
+        return claims
+    except Exception:return None
+
+def _coordination_handoffs():
+    try:
+        with RELAY_STORE.lock:
+            ws=AGENT_WORKSPACE._ws(RELAY_STORE._load_unlocked())
+            return [dict(h) for h in ws["handoffs"] if isinstance(h,dict)]
+    except Exception:return None
+
+def get_coordination_report(fetch=None,refresh=False):
+    roadmap_path=BASE/"ROADMAP.md"
+    try:roadmap=roadmap_path.read_text(encoding="utf-8") if roadmap_path.exists() else None
+    except OSError:roadmap=None
+    with _COORDINATION_LOCK:
+        if refresh or fetch is not None or time.time()-_COORDINATION_CACHE["at"]>COORDINATION_TTL or _COORDINATION_CACHE["prs"] is None:
+            prs,truncated=_coordination_open_prs(fetch)
+            _COORDINATION_CACHE.update(prs=prs,truncated=truncated,at=time.time())
+        prs,truncated,read_at=_COORDINATION_CACHE["prs"],_COORDINATION_CACHE["truncated"],_COORDINATION_CACHE["at"]
+    report=coordination.build_report(roadmap,prs,_coordination_claims(),_coordination_handoffs(),prs_truncated=truncated)
+    report["next_free_id"]=coordination.next_free_id(report)
+    report["cache_seconds"]=COORDINATION_TTL
+    report["github_read_age_seconds"]=round(max(0.0,time.time()-read_at)) if prs is not None else None
+    return report
+
+@app.get("/api/factory/coordination")
+def factory_coordination(request: Request, refresh: int = 0):
+    identity=request_identity(request) or {}
+    if identity.get("role")!="owner":raise HTTPException(403,"Owner access required")
+    report=get_coordination_report(refresh=bool(refresh))
+    return _redact_board_value(coordination.public_view(report),_board_secret_values())
+
+def _coordination_check_tool(args,lane):
+    """T-729 MCP coordination_check: read-only pre-start answer. Always a fresh GitHub read (no dashboard cache).
+    The lane is the authenticated MCP lane; a different ``lane`` argument is refused. With the shared token no lane is
+    proven, so no same-lane exemption applies."""
+    files=args.get("files") or []
+    if not isinstance(files,list):raise ValueError("files must be a list of repository paths")
+    asked=str(args.get("lane") or "").strip().lower()
+    if lane and asked and asked!=lane:raise ValueError("lane does not match your MCP lane token")
+    report=get_coordination_report(refresh=True)
+    out=coordination.agent_check(report,str(args.get("task_id") or ""),[str(f)[:300] for f in files[:200]],lane or "")
+    out["lane"]=lane or None
+    if not lane:out["lane_note"]="shared token: no lane proven, so no same-lane exemption was applied"
+    return _redact_board_value(out,_board_secret_values())
 
 def _board_secret_values():
     return sorted([s for s in (FACTORY_CLAUDE_WORKER_TOKEN,FACTORY_CLAUDE_WORKER_TOKEN_EC2,FACTORY_OPERATOR_WORKER_TOKEN,FACTORY_TELEGRAM_BOT_TOKEN,

@@ -26,7 +26,7 @@ def route_exists(path, method):
 
 health=app.health_details()  # #114 A-1: the public /health only says ok; details need a session
 require(health["ok"] is True,"health must be ok")
-require(health["version"]==app.APP_VERSION=="v5.15.0","version mismatch")
+require(health["version"]==app.APP_VERSION=="v5.19.1","version mismatch")
 require("paid_verification" in health,"paid verification health summary missing")
 require(health["paid_verification"]["status"] in ("pending","started","passed","failed","disabled"),"unexpected paid verification status")
 require("llm_configured" in health and "llm_model" in health,"provider readiness fields missing")
@@ -1361,6 +1361,29 @@ try:
     require("must-not-survive" not in json.dumps(wo),"worker overview leaked supervisor extras")
 finally:
     app.claude_worker_runtime.clear();app.claude_worker_runtime.update(old_runtime)
+
+# T-738: worker offline alert wiring. Never-seen worker: nothing; silent worker: one alert through the owner sender
+# with its state in DATA_DIR; same silence: nothing; first heartbeat after it: one "back" message.
+require(any(h.__name__=="start_worker_offline_alert" for h in app.app.router.on_startup),"worker offline alert hook missing")
+require(app.app.router.on_startup[0].__name__=="_durable_engine_startup","durable engine startup must stay first")
+old_runtime=dict(app.claude_worker_runtime);old_send=app._worker_offline_alert_send;old_started=app._SERVER_STARTED_AT
+alerts=[]
+try:
+    app.WORKER_OFFLINE_ALERT_STATE_FILE.unlink(missing_ok=True)
+    app._worker_offline_alert_send=lambda text,silent:(alerts.append((text,silent)) or True)
+    app._SERVER_STARTED_AT=0.0
+    app.claude_worker_runtime.clear();app.claude_worker_runtime.update({"last_seen":0.0,"node":{}})
+    require(app.worker_offline_alert_once()=="none" and not alerts,"never-seen worker must not alert")
+    now=app.time.time();app.claude_worker_runtime["last_seen"]=now-3600
+    require(app.worker_offline_alert_once(now)=="offline" and len(alerts)==1,"silent worker must alert once")
+    require(app.WORKER_OFFLINE_ALERT_STATE_FILE.exists(),"alert state must persist in DATA_DIR")
+    require(app.worker_offline_alert_once(now+60)=="none" and len(alerts)==1,"the same silence must not alert twice")
+    app.claude_worker_runtime["last_seen"]=now+120
+    require(app.worker_offline_alert_once(now+125)=="back" and "снова на связи" in alerts[-1][0],"recovery must be reported once")
+finally:
+    app._worker_offline_alert_send=old_send;app._SERVER_STARTED_AT=old_started
+    app.claude_worker_runtime.clear();app.claude_worker_runtime.update(old_runtime)
+    app.WORKER_OFFLINE_ALERT_STATE_FILE.unlink(missing_ok=True)
 
 # #359: include CRM persistence, owner-only authorization and task regression in the standard CI smoke run.
 import unittest as _faceless_unit
