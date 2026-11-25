@@ -7,7 +7,7 @@ from mycast_chapter_index import MeasuredSection, format_ukrainian_chapters, tim
 class ChapterIndexTests(unittest.TestCase):
     def test_measured_offsets_and_ukrainian(self):
         sections = [MeasuredSection("Головне", 0, 5000), MeasuredSection("Новини ШІ", 5200, 12500)]
-        self.assertEqual(format_ukrainian_chapters(sections, 13000), "00:00 — Головне\\n00:05 — Новини ШІ")
+        self.assertEqual(format_ukrainian_chapters(sections, 13000), "00:00 — Головне\n00:05 — Новини ШІ")
         self.assertEqual(validate_chapters(sections, 13000)[1]["end_ms"], 12500)
 
     def test_five_sections(self):
