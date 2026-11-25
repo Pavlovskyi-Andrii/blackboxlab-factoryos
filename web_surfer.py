@@ -171,6 +171,8 @@ BLOCKER_HINTS = (
 
 
 QUEUE_HINTS = {
+    "fallback_serving": "The dedicated Surfer worker is down; the Claude worker's fallback reads pages between its own "
+                        "jobs, so this may take minutes. Surfer actions (web_open / web_act) wait for the Surfer worker.",
     "worker_offline": "The Surfer worker is offline (no heartbeat for 3+ minutes): queued pages wait until it is back "
                       "and fail as queue_timeout after 30 minutes. Tell the owner; meanwhile use another source.",
     "worker_unavailable": "The Surfer worker is alive but reports Chromium cannot start, so it does not take pages. "
