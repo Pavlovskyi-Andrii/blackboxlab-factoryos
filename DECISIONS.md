@@ -2636,3 +2636,50 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   discovering it from a missing episode.
 - Not decided here: alerts for the Surfer and Gemini lanes; the root cause of the 2026-11-24 silence (needs
   `uptime -s` and the worker journal for 22:00–22:10 UTC from the owner).
+
+## 2026-11-25 — T-728 Surfer queue cannot stall silently
+
+- **Decision:** the server sweeps the read-task queue on every claim, task read and health read: a `running` task whose
+  lease expired goes back to `queued` in its place until it was handed out `MAX_ATTEMPTS` (2) times, then fails with
+  blocker `lease_expired`; a `queued` task nobody claimed for 30 minutes fails with `queue_timeout` and the worker
+  verdict at that moment. `LEASE_SECONDS` drops 600 → 300 (a read task is bounded at ~90 s plus the report).
+  **Reason:** before, an expired lease was simply handed out again for ever (a page that kills the worker would be
+  retried on every restart), and with no worker queued tasks waited without limit and filled the 20-task cap. Failing
+  with an honest code lets the agent move on to another source.
+- **Decision:** the worker treats a non-200 claim answer (401 token, 5xx) as an error (`claim_http_<code>`), backs off and
+  reports it in the heartbeat as `last_error`; before, it returned "idle" and beat "idle" for ever while the queue never
+  moved. While an action session holds a live Chromium, the worker skips the extra launch probe (the live browser
+  proves Chromium works) and reads borrow that browser; before, a failed second launch under the unit's 1.2 GB cap
+  parked the worker in "unavailable": no read claims and no action pumping.
+- **Decision:** queue health is agent-readable without owner access: `GET /api/factory/browser/agent/queue` (browser-agent
+  token) and a `queue` block with hints on every queued `web_task` / `web_read` answer (MCP and agent REST). Verdicts:
+  `worker_offline` (no heartbeat for 3+ min or stopped), `worker_unavailable` (Chromium cannot start),
+  `worker_cannot_claim` (claims refused), `worker_not_claiming` (beats but has not asked for a task for 2+ min while the
+  oldest queued task waits 2+ min), `queue_blocked` (asks but the queue does not move), `ok`. The server records the
+  last claim request and the last task handed out in `DATA_DIR/surfer_claims.json`; Worker Center's Surfer lane carries
+  the same `queue_health`.
+  **Reason:** in the 2026-11-25 incident the parent session could not tell a dead worker from a blocked queue.
+- **Root cause (2026-11-25, reproduced with real Playwright 1.x in the build session):** `_launch_probe` opens
+  `with sync_playwright()` in the worker's main thread; while the action runner holds its own started Playwright
+  (a live page, or one being opened), that raises "It looks like you are using Playwright Sync API inside the asyncio
+  loop". The probe result is cached for 10 min, so the first re-probe during an action session turned the worker
+  "unavailable"; `pass_once` then returned before `actions.pump()`, so the action session was never closed on its
+  lifetime either (the close check lives in `pump`). Deadlock: no read claims, no action pumping, while the loop kept
+  beating "unavailable" with a fresh deadline — the self-watchdog (#460) and the root watchdog both saw a healthy
+  loop. The owner's manual restart (≈20:58 UTC) dropped the Playwright and both queued reads finished at once.
+  **Decision:** no probe while the runner holds Playwright (`ActionRunner.holds_playwright()`) or lends a live
+  browser; the "unavailable" path still pumps action sessions; and, independent of any cause, 10 min of continuous
+  "unavailable" with a configured token exits 75 so systemd starts a fresh process (its cgroup kill also removes any
+  leftover Chromium). At one exit per 10 min the unit stays under its StartLimitBurst (5 per 600 s); a host without
+  Chromium restarts quietly every 10 min instead of beating "unavailable" for ever. An external systemd `WatchdogSec`
+  was not added: it would be satisfied by the same beats that hid this stall.
+- **Second cause (owner's EC2 journal, 20:55–20:58 UTC):** a restart loop. Every start logged "runner code changed on
+  disk" 6–17 s later, exit 0, restart after 10 s, until systemd's `start-limit-hit` (5 starts per 600 s). The detector
+  compared (mtime, size) of the runner files, and something in the shared checkout rewrote them with the same bytes.
+  **Decision:** the fingerprint is a sha256 of the file *contents* (tracked `.py` only, never `__pycache__`), checked
+  at most once a minute, not before 5 min of uptime, and a new hash must be seen on two checks in a row (a branch
+  flip that goes back is no change). The unit allows 20 starts per 15 min with `RestartSec=15s`. The unit file
+  change takes effect only after the owner reruns `sudo bash /opt/factoryos/deploy/install_surfer_worker.sh`; the
+  detector fix alone already stops the loop.
+- Checked and not changed: server-side read claims do not depend on action sessions (`surfer_actions` has its own
+  claim route), so an idle or `waiting_human` action session never blocks the read queue on the server.
