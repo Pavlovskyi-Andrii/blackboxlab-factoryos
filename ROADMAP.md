@@ -45,7 +45,7 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Spec: DECISIONS.md «2026-11-25 — T-728». `browser_tasks.py`, `web_surfer.py`, `autopilot/browser_tasks.py`, `autopilot/browser_worker.py`.
   Goal: a running task whose lease (now 300 s) expired is requeued once, then fails as `lease_expired`; a task nobody claimed for 30 min fails as `queue_timeout` (frees the 20-task cap); a refused claim (401/5xx) is a worker error with `last_error` in the heartbeat, no longer a silent "idle"; a live action session's browser counts as "Chromium works", so a failing second launch probe never parks reads; `GET /api/factory/browser/agent/queue` (browser-agent token) and `queue` + hints on every queued `web_task`/`web_read` answer give the verdict (worker_offline / worker_unavailable / worker_cannot_claim / worker_not_claiming / queue_blocked / ok), oldest queued age, the head task, worker heartbeat / last poll / last claim.
   DONE: `python test_browser_tasks.py` (QueueHealthTest), `python -m autopilot.test_browser_worker` (QueueNeverSilentTest), `python test_web_surfer.py`, default verification, CI green.
-  Not proven live: the 2026-11-25 root cause on EC2 (worker down vs alive-but-not-claiming) needs the worker journal; after deploy the queue verdict on prod says which.
+  Root cause (reproduced with real Playwright): the launch probe fails while the action runner holds its Playwright → "unavailable" loop that skipped `pump()` and kept beating, so no watchdog fired; fixed (no probe while Playwright is held, pump in the unavailable path, exit 75 after 10 min unavailable). The owner's manual restart ≈20:58 UTC cleared the live incident; the worker picks the fix up from the checkout after merge.
 
 ## Faceless Creator A/B (#469, owner 2026-11-24)
 

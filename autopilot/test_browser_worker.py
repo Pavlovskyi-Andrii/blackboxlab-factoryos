@@ -304,6 +304,62 @@ class QueueNeverSilentTest(unittest.TestCase):
         self.assertEqual((result, seen), ("idle", [True]))      # it asked the server for a read task
         probe.assert_not_called()
 
+    def test_runner_holding_playwright_without_a_page_skips_the_probe(self):
+        class Actions:
+            live = ""
+
+            def borrowed_factory(self):
+                return None
+
+            def holds_playwright(self):
+                return True                              # a session is being opened / its Playwright still runs
+
+            def pump(self):
+                return "idle"
+        calls = []
+        probe = mock.Mock(return_value=False)
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(bw.relay_tasks, "endpoint", return_value=("https://factory.example", "tok")):
+            w = bw.SurferWorker(repo=pathlib.Path(d), run_one=lambda **k: calls.append(1) or "idle",
+                                configured=lambda: True, available=probe, clock=Clock(),
+                                fingerprint=lambda: ("same",), actions=Actions(), post=lambda *a, **k: Resp())
+            self.assertEqual(w.pass_once()[0], "idle")
+        self.assertEqual(calls, [1])
+        probe.assert_not_called()
+
+    def test_unavailable_still_pumps_actions_and_exits_after_ten_minutes(self):
+        class Actions:
+            live = ""
+            pumps = 0
+
+            def borrowed_factory(self):
+                return None
+
+            def holds_playwright(self):
+                return False
+
+            def pump(self):
+                Actions.pumps += 1
+                return "idle"
+        exits, mono = [], [1000.0]
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(bw.relay_tasks, "endpoint", return_value=("https://factory.example", "tok")):
+            w = bw.SurferWorker(repo=pathlib.Path(d), run_one=lambda **k: "idle", configured=lambda: True,
+                                available=lambda: False, clock=Clock(), fingerprint=lambda: ("same",),
+                                actions=Actions(), post=lambda *a, **k: Resp())
+            w.exit, w.monotonic = exits.append, lambda: mono[0]
+            self.assertEqual(w.pass_once()[0], "unavailable")
+            self.assertEqual((Actions.pumps, exits), (1, []))   # a live session can still close on its lifetime
+            mono[0] += bw.UNAVAILABLE_EXIT_SECONDS - 1
+            w.pass_once()
+            self.assertEqual(exits, [])
+            mono[0] += 2
+            w.pass_once()
+            self.assertEqual(exits, [bw.EXIT_CODE_STUCK])        # systemd starts a fresh worker
+            w.available = lambda: True                           # a working pass resets the stretch
+            w.pass_once()
+            self.assertEqual(w._unavailable_since, 0.0)
+
 
 class HeartbeatFileTest(unittest.TestCase):
     def test_alive_and_deadline(self):

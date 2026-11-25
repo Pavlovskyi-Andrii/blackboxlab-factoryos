@@ -42,6 +42,7 @@ REPO = pathlib.Path(os.environ.get("AUTOPILOT_REPO") or ROOT).resolve()
 POLL_SECONDS = max(2, min(60, int(os.environ.get("FACTORY_SURFER_POLL_SECONDS", "5"))))
 MAX_BACKOFF_SECONDS = 120
 UNAVAILABLE_SECONDS = 60                 # no token / no Chromium: check again every minute, quietly
+UNAVAILABLE_EXIT_SECONDS = 10 * 60       # T-728: Chromium "unavailable" this long (token configured) → exit 75, restart
 HEARTBEAT_SECONDS = 30
 # A read task is bounded (~90 s); an action command by browser_actions (60 s staging + 90 s deadline + 20 s grace).
 # The beat before a pass promises 6 min: past it the loop is hung (live run 2026-11-23: a stuck browser call kept the
@@ -139,6 +140,7 @@ class SurferWorker:
         self._watch = threading.Lock()       # deadline renewal / shutdown vs the self-watchdog's exit decision
         self.exit = os._exit
         self.monotonic = time.monotonic
+        self._unavailable_since = 0.0        # T-728: monotonic start of the current "Chromium unavailable" stretch
 
     # --- self-watchdog ----------------------------------------------------------------------------------------
     def check_self(self) -> bool:
@@ -202,11 +204,27 @@ class SurferWorker:
         # T-720: while an action session holds Chromium, a read task opens its own anonymous context in that browser.
         # T-728: that live browser already proves Chromium works, so no second launch probe then: under the unit's
         # memory cap the probe could fail and park the worker in "unavailable" (no claims, no action pumping).
+        # Incident 2026-11-25 (reproduced with real Playwright): while the action runner held its Playwright, the probe
+        # raised "Sync API inside the asyncio loop", the worker returned "unavailable" before pump(), so the action
+        # session was never closed either: reads waited for ever while the loop kept beating (no watchdog fired).
         borrowed = self.actions.borrowed_factory() if self.actions else None
-        if not self.configured() or not (borrowed or self.available()):
+        holds = bool(self.actions and getattr(self.actions, "holds_playwright", lambda: False)())
+        configured = self.configured()
+        if not configured or not (borrowed or holds or self.available()):
+            if self.actions and configured:
+                self.actions.pump()                      # sessions still close on their lifetime / FactoryOS close
+            now = self.monotonic()
+            self._unavailable_since = self._unavailable_since or now
+            if configured and now - self._unavailable_since > UNAVAILABLE_EXIT_SECONDS:
+                # A fresh process (systemd kills the unit's leftover Chromium) is the recovery that worked by hand.
+                log(f"Chromium unavailable for {UNAVAILABLE_EXIT_SECONDS // 60} min; exiting so systemd restarts the worker")
+                self.server_beat("unavailable", force=True)
+                self.exit(EXIT_CODE_STUCK)
+                return "unavailable", UNAVAILABLE_SECONDS
             self.local_beat("unavailable", UNAVAILABLE_SECONDS + worker_heartbeat.STALE_AFTER_SECONDS)
             self.server_beat("unavailable")
             return "unavailable", UNAVAILABLE_SECONDS
+        self._unavailable_since = 0.0
         self.local_beat("polling", TASK_BUDGET_SECONDS)
         self.task_id = ""
         if borrowed:

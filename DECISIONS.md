@@ -2659,5 +2659,19 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   last claim request and the last task handed out in `DATA_DIR/surfer_claims.json`; Worker Center's Surfer lane carries
   the same `queue_health`.
   **Reason:** in the 2026-11-25 incident the parent session could not tell a dead worker from a blocked queue.
+- **Root cause (2026-11-25, reproduced with real Playwright 1.x in the build session):** `_launch_probe` opens
+  `with sync_playwright()` in the worker's main thread; while the action runner holds its own started Playwright
+  (a live page, or one being opened), that raises "It looks like you are using Playwright Sync API inside the asyncio
+  loop". The probe result is cached for 10 min, so the first re-probe during an action session turned the worker
+  "unavailable"; `pass_once` then returned before `actions.pump()`, so the action session was never closed on its
+  lifetime either (the close check lives in `pump`). Deadlock: no read claims, no action pumping, while the loop kept
+  beating "unavailable" with a fresh deadline — the self-watchdog (#460) and the root watchdog both saw a healthy
+  loop. The owner's manual restart (≈20:58 UTC) dropped the Playwright and both queued reads finished at once.
+  **Decision:** no probe while the runner holds Playwright (`ActionRunner.holds_playwright()`) or lends a live
+  browser; the "unavailable" path still pumps action sessions; and, independent of any cause, 10 min of continuous
+  "unavailable" with a configured token exits 75 so systemd starts a fresh process (its cgroup kill also removes any
+  leftover Chromium). At one exit per 10 min the unit stays under its StartLimitBurst (5 per 600 s); a host without
+  Chromium restarts quietly every 10 min instead of beating "unavailable" for ever. An external systemd `WatchdogSec`
+  was not added: it would be satisfied by the same beats that hid this stall.
 - Checked and not changed: server-side read claims do not depend on action sessions (`surfer_actions` has its own
   claim route), so an idle or `waiting_human` action session never blocks the read queue on the server.
