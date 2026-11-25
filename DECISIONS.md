@@ -2647,6 +2647,53 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Not decided here: alerts for the Surfer and Gemini lanes; the root cause of the 2026-11-24 silence (needs
   `uptime -s` and the worker journal for 22:00–22:10 UTC from the owner).
 
+## 2026-11-25 — T-740 Ops relay (owner: «нужно сделать так, чтобы у тебя был доступ к этому инстансу… придумай способ»)
+
+- Number: the brief said "T-729", but T-729 is the Coordination guard on main and T-739 is PR #476; next free is T-740.
+- Pull, not push: nothing on EC2 listens and no new credential exists. The root ops agent (a 30 s systemd timer, like
+  the T-562 supervisor) polls `/api/ops/worker/claim` with `FACTORY_CLAUDE_WORKER_TOKEN` from the env file the
+  workers already use. Rejected: SSH keys / AWS keys for agents (owner forbids; proxy cannot sign SigV4), SSM Run
+  Command (needs AWS credentials), adding ops to the Claude worker loop (it is the thing that hangs, and it runs as
+  ec2-user, which cannot restart units).
+- A separate unit, not the supervisor: the supervisor runs every 60 s and owns subscription recovery; a hung
+  `journalctl` or `git fetch` must not delay it. Both are oneshot root services from the same checkout.
+- One catalog (`ops_catalog.py`, stdlib only, Python 3.9) is used by both sides: the server validates on request,
+  the executor validates again before running and reports `refused` for anything else without running it. The only
+  inputs are an op enum, a unit enum and two bounded integers; every command is an argv list (`shell=False`, minimal
+  environment without tokens). git runs as ec2-user via `runuser` (the checkout belongs to ec2-user; root git would
+  leave root-owned files and trips `safe.directory`).
+- `restart` = `reset-failed` + `restart --no-block` + state after 8 s: `--no-block` because the Surfer unit's stop can
+  take up to 180 s (TimeoutStopSec), longer than the 60 s op budget; `reset-failed` clears `start-limit-hit`.
+- `sync_checkout` = fetch + `merge --ff-only @{u}` on the branch the checkout already tracks; refuses with no upstream;
+  never push, never force, never switches branch. Classed `install` with `install_surfer_unit`, off by default; the
+  owner adds `install` to `FACTORY_OPS_RELAY_CLASSES` to allow them.
+- Limits are rolling 24 h (30 requests, 6 restarts per unit) plus at most 5 open requests. A queued request expires
+  after 10 min (agent not installed / offline) and a claim without a result fails after 3 min; nothing is retried
+  automatically, so a restart never runs twice by itself. The same `idempotency_key` returns the same request.
+- Redaction twice: on the host (every value in the env file literally, then credential shapes: Authorization/Cookie
+  headers, `*TOKEN*/*SECRET*/*PASSWORD*/*KEY*=` lines, GitHub/Telegram/Anthropic/AWS/Google/Slack/JWT shapes, URL
+  credentials, private keys) and again on the server (plus every FactoryOS token it knows). Output capped at 32 KB,
+  keeping the tail (newest journal lines).
+- Telegram: restart / install requests notify the owner when queued and when they end (done / failed / expired),
+  through the T-738 owner-chat sender. Read ops do not notify. Notifications sit in an outbox in the store and are sent
+  after the request handler returns, so a slow Telegram call never blocks a claim.
+- The root agent runs a root-owned copy in `/usr/local/lib/factoryos-ops` made by the install script, not the
+  ec2-user checkout: the Claude worker's git operations rewrite that tree while it runs (parent session, 2026-11-25),
+  and a root process should not execute files the worker user can change. Cost: an agent update needs the install
+  script again (the T-740-H command is idempotent).
+- Codex review on #478 (fixed): (1) root never executes a checkout file through the relay — `install_surfer_unit`
+  re-applies the root-owned copy of the Surfer unit and its installer in `/usr/local/lib/factoryos-ops` (copied by the
+  owner-run install), so a new unit version from main needs the owner's install command again; the installer itself
+  is still run by the owner from the checkout, exactly like the existing T-714-H step, and the pre-existing root
+  supervisor (T-562) still runs from the checkout — out of scope here, noted for a follow-up. (2) the agent never
+  follows a redirect (a 302 would carry the worker token elsewhere) and accepts only `https://host` or plain http to
+  exactly 127.0.0.1 / localhost (parsed, no userinfo). (3) a read op with a nonzero step reports it (`error` lists
+  `step=code`, `exit_code` = first nonzero); every step nonzero → `failed`. (4) subprocess output goes to a temp file
+  and only the last 32 KB is read back, so a huge journal never sits in memory.
+- One owner command: `install_ops_agent.sh` also runs `install_surfer_worker.sh` (idempotent) so the T-728 Surfer
+  unit limits (#477) are applied at the same time; a Surfer failure is reported but does not undo the ops agent.
+- Restart-loop detection inside the Surfer worker stays with T-728 (PR #477, `autopilot/browser_worker.py`); this task
+  does not touch that file.
 ## 2026-11-25 — T-728 Surfer queue cannot stall silently
 
 - **Decision:** the server sweeps the read-task queue on every claim, task read and health read: a `running` task whose

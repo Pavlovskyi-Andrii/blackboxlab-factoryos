@@ -1385,6 +1385,18 @@ finally:
     app.claude_worker_runtime.clear();app.claude_worker_runtime.update(old_runtime)
     app.WORKER_OFFLINE_ALERT_STATE_FILE.unlink(missing_ok=True)
 
+# T-740: Ops relay wiring. Tools are on /mcp, routes exist, the flag is off by default (refused), and a non-Claude
+# lane is refused even with the flag on.
+require({"ops_request","ops_result"} <= {t["name"] for t in app.FACTORY_MCP_TOOLS},"ops relay MCP tools missing")
+_ops_paths={getattr(r,"path","") for r in app.app.routes}
+require({"/api/ops/worker/claim","/api/ops/worker/result/{request_id}","/api/ops/owner"} <= _ops_paths,"ops relay routes missing")
+try:
+    app.ops_relay.call_tool(app.OPS_RELAY,"ops_request",{"op":"host","reason":"smoke","idempotency_key":"smoke-1"},"claude")
+    require(False,"ops relay must be off by default")
+except ValueError as exc:
+    require("FACTORY_OPS_RELAY_ENABLED" in str(exc),"flag-off refusal must name the flag")
+require(app.OPS_RELAY.claim() is None,"flag off: the executor gets nothing")
+
 # #359: include CRM persistence, owner-only authorization and task regression in the standard CI smoke run.
 import unittest as _faceless_unit
 from test_faceless_crm import FacelessCrmTests as _FacelessCrmTests
