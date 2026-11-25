@@ -162,6 +162,8 @@ jobs:
           python test_versioning.py
           python -m py_compile mycast_subtopics.py test_mycast_subtopics.py
           python test_mycast_subtopics.py
+          python -m py_compile worker_offline_alert.py test_worker_offline_alert.py
+          python test_worker_offline_alert.py
           python -m py_compile mvp_cycle.py test_mvp_cycle.py
           python test_mvp_cycle.py
           python -m py_compile mvp_pipeline.py test_mvp_pipeline.py

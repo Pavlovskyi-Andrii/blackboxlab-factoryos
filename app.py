@@ -36,6 +36,7 @@ from operator_lanes import build_operator_lanes
 from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
+import worker_offline_alert
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from relay_acceptance import latest_telegram_acceptance
 from telegram_web_compare import StaleComparison, TelegramViewLog, compare as telegram_web_compare, confirmation_for, owner_status as telegram_compare_status
@@ -270,6 +271,9 @@ claude_worker_runtime={"last_seen":0.0,"node":{},"active_task_id":"","last_error
 CLAUDE_WORKER_RESULTS_FILE = DATA_DIR / "claude_worker_results.json"
 # T-536-B: last sanitized heartbeat survives restarts; the TTL still decides online/stale.
 CLAUDE_WORKER_HEARTBEAT_FILE = DATA_DIR / "claude_worker_heartbeat.json"
+# T-738: one Telegram alert per worker silence (and one when it is back); see worker_offline_alert.py.
+WORKER_OFFLINE_ALERT_STATE_FILE = DATA_DIR / "worker_offline_alert.json"
+_SERVER_STARTED_AT = time.time()
 _claude_worker_results_lock=threading.Lock()
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
 FACTORY_GOOGLE_CLIENT_SECRET = os.environ.get("FACTORY_GOOGLE_CLIENT_SECRET","").strip()   # MyCast calendar OAuth only
@@ -8454,6 +8458,40 @@ async def report_llm_readiness():
 @app.on_event("startup")
 async def restore_claude_worker_heartbeat():
     _restore_claude_worker_heartbeat()
+
+def _worker_offline_alert_send(text: str, silent: bool) -> bool:
+    """T-738: owner chat only; True only when Telegram accepted the message (never raises)."""
+    chat_id=str(_telegram_load_state().get("chat_id") or "").strip()
+    if not chat_id or not FACTORY_TELEGRAM_BOT_TOKEN:
+        return False
+    try:
+        _telegram_api("sendMessage",{"chat_id":chat_id,"text":str(text)[:4000],"disable_notification":bool(silent)})
+        return True
+    except Exception:
+        return False
+
+def worker_offline_alert_once(now: Optional[float]=None) -> str:
+    node=claude_worker_runtime.get("node") or {}
+    return worker_offline_alert.tick(
+        last_seen=float(claude_worker_runtime.get("last_seen") or 0),now=now or time.time(),
+        started_at=_SERVER_STARTED_AT,state_path=WORKER_OFFLINE_ALERT_STATE_FILE,
+        send=_worker_offline_alert_send,supervisor=node.get("supervisor") if isinstance(node,dict) else None)
+
+async def worker_offline_alert_loop():
+    await asyncio.sleep(60)
+    while True:
+        try:
+            result=await asyncio.to_thread(worker_offline_alert_once)
+            if result in ("offline","back","send_failed"):
+                print(json.dumps({"event":"WORKER_OFFLINE_ALERT","result":result}),flush=True)
+        except Exception as exc:
+            print(json.dumps({"event":"WORKER_OFFLINE_ALERT_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def start_worker_offline_alert():
+    if worker_offline_alert.enabled():
+        asyncio.create_task(worker_offline_alert_loop())
 
 @app.on_event("startup")
 async def start_builder_reconciler():

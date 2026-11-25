@@ -29,6 +29,24 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-733/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
   Done 2026-11-24: prototype `docs/prototypes/owner-home-growth/index.html` (Learning → «New home: products and goals»; 8 states × 9 views × EN/UK/RU, phone and desktop, «Pro version» switch remembered per browser), RFC with field and state mapping and backlog B-01…B-08 (first PR: first-party visit counter), test plan with automated results (432 renders clean; T1–T7 scripted: T2 = 2 clicks), decision record, screenshots `docs/screenshots/t-733/`, `test_owner_home_prototype.py` in CI. People test: NOT STARTED (owner brings 3–4 people). S5 waits for the owner gate.
 
+## Worker reliability (MyCast incident, owner 2026-11-25)
+
+- [x] T-738 Owner alert in Telegram when the Claude worker stops sending heartbeats, and when it is back
+  Owner: claude-session (interactive Claude session)
+  Priority: P1 (owner 2026-11-25: «розберись з цією помилкою»; the morning MyCast did not arrive because the worker was silent for about 17 hours and nothing alerted)
+  Spec: DECISIONS.md «2026-11-25 — T-738»; `worker_offline_alert.py`; Relay th_fe5e4dff6d283a88.
+  Goal: one message to the paired owner chat after 15 minutes without a heartbeat (without sound 23:00–08:00 Kyiv) and one when the worker is back; no repeat after a deploy; $0, no new service.
+  DONE: `python test_worker_offline_alert.py`; smoke block «T-738»; default verification; CI green.
+  Not proven live: the first real alert comes with the next real silence (or the owner stops the worker for 15 minutes). Root cause of the 2026-11-24 silence is still open.
+
+- [x] T-728 Surfer queue: a stuck head task cannot block reads; agents can tell "worker down" from "queue blocked"
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (incident 2026-11-25 20:37 UTC, relayed by the parent session: two MCP web_read tasks stayed "queued" with the same queue_ahead for 15+ min)
+  Spec: DECISIONS.md «2026-11-25 — T-728». `browser_tasks.py`, `web_surfer.py`, `autopilot/browser_tasks.py`, `autopilot/browser_worker.py`.
+  Goal: a running task whose lease (now 300 s) expired is requeued once, then fails as `lease_expired`; a task nobody claimed for 30 min fails as `queue_timeout` (frees the 20-task cap); a refused claim (401/5xx) is a worker error with `last_error` in the heartbeat, no longer a silent "idle"; a live action session's browser counts as "Chromium works", so a failing second launch probe never parks reads; `GET /api/factory/browser/agent/queue` (browser-agent token) and `queue` + hints on every queued `web_task`/`web_read` answer give the verdict (worker_offline / worker_unavailable / worker_cannot_claim / worker_not_claiming / queue_blocked / ok), oldest queued age, the head task, worker heartbeat / last poll / last claim.
+  DONE: `python test_browser_tasks.py` (QueueHealthTest), `python -m autopilot.test_browser_worker` (QueueNeverSilentTest), `python test_web_surfer.py`, default verification, CI green.
+  Root cause (reproduced with real Playwright): the launch probe fails while the action runner holds its Playwright → "unavailable" loop that skipped `pump()` and kept beating, so no watchdog fired; fixed (no probe while Playwright is held, pump in the unavailable path, exit 75 after 10 min unavailable). Second cause (EC2 journal): restart loop from the (mtime, size) code-change detector → `start-limit-hit`; now a content hash, settled over two checks after 5 min uptime; unit 20 starts / 15 min (owner reruns `install_surfer_worker.sh` to apply the unit change).
+
 ## Faceless Creator A/B (#469, owner 2026-11-24)
 
 - [x] T-737 #469 S1: private 9:16 face-switch clip (one clothed synthetic presenter, three fictional faces) with a QA receipt that measures the switch; scripts A (privacy) and B (creative control)
@@ -41,6 +59,7 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Result 2026-11-24: A 28.7 s (860 frames) and B 26.4 s (793 frames), both PASS; face area change 29.5–31.8 vs body/room ≤ 2.3 (ratio 13–32); -16 LUFS / -1.6 dBTP; voice espeak-ng `en-us+f3` (robotic, offline); about 110 s per render on 2 CPUs; sent to the owner in the Claude session, not published, not in git. Not claimed: photorealism, audience demand, an A/B winner, any owner score.
   Blocked (photorealism, owner choice): no generative model is reachable at $0 from this environment (huggingface.co answers 403 through the agent proxy, no GPU). Unblock: allow huggingface.co for the Claude cloud environment again (then an open-weights model on CPU, licence checked before use), or send 2–3 synthetic frames of one clothed character from an already paid tool where only the face differs.
   Next (S2, not started): owner score 1–10 + notes per branch and version in the A/B tester (T-608), «Generate 2 concepts» wiring, re-render only the stage the owner flags, v1/v2 side by side.
+  Owner review 2026-11-24 (23:12 Kyiv): A and B scored 0/10 — the drawn style and the espeak voice are rejected; FactoryOS needs photorealism. Owner's direction: prompt → candidate photos from 4–5 image models → pick one → image-to-video (Seedance 2.5 named as a likely option). That is a paid path: nothing is generated until the owner approves a provider, an API key and a spend limit. The procedural renderer stays only as the offline assembler / QA for real clips.
 
 ## AI Film Studio (#433)
 
@@ -402,13 +421,15 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: a live round-trip — Claude posts a handoff, ChatGPT claims it via MCP and submits a PR link, Claude reviews and merges — visible in Worker Center; tests for auth, single claim, replay and secret scrubbing.
   Progress 2026-11-15 (session T-604): the server slice is T-625 below — workspace tools on `/mcp` (`agent_workspace.py`), per-lane auth, single claim through the Relay ROADMAP ticket, replay, secret scrubbing; guide `docs/guides/agent-workspace-mcp.md`. Still open for DONE: owner sets the lane tokens (T-624), then the live round-trip (Claude create_handoff → ChatGPT claim + PR link → Claude review/merge) and a Worker Center panel on `GET /api/factory/agent-workspace` (T-626). Telegram group chat (`/discuss`, `/decision`) stays with the T-590–T-593 Relay/Telegram work.
 
-- [ ] T-736 Agent → Claude worker requests through Relay: request_task, worker ACK/result in the same thread, read_inbox (T-604 slice)
+- [x] T-736 Agent → Claude worker requests through Relay: request_task, worker ACK/result in the same thread, read_inbox (T-604 slice)
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P0 (direct owner assignment 2026-11-24: PR #470 «приоритетная задача», Relay th_46f089b213546fcc)
   Depends: T-625
   Spec: PR #470 `docs/handoff/T-604_RELAY_60S_AGENT_ROUNDTRIP_SPEC.md` (ChatGPT); DECISIONS.md «2026-11-24 — T-736»; guide `docs/guides/agent-workspace-mcp.md` «Asking the always-on Claude worker».
   Goal: any lane asks the always-on Claude worker for one bounded task through the Relay queue it already polls (no new poller, queue or process); the worker's claim (ACK with run_id), progress and result or blocker appear in the same thread from its own events, once each; owner tickets go first; read-only requests never push; `read_inbox` with a cursor for agents that wake up later.
   DONE: `python test_agent_workspace.py`, `python test_relay_execution.py`, `python test_evidence.py`, default verification, CI-gated PR; live: one `request_task` from ChatGPT's own connector gets the worker's ACK with run_id and the result in the same thread, with the measured request → ACK latency recorded here.
+  Done 2026-11-24: PR #471 (merge 5797f1d, CI green, Render deployed 19:20 UTC). Live run, Relay th_46f089b213546fcc: ChatGPT `request_task` 21:04:13 UTC (msg_90507b729fdfc3cf, ticket R-0100, read_only) → ACK from relay-worker claude-ip-172-31-5-222 (EC2) 21:04:26 with run-a215b173eef2 (12.8 s) → running 21:04:27 on relay/r-0100-b173eef2 → result 21:04:38 (24.8 s in total): «37» open tasks read from main 5797f1d, no change, no commit; independently recounted: 37. One sample with an idle worker.
+  Still open under T-604 acceptance (not this task): ≥ 5 timed runs for a p95, latency while the worker is busy, a restart/redeploy run, and ChatGPT waking up on its own (today it acts only when a ChatGPT session is opened).
 
 - [x] T-625 Agent workspace MCP tools: threads and handoffs behind per-lane tokens (T-604 server slice)
   Owner: claude (session T-604)
