@@ -405,6 +405,90 @@ class ExecutorTest(unittest.TestCase):
                          "not_configured")
 
 
+class ExecutorReviewFixesTest(unittest.TestCase):
+    """Codex review on PR #478: read failures reported, output bounded while collected, no redirects, strict URL."""
+
+    def test_single_failed_read_fails(self):
+        runner = FakeRunner({"journalctl -u": (1, "No journal files were found.")})
+        body = ops_agent.execute({"id": "ops_x", "op": "journal", "unit": cat.SURFER_UNIT, "minutes": 5,
+                                  "lines": 10}, repo="/opt/factoryos", known=[], runner=runner)
+        self.assertEqual((body["status"], body["exit_code"]), ("failed", 1))
+        self.assertIn("journal=1", body["error"])
+        self.assertIn("No journal files", body["output"])
+
+    def test_mixed_host_check_reports_the_failed_step(self):
+        runner = FakeRunner({"pgrep -c": (1, "0"), "git -C": (128, "fatal: not a git repository")})
+        body = ops_agent.execute({"id": "ops_x", "op": "host"}, repo="/opt/factoryos", known=[], runner=runner)
+        self.assertEqual(body["status"], "done")
+        self.assertEqual(body["exit_code"], 1)
+        self.assertIn("chrome-processes=1", body["error"])
+        self.assertIn("head=128", body["error"])
+        self.assertIn("$ memory (exit 0)", body["output"])
+
+    def test_restart_tolerates_reset_failed_on_a_healthy_unit(self):
+        runner = FakeRunner({"systemctl reset-failed": (1, "")})
+        body = ops_agent.execute({"id": "ops_x", "op": "restart", "unit": cat.SURFER_UNIT}, repo="/opt/factoryos",
+                                 known=[], runner=runner)
+        self.assertEqual((body["status"], body["exit_code"], body["error"]), ("done", 0, ""))
+
+    def test_output_is_bounded_while_collected(self):
+        rc, out = ops_agent.run_argv(["python3", "-c", "import sys; sys.stdout.write('x' * 500000 + 'END')"],
+                                     as_worker=False, timeout=20)
+        self.assertEqual(rc, 0)
+        self.assertLessEqual(len(out.encode()), cat.MAX_OUTPUT_BYTES + 64)
+        self.assertTrue(out.endswith("END"))
+        self.assertIn("bytes cut", out)
+
+    def test_safe_base(self):
+        good = {"https://blackboxlab-factoryos.onrender.com/": "https://blackboxlab-factoryos.onrender.com",
+                "http://127.0.0.1:8000": "http://127.0.0.1:8000", "http://localhost:9": "http://localhost:9"}
+        for url, want in good.items():
+            self.assertEqual(ops_agent.safe_base(url), want)
+        for url in ("http://127.0.0.1.evil.com", "http://127.0.0.1@evil.com", "http://example.com",
+                    "https://user:pw@example.com", "ftp://x", "", "https://x?y=1", "https://"):
+            self.assertEqual(ops_agent.safe_base(url), "", url)
+
+    def test_redirects_are_not_followed(self):
+        import http.server
+        import threading
+        seen = []
+
+        class Target(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                seen.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *a):
+                pass
+
+        target = http.server.HTTPServer(("127.0.0.1", 0), Target)
+        port = target.server_address[1]
+
+        class Redirect(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{port}/steal")
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        origin = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+        for srv in (target, origin):
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            code, data = ops_agent.http_post(f"http://127.0.0.1:{origin.server_address[1]}/api/ops/worker/claim",
+                                             TOKEN, {})
+        finally:
+            for srv in (target, origin):
+                srv.shutdown()
+                srv.server_close()
+        self.assertEqual((code, data), (302, {}))
+        self.assertEqual(seen, [], "the worker token must never reach the redirect target")
+
+
 class DeployFilesTest(unittest.TestCase):
     ROOT = pathlib.Path(__file__).resolve().parent
 
@@ -418,7 +502,11 @@ class DeployFilesTest(unittest.TestCase):
         self.assertIn("WorkingDirectory=/usr/local/lib/factoryos-ops", svc)  # root-owned copy, not the git checkout
         for module in ("ops_catalog.py", "ops_agent", "supervisor", "worker_heartbeat"):
             self.assertIn(module, script)
-        self.assertIn('bash "$REPO/deploy/install_surfer_worker.sh"', script)  # one owner command applies T-728 too
+        self.assertIn('FACTORYOS_REPO="$LIB" bash "$LIB/deploy/install_surfer_worker.sh"', script)  # one owner command
+        # Root never executes a file from the worker-writable checkout through the relay.
+        for c in ({"op": "install_surfer_unit"},):
+            for _label, argv, _w in cat.plan(c):
+                self.assertFalse(any(a.startswith(cat.DEFAULT_REPO) for a in argv), argv)
         for forbidden in ("ssh-keygen", "authorized_keys", "aws configure", "curl ", "AWS_SECRET"):
             self.assertNotIn(forbidden, script)
 

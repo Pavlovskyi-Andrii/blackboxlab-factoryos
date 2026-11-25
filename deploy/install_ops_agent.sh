@@ -40,6 +40,12 @@ install -m 644 -o root -g root "$REPO/ops_catalog.py" "$LIB/ops_catalog.py"
 for m in ops_agent supervisor worker_heartbeat; do
   install -m 644 -o root -g root "$REPO/autopilot/$m.py" "$LIB/autopilot/$m.py"
 done
+# The Surfer unit + its installer, for the relay's install_surfer_unit op (re-applies exactly this owner-approved copy).
+install -d -m 755 -o root -g root "$LIB/deploy" "$LIB/deploy/systemd"
+if [ -f "$REPO/deploy/install_surfer_worker.sh" ]; then
+  install -m 644 -o root -g root "$REPO/deploy/install_surfer_worker.sh" "$LIB/deploy/install_surfer_worker.sh"
+  install -m 644 -o root -g root "$REPO/deploy/systemd/factoryos-surfer-worker.service" "$LIB/deploy/systemd/factoryos-surfer-worker.service"
+fi
 (cd "$LIB" && /usr/bin/python3 -c "import autopilot.ops_agent") || { echo "autopilot.ops_agent does not import" >&2; exit 1; }
 echo "Agent code copied to $LIB"
 
@@ -64,9 +70,9 @@ echo "OK: $TIMER is active (polls FactoryOS every 30 s). Worker Center → Ops r
 
 # The Surfer worker unit (T-714 / T-728 restart limits): same one command for the owner. A Surfer problem does not
 # undo the ops agent; it is reported, and the agent can then read its status and logs.
-if [ -f "$REPO/deploy/install_surfer_worker.sh" ]; then
+if [ -f "$LIB/deploy/install_surfer_worker.sh" ]; then
   echo "--- Applying the Surfer worker unit (deploy/install_surfer_worker.sh)"
-  if bash "$REPO/deploy/install_surfer_worker.sh"; then
+  if FACTORYOS_REPO="$LIB" bash "$LIB/deploy/install_surfer_worker.sh"; then
     echo "OK: Surfer worker unit applied."
   else
     echo "WARNING: the Surfer worker did not come up; the ops agent is installed and can read its status and logs." >&2

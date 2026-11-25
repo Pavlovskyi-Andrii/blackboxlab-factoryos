@@ -2671,6 +2671,15 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   ec2-user checkout: the Claude worker's git operations rewrite that tree while it runs (parent session, 2026-11-25),
   and a root process should not execute files the worker user can change. Cost: an agent update needs the install
   script again (the T-740-H command is idempotent).
+- Codex review on #478 (fixed): (1) root never executes a checkout file through the relay — `install_surfer_unit`
+  re-applies the root-owned copy of the Surfer unit and its installer in `/usr/local/lib/factoryos-ops` (copied by the
+  owner-run install), so a new unit version from main needs the owner's install command again; the installer itself
+  is still run by the owner from the checkout, exactly like the existing T-714-H step, and the pre-existing root
+  supervisor (T-562) still runs from the checkout — out of scope here, noted for a follow-up. (2) the agent never
+  follows a redirect (a 302 would carry the worker token elsewhere) and accepts only `https://host` or plain http to
+  exactly 127.0.0.1 / localhost (parsed, no userinfo). (3) a read op with a nonzero step reports it (`error` lists
+  `step=code`, `exit_code` = first nonzero); every step nonzero → `failed`. (4) subprocess output goes to a temp file
+  and only the last 32 KB is read back, so a huge journal never sits in memory.
 - One owner command: `install_ops_agent.sh` also runs `install_surfer_worker.sh` (idempotent) so the T-728 Surfer
   unit limits (#477) are applied at the same time; a Surfer failure is reported but does not undo the ops agent.
 - Restart-loop detection inside the Surfer worker stays with T-728 (PR #477, `autopilot/browser_worker.py`); this task

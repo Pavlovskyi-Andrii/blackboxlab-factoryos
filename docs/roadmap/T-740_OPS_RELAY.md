@@ -46,7 +46,7 @@ port.
 | host | read | — | `free -m`, `df -h /`, `uptime`, Chrome process count, checkout HEAD vs `origin/main` |
 | restart | restart | unit ∈ {surfer worker, claude worker} | `systemctl reset-failed`, `systemctl restart --no-block`, state after 8 s |
 | sync_checkout | install | — | as ec2-user: `git fetch origin`, `git merge --ff-only @{u}` (never force, never push) |
-| install_surfer_unit | install | — | `bash deploy/install_surfer_worker.sh` (idempotent) |
+| install_surfer_unit | install | — | re-applies the owner-installed root-owned copy: `FACTORYOS_REPO=/usr/local/lib/factoryos-ops bash …/deploy/install_surfer_worker.sh` (never a checkout file as root) |
 
 Read allowlist: `factoryos-surfer-worker.service`, `factoryos-claude-worker.service`,
 `factoryos-runner-supervisor.service`, `factoryos-runner-supervisor.timer`, `factoryos-ops-agent.service`,

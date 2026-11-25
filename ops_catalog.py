@@ -43,6 +43,9 @@ OP_TIMEOUT_SECONDS = 60
 MAX_OUTPUT_BYTES = 32 * 1024
 WORKER_USER = "ec2-user"
 DEFAULT_REPO = "/opt/factoryos"
+# Root-owned copy made by deploy/install_ops_agent.sh (owner-run). Root only ever executes files from here, never from
+# the ec2-user checkout above, whose content the worker user (and git) can change.
+ROOT_LIB = "/usr/local/lib/factoryos-ops"
 
 
 def _int(value, name: str, low: int, high: int, default: int) -> int:
@@ -141,7 +144,10 @@ def plan(request: dict, repo: str = DEFAULT_REPO) -> List[Step]:
             ("after", git + ["rev-parse", "--short", "HEAD"], True),
         ]
     if op == "install_surfer_unit":
-        return [("install", ["bash", repo.rstrip("/") + "/deploy/install_surfer_worker.sh"], False)]
+        # Re-applies the owner-installed copy of the Surfer unit (made by install_ops_agent.sh); a new unit version from
+        # the checkout needs the owner to run install_ops_agent.sh again (root never runs checkout files).
+        return [("install", ["env", "FACTORYOS_REPO=" + ROOT_LIB, "bash", ROOT_LIB + "/deploy/install_surfer_worker.sh"],
+                 False)]
     raise ValueError("unknown op")  # pragma: no cover - validate() already refused it
 
 

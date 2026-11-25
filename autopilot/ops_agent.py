@@ -17,9 +17,11 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -49,19 +51,27 @@ def child_env(as_worker: bool) -> Dict[str, str]:
     return env
 
 
-def run_argv(argv: List[str], *, as_worker: bool, timeout: float) -> Tuple[int, str]:
-    """One catalog step. ``shell`` is never used; a worker-user step goes through runuser."""
+def _tail(fh, limit: int) -> str:
+    """The last ``limit`` bytes of a temp file (output goes to disk, never fully into memory)."""
+    size = fh.seek(0, os.SEEK_END)
+    fh.seek(max(0, size - limit))
+    head = f"[… {size - limit} bytes cut …]\n" if size > limit else ""
+    return head + fh.read(limit).decode("utf-8", "replace")
+
+
+def run_argv(argv: List[str], *, as_worker: bool, timeout: float, limit: int = cat.MAX_OUTPUT_BYTES) -> Tuple[int, str]:
+    """One catalog step. ``shell`` is never used; a worker-user step goes through runuser. stdout + stderr go to a
+    temp file and only its tail (``limit`` bytes) is read back, so a huge journal cannot fill memory."""
     full = (["runuser", "-u", cat.WORKER_USER, "--"] + argv) if as_worker else list(argv)
-    try:
-        p = subprocess.run(full, shell=False, text=True, capture_output=True, timeout=max(1.0, timeout),
-                           check=False, env=child_env(as_worker), stdin=subprocess.DEVNULL)
-        return p.returncode, (p.stdout or "") + (("\n" + p.stderr) if p.stderr else "")
-    except subprocess.TimeoutExpired as exc:
-        out = exc.stdout or b""
-        out = out.decode("utf-8", "replace") if isinstance(out, bytes) else str(out)
-        return 124, out + "\n[timeout]"
-    except OSError as exc:
-        return 127, f"[cannot run {argv[0]}: {type(exc).__name__}]"
+    with tempfile.TemporaryFile() as fh:
+        try:
+            p = subprocess.run(full, shell=False, stdout=fh, stderr=subprocess.STDOUT, timeout=max(1.0, timeout),
+                               check=False, env=child_env(as_worker), stdin=subprocess.DEVNULL)
+            return p.returncode, _tail(fh, limit)
+        except subprocess.TimeoutExpired:
+            return 124, _tail(fh, limit) + "\n[timeout]"
+        except OSError as exc:
+            return 127, f"[cannot run {argv[0]}: {type(exc).__name__}]"
 
 
 def execute(task: dict, *, repo: str, known: List[str], runner: Callable = run_argv,
@@ -73,40 +83,81 @@ def execute(task: dict, *, repo: str, known: List[str], runner: Callable = run_a
     except ValueError as exc:
         return {"status": "failed", "exit_code": None, "error": "refused: " + str(exc)[:200], "output": "",
                 "duration_ms": 0}
+    mutating = task.get("op") in ("restart", "sync_checkout", "install_surfer_unit")
     chunks: List[str] = []
-    final_rc = 0
-    error = ""
+    nonzero: List[Tuple[str, int]] = []
+    stop = ""  # why the op stopped early (a timeout, or a mutating step that failed)
+    ran = 0
     for label, argv, as_worker in steps:
         left = deadline_seconds - (clock() - started)
         if left <= 0:
-            error = f"timeout: op deadline {deadline_seconds:.0f} s reached before step {label}"
-            final_rc = 124
+            stop = f"timeout: op deadline {deadline_seconds:.0f} s reached before step {label}"
+            nonzero.append((label, 124))
             break
         rc, out = runner(argv, as_worker=as_worker, timeout=left)
+        ran += 1
         chunks.append(f"$ {label} (exit {rc})\n{out.rstrip()}")
+        if not rc:
+            continue
+        nonzero.append((label, rc))
         if rc == 124:
-            error, final_rc = f"timeout in step {label}", 124
+            stop = f"timeout in step {label}"
             break
-        # Read ops report every step; a mutating step that fails stops the op.
-        if rc and task.get("op") in ("restart", "sync_checkout", "install_surfer_unit") and label not in (
-                "reset-failed", "upstream"):
-            error, final_rc = f"step {label} failed (exit {rc})", rc
+        if mutating and label == "upstream":
+            stop = "the checkout has no upstream branch; nothing was changed"
             break
-        if task.get("op") == "sync_checkout" and label == "upstream" and rc:
-            error, final_rc = "the checkout has no upstream branch; nothing was changed", rc
+        if mutating and label != "reset-failed":  # reset-failed on a healthy unit exits nonzero: harmless
+            stop = f"step {label} failed (exit {rc})"
             break
+    codes = ", ".join(f"{label}={rc}" for label, rc in nonzero)
+    if stop:
+        status, error = "failed", stop
+    elif nonzero and len(nonzero) >= ran:
+        status, error = "failed", "every step exited nonzero: " + codes
+    elif nonzero and not mutating:
+        # A read op keeps collecting diagnostics and reports what failed (systemctl is-active exits 3 for an
+        # inactive unit and pgrep -c exits 1 for no match: the output says which).
+        status, error = "done", "some steps exited nonzero: " + codes
+    else:
+        status, error = "done", ""
+    exit_code = next((rc for label, rc in nonzero if not (mutating and label == "reset-failed")), 0)
     output = cat.cap(cat.redact("\n\n".join(chunks), known))
-    return {"status": "failed" if error else "done", "exit_code": final_rc, "error": cat.redact(error, known),
+    return {"status": status, "exit_code": exit_code, "error": cat.redact(error, known),
             "output": output, "duration_ms": int((clock() - started) * 1000)}
 
 
-def http_post(url: str, token: str, body: dict) -> Tuple[int, dict]:
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: it could carry the worker token to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def safe_base(url: str) -> str:
+    """https://host[:port] only (or plain http to exactly 127.0.0.1 / localhost for local tests); '' otherwise."""
+    try:
+        parts = urlsplit(str(url or "").strip())
+        port = parts.port
+    except ValueError:
+        return ""
+    host = (parts.hostname or "").lower()
+    if not host or parts.username or parts.password or parts.query or parts.fragment:
+        return ""
+    if parts.scheme == "https" or (parts.scheme == "http" and host in ("127.0.0.1", "localhost")):
+        return f"{parts.scheme}://{host}" + (f":{port}" if port else "") + parts.path.rstrip("/")
+    return ""
+
+
+def http_post(url: str, token: str, body: dict, opener=None) -> Tuple[int, dict]:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST",
                                  headers={"Authorization": "Bearer " + token, "Content-Type": "application/json",
                                           "User-Agent": "factoryos-ops-agent"})
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+        with (opener or _OPENER).open(req, timeout=HTTP_TIMEOUT) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         return exc.code, {}
@@ -116,9 +167,9 @@ def http_post(url: str, token: str, body: dict) -> Tuple[int, dict]:
 
 def run_once(*, env: Optional[Dict[str, str]] = None, post: Callable = http_post, runner: Callable = run_argv) -> dict:
     env = supervisor.parse_env(ENV_FILE) if env is None else env
-    base = str(env.get("FACTORYOS_URL") or "").rstrip("/")
+    base = safe_base(str(env.get("FACTORYOS_URL") or ""))
     token = str(env.get("FACTORY_CLAUDE_WORKER_TOKEN") or "")
-    if not base.startswith("https://") and not base.startswith("http://127.0.0.1"):
+    if not base:
         return {"status": "not_configured", "reason": "FACTORYOS_URL missing or not https"}
     if not token:
         return {"status": "not_configured", "reason": "worker token missing"}
