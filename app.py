@@ -840,7 +840,8 @@ def _agent_workspace_worker_status():
 
 AGENT_WORKSPACE = agent_workspace.AgentWorkspace(RELAY_STORE, RELAY_QUEUE, known_secrets=_mcp_lane_forbidden_tokens,
                                                  worker_status=_agent_workspace_worker_status)
-agent_workspace.install_routes(app, AGENT_WORKSPACE, lambda: agent_workspace.lane_status(forbidden=_mcp_lane_forbidden_tokens()))
+agent_workspace.install_routes(app, AGENT_WORKSPACE, lambda: agent_workspace.lane_status(forbidden=_mcp_lane_forbidden_tokens()),
+                               is_owner=lambda request: (request_identity(request) or {}).get("role") == "owner")
 agent_workspace.install_access_log_redaction()
 
 def _owner_desk_status():

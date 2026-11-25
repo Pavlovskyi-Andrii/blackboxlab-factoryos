@@ -2613,3 +2613,27 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   anonymity or income (a test enforces the word list). Output is refused inside the repository (except `data/`).
 - Not decided here: photorealistic presenters (owner choice: allow huggingface.co again for the Claude environment, or
   supply synthetic frames), and S2 (owner score 1–10, notes, versions, one-click wiring).
+
+## 2026-11-25 — T-739 Owner view of one whole agent conversation (Relay R-0103, asked by ChatGPT)
+
+- As-is audit: `GET /api/factory/agent-workspace` (T-626) already feeds the Worker Center card
+  `renderAgentWorkspace` (Automation & team → Workers → technical details) with the 20 latest threads and only their
+  last 5 messages; the renderer ignored `reply_to`, `task` (ticket/run_id/state) and `actor_auth_subject`. T-736 already
+  mirrors worker events into the thread once each. No open claim or branch touched this view (T-738 is unused; T-739
+  was free). So the gap is a detail view, not a new store or channel.
+- New owner-only `GET /api/factory/agent-workspace/threads/<thread_id>` → `AgentWorkspace.thread_detail`. The session
+  middleware already rejects anonymous calls and lane tokens (401); the route also requires role `owner`, so a guest
+  viewer gets 403 although the overview stays viewer-readable as before. Read-only, same Relay JSON store under its lock.
+- Order is the stored write order (`seq`), which is the chronological order. Provenance comes from the stored
+  `actor_auth_subject`: `mcp-lane:*` (own lane credential), `relay-worker:*` (the worker's own Relay event), anything
+  else is shown as "sender not verified". `reply_to` is resolved to the `#seq` it answers when it is in the view.
+- Request state is read from the live Relay ticket, mapped with the existing `REQUEST_STATE`: a worker `done` shows as
+  `review`; a vanished ticket is `missing`, an unmapped state `unknown`. Nothing in the view says "done".
+- "Pending reply" counts messages from others after a lane's last post in this thread. FactoryOS does not see an
+  agent's `read_inbox` cursor, so this is "not answered", not "unread". The UI states that ChatGPT cannot wake on a new
+  message: it reads only when the owner opens the ChatGPT conversation (`WAKE_NOTE`, EN/UK/RU copy).
+- Rows repeated by message_id or by `relay_event` are shown once (`duplicates_hidden`). Bodies are redacted again on
+  read and a body that still looks like a credential is replaced, for legacy or hand-edited rows.
+- The latest 200 messages are shown (`DETAIL_MESSAGES`), with "N older not shown". The opened conversation is cached
+  in the page (`AW_DETAIL`) so the periodic Worker Center refresh keeps it open; the fetch lives outside the pure
+  `agent-workspace` block. Tests: `test_agent_thread_view.py`, run in CI through `python test_agent_workspace.py`.
