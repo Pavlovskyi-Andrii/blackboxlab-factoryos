@@ -410,6 +410,14 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: any lane asks the always-on Claude worker for one bounded task through the Relay queue it already polls (no new poller, queue or process); the worker's claim (ACK with run_id), progress and result or blocker appear in the same thread from its own events, once each; owner tickets go first; read-only requests never push; `read_inbox` with a cursor for agents that wake up later.
   DONE: `python test_agent_workspace.py`, `python test_relay_execution.py`, `python test_evidence.py`, default verification, CI-gated PR; live: one `request_task` from ChatGPT's own connector gets the worker's ACK with run_id and the result in the same thread, with the measured request → ACK latency recorded here.
 
+- [ ] T-739 Owner sees the whole ChatGPT ↔ Claude Relay conversation and the worker's progress in Worker Center (read-only)
+  Owner: claude (Relay R-0103, requested by ChatGPT in th_46f089b213546fcc / msg_f063f9c7a711689b)
+  Priority: P1
+  Depends: T-626, T-736
+  Spec: DECISIONS.md «2026-11-25 — T-739». Gap over T-626: the panel showed only the last 5 messages per thread, without reply_to, ticket/run_id, request state or who still owes a reply.
+  Goal: `GET /api/factory/agent-workspace/threads/<id>` (owner role only) over the same Relay store — every message in write order with sender and provenance (own MCP lane credential / Relay worker event), reply_to, ticket_id + run_id + state; each worker request's live state (queued/claimed/running/review/blocked/failed, a worker result is "review", never "done"); replies pending since a lane's last post, with the honest note that ChatGPT cannot wake on its own; duplicate rows hidden, bodies redacted again. Worker Center thread card gets «Open the whole conversation». No new poller, queue, scheduler or DB.
+  DONE: `python test_agent_workspace.py` (runs `test_agent_thread_view.py`: owner-only route through the real app, order, provenance, linkage, honest states, duplicates, redaction, EN/UK/RU rendering) plus the default verification and a CI-gated PR.
+
 - [x] T-625 Agent workspace MCP tools: threads and handoffs behind per-lane tokens (T-604 server slice)
   Owner: claude (session T-604)
   Priority: P1

@@ -39,6 +39,8 @@ import re
 import secrets
 from pathlib import Path
 
+from fastapi import HTTPException, Request
+
 import evidence as proof
 from agent_secret_scan import contains_secret
 from relay_execution import FINAL_STATES, TASK_ID_RE, _claude_claimable, _is_agent_request, redact
@@ -61,6 +63,14 @@ MAX_WRITES_PER_HOUR = 120
 LEDGER_RETENTION = timedelta(days=14)
 LEASE = timedelta(hours=6)
 OVERVIEW_MESSAGES = 5
+DETAIL_MESSAGES = 200                          # T-739: owner thread view shows the latest 200 messages, in order
+WAKE_NOTE = {                                  # T-739: what each lane really does with a new message (no 24/7 claim)
+    "claude": "The always-on Claude worker only acts on request_task tickets: it polls the Relay queue between passes "
+              "and posts ACK/progress/result here. Plain messages to Claude are read in the next interactive session.",
+    "chatgpt": "ChatGPT cannot wake up on a new message. It reads this thread only when the owner opens the ChatGPT "
+               "conversation and it calls read_inbox or read_thread; until then a reply from ChatGPT is pending.",
+    "gemini": "Gemini reads this thread only when its own session runs and calls read_inbox or read_thread.",
+}
 ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,120}$")
 SCOPE_RE = re.compile(r"^[A-Za-z0-9_./*-]{1,200}$")
 MESSAGE_KINDS = ("comment", "proposal", "answer", "status", "question")
@@ -794,6 +804,84 @@ class AgentWorkspace:
             states[h.get("state")] = states.get(h.get("state"), 0) + 1
         return {"threads": threads, "handoffs": handoffs[:30], "handoff_states": states}
 
+    # T-739: the owner reads one whole conversation with the worker's progress --------------------------------------
+    def _owner_body(self, body) -> str:
+        """Bodies were checked on write; legacy or hand-edited rows are redacted again before the owner sees them."""
+        text = redact(str(body or ""))[:MAX_BODY]
+        if contains_secret(text) or any(len(s) >= 8 and s in text for s in map(str, self.known_secrets() or ())):
+            return "[hidden: looks like a credential]"
+        return text
+
+    def thread_detail(self, thread_id) -> dict:
+        """Owner read view of one thread: every message in stored (= write) order, who wrote it, what it answers, the
+        Relay ticket/run it belongs to, the live state of each worker request and who still owes a reply."""
+        thread_id = self._id(thread_id, "thread_id")
+        with self.store.lock:
+            state = self.store._load_unlocked()
+            ws = self._ws(state)
+            thread = next((dict(t) for t in ws["threads"] if t.get("thread_id") == thread_id), None)
+            stored = [dict(m) for m in ws["messages"] if m.get("thread_id") == thread_id]
+            tickets = {str(t.get("id")): t for t in state.get("tickets") or []
+                       if _is_agent_request(t) and (t.get("source") or {}).get("thread_id") == thread_id}
+        if not thread:
+            raise WorkspaceError("THREAD_NOT_FOUND", "Unknown thread_id")
+        seen, events, messages, duplicates = set(), set(), [], 0
+        for m in stored:                         # a row written twice (replayed import, hand edit) is shown once
+            mid, event = str(m.get("message_id") or ""), str(m.get("relay_event") or "")
+            if mid in seen or (event and event in events):
+                duplicates += 1
+                continue
+            seen.add(mid)
+            if event:
+                events.add(event)
+            messages.append(m)
+        known = {str(m.get("message_id")) for m in messages}
+        out = []
+        for seq, m in enumerate(messages[-DETAIL_MESSAGES:], start=max(1, len(messages) - DETAIL_MESSAGES + 1)):
+            subject = str(m.get("actor_auth_subject") or "")
+            task = m.get("task") if isinstance(m.get("task"), dict) else None
+            out.append({"seq": seq, "message_id": m.get("message_id"), "from": m.get("from"),
+                        "via": "relay-worker" if subject.startswith("relay-worker:") else
+                               "mcp-lane" if subject.startswith("mcp-lane:") else "unknown",
+                        "actor_auth_subject": subject[:100], "kind": m.get("kind"), "at": m.get("at"),
+                        "reply_to": m.get("reply_to") or "",
+                        "reply_to_known": bool(m.get("reply_to")) and str(m.get("reply_to")) in known,
+                        "body": self._owner_body(m.get("body")),
+                        "task": {k: task.get(k) for k in ("ticket_id", "run_id", "state") if k in task} if task else None})
+        requests = []
+        for m in messages:
+            if m.get("kind") != "task_request" or not isinstance(m.get("task"), dict):
+                continue
+            ticket_id = str(m["task"].get("ticket_id") or "")
+            ticket = tickets.get(ticket_id)
+            execution = (ticket or {}).get("execution") or {}
+            raw = str(execution.get("state") or "")
+            mirrored = [x for x in messages if (x.get("task") or {}).get("ticket_id") == ticket_id and x.get("relay_event")]
+            result = next((x for x in reversed(mirrored) if x.get("kind") == "answer"), None)
+            requests.append({
+                "ticket_id": ticket_id, "request_message_id": m.get("message_id"), "requested_by": m.get("from"),
+                "mode": m["task"].get("mode") or "",
+                # the live Relay ticket decides; a worker "done" is a result for review, never shown as accepted
+                "state": ("missing" if ticket is None else REQUEST_STATE.get(raw) or
+                          (raw if raw in ("queued", "cancelled") else "unknown")),
+                "run_id": str(execution.get("run_id") or m["task"].get("run_id") or ""),
+                "worker_events": len(mirrored), "result_message_id": (result or {}).get("message_id") or "",
+                "ticket_status": str((ticket or {}).get("status") or "")})
+        lanes = sorted({str(m.get("from")) for m in messages if m.get("from") in LANES}
+                       | ({thread.get("created_by")} & set(LANES)))
+        pending = {}
+        for lane in lanes:                       # FactoryOS does not see an agent's read_inbox cursor: count by posts
+            last = max((i for i, m in enumerate(messages) if m.get("from") == lane), default=-1)
+            newer = [m for m in messages[last + 1:] if m.get("from") != lane]
+            pending[lane] = {"last_message_at": messages[last].get("at") if last >= 0 else "",
+                             "newer_from_others": len(newer),
+                             "oldest_unanswered_at": newer[0].get("at") if newer else ""}
+        return {"thread": {k: thread.get(k) for k in ("thread_id", "topic", "status", "created_by", "created_at",
+                                                      "updated_at", "message_count")},
+                "messages": out, "total_messages": len(messages), "shown_from_seq": out[0]["seq"] if out else 0,
+                "duplicates_hidden": duplicates, "requests": requests, "pending_replies": pending,
+                "wake": WAKE_NOTE}
+
 
 # -- MCP surface -------------------------------------------------------------------------------------------------
 _IDEM = {"type": "string", "description": "Client-generated unique key for this write; a retry with the same key "
@@ -939,9 +1027,19 @@ def owner_view(workspace: AgentWorkspace, status: dict, environ=None) -> dict:
             "url_key_lanes": sorted(url_key_lanes(environ)), "policy_sha": workspace.policy()}
 
 
-def install_routes(app, workspace: AgentWorkspace, lanes_status) -> None:
+def install_routes(app, workspace: AgentWorkspace, lanes_status, is_owner=lambda request: False) -> None:
     """Owner read view for Worker Center; the session middleware already requires a signed-in owner for /api/."""
 
     @app.get("/api/factory/agent-workspace")
     def agent_workspace_overview():
         return owner_view(workspace, lanes_status())
+
+    @app.get("/api/factory/agent-workspace/threads/{thread_id}")
+    def agent_workspace_thread(thread_id: str, request: Request):
+        """T-739: one whole conversation for the owner only (viewers and lane tokens get 403/401), read-only."""
+        if not is_owner(request):
+            raise HTTPException(403, "Owner access required")
+        try:
+            return workspace.thread_detail(thread_id)
+        except WorkspaceError as exc:
+            raise HTTPException(404 if exc.code == "THREAD_NOT_FOUND" else 400, exc.payload())
