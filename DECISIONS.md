@@ -2613,3 +2613,26 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   anonymity or income (a test enforces the word list). Output is refused inside the repository (except `data/`).
 - Not decided here: photorealistic presenters (owner choice: allow huggingface.co again for the Claude environment, or
   supply synthetic frames), and S2 (owner score 1–10, notes, versions, one-click wiring).
+
+## 2026-11-25 — T-738 Claude worker offline alert
+
+- **Decision:** the FactoryOS server (Render) watches the worker heartbeat it already stores
+  (`claude_worker_runtime["last_seen"]`) and sends the paired owner chat one Telegram message after 15 minutes of
+  silence, and one more when a newer heartbeat arrives.
+  **Reason:** on 2026-11-24 the EC2 worker went silent at 22:05 UTC for about 17 hours; nothing alerted, and the owner
+  learned it from a missing morning MyCast episode. A server-side check covers every cause (instance stopped,
+  supervisor block, crash, network); a check on the host dies together with the host.
+- **Decision:** threshold `FACTORY_WORKER_OFFLINE_ALERT_SECONDS` (default 900, bounded 5 min–6 h); no alert for a
+  worker the server has never seen and none in the first 2 minutes after a server start; the state lives in
+  `DATA_DIR/worker_offline_alert.json`, so a deploy neither repeats nor loses an alert; a failed send keeps the state
+  and is retried on the next minute. Kill switch `FACTORY_WORKER_OFFLINE_ALERT_ENABLED=0`.
+  **Reason:** the worker beats about every 20 s and the supervisor watchdog restarts a stuck loop after 15 minutes;
+  one message per silence avoids spam.
+- **Decision:** 23:00–08:00 Kyiv the message goes out without sound (`disable_notification`). The text gives the last
+  heartbeat in Kyiv time, what stops (MyCast, Relay tasks) and the first check
+  (`sudo cat /var/lib/factoryos/supervisor-status.json`); the supervisor status is added only when the last heartbeat
+  already carried a non-running status.
+  **Reason:** a night outage is not an emergency, but the owner should see it with the morning messages instead of
+  discovering it from a missing episode.
+- Not decided here: alerts for the Surfer and Gemini lanes; the root cause of the 2026-11-24 silence (needs
+  `uptime -s` and the worker journal for 22:00–22:10 UTC from the owner).

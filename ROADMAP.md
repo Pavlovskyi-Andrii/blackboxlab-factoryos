@@ -29,6 +29,16 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-733/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
   Done 2026-11-24: prototype `docs/prototypes/owner-home-growth/index.html` (Learning → «New home: products and goals»; 8 states × 9 views × EN/UK/RU, phone and desktop, «Pro version» switch remembered per browser), RFC with field and state mapping and backlog B-01…B-08 (first PR: first-party visit counter), test plan with automated results (432 renders clean; T1–T7 scripted: T2 = 2 clicks), decision record, screenshots `docs/screenshots/t-733/`, `test_owner_home_prototype.py` in CI. People test: NOT STARTED (owner brings 3–4 people). S5 waits for the owner gate.
 
+## Worker reliability (MyCast incident, owner 2026-11-25)
+
+- [x] T-738 Owner alert in Telegram when the Claude worker stops sending heartbeats, and when it is back
+  Owner: claude-session (interactive Claude session)
+  Priority: P1 (owner 2026-11-25: «розберись з цією помилкою»; the morning MyCast did not arrive because the worker was silent for about 17 hours and nothing alerted)
+  Spec: DECISIONS.md «2026-11-25 — T-738»; `worker_offline_alert.py`; Relay th_fe5e4dff6d283a88.
+  Goal: one message to the paired owner chat after 15 minutes without a heartbeat (without sound 23:00–08:00 Kyiv) and one when the worker is back; no repeat after a deploy; $0, no new service.
+  DONE: `python test_worker_offline_alert.py`; smoke block «T-738»; default verification; CI green.
+  Not proven live: the first real alert comes with the next real silence (or the owner stops the worker for 15 minutes). Root cause of the 2026-11-24 silence is still open.
+
 ## Faceless Creator A/B (#469, owner 2026-11-24)
 
 - [x] T-737 #469 S1: private 9:16 face-switch clip (one clothed synthetic presenter, three fictional faces) with a QA receipt that measures the switch; scripts A (privacy) and B (creative control)
