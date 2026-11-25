@@ -29,6 +29,12 @@ class ChapterIndexTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_chapters(sections, duration)
 
+    def test_control_characters_in_titles_rejected(self):
+        for title in ("A\nB", "A\rB", "A\tB", "A\x00B", "A\x7fB"):
+            with self.subTest(title=repr(title)):
+                with self.assertRaises(ValueError):
+                    validate_chapters([MeasuredSection(title, 0)], 1000)
+
     def test_no_duration_or_guessed_timestamp(self):
         with self.assertRaises(ValueError):
             validate_chapters([MeasuredSection("A", 0)], 0)
