@@ -62,9 +62,10 @@ PROMPT = """Ти пишеш сценарій щоденного персонал
 - Назви компаній, продуктів, моделей і технічні терміни пиши ЛАТИНИЦЕЮ, як в оригіналі (OpenAI, Claude Code, Gemini 3.8 Flash, API, SDK) — озвучка Gemini вимовляє їх правильно. Не транслітеруй їх кирилицею. Номери версій моделей — цифрами; інші числа (суми, відсотки, дати) — словами.
 - Обсяг: 750–1100 слів (5–8 хвилин). Якщо свіжих перевірених новин мало — краще коротше, ніж вигадувати. Без markdown, емодзі та посилань у репліках.
 - Перша репліка: привітання, дата і одним реченням — три головні теми випуску. Остання: коротке прощання.
+- Розділи: у sections для кожної частини структури вкажи line — номер репліки в lines (з 0), з якої вона починається, і title — 2–4 слова українською. Час не пиши: таймкоди вимірюються з готового аудіо.
 
 Відповідь — ЛИШЕ JSON без пояснень:
-{{"title": "MyCast · {date_human}", "sources": [{{"title": "...", "url": "https://...", "date": "YYYY-MM-DD"}}], "lines": [["A", "..."], ["B", "..."]]}}
+{{"title": "MyCast · {date_human}", "sources": [{{"title": "...", "url": "https://...", "date": "YYYY-MM-DD"}}], "sections": [{{"line": 0, "title": "Світ AI"}}], "lines": [["A", "..."], ["B", "..."]]}}
 """
 
 
@@ -352,6 +353,8 @@ def generate_episode(day: datetime, *, run_cli=None, status_text: str = "") -> t
     if problems:
         log("script rejected: " + "; ".join(problems))
         return "failed", None
+    if not isinstance(episode.get("sections"), list):  # #468: optional; the server checks each tag against the audio
+        episode.pop("sections", None)
     return "ok", episode
 
 
@@ -424,11 +427,20 @@ def wait_render(commit_sha: str, *, gh_fn=gh, sleep=time.sleep, wait_seconds: in
     return ""
 
 
-def download_mp3(run_id: str, episode_id: str, *, gh_fn=gh) -> bytes:
+def download_mp3(run_id: str, episode_id: str, *, gh_fn=gh, measured: dict | None = None) -> bytes:
+    """measured, when given, receives the render's <id>.chapters.json (line starts measured from the WAV, #468)."""
     with tempfile.TemporaryDirectory() as tmp:
         code, _ = gh_fn("run", "download", run_id, "-R", REPO_SLUG, "-n", "mycast-episodes", "-D", tmp)
         mp3 = pathlib.Path(tmp) / f"{episode_id}.mp3"
-        return mp3.read_bytes() if code == 0 and mp3.exists() else b""
+        audio = mp3.read_bytes() if code == 0 and mp3.exists() else b""
+        if audio and measured is not None:
+            try:
+                value = json.loads((pathlib.Path(tmp) / f"{episode_id}.chapters.json").read_text(encoding="utf-8"))
+                if isinstance(value, dict) and value.get("episode_id") == episode_id:
+                    measured.update(value)
+            except (OSError, ValueError):
+                pass  # an older render: the episode goes out without timecodes
+        return audio
 
 
 def deliver_gemini(episode: dict) -> str:
@@ -449,6 +461,9 @@ def deliver_gemini(episode: dict) -> str:
         log(f"delivered to Telegram with Gemini voices ({body.get('seconds', '?')} s, {body.get('bytes', '?')} bytes)"
             if body.get("sent") else "already delivered earlier")
         return "sent" if body.get("sent") else "duplicate"
+    if response.status_code == 504:  # Telegram may have the MP3: no Piper resend (#468)
+        log("Telegram did not confirm the Gemini episode; not resending to avoid a duplicate")
+        return "uncertain"
     try:
         reason = str(response.json().get("detail", ""))[:60]
     except ValueError:
@@ -457,7 +472,8 @@ def deliver_gemini(episode: dict) -> str:
     return "unavailable"
 
 
-def deliver(episode: dict, audio: bytes) -> bool:
+def deliver(episode: dict, audio: bytes, measured: dict | None = None) -> bool | str:
+    """True when sent or already sent; "uncertain" when Telegram did not confirm (not retried); False on failure."""
     import requests
 
     url, token = relay_tasks.endpoint()
@@ -465,10 +481,15 @@ def deliver(episode: dict, audio: bytes) -> bool:
         return False
     words = sum(len(t.split()) for _, t in episode["lines"])
     links = "\n".join(f"• {s['title'][:80]}" for s in episode.get("sources", [])[:6])
+    form = {"episode_id": episode["id"], "title": episode.get("title", episode["id"]),
+            "caption": f"🎧 {episode.get('title', '')} · ~{max(1, round(words / 140))} хв\n{links}"}
+    if measured and episode.get("sections"):
+        form["chapters"] = json.dumps(measured, ensure_ascii=False)
     response = requests.post(url + "/api/factory/mycast/worker/deliver", headers={"Authorization": "Bearer " + token},
-                             data={"episode_id": episode["id"], "title": episode.get("title", episode["id"]),
-                                   "caption": f"🎧 {episode.get('title', '')} · ~{max(1, round(words / 140))} хв\n{links}"},
-                             files={"audio": (episode["id"] + ".mp3", audio, "audio/mpeg")}, timeout=180)
+                             data=form, files={"audio": (episode["id"] + ".mp3", audio, "audio/mpeg")}, timeout=180)
+    if response.status_code == 504:
+        log("Telegram did not confirm the episode; not resending to avoid a duplicate")
+        return "uncertain"
     if response.status_code != 200:
         try:
             detail = str(response.json().get("detail", ""))[:80]
@@ -566,7 +587,20 @@ def run_daily(state_path: pathlib.Path, *, now: float | None = None, run_cli=Non
         return failed("сценарій не згенеровано")
     stale_branch = sync_branch()
     sha = publish(episode)  # the script is kept on mycast/daily either way (history, Piper fallback)
+    def unconfirmed() -> str:
+        # #468: the MP3 may already be in the chat; another attempt could post it twice. Stop for today, say so.
+        state["delivered_date"] = day
+        _send_transcript(episode, state, day, send=send)
+        if state.get("unconfirmed_notice_date") != day and notify_owner(
+                f"⚠️ MyCast {day}: Telegram не підтвердив доставку аудіо. Повторно не надсилаю, щоб не було дубля; "
+                "перевірте чат.", send=send):
+            state["unconfirmed_notice_date"] = day
+        save_state(state_path, state)
+        return "delivered"
+
     voice = deliver_gemini(episode)
+    if voice == "uncertain":
+        return unconfirmed()
     if voice in ("sent", "duplicate"):
         state["delivered_date"] = day
         _send_transcript(episode, state, day, send=send)
@@ -577,13 +611,17 @@ def run_daily(state_path: pathlib.Path, *, now: float | None = None, run_cli=Non
         return failed("голоси Gemini недоступні, а резервний Piper не запустився", episode)
     log(f"script committed {sha[:10]}; waiting for render")
     run_id = wait_render(sha)
-    audio = download_mp3(run_id, episode["id"]) if run_id else b""
+    measured: dict = {}
+    audio = download_mp3(run_id, episode["id"], measured=measured) if run_id else b""
     if not audio:
         log("render or download failed")
         why = {"conflict": "конфлікт злиття", "error": "помилка GitHub"}.get(stale_branch, "")
         stale = f"; гілка mycast/daily не оновилась із main ({why}), рендер міг бути застарілий" if why else ""
         return failed("голоси Gemini недоступні, резервний Piper не відрендерився" + stale, episode)
-    if not deliver(episode, audio):
+    sent = deliver(episode, audio, measured)
+    if sent == "uncertain":
+        return unconfirmed()
+    if not sent:
         return failed("сервер не прийняв аудіо: перевірка якості або Telegram", episode)
     state["delivered_date"] = day
     _send_transcript(episode, state, day, send=send)

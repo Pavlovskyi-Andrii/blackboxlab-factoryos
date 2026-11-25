@@ -2613,3 +2613,31 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   anonymity or income (a test enforces the word list). Output is refused inside the repository (except `data/`).
 - Not decided here: photorealistic presenters (owner choice: allow huggingface.co again for the Claude environment, or
   supply synthetic frames), and S2 (owner score 1–10, notes, versions, one-click wiring).
+
+## 2026-11-25 — R-0104 MyCast measured section timecodes in the owner's Telegram audio (#468/#219)
+
+- **Decision:** the episode JSON gets optional section tags `"sections": [{"line": N, "title": "..."}]` (line = index
+  in `lines`, ≤ 12 sections, title ≤ 48 chars). The script writer gives no times; bad tags are dropped, never moved.
+  **Reason:** the owner asked for timecodes that are never estimated from the text.
+- **Decision:** offsets come from the audio actually delivered. Piper (`tools/mycast_render.py`) counts the WAV frames
+  it writes, pauses included, and saves `<id>.chapters.json` next to the MP3 (uploaded in the same artifact). Gemini
+  (`mycast.gemini_tts_pcm`) opens a new TTS call at every section start and records the PCM byte offset of each call,
+  pauses included. Offsets are stored sample-exact; the caption shows whole seconds rounded down.
+  **Reason:** inside one Gemini call the line boundaries are unknown, so a section must start a call to be measurable.
+  Cost: with sections a Gemini episode makes up to one call per section instead of 3–4; free tier only, 429 waits unchanged.
+- **Decision:** encoder effects are bounded, not modelled: if the measured MP3 length differs from the PCM the offsets
+  came from by more than 0.5 s, or any boundary is missing, out of order or past the end, the caption says
+  «⏱ Таймкоди недоступні: <причина>» and the audio still goes out. Without sections the caption is unchanged.
+- **Decision:** the timecodes go into the same `sendAudio` caption to the paired owner chat (no reply message). The
+  block always fits: the base caption gives up whole trailing lines (sources) to stay ≤ 1000 characters.
+  **Reason:** a reply needs the Telegram `message_id` and a second sender, i.e. an `app.py` change, which waits for
+  PR #475 to be reconciled; 12 × 57 characters always fit in the caption.
+- **Decision:** a Telegram answer that may hide a delivered MP3 (timeout, reset, unreadable body) raises
+  `TelegramUncertain`: the episode stays claimed (no Gemini or Piper resend), the server answers 504, the worker stops
+  for the day and tells the owner once that delivery was not confirmed. Definite failures (HTTP error, refused
+  connection, DNS, not-ok) still release the claim for a retry. Every attempt is recorded in
+  `mycast_delivered_attempts.json` (status, voice, chapters status; no audio, no chat id).
+- **Decision:** `mycast_timecodes.py` is Claude's own pure index. ChatGPT PR #474 (pure index) was not reachable from
+  the worker (no `gh`, no fetch); this PR does not touch its branch or files. When #474 merges, the two indexes are
+  reconciled in a follow-up instead of here. Only the existing morning (AM) sender exists in code; a PM schedule is
+  not added. Tests use `-am`/`-pm` ids to prove two same-day episodes never dedupe each other.

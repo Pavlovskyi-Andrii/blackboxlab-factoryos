@@ -76,5 +76,6 @@ jobs:
           path: |
             out/*.mp3
             out/*.md
+            out/*.chapters.json
           if-no-files-found: error
           retention-days: 14

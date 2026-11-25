@@ -327,7 +327,40 @@ def test_changed_episodes_cover_the_whole_push():
         assert changed(git("rev-parse", "HEAD~1")) == ["2026-11-05 україна.json"]
 
 
+def test_line_starts_are_measured_from_the_wav():
+    """#468: the start of every line is counted from the frames written to the final WAV, pauses included, and the
+    server turns the fixture's section tags into timecodes from exactly those numbers."""
+    import mycast
+
+    code, out, spoken, tmp = render(fixture())
+    with tmp:
+        assert code == 0 and "out/*.chapters.json" in (ROOT / ".github/workflows/mycast-render.yml").read_text(encoding="utf-8")
+        measured = json.loads((out / "mycast-render-fixture.chapters.json").read_text(encoding="utf-8"))
+        pause = int(RATE * mr.PAUSE_SECONDS)
+        expected, at = {}, 0
+        for n, (text, _) in enumerate(spoken):
+            expected[str(n)] = round(at / RATE, 6)
+            at += int(len(text) / 14 * RATE) + pause
+        assert measured["line_starts"] == expected and measured["n_lines"] == 4
+        assert measured["sections"] == fixture()["sections"]
+        with wave.open(str(out / "mycast-render-fixture.wav"), "rb") as wav:
+            frames = wav.readframes(wav.getnframes())
+            assert abs(measured["pcm_seconds"] - wav.getnframes() / RATE) < 0.01
+        for n in ("1", "2", "3"):  # alignment: the pause ends exactly at the measured start, the voice begins there
+            start = round(measured["line_starts"][n] * RATE)
+            assert set(frames[(start - pause) * 2:start * 2]) == {0}
+            assert any(frames[start * 2:(start + 200) * 2])
+        index = mycast.measured_index(json.dumps(measured), measured["pcm_seconds"] + 0.05)
+        assert index["status"] == "ok" and [c["line"] for c in index["chapters"]] == [0, 2]
+        assert index["chapters"][1]["start"] == round(measured["line_starts"]["2"], 2)
+    # A failed MP3 leaves no measurement behind either.
+    code, out, _, tmp = render(fixture(), convert=lambda wav, mp3: "mp3 does not decode")
+    with tmp:
+        assert code == 1 and not list(out.glob("*.chapters.json"))
+
+
 if __name__ == "__main__":
+    test_line_starts_are_measured_from_the_wav()
     test_changed_episodes_cover_the_whole_push()
     test_batch_keeps_good_episodes_and_only_checked_mp3()
     test_to_mp3_checks_the_file()

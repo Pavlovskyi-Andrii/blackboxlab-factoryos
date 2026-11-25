@@ -179,6 +179,16 @@ def transcript(episode: dict, seconds: float | None) -> str:
     return "\n".join(text) + "\n"
 
 
+def write_measurements(out: Path, episode: dict, line_starts: dict | None, seconds: float) -> Path:
+    """OUT_DIR/<id>.chapters.json (#468): the measured start second of every line in the final WAV, pauses included.
+    The server turns the episode's section tags into Telegram timecodes from these numbers only."""
+    path = out / f"{episode['id']}.chapters.json"
+    path.write_text(json.dumps({"episode_id": episode["id"], "n_lines": len(episode["lines"]),
+                                "sections": episode.get("sections") or [], "line_starts": line_starts or {},
+                                "pcm_seconds": seconds, "source": "piper-wav-frames"}, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
 def synthesize(voice, text: str, speaker_id: int, path: Path) -> None:
     with wave.open(str(path), "wb") as wav_file:
         try:  # piper-tts >= 1.3
@@ -216,12 +226,20 @@ def render_episode(episode_path: str, model_path: str, out_dir: str) -> Path | N
                 chunk_stats.append((len(spoken), made.getnframes() / made.getframerate()))
         with wave.open(str(parts[0]), "rb") as first:
             params = first.getparams()
-        silence = b"\x00" * int(params.framerate * PAUSE_SECONDS) * params.sampwidth * params.nchannels
+        pause_frames = int(params.framerate * PAUSE_SECONDS)
+        silence = b"\x00" * pause_frames * params.sampwidth * params.nchannels
+        line_starts, written = {}, 0
         with wave.open(str(final), "wb") as dst:
             dst.setparams(params)
-            for part in parts:
+            for n, part in enumerate(parts):
                 with wave.open(str(part), "rb") as src:
-                    dst.writeframes(src.readframes(src.getnframes()))
+                    if src.getframerate() != params.framerate:
+                        line_starts = None  # frames of another rate are not seconds of this file: measure nothing
+                    elif line_starts is not None:
+                        line_starts[str(n)] = round(written / params.framerate, 6)  # sample-exact
+                    frames = src.getnframes()
+                    dst.writeframes(src.readframes(frames))
+                written += frames + pause_frames
                 dst.writeframes(silence)
         with wave.open(str(final), "rb") as check:
             report = pcm_report(check.readframes(check.getnframes()), check.getframerate())
@@ -240,6 +258,7 @@ def render_episode(episode_path: str, model_path: str, out_dir: str) -> Path | N
         print(f"AUDIO QA FAILED for {episode['id']}: " + "; ".join(problems))
         return None
     script.write_text(transcript(episode, report["seconds"]), encoding="utf-8")
+    write_measurements(out, episode, line_starts, report["seconds"])
     print(f"rendered {final} ({report['seconds']:.1f} s, {len(parts)} lines, longest silence "
           f"{report['max_silence_seconds']:.1f} s, voiced {report['voiced_share']:.0%})")
     return final
@@ -310,6 +329,7 @@ def render_batch(episode_paths: list[str], model_path: str, out_dir: str, *, con
         if problem:
             if mp3 is not None:
                 mp3.unlink(missing_ok=True)  # never leave an unchecked or partial MP3 for the upload step
+                mp3.with_suffix(".chapters.json").unlink(missing_ok=True)
             failed.append(path)
             print(f"FAILED {path}: {problem}")
         else:

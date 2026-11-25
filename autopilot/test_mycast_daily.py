@@ -293,9 +293,9 @@ def test_run_daily_orchestration():
         md.sync_branch = lambda: order.append("sync") or ""
         md.deliver_gemini = lambda ep: "unavailable"  # no Gemini key yet → Piper path
         md.wait_render = lambda sha: order.append(("wait", sha)) or "42"
-        md.download_mp3 = lambda run_id, eid: b"ID3audio"
+        md.download_mp3 = lambda run_id, eid, measured=None: b"ID3audio"
         delivered = []
-        md.deliver = lambda ep, audio: delivered.append((ep["id"], audio)) or True
+        md.deliver = lambda ep, audio, measured=None: delivered.append((ep["id"], audio)) or True
         msgs = []
         assert md.run_daily(state_path, now=at, send=msgs.append) == "delivered"
         assert msgs and msgs[0].startswith("📝")  # transcript + sources follow the audio
@@ -322,7 +322,7 @@ def test_run_daily_orchestration():
         # Audio fails on every attempt: text fallback once, one honest failure notice after the last attempt.
         state_path.unlink()
         md.generate_episode = lambda day, run_cli=None, status_text="": ("ok", dict(good_episode(), id="mycast-2026-11-03"))
-        md.download_mp3 = lambda run_id, eid: b""
+        md.download_mp3 = lambda run_id, eid, measured=None: b""
         msgs = []
         for n in range(md.MAX_ATTEMPTS):
             assert md.run_daily(state_path, now=at + n * md.RETRY_SPACING_SECONDS, send=lambda t: msgs.append(t) or True) == "failed"

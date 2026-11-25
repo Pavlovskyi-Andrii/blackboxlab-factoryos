@@ -11,22 +11,33 @@ import json
 import os
 import re
 import secrets
+import socket
 import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
+from urllib import error as urlerror
 from urllib import request as urlrequest
 
 from fastapi import File, Form, HTTPException, Request, UploadFile
+
+import mycast_timecodes
 
 MAX_AUDIO_BYTES = 20 * 1024 * 1024  # well under Telegram's 50 MB bot upload limit
 EPISODE_ID_RE = re.compile(r"^mycast-[a-z0-9-]{4,60}$")
 
 
+class TelegramUncertain(RuntimeError):
+    """The upload may have reached the chat (timeout, reset, unreadable answer). Retrying could send the MP3 twice,
+    so the episode stays claimed and the owner is told instead (#468)."""
+
+
 def telegram_send_audio(bot_token: str, chat_id: str, audio: bytes, *, filename: str, title: str, caption: str,
                         opener: Callable = urlrequest.urlopen) -> str:
     """Telegram sendAudio as multipart/form-data, standard library only. Returns Telegram's file_id ("" if absent):
-    the audio then lives on Telegram's servers and can be fetched again later without storing it here (#317 history)."""
+    the audio then lives on Telegram's servers and can be fetched again later without storing it here (#317 history).
+    RuntimeError: Telegram certainly did not take it (HTTP error, no connection, not-ok), so a retry is safe.
+    TelegramUncertain: it may have been delivered; never retried automatically."""
     boundary = "mycast" + secrets.token_hex(12)
     parts = []
     for name, value in (("chat_id", chat_id), ("title", title[:64]), ("performer", "MyCast"), ("caption", caption[:1000])):
@@ -38,9 +49,19 @@ def telegram_send_audio(bot_token: str, chat_id: str, audio: bytes, *, filename:
                              headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, method="POST")
     try:
         with opener(req, timeout=120) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except Exception as exc:
+            raw = response.read()
+    except urlerror.HTTPError as exc:  # Telegram answered with an error: nothing was posted
         raise RuntimeError("Telegram sendAudio failed") from exc
+    except urlerror.URLError as exc:
+        if isinstance(exc.reason, (ConnectionRefusedError, socket.gaierror)):  # never connected: nothing was sent
+            raise RuntimeError("Telegram sendAudio failed") from exc
+        raise TelegramUncertain("Telegram sendAudio unconfirmed") from exc
+    except Exception as exc:  # timeout or reset while the upload was in flight
+        raise TelegramUncertain("Telegram sendAudio unconfirmed") from exc
+    try:
+        result = json.loads(raw.decode("utf-8"))
+    except ValueError as exc:
+        raise TelegramUncertain("Telegram sendAudio unconfirmed") from exc
     if not isinstance(result, dict) or not result.get("ok"):
         raise RuntimeError("Telegram sendAudio returned not-ok")
     message = result.get("result") if isinstance(result.get("result"), dict) else {}
@@ -78,6 +99,39 @@ class DeliveryLog:
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(done), encoding="utf-8")
             os.replace(tmp, self.path)
+
+    # #468: every attempt and its Telegram outcome per episode, next to the claim list. Ids and statuses only.
+    @property
+    def attempts_path(self) -> Path:
+        return self.path.with_name(self.path.stem + "_attempts.json")
+
+    def attempts(self, episode_id: str) -> list:
+        try:
+            value = json.loads(self.attempts_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        rows = value.get(episode_id) if isinstance(value, dict) else None
+        return rows if isinstance(rows, list) else []
+
+    def record(self, episode_id: str, status: str, **extra) -> None:
+        """Never raises: the ledger is evidence, not a gate."""
+        try:
+            with self._lock:
+                try:
+                    data = json.loads(self.attempts_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    data = {}
+                data = data if isinstance(data, dict) else {}
+                rows = data.pop(episode_id, [])
+                data[episode_id] = ((rows if isinstance(rows, list) else []) +
+                                    [{"at": round(time.time()), "status": status, **extra}])[-20:]
+                data = dict(list(data.items())[-100:])
+                self.attempts_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = self.attempts_path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+                os.replace(tmp, self.attempts_path)
+        except Exception:
+            pass
 
 
 # --- Audio preflight QC (#233): nothing is logged as delivered unless the audio passes these checks ---
@@ -182,12 +236,30 @@ def check_pcm(pcm: bytes, rate: int, lines: list, chunk_stats: list | None = Non
     return report
 
 
+def measured_index(raw: str, mp3_seconds: float) -> dict | None:
+    """Piper path: the worker forwards what tools/mycast_render.py measured from the WAV it wrote
+    ({"sections", "n_lines", "line_starts", "pcm_seconds"}). None when the episode has no sections."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        n_lines = int(data.get("n_lines") or 0)
+        pcm_seconds = float(data.get("pcm_seconds") or 0)
+    except (ValueError, TypeError, AttributeError):
+        return {"status": "unavailable", "reason": "not_measured", "chapters": [], "pcm_seconds": 0.0, "mp3_seconds": mp3_seconds}
+    sections = mycast_timecodes.normalize_sections(data.get("sections"), n_lines)
+    if not sections:
+        return None
+    starts = data.get("line_starts") if isinstance(data.get("line_starts"), dict) else {}
+    return mycast_timecodes.build_index(sections, starts, pcm_seconds=pcm_seconds, mp3_seconds=mp3_seconds)
+
+
 def install_mycast_routes(app, log: DeliveryLog, *, authorize_worker: Callable[[Request], bool],
                           send_audio: Callable[[bytes, str, str, str], None],
                           paired: Callable[[], bool]) -> None:
     @app.post("/api/factory/mycast/worker/deliver")
     async def mycast_deliver(request: Request, episode_id: str = Form(...), title: str = Form(""),
-                             caption: str = Form(""), audio: UploadFile = File(...)):
+                             caption: str = Form(""), audio: UploadFile = File(...), chapters: str = Form("")):
         if not authorize_worker(request):
             raise HTTPException(401, "Worker token required")
         if not EPISODE_ID_RE.fullmatch(episode_id):
@@ -201,14 +273,24 @@ def install_mycast_routes(app, log: DeliveryLog, *, authorize_worker: Callable[[
             report = check_mp3(data)  # length is checked against the script on the worker side
         except AudioQCError as exc:
             raise HTTPException(422, f"audio qc: {exc.reason}")
+        index = measured_index(chapters[:20000] if isinstance(chapters, str) else "", report["seconds"])
         if not log.claim(episode_id):
+            log.record(episode_id, "duplicate_refused", voice="piper")
             return {"sent": False, "duplicate": True}
         try:
-            send_audio(data, f"{episode_id}.mp3", title or episode_id, caption)
+            send_audio(data, f"{episode_id}.mp3", title or episode_id, mycast_timecodes.compose_caption(caption, index))
+        except TelegramUncertain:
+            log.record(episode_id, "uncertain", voice="piper")  # the claim stays: a retry could post the MP3 twice
+            raise HTTPException(504, "Telegram delivery unconfirmed; not retried to avoid a duplicate")
         except Exception as exc:
             log.release(episode_id)  # let the worker retry
+            log.record(episode_id, "failed:telegram", voice="piper")
             raise HTTPException(502, "Telegram delivery failed") from exc
-        return {"sent": True, "duplicate": False, "seconds": report["seconds"]}
+        log.record(episode_id, "sent", voice="piper", chapters=(index or {}).get("status", "none"))
+        result = {"sent": True, "duplicate": False, "seconds": report["seconds"]}
+        if index:
+            result["chapters"] = index
+        return result
 
 
 # --- Gemini voices (owner decision 2026-11-02: natural two-host voice via the owner's Gemini API key) ---
@@ -250,10 +332,11 @@ def _pick_tts_model(api_key: str, opener) -> str:
     return sorted(tts, key=lambda n: ("flash" not in n, n))[0]
 
 
-def episode_chunks(lines: list) -> list[list]:
+def episode_chunks(lines: list, breaks=()) -> list[list]:
+    """breaks: line indexes that must open a new TTS call (section starts), so their offset is measurable."""
     chunks, current, size = [], [], 0
-    for host, text in lines:
-        if current and size + len(text) > CHUNK_CHARS:
+    for n, (host, text) in enumerate(lines):
+        if current and (size + len(text) > CHUNK_CHARS or n in breaks):
             chunks.append(current)
             current, size = [], 0
         current.append((host, text))
@@ -265,16 +348,22 @@ def episode_chunks(lines: list) -> list[list]:
 
 def gemini_tts_pcm(api_key: str, episode: dict, *, model: str = "", voices: tuple[str, str] = ("Charon", "Kore"),
                    opener: Callable = urlrequest.urlopen, sleep: Callable[[float], None] = time.sleep,
-                   stats: list | None = None) -> tuple[bytes, int]:
-    """stats, when given, receives (chars, seconds) per chunk for the truncation check."""
-    """Two-host dialogue → raw PCM (16-bit mono) and its sample rate."""
+                   stats: list | None = None, marks: dict | None = None) -> tuple[bytes, int]:
+    """Two-host dialogue → raw PCM (16-bit mono) and its sample rate.
+    stats, when given, receives (chars, seconds) per chunk for the truncation check.
+    marks, when given, receives {first line index of each call: measured start second in the returned PCM}; each
+    tagged section opens its own call, so section starts are measured, pauses included (#468)."""
     model = model or DEFAULT_TTS_MODEL
+    breaks = mycast_timecodes.section_breaks(mycast_timecodes.normalize_sections(episode.get("sections"), len(episode["lines"])))
+    offsets, first_line, rates = {}, 0, set()
     language = {"uk": "українською", "ru": "русском", "en": "English"}.get(str(episode.get("language") or "uk"), "українською")
     speaker_cfg = [{"speaker": SPEAKER_LABELS[h], "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": v}}}
                    for h, v in zip(("A", "B"), voices)]
     pcm, rate = b"", 24000
-    for chunk in episode_chunks(episode["lines"]):
-        script = "\n".join(f"{SPEAKER_LABELS[h]}: {t}" for h, t in chunk)
+    for chunk in episode_chunks(episode["lines"], breaks):
+        offsets[first_line] = len(pcm)
+        first_line += len(chunk)
+        script ="\n".join(f"{SPEAKER_LABELS[h]}: {t}" for h, t in chunk)
         payload = {"contents": [{"parts": [{"text": f"Озвуч цей фрагмент подкасту ({language}) природно, жваво, як двоє ведучих, що розмовляють:\n{script}"}]}],
                    "generationConfig": {"responseModalities": ["AUDIO"],
                                         "speechConfig": {"multiSpeakerVoiceConfig": {"speakerVoiceConfigs": speaker_cfg}}}}
@@ -297,10 +386,13 @@ def gemini_tts_pcm(api_key: str, episode: dict, *, model: str = "", voices: tupl
             raise GeminiTTSError("no_audio")
         match = re.search(r"rate=(\d+)", str(inline.get("mimeType") or ""))
         rate = int(match.group(1)) if match else 24000
+        rates.add(rate)
         audio = base64.b64decode(inline["data"])
         if stats is not None:
             stats.append((sum(len(t) for _, t in chunk), len(audio) / 2 / rate))
         pcm += audio + b"\x00\x00" * int(rate * 0.35)  # short pause between chunks
+    if marks is not None and len(rates) == 1:  # mixed sample rates: byte offsets are not seconds, report none
+        marks.update({line: round(at / 2 / rate, 6) for line, at in offsets.items()})  # sample-exact
     return pcm, rate
 
 
@@ -346,34 +438,54 @@ def install_mycast_voice_routes(app, log: DeliveryLog, *, authorize_worker: Call
             raise HTTPException(409, "gemini key not configured")
         if not paired():
             raise HTTPException(409, "Telegram owner chat is not paired")
+        sections = mycast_timecodes.normalize_sections(episode.get("sections"), len(lines))
         if not log.claim(episode["id"]):
+            log.record(episode["id"], "duplicate_refused", voice="gemini")
             return {"sent": False, "duplicate": True, "voice": "gemini"}
         try:
             def produce():
                 stats: list = []
-                extra = {"stats": stats} if "stats" in inspect.signature(tts).parameters else {}
-                pcm, rate = tts(key, episode, model=model, voices=tuple(voices() if callable(voices) else voices), **extra)  # #140: owner's stored pair
+                marks: dict = {}
+                params = inspect.signature(tts).parameters
+                extra = {name: value for name, value in (("stats", stats), ("marks", marks)) if name in params}
+                pcm, rate = tts(key, dict(episode, sections=sections), model=model,
+                                voices=tuple(voices() if callable(voices) else voices), **extra)  # #140: owner's stored pair
                 check_pcm(pcm, rate, lines, stats)  # silence / length / truncated chunk → not delivered
                 audio = encode(pcm, rate)
-                check_mp3(audio)
+                mp3 = check_mp3(audio)
+                # #468: offsets from the PCM that was encoded; the MP3 length bounds the encoder delay/padding.
+                index = (mycast_timecodes.build_index(sections, marks, pcm_seconds=len(pcm) / 2 / rate,
+                                                      mp3_seconds=mp3["seconds"]) if sections else None)
                 words = sum(len(t.split()) for _, t in lines)
+                base = f"🎧 {episode.get('title', '')} · ~{max(1, round(words / 140))} хв · голоси Gemini"
                 send_audio(audio, f"{episode['id']}.mp3", str(episode.get("title") or episode["id"])[:64],
-                           f"🎧 {episode.get('title', '')} · ~{max(1, round(words / 140))} хв · голоси Gemini")
-                return pcm, rate, audio
+                           mycast_timecodes.compose_caption(base, index))
+                return pcm, rate, audio, index
 
             # Several TTS calls (and free-tier waits) take minutes: keep them off the server's event loop.
-            pcm, rate, audio = await asyncio.to_thread(produce)
+            pcm, rate, audio, index = await asyncio.to_thread(produce)
         except GeminiTTSError as exc:
             log.release(episode["id"])
+            log.record(episode["id"], "failed:" + exc.category, voice="gemini")
             _note(id=episode["id"], status="failed:" + exc.category)
             raise HTTPException(502, f"gemini tts: {exc.category}")
         except AudioQCError as exc:
             log.release(episode["id"])
+            log.record(episode["id"], "failed:qc", voice="gemini")
             _note(id=episode["id"], status="failed:qc")
             raise HTTPException(502, f"audio qc: {exc.reason}")
+        except TelegramUncertain:
+            log.record(episode["id"], "uncertain", voice="gemini")  # claim kept: neither Gemini nor Piper resends it
+            _note(id=episode["id"], status="failed:unconfirmed")
+            raise HTTPException(504, "Telegram delivery unconfirmed; not retried to avoid a duplicate")
         except Exception:
             log.release(episode["id"])
+            log.record(episode["id"], "failed:voice_failed", voice="gemini")
             _note(id=episode["id"], status="failed:voice_failed")
             raise HTTPException(502, "voice delivery failed")
+        log.record(episode["id"], "sent", voice="gemini", chapters=(index or {}).get("status", "none"))
         _note(id=episode["id"], status="sent", seconds=round(len(pcm) / 2 / rate))
-        return {"sent": True, "duplicate": False, "voice": "gemini", "seconds": round(len(pcm) / 2 / rate), "bytes": len(audio)}
+        result = {"sent": True, "duplicate": False, "voice": "gemini", "seconds": round(len(pcm) / 2 / rate), "bytes": len(audio)}
+        if index:
+            result["chapters"] = index
+        return result
