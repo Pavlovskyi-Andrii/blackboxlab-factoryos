@@ -27,6 +27,17 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.20.0 — Ops relay: Claude checks and restarts the EC2 workers; Surfer queue cannot stall silently — 2026-11-23 … 2026-11-25
+
+- Ops relay (T-740, #478): Claude (lane key only) asks FactoryOS for a fixed EC2 operation — worker status, logs, host state, restart of the Surfer or Claude worker, fast-forward of the worker checkout, re-applying the Surfer unit — and a root agent on EC2 pulls it every 30 s and runs it without a shell (60 s, 32 KB, secrets redacted). Off until `FACTORY_OPS_RELAY_ENABLED=1`; 30 ops and 6 restarts per worker per day; every request in Worker Center → «Ops relay»; restarts notify the owner in Telegram. One owner step: T-740-H.
+- Surfer queue (T-728, #477): a stuck task no longer blocks reads, agents can tell "worker down" from "queue blocked", and the Surfer unit gets wider restart limits.
+- Telegram alert when the Claude worker goes silent for 15 minutes and when it is back (T-738, #475).
+- Agents ask the Claude worker for work through Relay (T-736, #471; verified live, #473).
+- Coordination guard: no duplicate task numbers, no two agents on one task, no two PRs on the same code (T-729, #464).
+- AI Film Studio: contracts, rights gate, shot plan, offline render with QA receipt (T-730, #465) and per-shot narration with a loudness-normalised mix (T-735, #466); Faceless Creator face-switch clip with measured QA (T-737, #472).
+- AI Video Editor follow-up: private job files, cuts that follow the sound, measured loudness (#442).
+- Owner Home prototype, Growth Manager RFC and test plan (T-733, #467); sidebar links every owner page and Surfer replaces the read-only browser card (#463); owner confirmations in ROADMAP (#462).
+
 ### v5.19.1 — Surfer snapshot waits for the page to finish drawing — 2026-11-23
 
 - Surfer: after a click, key press, choice or toggle, the snapshot waits until the page stops changing (0.5 s quiet, at most 3 s), so content drawn a moment later (MyBrief "Show my briefing") is in the answer (T-727, #461).

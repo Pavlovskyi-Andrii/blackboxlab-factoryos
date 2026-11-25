@@ -89,7 +89,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.19.1"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.20.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
