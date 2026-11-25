@@ -57,4 +57,4 @@ def timestamp(ms: int) -> str:
 def format_ukrainian_chapters(sections: Iterable[MeasuredSection], duration_ms: int) -> str:
     """Format only validated offsets. Telegram caption/reply choice is caller-owned."""
     chapters = validate_chapters(sections, duration_ms)
-    return "\\n".join(f"{timestamp(c['start_ms'])} — {c['title']}" for c in chapters)
+    return "\n".join(f"{timestamp(c['start_ms'])} — {c['title']}" for c in chapters)
