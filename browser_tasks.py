@@ -26,6 +26,7 @@ MAX_ACTIVE = 20                      # queued + running; new tasks are refused b
 LEASE_SECONDS = 300                  # T-728: a read task is bounded (~90 s + report); was 600
 MAX_ATTEMPTS = 2                     # T-728: a task whose lease expired this many times fails as lease_expired
 QUEUED_MAX_SECONDS = 1800            # T-728: a task nobody claimed for 30 min fails as queue_timeout (frees MAX_ACTIVE)
+FALLBACK_POLL_SECONDS = 120         # T-728: claim requests this recent with no Surfer heartbeat = the fallback serves
 STUCK_SECONDS = 120                  # T-728: queue health — the oldest queued task waits longer than this
 MAX_SELECTORS = 5
 MAX_SHOT_BYTES = 2 * 1024 * 1024
@@ -214,7 +215,9 @@ class BrowserTaskStore:
         beat_age, poll_age = age(beat.get("last_seen")), age(poll.get("last_poll"))
         state = str(beat.get("state") or "")
         if beat_age is None or beat_age > SURFER_ONLINE_SECONDS or state == "stopped":
-            verdict = "worker_offline"
+            # The Claude worker's in-loop fallback claims read tasks while the Surfer worker is down (it sends no
+            # Surfer heartbeat): recent claim requests mean reads are served, only actions wait for the Surfer worker.
+            verdict = "fallback_serving" if poll_age is not None and poll_age <= FALLBACK_POLL_SECONDS else "worker_offline"
         elif state == "unavailable":
             verdict = "worker_unavailable"
         elif state == "queue_unreachable" or beat.get("last_error"):

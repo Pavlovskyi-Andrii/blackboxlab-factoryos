@@ -2716,6 +2716,9 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   last claim request and the last task handed out in `DATA_DIR/surfer_claims.json`; Worker Center's Surfer lane carries
   the same `queue_health`.
   **Reason:** in the 2026-11-25 incident the parent session could not tell a dead worker from a blocked queue.
+  Follow-up (prod 21:19 UTC): with the Surfer unit stopped, claims kept arriving every few seconds from the Claude
+  worker's in-loop fallback, which sends no Surfer heartbeat; the verdict is `fallback_serving` (reads served, maybe
+  slower; actions wait) when the last claim request is at most 2 min old, `worker_offline` otherwise.
 - **Root cause (2026-11-25, reproduced with real Playwright 1.x in the build session):** `_launch_probe` opens
   `with sync_playwright()` in the worker's main thread; while the action runner holds its own started Playwright
   (a live page, or one being opened), that raises "It looks like you are using Playwright Sync API inside the asyncio
