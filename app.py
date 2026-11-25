@@ -831,7 +831,15 @@ def _mcp_lane_forbidden_tokens():
     """T-604: a per-lane MCP token must not reuse the shared MCP token or any other FactoryOS credential."""
     return _agent_relay_forbidden_tokens()+(os.environ.get("FACTORY_CLAUDE_RELAY_TOKEN",""),os.environ.get("FACTORY_CODEX_RELAY_TOKEN",""))
 
-AGENT_WORKSPACE = agent_workspace.AgentWorkspace(RELAY_STORE, RELAY_QUEUE, known_secrets=_mcp_lane_forbidden_tokens)
+def _agent_workspace_worker_status():
+    """T-736: what request_task tells the asking agent about the Claude worker (heartbeat facts only, no node details)."""
+    last=float(claude_worker_runtime.get("last_seen") or 0)
+    return {"online":bool(last) and _claude_worker_online(),"last_seen_age_seconds":round(time.time()-last) if last else None,
+            "active_task":str(claude_worker_runtime.get("active_task_id") or "")[:80],
+            "task_state":str((claude_worker_runtime.get("node") or {}).get("status") or "")[:40]}
+
+AGENT_WORKSPACE = agent_workspace.AgentWorkspace(RELAY_STORE, RELAY_QUEUE, known_secrets=_mcp_lane_forbidden_tokens,
+                                                 worker_status=_agent_workspace_worker_status)
 agent_workspace.install_routes(app, AGENT_WORKSPACE, lambda: agent_workspace.lane_status(forbidden=_mcp_lane_forbidden_tokens()))
 agent_workspace.install_access_log_redaction()
 

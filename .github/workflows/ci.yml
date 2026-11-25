@@ -91,6 +91,8 @@ jobs:
           python -m pip install --disable-pip-version-check numpy
           python -m py_compile film_studio/__init__.py film_studio/schema.py film_studio/plan.py film_studio/procedural.py film_studio/render.py film_studio/qa.py test_film_studio.py
           python test_film_studio.py
+          python -m py_compile film_studio/face_switch.py test_face_switch.py
+          python test_face_switch.py
       - name: Validate required frontend assets
         run: |
           test -f static/index.html
@@ -579,6 +581,10 @@ jobs:
         run: |
           python -m py_compile learn_center.py test_learn_center.py
           python test_learn_center.py
+          python -m py_compile test_owner_home_prototype.py
+          python test_owner_home_prototype.py
+          python -c "from pathlib import Path; h=Path('docs/prototypes/owner-home-growth/index.html').read_text(encoding='utf-8'); Path('/tmp/owner-home-ui.js').write_text(h.rsplit('<script>',1)[1].split('</script>',1)[0], encoding='utf-8')"
+          node --check /tmp/owner-home-ui.js
   ui-screenshots:
     # Evidence for UI tasks (T-594..T-597): EN/UK/RU × desktop/tablet/mobile screenshots of a local,
     # password-less, key-less FactoryOS (zero spend). Findings are reported in the job summary, not enforced.

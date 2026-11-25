@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 from film_studio import plan as fplan
-from film_studio import procedural, qa, render
+from film_studio import narration, procedural, qa, render
 from film_studio.plan import PlanError, RightsBlocked, build_plan
 from film_studio.schema import (ValidationError, manifest_from_candidates, validate_asset_manifest,
                                 validate_film_bible, validate_storyboard)
@@ -276,6 +276,100 @@ class OfflineTest(Fixture):
         self.assertEqual(a["assets"][0]["substitutes_for"], "pexels-8344064")
 
 
+def write_tone(path: Path, seconds: float, freq: float = 220.0, rate: int = 22050) -> None:
+    """A short mono sine WAV, standing in for a narration line (no TTS needed in tests)."""
+    import math
+    import struct
+    import wave
+    n = int(seconds * rate)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * freq * i / rate))) for i in range(n)))
+
+
+def narration_doc(directory: Path, project_id: str, lines: dict, **voice) -> Path:
+    """Write WAV lines {shot_id: seconds} and a narration.json that names them with their sha256."""
+    doc_lines = {}
+    for sid, secs in lines.items():
+        wav = directory / f"{sid}.wav"
+        write_tone(wav, secs)
+        doc_lines[sid] = {"path": wav.name, "sha256": hashlib.sha256(wav.read_bytes()).hexdigest()}
+    v = {"source": "piper", "model": "ru_RU-test-medium", "model_sha256": "a" * 64, "dataset_licence": "CC0",
+         "model_url": "https://example.org/voice"}
+    v.update(voice)
+    target = directory / "narration.json"
+    target.write_text(json.dumps({"schema": narration.SCHEMA_NARRATION, "project_id": project_id, "voice": v,
+                                  "lines": doc_lines}), encoding="utf-8")
+    return target
+
+
+class NarrationTest(Fixture):
+    """T-735 (S2): one WAV line per shot, placed at its shot, sha256-pinned, never running into the next shot."""
+
+    def plan(self):
+        return build_plan(self.sb, self.bible, self.verified_manifest(), manifest_dir=self.tmp, size=(320, 180))
+
+    def test_lines_are_placed_at_their_shots(self):
+        p = self.plan()
+        doc = narration.load(narration_doc(self.tmp, self.sb["project_id"], {"s01": 2.0, "s03": 1.5}), p)
+        starts = {x["shot_id"]: x["start_sec"] for x in doc["lines"]}
+        self.assertEqual(starts, {"s01": narration.LEAD_SEC, "s03": 11 + narration.LEAD_SEC})
+        argv = render.assemble_command(p, [self.tmp / f"c{i}.mp4" for i in range(len(p["shots"]))],
+                                       self.tmp / "f.mp4", doc["lines"])
+        graph = argv[argv.index("-filter_complex") + 1]
+        self.assertIn("adelay=250|250", graph)
+        self.assertIn("adelay=11250|11250", graph)
+        self.assertIn("loudnorm=I=-16.0:TP=-1.5", graph)
+        self.assertEqual(argv[argv.index("[vout]") + 2], "[aout]")
+        silent = render.assemble_command(p, [self.tmp / f"c{i}.mp4" for i in range(len(p["shots"]))], self.tmp / "f.mp4")
+        self.assertNotIn("loudnorm", " ".join(silent))
+
+    def test_bad_narration_is_refused(self):
+        p = self.plan()
+        cases = [
+            ({"s01": 4.6}, {}, "does not fit"),                    # s01 is 5 s: 0.25 lead + 0.2 gap leave 4.55 s
+            ({"s99": 1.0}, {}, "unknown shot"),
+            ({"s01": 1.0}, {"source": "tts_cloud"}, "voice.source"),
+            ({"s01": 1.0}, {"model_sha256": ""}, "voice.model_sha256"),
+            ({"s01": 1.0}, {"source": "owner_recording"}, "consent"),
+        ]
+        for lines, voice, needle in cases:
+            with self.subTest(needle=needle):
+                d = self.tmp / needle.replace(" ", "_").replace(".", "_")
+                d.mkdir()
+                with self.assertRaises(ValidationError) as ctx:
+                    narration.load(narration_doc(d, self.sb["project_id"], lines, **voice), p)
+                self.assertIn(needle, str(ctx.exception))
+
+    def test_changed_wav_is_refused(self):
+        p = self.plan()
+        target = narration_doc(self.tmp, self.sb["project_id"], {"s02": 1.0})
+        write_tone(self.tmp / "s02.wav", 1.0, freq=330.0)        # someone swapped the approved line
+        with self.assertRaises(ValidationError) as ctx:
+            narration.load(target, p)
+        self.assertIn("sha256 mismatch", str(ctx.exception))
+
+    def test_owner_asset_substitutes_a_storyboard_shot(self):
+        m = self.verified_manifest()
+        last = self.sb["shots"][-1]
+        data = b"owner-portrait"
+        (self.tmp / "owner.png").write_bytes(data)
+        m["assets"].append(verified_asset("owner-s07-portrait", "owner.png", data, source_type="owner_supplied",
+                                          url="owner://uploads/portrait", substitutes_for=last["asset_id"],
+                                          licence={"name": "Owner-supplied", "url": "owner://consent/1"}))
+        mpath = self.tmp / "asset_manifest.json"
+        mpath.write_text(json.dumps(m), encoding="utf-8")
+        out = self.tmp / "out"
+        with mock.patch("builtins.print"):
+            code = render.main(["--out", str(out), "--manifest", str(mpath), "--dry-run", "--proxy"])
+        self.assertEqual(code, 0)
+        planned = json.loads((out / "render_plan.json").read_text(encoding="utf-8"))
+        s07 = next(s for s in planned["shots"] if s["shot_id"] == last["shot_id"])
+        self.assertEqual((s07["asset"]["id"], s07["storyboard_asset_id"]), ("owner-s07-portrait", last["asset_id"]))
+
+
 def _have_render_tools():
     try:
         render.find_fonts()
@@ -320,6 +414,26 @@ class EndToEndRenderTest(Fixture):
         again = render.render_shots(p, manifest_dir=out / "assets", work=out, only=["s02"])
         self.assertEqual([r["status"] for r in again], ["cached", "rendered"])
         self.assertEqual(again[0]["clip_sha256"], recs[0]["clip_sha256"])
+
+    def test_render_with_narration_meets_loudness(self):
+        sb, bible = self.short_pack()
+        out = self.tmp / "out"
+        shots = procedural.shots_from_shotpack(sb, self.cand)
+        manifest = procedural.generate(out / "assets", shots, sb["project_id"])
+        overrides = {s["shot_id"]: f"orig-{s['shot_id']}-{s['role']}" for s in shots}
+        p = build_plan(sb, bible, manifest, manifest_dir=out / "assets", size=(320, 180), overrides=overrides)
+        vdir = self.tmp / "vo"
+        vdir.mkdir()
+        doc = narration.load(narration_doc(vdir, sb["project_id"], {"s01": 0.5, "s02": 1.4}), p)
+        recs = render.render_shots(p, manifest_dir=out / "assets", work=out)
+        film = out / "film.mp4"
+        render.run(render.assemble_command(p, [out / r["clip"] for r in recs], film, doc["lines"]), out)
+        receipt = qa.run_qa(film, p, recs, manifest_dir=out / "assets", frames_dir=out / "frames", narration=doc)
+        failed = [c for c in receipt["checks"] if c["result"] != "PASS"]
+        self.assertEqual(receipt["status"], "PASS", failed)
+        self.assertEqual(receipt["milestones"]["narration"], "PASS")
+        self.assertEqual(receipt["voice"]["source"], "piper")
+        self.assertTrue(-18.0 <= receipt["loudness"]["integrated_lufs"] <= -14.0, receipt["loudness"])
 
     def test_failed_render_raises(self):
         sb, bible = self.short_pack()

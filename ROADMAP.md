@@ -1,3 +1,47 @@
+## UX-first Owner Home + internal Growth Manager (owner 2026-11-23, issue #452 + Amendment A1)
+
+Research, specification and prototype only. No production dashboard change, no publishing, no spend. Owner answers: `.autopilot/answers.md` «#452».
+S5 (implementation) is not on the roadmap until the owner gate.
+
+- [x] T-731 #452 S0–S1: access, terms and overlap audit + Ploy public UX/functional benchmark
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (direct owner assignment 2026-11-23; runs right after the T-590–T-593 close-out)
+  Spec: Issue #452 §1–§3 and Amendment A1 (A1.1, A1.6). Format precedent: `docs/HERCULES_PUBLIC_COMPETITIVE_TEARDOWN.md`.
+  Goal: Overlap Matrix (existing tasks, files, owners, what #452 adds); Ploy terms quoted with URL and date; Competitor Evidence Ledger and UX pattern inventory from public pages only (no account, no crawling, no copies of Ploy pages or assets); capability matrix Ploy ↔ FactoryOS; two adjacent public UX references.
+  DONE: `docs/research/ploy-public-ux-functional-benchmark.md` exists with every factual claim cited (URL, date, evidence type, confidence) and "not observed" where a screen was not seen; `python test_verification_docs.py`; default verification.
+  Done 2026-11-23: 18 docs pages + 3 site pages + terms read through the Markdown interface Ploy publishes for AI tools (no account, no login); 43 ledger rows, 16 patterns with adopt/adapt/reject, 8 rejections, Overlap Matrix, capability matrix, Linear and PostHog as references. Not observed and stated in the document: the authenticated app and every image (so Ploy's visual design is not described).
+
+- [x] T-732 #452 S2: FactoryOS current-state audit, owner-first journeys and two or three IA directions → Checkpoint A
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-731
+  Spec: Issue #452 §4–§5 and Amendment A1 (A1.3, A1.4, A1.5).
+  Goal: route and screen inventory from the code; screenshots from `tools/ui_screenshots.py` (768 px added) of the local fixture, labelled as such; defects ranked by severity; journeys for the owner, a future client and a specialist; navigation before/after with every current route mapped; "one source per status" table for Owner Home; two or three low-fidelity directions with one recommended.
+  DONE: `docs/ux/factoryos-current-state-audit.md` and `docs/ux/factoryos-owner-first-ia-spec.md` exist; screenshots under `docs/screenshots/t-732/`; a short owner summary in Russian is delivered and the owner picks a direction (Checkpoint A) before T-733 starts.
+  Done 2026-11-24: audit (re-measured on v5.19.1), IA spec and Checkpoint A page delivered 2026-11-23. Owner chose direction 2 «Продукты и цели» plus a visible switch to the current full dashboard («Pro version») and back, remembered per browser (owner 2026-11-24 ~04:10 UTC, relayed to this session by the coordination session; `.autopilot/answers.md` «#452 Checkpoint A»).
+
+- [x] T-733 #452 S3–S4: clickable prototype (Owner Home + Growth Manager goal wizard + approval + metrics), Growth Manager RFC and backlog → OWNER GATE
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1
+  Depends: T-732 and the owner's Checkpoint A choice
+  Spec: Issue #452 §5–§10 and Amendment A1 (A1.1, A1.2, A1.4, A1.5, A1.7).
+  Goal: prototype in `docs/prototypes/owner-home-growth/` (fixture data marked DEMO DATA, eight states, EN/UK/RU, phone and desktop), opened behind login through the Learn section; RFC with the mapping table (24 mission fields and 11 states → existing fields/enums or "missing"), executor and cost per step, the designed first-party visit + variant event for MyCast; test plan with expert review, automated checks and a 10–15 minute script for the owner and the 3–4 people he brings; backlog of small tickets with the first PR specified to file level.
+  DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-733/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
+  Done 2026-11-24: prototype `docs/prototypes/owner-home-growth/index.html` (Learning → «New home: products and goals»; 8 states × 9 views × EN/UK/RU, phone and desktop, «Pro version» switch remembered per browser), RFC with field and state mapping and backlog B-01…B-08 (first PR: first-party visit counter), test plan with automated results (432 renders clean; T1–T7 scripted: T2 = 2 clicks), decision record, screenshots `docs/screenshots/t-733/`, `test_owner_home_prototype.py` in CI. People test: NOT STARTED (owner brings 3–4 people). S5 waits for the owner gate.
+
+## Faceless Creator A/B (#469, owner 2026-11-24)
+
+- [x] T-737 #469 S1: private 9:16 face-switch clip (one clothed synthetic presenter, three fictional faces) with a QA receipt that measures the switch; scripts A (privacy) and B (creative control)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-24: «второй приоритет — Faceless Creator, Issue #469», after T-736)
+  Depends: T-730
+  Spec: issue #469 «first measurable deliverable»; Relay th_b91be476434e470b (audit / decision); DECISIONS.md «2026-11-24 — T-737»; `film_studio/face_switch.py`, `film_studio/README.md` «Faceless Creator A/B».
+  Goal: 25–40 s, 1080x1920, H.264 + AAC; the same body, hoodie, room and voice before and after each snap, only the fictional face changes; «AI · SYNTHETIC DEMO» on every frame, 18+ / no-guarantee disclaimer on the end card; QA receipt from the decoded MP4 (ffprobe, full decode, 9:16, frame count, loudness, black stretches, label, and per switch the mean change of the face area against body and room); $0, offline, private output only.
+  DONE: `python test_face_switch.py`; `python -m film_studio.face_switch --variant A|B --out <private dir>` gives `qa_receipt.json` status PASS; default verification; both clips sent privately to the owner for a 1–10 score.
+  Result 2026-11-24: A 28.7 s (860 frames) and B 26.4 s (793 frames), both PASS; face area change 29.5–31.8 vs body/room ≤ 2.3 (ratio 13–32); -16 LUFS / -1.6 dBTP; voice espeak-ng `en-us+f3` (robotic, offline); about 110 s per render on 2 CPUs; sent to the owner in the Claude session, not published, not in git. Not claimed: photorealism, audience demand, an A/B winner, any owner score.
+  Blocked (photorealism, owner choice): no generative model is reachable at $0 from this environment (huggingface.co answers 403 through the agent proxy, no GPU). Unblock: allow huggingface.co for the Claude cloud environment again (then an open-weights model on CPU, licence checked before use), or send 2–3 synthetic frames of one clothed character from an already paid tool where only the face differs.
+  Next (S2, not started): owner score 1–10 + notes per branch and version in the A/B tester (T-608), «Generate 2 concepts» wiring, re-render only the stage the owner flags, v1/v2 side by side.
+
 ## AI Film Studio (#433)
 
 - [x] T-730 AI Film Studio S1: contracts + rights gate + deterministic shot plan + offline Photo Cinema render + QA receipt
@@ -8,6 +52,16 @@
   DONE: `python test_film_studio.py`; `python -m film_studio.render --out <private dir> --procedural-standins` gives a PASS receipt; default verification.
   Result 2026-11-23: the 45 s film renders at 1920x1080 from original procedural stand-in stills (labelled «DEMO · иллюстрация, не фото»), silent AAC track + burned-in captions. Realistic-photo film and narration are blocked.
   Blocked (owner, not a roadmap task yet): the cloud session's network policy refuses www.pexels.com / images.pexels.com and huggingface.co (HTTP 403 from the agent proxy), so photo licences cannot be read and no offline RU voice can be fetched. To unblock: allow those hosts for the Claude cloud environment, or supply the 7 photos (owned/licensed stills, author + page URL + licence) and a narration recording, or approve a specific offline RU voice after its licence is read. Narration input itself is S2 work (S1 lays a silent track).
+
+- [x] T-735 AI Film Studio S2: narration lines per shot (offline Piper voice or owner recording), loudness-normalised mix, owner photo substitutes a stock shot
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-24: allowed Pexels + Hugging Face for the environment, sent a portrait and a voice sample)
+  Depends: T-730
+  Spec: DECISIONS.md «2026-11-24 — T-735». `film_studio/narration.py` (`film-studio/narration/v1`), `render.py --narration`, manifest `substitutes_for` in `--manifest` mode, QA receipt loudness checks.
+  Goal: one WAV per shot (sha256-pinned, starts 0.25 s after the cut, must end before the shot ends), mixed and normalised to -16 LUFS / -1.5 dBTP; QA measures integrated loudness, true peak and audibility; voice source and licence recorded (Piper model sha256 + dataset licence, or the owner's consent for a recording). An owner-supplied photo can replace a storyboard shot through `substitutes_for`. Owner photos and voice never go into git.
+  DONE: `python test_film_studio.py` (narration contract, placement, refusal cases, owner substitution, e2e render with loudness), default verification.
+  Result 2026-11-24: private 45 s film v2 (1920x1080, 24 fps, 1080 frames) with RU narration by Piper ru_RU-dmitri-medium (dataset CC0) at -15.5 LUFS / -1.4 dBTP and the owner's portrait as the final shot; QA PASS; sent to the owner privately in the Claude session, not published, not in git.
+  Blocked: stock shots s01–s06 are still procedural stand-ins. www.pexels.com answers a Cloudflare bot challenge to the data-centre session (the host is allowed, the page is not served), so a photo's author and licence cannot be read. Unblock: a free Pexels API key from the owner's Pexels account (host api.pexels.com), or the owner sends photos for those shots. Narration in the owner's own voice: the owner records the 7 lines, or approves voice cloning with a named model and licence (private demo only).
 
 - [x] T-720 Surfer action sessions (core): a live browser page that acts — web_open / web_act / web_snapshot / web_close
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -243,7 +297,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Progress 2026-10-31: T-599-E/F done. Umbrella acceptance `test_t599_acceptance.py` (spec §3 A–E, run in CI via test_relay_execution.py) joins claim → events → lane board → Telegram; refused claims are journalled as `claim_rejected`; blocked lanes show their reason in API/web/Telegram. PR/CI and Issue #67 evidence follow the worker push (not claimed by the agent).
   DONE: deterministic tests A–E pass; no open ROADMAP task lacks Owner; a blocked task no longer stalls the queue; an Owner-assigned task without a claim renders as "assigned, not claimed"; CI-gated PRs; evidence posted to Issue #67.
 
-- [ ] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
+- [x] T-590 Claude takeover: restore verifiable Telegram Relay build-process control room
   Owner: claude
   Planner: owner; Executor: Claude Code Pro (primary). P0.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; GitHub Issues #41, #51, #56, #40; PR #43, #42, #60.
@@ -257,30 +311,34 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Re-check (2026-11-01): `autopilot/aws-worker` == `origin/main` == `c2879b9`, so the T-590 slice is merged into main. Deterministic stages are green again (smoke, planner, relay 74, telegram 9, token binding, delegation, autopilot). This run was denied network/`gh`/`curl`, so CI on `c2879b9`, Render `build_sha`, Telegram pairing (HUMAN T-506), the live `/new` trace and the Issue #41 evidence are still unverified.
   Re-check (2026-11-15, run-20261115093856-a5105e): T-506 pairing is done, and the #289 round trip plus Evidence Tiers 1–2.6 are on main. Deterministic stages are green again (smoke, planner, relay 111, telegram 25). This run had no GitHub/Render/network access, so one owner ticket traced end to end (claim → run_id → PR → CI → merge → deployed → Telegram `/task`) with Issue #41 evidence is still unobserved. The task stays open.
   Progress (2026-11-15, P0 tails session): T-506 pairing is done (checked). The live trace is now provable from server facts alone: `relay_acceptance.py` + `/proof R-…` + owner-only `GET /api/relay/{id}/acceptance` judge Telegram intake → one ticket → claim/run_id → running → done → Telegram delivery receipt (the server now records `owner_notified` when the Bot API accepts a worker notice). The remaining live stages are the owner's run in **[HUMAN] T-591-H**; production `/health` answered 502 during this session, so `build_sha` was not compared (T-590-H).
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): the live trace was verified by the server on 2026-11-17 (T-591-H, R-0087 · run-351295eb0d92); code and deterministic tests are on main.
 
-- [ ] T-591 Telegram live owner acceptance & full operator task lifecycle
+- [x] T-591 Telegram live owner acceptance & full operator task lifecycle
   Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
   Spec: docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md; Issue #41 and #51.
   Goal: verify actual owner Telegram chat pairing/webhook and tested /status, /tasks, /task <id>, /history, /roadmap, /github; callbacks for refresh/detail/retry; preserve event history; RU/UK/EN. Only verified ChatGPT actions visible, not fictional live ChatGPT sessions.
   DONE: real test message in paired owner chat -> one ticket -> authenticated Claude claim -> running -> final evidence -> owner reply with exact IDs and GitHub links, redacted transcript and timestamps. If needs owner 2FA, mark HUMAN with exact ask and do not claim done.
   Progress (2026-11-15): code side done and tested (`test_relay_acceptance.py`, run in CI via `test_relay_execution.py`): `/roadmap` is now a real ROADMAP.md view (P0 / HUMAN / next agent tasks; it used to repeat `/tasks`), `/history` is RU/UK/EN, the ticket card has 🔄 Refresh → factual stages + history, `/proof R-…` gives the copyable acceptance transcript (IDs, run_id, UTC times, branch/PR, PR/CI/merge/deploy "not verified" until reconciled). Live part: **[HUMAN] T-591-H**; Owner desk shows its status from the newest Telegram ticket's verdict.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): live acceptance done in T-591-H (server verdict VERIFIED, R-0087).
 
-- [ ] T-591-A Telegram Relay P0 status/queue/stale hotfix (ChatGPT owner, Claude follow-up acceptance)
+- [x] T-591-A Telegram Relay P0 status/queue/stale hotfix (ChatGPT owner, Claude follow-up acceptance)
   Owner: claude. Depends: T-590 (implementation merged in #63; final live acceptance remains T-591).
   Scope: truthful heartbeat vs active task, claimable queue counts, stale-claim handling without auto-rerun, owner retry instructions.
   Test: test_relay_livefix.py and existing Relay suites; CI before merge, then Render and owner live E2E. Never mark T-591 done until actual Telegram task executes.
   Progress (2026-11-15): the hotfix scope is covered by test_relay_livefix.py (in the CI relay suite); a stale or blocked run is never counted by the new acceptance verdict and Retry is the only way back. Closes together with T-591 after **[HUMAN] T-591-H**.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»): closes together with T-591; `test_relay_livefix.py` stays in the CI relay suite.
 
-- [ ] T-592 Fix Build Progress / Worker Center factual status and UI freeze
+- [x] T-592 Fix Build Progress / Worker Center factual status and UI freeze
   Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0. Depends: T-590.
   Spec: Issues #55, #56, #54, #52 and docs/handoff/CLAUDE_TAKEOVER_2026-10-29.md.
   Goal: reconcile 87% vs 49% metric scopes; distinguish EC2/SSM/systemd/subscription auth/heartbeat/claim/task; fix race for .autopilot/status.json, stale/offline, huge overflow; make owner HUMAN blockers actionable.
   DONE: deterministic tests + screenshot evidence showing same task/stage in Telegram and Web; no ghost running/false progress; columns usable mobile+desktop and consistent stale timestamps; non-main PR/CI.
   Progress (2026-11-15): code is on main via T-596 (separate signals, one read model for web and Telegram, `test_worker_observability.py`), T-595 (columns/overflow, `test_drawers.py`) and the 87%/49% denominators (DECISIONS.md). The Telegram ticket card now has 🔄 Refresh with the same factual stages as `/relay`. What is left is evidence only the owner can produce (a screenshot of the real Telegram next to the web view): **[HUMAN] T-592-H**.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»). **Acceptance waived by the owner, not met:** code and tests are on main, but the live Telegram ↔ web comparison in DONE has no evidence. It moved to the optional **[HUMAN] T-592-H** (production owner APIs answer 401 to the cloud session).
 
-- [ ] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
+- [x] T-593 Stabilize Claude execution/CI/automatic safe backlog, then P1 tasks
   Owner: claude
   Planner: owner; Executor: Claude Code Pro. P0/P1. Depends: T-590.
   Spec: handoff diagnosis, Issue #40/#49/#50/#47 and ROADMAP T-560-C onward.
@@ -288,6 +346,7 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: verified no-payg, no direct-main, tests/CI, worktree safe, simulated/offline/blocked regression and actual next safe work after previous verified commit; all open issues prioritized without duplicate executor tasks.
   Progress 2026-10-30: first live claimed runs on EC2 blocked because the agent's Python lived in /tmp/fos-venv (wiped on reboot) and headless `claude -p` denied python3. Delegation now keeps a persistent gitignored `<repo>/.venv` rebuilt only when requirements.txt changes, puts it first on PATH, and pre-allows the CLAUDE.md verification loop (Read/Edit/Write, python, node --check, local git add/commit) while push/deploy stay disallowed.
   Progress (2026-11-15): the deterministic parts are covered on main (T-599 claims/parking, T-598 persisted retries, T-600 usage-limit hold, `autopilot.test_autopilot`, `autopilot.test_delegation`). Not provable from a cloud session: the live EC2 sequence (next safe task after a verified commit) and a day without direct-main pushes or paid spend — **[HUMAN] T-593-H**.
+  Closed 2026-11-23 (owner decision in the #452 session: «можем закрывать Т-590, Т-593»). **Acceptance waived by the owner, not met:** the deterministic parts are on main, but the live EC2 backlog run and the observation period (no direct-main pushes, no paid spend) in DONE have no evidence. They moved to the optional **[HUMAN] T-593-H**.
 
 - [x] [HUMAN] T-591-H Live Telegram acceptance: one test task end to end (closes the live part of T-590 / T-591 / T-591-A)
   Need: owner sends one plain test message in the paired chat, waits for the worker's 🏁 notice, then `/proof R-…`; runbook in Owner desk (RU/EN/UK).
@@ -342,6 +401,14 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: MCP tools for a shared thread and handoffs backed by the existing Relay store: post_message / read_thread (brainstorm between agents, visible to the owner in Worker Center), list_handoffs / claim_handoff / submit_handoff_result (one claim per task, run_id, files_scope), with Claude reviewing results before merge.
   DONE: a live round-trip — Claude posts a handoff, ChatGPT claims it via MCP and submits a PR link, Claude reviews and merges — visible in Worker Center; tests for auth, single claim, replay and secret scrubbing.
   Progress 2026-11-15 (session T-604): the server slice is T-625 below — workspace tools on `/mcp` (`agent_workspace.py`), per-lane auth, single claim through the Relay ROADMAP ticket, replay, secret scrubbing; guide `docs/guides/agent-workspace-mcp.md`. Still open for DONE: owner sets the lane tokens (T-624), then the live round-trip (Claude create_handoff → ChatGPT claim + PR link → Claude review/merge) and a Worker Center panel on `GET /api/factory/agent-workspace` (T-626). Telegram group chat (`/discuss`, `/decision`) stays with the T-590–T-593 Relay/Telegram work.
+
+- [ ] T-736 Agent → Claude worker requests through Relay: request_task, worker ACK/result in the same thread, read_inbox (T-604 slice)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P0 (direct owner assignment 2026-11-24: PR #470 «приоритетная задача», Relay th_46f089b213546fcc)
+  Depends: T-625
+  Spec: PR #470 `docs/handoff/T-604_RELAY_60S_AGENT_ROUNDTRIP_SPEC.md` (ChatGPT); DECISIONS.md «2026-11-24 — T-736»; guide `docs/guides/agent-workspace-mcp.md` «Asking the always-on Claude worker».
+  Goal: any lane asks the always-on Claude worker for one bounded task through the Relay queue it already polls (no new poller, queue or process); the worker's claim (ACK with run_id), progress and result or blocker appear in the same thread from its own events, once each; owner tickets go first; read-only requests never push; `read_inbox` with a cursor for agents that wake up later.
+  DONE: `python test_agent_workspace.py`, `python test_relay_execution.py`, `python test_evidence.py`, default verification, CI-gated PR; live: one `request_task` from ChatGPT's own connector gets the worker's ACK with run_id and the result in the same thread, with the measured request → ACK latency recorded here.
 
 - [x] T-625 Agent workspace MCP tools: threads and handoffs behind per-lane tokens (T-604 server slice)
   Owner: claude (session T-604)

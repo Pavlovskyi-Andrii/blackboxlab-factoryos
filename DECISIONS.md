@@ -2523,3 +2523,93 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Not done here: two agents calling `coordination_check` at the same moment can both get «yes». The check is advisory;
   the exclusive start is the existing atomic Relay claim (`claim_handoff` / `claim_roadmap`, one active claim per scope).
 
+
+## 2026-11-24 — T-731…T-733 UX-first Owner Home and Growth Manager (#452)
+- Ploy was benchmarked from its public documentation only, fetched as Markdown (the interface its docs publish for AI
+  tools). No account, no app screens, no images. Its terms forbid competitive use of the service and automated access
+  to it, so the service itself was never used. Linear and PostHog docs were the two adjacent references.
+- Owner chose direction 2 «Products and goals» (2026-11-24) and asked to keep the current dashboard one click away as
+  «Pro version», remembered per browser. Prototype in the Learning sandbox; no production dashboard change.
+- The Growth Manager reuses the Launchpad, A/B experiments, evidence levels, Discovery agents, Relay claims and the
+  social weekly plan. The only proposed new storage is a Goal list inside the MVP registry record and a first-party
+  MyCast visit counter without cookies or stored IP. Details and backlog: `docs/architecture/internal-growth-manager-rfc.md`.
+- Product cards open the goal summary prefilled (2 clicks to start a goal; the 6-step wizard measured 7).
+- Reversible: the prototype is one HTML file and one Learning catalog entry; the RFC is a proposal.
+## 2026-11-24 — T-735 AI Film Studio S2: narration and owner photo
+- Owner 2026-11-24 allowed Pexels and Hugging Face for the Claude cloud environment (hosts added: www.pexels.com,
+  images.pexels.com, huggingface.co and its download CDNs) and sent a portrait and a 13 s voice sample.
+- Voice: Piper `ru_RU-dmitri-medium` (MODEL_CARD: dataset CC0). `ru_RU-ruslan` (CC BY-NC-SA) and `ru_RU-irina`
+  (licence unknown) are not used. The model is downloaded once into a private directory; synthesis is offline.
+- Narration contract `film-studio/narration/v1`: one sha256-pinned WAV per shot, placed 0.25 s after the cut, refused
+  if it would run into the next shot; mix normalised to -16 LUFS / -1.5 dBTP (FFmpeg loudnorm) and measured again by QA.
+- An owner photo replaces a stock shot through the existing manifest field `substitutes_for` (now also in `--manifest`
+  mode). It is placed on a dark 16:9 canvas with a feathered edge for the titles; the face is not retouched.
+- The owner's photo and voice are personal data: they stay in the private render directory, never in git, never
+  published; the film went to the owner only (Claude session file).
+- Pexels: images download from images.pexels.com, but the photo and licence pages answer a Cloudflare bot challenge
+  to this data-centre session, so the author cannot be read and the shot is not marked verified. The rights gate is
+  unchanged. Next: the Pexels API with the owner's free key, or owner photos.
+- The voice sample was transcribed offline with faster-whisper `small` (CPU) only to read the owner's instruction;
+  it is not used to clone the voice. Cloning needs a separate owner choice of model and licence.
+
+
+## 2026-11-24 — T-736 Agent → Claude worker requests through Relay (PR #470 spec, owner P0)
+
+- **Decision:** deliver ChatGPT → Claude work through the Relay ticket queue the EC2 Claude worker already polls,
+  not through a new poller, event stream or process. `request_task` (MCP, per-lane token) writes the request message
+  and a queued Relay ticket (`source.channel = agent_workspace`, owner claude) in one atomic save.
+  **Reason:** the worker already claims Relay tickets atomically (fresh run_id), runs Claude CLI in its own worktree
+  from fresh `main`, reports every stage with deduplicated event ids and opens a PR without merging. Reusing it adds
+  zero requests to the idle loop. Push to the EC2 worker would need an inbound port or a long-lived connection (SSE /
+  long-poll) on a single-process Render app; that is more moving parts to save about one idle interval
+  (`AUTOPILOT_IDLE_SECONDS`, 60 s by default) on tasks that run for minutes. If measured pickup latency is a problem,
+  the next step is a long-poll on the same `/api/relay/worker/claim`, still without new infrastructure.
+- **Decision:** the server mirrors each real worker transition of such a ticket into the thread the request came from
+  (claim = ACK with run_id, running, committed, pushed, result → `review`, blocked / failed, stale release), once per
+  event id, `from: claude` with `actor_auth_subject: relay-worker:<worker id>` and `reply_to` the request.
+  **Reason:** the worker has no MCP lane token and does not need one; the events are already authenticated with the
+  Claude worker credential, so the thread shows facts the worker reported, written in the same save as the event.
+  Heartbeats are not mirrored. Owner tickets are never mirrored.
+- **Decision:** the owner's own tickets are claimed before agent requests (coordination rules §5, rule 1); within a
+  group, first queued first served. At most 3 open requests per requesting lane; `FACTORY_AGENT_TASK_REQUESTS=0` is the
+  owner's kill switch.
+- **Decision:** `mode` read_only (default) or code. A read-only request gets the new evidence rule `answer`
+  (required level `claimed`): the text posted into the thread is the whole deliverable, so the worker's report closes
+  the ticket and the asking agent or the owner judges it there. The worker refuses to push a read-only run that made a
+  commit (`blocked`), and refuses read-only requests in the legacy shared-branch mode. Code requests keep the `code`
+  rule (merged PR + CI on that commit).
+- **Decision:** the request text reaches Claude CLI framed as data from another agent, not as an owner order, with the
+  existing limits (no payment, publishing, secrets, merge or deploy).
+- **Decision:** worker events of agent requests reach the owner's Telegram only when they are `blocked` or `failed`;
+  `running`, `committed`, `pushed` and `done` stay in the thread and Worker Center.
+  **Reason:** owner preference — ping him only when he is actually needed; agent-to-agent traffic must not become
+  Telegram noise. His own tickets keep every notice.
+- **Decision:** `read_inbox` gives each lane what other lanes wrote after a cursor, in threads it started or posted in.
+  **Reason:** ChatGPT is not an always-on process; when its session or a scheduled run wakes up, one cheap call shows
+  Claude's ACKs and results. Whether ChatGPT can run on a schedule with this connector is not verified here.
+- Not done here: a live run needs this PR merged, Render deployed, and one `request_task` call from ChatGPT's own
+  connector; the first measured ACK latency is recorded in ROADMAP T-736 after that run.
+
+## 2026-11-24 — T-737 Faceless Creator A/B S1: procedural 2.5D face switch (#469)
+
+- **Decision:** the first #469 clip is strategy 1 of the issue (2.5D from original keyframes), drawn procedurally in
+  `film_studio/face_switch.py`: one clothed fictional presenter, a constant body / hoodie / room layer, and three
+  fictional face sprites (hair colour and fringe, eyes, brows, nose, lips, face shape) swapped on a "snap" (punch-in,
+  white flash, short glitch, sparkles, snap sound).
+  **Reason:** at $0 in this environment it is the only path that can be finished and verified now: no generative
+  model is reachable (huggingface.co is refused by the agent proxy, no GPU), and the issue rules out paid generation.
+  Continuity of body, wardrobe and room holds by construction because only the face sprite changes.
+- **Decision:** the QA receipt measures the switch on the decoded MP4: for each snap, a frame 0.30 s before and
+  0.75 s after (after the flash, glitch, punch-in and sparkles), the mean absolute change inside the face area and in
+  three still areas (hoodie, room left, room right). Pass: face ≥ 18, still ≤ 8, ratio ≥ 3. Overlays are placed
+  outside those areas; the camera push is continuous over the whole clip so the room does not jump at a snap.
+  **Reason:** "the face visibly changed, the rest did not" becomes a number from the delivered file, not a claim.
+- **Decision:** voice = local espeak-ng (`en-us+f3`) when installed, else captions only with the receipt saying so;
+  the mouth follows the voice loudness. Music bed and snap sound are synthesised in the module. Loudness -16 LUFS with
+  true peak ≤ -1 dBTP (loudnorm targets -2 dBTP because AAC adds about 0.5 dB).
+  **Reason:** offline and $0; the robotic voice is a known quality limit, stated to the owner, not hidden.
+- **Decision:** the clip is labelled «AI · SYNTHETIC DEMO» on every frame (the receipt checks the label pixels in
+  three frames) and ends with an 18+ / no-guarantee-of-anonymity-or-earnings line; the scripts contain no promise of
+  anonymity or income (a test enforces the word list). Output is refused inside the repository (except `data/`).
+- Not decided here: photorealistic presenters (owner choice: allow huggingface.co again for the Claude environment, or
+  supply synthetic frames), and S2 (owner score 1–10, notes, versions, one-click wiring).
