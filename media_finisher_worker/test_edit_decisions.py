@@ -111,12 +111,14 @@ caps = [{"start": 0.0, "end": 0.9, "text": "we can start", "words": ["we", "can"
 for engine in ("remotion", "ffmpeg_fast"):
     short = qa_checks.safe_zone_violations(caps[:1], ZONES, 1080, 1920, engine)
     assert short["method"] == "estimated_caption_bbox_v1" and short["violations"] == [] and short["checked"] == 1, (engine, short)
-# Remotion wraps a long group inside the plate; the one-line ASS style runs into the side zones and is reported.
-assert qa_checks.safe_zone_violations(caps, ZONES, 1080, 1920, "remotion")["violations"] == []
-wide = qa_checks.safe_zone_violations(caps, ZONES, 1080, 1920, "ffmpeg_fast")["violations"]
-assert {x["edge"] for x in wide} == {"left", "right"} and all(x["caption_index"] == 1 for x in wide)
-giant = qa_checks.safe_zone_violations([{"text": "x" * 40}], ZONES, 1080, 1920, "remotion")["violations"]
-assert [x["edge"] for x in giant] == ["word_overflow"]
+# Both engines wrap a long group between words (the ASS style used to be one line and ran into the side zones:
+# seen on a rendered frame on 2026-11-20, fixed with WrapStyle 0). A single word wider than the plate still overflows.
+for engine in ("remotion", "ffmpeg_fast"):
+    assert qa_checks.safe_zone_violations(caps, ZONES, 1080, 1920, engine)["violations"] == [], engine
+    giant = qa_checks.safe_zone_violations([{"text": "x" * 40}], ZONES, 1080, 1920, engine)["violations"]
+    assert "word_overflow" in [x["edge"] for x in giant], (engine, giant)
+box = qa_checks._caption_box("как искусственный интеллект", ZONES, 540, 960, "ffmpeg_fast")
+assert box["x1"] <= 540 * (1 - 0.12) and box["y1"] <= 960 * (1 - 0.20) and box["y1"] - box["y0"] > 2 * 33   # two rows, in the zones
 assert qa_checks.safe_zone_violations(caps, ZONES, 1080, 1920, "ffmpeg_captions_only")["method"] == "not_estimated_for_engine"
 # Both renderers keep captions out of the zones the profile gives them, including a wider right zone.
 layout = qa_checks.ass_layout(1080, 1920, ZONES)
@@ -139,4 +141,61 @@ assert qa_checks.qa_report([{"id": "a", "status": "pass"}, {"id": "b", "status":
 assert qa_checks.qa_report([{"id": "a", "status": "warn"}, {"id": "b", "status": "not_run"}])["overall"] == "needs_review"
 report = qa_checks.qa_report([{"id": "a", "status": "warn"}, {"id": "b", "status": "fail"}])
 assert report["overall"] == "fail" and report["human_review_required"] is True and "face/object occlusion" in report["not_checked"]
+# --- #427 follow-up: a repeat or filler cut follows the sound, not only the ASR word times -------------------------
+# From the real run of 2026-11-20: the repeated phrase was reported as ending at 29.44 s while speech ran to 29.83 s;
+# the cut ended at 29.44 and 0.39 s of the removed word stayed in the video.
+said = [w("громкость", 23.72, 24.36), w("голоса", 24.40, 24.88), w("выравнивается", 25.00, 25.76), w("автоматически", 25.96, 26.68),
+        w("выравнивается", 27.76, 28.56), w("автоматически", 28.76, 29.44), w("конце", 31.04, 32.04), w("получается", 32.16, 32.72)]
+quiet = [{"start": 27.04, "end": 27.656}, {"start": 29.829, "end": 31.01}]
+profile = {"speech_cleanup": {"pause_threshold_sec": 0.4, "pre_handle_sec": 0.1, "post_handle_sec": 0.15}}
+plan = edl.plan_edits(quiet, said, 36.0, profile)
+repeat = by_kind(plan, "duplicate")[0]
+assert repeat["applied"] and repeat["source_end"] >= 29.829 and repeat["source_start"] <= 27.66, repeat
+assert any(n.startswith("end_moved_to_silence_edge") for n in repeat["notes"])
+audit = edl.audit_cuts(said, plan["cuts"], plan["decisions"])
+assert audit["ok"] and audit["wordless_slivers"] == [], audit["wordless_slivers"]
+assert not any(29.44 < c["start"] < 29.83 or 29.44 < c["end"] < 29.82 for c in plan["cuts"])   # no edge inside the leftover speech
+# One cut now covers the pause, the repeat and the pause after it.
+assert any(c["start"] <= 27.2 and c["end"] >= 30.8 for c in plan["cuts"]), plan["cuts"]
+
+# The edge never crosses a neighbouring kept word, and never moves when no silence is near.
+tight = [w("one", 0.0, 0.4), w("two", 0.5, 0.9), w("one", 1.0, 1.4), w("two", 1.5, 1.9), w("three", 2.05, 2.5)]
+plan = edl.plan_edits([{"start": 1.95, "end": 2.6}], tight, 3.0, {"speech_cleanup": {"silence_trim": False}})
+repeat = by_kind(plan, "duplicate")[0]
+assert repeat["source_end"] <= 2.05 - edl.WORD_GUARD_SEC + 1e-6 and repeat["source_start"] == 1.0, repeat
+assert edl.audit_cuts(tight, plan["cuts"], plan["decisions"])["ok"]
+plan = edl.plan_edits([{"start": 5.0, "end": 6.0}], tight, 7.0, {"speech_cleanup": {"silence_trim": False}})
+assert by_kind(plan, "duplicate")[0]["source_end"] == 1.9 and by_kind(plan, "duplicate")[0]["notes"] == []
+
+# The audit names what the transcript cannot prove: a wordless sliver between two cuts, and a long pause that stayed.
+talk = [w("alpha", 0.0, 0.5), w("beta", 3.0, 3.5)]
+audit = edl.audit_cuts(talk, [{"start": 0.6, "end": 1.2}, {"start": 1.55, "end": 2.9}], [])
+assert audit["ok"] and audit["wordless_slivers"] == [{"source_start": 1.2, "source_end": 1.55, "seconds": 0.35}]
+audit = edl.audit_cuts(talk + [w("gamma", 1.25, 1.5)], [{"start": 0.6, "end": 1.2}, {"start": 1.55, "end": 2.9}], [])
+assert audit["wordless_slivers"] == []                                                # a kept word lives there
+audit = edl.audit_cuts(talk, [{"start": 0.6, "end": 1.0}, {"start": 2.0, "end": 2.9}], [])
+assert audit["wordless_slivers"] == []                                                # a second of footage is not a sliver
+kept_pause = {"id": "d001", "kind": "silence", "applied": False, "source_start": 6.07, "source_end": 7.61, "pause_sec": 1.55,
+              "kept_reason": "word_protected", "removed_words": []}
+short_pause = dict(kept_pause, id="d002", pause_sec=0.5)
+audit = edl.audit_cuts(talk, [], [kept_pause, short_pause, dict(kept_pause, id="d003", applied=True)])
+assert [p["id"] for p in audit["long_pauses_kept"]] == ["d001"] and audit["long_pauses_kept"][0]["kept_reason"] == "word_protected"
+
+# Loudness is read from FFmpeg's EBU R128 summary of the final file.
+summary = """[Parsed_ebur128_0 @ 0x1] t: 26.9  M: -15.1 S: -15.0  I: -15.2 LUFS  LRA: 4.1 LU
+[Parsed_ebur128_0 @ 0x1] Summary:
+
+  Integrated loudness:
+    I:         -15.6 LUFS
+    Threshold: -26.0 LUFS
+
+  Loudness range:
+    LRA:         4.3 LU
+
+  True peak:
+    Peak:       -1.3 dBFS
+"""
+assert qa_checks.parse_ebur128(summary) == (-15.6, -1.3)                              # the summary, not a running value
+assert qa_checks.parse_ebur128("") == (None, None) and qa_checks.parse_ebur128("no audio stream") == (None, None)
+assert qa_checks.parse_ebur128("Summary:\n  I: -70.0 LUFS\n  Peak: -inf dBFS")[0] is None   # silence is "not measured"
 print("Media Finisher edit-decision and QA tests passed")
