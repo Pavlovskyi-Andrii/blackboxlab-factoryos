@@ -41,6 +41,7 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Result 2026-11-24: A 28.7 s (860 frames) and B 26.4 s (793 frames), both PASS; face area change 29.5–31.8 vs body/room ≤ 2.3 (ratio 13–32); -16 LUFS / -1.6 dBTP; voice espeak-ng `en-us+f3` (robotic, offline); about 110 s per render on 2 CPUs; sent to the owner in the Claude session, not published, not in git. Not claimed: photorealism, audience demand, an A/B winner, any owner score.
   Blocked (photorealism, owner choice): no generative model is reachable at $0 from this environment (huggingface.co answers 403 through the agent proxy, no GPU). Unblock: allow huggingface.co for the Claude cloud environment again (then an open-weights model on CPU, licence checked before use), or send 2–3 synthetic frames of one clothed character from an already paid tool where only the face differs.
   Next (S2, not started): owner score 1–10 + notes per branch and version in the A/B tester (T-608), «Generate 2 concepts» wiring, re-render only the stage the owner flags, v1/v2 side by side.
+  Owner review 2026-11-24 (23:12 Kyiv): A and B scored 0/10 — the drawn style and the espeak voice are rejected; FactoryOS needs photorealism. Owner's direction: prompt → candidate photos from 4–5 image models → pick one → image-to-video (Seedance 2.5 named as a likely option). That is a paid path: nothing is generated until the owner approves a provider, an API key and a spend limit. The procedural renderer stays only as the offline assembler / QA for real clips.
 
 ## AI Film Studio (#433)
 
@@ -402,13 +403,15 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   DONE: a live round-trip — Claude posts a handoff, ChatGPT claims it via MCP and submits a PR link, Claude reviews and merges — visible in Worker Center; tests for auth, single claim, replay and secret scrubbing.
   Progress 2026-11-15 (session T-604): the server slice is T-625 below — workspace tools on `/mcp` (`agent_workspace.py`), per-lane auth, single claim through the Relay ROADMAP ticket, replay, secret scrubbing; guide `docs/guides/agent-workspace-mcp.md`. Still open for DONE: owner sets the lane tokens (T-624), then the live round-trip (Claude create_handoff → ChatGPT claim + PR link → Claude review/merge) and a Worker Center panel on `GET /api/factory/agent-workspace` (T-626). Telegram group chat (`/discuss`, `/decision`) stays with the T-590–T-593 Relay/Telegram work.
 
-- [ ] T-736 Agent → Claude worker requests through Relay: request_task, worker ACK/result in the same thread, read_inbox (T-604 slice)
+- [x] T-736 Agent → Claude worker requests through Relay: request_task, worker ACK/result in the same thread, read_inbox (T-604 slice)
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P0 (direct owner assignment 2026-11-24: PR #470 «приоритетная задача», Relay th_46f089b213546fcc)
   Depends: T-625
   Spec: PR #470 `docs/handoff/T-604_RELAY_60S_AGENT_ROUNDTRIP_SPEC.md` (ChatGPT); DECISIONS.md «2026-11-24 — T-736»; guide `docs/guides/agent-workspace-mcp.md` «Asking the always-on Claude worker».
   Goal: any lane asks the always-on Claude worker for one bounded task through the Relay queue it already polls (no new poller, queue or process); the worker's claim (ACK with run_id), progress and result or blocker appear in the same thread from its own events, once each; owner tickets go first; read-only requests never push; `read_inbox` with a cursor for agents that wake up later.
   DONE: `python test_agent_workspace.py`, `python test_relay_execution.py`, `python test_evidence.py`, default verification, CI-gated PR; live: one `request_task` from ChatGPT's own connector gets the worker's ACK with run_id and the result in the same thread, with the measured request → ACK latency recorded here.
+  Done 2026-11-24: PR #471 (merge 5797f1d, CI green, Render deployed 19:20 UTC). Live run, Relay th_46f089b213546fcc: ChatGPT `request_task` 21:04:13 UTC (msg_90507b729fdfc3cf, ticket R-0100, read_only) → ACK from relay-worker claude-ip-172-31-5-222 (EC2) 21:04:26 with run-a215b173eef2 (12.8 s) → running 21:04:27 on relay/r-0100-b173eef2 → result 21:04:38 (24.8 s in total): «37» open tasks read from main 5797f1d, no change, no commit; independently recounted: 37. One sample with an idle worker.
+  Still open under T-604 acceptance (not this task): ≥ 5 timed runs for a p95, latency while the worker is busy, a restart/redeploy run, and ChatGPT waking up on its own (today it acts only when a ChatGPT session is opened).
 
 - [x] T-625 Agent workspace MCP tools: threads and handoffs behind per-lane tokens (T-604 server slice)
   Owner: claude (session T-604)
