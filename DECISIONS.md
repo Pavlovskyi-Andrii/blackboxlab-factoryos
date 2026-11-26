@@ -2592,3 +2592,199 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - The voice sample was transcribed offline with faster-whisper `small` (CPU) only to read the owner's instruction;
   it is not used to clone the voice. Cloning needs a separate owner choice of model and licence.
 
+
+## 2026-11-24 — T-736 Agent → Claude worker requests through Relay (PR #470 spec, owner P0)
+
+- **Decision:** deliver ChatGPT → Claude work through the Relay ticket queue the EC2 Claude worker already polls,
+  not through a new poller, event stream or process. `request_task` (MCP, per-lane token) writes the request message
+  and a queued Relay ticket (`source.channel = agent_workspace`, owner claude) in one atomic save.
+  **Reason:** the worker already claims Relay tickets atomically (fresh run_id), runs Claude CLI in its own worktree
+  from fresh `main`, reports every stage with deduplicated event ids and opens a PR without merging. Reusing it adds
+  zero requests to the idle loop. Push to the EC2 worker would need an inbound port or a long-lived connection (SSE /
+  long-poll) on a single-process Render app; that is more moving parts to save about one idle interval
+  (`AUTOPILOT_IDLE_SECONDS`, 60 s by default) on tasks that run for minutes. If measured pickup latency is a problem,
+  the next step is a long-poll on the same `/api/relay/worker/claim`, still without new infrastructure.
+- **Decision:** the server mirrors each real worker transition of such a ticket into the thread the request came from
+  (claim = ACK with run_id, running, committed, pushed, result → `review`, blocked / failed, stale release), once per
+  event id, `from: claude` with `actor_auth_subject: relay-worker:<worker id>` and `reply_to` the request.
+  **Reason:** the worker has no MCP lane token and does not need one; the events are already authenticated with the
+  Claude worker credential, so the thread shows facts the worker reported, written in the same save as the event.
+  Heartbeats are not mirrored. Owner tickets are never mirrored.
+- **Decision:** the owner's own tickets are claimed before agent requests (coordination rules §5, rule 1); within a
+  group, first queued first served. At most 3 open requests per requesting lane; `FACTORY_AGENT_TASK_REQUESTS=0` is the
+  owner's kill switch.
+- **Decision:** `mode` read_only (default) or code. A read-only request gets the new evidence rule `answer`
+  (required level `claimed`): the text posted into the thread is the whole deliverable, so the worker's report closes
+  the ticket and the asking agent or the owner judges it there. The worker refuses to push a read-only run that made a
+  commit (`blocked`), and refuses read-only requests in the legacy shared-branch mode. Code requests keep the `code`
+  rule (merged PR + CI on that commit).
+- **Decision:** the request text reaches Claude CLI framed as data from another agent, not as an owner order, with the
+  existing limits (no payment, publishing, secrets, merge or deploy).
+- **Decision:** worker events of agent requests reach the owner's Telegram only when they are `blocked` or `failed`;
+  `running`, `committed`, `pushed` and `done` stay in the thread and Worker Center.
+  **Reason:** owner preference — ping him only when he is actually needed; agent-to-agent traffic must not become
+  Telegram noise. His own tickets keep every notice.
+- **Decision:** `read_inbox` gives each lane what other lanes wrote after a cursor, in threads it started or posted in.
+  **Reason:** ChatGPT is not an always-on process; when its session or a scheduled run wakes up, one cheap call shows
+  Claude's ACKs and results. Whether ChatGPT can run on a schedule with this connector is not verified here.
+- Not done here: a live run needs this PR merged, Render deployed, and one `request_task` call from ChatGPT's own
+  connector; the first measured ACK latency is recorded in ROADMAP T-736 after that run.
+
+## 2026-11-24 — T-737 Faceless Creator A/B S1: procedural 2.5D face switch (#469)
+
+- **Decision:** the first #469 clip is strategy 1 of the issue (2.5D from original keyframes), drawn procedurally in
+  `film_studio/face_switch.py`: one clothed fictional presenter, a constant body / hoodie / room layer, and three
+  fictional face sprites (hair colour and fringe, eyes, brows, nose, lips, face shape) swapped on a "snap" (punch-in,
+  white flash, short glitch, sparkles, snap sound).
+  **Reason:** at $0 in this environment it is the only path that can be finished and verified now: no generative
+  model is reachable (huggingface.co is refused by the agent proxy, no GPU), and the issue rules out paid generation.
+  Continuity of body, wardrobe and room holds by construction because only the face sprite changes.
+- **Decision:** the QA receipt measures the switch on the decoded MP4: for each snap, a frame 0.30 s before and
+  0.75 s after (after the flash, glitch, punch-in and sparkles), the mean absolute change inside the face area and in
+  three still areas (hoodie, room left, room right). Pass: face ≥ 18, still ≤ 8, ratio ≥ 3. Overlays are placed
+  outside those areas; the camera push is continuous over the whole clip so the room does not jump at a snap.
+  **Reason:** "the face visibly changed, the rest did not" becomes a number from the delivered file, not a claim.
+- **Decision:** voice = local espeak-ng (`en-us+f3`) when installed, else captions only with the receipt saying so;
+  the mouth follows the voice loudness. Music bed and snap sound are synthesised in the module. Loudness -16 LUFS with
+  true peak ≤ -1 dBTP (loudnorm targets -2 dBTP because AAC adds about 0.5 dB).
+  **Reason:** offline and $0; the robotic voice is a known quality limit, stated to the owner, not hidden.
+- **Decision:** the clip is labelled «AI · SYNTHETIC DEMO» on every frame (the receipt checks the label pixels in
+  three frames) and ends with an 18+ / no-guarantee-of-anonymity-or-earnings line; the scripts contain no promise of
+  anonymity or income (a test enforces the word list). Output is refused inside the repository (except `data/`).
+- Not decided here: photorealistic presenters (owner choice: allow huggingface.co again for the Claude environment, or
+  supply synthetic frames), and S2 (owner score 1–10, notes, versions, one-click wiring).
+
+## 2026-11-25 — T-738 Claude worker offline alert
+
+- **Decision:** the FactoryOS server (Render) watches the worker heartbeat it already stores
+  (`claude_worker_runtime["last_seen"]`) and sends the paired owner chat one Telegram message after 15 minutes of
+  silence, and one more when a newer heartbeat arrives.
+  **Reason:** on 2026-11-24 the EC2 worker went silent at 22:05 UTC for about 17 hours; nothing alerted, and the owner
+  learned it from a missing morning MyCast episode. A server-side check covers every cause (instance stopped,
+  supervisor block, crash, network); a check on the host dies together with the host.
+- **Decision:** threshold `FACTORY_WORKER_OFFLINE_ALERT_SECONDS` (default 900, bounded 5 min–6 h); no alert for a
+  worker the server has never seen and none in the first 2 minutes after a server start; the state lives in
+  `DATA_DIR/worker_offline_alert.json`, so a deploy neither repeats nor loses an alert; a failed send keeps the state
+  and is retried on the next minute. Kill switch `FACTORY_WORKER_OFFLINE_ALERT_ENABLED=0`.
+  **Reason:** the worker beats about every 20 s and the supervisor watchdog restarts a stuck loop after 15 minutes;
+  one message per silence avoids spam.
+- **Decision:** 23:00–08:00 Kyiv the message goes out without sound (`disable_notification`). The text gives the last
+  heartbeat in Kyiv time, what stops (MyCast, Relay tasks) and the first check
+  (`sudo cat /var/lib/factoryos/supervisor-status.json`); the supervisor status is added only when the last heartbeat
+  already carried a non-running status.
+  **Reason:** a night outage is not an emergency, but the owner should see it with the morning messages instead of
+  discovering it from a missing episode.
+- Not decided here: alerts for the Surfer and Gemini lanes; the root cause of the 2026-11-24 silence (needs
+  `uptime -s` and the worker journal for 22:00–22:10 UTC from the owner).
+
+## 2026-11-25 — T-740 Ops relay (owner: «нужно сделать так, чтобы у тебя был доступ к этому инстансу… придумай способ»)
+
+- Number: the brief said "T-729", but T-729 is the Coordination guard on main and T-739 is PR #476; next free is T-740.
+- Pull, not push: nothing on EC2 listens and no new credential exists. The root ops agent (a 30 s systemd timer, like
+  the T-562 supervisor) polls `/api/ops/worker/claim` with `FACTORY_CLAUDE_WORKER_TOKEN` from the env file the
+  workers already use. Rejected: SSH keys / AWS keys for agents (owner forbids; proxy cannot sign SigV4), SSM Run
+  Command (needs AWS credentials), adding ops to the Claude worker loop (it is the thing that hangs, and it runs as
+  ec2-user, which cannot restart units).
+- A separate unit, not the supervisor: the supervisor runs every 60 s and owns subscription recovery; a hung
+  `journalctl` or `git fetch` must not delay it. Both are oneshot root services from the same checkout.
+- One catalog (`ops_catalog.py`, stdlib only, Python 3.9) is used by both sides: the server validates on request,
+  the executor validates again before running and reports `refused` for anything else without running it. The only
+  inputs are an op enum, a unit enum and two bounded integers; every command is an argv list (`shell=False`, minimal
+  environment without tokens). git runs as ec2-user via `runuser` (the checkout belongs to ec2-user; root git would
+  leave root-owned files and trips `safe.directory`).
+- `restart` = `reset-failed` + `restart --no-block` + state after 8 s: `--no-block` because the Surfer unit's stop can
+  take up to 180 s (TimeoutStopSec), longer than the 60 s op budget; `reset-failed` clears `start-limit-hit`.
+- `sync_checkout` = fetch + `merge --ff-only @{u}` on the branch the checkout already tracks; refuses with no upstream;
+  never push, never force, never switches branch. Classed `install` with `install_surfer_unit`, off by default; the
+  owner adds `install` to `FACTORY_OPS_RELAY_CLASSES` to allow them.
+- Limits are rolling 24 h (30 requests, 6 restarts per unit) plus at most 5 open requests. A queued request expires
+  after 10 min (agent not installed / offline) and a claim without a result fails after 3 min; nothing is retried
+  automatically, so a restart never runs twice by itself. The same `idempotency_key` returns the same request.
+- Redaction twice: on the host (every value in the env file literally, then credential shapes: Authorization/Cookie
+  headers, `*TOKEN*/*SECRET*/*PASSWORD*/*KEY*=` lines, GitHub/Telegram/Anthropic/AWS/Google/Slack/JWT shapes, URL
+  credentials, private keys) and again on the server (plus every FactoryOS token it knows). Output capped at 32 KB,
+  keeping the tail (newest journal lines).
+- Telegram: restart / install requests notify the owner when queued and when they end (done / failed / expired),
+  through the T-738 owner-chat sender. Read ops do not notify. Notifications sit in an outbox in the store and are sent
+  after the request handler returns, so a slow Telegram call never blocks a claim.
+- The root agent runs a root-owned copy in `/usr/local/lib/factoryos-ops` made by the install script, not the
+  ec2-user checkout: the Claude worker's git operations rewrite that tree while it runs (parent session, 2026-11-25),
+  and a root process should not execute files the worker user can change. Cost: an agent update needs the install
+  script again (the T-740-H command is idempotent).
+- Codex review on #478 (fixed): (1) root never executes a checkout file through the relay — `install_surfer_unit`
+  re-applies the root-owned copy of the Surfer unit and its installer in `/usr/local/lib/factoryos-ops` (copied by the
+  owner-run install), so a new unit version from main needs the owner's install command again; the installer itself
+  is still run by the owner from the checkout, exactly like the existing T-714-H step, and the pre-existing root
+  supervisor (T-562) still runs from the checkout — out of scope here, noted for a follow-up. (2) the agent never
+  follows a redirect (a 302 would carry the worker token elsewhere) and accepts only `https://host` or plain http to
+  exactly 127.0.0.1 / localhost (parsed, no userinfo). (3) a read op with a nonzero step reports it (`error` lists
+  `step=code`, `exit_code` = first nonzero); every step nonzero → `failed`. (4) subprocess output goes to a temp file
+  and only the last 32 KB is read back, so a huge journal never sits in memory.
+- One owner command: `install_ops_agent.sh` also runs `install_surfer_worker.sh` (idempotent) so the T-728 Surfer
+  unit limits (#477) are applied at the same time; a Surfer failure is reported but does not undo the ops agent.
+- Restart-loop detection inside the Surfer worker stays with T-728 (PR #477, `autopilot/browser_worker.py`); this task
+  does not touch that file.
+## 2026-11-25 — T-728 Surfer queue cannot stall silently
+
+- **Decision:** the server sweeps the read-task queue on every claim, task read and health read: a `running` task whose
+  lease expired goes back to `queued` in its place until it was handed out `MAX_ATTEMPTS` (2) times, then fails with
+  blocker `lease_expired`; a `queued` task nobody claimed for 30 minutes fails with `queue_timeout` and the worker
+  verdict at that moment. `LEASE_SECONDS` drops 600 → 300 (a read task is bounded at ~90 s plus the report).
+  **Reason:** before, an expired lease was simply handed out again for ever (a page that kills the worker would be
+  retried on every restart), and with no worker queued tasks waited without limit and filled the 20-task cap. Failing
+  with an honest code lets the agent move on to another source.
+- **Decision:** the worker treats a non-200 claim answer (401 token, 5xx) as an error (`claim_http_<code>`), backs off and
+  reports it in the heartbeat as `last_error`; before, it returned "idle" and beat "idle" for ever while the queue never
+  moved. While an action session holds a live Chromium, the worker skips the extra launch probe (the live browser
+  proves Chromium works) and reads borrow that browser; before, a failed second launch under the unit's 1.2 GB cap
+  parked the worker in "unavailable": no read claims and no action pumping.
+- **Decision:** queue health is agent-readable without owner access: `GET /api/factory/browser/agent/queue` (browser-agent
+  token) and a `queue` block with hints on every queued `web_task` / `web_read` answer (MCP and agent REST). Verdicts:
+  `worker_offline` (no heartbeat for 3+ min or stopped), `worker_unavailable` (Chromium cannot start),
+  `worker_cannot_claim` (claims refused), `worker_not_claiming` (beats but has not asked for a task for 2+ min while the
+  oldest queued task waits 2+ min), `queue_blocked` (asks but the queue does not move), `ok`. The server records the
+  last claim request and the last task handed out in `DATA_DIR/surfer_claims.json`; Worker Center's Surfer lane carries
+  the same `queue_health`.
+  **Reason:** in the 2026-11-25 incident the parent session could not tell a dead worker from a blocked queue.
+  Follow-up (prod 21:19 UTC): with the Surfer unit stopped, claims kept arriving every few seconds from the Claude
+  worker's in-loop fallback, which sends no Surfer heartbeat; the verdict is `fallback_serving` (reads served, maybe
+  slower; actions wait) when the last claim request is at most 2 min old, `worker_offline` otherwise.
+- **Root cause (2026-11-25, reproduced with real Playwright 1.x in the build session):** `_launch_probe` opens
+  `with sync_playwright()` in the worker's main thread; while the action runner holds its own started Playwright
+  (a live page, or one being opened), that raises "It looks like you are using Playwright Sync API inside the asyncio
+  loop". The probe result is cached for 10 min, so the first re-probe during an action session turned the worker
+  "unavailable"; `pass_once` then returned before `actions.pump()`, so the action session was never closed on its
+  lifetime either (the close check lives in `pump`). Deadlock: no read claims, no action pumping, while the loop kept
+  beating "unavailable" with a fresh deadline — the self-watchdog (#460) and the root watchdog both saw a healthy
+  loop. The owner's manual restart (≈20:58 UTC) dropped the Playwright and both queued reads finished at once.
+  **Decision:** no probe while the runner holds Playwright (`ActionRunner.holds_playwright()`) or lends a live
+  browser; the "unavailable" path still pumps action sessions; and, independent of any cause, 10 min of continuous
+  "unavailable" with a configured token exits 75 so systemd starts a fresh process (its cgroup kill also removes any
+  leftover Chromium). At one exit per 10 min the unit stays under its StartLimitBurst (5 per 600 s); a host without
+  Chromium restarts quietly every 10 min instead of beating "unavailable" for ever. An external systemd `WatchdogSec`
+  was not added: it would be satisfied by the same beats that hid this stall.
+- **Second cause (owner's EC2 journal, 20:55–20:58 UTC):** a restart loop. Every start logged "runner code changed on
+  disk" 6–17 s later, exit 0, restart after 10 s, until systemd's `start-limit-hit` (5 starts per 600 s). The detector
+  compared (mtime, size) of the runner files, and something in the shared checkout rewrote them with the same bytes.
+  **Decision:** the fingerprint is a sha256 of the file *contents* (tracked `.py` only, never `__pycache__`), checked
+  at most once a minute, not before 5 min of uptime, and a new hash must be seen on two checks in a row (a branch
+  flip that goes back is no change). The unit allows 20 starts per 15 min with `RestartSec=15s`. The unit file
+  change takes effect only after the owner reruns `sudo bash /opt/factoryos/deploy/install_surfer_worker.sh`; the
+  detector fix alone already stops the loop.
+- Checked and not changed: server-side read claims do not depend on action sessions (`surfer_actions` has its own
+  claim route), so an idle or `waiting_human` action session never blocks the read queue on the server.
+
+## 2026-11-26 — T-741 Relay Claude runs may use the FactoryOS Surfer MCP tools (R-0108)
+
+- **Root cause:** both Relay launch paths (`execute`, `execute_isolated` in `autopilot/relay_tasks.py`) passed only
+  `--disallowedTools`. Headless Claude loads MCP tools on demand through `ToolSearch` and the connector names them
+  `mcp__claude_ai_FactoryOS__*`; nothing pre-allowed them, so "don't ask" mode denied every call (R-0107; reproduced
+  again inside R-0108: ToolSearch loaded `web_read`, the call itself was denied).
+- **Decision:** both paths add `--allowedTools ToolSearch` + `web_search`, `web_read`, `web_task`, `surfer_pending`
+  under both prefixes (`mcp__claude_ai_FactoryOS__`, `mcp__FactoryOS__`). The Surfer action tools (`web_open`,
+  `web_act`, `web_snapshot`, `web_close`, `web_recipe`) are added only with `RELAY_SURFER_ACTIONS=1` on the worker
+  (owner opt-in, default off). `surfer_pending` counts as read: it only lists what waits for the owner (T-726).
+- Unchanged: `DISALLOWED_TOOLS` stays last on the command line, no permission-mode/bypass flag, `delegated_env()`
+  still strips paid API keys; the server-side Surfer gate (owner flag, allowlist, caps, `needs_owner_confirmation`
+  for publish/pay/delete) is the real barrier and no MCP tool confirms on the owner's behalf.
+- Tests: `test_relay_mcp_tools.py` (imported by `test_relay_execution.py`).

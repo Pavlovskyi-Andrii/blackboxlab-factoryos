@@ -26,6 +26,26 @@ except ImportError:
     import mods_runtime
 
 
+# T-741: headless `claude -p` loads MCP tools on demand through ToolSearch, and the FactoryOS connector's tools are
+# named `mcp__claude_ai_FactoryOS__*` (claude.ai connector) or `mcp__FactoryOS__*` (local `claude mcp add`). Without an
+# explicit allow they are denied, so Relay tickets could not use the Surfer. Read tools are always allowed; the
+# Surfer action tools only when the owner opts in on the worker (RELAY_SURFER_ACTIONS=1). The server still enforces
+# the Surfer allowlist, owner flag, caps and needs_owner_confirmation for publish/pay/delete; nothing here bypasses it.
+FACTORYOS_MCP_PREFIXES = ("mcp__claude_ai_FactoryOS__", "mcp__FactoryOS__")
+SURFER_READ_TOOLS = ("web_search", "web_read", "web_task", "surfer_pending")
+SURFER_ACTION_TOOLS = ("web_open", "web_act", "web_snapshot", "web_close", "web_recipe")
+
+
+def surfer_actions_enabled(env: dict | None = None) -> bool:
+    env = os.environ if env is None else env
+    return str(env.get("RELAY_SURFER_ACTIONS", "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def relay_allowed_tools(env: dict | None = None) -> tuple:
+    names = SURFER_READ_TOOLS + (SURFER_ACTION_TOOLS if surfer_actions_enabled(env) else ())
+    return ("ToolSearch",) + tuple(p + n for p in FACTORYOS_MCP_PREFIXES for n in names)
+
+
 def lane() -> str:
     return (os.environ.get("AUTOPILOT_OPERATOR", "claude").strip().lower() or "claude")
 
@@ -248,7 +268,8 @@ def execute(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=None,
     turns = max(4, min(150, int(os.environ.get("RELAY_CLAUDE_MAX_TURNS", "60"))))
     timeout = max(60, min(3600, int(os.environ.get("RELAY_CLAUDE_TIMEOUT_SECONDS", "1800"))))
     cmd = ["claude", "-p", prompt, "--output-format", "json", "--max-turns", str(turns),
-           *mods_runtime.cli_args(mods or {}, repo), "--disallowedTools", *DISALLOWED_TOOLS]
+           *mods_runtime.cli_args(mods or {}, repo), "--allowedTools", *relay_allowed_tools(),
+           "--disallowedTools", *DISALLOWED_TOOLS]
     reporter_stop = threading.Event()
 
     def heartbeat():
@@ -396,7 +417,7 @@ def execute_isolated(ticket: dict, repo: pathlib.Path, *, run_cli=None, emit_fn=
         # T-MODS-C: plugin folders come from the fresh worktree, so a mod runs from the same commit as the ticket.
         cmd = ["claude", "-p", mods_runtime.prompt_prefix(mods or {}) + build_prompt(ticket, branch), "--output-format",
                "json", "--max-turns", str(turns), *mods_runtime.cli_args(mods or {}, workdir),
-               "--disallowedTools", *DISALLOWED_TOOLS]
+               "--allowedTools", *relay_allowed_tools(), "--disallowedTools", *DISALLOWED_TOOLS]
         code, output, timed_out = -1, "", False
         try:
             try:
