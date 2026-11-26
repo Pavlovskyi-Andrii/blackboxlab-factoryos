@@ -5,6 +5,7 @@ import json
 import os
 import pathlib
 import tempfile
+import time
 import unittest
 from unittest import mock
 from urllib.parse import parse_qs
@@ -281,7 +282,11 @@ class RoutesTest(unittest.TestCase):
 
     def approved(self):
         d = self.route("/api/factory/olx/drafts", body={"advert": ADVERT})["draft"]
-        return self.route("/api/factory/olx/drafts/{draft_id}/approve", d["id"])["draft"]
+        d = self.route("/api/factory/olx/drafts/{draft_id}/approve", d["id"])["draft"]
+        # R-0110: a clean OLX readback (its own HTTP flow is covered in test_olx_preflight.py).
+        record = {"hash": op.advert_hash(d["advert"]), "account": "olx:user:7", "checked_at": int(time.time()),
+                  "problems": [], "complete": True, "duplicates": [], "ack": []}
+        return self.store.set_preflight(d["id"], record, expect_hash=record["hash"])
 
     def test_owner_only_and_not_ready_without_connection_or_flag(self):
         for path, args in (("/api/factory/olx", ()), ("/api/factory/olx/drafts", ()),

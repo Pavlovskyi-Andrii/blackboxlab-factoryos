@@ -12,6 +12,8 @@ Flow, all owner-only: draft → approve (freezes the exact advert: SHA-256 of it
 - FactoryOS never buys packets or paid features: an advert OLX puts in `limited` stays there for the owner to decide.
 - Errors carry fixed codes; OLX response bodies and tokens are never stored, logged or returned (only the names of the
   fields OLX rejected).
+- Before publishing, `olx_preflight` reads the category rules and the owner's own adverts (read-only): a duplicate
+  needs the owner's explicit acknowledgement of the exact look-alike advert ids (R-0110).
 - Network goes through one injectable `http` callable, so the tests make zero network calls.
 
 For the social autopilot (T-702): `publish_approved(...)` is the one entry point that keeps every fence above;
@@ -447,7 +449,7 @@ class AdvertStore:
             if draft["status"] not in ("draft", "approved", "failed"):
                 raise HTTPException(409, "this draft can no longer be edited")
             draft.update(advert=advert, status="draft", approved_hash="", approved_at=0,  # an edit drops approval
-                         approved_account="")
+                         approved_account="", preflight=None)
             self._save(items)
             return draft
 
@@ -471,6 +473,17 @@ class AdvertStore:
                 raise HTTPException(409, "a sent advert stays in the history")
             self._save([d for d in items if d["id"] != draft_id])
             return True
+
+    def set_preflight(self, draft_id, record: dict, expect_hash: str) -> dict:
+        """Store an OLX readback (olx_preflight) only if the advert is still the one it was run for."""
+        with self.lock:
+            items = self._load()
+            draft = self._find(items, draft_id)
+            if advert_hash(draft["advert"]) != expect_hash:
+                raise HTTPException(409, "the advert changed during the check; run it again")
+            draft["preflight"] = record
+            self._save(items)
+            return draft
 
     def check_publishable(self, draft_id) -> None:
         """Read-only pre-check so no OLX call (token refresh) happens for a draft that cannot be published."""
@@ -587,6 +600,8 @@ def publish_approved(*, store: AdvertStore, flow, workspace: str, draft_id: str,
     approved_for = str(store.get(draft_id).get("approved_account") or "")
     if not approved_for or approved_for != tokens.account_id:
         raise HTTPException(409, "olx_account_changed_approve_again")
+    import olx_preflight                         # R-0110: category rules + duplicate readback, no blind duplicate
+    olx_preflight.check(store.get(draft_id), tokens.account_id)
     draft = store.claim_for_publish(draft_id)
     transport = http or getattr(flow.adapters.get("olx"), "http", urllib_http)
     try:
@@ -689,6 +704,10 @@ def install_routes(app, *, store: AdvertStore, flow, identity: Callable, workspa
         if draft["status"] != "published" or not advert_id:
             raise HTTPException(409, "only a published advert with an OLX id")
         return draft
+
+    import olx_preflight
+    olx_preflight.install_routes(app, store=store, owner=owner, read_tokens=read_tokens, transport=transport,
+                                 lang=lambda: language(env), body=body)
 
     @app.get("/api/factory/olx")
     def olx_state(request: Request):
