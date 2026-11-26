@@ -306,6 +306,8 @@ jobs:
           python test_social_images.py
           python -m py_compile olx_publisher.py test_olx_publisher.py
           python test_olx_publisher.py
+          python -m py_compile olx_preflight.py test_olx_preflight.py
+          python test_olx_preflight.py
           python -c "from pathlib import Path; h=Path('static/olx/index.html').read_text(encoding='utf-8'); Path('/tmp/olx-ui.js').write_text(h.rsplit('<script>',1)[1].split('</script>',1)[0], encoding='utf-8')"
           node --check /tmp/olx-ui.js
           python -m py_compile google_sheets.py test_google_sheets.py

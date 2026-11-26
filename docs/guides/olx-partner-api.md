@@ -111,6 +111,22 @@ the IP is blocked for 30 minutes (FAQ #11). Unsupported API version → 404.
   Timeout / 5xx / reply without id → «unknown outcome»: no resend; «Проверить на OLX» does a read-only
   `GET /adverts?external_id=…`, or the owner confirms by hand.
 - Owner page: `/static/olx/index.html` (RU/UK/EN).
+- Publish preflight (`olx_preflight.py`, R-0110): «Опубликовать» first runs a read-only check —
+  `GET /categories/{id}` (leaf, `photos_limit`), `GET /categories/{id}/attributes` (required attributes, allowed
+  values, no unknown codes) and `GET /adverts?offset&limit=50` (own adverts). A live advert with the same category and
+  title is a duplicate: the owner must confirm exactly those advert ids for this one publish. Read-only status of any
+  own advert: `GET /api/factory/olx/adverts/{advert_id}`.
+
+## Owner setup and first publish (checklist)
+
+1. `python -m olx_preflight` on the server shows which settings are present (names only). Needed in Render:
+   `FACTORY_OAUTH_OLX_CLIENT_ID`, `FACTORY_OAUTH_OLX_CLIENT_SECRET` (from the approved developer.olx.ua app),
+   `FACTORY_VAULT_KEY`, `FACTORY_PUBLIC_BASE_URL`, and `FACTORY_OLX_ENABLED=1` only when publishing is wanted.
+2. If there is no approved app: the owner signs in to developer.olx.ua, «Підключити додаток», reads and accepts the
+   terms in person, waits for OLX's e-mail, adds the callback URL above. Agents never register or accept terms.
+3. `/static/olx/index.html` → «Подключить OLX» (authorization_code + state, the OLX consent screen).
+4. Create the draft (category/attribute pickers come from the API), «Одобрить», then «Опубликовать»: preflight →
+   duplicate confirmation if any → final confirmation → one `POST /adverts`. Status: «Обновить статус».
 - For T-702: `olx_publisher.publish_approved(store=…, flow=…, workspace=…, draft_id=…)` keeps every fence.
 
 ## Open questions / TODO

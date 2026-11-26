@@ -2758,3 +2758,26 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   still strips paid API keys; the server-side Surfer gate (owner flag, allowlist, caps, `needs_owner_confirmation`
   for publish/pay/delete) is the real barrier and no MCP tool confirms on the owner's behalf.
 - Tests: `test_relay_mcp_tools.py` (imported by `test_relay_execution.py`).
+
+## 2026-11-26 — R-0110 OLX publish preflight: category rules + duplicate readback before every publish
+
+- **Context:** Relay R-0110 (from ChatGPT; owner approved the official OLX Partner API after the Surfer 403). The
+  OAuth/draft/approval/publish flow already exists (T-701, `olx_publisher.py`); the gaps were: required category
+  attributes were not checked against the API, and nothing stopped an accidental duplicate of a live advert (owner:
+  a deliberate test duplicate of the Samsung advert is fine, an accidental one is not; the original must stay as is).
+- **Decision:** new module `olx_preflight.py` (app.py untouched, PR #476 is open there), routes installed from
+  `olx_publisher.install_routes`. `publish_approved` now also requires a preflight for this exact advert hash and this
+  OLX account, ≤ 30 min old, with no problems; look-alikes (same category + same normalised title, live status) or an
+  incomplete readback need `POST …/preflight/ack {"confirm": true, "advert_ids": [exactly the found ids]}`.
+  An advert already carrying the draft's `external_id` blocks (reconcile instead). An edit clears the preflight.
+- Reversible choices: duplicate = equal `title_key` (casefold, words only) in the same category, statuses
+  `new/active/limited/unconfirmed/unpaid/moderated`; paging 50 × at most 20 pages (≤ 22 GETs, OLX limit is 4500 per
+  5 min per IP); 429 → HTTP 429 `olx_rate_limited` with `Retry-After`, never an automatic retry. `price`/`salary`
+  attribute definitions are not required as attributes (they travel as the advert's own objects, as the T-701 form
+  already does). Select values are checked only when `allow_multiple_values` is not true (format of multi-values is
+  not documented).
+- Stored: advert ids, statuses and OLX URLs only — never other adverts' titles, OLX bodies or tokens. Existing adverts
+  are only read (`GET /adverts/{id}` readback route); no route can write to an advert FactoryOS did not create.
+- `python -m olx_preflight` prints present/missing for the OLX settings, never values. On the EC2 worker all are
+  missing (expected: they live in Render); T-701-H (owner «Готово» 2026-11-23) is still not agent-verified.
+- Tests: `test_olx_preflight.py`; `test_olx_publisher.py` route tests seed a clean preflight record.
