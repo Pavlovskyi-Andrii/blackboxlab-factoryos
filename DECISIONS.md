@@ -2743,3 +2743,18 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   detector fix alone already stops the loop.
 - Checked and not changed: server-side read claims do not depend on action sessions (`surfer_actions` has its own
   claim route), so an idle or `waiting_human` action session never blocks the read queue on the server.
+
+## 2026-11-26 — T-741 Relay Claude runs may use the FactoryOS Surfer MCP tools (R-0108)
+
+- **Root cause:** both Relay launch paths (`execute`, `execute_isolated` in `autopilot/relay_tasks.py`) passed only
+  `--disallowedTools`. Headless Claude loads MCP tools on demand through `ToolSearch` and the connector names them
+  `mcp__claude_ai_FactoryOS__*`; nothing pre-allowed them, so "don't ask" mode denied every call (R-0107; reproduced
+  again inside R-0108: ToolSearch loaded `web_read`, the call itself was denied).
+- **Decision:** both paths add `--allowedTools ToolSearch` + `web_search`, `web_read`, `web_task`, `surfer_pending`
+  under both prefixes (`mcp__claude_ai_FactoryOS__`, `mcp__FactoryOS__`). The Surfer action tools (`web_open`,
+  `web_act`, `web_snapshot`, `web_close`, `web_recipe`) are added only with `RELAY_SURFER_ACTIONS=1` on the worker
+  (owner opt-in, default off). `surfer_pending` counts as read: it only lists what waits for the owner (T-726).
+- Unchanged: `DISALLOWED_TOOLS` stays last on the command line, no permission-mode/bypass flag, `delegated_env()`
+  still strips paid API keys; the server-side Surfer gate (owner flag, allowlist, caps, `needs_owner_confirmation`
+  for publish/pay/delete) is the real barrier and no MCP tool confirms on the owner's behalf.
+- Tests: `test_relay_mcp_tools.py` (imported by `test_relay_execution.py`).
