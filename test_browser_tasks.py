@@ -379,6 +379,12 @@ class QueueHealthTest(unittest.TestCase):
         self.assertEqual(health["head"]["lease_left_seconds"], bt.LEASE_SECONDS)
         self.clock.t += bt.SURFER_ONLINE_SECONDS + 1
         self.assertEqual(self.s.queue_health()["verdict"], "worker_offline")
+        self.s._write_poll(self.clock.t, "")                                         # the Claude-worker fallback claims
+        self.assertEqual(self.s.queue_health()["verdict"], "fallback_serving")
+        self.beat("stopped")
+        self.assertEqual(self.s.queue_health()["verdict"], "fallback_serving")
+        self.clock.t += bt.FALLBACK_POLL_SECONDS + 1
+        self.assertEqual(self.s.queue_health()["verdict"], "worker_offline")         # nobody claims any more
         self.assertIn("queue_health", self.s.surfer_lane())
 
     def test_agent_queue_route_and_web_task_view(self):

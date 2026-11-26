@@ -1,0 +1,21 @@
+# T-740 Ops relay executor: pulls fixed, allowlisted operations (status / journal / host / restart of the FactoryOS
+# workers / sync_checkout / install_surfer_unit) from FactoryOS and runs them without a shell. Nothing listens on the
+# host; it uses the worker credential already in /etc/factoryos/claude-worker.env. Install: sudo bash deploy/install_ops_agent.sh
+[Unit]
+Description=FactoryOS ops agent (fixed allowlisted ops pulled from FactoryOS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+# Runs a root-owned copy made by install_ops_agent.sh, not the ec2-user checkout that git rewrites while the workers
+# run: the code a root process executes cannot change under it, and the worker user cannot edit it.
+WorkingDirectory=/usr/local/lib/factoryos-ops
+ExecStart=/usr/bin/python3 -m autopilot.ops_agent
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+# One op is capped at 60 s, at most 3 ops per run.
+TimeoutStartSec=240

@@ -37,6 +37,7 @@ from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compac
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 import worker_offline_alert
+import ops_relay
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from relay_acceptance import latest_telegram_acceptance
 from telegram_web_compare import StaleComparison, TelegramViewLog, compare as telegram_web_compare, confirmation_for, owner_status as telegram_compare_status
@@ -88,7 +89,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.19.1"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.20.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -1399,6 +1400,15 @@ surfer_actions.install_routes(app, store=SURFER_ACTIONS, gate_fn=lambda: SURFER_
                               authorize_worker=_claude_worker_authorized, lane_identity=_surfer_lane,
                               extra_tools={"web_recipe": _surfer_recipe_tool, "surfer_pending": _surfer_pending_tool})
 surfer_recipes.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, identity=request_identity)
+# T-740 Ops relay: fixed EC2 ops for the Claude lane, pulled by the root ops agent; owner card + Telegram on restarts.
+def _ops_known_secrets():
+    return [t for t in _mcp_lane_forbidden_tokens()+tuple(os.environ.get(n,"") for n in agent_workspace.TOKEN_ENV.values())
+            +(FACTORY_TELEGRAM_BOT_TOKEN,FACTORY_SECRET) if t]
+def _ops_notify(text: str) -> bool:
+    return _worker_offline_alert_send(text, False)
+OPS_RELAY = ops_relay.OpsStore(DATA_DIR, known_secrets=_ops_known_secrets)
+ops_relay.install_routes(app, store=OPS_RELAY, authorize_worker=_claude_worker_authorized, identity=request_identity,
+                         notify=lambda text: _ops_notify(text))
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
 install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
@@ -2073,7 +2083,7 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]
+]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]+ops_relay.MCP_TOOLS
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2139,6 +2149,9 @@ async def factory_mcp(request: Request):
             elif name in coordination.MCP_TOOL_NAMES:
                 # T-729: may this lane start this task / change these files without duplicating open work?
                 result=_factory_mcp_text(await asyncio.to_thread(_coordination_check_tool,args,mcp_lane or ""))
+            elif name in ops_relay.MCP_TOOL_NAMES:
+                # T-740: Claude lane only; flag, op classes and limits are checked inside; restarts notify the owner.
+                result=_factory_mcp_text(await asyncio.to_thread(ops_relay.call_tool,OPS_RELAY,name,args,mcp_lane or "",_ops_notify))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
