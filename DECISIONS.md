@@ -2810,3 +2810,11 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - **Decision:** the full page re-reads `/api/mvp-factory` every 30 s and when the tab gets focus or becomes visible, always: a half-filled event form keeps its text, retry key, focus and cursor across the re-render, and is cleared only after the server records the event (Codex review on #492: skipping the refresh left the page stale). Regression: `test_mvp_view_live.py` (real Chromium). The dashboard keeps its existing poll (≥ 15 s, from the main refresh).
 - **Decision:** «Faceless Models CRM» is a product name and stays the same in UK/RU/EN (`mvpb.crm` added to the locale-parity allowlist); «Проверка качества (QA)» is the single QA stage name.
 
+
+## 2026-11-27 — `ops_health` shows the latest Media Finisher jobs
+
+- The owner ran the video-editor acceptance (with Shorts) on production; the result lived only in the owner's
+  dashboard. `ops_health` now adds the 5 latest edit jobs: status, stage, Shorts requested / produced and their
+  lengths, durations before and after, QA verdict and the checks that did not pass (counts only, never the words),
+  render time, and the error with links replaced by `[link]` (signed links carry tokens). No media URLs, no
+  transcript text.
