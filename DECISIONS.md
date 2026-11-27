@@ -2766,3 +2766,15 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   (production). Route tests called the handlers directly, so nothing caught it: once T-740-H was done every ops
   request would have expired as "agent offline". Both prefixes now pass the middleware only with the Claude worker
   token, like `/api/relay/worker/`; a session cookie or a wrong token is still 401 (`test_route_auth_fixes.py`).
+## 2026-11-27 — MyCast chapter timecodes
+
+- Owner: "Утренний подкаст пришел, но тайм-кодов нет, их нужно добавить." The script writer now returns
+  `chapters` (`{"line", "title"}`, line = index into `lines`); `mycast_chapters.py` validates them (a broken entry is
+  dropped, never the episode; fewer than two → no timecodes) and formats `M:SS Title` lines, which Telegram makes
+  clickable in an audio caption.
+- Gemini path: one TTS call per ~2800-character chunk, so a chunk's start is exact and a line inside a chunk is
+  placed by its share of the chunk's characters — a few seconds off at most. Re-chunking at every chapter would be
+  exact but costs extra calls against the free-tier quota, so it was not done.
+- Piper path: each line is its own WAV plus a fixed pause, so starts are exact; the renderer writes
+  `<id>.chapters.txt` next to the MP3 in the artifact, and the worker puts it between the title and the source list
+  (Telegram keeps 1000 caption characters, so sources are what gets cut, never the timecodes).
