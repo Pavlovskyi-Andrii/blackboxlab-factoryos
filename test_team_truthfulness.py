@@ -250,19 +250,49 @@ class HeartbeatIsNotWorkTest(unittest.TestCase):
 
 
 class RenderDeploySkew(unittest.TestCase):
-    """Case 6: Render deployed SHA vs main.
+    """Case 6 / FO-05: Render deployed SHA vs main, and honest stages of a finished task.
 
-    No adapter compares the deployed SHA with main: app.BUILD_SHA (from RENDER_GIT_COMMIT) is only echoed by
-    /api/version, /api/health-like payloads and the owner-desk "prod_sha" info line, and the Team Tasks board has
-    no deploy field at all. Per #242 we do not invent one; this case only pins that the board makes no deploy claim."""
+    The deployed commit (RENDER_GIT_COMMIT) is placed on main as the merged PR whose merge commit it is. A task is
+    "deployed" only when its PR merged before that point; a local run or an unknown commit makes no deploy claim."""
 
-    def test_board_makes_no_deploy_claim(self):
-        board = build_team_tasks({"available": True, "issues": [], "pulls": [], "ci": {}}, roadmap=[], now=NOW)
-        self.assertFalse({k for k in board if "deploy" in k or "sha" in k})
+    def board(self, deployed_sha="", verified=frozenset(), ci=None):
+        pulls = [dict(pr(1, "claude/a", state="closed", merged="2026-11-04T10:00:00Z", sha="h1"), merge_commit_sha="m1aaaaaaaa"),
+                 dict(pr(2, "claude/b", state="closed", merged="2026-11-04T12:00:00Z", sha="h2"), merge_commit_sha="m2bbbbbbbb"),
+                 dict(pr(3, "claude/c", state="closed", merged="2026-11-04T14:00:00Z", sha="h3"), merge_commit_sha="m3cccccccc")]
+        github = {"available": True, "issues": [issue(9, "Claude", state="closed")], "pulls": pulls,
+                  "ci": ci if ci is not None else {"h1": {"state": "passed", "failed": ""}, "h2": {"state": "failed", "failed": "smoke"}}}
+        b = build_team_tasks(github, roadmap=[], now=NOW, deployed_sha=deployed_sha, verified_prs=verified)
+        return b, {t["number"]: t.get("delivery") for t in b["agents"]["claude"]["tasks"]}
 
-    @unittest.skip("no deployed-SHA vs main adapter exists in FactoryOS; nothing to test without inventing one")
+    def test_board_makes_no_deploy_claim_without_a_known_commit(self):
+        for sha in ("", "local", "ffffffffffff"):                        # local run / commit not among the PRs read
+            b, d = self.board(sha)
+            self.assertFalse(b["deploy"]["known"])
+            self.assertTrue(all(x is None or x["deployed"] is None for x in d.values()), d)
+            self.assertNotIn("deployed", {x["label"] for x in d.values() if x})
+
     def test_deployed_sha_mismatch_is_reported(self):
-        pass
+        b, d = self.board("m2bbbbbbbb1234")                              # Render runs PR #2's merge commit
+        self.assertEqual((b["deploy"]["known"], b["deploy"]["pr"]), (True, 2))
+        self.assertEqual(d[1]["label"], "deployed")                      # merged before it: on production
+        self.assertTrue(d[2]["deployed"] and d[2]["tested"] == "fail")   # on production although its CI failed…
+        self.assertEqual(d[2]["label"], "failed")                        # …so the label says so, not "deployed"
+        self.assertEqual((d[3]["label"], d[3]["deployed"]), ("merged", False))   # merged after: not deployed yet
+        self.assertEqual(d[3]["tested"], "unknown")                      # no CI result read: never "passed"
+
+    def test_labels_never_round_up(self):
+        b, d = self.board("", verified=frozenset({3}))
+        self.assertEqual((d[1]["label"], d[2]["label"], d[3]["label"]), ("tested", "failed", "verified"))
+        self.assertEqual(d[9]["label"], "closed_no_pr")                  # closed issue without a merged PR
+        self.assertFalse(d[9]["merged"])
+        open_task = build_team_tasks({"available": True, "issues": [issue(5, "Claude")], "pulls": [], "ci": {}},
+                                     roadmap=[], now=NOW)["agents"]["claude"]["tasks"][0]
+        self.assertNotIn("delivery", open_task)                          # only finished tasks get stages
+
+    def test_compact_snapshot_keeps_the_merge_commit(self):
+        from team_tasks import compact_github
+        snap = compact_github({"available": True, "issues": [], "pulls": [dict(pr(1, "claude/a"), merge_commit_sha="abc123def")]})
+        self.assertEqual(snap["pulls"][0]["merge_commit_sha"], "abc123def")
 
 
 class StaleQueuedTest(unittest.TestCase):

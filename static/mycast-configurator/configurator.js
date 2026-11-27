@@ -147,10 +147,11 @@
     ['Sulafat', 'Warm', 'f']];
   const VOICE_GENDER = Object.fromEntries(GEMINI_VOICES.map(v => [v[0], v[2]]));
   const DEFAULT_VOICES = { narrator: ['Charon'], two_hosts: ['Charon', 'Kore'] };
+  // MC-04: any catalogue voice for the narrator, any two different voices for two hosts (either gender, either order).
   function validVoices(mode, voices) {
     if (!Array.isArray(voices) || voices.some(v => !VOICE_GENDER[v])) return false;
-    if (mode === 'narrator') return voices.length === 1 && VOICE_GENDER[voices[0]] === 'm';
-    return voices.length === 2 && voices[0] !== voices[1] && VOICE_GENDER[voices[0]] === 'm' && VOICE_GENDER[voices[1]] === 'f';
+    if (mode === 'narrator') return voices.length === 1;
+    return voices.length === 2 && voices[0] !== voices[1];
   }
   // Delivery honesty. Telegram is the preferred channel and can be chosen in a draft, but nothing is sent from here.
   // Download works only with a real local file. Viber, WhatsApp and email are planned and cannot be chosen.

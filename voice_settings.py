@@ -20,7 +20,7 @@ from typing import Callable
 from fastapi import HTTPException, Request  # module level: with postponed annotations FastAPI resolves
 from fastapi.responses import JSONResponse   # `request: Request` here, or it becomes a required query param
 
-from mycast_voices import NAMES, VOICES as CATALOGUE, valid_voices
+from mycast_voices import NAMES, VOICES as CATALOGUE, classic_pair
 
 VOICES = frozenset(NAMES)
 DEFAULT_MODEL = "gemini-2.5-flash-preview-tts"   # = mycast.DEFAULT_TTS_MODEL; no other (paid) model is selectable
@@ -38,8 +38,8 @@ def validate_settings(value: dict) -> dict:
         raise ValueError("invalid voice_b")
     if not isinstance(model, str) or model != DEFAULT_MODEL:
         raise ValueError("unsupported TTS model")
-    if not valid_voices("two_hosts", [a, b]):
-        raise ValueError("invalid voice pair")       # same rule the demo and the page use
+    if not classic_pair([a, b]):
+        raise ValueError("invalid voice pair")       # the daily script writes host A male, host B female
     return {"voice_a": a, "voice_b": b, "model": model}
 
 

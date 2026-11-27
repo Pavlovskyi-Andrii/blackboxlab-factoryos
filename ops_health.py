@@ -49,6 +49,20 @@ def _num(value):
         return None
 
 
+def endpoint_host(value) -> str:
+    """host[:port] of the worker address the server submits to; never a path, query or credential."""
+    from urllib.parse import urlsplit
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parts = urlsplit(raw if "://" in raw else "http://" + raw)
+        host = parts.hostname or ""
+        return (host + (f":{parts.port}" if parts.port else ""))[:120]
+    except ValueError:
+        return "unparseable"
+
+
 def edit_job_summary(job: dict, secrets: Iterable[str] = ()) -> dict:
     """One Media Finisher edit job without its media links or the speaker's words: what the reviewer checks first."""
     request = job.get("request") if isinstance(job.get("request"), dict) else {}
@@ -115,6 +129,7 @@ def snapshot(lane: str, *, worker: dict, telegram: dict, deliveries: list, ops: 
         "ops_relay": {"enabled": bool(ops.get("enabled")), "classes": list(ops.get("classes") or []),
                       "agent_online": bool(executor.get("online")), "agent_last_poll_at": executor.get("last_poll_at")},
         "media_finisher": {"endpoint_configured": bool(finisher.get("endpoint")),
+                           "endpoint_host": endpoint_host(finisher.get("endpoint")),
                            "token_configured": bool(finisher.get("token")),
                            "recent_jobs": [edit_job_summary(j, secrets) for j in list(edit_jobs)[:5] if isinstance(j, dict)]},
     }

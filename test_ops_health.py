@@ -35,7 +35,11 @@ def test_snapshot():
                                      "seconds_ago": 3600}
     assert snap["ops_relay"] == {"enabled": False, "classes": ["read", "restart"], "agent_online": False,
                                  "agent_last_poll_at": None}
-    assert snap["media_finisher"] == {"endpoint_configured": True, "token_configured": False, "recent_jobs": []}
+    assert snap["media_finisher"] == {"endpoint_configured": True, "endpoint_host": "media.example:443",
+                                      "token_configured": False, "recent_jobs": []}
+    assert ops_health.endpoint_host("https://user:pw@worker.onrender.com/jobs?key=x") == "worker.onrender.com"
+    assert ops_health.endpoint_host("blackboxlab-media-finisher:10000") == "blackboxlab-media-finisher:10000"
+    assert ops_health.endpoint_host("") == ""
     never = ops_health.snapshot("claude", worker={}, telegram={}, deliveries=[], ops={}, finisher={}, now=NOW)
     assert never["claude_worker"]["last_seen_seconds_ago"] is None and never["deliveries"] == []
     for lane in ("chatgpt", "gemini", ""):
