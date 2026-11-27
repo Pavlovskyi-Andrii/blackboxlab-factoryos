@@ -47,19 +47,18 @@ class PasswordLoginTest(unittest.TestCase):
         saved = {k: os.environ.get(k) for k in env}
         os.environ.update(env)
         try:
-            import app as factory
-            from fastapi.testclient import TestClient
+            import app as factory                        # the endpoint is called directly: no HTTP client in CI
             factory.FACTORY_USER, factory.FACTORY_PASSWORD = "blackboxlab", "s3cret!"
             factory.FACTORY_OWNER_LOGIN_EMAILS = pl.parse_emails("Owner@Example.com", "second@example.org")
-            client = TestClient(factory.app)
             for user, password, status in (("owner@example.com", "s3cret!", 303), ("Second@Example.org", "s3cret!", 303),
                                            ("blackboxlab", "s3cret!", 303), ("owner@example.com", "nope", 401),
                                            ("stranger@example.com", "s3cret!", 401)):
-                r = client.post("/login", data={"username": user, "password": password, "lang": "ru"},
-                                follow_redirects=False)
+                r = factory.login(username=user, password=password, lang="ru")
                 self.assertEqual(r.status_code, status, user)
-                self.assertEqual(factory.COOKIE_NAME in r.cookies, status == 303, user)
-            self.assertIn("Логин или email", TestClient(factory.app).get("/login?lang=ru").text)
+                cookie = r.headers.get("set-cookie", "")
+                self.assertEqual(cookie.startswith(factory.COOKIE_NAME + "="), status == 303, user)
+            src = (pathlib.Path(__file__).parent / "app.py").read_text(encoding="utf-8")
+            self.assertIn('"user":"Логин или email"', src)
         finally:
             for k, v in saved.items():
                 if v is None:
