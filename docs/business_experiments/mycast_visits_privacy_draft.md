@@ -9,7 +9,9 @@ What the counter really does (code: `mycast_visits.py`, `static/mycast-configura
   and channel from the link (for example `?v=b&ch=tg`), and the category of the site you came from (Telegram,
   LinkedIn, search…; the site address itself is dropped);
 - a daily code made from the IP address and browser name with a key that changes every day; yesterday's key is
-  deleted, so visits cannot be linked across days. The IP address and browser name are not stored;
+  deleted, so visits cannot be linked across days. The IP address and browser name are not stored. The code only
+  estimates how many different visitors came on a day: people on one network with the same browser can count as one,
+  and one person who changes network or browser can count as two. Every page view is counted as a view;
 - no cookies, no browser storage, no third-party scripts; nothing is counted with Do Not Track or Global Privacy
   Control switched on; bots and test visits are not counted;
 - the records are kept for 120 days, then only daily totals remain;
@@ -19,9 +21,10 @@ What the counter really does (code: `mycast_visits.py`, `static/mycast-configura
 
 **Статистика відвідувань.** Щоб зрозуміти, яка сторінка і який канал приводять людей, ми рахуємо перегляди сторінок
 MyCast. Для кожного перегляду зберігаються дата й час, тип сторінки, варіант сторінки та канал із посилання (наприклад,
-Telegram) і категорія сайту, з якого ви прийшли — без його адреси. Щоб не рахувати одну людину двічі за день, ми робимо
-одноразовий код з IP-адреси та назви браузера ключем, який змінюється щодня; учорашній ключ видаляється, тому відвідини
-різних днів пов’язати неможливо. Саму IP-адресу та назву браузера ми не зберігаємо. Ми не використовуємо cookies і
+Telegram) і категорія сайту, з якого ви прийшли — без його адреси. Щоб приблизно оцінити, скільки різних людей зайшло за
+день, ми робимо одноразовий код з IP-адреси та назви браузера ключем, який змінюється щодня; учорашній ключ видаляється,
+тому відвідини різних днів пов’язати неможливо. Оцінка приблизна: люди з однієї мережі з однаковим браузером можуть
+порахуватися як одна людина. Саму IP-адресу та назву браузера ми не зберігаємо. Ми не використовуємо cookies і
 сторонні сервіси аналітики. Якщо у браузері ввімкнено Do Not Track або Global Privacy Control, перегляд не
 рахується. Записи зберігаються 120 днів, потім лишаються тільки підсумки за день. Під час реєстрації в обліковому
 записі зберігаються варіант сторінки й канал посилання, з якого ви прийшли; вони видаляються разом з обліковим записом.
@@ -30,9 +33,10 @@ Telegram) і категорія сайту, з якого ви прийшли �
 
 **Visit statistics.** To learn which page and which channel bring people, we count views of MyCast pages. For each
 view we keep the date and time, the page type, the page variant and channel from the link (for example Telegram), and
-the category of the site you came from, without its address. So that one person is not counted twice in a day, we
-make a one-time code from your IP address and browser name with a key that changes every day; yesterday's key is
-deleted, so visits on different days cannot be linked. We do not store the IP address or the browser name. We use no
+the category of the site you came from, without its address. To estimate how many different people visited on a
+day, we make a one-time code from your IP address and browser name with a key that changes every day; yesterday's key
+is deleted, so visits on different days cannot be linked. The estimate is approximate: people on one network with the
+same browser can count as one person. We do not store the IP address or the browser name. We use no
 cookies and no third-party analytics. Nothing is counted when your browser sends Do Not Track or Global Privacy
 Control. Records are kept for 120 days; after that only daily totals remain. When you sign up, your account keeps the
 page variant and channel of the link you came from; they are deleted with your account.
@@ -41,9 +45,10 @@ page variant and channel of the link you came from; they are deleted with your a
 
 **Статистика посещений.** Чтобы понять, какая страница и какой канал приводят людей, мы считаем просмотры страниц
 MyCast. Для каждого просмотра хранятся дата и время, тип страницы, вариант страницы и канал из ссылки (например,
-Telegram) и категория сайта, с которого вы пришли, — без его адреса. Чтобы не считать одного человека дважды за день,
-мы делаем одноразовый код из IP-адреса и названия браузера ключом, который меняется каждый день; вчерашний ключ
-удаляется, поэтому посещения разных дней связать нельзя. Сам IP-адрес и название браузера мы не храним. Cookies и
+Telegram) и категория сайта, с которого вы пришли, — без его адреса. Чтобы примерно оценить, сколько разных людей
+зашло за день, мы делаем одноразовый код из IP-адреса и названия браузера ключом, который меняется каждый день;
+вчерашний ключ удаляется, поэтому посещения разных дней связать нельзя. Оценка приблизительная: люди из одной сети с
+одинаковым браузером могут посчитаться как один человек. Сам IP-адрес и название браузера мы не храним. Cookies и
 сторонние сервисы аналитики не используются. Если в браузере включены Do Not Track или Global Privacy Control,
 просмотр не считается. Записи хранятся 120 дней, потом остаются только итоги за день. При регистрации в аккаунте
 сохраняются вариант страницы и канал ссылки, по которой вы пришли; они удаляются вместе с аккаунтом.

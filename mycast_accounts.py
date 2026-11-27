@@ -411,6 +411,7 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             body = await _body(request)
             ref = str(body.pop("ref", "") or "")          # not part of Telegram's signed fields
             acq = body.pop("acq", None)                     # T-743: neither is the arrival variant/channel
+            acq = acq if mycast_visits.enabled() else None  # kept only once the owner switched the counter on
             who = verify_telegram(body, bot_token(), clock())
             current = _current(request)
             if current and current.get("provider") != "telegram":   # #281: link to the account already signed in
@@ -437,7 +438,7 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
                 ref = ""                                        # #305: a signed-in listener cannot invite a new self
             return _signed_in(store.login({"provider": "google", "pid": str(claims["sub"]),
                                            "name": _name(claims.get("given_name") or claims.get("name"))}, ref,
-                                          body.get("acq")))
+                                          body.get("acq") if mycast_visits.enabled() else None))
         except AccountError as exc:
             return _err(exc)
 

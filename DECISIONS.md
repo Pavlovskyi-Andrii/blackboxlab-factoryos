@@ -2825,4 +2825,7 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Flag `FACTORY_MYCAST_VISITS_ENABLED` is off: the endpoint answers 404 and the page script's request does nothing. The
   privacy text is a draft for the owner (`docs/business_experiments/mycast_visits_privacy_draft.md`); the page is
   unchanged until he approves it.
+- Review (Codex, PR #494): `acq` is kept on sign-up only while the counter flag is on, so nothing is stored before
+  the privacy text is published. The client IP is the first `X-Forwarded-For` hop, the same as `mycast_demo`; a client
+  can fake it, which can only inflate its own estimate, so the counts are an estimate, not an audit.
 - Reversible: switch the flag off; delete `mycast_visits*.json*` to forget all counts.

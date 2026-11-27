@@ -3,6 +3,7 @@ import asyncio
 import json
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import mycast_visits
@@ -171,6 +172,45 @@ class WiringTest(unittest.TestCase):
             plain = store.login({"provider": "google", "pid": "2", "name": "B"}, "", {"variant": "<x>"})
             self.assertNotIn("acq", plain)
             self.assertEqual(sorted(r["acq"]["variant"] if r["acq"] else "" for r in store.acquisition()), ["", "b"])
+
+    def test_odd_arrival_values_never_raise(self):
+        for value in (None, 7, "b", ["b"], {"variant": ["b"], "channel": {"x": 1}}, {"variant": 3, "channel": None},
+                      {"variant": "b" * 40}, {"variant": "B", "channel": "TG"}):
+            out = clean_acq(value)
+            self.assertTrue(out is None or set(out) == {"variant", "channel"}, value)
+        self.assertEqual(clean_acq({"variant": 3, "channel": None}), {"variant": "3", "channel": ""})
+
+    def test_sign_up_keeps_arrival_only_while_the_counter_is_on(self):
+        import os
+        from fastapi import FastAPI
+        from mycast_accounts import ListenerStore, install_mycast_account_routes
+        import test_mycast_accounts as ta
+        for flag in ("", "1"):
+            with tempfile.TemporaryDirectory() as d, unittest.mock.patch.dict(os.environ, {"FACTORY_MYCAST_VISITS_ENABLED": flag}):
+                app = FastAPI()
+                store = ListenerStore(Path(d) / "l.json", clock=lambda: ta.NOW)
+                install_mycast_account_routes(app, store, secret="s", bot_token=lambda: ta.BOT, bot_username=lambda: "B",
+                                              google_client_id=lambda: "cid", clock=lambda: ta.NOW,
+                                              send_message=lambda *a: None, send_sample=lambda *a: None,
+                                              google_verify=lambda c: {"sub": "g-1", "given_name": "O"})
+                h = {(next(iter(r.methods)), r.path): r.endpoint for r in app.routes if hasattr(r, "methods")}
+
+                class Req:
+                    cookies = {}
+                    def __init__(self, body):
+                        self.body = body
+                    async def json(self):
+                        return self.body
+                arrival = {"variant": "b", "channel": "tg"}
+                for path, body in (("/api/mycast/account/telegram", {**ta.tg_login(), "acq": arrival}),
+                                   ("/api/mycast/account/google", {"credential": "x", "acq": ["odd"]}),
+                                   ("/api/mycast/account/google", {"credential": "y", "acq": arrival})):
+                    r = asyncio.run(h[("POST", path)](Req(body)))
+                    self.assertEqual(r.status_code, 200, (flag, path, r.body))
+                kept = sorted((row["acq"] for row in store.acquisition()), key=lambda x: x is None)
+                # Telegram account + one Google account (the second Google sign-in is the same person returning,
+                # so the odd ["odd"] value from the first one stays and the later arrival does not overwrite it).
+                self.assertEqual(kept, [arrival, None] if flag else [None, None])
 
     def test_telegram_route_does_not_sign_the_arrival_fields(self):
         src = (ROOT / "mycast_accounts.py").read_text(encoding="utf-8")
