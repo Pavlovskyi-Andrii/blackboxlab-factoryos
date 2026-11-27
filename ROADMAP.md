@@ -388,11 +388,12 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   DONE: `/proof` shows "VERIFIED by the server" (Telegram intake, one ticket, claim + run_id, running, done, delivery receipt) and the transcript is in Issue #41.
   Progress (2026-11-17): done — the Owner desk shows the server verdict «Готово, підтверджено сервером: R-0087 · run-351295eb0d92» (`latest_telegram_acceptance` VERIFIED: all seven stages incl. the Telegram delivery receipt). The owner's screen is the evidence; the cloud session gets 401 on owner APIs, so it did not re-read the ticket itself. Acceptance change: the owner (task of 2026-11-17 via the coordinator session) asked to close T-591-H on that server verdict, so the Issue #41 transcript is no longer required; `/proof R-0087` reproduces it on demand (DECISIONS.md 2026-11-17).
 
-- [ ] [HUMAN] T-592-H Compare Telegram and the web for one task (one button, the server compares)
+- [x] [HUMAN] T-592-H Compare Telegram and the web for one task (one button, the server compares)
   Depends: T-591-H
   Need: owner opens the task in Telegram on the phone (/task R-… or 🔄 Refresh) and presses «Совпадает» / «Не совпадает» on the Worker Center comparison card; runbook in Owner desk (RU/UK/EN). No screenshots, no Issue.
   DONE: `/api/factory/telegram-web-compare` says `match` (same stage / run_id / last contact as the last view the bot delivered; no ghost running) and the owner pressed «Совпадает» on that card (which also confirms the screen has no cut-off columns).
   Progress (2026-11-17): server side done — `telegram_web_compare.py` logs the facts of every delivered ticket view (no chat id, no text) and compares them with `RelayQueue.view`; `test_telegram_web_compare.py`.
+  Done 2026-11-27: owner confirmed «Готово» on the owner task page after pressing the comparison button in Worker Center. Not verified by an agent: `/api/factory/telegram-web-compare` is owner-only.
 
 - [ ] [HUMAN] T-593-H Confirm the EC2 worker moves on to the next safe task by itself
   Need: owner checks main CI, `/workers` + Worker Center after a verified commit, and a day later main history (PRs only) and bills (no new paid spend); runbook in Owner desk.
