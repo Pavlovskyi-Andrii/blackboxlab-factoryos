@@ -29,7 +29,7 @@ during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day
 
 ### v5.21.1 — Access vault: any site by its address — 2026-11-27
 
-- Access vault: «Другой сайт» takes a full address (for example `https://blackboxlab-factoryos.onrender.com`) instead of cutting it at 40 characters; the address is saved under its host, and the session command shows that site.
+- Access vault: «Другой сайт» takes a full address (for example `https://blackboxlab-factoryos.onrender.com`) instead of cutting it at 40 characters; the address is saved under exactly its host (an address with a port is refused), and the session command shows that site.
 
 ### v5.21.0 — MVP Builder: one standard on the dashboard and the full page — 2026-11-25 … 2026-11-27
 

@@ -11526,12 +11526,17 @@ _VAULT_SLUG=re.compile(r"^[a-z0-9][a-z0-9_.-]{0,99}$")   # a short name or a dom
 
 
 def _vault_site_name(raw)->str:
-    """«Other site» accepts a short name, a domain or a pasted URL: https://www.Example.com/login → example.com."""
+    """«Other site» accepts a short name, a domain or a pasted URL. A URL becomes exactly its host
+    (https://www.Example.com/login → www.example.com); nothing else is rewritten, so an existing record keeps its
+    identifier. An address with a port is refused: two services on one host must not share a vault entry."""
     text=str(raw or "").strip().lower()
-    if "://" in text or "/" in text:
-        try:text=urlparse.urlsplit(text if "://" in text else "https://"+text).hostname or ""
+    if any(c in text for c in ":/?#"):
+        try:
+            parts=urlparse.urlsplit(text if "://" in text else "https://"+text)
+            if parts.port is not None or "@" in parts.netloc:return ""
+            text=parts.hostname or ""
         except ValueError:text=""
-    return text[4:] if text.startswith("www.") and text.count(".")>=2 else text
+    return text
 _VAULT_ACCOUNT=re.compile(r"^[\w.@+ -]{1,80}$")
 
 def _vault_parts(required=True):
