@@ -150,6 +150,8 @@ jobs:
           bash -n deploy/codex-relay/setup.sh
           python -m py_compile autopilot/codex_review.py autopilot/test_codex_review.py
           python -m autopilot.test_codex_review
+          python -m py_compile autopilot/main_ci_watch.py autopilot/test_main_ci_watch.py
+          python -m autopilot.test_main_ci_watch
       - name: Relay owner-notice dedupe regression (#241)
         run: python test_relay_notify_dedupe.py
       - name: Evidence Protocol Tier 1 (No Evidence — No Done)
