@@ -2766,6 +2766,14 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   (production). Route tests called the handlers directly, so nothing caught it: once T-740-H was done every ops
   request would have expired as "agent offline". Both prefixes now pass the middleware only with the Claude worker
   token, like `/api/relay/worker/`; a session cookie or a wrong token is still 401 (`test_route_auth_fixes.py`).
+## 2026-11-27 — Media Finisher signs file links even without an API token
+
+- Owner: `FINISHER_API_TOKEN` is not set on Render. After #442 a worker without a token (and without the shared
+  `FACTORY_MEDIA_FINISHER_SHARED_TOKEN` from the Blueprint env group) refused every file, so FactoryOS could not
+  download finished videos. The signing key is now the token, or else a random 64-hex key the worker creates once in
+  its persistent disk (`.file-signing-key`, mode 600). Links stay one-file, one-job, expiring; a bare `/files/...`
+  URL is still 403. Not chosen: reopening files publicly (user videos are private) or editing Render env vars
+  (owner-only). Without a token `/jobs` itself stays unauthenticated as before — setting the token is still advised.
 ## 2026-11-27 — MyCast chapter timecodes
 
 - Owner: "Утренний подкаст пришел, но тайм-кодов нет, их нужно добавить." The script writer now returns
