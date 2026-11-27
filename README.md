@@ -29,7 +29,7 @@ during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day
 
 ### v5.21.0 — MVP Builder: one standard on the dashboard and the full page — 2026-11-25 … 2026-11-27
 
-- MVP Builder (T-742): the dashboard card and the full MVP Builder page show every project the same way, from one server read model: the same stage name, progress (`% · шаг N из 9`), next step with who acts («нужно ваше решение» on the owner's steps, including spec approval) and links, in UK/RU/EN. The full page now refreshes by itself every 30 s and when you come back to the tab.
+- MVP Builder (T-742, #492): the dashboard card and the full MVP Builder page show every project the same way, from one server read model: the same stage name, progress (`% · шаг N из 9`), next step with who acts («нужно ваше решение» on the owner's steps, including spec approval) and links, in UK/RU/EN. The full page now refreshes by itself every 30 s and when you come back to the tab.
 - MyCast: chapter timecodes in the Telegram caption (#484).
 - Media Finisher: signed file links work without `FINISHER_API_TOKEN` (#485).
 - Ops relay live on EC2 (T-740-H, #489, #490); the ops agent and the mods runtime pass the auth middleware with worker tokens (#486); MCP `ops_health` shows the worker, Telegram and delivery state to Claude (#487).
