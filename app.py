@@ -1588,6 +1588,8 @@ async def auth_middleware(request: Request, call_next):
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and (_claude_worker_authorized(request) or gemini_worker_api)
+    # T-740 ops agent and the mods runtime pull with the worker token only; the routes check it again themselves.
+    ops_worker_api=request.url.path.startswith(("/api/ops/worker/","/api/mods/worker/")) and _claude_worker_authorized(request)
     browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
     # T-720: the Surfer action tools over REST, with the caller's own per-lane MCP token (never the shared one).
@@ -1597,7 +1599,7 @@ async def auth_middleware(request: Request, call_next):
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
             and not (claude_worker_api or operator_worker_api or local_booster_api)):
         return JSONResponse({"detail":"worker token required"},status_code=401)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or relay_agent_api or browser_agent_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or ops_worker_api or relay_agent_api or browser_agent_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
