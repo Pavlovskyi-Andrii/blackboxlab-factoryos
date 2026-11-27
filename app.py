@@ -2093,6 +2093,12 @@ FACTORY_MCP_TOOLS=[
     }
 ]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]+ops_relay.MCP_TOOLS+[ops_health.TOOL]
 
+def _ops_health_edit_jobs():
+    try:
+        return get_edit_jobs(limit=5)["jobs"]
+    except Exception:
+        return []
+
 def _ops_health_snapshot(lane):
     try:
         ops=OPS_RELAY.owner_board(limit=1)
@@ -2102,7 +2108,7 @@ def _ops_health_snapshot(lane):
         return ops_health.snapshot(lane,worker=get_claude_code_status(),telegram=_telegram_public_status(),
                                    deliveries=VOICE_HISTORY.entries(),ops=ops,
                                    finisher={"endpoint":FACTORY_MEDIA_FINISHER_ENDPOINT,"token":FACTORY_MEDIA_FINISHER_TOKEN},
-                                   known_secrets=_ops_known_secrets)
+                                   known_secrets=_ops_known_secrets,edit_jobs=_ops_health_edit_jobs())
     except PermissionError as exc:
         raise ValueError(str(exc))  # shown to the caller as isError text
 
