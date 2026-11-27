@@ -334,6 +334,8 @@ class NarrationTest(Fixture):
             ({"s01": 1.0}, {"source": "tts_cloud"}, "voice.source"),
             ({"s01": 1.0}, {"model_sha256": ""}, "voice.model_sha256"),
             ({"s01": 1.0}, {"source": "owner_recording"}, "consent"),
+            ({"s01": 1.0}, {"source": "voice_clone", "consent": "owner 2026-11-27"}, "voice.model_licence"),
+            ({"s01": 1.0}, {"source": "voice_clone", "model_licence": "CPML", "reference_sha256": "b" * 64}, "voice.consent"),
         ]
         for lines, voice, needle in cases:
             with self.subTest(needle=needle):
@@ -342,6 +344,14 @@ class NarrationTest(Fixture):
                 with self.assertRaises(ValidationError) as ctx:
                     narration.load(narration_doc(d, self.sb["project_id"], lines, **voice), p)
                 self.assertIn(needle, str(ctx.exception))
+
+    def test_cloned_voice_records_model_licence_and_consent(self):
+        p = self.plan()
+        doc = narration.load(narration_doc(self.tmp, self.sb["project_id"], {"s02": 1.0}, source="voice_clone",
+                                           model="xtts_v2", model_licence="CPML (non-commercial)",
+                                           reference_sha256="c" * 64, consent="owner sent the sample for this film"), p)
+        self.assertEqual(doc["voice"]["source"], "voice_clone")
+        self.assertEqual(doc["voice"]["model_licence"], "CPML (non-commercial)")
 
     def test_changed_wav_is_refused(self):
         p = self.plan()
