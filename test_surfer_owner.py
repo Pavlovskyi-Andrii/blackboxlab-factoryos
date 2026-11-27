@@ -547,12 +547,13 @@ class PageTest(unittest.TestCase):
                        "/sessions/{session_id}", "/sessions/{session_id}/stop", "/sessions/{session_id}/takeover",
                        "/sessions/{session_id}/input", "/sessions/{session_id}/control", "/steps/{step_id}/screenshot",
                        "/steps/{step_id}/{decision}", "/uploads", "/uploads/{asset_id}/delete", "/audit", "/pending",
-                       "/recipes", "/recipes/{recipe_id}/run", "/recipes/{recipe_id}/delete"):
+                       "/recipes", "/recipes/{recipe_id}/run", "/recipes/{recipe_id}/delete",
+                       "/policy/binding/{request_id}/dismiss"):
             self.assertIn("/api/factory/surfer/owner" + suffix, paths, suffix)
         called = set(re.findall(r'api\("(/[a-z/]+)', self.script))
         self.assertTrue(called <= {"/policy", "/policy/pause", "/policy/allow", "/policy/allow/", "/sessions",
                                    "/sessions/", "/steps/", "/uploads", "/uploads/", "/audit", "/recipes",
-                                   "/recipes/"}, called)
+                                   "/recipes/", "/policy/binding/"}, called)
 
 
 if __name__ == "__main__":

@@ -2898,6 +2898,25 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Code: that DNS failure now names the host and the variable to change, and `ops_health` shows `endpoint_host`
   (host[:port] only) so Claude can confirm the address without the owner's session.
 
+## 2026-11-27 — T-745: Surfer reconnect after idle_timeout needs the owner's site binding, made one press
+
+- Root cause (from the code; production `policy.json` is not readable by an agent): `web_open` refused
+  `session: "blackboxlab-factoryos.onrender.com/main"` with the message that has no «the site's login is …» suffix,
+  so the FactoryOS allowlist entry has no vault login bound. Without one the new session opens as a guest and stops
+  at `login_required`, and «Save this login» is impossible. The cookie restore, the vault-password fallback and the
+  idle timeout already worked for a bound login (T-560-F, T-721); the gap was the binding.
+- The T-560-L «Agents: on» switch on a vault session is not read as a Surfer binding: it approves read-only GET for
+  `web_read`, not clicks and form submits. Widening it would grant actions the owner never approved.
+- An unbound but saved login now leaves one request per site (newest login wins, `times` counts retries, at most
+  10) with «Bind» / «Not now» on the Surfer page. «Bind» posts the existing allowlist save, so the owner's action is
+  the only grant. Any owner save or delete of that site clears its request. A name the vault does not hold leaves
+  no request. Refusals are audited (`login_not_bound`) and do not count against the daily session cap.
+- Not in this change: writing refreshed cookies back to the vault after a successful vault-password sign-in. Today
+  the next reconnect types the vault password again (still unattended); a session-only login whose cookies expired
+  still waits for the owner, as it should.
+- MVP Builder follow-up (no records created here): once T-745-H is done, resume the existing task by reading it
+  first (`list_build_tasks` / `coordination_check`), and continue that id instead of opening a new one.
+
 ## Email as the password-login username (owner request 2026-11-27)
 
 - `POST /login` accepts either the `FACTORY_USER` login or an owner email in the username field; `FACTORY_PASSWORD`
