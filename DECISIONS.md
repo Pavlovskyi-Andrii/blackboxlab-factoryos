@@ -2859,3 +2859,16 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Not closed: the touch check is only simulated click events, and the worker cannot see CI on main. Not done: driving
   the production dashboard through the Surfer (production plus the auth boundary), or installing a browser on the
   shared worker host (same reason as earlier re-checks). Checkbox unchanged; only `T-594_NAV_MAP.md` evidence updated.
+
+## 2026-11-27 — T-595 re-check: one T-732 capture counts as partial evidence, task stays blocked
+
+- Suites are green on 4c0284e: `test_drawers.py` (16 drawers at 1440/1024/390), `test_navigation.py`, locale parity,
+  py_compile, planner, smoke. The worker still has no Playwright (`import playwright` fails) and no Chromium.
+- New evidence: `docs/screenshots/t-732/build-progress-1440-en.png` is a real browser capture of the current Build
+  Progress drawer at 1440×900. The max/restore button sits beside ×. Planned/In progress/Completed/Blocked tiles and the
+  Planned/In progress/Blocked/Review/Done board columns all show whole, with no clipped column. It counts as the
+  1440 "after" shot only.
+- Still missing: "after" at 1024×768 and 390×844, and every "before" shot. A "before" shot means building the
+  pre-14f1e35 dashboard in a browser, so it needs the same browser. CI on main is not visible from the worker.
+- Not done: Surfer captures of the production dashboard (production, auth boundary, not the branch code), or a
+  browser install on the shared worker host (same reason as earlier re-checks). Checkbox unchanged.

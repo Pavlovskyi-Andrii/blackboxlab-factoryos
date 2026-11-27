@@ -495,6 +495,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: resize large panels by left-edge drag slider/handle, max/restore beside X, bounds that keep sidebar visible, session width memory, fix horizontal overflow and clipped Build Progress columns, mobile full-screen drawers and keyboard/touch controls.
   DONE: tests and before/after screenshots 1440x900, 1024x768, 390x844; no cut-off Planned/In Progress/Completed/Blocked; CI-gated PR.
   Progress 2026-11-01: code and regressions are done and on `origin/main` (14f1e35 via PR #80). `test_drawers.py` is green: 16 drawers at 1440/1024/390, pointer/touch drag, keyboard separator, max/restore, Escape order, session width memory, sidebar-safe bounds, wrapping Planned/In Progress/Completed/Blocked columns, EN/UK/RU. Still open: the before/after screenshots. The worker has no browser, so the owner must capture them or approve a Playwright/Chromium install on the worker.
+  Re-check 2026-11-27: still green (16 drawers). `docs/screenshots/t-732/build-progress-1440-en.png` covers the 1440 "after" shot with no clipped column. Still open: "after" at 1024 and 390, all "before" shots, and seeing CI green.
 
 - [ ] T-596 Worker Center / Agent Office factual live observability
   Owner: Claude
