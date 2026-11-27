@@ -21,6 +21,9 @@ import unicodedata
 import wave
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root: the shared chapter timecodes
+from mycast_chapters import caption_block  # noqa: E402
+
 PAUSE_SECONDS = 0.45
 
 # Audio QA thresholds: the same values as the server-side preflight in mycast.py (test_mycast_render keeps them equal).
@@ -240,6 +243,14 @@ def render_episode(episode_path: str, model_path: str, out_dir: str) -> Path | N
         print(f"AUDIO QA FAILED for {episode['id']}: " + "; ".join(problems))
         return None
     script.write_text(transcript(episode, report["seconds"]), encoding="utf-8")
+    # Every line is its own WAV followed by the same pause, so these starts are exact.
+    starts, offset = [], 0.0
+    for _, seconds in chunk_stats:
+        starts.append(offset)
+        offset += seconds + PAUSE_SECONDS
+    chapters = caption_block(episode, starts)
+    if chapters:  # the worker appends it to the Telegram caption ("0:00 Вступ" lines are clickable there)
+        (out / f"{episode['id']}.chapters.txt").write_text(chapters + "\n", encoding="utf-8")
     print(f"rendered {final} ({report['seconds']:.1f} s, {len(parts)} lines, longest silence "
           f"{report['max_silence_seconds']:.1f} s, voiced {report['voiced_share']:.0%})")
     return final

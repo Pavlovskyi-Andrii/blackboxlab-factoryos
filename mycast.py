@@ -18,6 +18,7 @@ from typing import Callable, Optional
 from urllib import request as urlrequest
 
 from fastapi import File, Form, HTTPException, Request, UploadFile
+from mycast_chapters import caption_block, chunk_line_starts
 
 MAX_AUDIO_BYTES = 20 * 1024 * 1024  # well under Telegram's 50 MB bot upload limit
 EPISODE_ID_RE = re.compile(r"^mycast-[a-z0-9-]{4,60}$")
@@ -218,6 +219,7 @@ CHUNK_CHARS = 2800  # ~2 min of speech per call: a 5-8 min episode needs 3-4 cal
 RATE_LIMIT_RETRIES = 2  # per chunk, only on HTTP 429 (free-tier RPM); never a paid fallback
 RATE_LIMIT_WAIT_SECONDS = 30
 SPEAKER_LABELS = {"A": "Host1", "B": "Host2"}
+CHUNK_PAUSE_SECONDS = 0.35  # silence between two TTS chunks; chapter timecodes count it
 
 
 class GeminiTTSError(RuntimeError):
@@ -300,7 +302,7 @@ def gemini_tts_pcm(api_key: str, episode: dict, *, model: str = "", voices: tupl
         audio = base64.b64decode(inline["data"])
         if stats is not None:
             stats.append((sum(len(t) for _, t in chunk), len(audio) / 2 / rate))
-        pcm += audio + b"\x00\x00" * int(rate * 0.35)  # short pause between chunks
+        pcm += audio + b"\x00\x00" * int(rate * CHUNK_PAUSE_SECONDS)  # short pause between chunks
     return pcm, rate
 
 
@@ -357,8 +359,11 @@ def install_mycast_voice_routes(app, log: DeliveryLog, *, authorize_worker: Call
                 audio = encode(pcm, rate)
                 check_mp3(audio)
                 words = sum(len(t.split()) for _, t in lines)
+                starts = chunk_line_starts(episode_chunks(lines), [seconds for _, seconds in stats], CHUNK_PAUSE_SECONDS)
+                chapters = caption_block(episode, starts)  # "0:00 Вступ" lines: clickable in Telegram
                 send_audio(audio, f"{episode['id']}.mp3", str(episode.get("title") or episode["id"])[:64],
-                           f"🎧 {episode.get('title', '')} · ~{max(1, round(words / 140))} хв · голоси Gemini")
+                           f"🎧 {episode.get('title', '')} · ~{max(1, round(words / 140))} хв · голоси Gemini"
+                           + (f"\n\n{chapters}" if chapters else ""))
                 return pcm, rate, audio
 
             # Several TTS calls (and free-tier waits) take minutes: keep them off the server's event loop.
