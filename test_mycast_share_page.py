@@ -70,7 +70,11 @@ class RouteTest(Base):
         self.assertNotIn("<script>alert", body)
         self.assertNotIn("<img src=x", body)
         self.assertEqual(body.count("<script>"), 1)
-        self.assertEqual(body.count("</script>"), 1)
+        # T-743: the only other script is the first-party visit beacon, a fixed tag with no data in it
+        beacon = '<script src="/static/mycast-configurator/v.js" data-page="episode" defer></script>'
+        self.assertEqual(body.count(beacon), 1)
+        self.assertEqual(body.replace(beacon, "").count("</script>"), 1)
+        self.assertEqual(body.count("<script"), 2)
         script = body.split("<script>", 1)[1].split("</script>", 1)[0]
         self.assertNotIn("<", script.split(";", 1)[0])                      # the data blob has no raw '<'
 
