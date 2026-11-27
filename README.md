@@ -27,6 +27,10 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.21.1 — Access vault: any site by its address — 2026-11-27
+
+- Access vault: «Другой сайт» takes a full address (for example `https://blackboxlab-factoryos.onrender.com`) instead of cutting it at 40 characters; the address is saved under exactly its host (an address with a port is refused), and the session command shows that site.
+
 ### v5.21.0 — MVP Builder: one standard on the dashboard and the full page — 2026-11-25 … 2026-11-27
 
 - MVP Builder (T-742, #492): the dashboard card and the full MVP Builder page show every project the same way, from one server read model: the same stage name, progress (`% · шаг N из 9`), next step with who acts («нужно ваше решение» on the owner's steps, including spec approval) and links, in UK/RU/EN. The full page now refreshes by itself every 30 s and when you come back to the tab.

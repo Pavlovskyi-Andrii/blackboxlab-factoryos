@@ -99,7 +99,33 @@ def routes():
     r = post("/api/factory/vault/check", {"provider": "olx", "account": "shop", "kind": "session"}).json()
     require(r["ok"] and r["cookies"] == 1, f"session check {r}")
 
+    # Owner 2026-11-27: «Other site» with a pasted URL longer than 40 characters is saved under exactly its host.
+    r = post("/api/factory/vault/credentials", {"provider": "https://Blackboxlab-FactoryOS.onrender.com/login?next=/",
+                                                "account": "main", "username": "owner@example.com", "password": PASSWORD})
+    require(r.status_code == 200 and r.json()["provider"] == "blackboxlab-factoryos.onrender.com", f"URL as site {r.text}")
+    require(post("/api/factory/vault/credentials/delete", {"provider": "blackboxlab-factoryos.onrender.com", "account": "main"}).json()["ok"],
+            "delete URL site")
+    for raw, host in (("example.com", "example.com"), ("olx", "olx"), ("www.example.com", "www.example.com"),
+                      ("https://www.example.com/x", "www.example.com"), ("example.com?next=home", "example.com"),
+                      ("example.com#top", "example.com"), ("https://example.com:8443/", ""), ("example.com:9443", ""),
+                      ("https://user@example.com/", "")):
+        require(app._vault_site_name(raw) == host, f"site name {raw!r} -> {app._vault_site_name(raw)!r}")
+    # Codex review on #493: existing www./bare records under one account stay separate; one save or delete never hits the other.
+    for site in ("www.example.com", "example.com"):
+        require(post("/api/factory/vault/credentials", {"provider": site, "account": "main", "password": PASSWORD}).status_code == 200, site)
+    refs = {x["provider"]: x for x in no_secret(c.get("/api/factory/vault/status"), "status").json()["credentials"] if x["account"] == "main"}
+    require({"www.example.com", "example.com"} <= set(refs), f"both records kept {sorted(refs)}")
+    require(post("/api/factory/vault/credentials", {"provider": "https://www.example.com/login", "account": "main",
+                                                    "password": PASSWORD + "3"}).json()["provider"] == "www.example.com", "URL with www. targets www. record")
+    require(post("/api/factory/vault/credentials/delete", {"provider": "example.com", "account": "main"}).json()["ok"], "delete bare")
+    left = {x["provider"] for x in no_secret(c.get("/api/factory/vault/status"), "status").json()["credentials"] if x["account"] == "main"}
+    require("www.example.com" in left and "example.com" not in left, f"delete hit the wrong record {sorted(left)}")
+    require(post("/api/factory/vault/credentials/delete", {"provider": "www.example.com", "account": "main"}).json()["ok"], "delete www")
+    for port_url in ("https://example.com:8443", "example.com:9443"):   # distinct services on one host never collide
+        require(c.post("/api/factory/vault/credentials", json={"provider": port_url, "account": "main", "password": "x"}).status_code == 400,
+                f"port accepted {port_url}")
     for body, code in (({"provider": "Bad Site!", "password": "x"}, 400),
+                       ({"provider": "https://", "password": "x"}, 400),
                        ({"provider": "olx", "account": "a\"b", "password": "x"}, 400),
                        ({"provider": "olx", "account": "x"}, 400),
                        ({"provider": "olx", "otp": "123456"}, 400)):
@@ -229,6 +255,14 @@ def dashboard():
     # Owner 2026-11-23: the read-only «Browser agent» card (and its session picker) left the dashboard; the sidebar opens
     # the Surfer page. The per-login agent switch stays in the vault drawer.
     require('id="browserAgentCard"' not in html and "function vaultAgentUse(" in script, "T-560-L: agent switch missing")
+    # Owner 2026-11-27: «Other site» is not cut at 40 characters and a pasted URL becomes its host.
+    require('maxlength="40" placeholder="\'+esc(tr(\'vault.otherSite' not in script and 'maxlength="300"' in script, "other-site field still cut short")
+    fn = re.search(r"function vaultSiteName\(raw\)\{.*?\n", script).group(0)
+    import shutil, subprocess
+    if shutil.which("node"):
+        out = subprocess.run(["node", "-e", fn + "console.log(JSON.stringify(['https://blackboxlab-factoryos.onrender.com','https://www.Example.com/login?x=1','olx','www.com','example.com?next=home','https://example.com:8443/','https://u@example.com/'].map(vaultSiteName)))"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        require(json.loads(out) == ["blackboxlab-factoryos.onrender.com", "www.example.com", "olx", "www.com", "example.com", "", ""], f"vaultSiteName {out}")
     print(f"Vault drawer passed: button, 6 handlers, {len(keys)} keys x EN/UK/RU, masked password cleared after save, hidden for viewers")
 
 

@@ -90,7 +90,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.21.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.21.1"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -11522,7 +11522,21 @@ def factory_vault_status(request: Request):
 
 # T-560-F UI: owner-only vault management. Secrets go in, never come back out: responses carry
 # refs, field kinds, cookie counts and domains only. Workspace comes from the server binding.
-_VAULT_SLUG=re.compile(r"^[a-z0-9][a-z0-9_.-]{0,39}$")
+_VAULT_SLUG=re.compile(r"^[a-z0-9][a-z0-9_.-]{0,99}$")   # a short name or a domain (owner 2026-11-27: 40 chars cut a Render host)
+
+
+def _vault_site_name(raw)->str:
+    """«Other site» accepts a short name, a domain or a pasted URL. A URL becomes exactly its host
+    (https://www.Example.com/login → www.example.com); nothing else is rewritten, so an existing record keeps its
+    identifier. An address with a port is refused: two services on one host must not share a vault entry."""
+    text=str(raw or "").strip().lower()
+    if any(c in text for c in ":/?#"):
+        try:
+            parts=urlparse.urlsplit(text if "://" in text else "https://"+text)
+            if parts.port is not None or "@" in parts.netloc:return ""
+            text=parts.hostname or ""
+        except ValueError:text=""
+    return text
 _VAULT_ACCOUNT=re.compile(r"^[\w.@+ -]{1,80}$")
 
 def _vault_parts(required=True):
@@ -11545,7 +11559,7 @@ def _vault_owner(request: Request):
         raise HTTPException(403,"owner_only")
 
 def _vault_binding(body: dict):
-    provider=str(body.get("provider") or "").strip().lower()
+    provider=_vault_site_name(body.get("provider"))
     account=str(body.get("account") or "default").strip()
     if not _VAULT_SLUG.match(provider):raise HTTPException(400,"invalid_provider")
     if not _VAULT_ACCOUNT.match(account):raise HTTPException(400,"invalid_account")
