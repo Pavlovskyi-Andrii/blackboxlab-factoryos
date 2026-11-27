@@ -53,14 +53,15 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Spec: `docs/roadmap/T-740_OPS_RELAY.md`; DECISIONS.md «2026-11-25 — T-740». `ops_catalog.py`, `ops_relay.py`, `autopilot/ops_agent.py`, `deploy/systemd/factoryos-ops-agent.{service,timer}`, `deploy/install_ops_agent.sh`.
   Goal: MCP `ops_request` / `ops_result` (Claude lane token only) queue fixed ops — status, journal (≤180 min, ≤300 lines), host, restart (Surfer / Claude worker only), sync_checkout, install_surfer_unit — that the root ops agent on EC2 pulls every 30 s with the existing worker token, runs as argv lists (60 s, 32 KB, redacted) and reports back. Flag `FACTORY_OPS_RELAY_ENABLED` (off), op classes `FACTORY_OPS_RELAY_CLASSES` (default read + restart), 30 ops/day, 6 restarts/unit/day, audit, owner JSON `/api/ops/owner`, Worker Center card, Telegram on restarts. No SSH, no AWS keys, no shell, no push.
   DONE: `python test_ops_relay.py`; smoke block «T-740»; default verification; CI green.
-  Not proven live: waits for T-740-H (the agent installed on EC2 and the flag on in Render); then one `ops_request op=host` from a Claude session must come back `done`.
+  Proven live 2026-11-27: after T-740-H and the middleware fix (#486), `ops_request op=host` (ops_6019b51cf1d8) came back `done` in 31 s; status of the Claude and Surfer worker units read back too.
 
-- [ ] [HUMAN] T-740-H Install the ops agent on EC2 once and switch the Ops relay on
+- [x] [HUMAN] T-740-H Install the ops agent on EC2 once and switch the Ops relay on
   Owner: human
   Depends: T-740
   Need: one command in EC2 Instance Connect (`sudo bash /opt/factoryos/deploy/install_ops_agent.sh`, reads no secret; it also applies the T-728 Surfer unit via `install_surfer_worker.sh`) and `FACTORY_OPS_RELAY_ENABLED=1` in Render (not a secret). After that agents check, read logs and restart the workers without you.
   Runbook: Worker Center → «Нужно от вас» → T-740-H (RU/EN/UK).
   DONE: Worker Center → technical details → «Ops relay» shows «On» and the EC2 ops agent «polling», and a Claude `host` request is `done`.
+  Verified 2026-11-27 11:37 UTC: owner installed the agent and set `FACTORY_OPS_RELAY_ENABLED=1`; agent polling every ~30 s, `host` request done (EC2 checkout at origin/main 0a236cf, 0 behind; disk 45 %, memory 603 MB available).
 
 ## Faceless Creator A/B (#469, owner 2026-11-24)
 
