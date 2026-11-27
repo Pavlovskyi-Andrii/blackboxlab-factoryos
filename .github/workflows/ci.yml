@@ -343,6 +343,8 @@ jobs:
           python test_mvp_factory.py
           python -m py_compile test_mvp_state_machine.py
           python test_mvp_state_machine.py
+          python -m py_compile test_mvp_view.py
+          python test_mvp_view.py
           python - <<'PY'
           from pathlib import Path
           html = Path("static/mvp-factory/index.html").read_text(encoding="utf-8")

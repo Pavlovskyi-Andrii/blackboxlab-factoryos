@@ -29,6 +29,16 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-733/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
   Done 2026-11-24: prototype `docs/prototypes/owner-home-growth/index.html` (Learning → «New home: products and goals»; 8 states × 9 views × EN/UK/RU, phone and desktop, «Pro version» switch remembered per browser), RFC with field and state mapping and backlog B-01…B-08 (first PR: first-party visit counter), test plan with automated results (432 renders clean; T1–T7 scripted: T2 = 2 clicks), decision record, screenshots `docs/screenshots/t-733/`, `test_owner_home_prototype.py` in CI. People test: NOT STARTED (owner brings 3–4 people). S5 waits for the owner gate.
 
+## MVP Builder: one standard on both pages (owner 2026-11-27)
+
+- [x] T-742 MVP Builder projects: one read model and one vocabulary for the dashboard card and the full page, both live
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-27: «приведи к единому стандарту чтоб была синхронизация проектов на обеих страницах, все проекты попадающие в мвп билдер видны и там и там»)
+  Spec: DECISIONS.md «2026-11-27 — T-742». `mvp_factory.py` (`view_model`, `summary`, `LABELS`), `static/index.html` (MVP Builder card), `static/mvp-factory/index.html`.
+  Goal: the server computes per project the stage, status, progress (% and step of 9), next step (who acts, owner decision or not) and links once; both pages render only from it, with the same UK/RU/EN strings, and both re-read `/api/mvp-factory` (dashboard with its poll, full page every 30 s and on focus). Stage transitions, evidence rules and auth unchanged.
+  DONE: `python test_mvp_view.py`; `python test_mvp_factory.py`; `python test_locale_parity.py`; screenshots `docs/screenshots/t-742/` (375 px and desktop, both pages); default verification; CI green.
+  Audit 2026-11-27: both pages already read the same endpoint and the same project set (the server has no hidden/archived filter; Launchpad, experiments and evolution live on the same registry record; the Faceless CRM intake and request-only projects are registry projects too). They disagreed only in page-side wording and logic: next step for preview_ready/owner_review («Ваша проверка превью» vs «Ваше решение · Owner»), spec_review shown as «В очереди на сборку · Claude Builder» although the spec approval is the owner's, progress as a bar vs «/ 100» segments, CRM/Release Guardian/Launchpad/Evolution links on one page only, and different QA/CRM labels.
+
 ## Worker reliability (MyCast incident, owner 2026-11-25)
 
 - [x] T-738 Owner alert in Telegram when the Claude worker stops sending heartbeats, and when it is back

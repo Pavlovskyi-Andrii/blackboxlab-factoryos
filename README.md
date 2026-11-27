@@ -27,6 +27,15 @@ v5.8.0 and v5.9.0 below were written on 2026-11-16 from the merged PRs of their 
 during that time. v5.9.0 ends at #252 (2026-11-08); the later merges of that day (#266, #288, #290–#295) and
 #297, #298 are in v5.10.0.
 
+### v5.21.0 — MVP Builder: one standard on the dashboard and the full page — 2026-11-25 … 2026-11-27
+
+- MVP Builder (T-742): the dashboard card and the full MVP Builder page show every project the same way, from one server read model: the same stage name, progress (`% · шаг N из 9`), next step with who acts («нужно ваше решение» on the owner's steps, including spec approval) and links, in UK/RU/EN. The full page now refreshes by itself every 30 s and when you come back to the tab.
+- MyCast: chapter timecodes in the Telegram caption (#484).
+- Media Finisher: signed file links work without `FINISHER_API_TOKEN` (#485).
+- Ops relay live on EC2 (T-740-H, #489, #490); the ops agent and the mods runtime pass the auth middleware with worker tokens (#486); MCP `ops_health` shows the worker, Telegram and delivery state to Claude (#487).
+- Relay Claude runs may use ToolSearch and the FactoryOS Surfer MCP tools (T-741, #481); Surfer queue verdict `fallback_serving` (T-728, #479).
+- Owner confirmations recorded in ROADMAP: T-592-H, T-593-H (#491).
+
 ### v5.20.0 — Ops relay: Claude checks and restarts the EC2 workers; Surfer queue cannot stall silently — 2026-11-23 … 2026-11-25
 
 - Ops relay (T-740, #478): Claude (lane key only) asks FactoryOS for a fixed EC2 operation — worker status, logs, host state, restart of the Surfer or Claude worker, fast-forward of the worker checkout, re-applying the Surfer unit — and a root agent on EC2 pulls it every 30 s and runs it without a shell (60 s, 32 KB, secrets redacted). Off until `FACTORY_OPS_RELAY_ENABLED=1`; 30 ops and 6 restarts per worker per day; every request in Worker Center → «Ops relay»; restarts notify the owner in Telegram. One owner step: T-740-H.

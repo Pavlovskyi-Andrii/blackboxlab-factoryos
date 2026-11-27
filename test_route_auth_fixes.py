@@ -142,7 +142,10 @@ class RouteAuthFixes(unittest.TestCase):
         self.assertNotIn(b"own_experience", page)
         self.assertIn(b"get('project')||'mycast'", page)
         status, cards = call("GET", "/static/mvp-factory/index.html")
-        self.assertIn(b"launchpad.html?project='+encodeURIComponent(p.id)", cards)
+        self.assertIn(b"(v.links||[])", cards)   # T-742: project links come from the shared read model
+        status, snap = call("GET", "/api/mvp-factory", cookie=self.owner)
+        mycast = next(p for p in json.loads(snap)["projects"] if p["id"] == "mycast")
+        self.assertIn("/static/mvp-factory/launchpad.html?project=mycast", [l["href"] for l in mycast["view"]["links"]])
 
 
 class StaticDirectoryIndexTest(unittest.TestCase):
