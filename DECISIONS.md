@@ -2758,3 +2758,11 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   still strips paid API keys; the server-side Surfer gate (owner flag, allowlist, caps, `needs_owner_confirmation`
   for publish/pay/delete) is the real barrier and no MCP tool confirms on the owner's behalf.
 - Tests: `test_relay_mcp_tools.py` (imported by `test_relay_execution.py`).
+
+## 2026-11-27 — Worker-token routes for the ops agent and the mods runtime pass the auth middleware
+
+- `/api/ops/worker/*` (T-740 ops agent) and `/api/mods/worker/*` (mods runtime) check the worker token inside the
+  route, but the session middleware answered 401 "authentication required" first whenever `FACTORY_PASSWORD` is set
+  (production). Route tests called the handlers directly, so nothing caught it: once T-740-H was done every ops
+  request would have expired as "agent offline". Both prefixes now pass the middleware only with the Claude worker
+  token, like `/api/relay/worker/`; a session cookie or a wrong token is still 401 (`test_route_auth_fixes.py`).
