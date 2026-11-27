@@ -2777,3 +2777,23 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   endpoint/token presence (booleans). It reads in-memory state and two small files; it never sends anything.
 - Not done: giving the Telegram bot token to a cloud session (it could read and post as the bot; the server already
   holds it), or a "send a test message" tool (an outward action; the owner can press "Test" in Settings).
+## 2026-11-27 — Media Finisher signs file links even without an API token
+
+- Owner: `FINISHER_API_TOKEN` is not set on Render. After #442 a worker without a token (and without the shared
+  `FACTORY_MEDIA_FINISHER_SHARED_TOKEN` from the Blueprint env group) refused every file, so FactoryOS could not
+  download finished videos. The signing key is now the token, or else a random 64-hex key the worker creates once in
+  its persistent disk (`.file-signing-key`, mode 600). Links stay one-file, one-job, expiring; a bare `/files/...`
+  URL is still 403. Not chosen: reopening files publicly (user videos are private) or editing Render env vars
+  (owner-only). Without a token `/jobs` itself stays unauthenticated as before — setting the token is still advised.
+## 2026-11-27 — MyCast chapter timecodes
+
+- Owner: "Утренний подкаст пришел, но тайм-кодов нет, их нужно добавить." The script writer now returns
+  `chapters` (`{"line", "title"}`, line = index into `lines`); `mycast_chapters.py` validates them (a broken entry is
+  dropped, never the episode; fewer than two → no timecodes) and formats `M:SS Title` lines, which Telegram makes
+  clickable in an audio caption.
+- Gemini path: one TTS call per ~2800-character chunk, so a chunk's start is exact and a line inside a chunk is
+  placed by its share of the chunk's characters — a few seconds off at most. Re-chunking at every chapter would be
+  exact but costs extra calls against the free-tier quota, so it was not done.
+- Piper path: each line is its own WAV plus a fixed pause, so starts are exact; the renderer writes
+  `<id>.chapters.txt` next to the MP3 in the artifact, and the worker puts it between the title and the source list
+  (Telegram keeps 1000 caption characters, so sources are what gets cut, never the timecodes).

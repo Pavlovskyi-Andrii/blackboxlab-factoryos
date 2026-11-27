@@ -466,7 +466,8 @@ jobs:
           python -m autopilot.test_owner_questions
           python -m py_compile telegram_web_compare.py test_telegram_web_compare.py
           python test_telegram_web_compare.py
-          python -m py_compile mycast.py test_mycast.py autopilot/mycast_daily.py autopilot/test_mycast_daily.py
+          python -m py_compile mycast.py mycast_chapters.py test_mycast.py test_mycast_chapters.py autopilot/mycast_daily.py autopilot/test_mycast_daily.py
+          python test_mycast_chapters.py
           python test_mycast.py
           python -m autopilot.test_mycast_daily
           python -m py_compile tools/mycast_render.py tools/test_mycast_render.py
