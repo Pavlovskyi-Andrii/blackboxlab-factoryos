@@ -3,8 +3,9 @@
 Contract `film-studio/narration/v1` (a JSON file next to the WAV lines, kept private with the render):
 
     {"schema": "film-studio/narration/v1", "project_id": "...",
-     "voice": {"source": "piper" | "owner_recording", "model": "ru_RU-dmitri-medium", "model_sha256": "...",
-               "dataset_licence": "CC0", "model_url": "https://...", "consent": "...", "notes": "..."},
+     "voice": {"source": "piper" | "owner_recording" | "voice_clone", "model": "ru_RU-dmitri-medium",
+               "model_sha256": "...", "dataset_licence": "CC0", "model_licence": "...", "model_url": "https://...",
+               "reference_sha256": "...", "consent": "...", "notes": "..."},
      "lines": {"s01": {"path": "s01.wav", "sha256": "..."}, ...}}
 
 Each line starts `LEAD_SEC` after its shot starts and must end before the shot ends (no line runs into the next
@@ -26,7 +27,7 @@ from .plan import sha256_file
 from .schema import ValidationError
 
 SCHEMA_NARRATION = "film-studio/narration/v1"
-SOURCES = ("piper", "owner_recording")
+SOURCES = ("piper", "owner_recording", "voice_clone")
 LEAD_SEC = 0.25          # the line starts this long after the cut
 TAIL_GAP_SEC = 0.2       # and ends at least this long before the next one
 _SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -62,6 +63,14 @@ def load(path: Path, plan: Dict[str, Any]) -> Dict[str, Any]:
                 errors.append(f"voice.{k}: required for a synthesized voice")
         if voice.get("model_sha256") and not _SHA.match(str(voice["model_sha256"])):
             errors.append("voice.model_sha256: 64 lowercase hex characters")
+    elif voice["source"] == "voice_clone":
+        # A cloned voice is the owner's own voice, synthesized: the model, its licence, the reference recording and
+        # the owner's consent are all part of the receipt.
+        for k in ("model", "model_licence", "model_url", "reference_sha256", "consent"):
+            if not voice.get(k):
+                errors.append(f"voice.{k}: required for a cloned voice")
+        if voice.get("reference_sha256") and not _SHA.match(str(voice["reference_sha256"])):
+            errors.append("voice.reference_sha256: 64 lowercase hex characters")
     elif not voice.get("consent"):
         errors.append("voice.consent: an owner recording needs the owner's consent note")
     shots = {s["shot_id"]: s for s in plan["shots"]}

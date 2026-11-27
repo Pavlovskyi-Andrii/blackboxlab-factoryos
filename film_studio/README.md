@@ -67,6 +67,17 @@ H.264 + AAC), `frames/` (before / after every switch + contact sheet) and `qa_re
 (`faceless-ab/qa-receipt/v1`): ffprobe, full decode, 9:16, 25–40 s, frame count, loudness, black stretches, the burned-in
 «AI · SYNTHETIC DEMO» label, and per switch the mean change of the face area against hoodie and room (decoded frames).
 
+## Licensed photos from Wikimedia Commons (S3, T-744)
+
+```bash
+python -m film_studio.commons --out /private/assets --pick s01="File:Minato City, Tokyo, Japan (Night).jpg" ...
+```
+
+Licence, author and page come from the Commons API; only CC0 / public domain / CC BY are accepted. The step writes
+the JPEGs (standard 1920 px thumbnails), `commons_assets.json` (manifest entries with `substitutes_for`) and
+`credits.txt`. A cloned owner voice uses `"source": "voice_clone"` in `narration.json` with model, `model_licence`,
+`reference_sha256` and `consent`.
+
 ## Not in S1
 
 Narration audio input (S1 lays a silent AAC track and burns the narration in as captions), Media Finisher assembly

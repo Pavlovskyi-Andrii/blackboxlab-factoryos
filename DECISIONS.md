@@ -2810,6 +2810,23 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - **Decision:** the full page re-reads `/api/mvp-factory` every 30 s and when the tab gets focus or becomes visible, always: a half-filled event form keeps its text, retry key, focus and cursor across the re-render, and is cleared only after the server records the event (Codex review on #492: skipping the refresh left the page stale). Regression: `test_mvp_view_live.py` (real Chromium). The dashboard keeps its existing poll (≥ 15 s, from the main refresh).
 - **Decision:** «Faceless Models CRM» is a product name and stays the same in UK/RU/EN (`mvpb.crm` added to the locale-parity allowlist); «Проверка качества (QA)» is the single QA stage name.
 
+## 2026-11-27 — T-744 AI Film Studio S3: Commons photos, owner's cloned voice
+- Pexels stopped issuing API keys (owner, 2026-11-27) and its pages challenge data-centre sessions. Owner: «выбери
+  другой вариант». Chosen: Wikimedia Commons. No key, and its API returns each file's licence, author and page
+  (`extmetadata`). Unsplash/Pixabay/Flickr all need an account key. Hosts added to the environment with the owner's
+  approval: commons.wikimedia.org, upload.wikimedia.org.
+- Only CC0 / public domain / CC BY are accepted: no share-alike (would force the film's licence) and no non-commercial.
+  CC BY needs credits wherever the film is shown: `credits.txt` is written next to the render.
+- Commons refuses originals to data-centre clients (HTTP 429, «use thumbnail images in standard sizes»); the fetch step
+  uses the standard 1920 px thumbnail and backs off on 429. Fetching is a separate step; the renderer stays offline.
+- Voice: the owner sent voice samples (2026-11-24, 2026-11-27) after being offered «record the lines or allow cloning
+  for a private demo». XTTS-v2 (Coqui Public Model License: non-commercial) cloned from a 27.7 s reference made of both
+  samples; 4 takes per weak line, picked by offline ASR word match; trailing babble cut at the last word's timestamp;
+  tempo at most 1.09 to fit the shot. The receipt carries the model, licence, reference sha256 and the consent note.
+  The cloned voice is for the private demo only: publishing needs the owner's own recording or a commercial licence.
+- Title scrim (renderer `photo_cinema/2`): a fixed gradient overlay (top band 16 %, bottom 52 %) keeps the brand line,
+  titles and captions readable on bright photos; the version bump invalidates cached shot clips.
+
 
 ## 2026-11-27 — MC-04: listeners pick male or female voices, in any order
 

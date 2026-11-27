@@ -107,6 +107,16 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Result 2026-11-23: the 45 s film renders at 1920x1080 from original procedural stand-in stills (labelled «DEMO · иллюстрация, не фото»), silent AAC track + burned-in captions. Realistic-photo film and narration are blocked.
   Blocked (owner, not a roadmap task yet): the cloud session's network policy refuses www.pexels.com / images.pexels.com and huggingface.co (HTTP 403 from the agent proxy), so photo licences cannot be read and no offline RU voice can be fetched. To unblock: allow those hosts for the Claude cloud environment, or supply the 7 photos (owned/licensed stills, author + page URL + licence) and a narration recording, or approve a specific offline RU voice after its licence is read. Narration input itself is S2 work (S1 lays a silent track).
 
+- [x] T-744 AI Film Studio S3: licensed photos from Wikimedia Commons, narration in the owner's cloned voice, title scrim
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-27: Pexels stopped issuing API keys, «выбери другой вариант»; sent a second voice sample)
+  Depends: T-735
+  Spec: DECISIONS.md «2026-11-27 — T-744». `film_studio/commons.py` (fetch step), `narration.py` source `voice_clone`, `render.py` title scrim (renderer `photo_cinema/2`), QA milestone `realistic_photo_film` PASS for verified photos.
+  Goal: stock shots come from Wikimedia Commons with licence, author and page read from the Commons API (CC0 / public domain / CC BY only, no share-alike or non-commercial), standard 1920 px thumbnails, credits file for CC BY; the owner's narration is synthesized from his own samples with a named model, its licence, the reference hash and his consent in the receipt; a scrim keeps titles readable on bright photos.
+  DONE: `python test_film_studio.py` (32 tests: Commons licence parsing and refusals, resumable fetch without network, cloned-voice contract, scrim), default verification.
+  Result 2026-11-27: private film v3 QA PASS (1920x1080, 24 fps, 1080 frames, -16.2 LUFS / -1.9 dBTP): s01–s06 Commons photos (2 × CC BY 2.0, 1 × CC BY 4.0, 3 × CC0), s07 owner portrait, narration in the owner's cloned voice (XTTS-v2, Coqui Public Model License: non-commercial; best of 4 takes per line by offline ASR, 98 % word match). Sent to the owner only with credits.txt; not in git, not published.
+  Not done: s07 narration omits the words «FactoryOS. Blackbox Lab» (the model mangles the English brand; the title shows it). A public or commercial version needs the owner's own recording or a commercially licensed voice, plus the photo credits on screen or in the description.
+
 - [x] T-735 AI Film Studio S2: narration lines per shot (offline Piper voice or owner recording), loudness-normalised mix, owner photo substitutes a stock shot
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-24: allowed Pexels + Hugging Face for the environment, sent a portrait and a voice sample)
