@@ -927,8 +927,14 @@ async def web_open(store: ActionStore, gate: Any, args: dict, lane: str, **kw) -
         entry = policy.match(allow, policy.host_of(url)) or {}
         login = str(args.get("session") or "").strip() or str(entry.get("login") or "")
         if login and (not LOGIN_RE.fullmatch(login) or login != str(entry.get("login") or "")):
+            asked = getattr(gate, "request_binding", lambda *_a: None)(entry.get("pattern") or "", login, lane)
+            store.audit(who=lane, lane=lane, action="open", url=policy.log_url(url), result="refused",
+                        blocker="login_not_bound", element=login if asked else None)
             raise HTTPException(403, "this saved login is not bound to the site by the owner"
-                                     + (f"; the site's login is {entry['login']}" if entry.get("login") else ""))
+                                     + (f"; the site's login is {entry['login']}" if entry.get("login") else "")
+                                     + ("; the request is on the owner's Surfer page (/static/surfer/index.html): "
+                                        "one press on «Bind» there, then web_open signs in by itself from the vault"
+                                        if asked else ""))
         gate.count("session")
         agent = str(args.get("agent") or "").strip()
         session, step = store.create_session(lane=lane, agent=agent if AGENT_RE.fullmatch(agent) else "", url=url,

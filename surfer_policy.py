@@ -35,6 +35,8 @@ MAX_ENTRIES = 40
 LANES = ("claude", "chatgpt", "gemini")
 ENTRY_ID_RE = re.compile(r"^al_[0-9a-f]{12}$")
 UPLOAD_ID_RE = re.compile(r"^su_[0-9a-f]{12}$")
+BINDING_REQUEST_RE = re.compile(r"^br_[0-9a-f]{12}$")
+MAX_BINDING_REQUESTS = 10
 LOGIN_RE = re.compile(r"^([a-z0-9][a-z0-9_.-]{0,39})/([\w.@+ -]{1,80})$")
 UPLOAD_TYPES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".txt", ".pdf", ".mp4", ".mov", ".csv"})
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -108,6 +110,7 @@ class PolicyGate:
         data.setdefault("paused", False)
         data.setdefault("usage", {})
         data.setdefault("uploads", [])
+        data.setdefault("binding_requests", [])
         return data
 
     def _save(self, data: dict) -> None:
@@ -267,6 +270,7 @@ class PolicyGate:
                 data["allow"].append(entry)
             entry.update(pattern=pattern, classes=classes, enabled=body.get("enabled") is True, login=login,
                          note=note, updated=int(self.clock()))
+            data["binding_requests"] = [r for r in data["binding_requests"] if r["pattern"] != pattern]
             self._save(data)
             return dict(entry)
 
@@ -276,7 +280,43 @@ class PolicyGate:
             keep = [e for e in data["allow"] if e["id"] != entry_id]
             if len(keep) == len(data["allow"]):
                 return False
+            gone = {e["pattern"] for e in data["allow"] if e["id"] == entry_id}
             data["allow"] = keep
+            data["binding_requests"] = [r for r in data["binding_requests"] if r["pattern"] not in gone]
+            self._save(data)
+            return True
+
+    # --- an agent asks the owner to bind a saved login to a site (T-745) ------------------------------------------
+    def request_binding(self, pattern: str, login: str, lane: str) -> Optional[dict]:
+        """Note that an agent asked for a saved vault login on an enabled site that has no such binding. It grants
+        nothing: only the owner's save on the Surfer page binds it. One request per site, newest login wins."""
+        if not LOGIN_RE.fullmatch(str(login or "")) or login not in self.logins() or lane not in LANES:
+            return None
+        with self.lock:
+            data = self._load()
+            entry = next((e for e in data["allow"] if e["pattern"] == pattern and e.get("enabled")), None)
+            if not entry or entry.get("login") == login:
+                return None
+            rows = [r for r in data["binding_requests"] if r["pattern"] != pattern]
+            old = next((r for r in data["binding_requests"] if r["pattern"] == pattern and r["login"] == login), None)
+            row = {"id": (old or {}).get("id") or "br_" + secrets.token_hex(6), "entry_id": entry["id"],
+                   "pattern": pattern, "login": login, "lane": lane,
+                   "asked": (old or {}).get("asked") or int(self.clock()), "last": int(self.clock()),
+                   "times": int((old or {}).get("times") or 0) + 1}
+            data["binding_requests"] = (rows + [row])[-MAX_BINDING_REQUESTS:]
+            self._save(data)
+            return dict(row)
+
+    def binding_requests(self) -> List[dict]:
+        return [dict(r) for r in self._load()["binding_requests"]]
+
+    def dismiss_binding_request(self, request_id: str) -> bool:
+        with self.lock:
+            data = self._load()
+            keep = [r for r in data["binding_requests"] if r["id"] != request_id]
+            if len(keep) == len(data["binding_requests"]):
+                return False
+            data["binding_requests"] = keep
             self._save(data)
             return True
 
@@ -348,7 +388,7 @@ def install_routes(app, *, gate: PolicyGate, store: Any, identity: Callable) -> 
     def state() -> dict:
         taken = {e["pattern"] for e in gate.entries()}
         return {"gate": gate.status(), "allow": gate.entries(), "logins": gate.logins(), "login_info": gate.login_info(),
-                "vault_ready": gate.vault_ready(),
+                "vault_ready": gate.vault_ready(), "binding_requests": gate.binding_requests(),
                 "classes": list(policy.ACTION_CLASSES),
                 "presets": [dict(p) for p in PRESETS if p["pattern"] not in taken]}
 
@@ -371,6 +411,14 @@ def install_routes(app, *, gate: PolicyGate, store: Any, identity: Callable) -> 
         if not ENTRY_ID_RE.fullmatch(entry_id) or not gate.remove_entry(entry_id):
             raise HTTPException(404, "unknown allowlist entry")
         store.audit(who="owner", action="allowlist_delete", element=entry_id)
+        return state()
+
+    @app.post("/api/factory/surfer/owner/policy/binding/{request_id}/dismiss")
+    def surfer_policy_binding_dismiss(request_id: str, request: Request):
+        owner(request)
+        if not BINDING_REQUEST_RE.fullmatch(request_id) or not gate.dismiss_binding_request(request_id):
+            raise HTTPException(404, "unknown binding request")
+        store.audit(who="owner", action="binding_request_dismiss", element=request_id)
         return state()
 
     @app.post("/api/factory/surfer/owner/policy/pause")

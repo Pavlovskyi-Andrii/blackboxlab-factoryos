@@ -160,6 +160,20 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Progress 2026-11-23: the flag is on («Действия включены»), github.com is enabled with all classes. First live session (Claude lane, `web_open` on the public repo page) ran on the EC2 worker, but stopped as «waiting for you: 2fa» because the README text mentions SMS codes and the page has a «Go to file» box. Fixed: a code prompt now needs a field that looks like the code box. Login choices on the page are explained (vault password / sign in once and save / browser session file), and a new login name can be bound so the owner signs in once with Take over and saves it. Live rerun after the deploy.
   Verified 2026-11-23 on v5.18.0: a live session (Claude lane) opened the public repo page on github.com with status `done` (no false code wall), clicked the Issues tab and closed; the steps are in the action log. The click snapshot showed the old page because GitHub changes the URL in-page after the click; a link click now waits for that (fixture test `SoftNavigationTest`, v5.18.1).
 
+- [x] T-745 Surfer signs in to a bound site again by itself after idle_timeout; an unbound login becomes one owner request
+  Owner: claude
+  Priority: P1
+  Depends: T-721, T-722, T-560-F
+  Spec: Relay R-0112 (chatgpt, 2026-11-27); DECISIONS.md «2026-11-27 — T-745». `surfer_policy.py`, `surfer_actions.py`, `static/surfer/index.html`.
+  Goal: after `idle_timeout` a new `web_open` on a site whose allowlist entry names a vault login restores the saved browser session (falls back to one vault-password try when it expired); asking for a login the owner did not bind is refused with audit `login_not_bound` and leaves one deduplicated request with a «Bind» button on the Surfer page. A request grants nothing; codes, captchas and failed logins still wait for the owner.
+  DONE: `python test_surfer_policy.py` (idle → fresh session → signed in; expired → vault password once; unbound → 403 + one request, no session, no secret; other login keeps the binding; dismiss), `python test_surfer_owner.py` (page routes + inline JS), `python test_surfer_actions.py`.
+
+- [ ] [HUMAN] T-745-H Bind the FactoryOS login to the FactoryOS site on the Surfer page (once)
+  Owner: human
+  Depends: T-745
+  Need: on `/static/surfer/index.html` press «Привязать» on the agent's request for `blackboxlab-factoryos.onrender.com` (or pick the saved login in that site's «вход из хранилища» and Save). If that login has no saved session or password yet, sign in once through Take over and press «Сохранить вход в хранилище».
+  DONE: an agent `web_open` on the FactoryOS page after an idle pause arrives signed in, without `waiting_human`.
+
 - [x] T-723 Surfer recipes: save a successful session as a parameterised recipe and replay it without AI
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P2

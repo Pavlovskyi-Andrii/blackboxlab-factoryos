@@ -320,6 +320,78 @@ class GatedSessionsTest(base.Harness):
             self.act(view, "click", "Sign in")
         self.assertNotIn("an-old-password-1", self.everything_stored())
 
+    def bound_site(self, login=LOGIN):
+        self.env[sp.FLAG_ENV] = "1"
+        return self.gate.save_entry({"pattern": "shop.example", "classes": ["read", "navigate", "fill", "submit"],
+                                     "enabled": True, "login": login})
+
+    def test_idle_timeout_then_a_fresh_session_signs_in_from_the_vault(self):
+        self.bound_site()
+        self.vault.states[("fixture", "main")] = {"cookies": [{"name": "sid", "value": "cookie-secret-745"}],
+                                                  "origins": []}
+        first = self.open("/account")
+        self.assertEqual((first["status"], first["title"]), ("done", "Account"))
+        self.clock.t += sa.IDLE_SECONDS + 5
+        self.runner.pump()
+        self.assertEqual(self.store.get(first["session_id"])["session"]["close_reason"], "idle_timeout")
+        self.site.signed_in = False                                    # the closed page took its cookies along
+        again = self.open("/account")                                  # no `session` argument: the site's binding
+        self.assertNotEqual(again["session_id"], first["session_id"])
+        self.assertEqual((again["status"], again["title"]), ("done", "Account"))
+        self.assertNotIn("wait_reason", again)
+        self.assertEqual(self.pw.contexts[-1].kwargs["storage_state"], self.vault.states[("fixture", "main")])
+        self.assertEqual(self.site.events, [])                         # no password typed, no owner asked
+        self.assertNotIn("cookie-secret-745", self.everything_stored() + json.dumps(again))
+
+    def test_expired_session_falls_back_to_the_vault_password_once(self):
+        self.bound_site()                                              # no saved browser session (expired)
+        view = self.open("/account")
+        self.assertEqual((view["status"], view["title"]), ("done", "Sign in"))
+        self.assertTrue(any(f"vault:{LOGIN}#password" in hint for hint in view.get("hints", [])))
+        self.act(view, "fill", "Email", value_from=f"vault:{LOGIN}#username")
+        self.act(view, "fill", "Password", value_from=f"vault:{LOGIN}#password")
+        out = self.act(view, "click", "Sign in")
+        self.assertEqual((out["status"], out["title"]), ("done", "Account"))
+        self.assertEqual(self.site.events, [{"event": "login", "ok": True}])
+        self.assertNotIn(fixture.PASSWORD, self.everything_stored() + json.dumps(out))
+
+    def test_unbound_login_is_a_controlled_blocker_with_one_request_for_the_owner(self):
+        self.env[sp.FLAG_ENV] = "1"
+        entry = self.gate.save_entry({"pattern": "shop.example", "classes": ["read", "navigate", "fill", "submit"],
+                                      "enabled": True})
+        for _ in range(3):                                             # an agent retrying does not pile up requests
+            with self.assertRaises(HTTPException) as err:
+                self.open("/account", session=LOGIN)
+            self.assertEqual(err.exception.status_code, 403)
+            self.assertIn("«Bind»", err.exception.detail)
+        rows = self.gate.binding_requests()
+        self.assertEqual([(r["pattern"], r["login"], r["lane"], r["times"]) for r in rows],
+                         [("shop.example", LOGIN, "claude", 3)])
+        self.assertEqual((self.store.list(), self.pw.launches, self.gate.usage()["sessions"]), ([], 0, 0))
+        self.assertEqual(self.gate.secret(f"vault:{LOGIN}#password"), "")      # a request grants nothing
+        self.assertIsNone(self.gate.storage_state(LOGIN))
+        audit = [r for r in self.store.audit_tail() if r.get("blocker") == "login_not_bound"]
+        self.assertEqual(len(audit), 3)
+        with self.assertRaises(HTTPException) as err:                  # a name the vault does not hold: no request
+            self.open("/account", session="nosuch/main")
+        self.assertNotIn("«Bind»", err.exception.detail)
+        self.assertEqual(len(self.gate.binding_requests()), 1)
+        self.gate.save_entry({**entry, "login": LOGIN})                # the owner's one press
+        self.assertEqual(self.gate.binding_requests(), [])
+        self.vault.states[("fixture", "main")] = {"cookies": [], "origins": []}
+        self.assertEqual(self.open("/account")["title"], "Account")
+
+    def test_a_site_bound_to_another_login_names_it_and_keeps_it(self):
+        self.vault.creds[("other", "main")] = {"username": "x", "password": "other-password-1"}
+        self.bound_site()
+        with self.assertRaises(HTTPException) as err:
+            self.open("/account", session="other/main")
+        self.assertIn(f"the site's login is {LOGIN}", err.exception.detail)
+        self.assertEqual(self.gate.entries()[0]["login"], LOGIN)
+        self.assertEqual([r["login"] for r in self.gate.binding_requests()], ["other/main"])
+        self.assertTrue(self.gate.dismiss_binding_request(self.gate.binding_requests()[0]["id"]))
+        self.assertEqual(self.gate.binding_requests(), [])
+
     def test_sms_code_step_waits_for_the_owner(self):
         self.env[sp.FLAG_ENV] = "1"
         self.site.sms_step = True
@@ -351,6 +423,9 @@ class RealAppTest(unittest.TestCase):
         data = self.c.get("/api/factory/surfer/owner/policy").json()
         self.assertEqual((data["gate"]["enabled"], data["gate"]["flag"], data["allow"]), (False, False, []))
         self.assertEqual(len(data["presets"]), len(sp.PRESETS))
+        self.assertEqual(data["binding_requests"], [])
+        self.assertEqual(self.c.post("/api/factory/surfer/owner/policy/binding/br_000000000000/dismiss").status_code,
+                         404)
         self.assertEqual(data["classes"], ["read", "navigate", "fill", "submit", "upload"])
 
     def test_2_allowlist_pause_and_vault_adapter(self):
@@ -402,7 +477,7 @@ class RealAppTest(unittest.TestCase):
         for route in probe.routes:
             if not getattr(route, "path", "").startswith("/api/factory/surfer/owner/"):
                 continue
-            kwargs = {name: "x" for name in ("entry_id", "step_id", "decision") if "{" + name + "}" in route.path}
+            kwargs = {name: "x" for name in ("entry_id", "step_id", "decision", "request_id") if "{" + name + "}" in route.path}
             with self.assertRaises(HTTPException) as err:
                 result = route.endpoint(request=None, **kwargs)
                 if asyncio.iscoroutine(result):
