@@ -118,7 +118,7 @@ class StoreTest(Base):
         self.assertEqual(len(set(pairs)), len(cities))
         self.assertEqual(len({v for p in pairs for v in p}), 2 * len(cities))           # no voice is reused either
         for pair in pairs:
-            self.assertTrue(mycast_voices.valid_voices("two_hosts", list(pair)), pair)
+            self.assertTrue(mycast_voices.classic_pair(list(pair)), pair)
         self.assertEqual(mda.city_voices({"voices": ["Kore", "Charon"]}), ["Charon", "Kore"])   # a wrong pair: the default
         self.assertEqual(mda.city_voices({}), ["Charon", "Kore"])
         want = dict((c["id"], c["voices"]) for c in cities)

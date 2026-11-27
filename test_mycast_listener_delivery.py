@@ -54,6 +54,7 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual(p["topics"], ["Професійний бокс (Україна)", mld.TOPICS[40][1] + " (world)"])
         self.assertEqual((p["timezone"], p["time"], p["frequency"], p["duration_min"]), ("Europe/Kyiv", "07:30", "daily", 5))
         self.assertEqual((p["language"], p["mode"], p["voices"]), ("uk", "two_hosts", ["Charon", "Kore"]))
+        self.assertEqual(p["voice_genders"], ["m", "f"])
         import base64 as b64
         raw = json.loads(b64.urlsafe_b64decode(CODE + "=="))
         raw["s"][4] = 25                                          # any whole minute up to 30 (owner 2026-11-13)
@@ -408,6 +409,14 @@ class WorkerTest(unittest.TestCase):
         self.assertIn("Професійний бокс (Україна)", prompt)
         self.assertIn("українською", prompt)
         self.assertIn("700 words", prompt)
+        self.assertIn('Host "A" speaks with a male voice and host "B" with a female voice', prompt)   # Charon + Kore
+        # MC-04: any genders, either order; the writer is told who sounds how (Ukrainian and Russian verbs agree).
+        two_women = dict(self.item["profile"], voices=["Kore", "Leda"], voice_genders=["f", "f"])
+        self.assertIn('Host "A" speaks with a female voice and host "B" with a female voice',
+                      ml.build_prompt(dict(self.item, profile=two_women)))
+        solo = dict(self.item["profile"], mode="narrator", voices=["Kore"], voice_genders=["f"])
+        self.assertIn("The narrator speaks with a female voice", ml.build_prompt(dict(self.item, profile=solo)))
+        self.assertNotIn("speaks with", ml.build_prompt(dict(self.item, profile=dict(solo, voice_genders=[]))))
         script = {"title": "t", "sources": [{"title": "s", "url": "https://x", "date": "2026-11-13"}],
                   "lines": [["A", " ".join(["слово"] * 60)], ["B", " ".join(["слово"] * 60)]] * 3}
         cli_out = json.dumps({"result": json.dumps(script, ensure_ascii=False)})

@@ -109,7 +109,10 @@ class VoicesTest(unittest.TestCase):
             svc.start([{"host": "A", "text": INTRO + " Solo."}], "uk", "c", ["Charon"])
             self.assertEqual(seen, [("two", ("Puck", "Leda")), ("two", ("Orus", "Kore")), ("one", "Charon")])
             self.assertTrue(svc.start(LINES, "uk", "c", ["Puck", "Leda"])["cached"])
-            for bad in (["Kore", "Puck"], ["Puck", "Puck"], ["Nobody", "Kore"], ["Kore"]):
+            svc.start(LINES, "uk", "c", ["Kore", "Puck"])                    # MC-04: either order, any genders
+            svc.start([{"host": "A", "text": INTRO + " Solo."}], "uk", "c", ["Kore"])   # a female narrator
+            self.assertEqual(seen[-2:], [("two", ("Kore", "Puck")), ("one", "Kore")])
+            for bad in (["Puck", "Puck"], ["Nobody", "Kore"], ["Nobody"]):
                 with self.assertRaises(DemoRefused):
                     svc.start([{"host": "A", "text": INTRO + " x"}] if len(bad) == 1 else LINES, "uk", "c", bad)
 

@@ -33,6 +33,7 @@ _SPEC = json.loads((Path(__file__).parent / "static/mycast-configurator/topics.j
 TOPICS = _SPEC["topics"]                     # [id, uk, ru, en] in configurator.js TOPIC_IDS order
 GROUPS = _SPEC["groups"]
 VOICE_NAMES = {v[0] for v in _SPEC["gemini_voices"]}
+VOICE_GENDER = {v[0]: v[2] for v in _SPEC["gemini_voices"]}   # by ear; the script writer needs it for grammar
 LANG_COL = {"uk": 1, "ru": 2, "en": 3}
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 DURATIONS = tuple(range(1, 31))                 # configurator.js: any whole minute 1..30
@@ -57,7 +58,7 @@ def decode_profile(code: str) -> dict:
     mode = o[0] if o and o[0] in ("narrator", "two_hosts") else "two_hosts"
     voices = [v for v in (o[2] if len(o) > 2 and isinstance(o[2], list) else []) if v in VOICE_NAMES]
     voices = (voices or _SPEC["default_voices"][mode])[: 1 if mode == "narrator" else 2]
-    if mode == "two_hosts" and len(voices) < 2:
+    if mode == "two_hosts" and (len(voices) < 2 or voices[0] == voices[1]):
         voices = list(_SPEC["default_voices"]["two_hosts"])
     topics = []
     for row in data.get("t") if isinstance(data.get("t"), list) else []:
@@ -88,7 +89,8 @@ def decode_profile(code: str) -> dict:
     calendar = {"birthdays": bool(k[0]) if k else False, "events": bool(k[1]) if len(k) > 1 else False}
     return {"topics": topics, "custom": custom, "follows": follows, "free_text": str(data.get("x") or "")[:120],
             "timezone": tz, "time": at, "frequency": freq, "days": days, "duration_min": duration,
-            "language": lang, "mode": mode, "voices": voices, "calendar": calendar}
+            "language": lang, "mode": mode, "voices": voices, "voice_genders": [VOICE_GENDER[v] for v in voices],
+            "calendar": calendar}
 
 
 def _local(profile: dict, now: float) -> datetime:

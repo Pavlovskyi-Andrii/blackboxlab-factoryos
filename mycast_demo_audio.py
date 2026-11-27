@@ -102,7 +102,7 @@ def city_voices(demo: dict) -> list:
     valid two-host pair of the catalogue (first male-by-ear, second female-by-ear) falls back to the default pair."""
     import mycast_voices
     pair = demo.get("voices")
-    return list(pair) if mycast_voices.valid_voices("two_hosts", pair) else list(DEFAULT_VOICES)
+    return list(pair) if mycast_voices.classic_pair(pair) else list(DEFAULT_VOICES)
 
 
 class DemoAudioStore:

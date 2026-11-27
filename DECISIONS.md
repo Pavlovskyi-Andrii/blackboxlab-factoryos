@@ -2810,3 +2810,15 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - **Decision:** the full page re-reads `/api/mvp-factory` every 30 s and when the tab gets focus or becomes visible, always: a half-filled event form keeps its text, retry key, focus and cursor across the re-render, and is cleared only after the server records the event (Codex review on #492: skipping the refresh left the page stale). Regression: `test_mvp_view_live.py` (real Chromium). The dashboard keeps its existing poll (≥ 15 s, from the main refresh).
 - **Decision:** «Faceless Models CRM» is a product name and stays the same in UK/RU/EN (`mvpb.crm` added to the locale-parity allowlist); «Проверка качества (QA)» is the single QA stage name.
 
+
+## 2026-11-27 — MC-04: listeners pick male or female voices, in any order
+
+- Owner brief 19.11 (MC-04 «чоловічі/жіночі голоси та мови»). Languages (uk/ru/en) already worked; voices did not:
+  the #281 rule allowed only a male narrator and a male host A + female host B. That rule was an implementation
+  choice, not an owner requirement.
+- Now `valid_voices`: narrator = any catalogue voice; two hosts = any two different voices. The configurator shows a
+  «Чоловічі / Жіночі» switch per slot (opens on the chosen voice's gender). The server sends `voice_genders` with
+  the listener profile, and the script writer is told which voice says each host's lines, because Ukrainian and
+  Russian verbs agree with the speaker.
+- Kept male A + female B (`classic_pair`) where the script has fixed genders: the owner's daily episode («Клод» /
+  «Джі-Пі-Ті», written by `autopilot/mycast_daily.py`) and the demo cities.
