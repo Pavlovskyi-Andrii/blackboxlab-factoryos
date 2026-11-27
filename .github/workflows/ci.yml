@@ -168,6 +168,8 @@ jobs:
           python test_worker_offline_alert.py
           python -m py_compile ops_catalog.py ops_relay.py autopilot/ops_agent.py test_ops_relay.py
           python test_ops_relay.py
+          python -m py_compile ops_health.py test_ops_health.py
+          python test_ops_health.py
           python -m py_compile mvp_cycle.py test_mvp_cycle.py
           python test_mvp_cycle.py
           python -m py_compile mvp_pipeline.py test_mvp_pipeline.py
