@@ -2811,6 +2811,13 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - **Decision:** «Faceless Models CRM» is a product name and stays the same in UK/RU/EN (`mvpb.crm` added to the locale-parity allowlist); «Проверка качества (QA)» is the single QA stage name.
 
 
+## 2026-11-27 — `ops_health` shows the latest Media Finisher jobs
+
+- The owner ran the video-editor acceptance (with Shorts) on production; the result lived only in the owner's
+  dashboard. `ops_health` now adds the 5 latest edit jobs: status, stage, Shorts requested / produced and their
+  lengths, durations before and after, QA verdict and the checks that did not pass (counts only, never the words),
+  render time, and the error with links replaced by `[link]` (signed links carry tokens). No media URLs, no
+  transcript text.
 ## 2026-11-27 — T-743 MyCast visit counter (#452 B-01)
 - Owner 2026-11-27: start implementation with the counter; the people test runs in parallel.
 - One JSON line per page view in `DATA_DIR/mycast_visits.jsonl`. The visitor is HMAC(daily random salt, IP|UA) cut to
