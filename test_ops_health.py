@@ -35,7 +35,7 @@ def test_snapshot():
                                      "seconds_ago": 3600}
     assert snap["ops_relay"] == {"enabled": False, "classes": ["read", "restart"], "agent_online": False,
                                  "agent_last_poll_at": None}
-    assert snap["media_finisher"] == {"endpoint_configured": True, "token_configured": False}
+    assert snap["media_finisher"] == {"endpoint_configured": True, "token_configured": False, "recent_jobs": []}
     never = ops_health.snapshot("claude", worker={}, telegram={}, deliveries=[], ops={}, finisher={}, now=NOW)
     assert never["claude_worker"]["last_seen_seconds_ago"] is None and never["deliveries"] == []
     for lane in ("chatgpt", "gemini", ""):
@@ -44,6 +44,39 @@ def test_snapshot():
             raise AssertionError("only the Claude lane may read ops_health")
         except PermissionError:
             pass
+
+
+def test_edit_jobs():
+    job = {"id": "3f2c9a1e-7b1d-4c55-9a51-0a1b2c3d4e5f", "status": "ready", "provider": "render-media-finisher",
+           "platform": "reels", "created_at": "2026-11-27T16:40:00Z", "updated_at": "2026-11-27T16:44:00Z",
+           "completed_at": "2026-11-27T16:44:00Z", "output_url": "https://media.example/files/x/final.mp4?exp=1&sig=abc",
+           "error": "download failed https://media.example/files/x/final.mp4?exp=1&sig=SIGNED for ghp_SECRETSECRET1234",
+           "request": {"options": {"split_shortform": True, "edit_full_video": True}},
+           "response": {"stage": "done", "percent": 100},
+           "report": {"edit_summary": {"duration_before_sec": 48.21, "duration_after_sec": 41.0, "removed_segments": 4,
+                                       "filler_segments_removed": 2, "graphics_engine": "remotion"},
+                      "transcript_words": [{"word": "приватне слово"}],
+                      "qa_report": {"overall": "warn", "checks": [
+                          {"id": "final_decodes", "status": "pass"},
+                          {"id": "words_at_cuts", "status": "fail", "lost_words": ["приватне"], "clipped_words": []},
+                          {"id": "voice_loudness", "status": "warn", "measured_lufs": -19.2, "target_lufs": -16}]},
+                      "shorts_manifest": {"enabled": True, "clips": [{"duration_sec": 20.5, "url": "https://x/short-01.mp4"},
+                                                                      {"duration_sec": 18}]},
+                      "render_metrics": {"wall_sec": 212.4, "realtime_factor": 4.41}}}
+    snap = ops_health.snapshot("claude", worker={}, telegram={}, deliveries=[], ops={}, finisher={"endpoint": "x"},
+                               known_secrets=lambda: ["ghp_SECRETSECRET1234"], now=NOW, edit_jobs=[job, "junk"])
+    jobs = snap["media_finisher"]["recent_jobs"]
+    assert len(jobs) == 1
+    one = jobs[0]
+    assert one["id"] == "3f2c9a1e-7b1" and one["status"] == "ready" and one["stage"] == "done" and one["percent"] == 100
+    assert one["shorts_requested"] and one["shorts"] == {"enabled": True, "clips": 2, "clip_seconds": [20.5, 18.0]}
+    assert one["duration_before_sec"] == 48.21 and one["duration_after_sec"] == 41.0 and one["qa_overall"] == "warn"
+    assert one["qa_flagged"] == [{"id": "words_at_cuts", "status": "fail", "lost_words": 1, "clipped_words": 0},
+                                 {"id": "voice_loudness", "status": "warn", "measured_lufs": -19.2, "target_lufs": -16}]
+    assert one["render_wall_sec"] == 212.4 and one["error"].startswith("download failed [link]")
+    text = json.dumps(snap, ensure_ascii=False)
+    for leak in ("приватне", "https://", "sig=", "ghp_SECRET", "short-01"):
+        assert leak not in text, leak                                  # no words, links, signatures or secrets
 
 
 def test_mcp_route():
@@ -86,5 +119,6 @@ def test_mcp_route():
 
 if __name__ == "__main__":
     test_snapshot()
+    test_edit_jobs()
     test_mcp_route()
     print("ops_health tests passed")
