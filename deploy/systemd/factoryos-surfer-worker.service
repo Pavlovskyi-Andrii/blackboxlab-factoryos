@@ -7,8 +7,10 @@
 Description=FactoryOS Surfer worker (browser tasks, anonymous Chromium, one at a time)
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=600
-StartLimitBurst=5
+# T-728: a burst of planned exits (code update, self-watchdog) must not hit the start limit (2026-11-25: 5 exits in
+# ~1 min → start-limit-hit → no Surfer). 20 starts per 15 min; past that the root supervisor resets and retries.
+StartLimitIntervalSec=900
+StartLimitBurst=20
 
 [Service]
 Type=simple
@@ -21,7 +23,7 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 -m autopilot.browser_worker
 # Always: it also exits 0 on purpose when the runner code changed on disk, to come back on the new code.
 Restart=always
-RestartSec=10s
+RestartSec=15s
 # SIGTERM lets the current task finish (a task is bounded at ~90 s) before the worker exits.
 KillMode=mixed
 TimeoutStopSec=180

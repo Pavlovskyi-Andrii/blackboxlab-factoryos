@@ -50,6 +50,23 @@ refused. An owner recording uses `"source": "owner_recording"` with a `consent` 
 shot with a manifest asset `"source_type": "owner_supplied"`, `"url": "owner://…"`, `"substitutes_for": "<storyboard
 asset id>"`. Owner photos and voice stay in the private directory, never in git.
 
+## Faceless Creator A/B (T-737, issue #469)
+
+A private 9:16 clip in which one clothed synthetic presenter changes her fictional face in a snap while body, hoodie,
+room and voice stay the same. Everything is drawn or synthesised by `face_switch.py` (no third-party media, no real
+person); voice = local espeak-ng when installed. About two minutes per clip on two CPUs.
+
+```bash
+python -m film_studio.face_switch --variant A --out /private/faceless/a-v1     # privacy angle
+python -m film_studio.face_switch --variant B --out /private/faceless/b-v1     # creative-control angle
+python test_face_switch.py
+```
+
+Output: `brief.json`, `script.json` (timed lines and switches), `render_plan.json`, `video.mp4` (1080x1920, 30 fps,
+H.264 + AAC), `frames/` (before / after every switch + contact sheet) and `qa_receipt.json`
+(`faceless-ab/qa-receipt/v1`): ffprobe, full decode, 9:16, 25–40 s, frame count, loudness, black stretches, the burned-in
+«AI · SYNTHETIC DEMO» label, and per switch the mean change of the face area against hoodie and room (decoded frames).
+
 ## Not in S1
 
 Narration audio input (S1 lays a silent AAC track and burns the narration in as captions), Media Finisher assembly

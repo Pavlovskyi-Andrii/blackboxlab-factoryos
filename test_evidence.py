@@ -51,7 +51,8 @@ class RulesTest(Base):
         other, _ = self.store.create("Write a memo", owner="chatgpt")
         self.assertEqual(other["verification"]["required_level"], "linked")
         self.assertEqual(set(evidence.RULES), {"code", "mycast", "telegram", "publish", "other",
-                                               "market", "lead", "usage", "payment", "outreach", "spend"})   # T-704 Launchpad types
+                                               "market", "lead", "usage", "payment", "outreach", "spend",   # T-704 Launchpad types
+                                               "answer"})                                                   # T-736 agent requests
         self.assertEqual(evidence.RULES["publish"]["required_level"], "accepted")
 
     def test_t11_worker_cannot_write_its_own_verdict(self):

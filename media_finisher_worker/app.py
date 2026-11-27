@@ -1,8 +1,10 @@
 import hashlib
+import hmac
 import json
 import math
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -67,15 +69,55 @@ class JobRequest(BaseModel):
     guardrails: dict[str, Any] = {}
 
 
+JOB_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}")
+FILE_URL_TTL_SEC = max(60, int(os.environ.get("FINISHER_FILE_URL_TTL_SEC", str(24 * 3600))))
+# Local development only: serve files without any link check.
+ALLOW_PUBLIC_FILES = os.environ.get("FINISHER_ALLOW_PUBLIC_FILES", "").strip().lower() in ("1","true","yes","on")
+
+
+def _signing_key() -> str:
+    """Key for signed file links: the API token, or else a random key kept on the worker's disk (owner 2026-11-27:
+    FINISHER_API_TOKEN is not set on Render). Without it every file was refused after #442; with it a link still
+    opens one file of one job until it expires, and nobody outside the worker knows the key."""
+    if API_TOKEN:
+        return API_TOKEN
+    path = DATA_DIR / ".file-signing-key"
+    try:
+        key = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        key = ""
+    if len(key) < 32:
+        key = secrets.token_hex(32)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(key, encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.replace(path)
+    return key
+
+
+SIGNING_KEY = _signing_key()
+
+
+def _bearer_ok(request: Request) -> bool:
+    supplied = (request.headers.get("authorization") or "").replace("Bearer ", "", 1).strip()
+    return bool(API_TOKEN) and hmac.compare_digest(supplied.encode(), API_TOKEN.encode())
+
+
 def _auth(request: Request):
     if not API_TOKEN:
         return
-    supplied = (request.headers.get("authorization") or "").replace("Bearer ", "", 1).strip()
-    if supplied != API_TOKEN:
+    if not _bearer_ok(request):
         raise HTTPException(401, "Invalid Media Finisher API token")
 
 
+def _file_signature(job_id: str, filename: str, expires: int) -> str:
+    """HMAC of one file of one job until one moment: the link opens that file only, and only until it expires."""
+    return hmac.new(SIGNING_KEY.encode(), f"{job_id}/{filename}/{expires}".encode(), hashlib.sha256).hexdigest()[:40]
+
+
 def _job_dir(job_id: str) -> Path:
+    if not JOB_ID_RE.fullmatch(str(job_id or "")):
+        raise HTTPException(400, "Bad job id")       # never a path: no dots, no slashes
     path = DATA_DIR / job_id
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -483,7 +525,7 @@ def _write_ass_overlays(captions: list[dict], graphics: list[dict], path: Path, 
     layout=qa_checks.ass_layout(width,height,zones or {})
     cap_size=layout["caption_font"];gfx_size=layout["graphic_font"];side=layout["margin_h"]
     lines=[
-      "[Script Info]",f"PlayResX: {width}",f"PlayResY: {height}","WrapStyle: 2","ScaledBorderAndShadow: yes","",
+      "[Script Info]",f"PlayResX: {width}",f"PlayResY: {height}","WrapStyle: 0","ScaledBorderAndShadow: yes","",
       "[V4+ Styles]",
       "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
       f"Style: Caption,DejaVu Sans,{cap_size},&H00FFFFFF,&H0000FFFF,&H80000000,&H70000000,-1,0,0,0,100,100,0,0,3,2,0,2,{side},{side},{layout['caption_margin_v']},1",
@@ -518,7 +560,10 @@ def _render_with_remotion(clean: Path, dest: Path, captions: list[dict], motion:
     }
     props_path=job_dir/"remotion-props.json";props_path.write_text(json.dumps(props,ensure_ascii=False),encoding="utf-8")
     concurrency="1" if LOW_MEMORY_MODE else str(max(2,min(4,CPU_THREADS//2 or 1)))
-    cmd=["npx","remotion","render","src/index.tsx","MediaFinish",str(dest),"--props",str(props_path),"--codec","h264","--concurrency",concurrency]
+    cmd=["npx","remotion","render","src/index.tsx","MediaFinish",str(dest),"--props",str(props_path),"--codec","h264","--concurrency",concurrency,
+         # Standard video levels: bt709, limited range, yuv420p. Remotion's default wrote full-range yuvj420p
+         # (seen on a real render, 2026-11-20), which some players and platforms show with washed or crushed colours.
+         "--color-space","bt709","--pixel-format","yuv420p"]
     if REMOTION_BROWSER and Path(REMOTION_BROWSER).exists():
         cmd.extend(["--browser-executable",REMOTION_BROWSER])
     try:_run(cmd,cwd=remotion_dir,timeout=3600)
@@ -539,10 +584,11 @@ def _audio_finish(src: Path, dest: Path, profile: dict) -> dict:
     if match:
         try:measured=json.loads(match[-1])
         except Exception:measured={}
-    voice_lufs=measured.get("output_i") if isinstance(measured,dict) else None
-    try:voice_lufs=float(voice_lufs) if voice_lufs not in (None,"") else None
-    except Exception:voice_lufs=None
-    return {"target_voice_lufs":target,"voice_lufs":voice_lufs,"measured":measured,"music_applied":False,"music_policy":"No approved music asset was supplied; none was added."}
+    # The reported loudness is a measurement of final.mp4 itself (EBU R128 integrated), not loudnorm's own
+    # estimate of what a second pass would produce.
+    meter=subprocess.run(["ffmpeg","-hide_banner","-nostats","-i",str(dest),"-vn","-af","ebur128=peak=true","-f","null","-"],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+    voice_lufs,true_peak=qa_checks.parse_ebur128(meter.stderr or "")
+    return {"target_voice_lufs":target,"voice_lufs":voice_lufs,"true_peak_dbfs":true_peak,"method":"ebur128_on_final_file","loudnorm_estimate":measured.get("output_i") if isinstance(measured,dict) else None,"measured":measured,"music_applied":False,"music_policy":"No approved music asset was supplied; none was added."}
 
 
 def _frame_sampling_report(final: Path, cuts: list[dict], graphics: list[dict], duration: float, job_dir: Path) -> dict:
@@ -676,7 +722,11 @@ def _render_short_clips(final: Path, job_dir: Path, words: list[dict], duration:
 
 
 def _public_file(job_id: str, filename: str) -> str:
-    return f"{PUBLIC_BASE_URL}/files/{job_id}/{filename}"
+    """Link to a job file, signed and expiring (FINISHER_FILE_URL_TTL_SEC, default 24 h): FactoryOS downloads the
+    result with it, and GET /jobs/{id} hands out a fresh one."""
+    base = f"{PUBLIC_BASE_URL}/files/{job_id}/{filename}"
+    expires = int(time.time()) + FILE_URL_TTL_SEC
+    return f"{base}?exp={expires}&sig={_file_signature(job_id, filename, expires)}"
 
 
 def _callback(state: dict) -> None:
@@ -777,6 +827,10 @@ def _process_one(job_id: str) -> None:
             {"id":"final_decodes",**media_checks["decode"]},
             {"id":"words_at_cuts","status":"pass" if word_audit["ok"] else "fail",
              "lost_words":word_audit["lost_words"],"clipped_words":word_audit["clipped_words"],"removed_on_purpose":len(word_audit["removed_words"])},
+            {"id":"wordless_slivers","status":"warn" if word_audit["wordless_slivers"] else "pass","slivers":word_audit["wordless_slivers"][:20],
+             "meaning":"a short kept piece between two cuts with no transcribed word: listen for a leftover fragment"},
+            {"id":"long_pauses_kept","status":"warn" if word_audit["long_pauses_kept"] else "pass","pauses":word_audit["long_pauses_kept"][:20],
+             "meaning":"a pause of a second or more stayed in the video; restore-or-cut is the reviewer's call"},
             {"id":"captions_timeline","status":"fail" if caption_issues else "pass","issues":caption_issues[:50],"captions":len(captions)},
             {"id":"length_matches_cut_list","status":"pass" if length["ok"] else "fail",**length},
             {"id":"audio_video_streams",**qa_checks.stream_sync_check(final_probe)},
@@ -934,7 +988,8 @@ def pilot_source():
 def health():
     return {"ok":True,"version":APP_VERSION,"graphics_engine":GRAPHICS_ENGINE,"whisper_model":WHISPER_MODEL,
             "low_memory_mode":LOW_MEMORY_MODE,"cpu_threads":CPU_THREADS,
-            "callback_configured":bool(FACTORYOS_CALLBACK_BASE_URL),"auth_configured":bool(API_TOKEN)}
+            "callback_configured":bool(FACTORYOS_CALLBACK_BASE_URL),"auth_configured":bool(API_TOKEN),
+            "file_links":"public" if ALLOW_PUBLIC_FILES else "signed"}
 
 
 @app.post("/jobs")
@@ -946,6 +1001,7 @@ def create_job(payload: JobRequest, background: BackgroundTasks, request: Reques
     if guard.get("no_auto_publish") is not True or guard.get("preserve_approved_facts") is not True:
         raise HTTPException(400,"Required FactoryOS Media Finisher guardrails are missing")
     job_id=(payload.edit_job_id or str(uuid.uuid4())).strip()
+    if not JOB_ID_RE.fullmatch(job_id):raise HTTPException(400,"Bad job id")
     if _state_path(job_id).exists():
         return _read_state(job_id)
     state={"id":job_id,"status":"queued","stage":"queued","percent":1,"request":payload.model_dump(),
@@ -959,12 +1015,18 @@ def create_job(payload: JobRequest, background: BackgroundTasks, request: Reques
 @app.get("/jobs/{job_id}")
 def job_status(job_id: str, request: Request):
     _auth(request)
-    try:return _read_state(job_id)
+    try:state=_read_state(job_id)
     except KeyError:raise HTTPException(404,"Media Finisher job not found")
+    if state.get("final_url"):state={**state,"final_url":_public_file(job_id,"final.mp4")}   # a fresh signed link per read
+    return state
 
 
 @app.get("/files/{job_id}/{filename}")
-def file(job_id: str, filename: str):
+def file(job_id: str, filename: str, request: Request, exp: int = 0, sig: str = ""):
+    # A user's video is private: the API token, or a signed link for exactly this file that has not expired.
+    if not ALLOW_PUBLIC_FILES:
+        signed=bool(sig) and exp>time.time() and JOB_ID_RE.fullmatch(job_id or "") and hmac.compare_digest(sig.encode(),_file_signature(job_id,filename,exp).encode())
+        if not (signed or _bearer_ok(request)):raise HTTPException(403,"A signed link or the API token is required")
     allowed=filename in {"final.mp4","captions.srt","remotion-props.json"} or bool(re.fullmatch(r"short-\d{2}\.mp4",filename)) or bool(re.fullmatch(r"qa-frame-\d{2}\.jpg",filename))
     if not allowed:raise HTTPException(404,"File not exposed")
     path=_job_dir(job_id)/filename

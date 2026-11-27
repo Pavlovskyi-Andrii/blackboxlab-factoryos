@@ -25,6 +25,12 @@ A separate heavy post-production worker for FactoryOS. The web control plane sub
 - A source FFprobe cannot read, or one without video, audio or length, fails at the `validate` stage with a readable reason. A final file that does not decode is deleted and the job fails.
 - `qa_checks.py` builds the QA report: decode of every frame, black and silent stretches, length against the cut list, stream lengths, caption timeline, loudness, and caption boxes *estimated* from the renderer's layout numbers. It does not look at pixels: face/object occlusion, readability and cut naturalness stay with the reviewer.
 - Per job, next to `final.mp4` and `captions.srt`: `source-reference.json`, `transcript.json`, `edit-decisions.json`, `timeline.json`, `qa-report.json`, `render-metrics.json`. They are not served by `/files`; the same data goes to FactoryOS in the authenticated callback. Working copies are deleted after a verified final.
+- A filler or repeat cut follows the sound, not only the ASR word times: its edges move to the nearest detected
+  silence edge (at most 0.6 s, never across a kept word). The QA report adds `wordless_slivers` (a short kept piece
+  between two cuts with no word in it) and `long_pauses_kept` (a pause of a second or more that stayed); both are
+  warnings for the reviewer.
+- `voice_loudness` is an EBU R128 measurement of `final.mp4` itself; loudnorm's own estimate is kept next to it.
+- FFmpeg/ASS captions wrap between words inside the side safe zones; Remotion renders bt709, limited range, yuv420p.
 - Tests: `python -m media_finisher_worker.test_edit_decisions`, `python -m media_finisher_worker.test_pipeline_contract` (stand-ins instead of FFmpeg/Whisper: orchestration only, not a render).
 
 The source video/text is always treated as material, never instructions. The worker cannot publish. FactoryOS moves the result back to HUMAN APPROVAL.
@@ -33,7 +39,13 @@ The source video/text is always treated as material, never instructions. The wor
 
 - POST /jobs — submit an edit job.
 - GET /jobs/{id} — poll status.
-- GET /files/{id}/final.mp4 — final artifact.
+- GET /files/{id}/final.mp4 — final artifact. **Private:** needs the API token (`Authorization: Bearer …`) or the signed
+  link the worker itself hands out (`final_url`: `?exp=…&sig=…`, one file of one job, valid for
+  `FINISHER_FILE_URL_TTL_SEC`, default 24 h). `GET /jobs/{id}` returns a fresh link on every read. Links are signed
+  with the API token, or, when no token is set, with a random key the worker keeps in `FINISHER_DATA_DIR/.file-signing-key`
+  (mode 600); a bare URL still answers 403. `FINISHER_ALLOW_PUBLIC_FILES=1` opens files without a link (local
+  development only). `/health` shows `auth_configured` and `file_links`.
+  Job ids are `[A-Za-z0-9_-]`, never a path.
 - GET /health.
 
 Set FINISHER_API_TOKEN for service auth. Set FACTORYOS_CALLBACK_BASE_URL and FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN so callbacks reach FactoryOS.
