@@ -41,6 +41,7 @@ CONSENT_VERSION = "mycast-delivery-consent-2026-11-07"
 SENDS_PER_DAY = 3
 MAX_AUDIT = 50
 import mycast_library
+import mycast_visits   # T-743: arrival variant/channel validation
 from mycast_library import FREE_DAYS, FRIEND_DAYS, MAX_REFERRALS   # owner offer 2026-11-07; #305 rule in mycast_library
 CODE_RE = re.compile(r"^[A-Za-z0-9_-]{8,4000}$")
 SLUG_RE = re.compile(r"^[a-z0-9]{8}$")
@@ -106,8 +107,9 @@ class ListenerStore:
     def _key(provider: str, pid: str) -> str:
         return hashlib.sha256(f"{provider}:{pid}".encode()).hexdigest()
 
-    def login(self, who: dict, ref: str = "") -> dict:
-        """ref: the inviting listener's slug from a share link. It counts once, only for a brand-new account."""
+    def login(self, who: dict, ref: str = "", acq: Optional[dict] = None) -> dict:
+        """ref: the inviting listener's slug from a share link. It counts once, only for a brand-new account.
+        acq: the landing variant and channel the visitor arrived with (T-743); kept only on a brand-new account."""
         key = self._key(who["provider"], who["pid"])
         now = int(self.clock())
         with self._lock:
@@ -119,6 +121,9 @@ class ListenerStore:
                 while slug in data["listeners"]:
                     slug = "".join(secrets.choice("abcdefghijkmnpqrstuvwxyz23456789") for _ in range(8))
                 rec = {"slug": slug, "provider": who["provider"], "key": key, "created": now, "code": ""}
+                acquired = mycast_visits.clean_acq(acq)
+                if acquired:
+                    rec["acq"] = acquired
                 data["index"][key] = slug
                 inviter = data["listeners"].get(ref) if isinstance(ref, str) and SLUG_RE.fullmatch(ref or "") else None
                 if inviter and mycast_library.is_self_referral(inviter, key, who.get("chat_id")):
@@ -199,6 +204,12 @@ class ListenerStore:
         with self._lock:
             found = mycast_library.find_public(self._load(), token)
         return (dict(found[0]), found[1], dict(found[2])) if found else None
+
+    def acquisition(self) -> list:
+        """T-743: creation time and arrival variant/channel of every account, for the owner's visit report. No names."""
+        with self._lock:
+            data = self._load()
+        return [{"created": rec.get("created"), "acq": rec.get("acq")} for rec in data["listeners"].values()]
 
     def get(self, slug: str) -> Optional[dict]:
         with self._lock:
@@ -399,11 +410,12 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
         try:
             body = await _body(request)
             ref = str(body.pop("ref", "") or "")          # not part of Telegram's signed fields
+            acq = body.pop("acq", None)                     # T-743: neither is the arrival variant/channel
             who = verify_telegram(body, bot_token(), clock())
             current = _current(request)
             if current and current.get("provider") != "telegram":   # #281: link to the account already signed in
                 return _signed_in(store.link_telegram(current["slug"], who["chat_id"]))
-            return _signed_in(store.login(who, ref))
+            return _signed_in(store.login(who, ref, acq))
         except AccountError as exc:
             return _err(exc)
 
@@ -424,7 +436,8 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             if current and current["slug"] == ref:
                 ref = ""                                        # #305: a signed-in listener cannot invite a new self
             return _signed_in(store.login({"provider": "google", "pid": str(claims["sub"]),
-                                           "name": _name(claims.get("given_name") or claims.get("name"))}, ref))
+                                           "name": _name(claims.get("given_name") or claims.get("name"))}, ref,
+                                          body.get("acq")))
         except AccountError as exc:
             return _err(exc)
 

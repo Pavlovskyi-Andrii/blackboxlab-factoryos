@@ -638,6 +638,7 @@ footer{color:var(--dim);font-size:13px;text-align:center}
 <script src="configurator.js"></script>
 <script src="improve.js" defer></script>
 <script src="vendor/qrcode.js"></script>
+<script src="v.js" data-page="landing" defer></script>
 <script>
 'use strict';
 const T = {
@@ -837,6 +838,15 @@ try { const l = localStorage.getItem(KEY + ':lang'); if (['uk','ru','en'].includ
 // An invite carries &ref=<slug> (or a personal page's &from=<slug>); it is only a hint, the server counts it once for a new account.
 let inviteRef = '';
 try { const m = /[#&](?:ref|from)=([a-z0-9]{8})(?![a-z0-9])/.exec(location.hash); if (m) { inviteRef = m[1]; localStorage.setItem(KEY + ':ref', inviteRef); } else inviteRef = localStorage.getItem(KEY + ':ref') || ''; } catch (e) {}
+// T-743: the landing variant and channel this visit came from (?v=…&ch=…, also in the hash). Kept for this tab only and
+// sent once with the sign-up, so the owner can count registrations per variant and channel. No other data.
+let acq = null;
+try {
+  const q = new URLSearchParams(location.search.slice(1) + '&' + location.hash.slice(1)), ok = s => /^[a-z0-9_-]{1,16}$/.test(s);
+  const v = (q.get('v') || '').toLowerCase(), ch = (q.get('ch') || '').toLowerCase();
+  if (ok(v) || ok(ch)) { acq = { variant: ok(v) ? v : '', channel: ok(ch) ? ch : '' }; sessionStorage.setItem(KEY + ':acq', JSON.stringify(acq)); }
+  else acq = JSON.parse(sessionStorage.getItem(KEY + ':acq') || 'null');
+} catch (e) { acq = null; }
 // A share link carries #p=<code>. It is offered, never applied silently over the visitor's own draft.
 try { const m = /[#&]p=([A-Za-z0-9_-]+)/.exec(location.hash); if (m) sharedProfile = MyCast.decodeShare(m[1]); } catch (e) { sharedProfile = null; }
 
@@ -1304,7 +1314,7 @@ async function signedIn(r) {
   if (!listener.has_podcast && MyCast.validate(profile).length === 0) await savePodcast(true);
   go('#stepTopics');
 }
-function withRef(body) { return inviteRef && !(listener && listener.slug === inviteRef) ? { ...body, ref: inviteRef } : body; }
+function withRef(body) { const b = inviteRef && !(listener && listener.slug === inviteRef) ? { ...body, ref: inviteRef } : body; return acq ? { ...b, acq } : b; }
 window.onTelegramAuth = user => fetch('/api/mycast/account/telegram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withRef(user)) }).then(signedIn).catch(() => accMsg(t().acc_fail, false));
 function loadScript(src, attrs, parent) {
   const el = document.createElement('script'); el.src = src; el.async = true;
