@@ -64,3 +64,8 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 - Direction 2 «Продукты и цели» is chosen for T-733.
 - The new home keeps a visible switch to the current full dashboard («Pro version» / «Pro-версія» / «Pro-версия») and a way back; nothing of the current UI is removed; the choice is remembered per browser.
 - Blackbox Lab content card: not answered; default applies (a separate product card while content jobs exist).
+
+## MyCast voices: ElevenLabs (owner 2026-11-27, interactive Claude session)
+- Owner asked: «подключи ElevenLabs, выбор бесплатных голосов в MyCast.pro». Shown the limits found that day (free plan about 10,000 credits a month, roughly 10 minutes of speech, no commercial licence; one 15-minute episode is more than the monthly allowance; Starter about $6 a month), the owner chose **«Не подключать»**.
+- MyCast keeps the Gemini voices only. Do not add an ElevenLabs integration, key or paid plan unless the owner asks again.
+- The limits came from one web search of third-party pricing guides, not from ElevenLabs' own terms; re-check them before any future proposal.
