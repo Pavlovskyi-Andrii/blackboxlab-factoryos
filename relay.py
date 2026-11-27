@@ -21,7 +21,7 @@ from pydantic import BaseModel
 
 import evidence as proof
 from relay_acceptance import acceptance_report, acceptance_text
-from relay_execution import lifecycle_text
+from relay_execution import lifecycle_text, owner_notice_wanted
 from lane_board import lane_board_text, telegram_lang
 from worker_observability import worker_overview_text
 
@@ -1889,7 +1889,8 @@ def install_relay_routes(app, store: RelayStore, request_identity: Callable, *, 
             raise HTTPException(404, "Relay ticket not found")
         except ValueError as exc:
             raise HTTPException(409, str(exc))
-        if payload.stage not in {"heartbeat", "checkpoint"} and notify_owner and not ticket.get("replayed"):
+        if (payload.stage not in {"heartbeat", "checkpoint"} and notify_owner and not ticket.get("replayed")
+                and owner_notice_wanted(ticket, payload.stage)):
             try:
                 notice = worker_event_text(ticket, payload.stage)
                 if notify_owner(notice) is True:

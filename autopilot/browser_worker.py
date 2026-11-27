@@ -19,6 +19,7 @@ Run: ``python -m autopilot.browser_worker`` (systemd unit ``deploy/systemd/facto
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import os
 import pathlib
 import signal
@@ -42,6 +43,7 @@ REPO = pathlib.Path(os.environ.get("AUTOPILOT_REPO") or ROOT).resolve()
 POLL_SECONDS = max(2, min(60, int(os.environ.get("FACTORY_SURFER_POLL_SECONDS", "5"))))
 MAX_BACKOFF_SECONDS = 120
 UNAVAILABLE_SECONDS = 60                 # no token / no Chromium: check again every minute, quietly
+UNAVAILABLE_EXIT_SECONDS = 10 * 60       # T-728: Chromium "unavailable" this long (token configured) → exit 75, restart
 HEARTBEAT_SECONDS = 30
 # A read task is bounded (~90 s); an action command by browser_actions (60 s staging + 90 s deadline + 20 s grace).
 # The beat before a pass promises 6 min: past it the loop is hung (live run 2026-11-23: a stuck browser call kept the
@@ -50,6 +52,10 @@ TASK_BUDGET_SECONDS = 6 * 60
 EXIT_CODE_UPDATED = 0                    # Restart=always brings it back on the new code
 EXIT_CODE_STUCK = 75                     # the self-watchdog: systemd (Restart=always) starts a fresh worker
 SELF_WATCHDOG_EVERY_SECONDS = 15
+# T-728: a code change ends the process only when it is real and settled: the content hash differs from the one taken
+# at start, the same new hash is seen on two checks CODE_CHECK_SECONDS apart, and the worker has run MIN_UPTIME_SECONDS.
+CODE_CHECK_SECONDS = 60
+MIN_UPTIME_SECONDS = 5 * 60
 CODE_FILES = ("autopilot/browser_worker.py", "autopilot/browser_tasks.py", "autopilot/worker_heartbeat.py",
               "autopilot/relay_tasks.py", "autopilot/browser_actions.py")
 
@@ -65,16 +71,22 @@ def log(message: str) -> None:
     print(f"surfer-worker: {message}", file=sys.stderr, flush=True)
 
 
-def code_fingerprint(root: pathlib.Path = ROOT) -> tuple:
+def code_fingerprint(root: pathlib.Path = ROOT) -> str:
+    """sha256 over the *contents* of the runner's tracked .py files (never __pycache__/.pyc, never mtimes).
+
+    T-728 (EC2 journal 2026-11-25): the former (mtime, size) tuple changed 6-17 s after every start although the code
+    had not, so the worker exited "runner code changed" in a loop until systemd's start limit stopped the unit. A
+    checkout that rewrites files with the same bytes (the Claude worker's git operations) no longer counts."""
     files = [root / f for f in CODE_FILES] + sorted((root / "browser_runner").glob("*.py"))
-    out = []
+    digest = hashlib.sha256()
     for path in files:
+        digest.update(str(path.relative_to(root)).encode("utf-8") + b"\0")
         try:
-            st = path.stat()
-            out.append((str(path), st.st_mtime_ns, st.st_size))
+            digest.update(path.read_bytes())
         except OSError:
-            out.append((str(path), 0, 0))
-    return tuple(out)
+            digest.update(b"<missing>")
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def code_version(root: pathlib.Path = ROOT) -> str:
@@ -118,7 +130,7 @@ class SurferWorker:
                  available: Callable[[], bool] = lambda: browser_tasks.playwright_available(),
                  configured: Callable[[], bool] = relay_tasks.configured, post: Optional[Callable] = None,
                  clock: Callable[[], float] = time.time, stop: Optional[threading.Event] = None,
-                 fingerprint: Callable[[], tuple] = code_fingerprint, version: str = "",
+                 fingerprint: Callable[[], object] = code_fingerprint, version: str = "",
                  actions: Optional["browser_actions.ActionRunner"] = None):
         self.repo = pathlib.Path(repo)
         self.beat_path = worker_heartbeat.path_for(self.repo, worker_heartbeat.SURFER_FILE)
@@ -139,6 +151,10 @@ class SurferWorker:
         self._watch = threading.Lock()       # deadline renewal / shutdown vs the self-watchdog's exit decision
         self.exit = os._exit
         self.monotonic = time.monotonic
+        self._unavailable_since = 0.0        # T-728: monotonic start of the current "Chromium unavailable" stretch
+        self._started_mono = self.monotonic()
+        self._next_code_check = self._started_mono + MIN_UPTIME_SECONDS
+        self._pending_code = None            # a new hash seen once; it must be seen again to count
 
     # --- self-watchdog ----------------------------------------------------------------------------------------
     def check_self(self) -> bool:
@@ -179,7 +195,8 @@ class SurferWorker:
         self._last_server_beat = now
         payload = {"state": state, "task_id": self.task_id, "node_id": socket.gethostname()[:80], "pid": os.getpid(),
                    "version": self.version, "started_at": int(self.started), "tasks_done": self.done,
-                   "tasks_failed": self.failed, "last_result": self.last_result[:80]}
+                   "tasks_failed": self.failed, "last_result": self.last_result[:80],
+                   "last_error": str(getattr(browser_tasks, "LAST_ERROR", {}).get("claim") or "")[:80]}
         try:
             if self.post is None:
                 import requests
@@ -198,17 +215,35 @@ class SurferWorker:
     # --- loop -------------------------------------------------------------------------------------------------
     def pass_once(self) -> tuple[str, float]:
         """One claim/run/report pass. Returns (result, seconds to wait before the next pass)."""
-        if not self.configured() or not self.available():
+        # T-720: while an action session holds Chromium, a read task opens its own anonymous context in that browser.
+        # T-728: that live browser already proves Chromium works, so no second launch probe then: under the unit's
+        # memory cap the probe could fail and park the worker in "unavailable" (no claims, no action pumping).
+        # Incident 2026-11-25 (reproduced with real Playwright): while the action runner held its Playwright, the probe
+        # raised "Sync API inside the asyncio loop", the worker returned "unavailable" before pump(), so the action
+        # session was never closed either: reads waited for ever while the loop kept beating (no watchdog fired).
+        borrowed = self.actions.borrowed_factory() if self.actions else None
+        holds = bool(self.actions and getattr(self.actions, "holds_playwright", lambda: False)())
+        configured = self.configured()
+        if not configured or not (borrowed or holds or self.available()):
+            if self.actions and configured:
+                self.actions.pump()                      # sessions still close on their lifetime / FactoryOS close
+            now = self.monotonic()
+            self._unavailable_since = self._unavailable_since or now
+            if configured and now - self._unavailable_since > UNAVAILABLE_EXIT_SECONDS:
+                # A fresh process (systemd kills the unit's leftover Chromium) is the recovery that worked by hand.
+                log(f"Chromium unavailable for {UNAVAILABLE_EXIT_SECONDS // 60} min; exiting so systemd restarts the worker")
+                self.server_beat("unavailable", force=True)
+                self.exit(EXIT_CODE_STUCK)
+                return "unavailable", UNAVAILABLE_SECONDS
             self.local_beat("unavailable", UNAVAILABLE_SECONDS + worker_heartbeat.STALE_AFTER_SECONDS)
             self.server_beat("unavailable")
             return "unavailable", UNAVAILABLE_SECONDS
+        self._unavailable_since = 0.0
         self.local_beat("polling", TASK_BUDGET_SECONDS)
         self.task_id = ""
-        # T-720: while an action session holds Chromium, a read task opens its own anonymous context in that browser.
-        borrowed = self.actions.borrowed_factory() if self.actions else None
         if borrowed:
             import functools
-            result = self.run_one(on_claim=self._claimed, runner=functools.partial(
+            result = self.run_one(on_claim=self._claimed, available=lambda: True, runner=functools.partial(
                 browser_tasks.run_playwright, playwright_factory=borrowed))
         else:
             result = self.run_one(on_claim=self._claimed)
@@ -239,6 +274,21 @@ class SurferWorker:
         self.local_beat("idle", wait + worker_heartbeat.STALE_AFTER_SECONDS)
         return result, wait
 
+    def code_changed(self) -> bool:
+        """True once a settled change of the runner code was seen (see CODE_CHECK_SECONDS / MIN_UPTIME_SECONDS)."""
+        now = self.monotonic()
+        if now < self._next_code_check or (self.actions and self.actions.live):
+            return False
+        self._next_code_check = now + CODE_CHECK_SECONDS
+        current = self.fingerprint()
+        if current == self._code:
+            self._pending_code = None
+            return False
+        if current != self._pending_code:
+            self._pending_code = current             # first sighting: wait one more check (a branch flip settles)
+            return False
+        return True
+
     def run(self, max_passes: Optional[int] = None) -> int:
         with self._watch:                    # armed before any startup I/O (a stuck log or beat write counts too)
             self._loop_deadline = self.monotonic() + worker_heartbeat.STALE_AFTER_SECONDS
@@ -253,7 +303,7 @@ class SurferWorker:
             passes += 1
             if max_passes is not None and passes >= max_passes:
                 break
-            if self.fingerprint() != self._code and not (self.actions and self.actions.live):
+            if self.code_changed():
                 log("runner code changed on disk; exiting between tasks so systemd restarts on the new code")
                 code = EXIT_CODE_UPDATED
                 break

@@ -2295,6 +2295,16 @@ Trace: the owner's website podcast was saved, approved and "delivery on" on 2026
 - **Decision:** T-590 is checked. The 2026-11-15 rule was "T-590 … stay unchecked until those [HUMAN] runs are verified". T-591-H, which the ROADMAP defines as closing the live part of T-590, is checked since 2026-11-17 on the server verdict for R-0087 · run-351295eb0d92; the owner verified the deployed `build_sha` on 2026-11-15; the slice is on main through PRs #63/#81/#112. **Reason:** every stage of the DONE line now has recorded evidence from the party able to observe it, and further worker re-runs add nothing.
 - **Decision:** the "record evidence in Issue #41" part is treated like the owner's 2026-11-17 waiver for T-591-H (same trace, `/proof R-0087` on demand); the evidence table lives in `docs/handoff/T-590_ACCEPTANCE.md`. Reversible: a session with GitHub access can post the link to Issue #41, or the owner can reopen the box.
 - **Not claimed:** this worker run had no `gh`/network. It did not observe any CI run, `/api/version` or Issue #41, and did not re-read R-0087. It observed only local git history and the deterministic suites (smoke 8, planner, relay 127, telegram 25, acceptance 16).
+## 2026-11-21 — AI Video Editor follow-up (#427): defects found in the real run of 2026-11-20
+
+Requested in Relay by ChatGPT («OWNER DIRECT CONTINUATION», 2026-11-20); #428 was merged with these defects open.
+
+- **Decision (P0):** job files are private. `GET /files/{job}/{file}` needs the API token or a signed link (HMAC-SHA256 of job, file and expiry with the API token; default 24 h, `FINISHER_FILE_URL_TTL_SEC`). The worker signs `final_url` itself, so FactoryOS keeps downloading the result with a plain GET; `GET /jobs/{id}` returns a fresh link each time. Without an API token the route is closed unless `FINISHER_ALLOW_PUBLIC_FILES=1`. Job ids are validated and can never be a path. **Reason:** a known or guessed job id used to be enough to download a user's video. **Deploy note:** a worker deployed without `FINISHER_API_TOKEN` (or the shared token) will now refuse file downloads — that is the intended fail-closed result; the owner sets the token, Claude does not edit production variables.
+- **Decision (P1):** filler and repeat cuts are snapped to acoustic silence edges (≤ 0.6 s, never across a neighbouring kept word). **Reason:** in the real run the repeated phrase was cut at the ASR word end while speech ran 0.39 s longer, and the fragment stayed in the video with QA "pass". The transcript cannot prove a piece silent, so the audit also reports wordless slivers between cuts and long pauses that stayed, as warnings.
+- **Decision (P1):** `voice_loudness` is measured on `final.mp4` with FFmpeg `ebur128`. **Reason:** the old number was loudnorm's estimate (-14.77 reported, -15.6 measured), which turned a warning into a pass.
+- **Decision (P1):** the ASS caption style wraps (`WrapStyle: 0`); the caption-box estimate models the wrap. **Reason:** a three-word Russian caption ran into the right safe zone on a rendered frame.
+- **Decision (P2):** Remotion renders with `--color-space bt709 --pixel-format yuv420p` (was full-range `yuvj420p`). Checked on a rendered frame: same picture, standard levels. Cost seen on one run: render time 84 s → about 130 s for 27 s of video; not measured further.
+- **Not done:** an authenticated preview proxy in FactoryOS for playback after the link expires (the durable media archive already serves the stored copy); two-pass loudnorm to hit the target more closely; real faster-whisper and owner footage (still blocked on the owner's clip and the worker image).
 ## 2026-11-21 — T-713 Social autopilot: a teaser image in every post
 
 Owner 2026-11-21: «добавлять фото в каждый пост (в фото должно отображаться небольшой визуальный тизер того, что в тексте)».
@@ -2575,6 +2585,18 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Not done here: two agents calling `coordination_check` at the same moment can both get «yes». The check is advisory;
   the exclusive start is the existing atomic Relay claim (`claim_handoff` / `claim_roadmap`, one active claim per scope).
 
+
+## 2026-11-24 — T-731…T-733 UX-first Owner Home and Growth Manager (#452)
+- Ploy was benchmarked from its public documentation only, fetched as Markdown (the interface its docs publish for AI
+  tools). No account, no app screens, no images. Its terms forbid competitive use of the service and automated access
+  to it, so the service itself was never used. Linear and PostHog docs were the two adjacent references.
+- Owner chose direction 2 «Products and goals» (2026-11-24) and asked to keep the current dashboard one click away as
+  «Pro version», remembered per browser. Prototype in the Learning sandbox; no production dashboard change.
+- The Growth Manager reuses the Launchpad, A/B experiments, evidence levels, Discovery agents, Relay claims and the
+  social weekly plan. The only proposed new storage is a Goal list inside the MVP registry record and a first-party
+  MyCast visit counter without cookies or stored IP. Details and backlog: `docs/architecture/internal-growth-manager-rfc.md`.
+- Product cards open the goal summary prefilled (2 clicks to start a goal; the 6-step wizard measured 7).
+- Reversible: the prototype is one HTML file and one Learning catalog entry; the RFC is a proposal.
 ## 2026-11-24 — T-735 AI Film Studio S2: narration and owner photo
 - Owner 2026-11-24 allowed Pexels and Hugging Face for the Claude cloud environment (hosts added: www.pexels.com,
   images.pexels.com, huggingface.co and its download CDNs) and sent a portrait and a 13 s voice sample.
@@ -2788,3 +2810,42 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   still strips paid API keys; the server-side Surfer gate (owner flag, allowlist, caps, `needs_owner_confirmation`
   for publish/pay/delete) is the real barrier and no MCP tool confirms on the owner's behalf.
 - Tests: `test_relay_mcp_tools.py` (imported by `test_relay_execution.py`).
+
+## 2026-11-27 — Worker-token routes for the ops agent and the mods runtime pass the auth middleware
+
+- `/api/ops/worker/*` (T-740 ops agent) and `/api/mods/worker/*` (mods runtime) check the worker token inside the
+  route, but the session middleware answered 401 "authentication required" first whenever `FACTORY_PASSWORD` is set
+  (production). Route tests called the handlers directly, so nothing caught it: once T-740-H was done every ops
+  request would have expired as "agent offline". Both prefixes now pass the middleware only with the Claude worker
+  token, like `/api/relay/worker/`; a session cookie or a wrong token is still 401 (`test_route_auth_fixes.py`).
+
+## 2026-11-27 — MCP `ops_health`: the Claude lane reads worker, Telegram and delivery health
+
+- Owner: «FO-01, FO-02 … чтобы у тебя был доступ». Worker heartbeat, Telegram pairing and MyCast delivery history
+  were only on owner-cookie routes, so a cloud Claude session could not check them. `ops_health` (Claude lane token
+  only, like `ops_request`) returns one read-only snapshot: worker online / seconds since heartbeat / current task /
+  last error (200 chars, known secrets masked), Telegram bot configured + owner paired (no chat id, no username),
+  the latest 8 voice deliveries (kind, id, status, seconds), the Ops relay gate and agent polling, Media Finisher
+  endpoint/token presence (booleans). It reads in-memory state and two small files; it never sends anything.
+- Not done: giving the Telegram bot token to a cloud session (it could read and post as the bot; the server already
+  holds it), or a "send a test message" tool (an outward action; the owner can press "Test" in Settings).
+## 2026-11-27 — Media Finisher signs file links even without an API token
+
+- Owner: `FINISHER_API_TOKEN` is not set on Render. After #442 a worker without a token (and without the shared
+  `FACTORY_MEDIA_FINISHER_SHARED_TOKEN` from the Blueprint env group) refused every file, so FactoryOS could not
+  download finished videos. The signing key is now the token, or else a random 64-hex key the worker creates once in
+  its persistent disk (`.file-signing-key`, mode 600). Links stay one-file, one-job, expiring; a bare `/files/...`
+  URL is still 403. Not chosen: reopening files publicly (user videos are private) or editing Render env vars
+  (owner-only). Without a token `/jobs` itself stays unauthenticated as before — setting the token is still advised.
+## 2026-11-27 — MyCast chapter timecodes
+
+- Owner: "Утренний подкаст пришел, но тайм-кодов нет, их нужно добавить." The script writer now returns
+  `chapters` (`{"line", "title"}`, line = index into `lines`); `mycast_chapters.py` validates them (a broken entry is
+  dropped, never the episode; fewer than two → no timecodes) and formats `M:SS Title` lines, which Telegram makes
+  clickable in an audio caption.
+- Gemini path: one TTS call per ~2800-character chunk, so a chunk's start is exact and a line inside a chunk is
+  placed by its share of the chunk's characters — a few seconds off at most. Re-chunking at every chapter would be
+  exact but costs extra calls against the free-tier quota, so it was not done.
+- Piper path: each line is its own WAV plus a fixed pause, so starts are exact; the renderer writes
+  `<id>.chapters.txt` next to the MP3 in the artifact, and the worker puts it between the title and the source list
+  (Telegram keeps 1000 caption characters, so sources are what gets cut, never the timecodes).

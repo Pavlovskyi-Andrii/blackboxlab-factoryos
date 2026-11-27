@@ -36,6 +36,9 @@ from operator_lanes import build_operator_lanes
 from team_tasks import TeamTasksCache, queue_readiness, build_team_tasks, compact_github, github_fetcher, read_github, valid_snapshot
 from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as ROUTING_PRIVILEGES,operator_availability,route_tasks
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
+import worker_offline_alert
+import ops_relay
+import ops_health
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from relay_acceptance import latest_telegram_acceptance
 from telegram_web_compare import StaleComparison, TelegramViewLog, compare as telegram_web_compare, confirmation_for, owner_status as telegram_compare_status
@@ -87,7 +90,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.19.1"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.20.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -270,6 +273,9 @@ claude_worker_runtime={"last_seen":0.0,"node":{},"active_task_id":"","last_error
 CLAUDE_WORKER_RESULTS_FILE = DATA_DIR / "claude_worker_results.json"
 # T-536-B: last sanitized heartbeat survives restarts; the TTL still decides online/stale.
 CLAUDE_WORKER_HEARTBEAT_FILE = DATA_DIR / "claude_worker_heartbeat.json"
+# T-738: one Telegram alert per worker silence (and one when it is back); see worker_offline_alert.py.
+WORKER_OFFLINE_ALERT_STATE_FILE = DATA_DIR / "worker_offline_alert.json"
+_SERVER_STARTED_AT = time.time()
 _claude_worker_results_lock=threading.Lock()
 FACTORY_GOOGLE_CLIENT_ID = os.environ.get("FACTORY_GOOGLE_CLIENT_ID","").strip()
 FACTORY_GOOGLE_CLIENT_SECRET = os.environ.get("FACTORY_GOOGLE_CLIENT_SECRET","").strip()   # MyCast calendar OAuth only
@@ -831,7 +837,15 @@ def _mcp_lane_forbidden_tokens():
     """T-604: a per-lane MCP token must not reuse the shared MCP token or any other FactoryOS credential."""
     return _agent_relay_forbidden_tokens()+(os.environ.get("FACTORY_CLAUDE_RELAY_TOKEN",""),os.environ.get("FACTORY_CODEX_RELAY_TOKEN",""))
 
-AGENT_WORKSPACE = agent_workspace.AgentWorkspace(RELAY_STORE, RELAY_QUEUE, known_secrets=_mcp_lane_forbidden_tokens)
+def _agent_workspace_worker_status():
+    """T-736: what request_task tells the asking agent about the Claude worker (heartbeat facts only, no node details)."""
+    last=float(claude_worker_runtime.get("last_seen") or 0)
+    return {"online":bool(last) and _claude_worker_online(),"last_seen_age_seconds":round(time.time()-last) if last else None,
+            "active_task":str(claude_worker_runtime.get("active_task_id") or "")[:80],
+            "task_state":str((claude_worker_runtime.get("node") or {}).get("status") or "")[:40]}
+
+AGENT_WORKSPACE = agent_workspace.AgentWorkspace(RELAY_STORE, RELAY_QUEUE, known_secrets=_mcp_lane_forbidden_tokens,
+                                                 worker_status=_agent_workspace_worker_status)
 agent_workspace.install_routes(app, AGENT_WORKSPACE, lambda: agent_workspace.lane_status(forbidden=_mcp_lane_forbidden_tokens()))
 agent_workspace.install_access_log_redaction()
 
@@ -1387,6 +1401,15 @@ surfer_actions.install_routes(app, store=SURFER_ACTIONS, gate_fn=lambda: SURFER_
                               authorize_worker=_claude_worker_authorized, lane_identity=_surfer_lane,
                               extra_tools={"web_recipe": _surfer_recipe_tool, "surfer_pending": _surfer_pending_tool})
 surfer_recipes.install_routes(app, store=SURFER_ACTIONS, gate=SURFER_GATE, recipes=SURFER_RECIPES, identity=request_identity)
+# T-740 Ops relay: fixed EC2 ops for the Claude lane, pulled by the root ops agent; owner card + Telegram on restarts.
+def _ops_known_secrets():
+    return [t for t in _mcp_lane_forbidden_tokens()+tuple(os.environ.get(n,"") for n in agent_workspace.TOKEN_ENV.values())
+            +(FACTORY_TELEGRAM_BOT_TOKEN,FACTORY_SECRET) if t]
+def _ops_notify(text: str) -> bool:
+    return _worker_offline_alert_send(text, False)
+OPS_RELAY = ops_relay.OpsStore(DATA_DIR, known_secrets=_ops_known_secrets)
+ops_relay.install_routes(app, store=OPS_RELAY, authorize_worker=_claude_worker_authorized, identity=request_identity,
+                         notify=lambda text: _ops_notify(text))
 install_mvp_factory_routes(app, MVP_REGISTRY, request_identity)  # #186: evidence-gated MVP registry, never dispatches
 MYBRIEF_FEEDBACK = MyBriefFeedback(DATA_DIR / "mybrief_feedback.json", mybrief_catalog())
 install_mybrief_routes(app, MYBRIEF_FEEDBACK, request_identity)  # T-615 #188 pilot: fixture briefs, opt-in feedback
@@ -1570,6 +1593,8 @@ async def auth_middleware(request: Request, call_next):
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and (_claude_worker_authorized(request) or gemini_worker_api)
+    # T-740 ops agent and the mods runtime pull with the worker token only; the routes check it again themselves.
+    ops_worker_api=request.url.path.startswith(("/api/ops/worker/","/api/mods/worker/")) and _claude_worker_authorized(request)
     browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
     # T-720: the Surfer action tools over REST, with the caller's own per-lane MCP token (never the shared one).
@@ -1579,7 +1604,7 @@ async def auth_middleware(request: Request, call_next):
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
             and not (claude_worker_api or operator_worker_api or local_booster_api)):
         return JSONResponse({"detail":"worker token required"},status_code=401)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or relay_agent_api or browser_agent_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or ops_worker_api or relay_agent_api or browser_agent_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
@@ -2065,7 +2090,20 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]
+]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]+ops_relay.MCP_TOOLS+[ops_health.TOOL]
+
+def _ops_health_snapshot(lane):
+    try:
+        ops=OPS_RELAY.owner_board(limit=1)
+    except Exception:
+        ops={}
+    try:
+        return ops_health.snapshot(lane,worker=get_claude_code_status(),telegram=_telegram_public_status(),
+                                   deliveries=VOICE_HISTORY.entries(),ops=ops,
+                                   finisher={"endpoint":FACTORY_MEDIA_FINISHER_ENDPOINT,"token":FACTORY_MEDIA_FINISHER_TOKEN},
+                                   known_secrets=_ops_known_secrets)
+    except PermissionError as exc:
+        raise ValueError(str(exc))  # shown to the caller as isError text
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2131,6 +2169,12 @@ async def factory_mcp(request: Request):
             elif name in coordination.MCP_TOOL_NAMES:
                 # T-729: may this lane start this task / change these files without duplicating open work?
                 result=_factory_mcp_text(await asyncio.to_thread(_coordination_check_tool,args,mcp_lane or ""))
+            elif name in ops_relay.MCP_TOOL_NAMES:
+                # T-740: Claude lane only; flag, op classes and limits are checked inside; restarts notify the owner.
+                result=_factory_mcp_text(await asyncio.to_thread(ops_relay.call_tool,OPS_RELAY,name,args,mcp_lane or "",_ops_notify))
+            elif name in ops_health.TOOL_NAMES:
+                # Owner 2026-11-27: the Claude lane sees worker / Telegram / delivery health without the owner's session.
+                result=_factory_mcp_text(_ops_health_snapshot(mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -8450,6 +8494,40 @@ async def report_llm_readiness():
 @app.on_event("startup")
 async def restore_claude_worker_heartbeat():
     _restore_claude_worker_heartbeat()
+
+def _worker_offline_alert_send(text: str, silent: bool) -> bool:
+    """T-738: owner chat only; True only when Telegram accepted the message (never raises)."""
+    chat_id=str(_telegram_load_state().get("chat_id") or "").strip()
+    if not chat_id or not FACTORY_TELEGRAM_BOT_TOKEN:
+        return False
+    try:
+        _telegram_api("sendMessage",{"chat_id":chat_id,"text":str(text)[:4000],"disable_notification":bool(silent)})
+        return True
+    except Exception:
+        return False
+
+def worker_offline_alert_once(now: Optional[float]=None) -> str:
+    node=claude_worker_runtime.get("node") or {}
+    return worker_offline_alert.tick(
+        last_seen=float(claude_worker_runtime.get("last_seen") or 0),now=now or time.time(),
+        started_at=_SERVER_STARTED_AT,state_path=WORKER_OFFLINE_ALERT_STATE_FILE,
+        send=_worker_offline_alert_send,supervisor=node.get("supervisor") if isinstance(node,dict) else None)
+
+async def worker_offline_alert_loop():
+    await asyncio.sleep(60)
+    while True:
+        try:
+            result=await asyncio.to_thread(worker_offline_alert_once)
+            if result in ("offline","back","send_failed"):
+                print(json.dumps({"event":"WORKER_OFFLINE_ALERT","result":result}),flush=True)
+        except Exception as exc:
+            print(json.dumps({"event":"WORKER_OFFLINE_ALERT_ERROR","error":type(exc).__name__}),flush=True)
+        await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def start_worker_offline_alert():
+    if worker_offline_alert.enabled():
+        asyncio.create_task(worker_offline_alert_loop())
 
 @app.on_event("startup")
 async def start_builder_reconciler():

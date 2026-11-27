@@ -40,6 +40,10 @@ RULES: dict[str, dict] = {
     "spend": {"required_level": "accepted", "checks": []},
     # anything else: at least one link to evidence.
     "other": {"required_level": "linked", "checks": []},
+    # T-736 answer: a read-only reply another agent asked the Claude worker for. The text the worker posts into the
+    # Relay thread is the whole deliverable (nothing is pushed), so its recorded report is the evidence; the asking
+    # agent or the owner judges it there. Code requests from agents keep the "code" rule.
+    "answer": {"required_level": "claimed", "checks": []},
 }
 CODE_LANES = ("claude", "gemini", "unassigned")
 # Tier 2.1: when set, only checks from these sources count towards "checked" (e.g. Render's own GitHub read).

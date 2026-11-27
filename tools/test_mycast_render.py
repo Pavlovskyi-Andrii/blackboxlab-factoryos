@@ -13,6 +13,7 @@ import types
 import wave
 from pathlib import Path
 
+from mycast_chapters import clock
 from tools import mycast_render as mr
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -144,10 +145,30 @@ def test_thresholds_match_server_preflight():
     assert mycast.pcm_report(b"\x00\x00" * RATE, RATE)["max_silence_seconds"] == mr.pcm_report(b"\x00\x00" * RATE, RATE)["max_silence_seconds"]
 
 
+def test_chapter_timecodes_are_exact():
+    # Owner 2026-11-27: timecodes in the Telegram caption. Piper renders line by line, so each start is exact.
+    episode = fixture()
+    assert episode["chapters"][1]["line"] == 2
+    code, out, spoken, tmp = render(episode)
+    with tmp:
+        assert code == 0
+        second = sum(int(len(text) / 14 * RATE) / RATE for text, _ in spoken[:2]) + 2 * mr.PAUSE_SECONDS
+        expected = f"0:00 Назви латиницею\n{clock(second)} Цифри і лапки\n"
+        assert (out / "mycast-render-fixture.chapters.txt").read_text(encoding="utf-8") == expected
+    episode.pop("chapters")
+    code, out, _, tmp = render(episode)
+    with tmp:
+        assert code == 0 and not list(out.glob("*.chapters.txt"))  # no chapters in the script: no file, no timecodes
+    code, out, _, tmp = render(fixture(), mode="silent")
+    with tmp:
+        assert code == 1 and not list(out.glob("*.chapters.txt"))  # audio that failed QA leaves no timecodes either
+
+
 def test_workflow_contract():
     flow = (ROOT / ".github/workflows/mycast-render.yml").read_text(encoding="utf-8")
     assert "pull_request:" in flow and "tools/fixtures/mycast_render_fixture.json" in flow
     assert "if-no-files-found: error" in flow
+    assert "out/*.chapters.txt" in flow and flow.count('"mycast_chapters.py"') == 2  # timecodes ship; their code triggers a render
     assert 'tools/mycast_changed_episodes.sh "${{ github.event.before }}" > episodes.list' in flow and "HEAD~1" not in flow
     assert "tools/mycast_render.py --batch episodes.list" in flow and "for ep in" not in flow and "libmp3lame" not in flow
     assert "if: ${{ !cancelled() }}" in flow  # transcripts and the checked MP3s are uploaded even when an episode fails
@@ -335,5 +356,6 @@ if __name__ == "__main__":
     test_speakable_text()
     test_audio_qa_refuses_bad_audio()
     test_thresholds_match_server_preflight()
+    test_chapter_timecodes_are_exact()
     test_workflow_contract()
     print("mycast render tests passed")

@@ -50,3 +50,17 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 - T-702-H Telegram channel set up; every post must carry a teaser image (done in T-713).
 - T-701-H OLX partner app approved and connected (owner-confirmed).
 - T-722-H Surfer actions switched on; first allowlisted site blackboxlab-factoryos.onrender.com; agents may read the Surfer pending list (T-726).
+
+## #452 (owner 2026-11-23, in the Claude session; T-731 / T-732 / T-733 (first numbered T-726–T-728 on the branch; renumbered because main took T-726/T-727))
+- Amendment A1 to Issue #452 approved («Утверждаю, заводи 3 задачи»).
+- The first screen is designed for the owner **and for future clients**.
+- MyCast pilot audience: a busy person (businesspeople are one example, not the only one) who wants compressed information and to stay in focus on one chosen topic. Channel: Telegram — that is where the listener receives the episodes. Landing languages: English, Ukrainian, Russian.
+- Usability test: the owner will bring 3–4 people for the prototype test.
+- Priority: T-590–T-593 may be closed; #452 starts right after them.
+- Read-only access to `docs.ploy.ai` and `ploy.ai` approved for the cloud environment (public pages only); `linear.app` and `posthog.com` added the same way for the two reference products.
+
+## #452 Checkpoint A (owner 2026-11-24 ~04:10 UTC, relayed to the #452 session by the coordination session)
+- Owner's words: «давай вариант 2. только оставь кнопку типа переключить на про версию сайта (типа на текущую версию)».
+- Direction 2 «Продукты и цели» is chosen for T-733.
+- The new home keeps a visible switch to the current full dashboard («Pro version» / «Pro-версія» / «Pro-версия») and a way back; nothing of the current UI is removed; the choice is remembered per browser.
+- Blackbox Lab content card: not answered; default applies (a separate product card while content jobs exist).

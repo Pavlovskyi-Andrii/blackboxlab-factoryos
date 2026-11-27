@@ -209,6 +209,12 @@ class ActionRunner:
         self._pw = self._browser = self._context = self._proxy = self._tmp = None
         self.session, self.live, self._browser_root = None, "", None
 
+    def holds_playwright(self) -> bool:
+        """T-728: this runner has a started Playwright (a live page, or one being opened). While it does, a second
+        ``sync_playwright()`` in the same thread raises ("Sync API inside the asyncio loop"), so the launch probe
+        must not run: it would always fail and park the worker in "unavailable"."""
+        return self._pw is not None
+
     def borrowed_factory(self) -> Optional[Callable[[], Any]]:
         """A playwright_factory for read tasks while a page is live (None otherwise: they start their own)."""
         if self._browser is None:

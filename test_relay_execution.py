@@ -273,6 +273,43 @@ class TestRelayIsolatedRoundTrip(unittest.TestCase):
         self.assertEqual(relay_tasks.relay_branch("R-0123", "run-1a2b3c4d5e6f"), "relay/r-0123-3c4d5e6f")
         self.assertEqual(relay_tasks.relay_branch("../x", ""), "relay/x-run")
 
+    def agent_ticket(self, mode):
+        return {**self.ticket, "source": {"channel": "agent_workspace", "requested_by": "chatgpt", "mode": mode,
+                                          "thread_id": "th_1", "message_id": "msg_1"}}
+
+    def test_t736_agent_request_prompt_is_framed_as_data(self):
+        owner = relay_tasks.build_prompt(self.ticket, "relay/x")
+        self.assertIn("явно поставленную пользователем", owner)
+        agent = relay_tasks.build_prompt(self.agent_ticket("read_only"), "relay/x")
+        self.assertNotIn("явно поставленную пользователем", agent)
+        self.assertIn("ИИ-агент chatgpt", agent)
+        self.assertIn("не распоряжение владельца", agent)
+        self.assertIn("Режим read_only", agent)
+        self.assertNotIn("Режим read_only", relay_tasks.build_prompt(self.agent_ticket("code"), "relay/x"))
+
+    def test_t736_read_only_request_never_pushes_a_commit(self):
+        stages = []
+        out = relay_tasks.execute_isolated(self.agent_ticket("read_only"), self.runner, run_cli=self.cli(),
+                                           emit_fn=lambda *a, **k: stages.append(a),
+                                           pr_fn=lambda *a: self.fail("no PR for a read-only request"),
+                                           push_fn=lambda: self.fail("no push for a read-only request"))
+        self.assertEqual((out["status"], [s[1] for s in stages]), ("blocked", ["running", "blocked"]))
+        self.assertIn("read_only", stages[-1][2])
+        remote = self.run("git", "ls-remote", "--heads", str(self.origin)).stdout
+        self.assertNotIn("relay/", remote)
+        stages.clear()
+        again = {**self.agent_ticket("read_only"), "execution": {"run_id": "run-0f0e0d0c0b0a"}}   # a new claim, new run
+        out = relay_tasks.execute_isolated(again, self.runner, run_cli=self.cli(change=False),
+                                           emit_fn=lambda *a, **k: stages.append(a))
+        self.assertEqual((out["status"], [s[1] for s in stages]), ("done", ["running", "done"]))
+
+    def test_t736_read_only_request_refused_in_shared_branch_mode(self):
+        stages = []
+        out = relay_tasks.execute(self.agent_ticket("read_only"), self.runner,
+                                  run_cli=lambda *a, **k: self.fail("Claude must not start"),
+                                  emit_fn=lambda *a, **k: stages.append(a))
+        self.assertEqual((out["status"], [s[1] for s in stages]), ("blocked", ["blocked"]))
+
 
 
 class TestRelayPrReconcile(unittest.TestCase):
