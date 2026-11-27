@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FactoryOS · MyCast: кто слушает</title>
+<style>
+:root{--bg:#0b1020;--card:#131a30;--line:#26304f;--text:#e7ecff;--mute:#9aa6c9;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--acc:#60a5fa;--cyan:#27caff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:16px}h1{font-size:22px;margin:8px 0 4px}h2{font-size:16px;margin:0 0 10px}p.sub{color:var(--mute);margin:0 0 16px;max-width:75ch}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select{background:#1f2a4a;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer;min-height:40px}
+button[aria-pressed="true"]{border-color:var(--cyan);color:var(--cyan)}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.tile{border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.tile b{font-size:26px;font-variant-numeric:tabular-nums}.tile span{color:var(--mute);font-size:13px}
+.tile.good{border-color:var(--ok)}.tile.bad{border-color:var(--bad)}.tile.warn{border-color:var(--warn)}
+.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+td,th{text-align:left;padding:6px 10px 6px 0;border-top:1px solid var(--line);vertical-align:top;white-space:nowrap}th{color:var(--mute);font-weight:500;border-top:0}
+td.n,th.n{text-align:right}
+.chip{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;border:1px solid var(--line)}
+.ok{color:var(--ok);border-color:var(--ok)}.warn{color:var(--warn);border-color:var(--warn)}.bad{color:var(--bad);border-color:var(--bad)}.mute{color:var(--mute)}
+.bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;min-width:60px}.bar i{display:block;height:100%;background:var(--cyan)}
+ul.limits{margin:0;padding-left:18px;color:var(--mute)}
+small{color:var(--mute)}a{color:var(--acc)}
+</style>
+</head>
+<body>
+<main>
+<a href="/" style="display:inline-block;margin:0 0 6px;color:inherit;opacity:.7;text-decoration:none;font-size:14px">← FactoryOS</a>
+<div class="row" style="justify-content:space-between"><h1 data-t="title"></h1><select id="lang" aria-label="Language"><option value="ru">RU</option><option value="uk">UK</option><option value="en">EN</option></select></div>
+<p class="sub" data-t="sub"></p>
+<div id="out"><section class="card"><p class="mute" data-t="loading"></p></section></div>
+</main>
+<script>
+const T={
+ru:{title:"MyCast: кто слушает",sub:"Все зарегистрированные слушатели: получают ли выпуски, сколько минут, кто бросил и когда. Цифры с сервера, без примеров.",
+ loading:"Загружаю…",login:"Нужно войти в FactoryOS.",loginLink:"Войти",error:"Не удалось загрузить статистику: ",
+ total:"Зарегистрировано",minutes:"Минут выпусков отправлено",
+ seg_never_started:"Ни одного выпуска",seg_dropped_early:"Бросили за 3 дня",seg_stopped_later:"Бросили позже",seg_listening_new:"Слушают меньше недели",seg_listening_long:"Слушают неделю и дольше",
+ segHint_never_started:"зарегистрировались, но выпуск ещё не получили",segHint_dropped_early:"рассылка остановлена в первые 3 дня",segHint_stopped_later:"рассылка остановлена после 3 дней",segHint_listening_new:"рассылка идёт, первый выпуск меньше 7 дней назад",segHint_listening_long:"рассылка идёт 7+ дней — кандидаты на платную версию",
+ funnel:"Воронка",f_registered:"Зарегистрировались",f_podcast_set_up:"Настроили подкаст",f_telegram_linked:"Привязали Telegram",f_first_episode:"Получили первый выпуск",f_three_days:"Получали выпуски дольше 3 дней",f_seven_days:"Дольше 7 дней",f_played_on_site:"Переслушивали на сайте",
+ retention:"Кто остаётся",ret:"День {d}: из {e} человек, у кого первый выпуск был {d}+ дней назад, выпуски получают дальше {k}",
+ deleted:"Удалили аккаунт",delTotal:"Всего удалено: {n}, из них успели получить выпуск: {h}",delBy:"Через сколько дней после регистрации",
+ people:"Слушатели",filter:"Показать",all:"Все",
+ c_name:"Имя",c_signed:"Регистрация",c_channel:"Откуда",c_status:"Статус",c_segment:"Группа",c_eps:"Выпусков",c_min:"Минут",c_first:"Первый",c_last:"Последний",c_span:"Дней с выпусками",c_week:"За 7 дней",c_plays:"Переслушал на сайте",c_shared:"Слушали по ссылке",c_fail:"Последняя ошибка",
+ st_no_podcast:"нет подкаста",st_telegram_not_linked:"Telegram не привязан",st_not_approved:"не подтвердил",st_receiving:"получает",st_delivery_failing:"доставка падает",st_stopped_by_listener:"остановил сам",st_blocked_bot:"заблокировал бота",st_paused:"пауза",st_delivery_off:"рассылка выключена",
+ limits:"Что эти цифры не показывают",lim0:"Telegram не сообщает боту, прослушан ли выпуск: «отправлен» не значит «прослушан».",lim1:"«Переслушал на сайте» — это запуски на сайте MyCast, по одному на скачивание файла.",lim2:"Удалённые аккаунты остаются только анонимными счётчиками.",
+ none:"Пока никого.",unknown:"—"},
+uk:{title:"MyCast: хто слухає",sub:"Усі зареєстровані слухачі: чи отримують випуски, скільки хвилин, хто кинув і коли. Цифри з сервера, без прикладів.",
+ loading:"Завантажую…",login:"Потрібно увійти у FactoryOS.",loginLink:"Увійти",error:"Не вдалося завантажити статистику: ",
+ total:"Зареєстровано",minutes:"Хвилин випусків надіслано",
+ seg_never_started:"Жодного випуску",seg_dropped_early:"Кинули за 3 дні",seg_stopped_later:"Кинули пізніше",seg_listening_new:"Слухають менше тижня",seg_listening_long:"Слухають тиждень і довше",
+ segHint_never_started:"зареєструвалися, але випуску ще не отримали",segHint_dropped_early:"розсилку зупинено в перші 3 дні",segHint_stopped_later:"розсилку зупинено після 3 днів",segHint_listening_new:"розсилка йде, перший випуск менше 7 днів тому",segHint_listening_long:"розсилка йде 7+ днів — кандидати на платну версію",
+ funnel:"Воронка",f_registered:"Зареєструвалися",f_podcast_set_up:"Налаштували подкаст",f_telegram_linked:"Прив'язали Telegram",f_first_episode:"Отримали перший випуск",f_three_days:"Отримували випуски довше 3 днів",f_seven_days:"Довше 7 днів",f_played_on_site:"Переслуховували на сайті",
+ retention:"Хто залишається",ret:"День {d}: з {e} людей, у кого перший випуск був {d}+ днів тому, випуски отримують далі {k}",
+ deleted:"Видалили акаунт",delTotal:"Усього видалено: {n}, з них встигли отримати випуск: {h}",delBy:"Через скільки днів після реєстрації",
+ people:"Слухачі",filter:"Показати",all:"Усі",
+ c_name:"Ім'я",c_signed:"Реєстрація",c_channel:"Звідки",c_status:"Статус",c_segment:"Група",c_eps:"Випусків",c_min:"Хвилин",c_first:"Перший",c_last:"Останній",c_span:"Днів з випусками",c_week:"За 7 днів",c_plays:"Переслухав на сайті",c_shared:"Слухали за посиланням",c_fail:"Остання помилка",
+ st_no_podcast:"немає подкасту",st_telegram_not_linked:"Telegram не прив'язаний",st_not_approved:"не підтвердив",st_receiving:"отримує",st_delivery_failing:"доставка падає",st_stopped_by_listener:"зупинив сам",st_blocked_bot:"заблокував бота",st_paused:"пауза",st_delivery_off:"розсилку вимкнено",
+ limits:"Чого ці цифри не показують",lim0:"Telegram не повідомляє боту, чи прослухано випуск: «надіслано» не означає «прослухано».",lim1:"«Переслухав на сайті» — це запуски на сайті MyCast, по одному на завантаження файлу.",lim2:"Видалені акаунти лишаються тільки анонімними лічильниками.",
+ none:"Поки нікого.",unknown:"—"},
+en:{title:"MyCast: who listens",sub:"Every registered listener: are they getting episodes, how many minutes, who dropped off and when. Server numbers, no examples.",
+ loading:"Loading…",login:"Sign in to FactoryOS first.",loginLink:"Sign in",error:"Could not load the statistics: ",
+ total:"Registered",minutes:"Episode minutes sent",
+ seg_never_started:"No episode yet",seg_dropped_early:"Dropped within 3 days",seg_stopped_later:"Dropped later",seg_listening_new:"Listening under a week",seg_listening_long:"Listening a week or more",
+ segHint_never_started:"signed up, no episode received yet",segHint_dropped_early:"delivery stopped in the first 3 days",segHint_stopped_later:"delivery stopped after 3 days",segHint_listening_new:"delivery on, first episode less than 7 days ago",segHint_listening_long:"delivery on for 7+ days — candidates for the paid version",
+ funnel:"Funnel",f_registered:"Signed up",f_podcast_set_up:"Set up a podcast",f_telegram_linked:"Linked Telegram",f_first_episode:"Got a first episode",f_three_days:"Got episodes for more than 3 days",f_seven_days:"More than 7 days",f_played_on_site:"Replayed on the site",
+ retention:"Who stays",ret:"Day {d}: of {e} people whose first episode was {d}+ days ago, {k} still get episodes",
+ deleted:"Deleted accounts",delTotal:"Deleted in total: {n}, of them got an episode first: {h}",delBy:"Days after sign-up",
+ people:"Listeners",filter:"Show",all:"All",
+ c_name:"Name",c_signed:"Signed up",c_channel:"Came from",c_status:"Status",c_segment:"Group",c_eps:"Episodes",c_min:"Minutes",c_first:"First",c_last:"Last",c_span:"Days with episodes",c_week:"Last 7 days",c_plays:"Replayed on site",c_shared:"Played by link",c_fail:"Last error",
+ st_no_podcast:"no podcast",st_telegram_not_linked:"Telegram not linked",st_not_approved:"not confirmed",st_receiving:"receiving",st_delivery_failing:"delivery failing",st_stopped_by_listener:"stopped by listener",st_blocked_bot:"blocked the bot",st_paused:"paused",st_delivery_off:"delivery off",
+ limits:"What these numbers do not show",lim0:"Telegram does not tell a bot whether an episode was played: «sent» is not «listened».",lim1:"«Replayed on site» counts play starts on the MyCast site, one per file download.",lim2:"Deleted accounts remain only as anonymous counters.",
+ none:"Nobody yet.",unknown:"—"}};
+const SEG=["never_started","dropped_early","stopped_later","listening_new","listening_long"];
+const SEGCLS={never_started:"",dropped_early:"bad",stopped_later:"warn",listening_new:"",listening_long:"good"};
+let lang="ru",data=null,filter="all";
+try{const l=localStorage.getItem("factoryos_lang");if(["ru","uk","en"].includes(l))lang=l}catch(e){}
+const t=(k,v)=>{let s=(T[lang]||T.en)[k];if(s===undefined)s=T.en[k]||k;if(v)for(const x in v)s=s.split("{"+x+"}").join(v[x]);return s};
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num=v=>v==null||v===""?t("unknown"):esc(v);
+function statusChip(s){const cls=s==="receiving"?"ok":s==="delivery_failing"||s==="stopped_by_listener"||s==="blocked_bot"?"bad":s==="paused"||s==="delivery_off"?"warn":"mute";return '<span class="chip '+cls+'">'+esc(t("st_"+s))+'</span>'}
+function render(){
+ document.documentElement.lang=lang;document.title="FactoryOS · "+t("title");
+ document.querySelectorAll("[data-t]").forEach(el=>el.textContent=t(el.dataset.t));
+ const out=document.getElementById("out");
+ if(!data)return;
+ const d=data,max=Math.max(1,d.funnel[0]?d.funnel[0].count:1);
+ const tiles='<div class="tiles"><div class="tile"><b>'+num(d.total)+'</b><span>'+esc(t("total"))+'</span></div><div class="tile"><b>'+num(d.minutes_delivered)+'</b><span>'+esc(t("minutes"))+'</span></div>'
+  +SEG.map(s=>'<div class="tile '+SEGCLS[s]+'"><b>'+num(d.segments[s])+'</b><span><b style="font-size:13px">'+esc(t("seg_"+s))+'</b><br>'+esc(t("segHint_"+s))+'</span></div>').join("")+'</div>';
+ const funnel='<table><tbody>'+d.funnel.map(f=>'<tr><td>'+esc(t("f_"+f.step))+'</td><td class="n">'+num(f.count)+'</td><td style="width:40%"><div class="bar"><i style="width:'+Math.round(100*f.count/max)+'%"></i></div></td></tr>').join("")+'</tbody></table>';
+ const ret='<ul class="limits" style="color:inherit">'+d.retention.map(r=>'<li>'+esc(t("ret",{d:r.day,e:r.eligible,k:r.still_receiving}))+'</li>').join("")+'</ul>';
+ const del=d.deleted_accounts;const delHtml='<p>'+esc(t("delTotal",{n:del.total,h:del.had_episode}))+'</p><p class="mute">'+esc(t("delBy"))+': '+Object.entries(del.by_days_after_signup).map(([b,n])=>esc(b)+': '+esc(n)).join(" · ")+'</p>';
+ const rows=d.listeners.filter(r=>filter==="all"||r.segment===filter);
+ const cols=["c_name","c_signed","c_channel","c_status","c_segment","c_eps","c_min","c_first","c_last","c_span","c_week","c_plays","c_shared","c_fail"];
+ const table=rows.length?'<div class="scroll"><table><thead><tr>'+cols.map((c,i)=>'<th'+(i>=5&&i<=12&&i!==7&&i!==8?' class="n"':'')+'>'+esc(t(c))+'</th>').join("")+'</tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.first_name||r.slug)+' <small>'+esc(r.provider)+'</small></td><td>'+num(r.signed_up)+'</td><td>'+num(r.channel)+'</td><td>'+statusChip(r.setup)+'</td><td>'+esc(t("seg_"+r.segment))+'</td><td class="n">'+num(r.episodes)+'</td><td class="n">'+num(r.minutes)+'</td><td>'+num(r.first_episode)+'</td><td>'+num(r.last_episode)+'</td><td class="n">'+num(r.listening_span_days)+'</td><td class="n">'+num(r.episodes_last_7_days)+'</td><td class="n">'+num(r.site_plays)+'</td><td class="n">'+num(r.shared_plays)+'</td><td>'+num(r.last_failure)+'</td></tr>').join("")+'</tbody></table></div>':'<p class="mute">'+esc(t("none"))+'</p>';
+ const filt='<div class="row" role="group" aria-label="'+esc(t("filter"))+'">'+["all"].concat(SEG).map(s=>'<button type="button" data-f="'+s+'" aria-pressed="'+(filter===s)+'">'+esc(s==="all"?t("all"):t("seg_"+s))+'</button>').join("")+'</div>';
+ out.innerHTML='<section class="card">'+tiles+'</section>'
+  +'<section class="card"><h2>'+esc(t("funnel"))+'</h2>'+funnel+'</section>'
+  +'<section class="card"><h2>'+esc(t("retention"))+'</h2>'+ret+'</section>'
+  +'<section class="card"><h2>'+esc(t("people"))+'</h2>'+filt+'<div style="margin-top:12px">'+table+'</div></section>'
+  +'<section class="card"><h2>'+esc(t("deleted"))+'</h2>'+delHtml+'</section>'
+  +'<section class="card"><h2>'+esc(t("limits"))+'</h2><ul class="limits"><li>'+esc(t("lim0"))+'</li><li>'+esc(t("lim1"))+'</li><li>'+esc(t("lim2"))+'</li></ul><p><small>'+esc(d.generated_at)+'</small></p></section>';
+}
+document.addEventListener("click",e=>{const b=e.target.closest("[data-f]");if(b){filter=b.dataset.f;render()}});
+document.getElementById("lang").addEventListener("change",e=>{lang=e.target.value;try{localStorage.setItem("factoryos_lang",lang)}catch(x){}render()});
+document.getElementById("lang").value=lang;render();
+fetch("/api/factory/mycast/stats",{credentials:"same-origin"}).then(async r=>{
+ if(r.status===401||r.status===403){document.getElementById("out").innerHTML='<section class="card"><p>'+esc(t("login"))+' <a href="/login">'+esc(t("loginLink"))+'</a></p></section>';return}
+ if(!r.ok)throw new Error("HTTP "+r.status);data=await r.json();render();
+}).catch(err=>{document.getElementById("out").innerHTML='<section class="card"><p class="bad">'+esc(t("error"))+esc(err.message)+'</p></section>'});
+</script>
+</body>
+</html>
