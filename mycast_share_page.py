@@ -387,6 +387,7 @@ def render(rec: dict, day: str, entry: dict, *, token: str, page: str, lang: str
 <p class="mute">{e(t['demo_note'])}</p><p class="mute">{e(t['note'])}</p></section>
 </main></div><audio id="au" preload="none"></audio>
 <script>var D={_js(data)};{JS}</script>
+<script src="/static/mycast-configurator/v.js" data-page="episode" defer></script>
 </body></html>"""
 
 
