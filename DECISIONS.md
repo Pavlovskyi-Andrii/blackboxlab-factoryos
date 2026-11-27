@@ -2849,3 +2849,13 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Piper path: each line is its own WAV plus a fixed pause, so starts are exact; the renderer writes
   `<id>.chapters.txt` next to the MP3 in the artifact, and the worker puts it between the title and the source list
   (Telegram keeps 1000 caption characters, so sources are what gets cut, never the timecodes).
+## 2026-11-27 — T-594 re-check: T-732 screenshots count as partial evidence, task stays blocked
+
+- Suites are green on 48eb727: `test_navigation.py` (38 destinations, 9 sections, 76 simulated taps), locale parity,
+  drawers, py_compile, planner, smoke. The worker still has no Playwright/Chromium.
+- New evidence: `docs/screenshots/t-732/` holds real browser captures of the current menu (desktop 1440 closed,
+  phone 390 open in EN, phone closed in EN/UK/RU). They count toward the screenshot item. The desktop slide-out open
+  and a UK/RU open-menu scene are still missing. The EN desktop open scene was captured (metrics JSON) but not committed.
+- Not closed: the touch check is only simulated click events, and the worker cannot see CI on main. Not done: driving
+  the production dashboard through the Surfer (production plus the auth boundary), or installing a browser on the
+  shared worker host (same reason as earlier re-checks). Checkbox unchanged; only `T-594_NAV_MAP.md` evidence updated.

@@ -486,6 +486,7 @@ Spec: \`docs/roadmap/CLAUDE_OWNER_BACKLOG_2026-10-30.md\`. These are **independe
   Goal: audit and preserve all current routes; clear section grouping and descriptive RU/UK/EN labels, icon rail, hover/click expanding text, slide-out adaptive one-third desktop menu, outside-tap closes, breadcrumbs, current section and keyboard accessibility.
   DONE: before/after nav map, screenshots desktop/mobile, all existing destinations reachable, keyboard/touch and RU/UK/EN regressions, CI-gated PR.
   Progress 2026-11-01: code and regressions are done and on `origin/main` (`c2879b9`). `test_navigation.py` is green: 24 destinations, 6 sections, slide-out at 1440/1024/800/390, keyboard, EN/UK/RU. Still open: desktop/mobile screenshots and a real touch check. The worker has no browser. Steps are in `docs/roadmap/T-594_NAV_MAP.md`.
+  Re-check 2026-11-27: still green (38 destinations, 9 sections). The T-732 captures in `docs/screenshots/t-732/` cover the desktop menu closed and the phone menu open/closed. Still open: the desktop slide-out open, a UK/RU open-menu scene, a real touch check and seeing CI green.
 
 - [ ] T-595 Resizable/maximizable sliding drawers and overflow repair
   Owner: Claude

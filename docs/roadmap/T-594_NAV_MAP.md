@@ -67,8 +67,12 @@ closes, the location returns to Control Room.
   It covers 48 taps (24 destinations, with and without a selected job), the slide-out at 1440/1024/800/390px,
   outside tap, Escape and destination close, the keyboard order, remembered sections, breadcrumbs, and EN/UK/RU rendering.
   A tap is simulated as a click event. This is not a real touch device and does not render CSS. Visibility follows the pinned CSS rules.
-- Desktop/mobile screenshots: **not captured yet**. No runner session so far has had a browser
-  (no Chromium/Playwright on the EC2 worker).
+- Desktop/mobile screenshots: **partly captured**. The #452 session (T-732, a cloud runner with a browser, v5.19.1)
+  committed real captures of the current menu: `docs/screenshots/t-732/home-1440-en.png` (desktop sidebar closed:
+  labels, collapsible groups, breadcrumbs), `menu-open-390-en.png` (phone drawer open with descriptions) and
+  `home-390-{en,uk,ru}.png` (phone, closed). Still missing: the desktop slide-out open at 1440×900, and one open-menu
+  scene in UK or RU. `first-screen-metrics.json` shows that the T-732 run also captured EN 1440×900 `menu-open`
+  (0 px overflow, 0 page errors), but that PNG was not committed. The EC2 worker still has no Chromium/Playwright (re-checked 2026-11-27).
 - CI-gated PR: as of 2026-11-01, increments 1–3 and the re-check (`aac3b8c`) are on `origin/main` (`c2879b9`),
   merged through the normal PR flow. The agent run had no network/`gh`, so it did not see the CI result of those merges.
 - Re-check 2026-11-01: there is still no browser on the worker (no Chromium/Chrome/Firefox, and no
@@ -76,8 +80,9 @@ closes, the location returns to Control Room.
 
 ### Remaining steps (owner or a runner with a browser + GitHub access)
 
-1. Serve the dashboard (`uvicorn app:app`, `FACTORY_PASSWORD=""`) and capture `static/index.html` at
-   1440×900 and 390×844, menu closed and open, in EN plus one of UK/RU. Save them under `docs/roadmap/T-594_screens/`.
+1. Serve the dashboard (`uvicorn app:app`, `FACTORY_PASSWORD=""`) and capture the two missing scenes: 1440×900 with
+   the `»` slide-out open (EN), and 390×844 with the menu open in UK or RU. Save them under `docs/roadmap/T-594_screens/`.
+   The CI `ui-screenshots` artifact (`{lang}/desktop-1440x900/menu-open.png`) also covers this if a run is green.
 2. On a touch device or in device emulation, check that tapping the backdrop closes the menu and that ☰ opens it.
 3. Open the PR `autopilot/aws-worker` → `main`, wait for green CI on the head and merge it. CI runs `test_navigation.py`
    inside the locale parity step.
