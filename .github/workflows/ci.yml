@@ -343,7 +343,7 @@ jobs:
           python test_mvp_factory.py
           python -m py_compile test_mvp_state_machine.py
           python test_mvp_state_machine.py
-          python -m py_compile test_mvp_view.py
+          python -m py_compile test_mvp_view.py test_mvp_view_live.py
           python test_mvp_view.py
           python - <<'PY'
           from pathlib import Path
@@ -634,6 +634,7 @@ jobs:
         run: |
           python -m py_compile tools/ui_screenshots.py
           python tools/ui_screenshots.py
+          python test_mvp_view_live.py   # T-742: full MVP page refresh keeps an event-form draft (real Chromium)
       - name: Upload screenshots
         if: always()
         # Owner-approved 2026-11-06: an artifact-storage quota error at upload must not fail the job.

@@ -50,6 +50,27 @@ class ViewModelTest(unittest.TestCase):
             # the legacy recommendation agrees with the read model on who decides
             self.assertEqual(mvp_factory.recommend({"stage": stage})["decision"] == "owner", owner, stage)
 
+    def test_recommendation_compatibility(self):
+        """`recommendation` stays for older consumers. Its only T-742 change: spec_review is the owner's decision
+        (it used to say `recommend` · Claude Builder). Every other stage answers as before."""
+        rec = mvp_factory.recommend
+        for stage in ("idea", "researching", "spec_draft", "build_queued", "building", "qa_review"):
+            out = rec({"stage": stage})
+            self.assertEqual(set(out), {"decision", "next_stage", "role", "reason"}, stage)
+            self.assertEqual((out["decision"], out["next_stage"], out["role"]), ("recommend", NEXT[stage], mvp_factory.ROLE[NEXT[stage]]), stage)
+        self.assertEqual(rec({"stage": "spec_review"}), {"decision": "owner", "next_stage": "build_queued", "role": "Owner",
+                                                         "reason": "owner approval of the spec is required"})
+        for stage in ("preview_ready", "owner_review"):
+            self.assertEqual(rec({"stage": stage}), {"decision": "owner", "next_stage": NEXT[stage], "role": "Owner",
+                                                     "reason": "owner review of the preview is required"})
+        self.assertEqual(rec({"stage": "validated"}), {"decision": "hold", "reason": "closed"})
+        self.assertEqual(rec({"stage": "idea", "blocked": {"reason": "x"}}), {"decision": "blocked", "reason": "x"})
+        # No consumer in this repository selects work by decision == "recommend".
+        for path in list(ROOT.glob("*.py")) + list(ROOT.glob("autopilot/*.py")) + [ROOT / "static/index.html"]:
+            if path.name.startswith("test_") or path.name == "mvp_factory.py":
+                continue
+            self.assertNotRegex(path.read_text(encoding="utf-8", errors="ignore"), r"decision['\"]?\]?\s*={2,3}\s*['\"]recommend", str(path))
+
     def test_closed_blocked_and_rejected(self):
         v = view_model({"id": "p", "stage": "validated"})
         self.assertEqual((v["status"], v["progress"], v["step"], v["next"]["key"], v["next"]["owner"]), ("validated", 100, 9, "validated", False))
@@ -140,7 +161,12 @@ class PageParityTest(unittest.TestCase):
         self.assertIn("setInterval(refresh,30000)", FULL)
         self.assertIn("visibilitychange", FULL)
         self.assertIn("addEventListener('focus',refresh)", FULL)
-        self.assertIn("closest('form.ev')", FULL)                  # never re-render under a half-typed event form
+        # A draft never stops the refresh (Codex review #492): render() keeps it across re-renders instead.
+        self.assertIn("const drafts=saveDrafts();", FULL)
+        self.assertIn("restoreDrafts(drafts);", FULL)
+        self.assertIn("function refresh(){if(document.visibilityState==='visible')load()}", FULL)
+        self.assertNotIn("busy()", FULL)
+        self.assertIn("f.reset();await load()", FULL)                # a recorded event's draft is not brought back
         self.assertRegex(DASH, r"function render\(\)\{[^\n]*mvpProjects\(\);loadMvpProjects\(\)")
 
     def test_dashboard_never_hides_a_project_silently(self):

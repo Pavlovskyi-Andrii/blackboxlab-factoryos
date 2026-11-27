@@ -187,6 +187,7 @@ function render(){
   if(error==='auth'){$('#projects').innerHTML='<div class="glass state">'+esc(x.auth)+' <a class="btn primary" href="/login">'+esc(x.login)+'</a></div>';return}
   if(error){$('#projects').innerHTML='<div class="glass state bad">'+esc(error)+'</div>';return}
   if(!data){$('#projects').innerHTML='<div class="glass state">'+esc(x.loading)+'</div>';return}
+  const drafts=saveDrafts();
   $('#projects').innerHTML=projects.map(p=>{
     const v=p.view||{},nx=v.next||{},ui=L.ui;
     const bar='<div class="barRow"><div class="pbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+Number(v.progress||0)+'"><i style="width:'+Number(v.progress||0)+'%"></i></div><span class="pct">'+Number(v.progress||0)+'% <small>· '+esc(fmt(ui.step,{step:v.step,steps:v.steps}))+'</small></span></div>';
@@ -202,6 +203,7 @@ function render(){
       (links?'<div class="links">'+links+'</div>':'')+
       '<details class="hist"><summary>'+esc(x.history)+' · '+(p.history||[]).length+' '+esc(x.events)+'</summary><ol class="tl">'+hist+'</ol></details>'+form+'</article>';
   }).join('');
+  restoreDrafts(drafts);
 }
 document.addEventListener('submit',async e=>{
   const f=e.target.closest('form.ev');if(!f)return;e.preventDefault();
@@ -213,7 +215,7 @@ document.addEventListener('submit',async e=>{
   try{const r=await fetch('/api/mvp-factory/'+encodeURIComponent(pid)+'/events',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json().catch(()=>({}));
     delete f.dataset.key;  // the server answered: this operation is finished either way
-    if(r.ok){msgs[pid]={ok:true,text:d.duplicate?x.dup:x.saved};openForms.add(pid);await load();return}
+    if(r.ok){msgs[pid]={ok:true,text:d.duplicate?x.dup:x.saved};openForms.add(pid);f.reset();await load();return}  // recorded: the draft is done, the refresh must not bring it back
     showMsg(f,x.err[d.detail]||String(d.detail||('HTTP '+r.status)));  // keep the form and what was typed
   }catch(err){showMsg(f,x.retry)}  // network failure: the key stays, so pressing again retries the same operation
 });
@@ -223,10 +225,16 @@ function showMsg(f,text){const m=f.querySelector('.msg');m.className='msg bad';m
 document.addEventListener('toggle',e=>{const d=e.target;if(d.classList&&d.classList.contains('act')){d.open?openForms.add(d.dataset.p):openForms.delete(d.dataset.p)}},true);
 document.querySelectorAll('.langs button').forEach(b=>b.addEventListener('click',()=>{lang=b.dataset.lang;try{localStorage.setItem('mvp-factory:lang',lang)}catch(e){}render()}));
 render();load();
-// T-742 live sync: re-read the same endpoint as the dashboard every 30 s and when the tab comes back, but never while
-// an event form is being filled in (a re-render would drop what was typed).
-function busy(){const a=document.activeElement;if(a&&a.closest&&a.closest('form.ev'))return true;return Array.from(document.querySelectorAll('form.ev input')).some(i=>i.value.trim())}
-function refresh(){if(document.visibilityState==='visible'&&!busy())load()}
+// T-742 live sync: re-read the same endpoint as the dashboard every 30 s and when the tab comes back. A half-filled
+// event form never stops the refresh: render() keeps its draft (values, retry key, focus and cursor) across re-renders.
+function saveDrafts(){const out={};const a=document.activeElement;
+  document.querySelectorAll('form.ev').forEach(f=>{const d={kind:f.kind.value,evidence:f.evidence.value,note:f.note.value,key:f.dataset.key||''};
+    if(a&&f.contains(a)&&a.name){d.focus=a.name;try{d.s=a.selectionStart;d.e=a.selectionEnd}catch(e){}}out[f.dataset.p]=d});return out}
+function restoreDrafts(drafts){document.querySelectorAll('form.ev').forEach(f=>{const d=drafts[f.dataset.p];if(!d)return;
+    f.kind.value=d.kind;f.evidence.value=d.evidence;f.note.value=d.note;if(d.key)f.dataset.key=d.key;
+    if(d.evidence||d.note||d.focus){f.closest('details').open=true;openForms.add(f.dataset.p)}
+    if(d.focus&&f[d.focus]){const el=f[d.focus];el.focus({preventScroll:true});try{if(d.s!=null)el.setSelectionRange(d.s,d.e)}catch(e){}}})}
+function refresh(){if(document.visibilityState==='visible')load()}
 setInterval(refresh,30000);
 document.addEventListener('visibilitychange',refresh);window.addEventListener('focus',refresh);
 </script>
