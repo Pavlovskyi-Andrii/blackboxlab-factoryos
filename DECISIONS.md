@@ -2836,3 +2836,14 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   the privacy text is published. The client IP is the first `X-Forwarded-For` hop, the same as `mycast_demo`; a client
   can fake it, which can only inflate its own estimate, so the counts are an estimate, not an audit.
 - Reversible: switch the flag off; delete `mycast_visits*.json*` to forget all counts.
+
+## 2026-11-27 — FO-09: Telegram alert when CI on main goes red (and when it is green again)
+
+- Owner brief 19.11 (FO-09 monitoring). Workers (T-738) and the owner's MyCast already alert; CI on main did not —
+  a red main was visible only on GitHub. `autopilot/main_ci_watch.py` runs on the EC2 worker between tasks (it has
+  the owner's `gh` login; Render's token gets 403 on Actions), reads `gh run list --branch main` at most every
+  10 minutes, and per workflow looks at its newest completed push run: red → one message per failing commit,
+  the first green after red → one "green again" message. A failed send is retried; a failed GitHub read says
+  nothing. It never re-runs or changes anything.
+- Render down is not watched from here: if the site is down, FactoryOS cannot send Telegram either. The honest
+  option is Render's own notifications (or an external uptime check), which the owner turns on in Render.
