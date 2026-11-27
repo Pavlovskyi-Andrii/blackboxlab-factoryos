@@ -280,6 +280,28 @@ def test_transcript_messages():
     assert joined.count("Клод:") == joined.count("Джі-Пі-Ті:") == len(ep["lines"]) // 2
 
 
+def test_chapter_timecodes_reach_the_caption():
+    # Owner 2026-11-27: the episode needs timecodes. The script asks for chapters…
+    assert '"chapters"' in md.PROMPT and "Вступ" in md.PROMPT
+    # …the Piper artifact carries them next to the MP3, and the caption keeps them ahead of the sources.
+    def fake_gh(*args, input_text=None):
+        out = Path(args[args.index("-D") + 1])
+        (out / "mycast-2026-11-27.mp3").write_bytes(b"ID3audio")
+        (out / "mycast-2026-11-27.chapters.txt").write_text("0:00 Вступ\n1:12 OpenAI\n", encoding="utf-8")
+        return 0, ""
+    assert md.download_mp3("42", "mycast-2026-11-27", gh_fn=fake_gh) == (b"ID3audio", "0:00 Вступ\n1:12 OpenAI")
+    def no_chapters(*args, input_text=None):
+        (Path(args[args.index("-D") + 1]) / "mycast-2026-11-27.mp3").write_bytes(b"ID3audio")
+        return 0, ""
+    assert md.download_mp3("42", "mycast-2026-11-27", gh_fn=no_chapters) == (b"ID3audio", "")
+    assert md.download_mp3("42", "mycast-2026-11-27", gh_fn=lambda *a, input_text=None: (1, "")) == (b"", "")
+    ep = good_episode()
+    caption = md.deliver_caption(ep, "0:00 Вступ\n1:12 OpenAI")
+    head, chapters, sources = caption.split("\n\n")
+    assert head.startswith("🎧") and chapters == "0:00 Вступ\n1:12 OpenAI" and sources.startswith("• ")
+    assert md.deliver_caption(ep).count("\n\n") == 1  # no chapters: title, then sources, as before
+
+
 def test_run_daily_orchestration():
     state_path = Path(tempfile.mkdtemp()) / "mycast.json"
     at = kyiv_ts(2026, 11, 3, 7, 30)
@@ -293,9 +315,9 @@ def test_run_daily_orchestration():
         md.sync_branch = lambda: order.append("sync") or ""
         md.deliver_gemini = lambda ep: "unavailable"  # no Gemini key yet → Piper path
         md.wait_render = lambda sha: order.append(("wait", sha)) or "42"
-        md.download_mp3 = lambda run_id, eid: b"ID3audio"
+        md.download_mp3 = lambda run_id, eid: (b"ID3audio", "0:00 Вступ\n1:05 OpenAI")
         delivered = []
-        md.deliver = lambda ep, audio: delivered.append((ep["id"], audio)) or True
+        md.deliver = lambda ep, audio, chapters="": delivered.append((ep["id"], audio, chapters)) or True
         msgs = []
         assert md.run_daily(state_path, now=at, send=msgs.append) == "delivered"
         assert msgs and msgs[0].startswith("📝")  # transcript + sources follow the audio
@@ -303,7 +325,7 @@ def test_run_daily_orchestration():
         # commit publish returned (not the sync merge, which gets a run of its own).
         assert order == ["sync", "publish", ("wait", "sha1")]
         assert md.run_daily(state_path, now=at + 3600, send=msgs.append) == "idle" and len(msgs) == len(md.transcript_messages(good_episode()))
-        assert delivered == [("mycast-2026-11-03", b"ID3audio")]
+        assert delivered == [("mycast-2026-11-03", b"ID3audio", "0:00 Вступ\n1:05 OpenAI")]  # the renderer's timecodes reach the caption
         assert md.run_daily(state_path, now=at + 3600) == "idle"  # once per day
         # Gemini voices delivered by the server: no render wait, no Piper upload.
         state_path.unlink()
@@ -322,7 +344,7 @@ def test_run_daily_orchestration():
         # Audio fails on every attempt: text fallback once, one honest failure notice after the last attempt.
         state_path.unlink()
         md.generate_episode = lambda day, run_cli=None, status_text="": ("ok", dict(good_episode(), id="mycast-2026-11-03"))
-        md.download_mp3 = lambda run_id, eid: b""
+        md.download_mp3 = lambda run_id, eid: (b"", "")
         msgs = []
         for n in range(md.MAX_ATTEMPTS):
             assert md.run_daily(state_path, now=at + n * md.RETRY_SPACING_SECONDS, send=lambda t: msgs.append(t) or True) == "failed"
@@ -360,6 +382,7 @@ def main():
     test_latin_names()
     test_factory_status()
     test_transcript_messages()
+    test_chapter_timecodes_reach_the_caption()
     test_run_daily_orchestration()
     print("MyCast daily worker tests passed")
 

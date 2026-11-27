@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
 import mycast
+import mycast_chapters
 
 
 def fake_mp3(seconds: float, *, id3: bool = True) -> bytes:
@@ -235,6 +236,18 @@ def test_voice_route():
     assert code == 200 and body["sent"] and body["voice"] == "gemini" and abs(body["seconds"] - expected) <= 1
     assert body["bytes"] == len(encoded) and sent[0][0] == encoded and "Gemini" in sent[0][3]
     assert call()[1]["duplicate"] is True and len(sent) == 1
+    assert "\n0:00 " not in sent[0][3]  # no chapters in the script: no timecodes, as before
+    # Chapters in the script (owner 2026-11-27): clickable "M:SS Title" lines, timed from each TTS chunk's length.
+    lines = _episode()["lines"]
+    chunks = mycast.episode_chunks(lines)
+    per_chunk = [expected * sum(len(t) for _, t in c) / sum(len(t) for _, t in lines) for c in chunks]
+    state["stats"] = [(sum(len(t) for _, t in c), sec) for c, sec in zip(chunks, per_chunk)]
+    second = len(lines) // 2
+    code, body = call(body={"episode": dict(_episode(), id="mycast-2026-11-28",
+                                            chapters=[{"line": 0, "title": "Вступ"}, {"line": second, "title": "Новини"}])})
+    assert code == 200 and body["sent"]
+    starts = mycast.chunk_line_starts(chunks, per_chunk, mycast.CHUNK_PAUSE_SECONDS)
+    assert sent[1][3].endswith(f"\n\n0:00 Вступ\n{mycast_chapters.clock(starts[second])} Новини"), sent[1][3]
 
 
 def test_audio_qc():

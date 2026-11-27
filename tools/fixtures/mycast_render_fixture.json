@@ -9,6 +9,7 @@
     {"title": "MyCast render fixture", "url": "https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos", "date": "2026-11-19", "status": "fresh"},
     {"title": "Висновки ведучих та ідеї для FactoryOS", "kind": "editorial", "date": "2026-11-19", "status": "editorial"}
   ],
+  "chapters": [{"line": 0, "title": "Назви латиницею"}, {"line": 2, "title": "Цифри і лапки"}],
   "lines": [
     ["A", "Доброго ранку! Це MyCast, ваш персональний подкаст. Сьогодні перевіряємо, чи голос вимовляє назви OpenAI, Claude Code і Gemini."],
     ["B", "А ще Telegram, GitHub та API. ДУЖЕ ВАЖЛИВО: великі літери теж мають звучати, а не зникати."],
