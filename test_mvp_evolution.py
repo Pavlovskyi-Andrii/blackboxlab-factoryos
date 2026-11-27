@@ -369,8 +369,8 @@ class PageAndWiringTest(unittest.TestCase):
                   for lang in ("en", "uk", "ru")}
         self.assertEqual(blocks["en"], blocks["uk"])
         self.assertEqual(blocks["en"], blocks["ru"])
-        index = (ROOT / "static/mvp-factory/index.html").read_text(encoding="utf-8")
-        self.assertIn("/static/mvp-factory/evolution.html?project=", index)
+        from mvp_factory import view_model   # T-742: the MVP pages take the Evolution link from the shared read model
+        self.assertIn("/static/mvp-factory/evolution.html?project=mycast", [l["href"] for l in view_model({"id": "mycast", "stage": "idea"})["links"]])
 
     def test_app_wiring_uses_existing_relay_and_registry(self):
         app = (ROOT / "app.py").read_text(encoding="utf-8")

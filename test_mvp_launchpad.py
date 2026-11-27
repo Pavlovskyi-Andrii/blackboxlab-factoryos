@@ -591,7 +591,8 @@ class UiTest(unittest.TestCase):
         self.assertNotRegex(self.HTML, r"method:\s*'POST'")            # L1 page is read-only: no action can be triggered
         self.assertIn("const esc=", self.HTML)
         self.assertNotRegex(self.HTML, r"innerHTML=[^;]*\+\s*(a|d|g)\.[a-z_.]+\s*[;+](?<!esc)")
-        self.assertIn("project=mycast", (ROOT / "static/mvp-factory/index.html").read_text(encoding="utf-8"))
+        from mvp_factory import view_model   # T-742: the MVP pages take the Launchpad link from the shared read model
+        self.assertIn("/static/mvp-factory/launchpad.html?project=mycast", [l["href"] for l in view_model({"id": "mycast", "stage": "idea"})["links"]])
         self.assertIn("@media", self.HTML)
 
 
