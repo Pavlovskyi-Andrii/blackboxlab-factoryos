@@ -2818,3 +2818,21 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   lengths, durations before and after, QA verdict and the checks that did not pass (counts only, never the words),
   render time, and the error with links replaced by `[link]` (signed links carry tokens). No media URLs, no
   transcript text.
+## 2026-11-27 — T-743 MyCast visit counter (#452 B-01)
+- Owner 2026-11-27: start implementation with the counter; the people test runs in parallel.
+- One JSON line per page view in `DATA_DIR/mycast_visits.jsonl`. The visitor is HMAC(daily random salt, IP|UA) cut to
+  16 hex; the salt file keeps only today's salt, so yesterday's hashes cannot be re-linked. IP and UA are never written.
+  `daily_visitors` is named honestly: it sums distinct visitors per day and is not «unique people».
+- The referring host is reduced to a category (tg, li, search, x, …) and dropped. `?ch=` on the link wins.
+- No cookie, no browser storage, no third-party script; the page script skips Do Not Track / GPC. Bots by user agent,
+  `?synthetic=1` and more than 30 views per visitor-hour are not counted. A bot or a limited visit still gets 204, so
+  the endpoint does not tell a client how it was classified.
+- New accounts keep `acq {variant, channel}` from the link (sent with the sign-up like `ref`; Telegram's signed fields
+  exclude it). Returning accounts keep their first value. It is deleted with the account.
+- Flag `FACTORY_MYCAST_VISITS_ENABLED` is off: the endpoint answers 404 and the page script's request does nothing. The
+  privacy text is a draft for the owner (`docs/business_experiments/mycast_visits_privacy_draft.md`); the page is
+  unchanged until he approves it.
+- Review (Codex, PR #494): `acq` is kept on sign-up only while the counter flag is on, so nothing is stored before
+  the privacy text is published. The client IP is the first `X-Forwarded-For` hop, the same as `mycast_demo`; a client
+  can fake it, which can only inflate its own estimate, so the counts are an estimate, not an audit.
+- Reversible: switch the flag off; delete `mycast_visits*.json*` to forget all counts.

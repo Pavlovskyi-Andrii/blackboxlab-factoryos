@@ -200,6 +200,7 @@ def render_page(rec: dict, profile: dict, *, page: str, lang: str = "", demos: O
 <p class="mute">{e(g['demo_note'])}</p></section>
 </main></div><audio id="au" preload="none"></audio>
 <script>var D={sp._js(data)};{sp.JS}{copy_js}</script>
+<script src="/static/mycast-configurator/v.js" data-page="profile" defer></script>
 </body></html>"""
 
 

@@ -1053,6 +1053,10 @@ install_mycast_account_routes(app, MYCAST_LISTENERS, secret=FACTORY_SECRET,
                               send_sample=_mycast_send_listener_sample, fetch_audio=_telegram_fetch_file,
                               calendar_available=MYCAST_CALENDAR.available,
                               on_delete=MYCAST_CALENDAR.disconnect)
+from mycast_visits import VisitLog, install_mycast_visit_routes  # noqa: E402
+# T-743 (#452 B-01): first-party visit/variant counter for MyCast pages; FACTORY_MYCAST_VISITS_ENABLED=1, off by default.
+install_mycast_visit_routes(app, VisitLog(DATA_DIR / "mycast_visits.jsonl"), identity=request_identity,
+                            registrations=MYCAST_LISTENERS.acquisition)
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # #317: website listeners' daily episodes. The EC2 worker writes the script; the server re-checks every gate,
 # voices it with the listener's own voices and sends it only to the listener's own chat.
@@ -1576,7 +1580,8 @@ async def auth_middleware(request: Request, call_next):
     if mycast_redirect is not None:
         return mycast_redirect
     public_paths = {"/api/mycast/quiz", "/login", "/login/recover", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
-                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
+                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics",
+                    "/api/mycast/v"}  # T-743 visit beacon: 404 unless FACTORY_MYCAST_VISITS_ENABLED=1
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)

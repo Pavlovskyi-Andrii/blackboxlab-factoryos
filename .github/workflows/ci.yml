@@ -261,6 +261,9 @@ jobs:
           python test_mycast_demo.py
           python -m py_compile mycast_accounts.py test_mycast_accounts.py
           python test_mycast_accounts.py
+          python -m py_compile mycast_visits.py test_mycast_visits.py
+          python test_mycast_visits.py
+          node --check static/mycast-configurator/v.js
           python -m py_compile mycast_listener_delivery.py autopilot/mycast_listeners.py test_mycast_listener_delivery.py
           python test_mycast_listener_delivery.py
           python -m py_compile mycast_calendar.py test_mycast_calendar.py
