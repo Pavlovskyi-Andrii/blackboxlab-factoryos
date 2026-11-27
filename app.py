@@ -38,6 +38,7 @@ from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as 
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 import worker_offline_alert
 import ops_relay
+import ops_health
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from relay_acceptance import latest_telegram_acceptance
 from telegram_web_compare import StaleComparison, TelegramViewLog, compare as telegram_web_compare, confirmation_for, owner_status as telegram_compare_status
@@ -2085,7 +2086,20 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]+ops_relay.MCP_TOOLS
+]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]+ops_relay.MCP_TOOLS+[ops_health.TOOL]
+
+def _ops_health_snapshot(lane):
+    try:
+        ops=OPS_RELAY.owner_board(limit=1)
+    except Exception:
+        ops={}
+    try:
+        return ops_health.snapshot(lane,worker=get_claude_code_status(),telegram=_telegram_public_status(),
+                                   deliveries=VOICE_HISTORY.entries(),ops=ops,
+                                   finisher={"endpoint":FACTORY_MEDIA_FINISHER_ENDPOINT,"token":FACTORY_MEDIA_FINISHER_TOKEN},
+                                   known_secrets=_ops_known_secrets)
+    except PermissionError as exc:
+        raise ValueError(str(exc))  # shown to the caller as isError text
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2154,6 +2168,9 @@ async def factory_mcp(request: Request):
             elif name in ops_relay.MCP_TOOL_NAMES:
                 # T-740: Claude lane only; flag, op classes and limits are checked inside; restarts notify the owner.
                 result=_factory_mcp_text(await asyncio.to_thread(ops_relay.call_tool,OPS_RELAY,name,args,mcp_lane or "",_ops_notify))
+            elif name in ops_health.TOOL_NAMES:
+                # Owner 2026-11-27: the Claude lane sees worker / Telegram / delivery health without the owner's session.
+                result=_factory_mcp_text(_ops_health_snapshot(mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})

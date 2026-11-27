@@ -2766,3 +2766,14 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   (production). Route tests called the handlers directly, so nothing caught it: once T-740-H was done every ops
   request would have expired as "agent offline". Both prefixes now pass the middleware only with the Claude worker
   token, like `/api/relay/worker/`; a session cookie or a wrong token is still 401 (`test_route_auth_fixes.py`).
+
+## 2026-11-27 — MCP `ops_health`: the Claude lane reads worker, Telegram and delivery health
+
+- Owner: «FO-01, FO-02 … чтобы у тебя был доступ». Worker heartbeat, Telegram pairing and MyCast delivery history
+  were only on owner-cookie routes, so a cloud Claude session could not check them. `ops_health` (Claude lane token
+  only, like `ops_request`) returns one read-only snapshot: worker online / seconds since heartbeat / current task /
+  last error (200 chars, known secrets masked), Telegram bot configured + owner paired (no chat id, no username),
+  the latest 8 voice deliveries (kind, id, status, seconds), the Ops relay gate and agent polling, Media Finisher
+  endpoint/token presence (booleans). It reads in-memory state and two small files; it never sends anything.
+- Not done: giving the Telegram bot token to a cloud session (it could read and post as the bot; the server already
+  holds it), or a "send a test message" tool (an outward action; the owner can press "Test" in Settings).
