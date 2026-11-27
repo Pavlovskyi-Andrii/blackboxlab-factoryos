@@ -2758,3 +2758,12 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   still strips paid API keys; the server-side Surfer gate (owner flag, allowlist, caps, `needs_owner_confirmation`
   for publish/pay/delete) is the real barrier and no MCP tool confirms on the owner's behalf.
 - Tests: `test_relay_mcp_tools.py` (imported by `test_relay_execution.py`).
+
+## 2026-11-27 — Media Finisher signs file links even without an API token
+
+- Owner: `FINISHER_API_TOKEN` is not set on Render. After #442 a worker without a token (and without the shared
+  `FACTORY_MEDIA_FINISHER_SHARED_TOKEN` from the Blueprint env group) refused every file, so FactoryOS could not
+  download finished videos. The signing key is now the token, or else a random 64-hex key the worker creates once in
+  its persistent disk (`.file-signing-key`, mode 600). Links stay one-file, one-job, expiring; a bare `/files/...`
+  URL is still 403. Not chosen: reopening files publicly (user videos are private) or editing Render env vars
+  (owner-only). Without a token `/jobs` itself stays unauthenticated as before — setting the token is still advised.

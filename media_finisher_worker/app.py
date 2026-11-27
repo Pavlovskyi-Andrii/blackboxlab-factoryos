@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -70,8 +71,31 @@ class JobRequest(BaseModel):
 
 JOB_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}")
 FILE_URL_TTL_SEC = max(60, int(os.environ.get("FINISHER_FILE_URL_TTL_SEC", str(24 * 3600))))
-# Local development only: without an API token nothing can be signed, so files are refused unless this is set.
+# Local development only: serve files without any link check.
 ALLOW_PUBLIC_FILES = os.environ.get("FINISHER_ALLOW_PUBLIC_FILES", "").strip().lower() in ("1","true","yes","on")
+
+
+def _signing_key() -> str:
+    """Key for signed file links: the API token, or else a random key kept on the worker's disk (owner 2026-11-27:
+    FINISHER_API_TOKEN is not set on Render). Without it every file was refused after #442; with it a link still
+    opens one file of one job until it expires, and nobody outside the worker knows the key."""
+    if API_TOKEN:
+        return API_TOKEN
+    path = DATA_DIR / ".file-signing-key"
+    try:
+        key = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        key = ""
+    if len(key) < 32:
+        key = secrets.token_hex(32)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(key, encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.replace(path)
+    return key
+
+
+SIGNING_KEY = _signing_key()
 
 
 def _bearer_ok(request: Request) -> bool:
@@ -88,7 +112,7 @@ def _auth(request: Request):
 
 def _file_signature(job_id: str, filename: str, expires: int) -> str:
     """HMAC of one file of one job until one moment: the link opens that file only, and only until it expires."""
-    return hmac.new(API_TOKEN.encode(), f"{job_id}/{filename}/{expires}".encode(), hashlib.sha256).hexdigest()[:40]
+    return hmac.new(SIGNING_KEY.encode(), f"{job_id}/{filename}/{expires}".encode(), hashlib.sha256).hexdigest()[:40]
 
 
 def _job_dir(job_id: str) -> Path:
@@ -698,11 +722,9 @@ def _render_short_clips(final: Path, job_dir: Path, words: list[dict], duration:
 
 
 def _public_file(job_id: str, filename: str) -> str:
-    """Link to a job file. With an API token it is signed and expires (FINISHER_FILE_URL_TTL_SEC, default 24 h):
-    FactoryOS downloads the result with it, and GET /jobs/{id} hands out a fresh one."""
+    """Link to a job file, signed and expiring (FINISHER_FILE_URL_TTL_SEC, default 24 h): FactoryOS downloads the
+    result with it, and GET /jobs/{id} hands out a fresh one."""
     base = f"{PUBLIC_BASE_URL}/files/{job_id}/{filename}"
-    if not API_TOKEN:
-        return base
     expires = int(time.time()) + FILE_URL_TTL_SEC
     return f"{base}?exp={expires}&sig={_file_signature(job_id, filename, expires)}"
 
@@ -966,7 +988,8 @@ def pilot_source():
 def health():
     return {"ok":True,"version":APP_VERSION,"graphics_engine":GRAPHICS_ENGINE,"whisper_model":WHISPER_MODEL,
             "low_memory_mode":LOW_MEMORY_MODE,"cpu_threads":CPU_THREADS,
-            "callback_configured":bool(FACTORYOS_CALLBACK_BASE_URL),"auth_configured":bool(API_TOKEN)}
+            "callback_configured":bool(FACTORYOS_CALLBACK_BASE_URL),"auth_configured":bool(API_TOKEN),
+            "file_links":"public" if ALLOW_PUBLIC_FILES else "signed"}
 
 
 @app.post("/jobs")
@@ -1001,11 +1024,9 @@ def job_status(job_id: str, request: Request):
 @app.get("/files/{job_id}/{filename}")
 def file(job_id: str, filename: str, request: Request, exp: int = 0, sig: str = ""):
     # A user's video is private: the API token, or a signed link for exactly this file that has not expired.
-    if API_TOKEN:
+    if not ALLOW_PUBLIC_FILES:
         signed=bool(sig) and exp>time.time() and JOB_ID_RE.fullmatch(job_id or "") and hmac.compare_digest(sig.encode(),_file_signature(job_id,filename,exp).encode())
         if not (signed or _bearer_ok(request)):raise HTTPException(403,"A signed link or the API token is required")
-    elif not ALLOW_PUBLIC_FILES:
-        raise HTTPException(403,"File access is closed: set FINISHER_API_TOKEN")
     allowed=filename in {"final.mp4","captions.srt","remotion-props.json"} or bool(re.fullmatch(r"short-\d{2}\.mp4",filename)) or bool(re.fullmatch(r"qa-frame-\d{2}\.jpg",filename))
     if not allowed:raise HTTPException(404,"File not exposed")
     path=_job_dir(job_id)/filename
