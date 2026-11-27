@@ -2859,3 +2859,14 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   before that one is on production. Unknown commit (local run, PR older than the 60 read) → no deploy claim, "?".
   This replaces the skipped "deployed SHA vs main" case in `test_team_truthfulness.py` (#242).
 - The EC2 snapshot (`compact_github`) now keeps `merge_commit_sha`, so the board works from it too.
+
+## 2026-11-27 — Media Finisher: the owner's acceptance run failed on the worker address, not on the video
+
+- `ops_health` showed the owner's run of 27.11 (job 5f476592, Shorts on) `failed` at `submit`: five attempts, each
+  `Name or service not known`. FactoryOS could not resolve the worker host from `FACTORY_MEDIA_FINISHER_ENDPOINT`
+  (render.yaml takes it from the worker's private `hostport`). The worker itself answers on its public URL, and its
+  /health (tiny model, low-memory, 1 CPU) does not match render.yaml (small, 1c-2g), so it is likely not the
+  Blueprint-managed service and has no private hostname. Production env vars are the owner's: the fix is to set
+  `FACTORY_MEDIA_FINISHER_ENDPOINT` to the worker's public onrender.com address.
+- Code: that DNS failure now names the host and the variable to change, and `ops_health` shows `endpoint_host`
+  (host[:port] only) so Claude can confirm the address without the owner's session.

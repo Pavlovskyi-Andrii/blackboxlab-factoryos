@@ -6602,6 +6602,12 @@ def _submit_media_finisher_background(edit_job_id):
                 event(item["production_job_id"],f"AI Media Finisher worker wake/submit retry {attempt}/{MEDIA_FINISHER_SUBMIT_RETRIES}: {last_error[:180]}")
                 if attempt<MEDIA_FINISHER_SUBMIT_RETRIES:
                     continue
+                if "Name or service not known" in last_error or "nodename nor servname" in last_error:
+                    # 2026-11-27: the server could not even resolve the worker's host (a Render private hostname that
+                    # this worker does not have). Say which host, so the owner fixes the address, not the video.
+                    host=urlparse.urlsplit(submit_endpoint).netloc
+                    last_error=(f"worker address {host} does not resolve; set FACTORY_MEDIA_FINISHER_ENDPOINT to the "
+                                f"worker's public onrender.com address. {last_error}")
                 _finalize_edit_job(edit_job_id,"failed",error=f"Worker did not become ready after {attempt} attempts: {last_error}",
                                    response={"status":"failed","stage":"submit","percent":1,"submit_attempt":attempt,"exception":last_error})
                 return
