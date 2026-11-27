@@ -99,7 +99,16 @@ def routes():
     r = post("/api/factory/vault/check", {"provider": "olx", "account": "shop", "kind": "session"}).json()
     require(r["ok"] and r["cookies"] == 1, f"session check {r}")
 
+    # Owner 2026-11-27: «Other site» with a pasted URL longer than 40 characters is saved under its host.
+    r = post("/api/factory/vault/credentials", {"provider": "https://www.Blackboxlab-FactoryOS.onrender.com/login?next=/",
+                                                "account": "main", "username": "owner@example.com", "password": PASSWORD})
+    require(r.status_code == 200 and r.json()["provider"] == "blackboxlab-factoryos.onrender.com", f"URL as site {r.text}")
+    require(post("/api/factory/vault/credentials/delete", {"provider": "blackboxlab-factoryos.onrender.com", "account": "main"}).json()["ok"],
+            "delete URL site")
+    for raw, host in (("example.com", "example.com"), ("olx", "olx"), ("www.example.com/x", "example.com"), ("www.com", "www.com")):
+        require(app._vault_site_name(raw) == host, f"site name {raw} -> {app._vault_site_name(raw)}")
     for body, code in (({"provider": "Bad Site!", "password": "x"}, 400),
+                       ({"provider": "https://", "password": "x"}, 400),
                        ({"provider": "olx", "account": "a\"b", "password": "x"}, 400),
                        ({"provider": "olx", "account": "x"}, 400),
                        ({"provider": "olx", "otp": "123456"}, 400)):
@@ -229,6 +238,14 @@ def dashboard():
     # Owner 2026-11-23: the read-only «Browser agent» card (and its session picker) left the dashboard; the sidebar opens
     # the Surfer page. The per-login agent switch stays in the vault drawer.
     require('id="browserAgentCard"' not in html and "function vaultAgentUse(" in script, "T-560-L: agent switch missing")
+    # Owner 2026-11-27: «Other site» is not cut at 40 characters and a pasted URL becomes its host.
+    require('maxlength="40" placeholder="\'+esc(tr(\'vault.otherSite' not in script and 'maxlength="300"' in script, "other-site field still cut short")
+    fn = re.search(r"function vaultSiteName\(raw\)\{.*?\n", script).group(0)
+    import shutil, subprocess
+    if shutil.which("node"):
+        out = subprocess.run(["node", "-e", fn + "console.log(JSON.stringify(['https://blackboxlab-factoryos.onrender.com','https://www.Example.com/login?x=1','olx','www.com'].map(vaultSiteName)))"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        require(json.loads(out) == ["blackboxlab-factoryos.onrender.com", "example.com", "olx", "www.com"], f"vaultSiteName {out}")
     print(f"Vault drawer passed: button, 6 handlers, {len(keys)} keys x EN/UK/RU, masked password cleared after save, hidden for viewers")
 
 
