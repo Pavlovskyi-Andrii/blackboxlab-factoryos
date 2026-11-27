@@ -69,6 +69,7 @@ from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_
 from mycast import GeminiTTSError as MycastGeminiTTSError
 from mycast_demo_audio import DemoAudioStore, install_mycast_demo_audio_routes
 import login_recovery
+import password_login
 import evidence as _evidence
 from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
@@ -282,6 +283,9 @@ FACTORY_GOOGLE_CLIENT_SECRET = os.environ.get("FACTORY_GOOGLE_CLIENT_SECRET","")
 FACTORY_MYCAST_CALENDAR_REDIRECT = os.environ.get("FACTORY_MYCAST_CALENDAR_REDIRECT",
                                                   "https://mycast.pro/api/mycast/calendar/callback").strip()
 FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS","").split(",") if x.strip()}
+# Password sign-in also accepts an owner email as the username (the password is still required).
+FACTORY_OWNER_LOGIN_EMAILS = password_login.parse_emails(os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS",""),
+                                                         os.environ.get("FACTORY_OWNER_EMAILS",""))
 FACTORY_GOOGLE_VIEWER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_VIEWER_EMAILS","").split(",") if x.strip()}
 FACTORY_GOOGLE_ALLOWED_EMAILS = ({x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_EMAILS","").split(",") if x.strip()} | FACTORY_GOOGLE_OWNER_EMAILS | FACTORY_GOOGLE_VIEWER_EMAILS)
 FACTORY_GOOGLE_ALLOWED_DOMAINS = {x.strip().lower().lstrip("@") for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_DOMAINS","").split(",") if x.strip()}
@@ -1649,9 +1653,9 @@ def login_page(request: Request, lang: str = "en"):
     if request_is_authed(request):
         return RedirectResponse(f"/{lang}", status_code=303)
     copy={
-      "en":{"sub":"Private AI content production control room","user":"Username","password":"Password","enter":"Enter FactoryOS","or":"or"},
-      "uk":{"sub":"Приватний центр керування AI-виробництвом контенту","user":"Користувач","password":"Пароль","enter":"Увійти до FactoryOS","or":"або"},
-      "ru":{"sub":"Приватный центр управления AI-производством контента","user":"Пользователь","password":"Пароль","enter":"Войти в FactoryOS","or":"или"},
+      "en":{"sub":"Private AI content production control room","user":"Username or email","password":"Password","enter":"Enter FactoryOS","or":"or"},
+      "uk":{"sub":"Приватний центр керування AI-виробництвом контенту","user":"Логін або email","password":"Пароль","enter":"Увійти до FactoryOS","or":"або"},
+      "ru":{"sub":"Приватный центр управления AI-производством контента","user":"Логин или email","password":"Пароль","enter":"Войти в FactoryOS","or":"или"},
     }[lang]
     google_html=""
     google_script=""
@@ -1701,7 +1705,7 @@ def login_page(request: Request, lang: str = "en"):
 @app.post("/login")
 def login(username: str = Form(...), password: str = Form(...), lang: str = Form("en")):
     lang=lang if lang in ("en","uk","ru") else "en"
-    if not (hmac.compare_digest(username, FACTORY_USER) and hmac.compare_digest(password, FACTORY_PASSWORD)):
+    if not password_login.password_login_ok(username,password,FACTORY_USER,FACTORY_PASSWORD,FACTORY_OWNER_LOGIN_EMAILS):
         msg={"en":"Invalid username or password","uk":"Невірний логін або пароль","ru":"Неверный логин или пароль"}[lang]
         retry={"en":"Try again","uk":"Спробувати ще раз","ru":"Попробовать снова"}[lang]
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>{retry}</a>", status_code=401)

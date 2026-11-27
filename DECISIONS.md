@@ -2897,3 +2897,12 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   `FACTORY_MEDIA_FINISHER_ENDPOINT` to the worker's public onrender.com address.
 - Code: that DNS failure now names the host and the variable to change, and `ops_health` shows `endpoint_host`
   (host[:port] only) so Claude can confirm the address without the owner's session.
+
+## Email as the password-login username (owner request 2026-11-27)
+
+- `POST /login` accepts either the `FACTORY_USER` login or an owner email in the username field; `FACTORY_PASSWORD`
+  is still required and an unset password still lets nobody in (`password_login.py`).
+- Owner emails are `FACTORY_GOOGLE_OWNER_EMAILS` (already the list that makes a Google account the owner) plus the
+  optional `FACTORY_OWNER_EMAILS`, so no new production variable is needed when the Google owner list is set.
+- Emails match case-insensitively with surrounding spaces trimmed; the `FACTORY_USER` login stays case-sensitive but
+  surrounding spaces are now trimmed too. The session is the same owner session as before (no email in the cookie).
