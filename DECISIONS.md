@@ -2827,3 +2827,63 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
 - Title scrim (renderer `photo_cinema/2`): a fixed gradient overlay (top band 16 %, bottom 52 %) keeps the brand line,
   titles and captions readable on bright photos; the version bump invalidates cached shot clips.
 
+
+## 2026-11-27 — MC-04: listeners pick male or female voices, in any order
+
+- Owner brief 19.11 (MC-04 «чоловічі/жіночі голоси та мови»). Languages (uk/ru/en) already worked; voices did not:
+  the #281 rule allowed only a male narrator and a male host A + female host B. That rule was an implementation
+  choice, not an owner requirement.
+- Now `valid_voices`: narrator = any catalogue voice; two hosts = any two different voices. The configurator shows a
+  «Чоловічі / Жіночі» switch per slot (opens on the chosen voice's gender). The server sends `voice_genders` with
+  the listener profile, and the script writer is told which voice says each host's lines, because Ukrainian and
+  Russian verbs agree with the speaker.
+- Kept male A + female B (`classic_pair`) where the script has fixed genders: the owner's daily episode («Клод» /
+  «Джі-Пі-Ті», written by `autopilot/mycast_daily.py`) and the demo cities.
+## 2026-11-27 — `ops_health` shows the latest Media Finisher jobs
+
+- The owner ran the video-editor acceptance (with Shorts) on production; the result lived only in the owner's
+  dashboard. `ops_health` now adds the 5 latest edit jobs: status, stage, Shorts requested / produced and their
+  lengths, durations before and after, QA verdict and the checks that did not pass (counts only, never the words),
+  render time, and the error with links replaced by `[link]` (signed links carry tokens). No media URLs, no
+  transcript text.
+## 2026-11-27 — T-743 MyCast visit counter (#452 B-01)
+- Owner 2026-11-27: start implementation with the counter; the people test runs in parallel.
+- One JSON line per page view in `DATA_DIR/mycast_visits.jsonl`. The visitor is HMAC(daily random salt, IP|UA) cut to
+  16 hex; the salt file keeps only today's salt, so yesterday's hashes cannot be re-linked. IP and UA are never written.
+  `daily_visitors` is named honestly: it sums distinct visitors per day and is not «unique people».
+- The referring host is reduced to a category (tg, li, search, x, …) and dropped. `?ch=` on the link wins.
+- No cookie, no browser storage, no third-party script; the page script skips Do Not Track / GPC. Bots by user agent,
+  `?synthetic=1` and more than 30 views per visitor-hour are not counted. A bot or a limited visit still gets 204, so
+  the endpoint does not tell a client how it was classified.
+- New accounts keep `acq {variant, channel}` from the link (sent with the sign-up like `ref`; Telegram's signed fields
+  exclude it). Returning accounts keep their first value. It is deleted with the account.
+- Flag `FACTORY_MYCAST_VISITS_ENABLED` is off: the endpoint answers 404 and the page script's request does nothing. The
+  privacy text is a draft for the owner (`docs/business_experiments/mycast_visits_privacy_draft.md`); the page is
+  unchanged until he approves it.
+- Review (Codex, PR #494): `acq` is kept on sign-up only while the counter flag is on, so nothing is stored before
+  the privacy text is published. The client IP is the first `X-Forwarded-For` hop, the same as `mycast_demo`; a client
+  can fake it, which can only inflate its own estimate, so the counts are an estimate, not an audit.
+- Reversible: switch the flag off; delete `mycast_visits*.json*` to forget all counts.
+
+## 2026-11-27 — FO-05: a finished task shows merged → CI → production → accepted
+
+- Owner brief 19.11 (FO-05, honest statuses BUILT/MERGED/TESTED/DEPLOYED/VERIFIED/FAILED/BLOCKED). The team board
+  had one "done" for everything finished. Each finished task now carries `delivery`: merged, CI on the merged head
+  (pass / fail / unknown), deployed (true / false / unknown), accepted by the owner (Relay ticket with evidence
+  level "accepted" for that PR). Label, first match wins: accepted > CI failed > on production > CI passed > merged;
+  a closed issue without a merged PR is "closed without a PR". BLOCKED and CI-failed open tasks already existed.
+- "Deployed" is never guessed: `RENDER_GIT_COMMIT` must be the merge commit of one of the PRs read; a PR merged at or
+  before that one is on production. Unknown commit (local run, PR older than the 60 read) → no deploy claim, "?".
+  This replaces the skipped "deployed SHA vs main" case in `test_team_truthfulness.py` (#242).
+- The EC2 snapshot (`compact_github`) now keeps `merge_commit_sha`, so the board works from it too.
+
+## 2026-11-27 — Media Finisher: the owner's acceptance run failed on the worker address, not on the video
+
+- `ops_health` showed the owner's run of 27.11 (job 5f476592, Shorts on) `failed` at `submit`: five attempts, each
+  `Name or service not known`. FactoryOS could not resolve the worker host from `FACTORY_MEDIA_FINISHER_ENDPOINT`
+  (render.yaml takes it from the worker's private `hostport`). The worker itself answers on its public URL, and its
+  /health (tiny model, low-memory, 1 CPU) does not match render.yaml (small, 1c-2g), so it is likely not the
+  Blueprint-managed service and has no private hostname. Production env vars are the owner's: the fix is to set
+  `FACTORY_MEDIA_FINISHER_ENDPOINT` to the worker's public onrender.com address.
+- Code: that DNS failure now names the host and the variable to change, and `ops_health` shows `endpoint_host`
+  (host[:port] only) so Claude can confirm the address without the owner's session.

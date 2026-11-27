@@ -1053,6 +1053,10 @@ install_mycast_account_routes(app, MYCAST_LISTENERS, secret=FACTORY_SECRET,
                               send_sample=_mycast_send_listener_sample, fetch_audio=_telegram_fetch_file,
                               calendar_available=MYCAST_CALENDAR.available,
                               on_delete=MYCAST_CALENDAR.disconnect)
+from mycast_visits import VisitLog, install_mycast_visit_routes  # noqa: E402
+# T-743 (#452 B-01): first-party visit/variant counter for MyCast pages; FACTORY_MYCAST_VISITS_ENABLED=1, off by default.
+install_mycast_visit_routes(app, VisitLog(DATA_DIR / "mycast_visits.jsonl"), identity=request_identity,
+                            registrations=MYCAST_LISTENERS.acquisition)
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # #317: website listeners' daily episodes. The EC2 worker writes the script; the server re-checks every gate,
 # voices it with the listener's own voices and sends it only to the listener's own chat.
@@ -1576,7 +1580,8 @@ async def auth_middleware(request: Request, call_next):
     if mycast_redirect is not None:
         return mycast_redirect
     public_paths = {"/api/mycast/quiz", "/login", "/login/recover", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
-                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
+                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics",
+                    "/api/mycast/v"}  # T-743 visit beacon: 404 unless FACTORY_MYCAST_VISITS_ENABLED=1
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
@@ -2088,6 +2093,12 @@ FACTORY_MCP_TOOLS=[
     }
 ]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]+ops_relay.MCP_TOOLS+[ops_health.TOOL]
 
+def _ops_health_edit_jobs():
+    try:
+        return get_edit_jobs(limit=5)["jobs"]
+    except Exception:
+        return []
+
 def _ops_health_snapshot(lane):
     try:
         ops=OPS_RELAY.owner_board(limit=1)
@@ -2097,7 +2108,7 @@ def _ops_health_snapshot(lane):
         return ops_health.snapshot(lane,worker=get_claude_code_status(),telegram=_telegram_public_status(),
                                    deliveries=VOICE_HISTORY.entries(),ops=ops,
                                    finisher={"endpoint":FACTORY_MEDIA_FINISHER_ENDPOINT,"token":FACTORY_MEDIA_FINISHER_TOKEN},
-                                   known_secrets=_ops_known_secrets)
+                                   known_secrets=_ops_known_secrets,edit_jobs=_ops_health_edit_jobs())
     except PermissionError as exc:
         raise ValueError(str(exc))  # shown to the caller as isError text
 
@@ -6591,6 +6602,12 @@ def _submit_media_finisher_background(edit_job_id):
                 event(item["production_job_id"],f"AI Media Finisher worker wake/submit retry {attempt}/{MEDIA_FINISHER_SUBMIT_RETRIES}: {last_error[:180]}")
                 if attempt<MEDIA_FINISHER_SUBMIT_RETRIES:
                     continue
+                if "Name or service not known" in last_error or "nodename nor servname" in last_error:
+                    # 2026-11-27: the server could not even resolve the worker's host (a Render private hostname that
+                    # this worker does not have). Say which host, so the owner fixes the address, not the video.
+                    host=urlparse.urlsplit(submit_endpoint).netloc
+                    last_error=(f"worker address {host} does not resolve; set FACTORY_MEDIA_FINISHER_ENDPOINT to the "
+                                f"worker's public onrender.com address. {last_error}")
                 _finalize_edit_job(edit_job_id,"failed",error=f"Worker did not become ready after {attempt} attempts: {last_error}",
                                    response={"status":"failed","stage":"submit","percent":1,"submit_attempt":attempt,"exception":last_error})
                 return
@@ -13504,8 +13521,21 @@ def get_team_tasks(refresh=False):
         try:lanes=(get_lane_board() or {}).get("lanes") or {}
         except Exception:lanes={}
         roadmap=_parse_roadmap_tasks()
-        return build_team_tasks(github,roadmap=roadmap,lanes=lanes,repo=GITHUB_REPO,owner_cards=_owner_decision_cards(roadmap))
+        return build_team_tasks(github,roadmap=roadmap,lanes=lanes,repo=GITHUB_REPO,owner_cards=_owner_decision_cards(roadmap),
+                                deployed_sha=BUILD_SHA,verified_prs=_owner_accepted_prs())
     return _TEAM_TASKS_CACHE.get(read,refresh=refresh)
+
+def _owner_accepted_prs():
+    """FO-05: PR numbers of Relay tickets the owner accepted (evidence level "accepted"); empty when unreadable."""
+    try:
+        out=set()
+        for t in RELAY_STORE.list(limit=500):
+            ver=(t or {}).get("verification") or {}
+            m=re.search(r"/pull/(\d+)",str(((t or {}).get("execution") or {}).get("pr_url") or ""))
+            if ver.get("accepted") and m:out.add(int(m.group(1)))
+        return frozenset(out)
+    except Exception:
+        return frozenset()
 
 _TEAM_SNAPSHOT_PATH=DATA_DIR/"team_tasks_github.json"
 

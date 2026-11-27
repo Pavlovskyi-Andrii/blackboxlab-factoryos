@@ -3,6 +3,15 @@
 Research, specification and prototype only. No production dashboard change, no publishing, no spend. Owner answers: `.autopilot/answers.md` «#452».
 S5 (implementation) is not on the roadmap until the owner gate.
 
+- [x] T-743 #452 B-01: first-party MyCast visit and variant counter (no cookies, no stored IP), arrival kept on sign-up
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-27: «да, начинай со счётчика, тест параллельно»)
+  Depends: T-733
+  Spec: `docs/architecture/internal-growth-manager-rfc.md` §8, §11 B-01; DECISIONS.md «2026-11-27 — T-743». `mycast_visits.py`, `static/mycast-configurator/v.js`, `mycast_accounts.py` (`acq` on new accounts), profile and episode pages, `app.py` wiring.
+  Goal: `POST /api/mycast/v` (public, 404 unless `FACTORY_MYCAST_VISITS_ENABLED=1`) counts views of the landing, profile and episode pages with page, variant (`?v=`), channel (`?ch=` or referrer category) and a daily-salted visitor hash; no IP, user agent, cookie or browser storage; Do Not Track / GPC, bots, `?synthetic=1` and >30 views per visitor-hour are not counted; rows older than 120 days fold into daily totals. Sign-ups keep `acq {variant, channel}`. Owner report `GET /api/factory/mycast/visits?days=30` with visits by page/variant/channel/day and registrations by variant/channel.
+  DONE: `python test_mycast_visits.py`, `python test_mycast_accounts.py`, `python test_mycast_share_page.py`, `python test_mycast_public.py`, configurator inline JS `node --check`, default verification.
+  Owner switch (not a code task): approve the privacy text in `docs/business_experiments/mycast_visits_privacy_draft.md`; Claude then adds it to the privacy page, and the owner sets `FACTORY_MYCAST_VISITS_ENABLED=1` in Render. Until then nothing is counted.
+
 - [x] T-731 #452 S0–S1: access, terms and overlap audit + Ploy public UX/functional benchmark
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (direct owner assignment 2026-11-23; runs right after the T-590–T-593 close-out)

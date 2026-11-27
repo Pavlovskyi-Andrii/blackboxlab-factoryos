@@ -47,16 +47,25 @@ DAILY_CAP = int(os.environ.get("MYCAST_VOICE_SAMPLE_DAILY_CAP", "40") or 40)
 FAIL_RETRY_SECONDS = 3600
 
 
+GENDER = {n: g for n, _, g in VOICES}
+
+
 def valid_voices(mode: str, voices) -> bool:
-    """narrator: one male-by-ear voice; two_hosts: two different voices, the first male-by-ear, the second female-by-ear."""
+    """MC-04 (owner brief: male and female voices): narrator is any one catalogue voice; two_hosts is any two different
+    catalogue voices, in either gender and either order. The script writer is told each host's gender (by ear)."""
     if not isinstance(voices, (list, tuple)) or any(v not in NAMES for v in voices):
         return False
-    gender = {n: g for n, _, g in VOICES}
     if mode == "narrator":
-        return len(voices) == 1 and gender[voices[0]] == "m"
+        return len(voices) == 1
     if mode == "two_hosts":
-        return len(voices) == 2 and voices[0] != voices[1] and gender[voices[0]] == "m" and gender[voices[1]] == "f"
+        return len(voices) == 2 and voices[0] != voices[1]
     return False
+
+
+def classic_pair(voices) -> bool:
+    """Host A male-by-ear, host B female-by-ear, different. Kept for scripts written with fixed grammatical genders:
+    the owner's daily episode ("Клод" / "Джі-Пі-Ті") and the demo cities."""
+    return valid_voices("two_hosts", voices) and GENDER[voices[0]] == "m" and GENDER[voices[1]] == "f"
 
 
 def gemini_single_voice_pcm(api_key: str, text: str, voice: str, *, opener=None) -> tuple[bytes, int]:
