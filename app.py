@@ -13509,8 +13509,21 @@ def get_team_tasks(refresh=False):
         try:lanes=(get_lane_board() or {}).get("lanes") or {}
         except Exception:lanes={}
         roadmap=_parse_roadmap_tasks()
-        return build_team_tasks(github,roadmap=roadmap,lanes=lanes,repo=GITHUB_REPO,owner_cards=_owner_decision_cards(roadmap))
+        return build_team_tasks(github,roadmap=roadmap,lanes=lanes,repo=GITHUB_REPO,owner_cards=_owner_decision_cards(roadmap),
+                                deployed_sha=BUILD_SHA,verified_prs=_owner_accepted_prs())
     return _TEAM_TASKS_CACHE.get(read,refresh=refresh)
+
+def _owner_accepted_prs():
+    """FO-05: PR numbers of Relay tickets the owner accepted (evidence level "accepted"); empty when unreadable."""
+    try:
+        out=set()
+        for t in RELAY_STORE.list(limit=500):
+            ver=(t or {}).get("verification") or {}
+            m=re.search(r"/pull/(\d+)",str(((t or {}).get("execution") or {}).get("pr_url") or ""))
+            if ver.get("accepted") and m:out.add(int(m.group(1)))
+        return frozenset(out)
+    except Exception:
+        return frozenset()
 
 _TEAM_SNAPSHOT_PATH=DATA_DIR/"team_tasks_github.json"
 

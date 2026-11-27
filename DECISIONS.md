@@ -2829,3 +2829,15 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   the privacy text is published. The client IP is the first `X-Forwarded-For` hop, the same as `mycast_demo`; a client
   can fake it, which can only inflate its own estimate, so the counts are an estimate, not an audit.
 - Reversible: switch the flag off; delete `mycast_visits*.json*` to forget all counts.
+
+## 2026-11-27 — FO-05: a finished task shows merged → CI → production → accepted
+
+- Owner brief 19.11 (FO-05, honest statuses BUILT/MERGED/TESTED/DEPLOYED/VERIFIED/FAILED/BLOCKED). The team board
+  had one "done" for everything finished. Each finished task now carries `delivery`: merged, CI on the merged head
+  (pass / fail / unknown), deployed (true / false / unknown), accepted by the owner (Relay ticket with evidence
+  level "accepted" for that PR). Label, first match wins: accepted > CI failed > on production > CI passed > merged;
+  a closed issue without a merged PR is "closed without a PR". BLOCKED and CI-failed open tasks already existed.
+- "Deployed" is never guessed: `RENDER_GIT_COMMIT` must be the merge commit of one of the PRs read; a PR merged at or
+  before that one is on production. Unknown commit (local run, PR older than the 60 read) → no deploy claim, "?".
+  This replaces the skipped "deployed SHA vs main" case in `test_team_truthfulness.py` (#242).
+- The EC2 snapshot (`compact_github`) now keeps `merge_commit_sha`, so the board works from it too.
