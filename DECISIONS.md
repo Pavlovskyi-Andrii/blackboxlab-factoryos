@@ -2906,3 +2906,17 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   optional `FACTORY_OWNER_EMAILS`, so no new production variable is needed when the Google owner list is set.
 - Emails match case-insensitively with surrounding spaces trimmed; the `FACTORY_USER` login stays case-sensitive but
   surrounding spaces are now trimmed too. The session is the same owner session as before (no email in the cookie).
+
+## 2026-11-27 — T-746 MyCast listening statistics (owner page)
+- Owner 2026-11-27: before Telegram Stars, a page showing every registered listener and how long they listen; payment
+  comes after the data says people keep listening on the free version.
+- Telegram does not report plays to a bot, so «delivered» is shown as delivered, never as listened. Real play starts
+  are counted only on the MyCast site (own replays, shared episode, profile player): one per file fetch, the browser
+  caches the file for an hour. The counts live in the listener's own record and go with it.
+- Groups: no episode; dropped within 3 days of the first episode; dropped later; listening under a week; a week or more
+  («candidates for the paid version»). «Dropped» = the listener stopped delivery, blocked the bot (Telegram 403), or
+  delivery is paused. Our own failing deliveries do not count as dropping.
+- A deleted account leaves only anonymous counters (total, days after sign-up bucket, had an episode).
+- Play counting is on now, without a flag: it is a count inside the listener's own account, like the existing
+  «My podcasts» data. The privacy draft (`docs/business_experiments/mycast_visits_privacy_draft.md`) now mentions it
+  and the deletion counter, so the page update covers both.

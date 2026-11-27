@@ -3,6 +3,14 @@
 Research, specification and prototype only. No production dashboard change, no publishing, no spend. Owner answers: `.autopilot/answers.md` «#452».
 S5 (implementation) is not on the roadmap until the owner gate.
 
+- [x] T-746 MyCast listening statistics for the owner: who gets episodes, for how long, who drops off (before Stars)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-27: «сперва сделать мне менюшку … сколько они слушают … спрыгивают через три дня … тогда можно подключать звёзды»)
+  Depends: T-743
+  Spec: DECISIONS.md «2026-11-27 — T-746». `mycast_stats.py`, `static/mycast-stats/index.html` (sidebar: MVP Builder → «MyCast: кто слушает»), `mycast_accounts.py` (`count_play`, `snapshot`, anonymous deletion counters), `app.py` wiring.
+  Goal: owner-only `GET /api/factory/mycast/stats` and an RU/UK/EN page: per listener (first name, sign-up, channel, status, episodes and minutes delivered, first/last episode, days with episodes, last 7 days, site replays, plays by link, last error), five groups (no episode / dropped within 3 days / dropped later / listening under a week / a week or more), funnel, day-3/7/14 retention with denominators, anonymous deleted-account counters. Says plainly that Telegram does not report whether an episode was played. A blocked bot (403) counts as leaving; our own delivery failures do not.
+  DONE: `python test_mycast_stats.py`, MyCast suites, `python test_navigation.py`, `python test_locale_parity.py`, page inline JS `node --check`, default verification; page checked in Chromium at 1440 and 390 px with seeded listeners (no overflow, no errors; anonymous visitor sees «sign in»).
+
 - [x] T-743 #452 B-01: first-party MyCast visit and variant counter (no cookies, no stored IP), arrival kept on sign-up
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (owner 2026-11-27: «да, начинай со счётчика, тест параллельно»)

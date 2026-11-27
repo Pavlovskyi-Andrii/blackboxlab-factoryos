@@ -1061,6 +1061,8 @@ from mycast_visits import VisitLog, install_mycast_visit_routes  # noqa: E402
 # T-743 (#452 B-01): first-party visit/variant counter for MyCast pages; FACTORY_MYCAST_VISITS_ENABLED=1, off by default.
 install_mycast_visit_routes(app, VisitLog(DATA_DIR / "mycast_visits.jsonl"), identity=request_identity,
                             registrations=MYCAST_LISTENERS.acquisition)
+from mycast_stats import install_mycast_stats_routes  # noqa: E402
+install_mycast_stats_routes(app, load=MYCAST_LISTENERS.snapshot, identity=request_identity)  # T-746: who listens, who drops off
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # #317: website listeners' daily episodes. The EC2 worker writes the script; the server re-checks every gate,
 # voices it with the listener's own voices and sends it only to the listener's own chat.

@@ -17,6 +17,11 @@ What the counter really does (code: `mycast_visits.py`, `static/mycast-configura
 - the records are kept for 120 days, then only daily totals remain;
 - when you sign up, the account keeps the variant and channel of the link you came from; it is deleted with the account.
 
+Also covered (T-746, owner statistics, already on): the account counts how many times its episodes were started
+on the MyCast site (own replays, and plays of a shared episode or profile player) — a number only, deleted with the
+account. When an account is deleted, only an anonymous total remains: how many accounts were deleted and after how
+many days, with no name or id.
+
 ## Text to add — Ukrainian (after «Чого ми не зберігаємо»)
 
 **Статистика відвідувань.** Щоб зрозуміти, яка сторінка і який канал приводять людей, ми рахуємо перегляди сторінок
@@ -28,6 +33,8 @@ Telegram) і категорія сайту, з якого ви прийшли �
 сторонні сервіси аналітики. Якщо у браузері ввімкнено Do Not Track або Global Privacy Control, перегляд не
 рахується. Записи зберігаються 120 днів, потім лишаються тільки підсумки за день. Під час реєстрації в обліковому
 записі зберігаються варіант сторінки й канал посилання, з якого ви прийшли; вони видаляються разом з обліковим записом.
+Також в обліковому записі рахується, скільки разів ваші випуски запускали на сайті MyCast (лише число). Після видалення
+облікового запису лишається тільки загальний лічильник видалених акаунтів, без жодних даних про вас.
 
 ## Text to add — English (in the English part, after "Not stored")
 
@@ -39,7 +46,9 @@ is deleted, so visits on different days cannot be linked. The estimate is approx
 same browser can count as one person. We do not store the IP address or the browser name. We use no
 cookies and no third-party analytics. Nothing is counted when your browser sends Do Not Track or Global Privacy
 Control. Records are kept for 120 days; after that only daily totals remain. When you sign up, your account keeps the
-page variant and channel of the link you came from; they are deleted with your account.
+page variant and channel of the link you came from; they are deleted with your account. Your account also counts how
+many times your episodes were started on the MyCast site (a number only). After an account is deleted, only an
+anonymous count of deleted accounts remains, with nothing about you.
 
 ## Для владельца — то же по-русски (для проверки, на странице не публикуется)
 
@@ -51,7 +60,9 @@ Telegram) и категория сайта, с которого вы пришл�
 одинаковым браузером могут посчитаться как один человек. Сам IP-адрес и название браузера мы не храним. Cookies и
 сторонние сервисы аналитики не используются. Если в браузере включены Do Not Track или Global Privacy Control,
 просмотр не считается. Записи хранятся 120 дней, потом остаются только итоги за день. При регистрации в аккаунте
-сохраняются вариант страницы и канал ссылки, по которой вы пришли; они удаляются вместе с аккаунтом.
+сохраняются вариант страницы и канал ссылки, по которой вы пришли; они удаляются вместе с аккаунтом. Также в аккаунте
+считается, сколько раз ваши выпуски запускали на сайте MyCast (только число). После удаления аккаунта остаётся только
+общий счётчик удалённых аккаунтов, без данных о вас.
 
 Not legal advice: whether this is enough for GDPR in the EU depends on the owner's legal setup; the design avoids
 cookies and stored identifiers to keep the risk low.
