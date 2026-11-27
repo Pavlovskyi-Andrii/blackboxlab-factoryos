@@ -43,6 +43,12 @@ SCENES = (
     ("menu-open", "T-594", "toggleMobileNav()"),
     ("build-progress", "T-595", "openBuildProgress()"),
     ("worker-center", "T-596", "openDelegationCenter()"),
+    # The T-596 signals (host, EC2 API, systemd, OAuth, heartbeat, claim, heatmap) sit in the folded technical details.
+    ("worker-signals", "T-596", "(async () => { await openDelegationCenter(); "
+     "const t = document.querySelector('details.wcTech'); if (!t) throw new Error('no technical details on page'); "
+     "t.open = true; await new Promise(r => setTimeout(r, 300)); "
+     "const w = document.querySelector('.woRoot[data-source]'); if (!w) throw new Error('no worker overview in technical details'); "
+     "w.scrollIntoView({block: 'start'}); })()"),
     ("help-tip", "T-597", "(document.querySelector('.helpTip')||{click(){throw new Error('no .helpTip on page')}}).click()"),
     ("owner-desk-ask", "owner desk", "(async () => { await openDelegationCenter(); "
      "(document.querySelector('.odAskStep')||{click(){throw new Error('no owner desk on page')}}).click(); })()"),
