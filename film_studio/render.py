@@ -90,6 +90,33 @@ def _text_filter(textfile: str, font: str, size: int, color: str, x: str, y: str
             f":x={x}:y={y}" + (":" + extra if extra else ""))
 
 
+SCRIM = {"top": 0.16, "top_alpha": 0.55, "bottom": 0.52, "bottom_alpha": 0.72}
+
+
+def scrim_png(work: Path, width: int, height: int) -> str:
+    """A cinematic title scrim: transparent in the middle, darkening towards the top band (brand line) and the bottom
+    (title + captions), so text stays readable on bright photos. Deterministic, written once per size."""
+    from PIL import Image
+    rel = f"text/scrim-{width}x{height}.png"
+    path = work / rel
+    if not path.is_file():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        alpha = Image.new("L", (1, height), 0)
+        top_h, bot_h = int(height * SCRIM["top"]), int(height * SCRIM["bottom"])
+        for y in range(height):
+            a = 0.0
+            if y < top_h:
+                a = SCRIM["top_alpha"] * (1 - y / top_h) ** 1.5
+            if y > height - bot_h:
+                t = (y - (height - bot_h)) / bot_h
+                a = max(a, SCRIM["bottom_alpha"] * t ** 1.6)
+            alpha.putpixel((0, y), int(round(255 * a)))
+        img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        img.putalpha(alpha.resize((width, height)))
+        img.save(path, optimize=True)
+    return rel
+
+
 def shot_command(plan: Dict[str, Any], shot: Dict[str, Any], *, manifest_dir: Path, work: Path,
                  out_clip: Path, fonts: Dict[str, str]) -> List[str]:
     """Write the shot's text files under `work/text` and return its FFmpeg argv (run with cwd=work)."""
@@ -134,6 +161,11 @@ def shot_command(plan: Dict[str, Any], shot: Dict[str, Any], *, manifest_dir: Pa
         graph.append(f"[1:v]scale={fw}:{fh}:flags=lanczos,format=rgba[fg]")
         graph.append(f"[bg][fg]overlay=x='{fx}':y=-{(fh - H) // 2}:shortest=1:eval=frame[par]")
         last = "par"
+    n_in = 2 if fg_rel else 1
+    argv += ["-loop", "1", "-framerate", str(fps), "-t", f"{secs:.6f}", "-i", scrim_png(work, W, H)]
+    graph.append(f"[{n_in}:v]format=rgba[scrim]")
+    graph.append(f"[{last}][scrim]overlay=0:0:shortest=1[lit]")
+    last = "lit"
     fx_text = []
     fx_text.append(_text_filter(put("brand", BRAND_LINE), fonts["bold"], round(24 * k), "0x39d9e9",
                                 f"{round(96 * k)}", f"{round(70 * k)}", "shadowx=2:shadowy=2:shadowcolor=black@0.6"))

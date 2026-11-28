@@ -41,6 +41,7 @@ CONSENT_VERSION = "mycast-delivery-consent-2026-11-07"
 SENDS_PER_DAY = 3
 MAX_AUDIT = 50
 import mycast_library
+import mycast_visits   # T-743: arrival variant/channel validation
 from mycast_library import FREE_DAYS, FRIEND_DAYS, MAX_REFERRALS   # owner offer 2026-11-07; #305 rule in mycast_library
 CODE_RE = re.compile(r"^[A-Za-z0-9_-]{8,4000}$")
 SLUG_RE = re.compile(r"^[a-z0-9]{8}$")
@@ -106,8 +107,9 @@ class ListenerStore:
     def _key(provider: str, pid: str) -> str:
         return hashlib.sha256(f"{provider}:{pid}".encode()).hexdigest()
 
-    def login(self, who: dict, ref: str = "") -> dict:
-        """ref: the inviting listener's slug from a share link. It counts once, only for a brand-new account."""
+    def login(self, who: dict, ref: str = "", acq: Optional[dict] = None) -> dict:
+        """ref: the inviting listener's slug from a share link. It counts once, only for a brand-new account.
+        acq: the landing variant and channel the visitor arrived with (T-743); kept only on a brand-new account."""
         key = self._key(who["provider"], who["pid"])
         now = int(self.clock())
         with self._lock:
@@ -119,6 +121,9 @@ class ListenerStore:
                 while slug in data["listeners"]:
                     slug = "".join(secrets.choice("abcdefghijkmnpqrstuvwxyz23456789") for _ in range(8))
                 rec = {"slug": slug, "provider": who["provider"], "key": key, "created": now, "code": ""}
+                acquired = mycast_visits.clean_acq(acq)
+                if acquired:
+                    rec["acq"] = acquired
                 data["index"][key] = slug
                 inviter = data["listeners"].get(ref) if isinstance(ref, str) and SLUG_RE.fullmatch(ref or "") else None
                 if inviter and mycast_library.is_self_referral(inviter, key, who.get("chat_id")):
@@ -200,6 +205,12 @@ class ListenerStore:
             found = mycast_library.find_public(self._load(), token)
         return (dict(found[0]), found[1], dict(found[2])) if found else None
 
+    def acquisition(self) -> list:
+        """T-743: creation time and arrival variant/channel of every account, for the owner's visit report. No names."""
+        with self._lock:
+            data = self._load()
+        return [{"created": rec.get("created"), "acq": rec.get("acq")} for rec in data["listeners"].values()]
+
     def get(self, slug: str) -> Optional[dict]:
         with self._lock:
             rec = self._load()["listeners"].get(slug)
@@ -279,11 +290,41 @@ class ListenerStore:
                 rec.update(fields)
                 self._save(data)
 
+    def count_play(self, slug: str, kind: str) -> None:
+        """T-746: one play start of the listener's audio on the site. own = in «My podcasts»; shared = a shared
+        episode or the profile player opened by anyone. Counts only; nothing about who played it."""
+        if kind not in ("own", "shared"):
+            return
+        with self._lock:
+            data = self._load()
+            rec = data["listeners"].get(slug)
+            if not rec:
+                return
+            plays = rec.setdefault("plays", {})
+            plays[kind] = int(plays.get(kind, 0)) + 1
+            if kind == "own":
+                plays["last_own_at"] = int(self.clock())
+            self._save(data)
+
+    def snapshot(self) -> dict:
+        """T-746: the listeners and the anonymous counters, read under the lock, for the owner's statistics."""
+        with self._lock:
+            data = self._load()
+        return {"listeners": data["listeners"], "stats": data.get("stats") or {}}
+
     def delete(self, slug: str) -> bool:
         with self._lock:
             data = self._load()
             rec = data["listeners"].pop(slug, None)
             if rec:
+                # T-746: an anonymous count of who leaves and when (no id, no name), so churn stays visible
+                import mycast_stats
+                gone = data.setdefault("stats", {}).setdefault("deleted", {})
+                gone["total"] = int(gone.get("total", 0)) + 1
+                bucket = mycast_stats.delete_bucket((self.clock() - int(rec.get("created") or self.clock())) / 86400)
+                gone.setdefault("by_days", {})[bucket] = int(gone.get("by_days", {}).get(bucket, 0)) + 1
+                if mycast_library.episodes(rec):
+                    gone["had_episode"] = int(gone.get("had_episode", 0)) + 1
                 data["index"].pop(rec.get("key", ""), None)
                 mycast_library.drop_listener_links(data, slug)   # public episode links die with the account
                 self._save(data)
@@ -399,11 +440,13 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
         try:
             body = await _body(request)
             ref = str(body.pop("ref", "") or "")          # not part of Telegram's signed fields
+            acq = body.pop("acq", None)                     # T-743: neither is the arrival variant/channel
+            acq = acq if mycast_visits.enabled() else None  # kept only once the owner switched the counter on
             who = verify_telegram(body, bot_token(), clock())
             current = _current(request)
             if current and current.get("provider") != "telegram":   # #281: link to the account already signed in
                 return _signed_in(store.link_telegram(current["slug"], who["chat_id"]))
-            return _signed_in(store.login(who, ref))
+            return _signed_in(store.login(who, ref, acq))
         except AccountError as exc:
             return _err(exc)
 
@@ -424,7 +467,8 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             if current and current["slug"] == ref:
                 ref = ""                                        # #305: a signed-in listener cannot invite a new self
             return _signed_in(store.login({"provider": "google", "pid": str(claims["sub"]),
-                                           "name": _name(claims.get("given_name") or claims.get("name"))}, ref))
+                                           "name": _name(claims.get("given_name") or claims.get("name"))}, ref,
+                                          body.get("acq") if mycast_visits.enabled() else None))
         except AccountError as exc:
             return _err(exc)
 
@@ -530,6 +574,7 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
                 audio = fetch_audio(entry["file_id"])
             except Exception:
                 raise AccountError("episode_unavailable", 502)
+            store.count_play(rec["slug"], "own")             # T-746: a replay in «My podcasts»
             return Response(audio, media_type="audio/mpeg",
                             headers={"Cache-Control": "private, max-age=3600",
                                      "Content-Disposition": f'inline; filename="mycast-{day}.mp3"'})
@@ -604,6 +649,7 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             audio = fetch_audio(found[1])
         except Exception:
             return Response(status_code=502)
+        store.count_play(slug, "shared")                     # T-746: the profile player
         return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "public, max-age=3600",
                                                                  "Content-Disposition": f'inline; filename="mycast-{found[0]}.mp3"'})
 
@@ -655,5 +701,6 @@ def install_mycast_account_routes(app, store: ListenerStore, *, secret: str, bot
             audio = fetch_audio(found[2]["file_id"])
         except Exception:
             return Response(status_code=502, headers=_NOINDEX)
+        store.count_play(found[0].get("slug", ""), "shared")  # T-746: a shared episode link
         return Response(audio, media_type="audio/mpeg",
                         headers={**_NOINDEX, "Content-Disposition": f'inline; filename="mycast-{found[1]}.mp3"'})

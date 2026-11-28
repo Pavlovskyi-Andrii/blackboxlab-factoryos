@@ -2758,3 +2758,165 @@ Owner 2026-11-22 («Мозг: оба»): the agent drives step by step; a succes
   still strips paid API keys; the server-side Surfer gate (owner flag, allowlist, caps, `needs_owner_confirmation`
   for publish/pay/delete) is the real barrier and no MCP tool confirms on the owner's behalf.
 - Tests: `test_relay_mcp_tools.py` (imported by `test_relay_execution.py`).
+
+## 2026-11-27 — Worker-token routes for the ops agent and the mods runtime pass the auth middleware
+
+- `/api/ops/worker/*` (T-740 ops agent) and `/api/mods/worker/*` (mods runtime) check the worker token inside the
+  route, but the session middleware answered 401 "authentication required" first whenever `FACTORY_PASSWORD` is set
+  (production). Route tests called the handlers directly, so nothing caught it: once T-740-H was done every ops
+  request would have expired as "agent offline". Both prefixes now pass the middleware only with the Claude worker
+  token, like `/api/relay/worker/`; a session cookie or a wrong token is still 401 (`test_route_auth_fixes.py`).
+
+## 2026-11-27 — MCP `ops_health`: the Claude lane reads worker, Telegram and delivery health
+
+- Owner: «FO-01, FO-02 … чтобы у тебя был доступ». Worker heartbeat, Telegram pairing and MyCast delivery history
+  were only on owner-cookie routes, so a cloud Claude session could not check them. `ops_health` (Claude lane token
+  only, like `ops_request`) returns one read-only snapshot: worker online / seconds since heartbeat / current task /
+  last error (200 chars, known secrets masked), Telegram bot configured + owner paired (no chat id, no username),
+  the latest 8 voice deliveries (kind, id, status, seconds), the Ops relay gate and agent polling, Media Finisher
+  endpoint/token presence (booleans). It reads in-memory state and two small files; it never sends anything.
+- Not done: giving the Telegram bot token to a cloud session (it could read and post as the bot; the server already
+  holds it), or a "send a test message" tool (an outward action; the owner can press "Test" in Settings).
+## 2026-11-27 — Media Finisher signs file links even without an API token
+
+- Owner: `FINISHER_API_TOKEN` is not set on Render. After #442 a worker without a token (and without the shared
+  `FACTORY_MEDIA_FINISHER_SHARED_TOKEN` from the Blueprint env group) refused every file, so FactoryOS could not
+  download finished videos. The signing key is now the token, or else a random 64-hex key the worker creates once in
+  its persistent disk (`.file-signing-key`, mode 600). Links stay one-file, one-job, expiring; a bare `/files/...`
+  URL is still 403. Not chosen: reopening files publicly (user videos are private) or editing Render env vars
+  (owner-only). Without a token `/jobs` itself stays unauthenticated as before — setting the token is still advised.
+## 2026-11-27 — MyCast chapter timecodes
+
+- Owner: "Утренний подкаст пришел, но тайм-кодов нет, их нужно добавить." The script writer now returns
+  `chapters` (`{"line", "title"}`, line = index into `lines`); `mycast_chapters.py` validates them (a broken entry is
+  dropped, never the episode; fewer than two → no timecodes) and formats `M:SS Title` lines, which Telegram makes
+  clickable in an audio caption.
+- Gemini path: one TTS call per ~2800-character chunk, so a chunk's start is exact and a line inside a chunk is
+  placed by its share of the chunk's characters — a few seconds off at most. Re-chunking at every chapter would be
+  exact but costs extra calls against the free-tier quota, so it was not done.
+- Piper path: each line is its own WAV plus a fixed pause, so starts are exact; the renderer writes
+  `<id>.chapters.txt` next to the MP3 in the artifact, and the worker puts it between the title and the source list
+  (Telegram keeps 1000 caption characters, so sources are what gets cut, never the timecodes).
+
+## 2026-11-27 — T-742 MVP Builder: one standard on both pages
+
+- **Decision:** one server read model, `mvp_factory.view_model()`, added to every project of `GET /api/mvp-factory` as `view`, plus `summary` (total, in work, waiting for the owner, blocked, closed, per stage) and `labels` (UK/RU/EN stage names, next steps, UI words, link names). The dashboard card and the full page render only from these.
+  **Reason:** the owner saw the same projects described differently on the two pages; each page derived the next step and progress on its own. The new fields are additive: `recommendation`, `progress` and `history` stay for other callers (see the next decision for the one change in `recommendation`).
+- **Decision:** next step = the step that moves the project out of its stage, with who does it. spec_review → «Ваше решение по спеке: утвердить или вернуть · Owner», preview_ready → «Ваша проверка превью · Owner», owner_review → «Ваше решение: запуск или стоп · Owner»; these three are marked «нужно ваше решение». `recommend()` now also returns `decision: owner` (role Owner) for spec_review. This is a behaviour change of the existing `recommendation` field, not an additive one: a consumer that picks work by `decision == "recommend"` no longer picks spec_review projects. No consumer in this repository does (checked in `test_mvp_view.py`, which also pins every other stage's answer); the agents cannot advance spec_review anyway (`owner_gate`).
+  **Reason:** `/spec/approve` is owner-only and agents may not advance into build_queued, so «В очереди на сборку · Claude Builder» for a spec under review was misleading. Presentation only: transitions, evidence rules and gates are unchanged.
+- **Decision:** progress is one number on both pages: `% · шаг N из 9` (idea 0 … validated 100), a plain bar on both; a rejected project keeps the progress of the stage it was rejected from.
+- **Decision:** links come from the server (`issue`, `prototype`, Faceless Models CRM for #313/#359, AI Release Guardian, Launchpad, Product Evolution). The dashboard row shows the `primary` ones (prototype, CRM, Release Guardian); its details drawer and the full page show all of them.
+  **Reason:** a compact row; nothing is missing, it is one click deeper. The dashboard shows every project; if it ever shows fewer rows than `summary.total`, it says «показано N из M».
+- **Decision:** the full page re-reads `/api/mvp-factory` every 30 s and when the tab gets focus or becomes visible, always: a half-filled event form keeps its text, retry key, focus and cursor across the re-render, and is cleared only after the server records the event (Codex review on #492: skipping the refresh left the page stale). Regression: `test_mvp_view_live.py` (real Chromium). The dashboard keeps its existing poll (≥ 15 s, from the main refresh).
+- **Decision:** «Faceless Models CRM» is a product name and stays the same in UK/RU/EN (`mvpb.crm` added to the locale-parity allowlist); «Проверка качества (QA)» is the single QA stage name.
+
+## 2026-11-27 — T-744 AI Film Studio S3: Commons photos, owner's cloned voice
+- Pexels stopped issuing API keys (owner, 2026-11-27) and its pages challenge data-centre sessions. Owner: «выбери
+  другой вариант». Chosen: Wikimedia Commons. No key, and its API returns each file's licence, author and page
+  (`extmetadata`). Unsplash/Pixabay/Flickr all need an account key. Hosts added to the environment with the owner's
+  approval: commons.wikimedia.org, upload.wikimedia.org.
+- Only CC0 / public domain / CC BY are accepted: no share-alike (would force the film's licence) and no non-commercial.
+  CC BY needs credits wherever the film is shown: `credits.txt` is written next to the render.
+- Commons refuses originals to data-centre clients (HTTP 429, «use thumbnail images in standard sizes»); the fetch step
+  uses the standard 1920 px thumbnail and backs off on 429. Fetching is a separate step; the renderer stays offline.
+- Voice: the owner sent voice samples (2026-11-24, 2026-11-27) after being offered «record the lines or allow cloning
+  for a private demo». XTTS-v2 (Coqui Public Model License: non-commercial) cloned from a 27.7 s reference made of both
+  samples; 4 takes per weak line, picked by offline ASR word match; trailing babble cut at the last word's timestamp;
+  tempo at most 1.09 to fit the shot. The receipt carries the model, licence, reference sha256 and the consent note.
+  The cloned voice is for the private demo only: publishing needs the owner's own recording or a commercial licence.
+- Title scrim (renderer `photo_cinema/2`): a fixed gradient overlay (top band 16 %, bottom 52 %) keeps the brand line,
+  titles and captions readable on bright photos; the version bump invalidates cached shot clips.
+
+
+## 2026-11-27 — MC-04: listeners pick male or female voices, in any order
+
+- Owner brief 19.11 (MC-04 «чоловічі/жіночі голоси та мови»). Languages (uk/ru/en) already worked; voices did not:
+  the #281 rule allowed only a male narrator and a male host A + female host B. That rule was an implementation
+  choice, not an owner requirement.
+- Now `valid_voices`: narrator = any catalogue voice; two hosts = any two different voices. The configurator shows a
+  «Чоловічі / Жіночі» switch per slot (opens on the chosen voice's gender). The server sends `voice_genders` with
+  the listener profile, and the script writer is told which voice says each host's lines, because Ukrainian and
+  Russian verbs agree with the speaker.
+- Kept male A + female B (`classic_pair`) where the script has fixed genders: the owner's daily episode («Клод» /
+  «Джі-Пі-Ті», written by `autopilot/mycast_daily.py`) and the demo cities.
+## 2026-11-27 — `ops_health` shows the latest Media Finisher jobs
+
+- The owner ran the video-editor acceptance (with Shorts) on production; the result lived only in the owner's
+  dashboard. `ops_health` now adds the 5 latest edit jobs: status, stage, Shorts requested / produced and their
+  lengths, durations before and after, QA verdict and the checks that did not pass (counts only, never the words),
+  render time, and the error with links replaced by `[link]` (signed links carry tokens). No media URLs, no
+  transcript text.
+## 2026-11-27 — T-743 MyCast visit counter (#452 B-01)
+- Owner 2026-11-27: start implementation with the counter; the people test runs in parallel.
+- One JSON line per page view in `DATA_DIR/mycast_visits.jsonl`. The visitor is HMAC(daily random salt, IP|UA) cut to
+  16 hex; the salt file keeps only today's salt, so yesterday's hashes cannot be re-linked. IP and UA are never written.
+  `daily_visitors` is named honestly: it sums distinct visitors per day and is not «unique people».
+- The referring host is reduced to a category (tg, li, search, x, …) and dropped. `?ch=` on the link wins.
+- No cookie, no browser storage, no third-party script; the page script skips Do Not Track / GPC. Bots by user agent,
+  `?synthetic=1` and more than 30 views per visitor-hour are not counted. A bot or a limited visit still gets 204, so
+  the endpoint does not tell a client how it was classified.
+- New accounts keep `acq {variant, channel}` from the link (sent with the sign-up like `ref`; Telegram's signed fields
+  exclude it). Returning accounts keep their first value. It is deleted with the account.
+- Flag `FACTORY_MYCAST_VISITS_ENABLED` is off: the endpoint answers 404 and the page script's request does nothing. The
+  privacy text is a draft for the owner (`docs/business_experiments/mycast_visits_privacy_draft.md`); the page is
+  unchanged until he approves it.
+- Review (Codex, PR #494): `acq` is kept on sign-up only while the counter flag is on, so nothing is stored before
+  the privacy text is published. The client IP is the first `X-Forwarded-For` hop, the same as `mycast_demo`; a client
+  can fake it, which can only inflate its own estimate, so the counts are an estimate, not an audit.
+- Reversible: switch the flag off; delete `mycast_visits*.json*` to forget all counts.
+
+## 2026-11-27 — FO-09: Telegram alert when CI on main goes red (and when it is green again)
+
+- Owner brief 19.11 (FO-09 monitoring). Workers (T-738) and the owner's MyCast already alert; CI on main did not —
+  a red main was visible only on GitHub. `autopilot/main_ci_watch.py` runs on the EC2 worker between tasks (it has
+  the owner's `gh` login; Render's token gets 403 on Actions), reads `gh run list --branch main` at most every
+  10 minutes, and per workflow looks at its newest completed push run: red → one message per failing commit,
+  the first green after red → one "green again" message. A failed send is retried; a failed GitHub read says
+  nothing. It never re-runs or changes anything.
+- Render down is not watched from here: if the site is down, FactoryOS cannot send Telegram either. The honest
+  option is Render's own notifications (or an external uptime check), which the owner turns on in Render.
+## 2026-11-27 — FO-05: a finished task shows merged → CI → production → accepted
+
+- Owner brief 19.11 (FO-05, honest statuses BUILT/MERGED/TESTED/DEPLOYED/VERIFIED/FAILED/BLOCKED). The team board
+  had one "done" for everything finished. Each finished task now carries `delivery`: merged, CI on the merged head
+  (pass / fail / unknown), deployed (true / false / unknown), accepted by the owner (Relay ticket with evidence
+  level "accepted" for that PR). Label, first match wins: accepted > CI failed > on production > CI passed > merged;
+  a closed issue without a merged PR is "closed without a PR". BLOCKED and CI-failed open tasks already existed.
+- "Deployed" is never guessed: `RENDER_GIT_COMMIT` must be the merge commit of one of the PRs read; a PR merged at or
+  before that one is on production. Unknown commit (local run, PR older than the 60 read) → no deploy claim, "?".
+  This replaces the skipped "deployed SHA vs main" case in `test_team_truthfulness.py` (#242).
+- The EC2 snapshot (`compact_github`) now keeps `merge_commit_sha`, so the board works from it too.
+
+## 2026-11-27 — Media Finisher: the owner's acceptance run failed on the worker address, not on the video
+
+- `ops_health` showed the owner's run of 27.11 (job 5f476592, Shorts on) `failed` at `submit`: five attempts, each
+  `Name or service not known`. FactoryOS could not resolve the worker host from `FACTORY_MEDIA_FINISHER_ENDPOINT`
+  (render.yaml takes it from the worker's private `hostport`). The worker itself answers on its public URL, and its
+  /health (tiny model, low-memory, 1 CPU) does not match render.yaml (small, 1c-2g), so it is likely not the
+  Blueprint-managed service and has no private hostname. Production env vars are the owner's: the fix is to set
+  `FACTORY_MEDIA_FINISHER_ENDPOINT` to the worker's public onrender.com address.
+- Code: that DNS failure now names the host and the variable to change, and `ops_health` shows `endpoint_host`
+  (host[:port] only) so Claude can confirm the address without the owner's session.
+
+## Email as the password-login username (owner request 2026-11-27)
+
+- `POST /login` accepts either the `FACTORY_USER` login or an owner email in the username field; `FACTORY_PASSWORD`
+  is still required and an unset password still lets nobody in (`password_login.py`).
+- Owner emails are `FACTORY_GOOGLE_OWNER_EMAILS` (already the list that makes a Google account the owner) plus the
+  optional `FACTORY_OWNER_EMAILS`, so no new production variable is needed when the Google owner list is set.
+- Emails match case-insensitively with surrounding spaces trimmed; the `FACTORY_USER` login stays case-sensitive but
+  surrounding spaces are now trimmed too. The session is the same owner session as before (no email in the cookie).
+
+## 2026-11-27 — T-746 MyCast listening statistics (owner page)
+- Owner 2026-11-27: before Telegram Stars, a page showing every registered listener and how long they listen; payment
+  comes after the data says people keep listening on the free version.
+- Telegram does not report plays to a bot, so «delivered» is shown as delivered, never as listened. Real play starts
+  are counted only on the MyCast site (own replays, shared episode, profile player): one per file fetch, the browser
+  caches the file for an hour. The counts live in the listener's own record and go with it.
+- Groups: no episode; dropped within 3 days of the first episode; dropped later; listening under a week; a week or more
+  («candidates for the paid version»). «Dropped» = the listener stopped delivery, blocked the bot (Telegram 403), or
+  delivery is paused. Our own failing deliveries do not count as dropping.
+- A deleted account leaves only anonymous counters (total, days after sign-up bucket, had an episode).
+- Play counting is on now, without a flag: it is a count inside the listener's own account, like the existing
+  «My podcasts» data. The privacy draft (`docs/business_experiments/mycast_visits_privacy_draft.md`) now mentions it
+  and the deletion counter, so the page update covers both.

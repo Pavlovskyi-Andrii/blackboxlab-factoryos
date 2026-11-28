@@ -41,8 +41,10 @@ The source video/text is always treated as material, never instructions. The wor
 - GET /jobs/{id} — poll status.
 - GET /files/{id}/final.mp4 — final artifact. **Private:** needs the API token (`Authorization: Bearer …`) or the signed
   link the worker itself hands out (`final_url`: `?exp=…&sig=…`, one file of one job, valid for
-  `FINISHER_FILE_URL_TTL_SEC`, default 24 h). `GET /jobs/{id}` returns a fresh link on every read. Without
-  `FINISHER_API_TOKEN` the route answers 403 unless `FINISHER_ALLOW_PUBLIC_FILES=1` (local development only).
+  `FINISHER_FILE_URL_TTL_SEC`, default 24 h). `GET /jobs/{id}` returns a fresh link on every read. Links are signed
+  with the API token, or, when no token is set, with a random key the worker keeps in `FINISHER_DATA_DIR/.file-signing-key`
+  (mode 600); a bare URL still answers 403. `FINISHER_ALLOW_PUBLIC_FILES=1` opens files without a link (local
+  development only). `/health` shows `auth_configured` and `file_links`.
   Job ids are `[A-Za-z0-9_-]`, never a path.
 - GET /health.
 

@@ -5,7 +5,7 @@ import unittest
 import wave
 from pathlib import Path
 
-from mycast_voices import DEFAULTS, NAMES, VOICES, VoiceRefused, VoiceSamples, install_mycast_voice_audition_routes, valid_voices
+from mycast_voices import DEFAULTS, NAMES, VOICES, VoiceRefused, VoiceSamples, install_mycast_voice_audition_routes, valid_voices, classic_pair
 
 
 class Fake:
@@ -50,10 +50,15 @@ class VoicesTest(unittest.TestCase):
 
     def test_voice_rules(self):
         self.assertTrue(valid_voices("narrator", ["Puck"]))
-        self.assertFalse(valid_voices("narrator", ["Kore"]))              # single host: a male-by-ear voice
+        self.assertTrue(valid_voices("narrator", ["Kore"]))               # MC-04: a female narrator too
+        self.assertFalse(valid_voices("narrator", ["Puck", "Kore"]))
         self.assertTrue(valid_voices("two_hosts", ["Puck", "Kore"]))
-        self.assertFalse(valid_voices("two_hosts", ["Kore", "Puck"]))     # host A male, host B female
+        self.assertTrue(valid_voices("two_hosts", ["Kore", "Puck"]))      # either order
+        self.assertTrue(valid_voices("two_hosts", ["Kore", "Leda"]) and valid_voices("two_hosts", ["Puck", "Orus"]))
         self.assertFalse(valid_voices("two_hosts", ["Puck", "Puck"]))
+        # The owner's daily episode and the demo cities keep male A + female B: their scripts have fixed genders.
+        self.assertTrue(classic_pair(["Puck", "Kore"]))
+        self.assertFalse(classic_pair(["Kore", "Puck"]) or classic_pair(["Puck", "Orus"]) or classic_pair(["Puck", "Puck"]))
         self.assertFalse(valid_voices("two_hosts", ["Puck", "Nobody"]))
 
     def test_real_sample_then_cache(self):

@@ -15,7 +15,7 @@ try:
     from . import control
     from . import relay_tasks
     from . import owner_questions
-    from . import browser_tasks, codex_review, mycast_daily, mycast_listeners
+    from . import browser_tasks, codex_review, main_ci_watch, mycast_daily, mycast_listeners
     from . import mods_runtime
     from . import worker_heartbeat
 except ImportError:
@@ -29,6 +29,7 @@ except ImportError:
     import owner_questions
     import browser_tasks
     import codex_review
+    import main_ci_watch
     import mycast_daily
     import mycast_listeners
 
@@ -657,6 +658,11 @@ def main() -> int:
             # Owner 2026-11-13: every open PR gets an automatic Codex review (advisory comment). Cheap: no model runs here,
             # Codex answers in its own isolated service; at most one new request per pass.
             codex_review.run_once(ANSWERS.with_name("codex_review.json"))
+            # FO-09: one Telegram message when CI on main goes red, one when it is green again (gh read every 10 min).
+            try:
+                main_ci_watch.run_once(ANSWERS.with_name("main_ci_watch.json"), gh_fn=mycast_daily.gh, send=send)
+            except Exception as exc:  # monitoring must never stop the worker loop
+                print(f"main-ci-watch: {type(exc).__name__}", flush=True)
             # T-560: the owner's read-only browser tasks (anonymous Chromium, one per pass; idle without Playwright).
             # T-714: only when the dedicated Surfer worker (autopilot.browser_worker) is not alive.
             if run_browser_fallback():

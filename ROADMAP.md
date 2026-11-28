@@ -3,6 +3,23 @@
 Research, specification and prototype only. No production dashboard change, no publishing, no spend. Owner answers: `.autopilot/answers.md` «#452».
 S5 (implementation) is not on the roadmap until the owner gate.
 
+- [x] T-746 MyCast listening statistics for the owner: who gets episodes, for how long, who drops off (before Stars)
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-27: «сперва сделать мне менюшку … сколько они слушают … спрыгивают через три дня … тогда можно подключать звёзды»)
+  Depends: T-743
+  Spec: DECISIONS.md «2026-11-27 — T-746». `mycast_stats.py`, `static/mycast-stats/index.html` (sidebar: MVP Builder → «MyCast: кто слушает»), `mycast_accounts.py` (`count_play`, `snapshot`, anonymous deletion counters), `app.py` wiring.
+  Goal: owner-only `GET /api/factory/mycast/stats` and an RU/UK/EN page: per listener (first name, sign-up, channel, status, episodes and minutes delivered, first/last episode, days with episodes, last 7 days, site replays, plays by link, last error), five groups (no episode / dropped within 3 days / dropped later / listening under a week / a week or more), funnel, day-3/7/14 retention with denominators, anonymous deleted-account counters. Says plainly that Telegram does not report whether an episode was played. A blocked bot (403) counts as leaving; our own delivery failures do not.
+  DONE: `python test_mycast_stats.py`, MyCast suites, `python test_navigation.py`, `python test_locale_parity.py`, page inline JS `node --check`, default verification; page checked in Chromium at 1440 and 390 px with seeded listeners (no overflow, no errors; anonymous visitor sees «sign in»).
+
+- [x] T-743 #452 B-01: first-party MyCast visit and variant counter (no cookies, no stored IP), arrival kept on sign-up
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-27: «да, начинай со счётчика, тест параллельно»)
+  Depends: T-733
+  Spec: `docs/architecture/internal-growth-manager-rfc.md` §8, §11 B-01; DECISIONS.md «2026-11-27 — T-743». `mycast_visits.py`, `static/mycast-configurator/v.js`, `mycast_accounts.py` (`acq` on new accounts), profile and episode pages, `app.py` wiring.
+  Goal: `POST /api/mycast/v` (public, 404 unless `FACTORY_MYCAST_VISITS_ENABLED=1`) counts views of the landing, profile and episode pages with page, variant (`?v=`), channel (`?ch=` or referrer category) and a daily-salted visitor hash; no IP, user agent, cookie or browser storage; Do Not Track / GPC, bots, `?synthetic=1` and >30 views per visitor-hour are not counted; rows older than 120 days fold into daily totals. Sign-ups keep `acq {variant, channel}`. Owner report `GET /api/factory/mycast/visits?days=30` with visits by page/variant/channel/day and registrations by variant/channel.
+  DONE: `python test_mycast_visits.py`, `python test_mycast_accounts.py`, `python test_mycast_share_page.py`, `python test_mycast_public.py`, configurator inline JS `node --check`, default verification.
+  Owner switch (not a code task): approve the privacy text in `docs/business_experiments/mycast_visits_privacy_draft.md`; Claude then adds it to the privacy page, and the owner sets `FACTORY_MYCAST_VISITS_ENABLED=1` in Render. Until then nothing is counted.
+
 - [x] T-731 #452 S0–S1: access, terms and overlap audit + Ploy public UX/functional benchmark
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
   Priority: P1 (direct owner assignment 2026-11-23; runs right after the T-590–T-593 close-out)
@@ -29,6 +46,16 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: prototype, `docs/architecture/internal-growth-manager-rfc.md`, `docs/research/growth-manager-test-plan-and-findings.md` and `docs/research/decision-record-ux-first-growth.md` exist; screenshots under `docs/screenshots/t-733/`; `python test_learn_center.py`, `python test_locale_parity.py`, default verification; the owner summary is delivered. Implementation starts only after the owner's decision.
   Done 2026-11-24: prototype `docs/prototypes/owner-home-growth/index.html` (Learning → «New home: products and goals»; 8 states × 9 views × EN/UK/RU, phone and desktop, «Pro version» switch remembered per browser), RFC with field and state mapping and backlog B-01…B-08 (first PR: first-party visit counter), test plan with automated results (432 renders clean; T1–T7 scripted: T2 = 2 clicks), decision record, screenshots `docs/screenshots/t-733/`, `test_owner_home_prototype.py` in CI. People test: NOT STARTED (owner brings 3–4 people). S5 waits for the owner gate.
 
+## MVP Builder: one standard on both pages (owner 2026-11-27)
+
+- [x] T-742 MVP Builder projects: one read model and one vocabulary for the dashboard card and the full page, both live
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-27: «приведи к единому стандарту чтоб была синхронизация проектов на обеих страницах, все проекты попадающие в мвп билдер видны и там и там»)
+  Spec: DECISIONS.md «2026-11-27 — T-742». `mvp_factory.py` (`view_model`, `summary`, `LABELS`), `static/index.html` (MVP Builder card), `static/mvp-factory/index.html`.
+  Goal: the server computes per project the stage, status, progress (% and step of 9), next step (who acts, owner decision or not) and links once; both pages render only from it, with the same UK/RU/EN strings, and both re-read `/api/mvp-factory` (dashboard with its poll, full page every 30 s and on focus). Stage transitions, evidence rules and auth unchanged.
+  DONE: `python test_mvp_view.py`; `python test_mvp_factory.py`; `python test_locale_parity.py`; screenshots `docs/screenshots/t-742/` (375 px and desktop, both pages); default verification; CI green.
+  Audit 2026-11-27: both pages already read the same endpoint and the same project set (the server has no hidden/archived filter; Launchpad, experiments and evolution live on the same registry record; the Faceless CRM intake and request-only projects are registry projects too). They disagreed only in page-side wording and logic: next step for preview_ready/owner_review («Ваша проверка превью» vs «Ваше решение · Owner»), spec_review shown as «В очереди на сборку · Claude Builder» although the spec approval is the owner's, progress as a bar vs «/ 100» segments, CRM/Release Guardian/Launchpad/Evolution links on one page only, and different QA/CRM labels.
+
 ## Worker reliability (MyCast incident, owner 2026-11-25)
 
 - [x] T-738 Owner alert in Telegram when the Claude worker stops sending heartbeats, and when it is back
@@ -53,14 +80,15 @@ S5 (implementation) is not on the roadmap until the owner gate.
   Spec: `docs/roadmap/T-740_OPS_RELAY.md`; DECISIONS.md «2026-11-25 — T-740». `ops_catalog.py`, `ops_relay.py`, `autopilot/ops_agent.py`, `deploy/systemd/factoryos-ops-agent.{service,timer}`, `deploy/install_ops_agent.sh`.
   Goal: MCP `ops_request` / `ops_result` (Claude lane token only) queue fixed ops — status, journal (≤180 min, ≤300 lines), host, restart (Surfer / Claude worker only), sync_checkout, install_surfer_unit — that the root ops agent on EC2 pulls every 30 s with the existing worker token, runs as argv lists (60 s, 32 KB, redacted) and reports back. Flag `FACTORY_OPS_RELAY_ENABLED` (off), op classes `FACTORY_OPS_RELAY_CLASSES` (default read + restart), 30 ops/day, 6 restarts/unit/day, audit, owner JSON `/api/ops/owner`, Worker Center card, Telegram on restarts. No SSH, no AWS keys, no shell, no push.
   DONE: `python test_ops_relay.py`; smoke block «T-740»; default verification; CI green.
-  Not proven live: waits for T-740-H (the agent installed on EC2 and the flag on in Render); then one `ops_request op=host` from a Claude session must come back `done`.
+  Proven live 2026-11-27: after T-740-H and the middleware fix (#486), `ops_request op=host` (ops_6019b51cf1d8) came back `done` in 31 s; status of the Claude and Surfer worker units read back too.
 
-- [ ] [HUMAN] T-740-H Install the ops agent on EC2 once and switch the Ops relay on
+- [x] [HUMAN] T-740-H Install the ops agent on EC2 once and switch the Ops relay on
   Owner: human
   Depends: T-740
   Need: one command in EC2 Instance Connect (`sudo bash /opt/factoryos/deploy/install_ops_agent.sh`, reads no secret; it also applies the T-728 Surfer unit via `install_surfer_worker.sh`) and `FACTORY_OPS_RELAY_ENABLED=1` in Render (not a secret). After that agents check, read logs and restart the workers without you.
   Runbook: Worker Center → «Нужно от вас» → T-740-H (RU/EN/UK).
   DONE: Worker Center → technical details → «Ops relay» shows «On» and the EC2 ops agent «polling», and a Claude `host` request is `done`.
+  Verified 2026-11-27 11:37 UTC: owner installed the agent and set `FACTORY_OPS_RELAY_ENABLED=1`; agent polling every ~30 s, `host` request done (EC2 checkout at origin/main 0a236cf, 0 behind; disk 45 %, memory 603 MB available).
 
 ## Faceless Creator A/B (#469, owner 2026-11-24)
 
@@ -86,6 +114,16 @@ S5 (implementation) is not on the roadmap until the owner gate.
   DONE: `python test_film_studio.py`; `python -m film_studio.render --out <private dir> --procedural-standins` gives a PASS receipt; default verification.
   Result 2026-11-23: the 45 s film renders at 1920x1080 from original procedural stand-in stills (labelled «DEMO · иллюстрация, не фото»), silent AAC track + burned-in captions. Realistic-photo film and narration are blocked.
   Blocked (owner, not a roadmap task yet): the cloud session's network policy refuses www.pexels.com / images.pexels.com and huggingface.co (HTTP 403 from the agent proxy), so photo licences cannot be read and no offline RU voice can be fetched. To unblock: allow those hosts for the Claude cloud environment, or supply the 7 photos (owned/licensed stills, author + page URL + licence) and a narration recording, or approve a specific offline RU voice after its licence is read. Narration input itself is S2 work (S1 lays a silent track).
+
+- [x] T-744 AI Film Studio S3: licensed photos from Wikimedia Commons, narration in the owner's cloned voice, title scrim
+  Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
+  Priority: P1 (owner 2026-11-27: Pexels stopped issuing API keys, «выбери другой вариант»; sent a second voice sample)
+  Depends: T-735
+  Spec: DECISIONS.md «2026-11-27 — T-744». `film_studio/commons.py` (fetch step), `narration.py` source `voice_clone`, `render.py` title scrim (renderer `photo_cinema/2`), QA milestone `realistic_photo_film` PASS for verified photos.
+  Goal: stock shots come from Wikimedia Commons with licence, author and page read from the Commons API (CC0 / public domain / CC BY only, no share-alike or non-commercial), standard 1920 px thumbnails, credits file for CC BY; the owner's narration is synthesized from his own samples with a named model, its licence, the reference hash and his consent in the receipt; a scrim keeps titles readable on bright photos.
+  DONE: `python test_film_studio.py` (32 tests: Commons licence parsing and refusals, resumable fetch without network, cloned-voice contract, scrim), default verification.
+  Result 2026-11-27: private film v3 QA PASS (1920x1080, 24 fps, 1080 frames, -16.2 LUFS / -1.9 dBTP): s01–s06 Commons photos (2 × CC BY 2.0, 1 × CC BY 4.0, 3 × CC0), s07 owner portrait, narration in the owner's cloned voice (XTTS-v2, Coqui Public Model License: non-commercial; best of 4 takes per line by offline ASR, 98 % word match). Sent to the owner only with credits.txt; not in git, not published.
+  Not done: s07 narration omits the words «FactoryOS. Blackbox Lab» (the model mangles the English brand; the title shows it). A public or commercial version needs the owner's own recording or a commercially licensed voice, plus the photo credits on screen or in the description.
 
 - [x] T-735 AI Film Studio S2: narration lines per shot (offline Piper voice or owner recording), loudness-normalised mix, owner photo substitutes a stock shot
   Owner: claude-session (interactive Claude session; the EC2 worker must not pick this up)
@@ -392,10 +430,12 @@ Owner directed Claude Code to be the principal engineering/operator coordinator.
   Need: owner opens the task in Telegram on the phone (/task R-… or 🔄 Refresh) and presses «Совпадает» / «Не совпадает» on the Worker Center comparison card; runbook in Owner desk (RU/UK/EN). No screenshots, no Issue.
   DONE: `/api/factory/telegram-web-compare` says `match` (same stage / run_id / last contact as the last view the bot delivered; no ghost running) and the owner pressed «Совпадает» on that card (which also confirms the screen has no cut-off columns).
   Progress (2026-11-17): server side done — `telegram_web_compare.py` logs the facts of every delivered ticket view (no chat id, no text) and compares them with `RelayQueue.view`; `test_telegram_web_compare.py`.
+  Progress 2026-11-27: owner reported «Готово» on the owner task page after using the comparison card; still open until the owner confirms the button was «Совпадает» (the compare endpoint is owner-only, agents cannot read the verdict).
 
-- [ ] [HUMAN] T-593-H Confirm the EC2 worker moves on to the next safe task by itself
+- [x] [HUMAN] T-593-H Confirm the EC2 worker moves on to the next safe task by itself
   Need: owner checks main CI, `/workers` + Worker Center after a verified commit, and a day later main history (PRs only) and bills (no new paid spend); runbook in Owner desk.
   DONE: next safe ROADMAP task claimed after a verified commit, main green, no direct pushes, no paid spend.
+  Done 2026-11-27: owner confirmed on the owner task page «Новых списаний от FactoryOS нет» (Anthropic / OpenAI / Google billing). Agent-checked: every first-parent commit on main since 2026-11-20 is a PR merge (no direct pushes); the EC2 worker claimed and committed ROADMAP tasks by itself (T-626/T-631/T-673 on 2026-11-17, T-705 on 2026-11-21, T-741 on 2026-11-26). Its main sync was stuck on a merge conflict from 2026-11-24 to 2026-11-27 (fixed through #488, seen with the T-740 ops relay).
 
 - [x] T-600 Fail-closed Claude CLI error diagnostics / retry classification
   Live EC2 re-test 2026-11-01: at 12:01 UTC T-551-A hit `usage_limit_reached` ("resets 4:20pm (UTC)"); the worker held the whole queue (no task parked or failed) and resumed T-551-A at 16:22 UTC (reset + 120 s grace).

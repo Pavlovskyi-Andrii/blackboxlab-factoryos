@@ -131,6 +131,12 @@ def _add_faceless_creator(data: dict[str, Any], now: str) -> bool:
 
 
 
+# T-742: the next step waits for the owner here. spec_review -> build_queued is the owner's spec approval
+# (/spec/approve is owner-only and agents may not advance into build_queued); preview_ready and owner_review are
+# the owner's preview review and verdict. Presentation only: the transitions themselves are unchanged.
+OWNER_STEP_STAGES = ("spec_review", "preview_ready", "owner_review")
+
+
 class MvpError(ValueError):
     """A refused event; `code` is a stable key the UI can translate."""
 
@@ -240,10 +246,13 @@ class MvpRegistry:
     def snapshot(self, limit_events: int = 60) -> dict[str, Any]:
         with self._lock:
             data = self._load()
-        projects = [dict(p, recommendation=recommend(p), progress=progress(p),
-                         history=[e for e in data["events"] if e["project"] == p["id"]][-20:])
-                    for p in sorted(data["projects"].values(), key=lambda p: (STAGES.index(p["stage"]) * -1, p["id"]))]
+        projects = []
+        for p in sorted(data["projects"].values(), key=lambda p: (STAGES.index(p["stage"]) * -1, p["id"])):
+            own = [e for e in data["events"] if e["project"] == p["id"]]
+            projects.append(dict(p, recommendation=recommend(p), progress=progress(p), history=own[-20:],
+                                 view=view_model(p, own)))
         return {"stages": list(STAGES), "roles": ROLE, "projects": projects, "events": data["events"][-limit_events:],
+                "view_version": VIEW_VERSION, "labels": LABELS, "summary": summary(projects),
                 "evidence_check": EVIDENCE_CHECK,
                 "note": "Stages change only through recorded events with evidence links. Links are checked for shape only, "
                         "not verified against the claimed stage. No worker is started from here."}
@@ -387,9 +396,10 @@ def recommend(project: dict[str, Any]) -> dict[str, Any]:
         return {"decision": "blocked", "reason": project["blocked"].get("reason", "")}
     if stage in TERMINAL:
         return {"decision": "hold", "reason": "closed"}
-    if stage == "owner_review" or stage == "preview_ready":
+    if stage in OWNER_STEP_STAGES:
         nxt = NEXT[stage]
-        return {"decision": "owner", "next_stage": nxt, "role": "Owner", "reason": "owner review of the preview is required"}
+        reason = "owner approval of the spec is required" if stage == "spec_review" else "owner review of the preview is required"
+        return {"decision": "owner", "next_stage": nxt, "role": "Owner", "reason": reason}
     nxt = NEXT[stage]
     return {"decision": "recommend", "next_stage": nxt, "role": ROLE[nxt], "reason": "manual assignment only; no worker started"}
 
@@ -445,3 +455,131 @@ def install_mvp_factory_routes(app, registry: MvpRegistry, identity_fn: Callable
                                         brief=str(body.get("brief") or ""))
         except MvpError as exc:
             return _err(exc)
+
+
+# --- T-742: one read model for both MVP Builder pages -------------------------------------------------------------
+# The dashboard card (static/index.html) and the full page (static/mvp-factory/index.html) render only from
+# `project["view"]`, `snapshot["summary"]` and `snapshot["labels"]`. Neither page derives a stage label, the next
+# step, progress or project links on its own, so the two pages cannot disagree. Read-only: nothing here changes a
+# stage, an event or an approval.
+VIEW_VERSION = 1
+PATH = tuple(s for s in STAGES if s != "rejected")        # idea .. validated: 9 steps from idea to validated
+STEPS = len(PATH) - 1
+FULL_PAGE = "/static/mvp-factory/index.html"
+FACELESS_CRM_ISSUES = (313, 359)
+RELEASE_GUARDIAN_ISSUE = 189
+
+# The step that moves a project out of its current stage. `role` is who does it; `owner` marks the owner's decision.
+NEXT_STEP = {
+    "idea": ("Product Analyst", False), "researching": ("Spec Writer", False), "spec_draft": ("MVP Manager", False),
+    "spec_review": ("Owner", True), "build_queued": ("Claude Builder", False), "building": ("QA / Security", False),
+    "qa_review": ("Deploy Agent", False), "preview_ready": ("Owner", True), "owner_review": ("Owner", True),
+}
+
+LABELS: dict[str, dict[str, Any]] = {
+    "uk": {
+        "stage": {"idea": "Ідея", "researching": "Дослідження", "spec_draft": "Чернетка спеки", "spec_review": "Перевірка спеки",
+                  "build_queued": "У черзі на збірку", "building": "Збірка", "qa_review": "Перевірка якості (QA)",
+                  "preview_ready": "Прев’ю готове", "owner_review": "Ваше рішення", "validated": "Підтверджено",
+                  "rejected": "Відхилено"},
+        "next": {"idea": "Дослідження: аудиторія і проблема", "researching": "Написати чернетку спеки",
+                 "spec_draft": "Перевірити спеку", "spec_review": "Ваше рішення щодо спеки: затвердити або повернути",
+                 "build_queued": "Збірка: гілка і PR", "building": "Перевірка якості (QA)",
+                 "qa_review": "Прев’ю на наявній безкоштовній інфраструктурі", "preview_ready": "Ваша перевірка прев’ю",
+                 "owner_review": "Ваше рішення: запуск або стоп", "validated": "Закрито: підтверджено",
+                 "rejected": "Закрито: відхилено", "blocked": "Розблокувати після усунення причини"},
+        "ui": {"next": "Наступний крок", "owner": "потрібне ваше рішення", "blocked": "Заблоковано", "closed": "Закрито",
+               "progress": "Прогрес", "step": "крок {step} з {steps}", "stage": "Етап", "shown": "показано {n} з {m}"},
+        "links": {"prototype": "Відкрити прототип", "crm": "Faceless Models CRM", "guardian": "AI Release Guardian",
+                  "launchpad": "Launchpad · D1–D7 → G1–G5", "evolution": "Product Evolution · V1→V2", "issue": "Issue",
+                  "full": "Відкрити повну сторінку"},
+    },
+    "ru": {
+        "stage": {"idea": "Идея", "researching": "Исследование", "spec_draft": "Черновик спеки", "spec_review": "Проверка спеки",
+                  "build_queued": "В очереди на сборку", "building": "Сборка", "qa_review": "Проверка качества (QA)",
+                  "preview_ready": "Превью готово", "owner_review": "Ваше решение", "validated": "Подтверждено",
+                  "rejected": "Отклонено"},
+        "next": {"idea": "Исследование: аудитория и проблема", "researching": "Написать черновик спеки",
+                 "spec_draft": "Проверить спеку", "spec_review": "Ваше решение по спеке: утвердить или вернуть",
+                 "build_queued": "Сборка: ветка и PR", "building": "Проверка качества (QA)",
+                 "qa_review": "Превью на имеющейся бесплатной инфраструктуре", "preview_ready": "Ваша проверка превью",
+                 "owner_review": "Ваше решение: запуск или стоп", "validated": "Закрыто: подтверждено",
+                 "rejected": "Закрыто: отклонено", "blocked": "Разблокировать после устранения причины"},
+        "ui": {"next": "Следующий шаг", "owner": "нужно ваше решение", "blocked": "Заблокировано", "closed": "Закрыто",
+               "progress": "Прогресс", "step": "шаг {step} из {steps}", "stage": "Этап", "shown": "показано {n} из {m}"},
+        "links": {"prototype": "Открыть прототип", "crm": "Faceless Models CRM", "guardian": "AI Release Guardian",
+                  "launchpad": "Launchpad · D1–D7 → G1–G5", "evolution": "Product Evolution · V1→V2", "issue": "Issue",
+                  "full": "Открыть полную страницу"},
+    },
+    "en": {
+        "stage": {"idea": "Idea", "researching": "Research", "spec_draft": "Spec draft", "spec_review": "Spec review",
+                  "build_queued": "Queued to build", "building": "Building", "qa_review": "Quality check (QA)",
+                  "preview_ready": "Preview ready", "owner_review": "Your decision", "validated": "Validated",
+                  "rejected": "Rejected"},
+        "next": {"idea": "Research: audience and problem", "researching": "Write the spec draft",
+                 "spec_draft": "Review the spec", "spec_review": "Your decision on the spec: approve or send back",
+                 "build_queued": "Build: branch and PR", "building": "Quality check (QA)",
+                 "qa_review": "Preview on existing free infrastructure", "preview_ready": "Your review of the preview",
+                 "owner_review": "Your decision: launch or stop", "validated": "Closed: validated",
+                 "rejected": "Closed: rejected", "blocked": "Unblock once the cause is fixed"},
+        "ui": {"next": "Next step", "owner": "your decision is needed", "blocked": "Blocked", "closed": "Closed",
+               "progress": "Progress", "step": "step {step} of {steps}", "stage": "Stage", "shown": "showing {n} of {m}"},
+        "links": {"prototype": "Open prototype", "crm": "Faceless Models CRM", "guardian": "AI Release Guardian",
+                  "launchpad": "Launchpad · D1–D7 → G1–G5", "evolution": "Product Evolution · V1→V2", "issue": "Issue",
+                  "full": "Open full page"},
+    },
+}
+
+
+def _links(project: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every link a project row shows, in display order. `primary` links also fit the dashboard's compact row."""
+    pid, issue = str(project.get("id") or ""), project.get("issue")
+    issue = issue if isinstance(issue, int) and issue > 0 else 0
+    out: list[dict[str, Any]] = []
+    if issue:
+        out.append({"key": "issue", "href": f"{REPO}/issues/{issue}", "text": f"#{issue}", "primary": False})
+    proto = str(project.get("prototype") or "")
+    if re.fullmatch(r"/static/[A-Za-z0-9_./-]+", proto) and ".." not in proto:
+        out.append({"key": "prototype", "href": proto, "primary": True})
+    if issue in FACELESS_CRM_ISSUES:
+        out.append({"key": "crm", "href": "/static/mvp-factory/faceless-crm.html", "primary": True})
+    if pid == "release-guardian" or issue == RELEASE_GUARDIAN_ISSUE:
+        out.append({"key": "guardian", "href": "/static/mvp-factory/release-guardian.html", "primary": True})   # T-616 #189
+    q = re.sub(r"[^a-z0-9-]", "", pid)
+    out.append({"key": "launchpad", "href": f"/static/mvp-factory/launchpad.html?project={q}", "primary": False})  # T-704
+    out.append({"key": "evolution", "href": f"/static/mvp-factory/evolution.html?project={q}", "primary": False})  # T-630
+    return out
+
+
+def view_model(project: dict[str, Any], events: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """The one presentation of a project for both pages: stage, status, progress, next step and links."""
+    stage = project.get("stage") if project.get("stage") in STAGES else "idea"
+    blocked = project.get("blocked") if isinstance(project.get("blocked"), dict) else None
+    at = stage
+    if stage == "rejected":   # progress stays where the project was rejected from
+        rej = [e for e in (events or []) if e.get("kind") == "reject" and e.get("to_stage") == "rejected"]
+        at = rej[-1].get("from_stage") if rej and rej[-1].get("from_stage") in PATH else "idea"
+    step = PATH.index(at)
+    pct = 100 if stage == "validated" else round(100 * step / STEPS)
+    if stage in TERMINAL:
+        status, nxt = ("validated" if stage == "validated" else "rejected"), {"key": stage, "stage": None, "role": None, "owner": False}
+    elif blocked:
+        status, nxt = "blocked", {"key": "blocked", "stage": None, "role": "Owner", "owner": True}
+    else:
+        role, owner = NEXT_STEP[stage]
+        status = "owner" if owner else "active"
+        nxt = {"key": stage, "stage": NEXT[stage], "role": role, "owner": owner}
+    return {"stage": stage, "status": status, "progress": pct, "step": step, "steps": STEPS, "next": nxt,
+            "blocked_reason": str((blocked or {}).get("reason") or ""), "links": _links(project),
+            "anchor": f"{FULL_PAGE}#p-{project.get('id')}"}
+
+
+def summary(projects: list[dict[str, Any]]) -> dict[str, Any]:
+    """Counts both pages show: total, in work, waiting for the owner, blocked, closed and per stage."""
+    views = [p.get("view") or view_model(p) for p in projects]
+    by_stage = {s: 0 for s in STAGES}
+    for v in views:
+        by_stage[v["stage"]] += 1
+    count = lambda st: sum(1 for v in views if v["status"] == st)
+    return {"total": len(views), "active": count("active"), "owner": count("owner"), "blocked": count("blocked"),
+            "closed": count("validated") + count("rejected"), "by_stage": by_stage}

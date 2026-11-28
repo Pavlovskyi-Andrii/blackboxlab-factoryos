@@ -77,7 +77,7 @@ input{flex:1 1 220px}
 :focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
 footer{color:var(--dim);font-size:13px;text-align:center}
 .barRow{display:flex;align-items:center;gap:12px;min-width:0}
-.barRow .bar{flex:1 1 auto;min-width:0}
+.barRow .pbar{flex:1 1 auto;min-width:0;height:8px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}.pbar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--cyan),var(--violet))}
 .pct{font:700 13px var(--mono);color:var(--ink);white-space:nowrap}.pct small{color:var(--dim);font-weight:600}
 .proj:target{border-color:rgba(79,227,255,.55);box-shadow:0 0 0 1px rgba(79,227,255,.35)}
 .briefTxt{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;margin:10px 0 0;padding:10px 12px;border-radius:12px;background:rgba(10,14,32,.55);border:1px solid var(--edge)}
@@ -117,34 +117,31 @@ const T={
  uk:{back:'← FactoryOS',title_a:'MVP Builder —',title_b:'від ідеї до перевіреного прототипу',lede:'Кожен MVP проходить ті самі етапи: дослідження, спека, збірка, QA, прев’ю і ваше рішення. Етап змінюється лише записаною подією з посиланням-доказом.',
   honest:'Ролі нижче — це етапи процесу, а не запущені агенти. Посилання-докази перевіряються лише за форматом, не за змістом. Ця сторінка нічого не запускає, не витрачає гроші й не публікує.',flow_h:'Конвеєр',flow_p:'Скільки проєктів зараз на кожному етапі.',
   proj_h:'Проєкти',proj_p:'Стан, наступний крок і вся історія з доказами.',roles_h:'Команда MVP',roles_p:'Хто відповідає за кожен етап, по черзі. Підсвічено ролі, на етапі яких зараз є проєкти.',
-  next:'Наступний крок',rec:'рекомендація, нікого не запущено',owner:'потрібне ваше рішення',blocked:'Заблоковано',closed:'Закрито',history:'Історія',events:'подій',
-  open:'Відкрити прототип',issue:'Issue',act:'Записати подію',kind:'Тип',evidence:'Посилання-доказ (GitHub або /static/…)',note:'Коментар або причина',save:'Записати',
+  history:'Історія',events:'подій',
+  act:'Записати подію',kind:'Тип',evidence:'Посилання-доказ (GitHub або /static/…)',note:'Коментар або причина',save:'Записати',
   kinds:{advance:'Перейти на наступний етап',note:'Нотатка',block:'Заблокувати',unblock:'Розблокувати',reject:'Відхилити (лише власник)'},
   saved:'Записано.',dup:'Таку подію вже записано.',retry:'Немає зв’язку. Натисніть ще раз — це буде повтор тієї самої дії, не нова.',unverified:'посилання не перевірено',loading:'Завантаження…',auth:'Увійдіть у FactoryOS, щоб побачити проєкти.',login:'Увійти',failed:'Не вдалося завантажити реєстр',
   err:{evidence_required:'Для переходу потрібне посилання-доказ.',bad_evidence:'Доказ має бути посиланням на GitHub (issue, PR, commit, actions) або /static/…',owner_only:'Це рішення приймає лише власник.',project_blocked:'Проєкт заблоковано — спершу розблокуйте.',project_closed:'Проєкт закрито.',reason_required:'Вкажіть причину блокування.',not_blocked:'Проєкт не заблоковано.',forbidden:'Немає прав на запис.',idempotency_conflict:'Ключ повтору належить іншій дії. Оновіть сторінку.'},
-  stages:{idea:'Ідея',researching:'Дослідження',spec_draft:'Чернетка спеки',spec_review:'Перевірка спеки',build_queued:'У черзі на збірку',building:'Збірка',qa_review:'QA',preview_ready:'Прев’ю готове',owner_review:'Ваше рішення',validated:'Підтверджено',rejected:'Відхилено'},
   roles:{'MVP Manager':'Черга, залежності, передачі і статус на доказах.','Product Analyst':'Аудиторія, проблема, обсяг і безкоштовні тести попиту.','Spec Writer':'Технічна спека з критеріями приймання.','Claude Builder':'Гілка і PR після затвердженої спеки.','QA / Security':'Тести, секрети, доступи, готовність.','Deploy Agent':'Прев’ю на наявній безкоштовній інфраструктурі.','Owner':'Приймає прев’ю, вирішує запуск або відмову.','Content Factory':'Отримує бриф для просування після вашого «так».'},
   role_tag:'роль, не запущений агент',then:'далі',now_n:'зараз: {n}',brief:'Технічне завдання',of:'з',foot:'Blackbox Lab · MVP Builder · #186'},
  ru:{back:'← FactoryOS',title_a:'MVP Builder —',title_b:'от идеи до проверенного прототипа',lede:'Каждый MVP проходит одни и те же этапы: исследование, спека, сборка, QA, превью и ваше решение. Этап меняется только записанным событием со ссылкой-доказательством.',
   honest:'Роли ниже — это этапы процесса, а не запущенные агенты. Ссылки-доказательства проверяются только по формату, не по содержанию. Эта страница ничего не запускает, не тратит деньги и не публикует.',flow_h:'Конвейер',flow_p:'Сколько проектов сейчас на каждом этапе.',
   proj_h:'Проекты',proj_p:'Состояние, следующий шаг и вся история с доказательствами.',roles_h:'Команда MVP',roles_p:'Кто отвечает за каждый этап, по очереди. Подсвечены роли, на этапе которых сейчас есть проекты.',
-  next:'Следующий шаг',rec:'рекомендация, никто не запущен',owner:'нужно ваше решение',blocked:'Заблокировано',closed:'Закрыто',history:'История',events:'событий',
-  open:'Открыть прототип',issue:'Issue',act:'Записать событие',kind:'Тип',evidence:'Ссылка-доказательство (GitHub или /static/…)',note:'Комментарий или причина',save:'Записать',
+  history:'История',events:'событий',
+  act:'Записать событие',kind:'Тип',evidence:'Ссылка-доказательство (GitHub или /static/…)',note:'Комментарий или причина',save:'Записать',
   kinds:{advance:'Перейти на следующий этап',note:'Заметка',block:'Заблокировать',unblock:'Разблокировать',reject:'Отклонить (только владелец)'},
   saved:'Записано.',dup:'Такое событие уже записано.',retry:'Нет связи. Нажмите ещё раз — это будет повтор того же действия, не новое.',unverified:'ссылка не проверена',loading:'Загрузка…',auth:'Войдите в FactoryOS, чтобы увидеть проекты.',login:'Войти',failed:'Не удалось загрузить реестр',
   err:{evidence_required:'Для перехода нужна ссылка-доказательство.',bad_evidence:'Доказательство должно быть ссылкой на GitHub (issue, PR, commit, actions) или /static/…',owner_only:'Это решение принимает только владелец.',project_blocked:'Проект заблокирован — сначала разблокируйте.',project_closed:'Проект закрыт.',reason_required:'Укажите причину блокировки.',not_blocked:'Проект не заблокирован.',forbidden:'Нет прав на запись.',idempotency_conflict:'Ключ повтора принадлежит другому действию. Обновите страницу.'},
-  stages:{idea:'Идея',researching:'Исследование',spec_draft:'Черновик спеки',spec_review:'Проверка спеки',build_queued:'В очереди на сборку',building:'Сборка',qa_review:'QA',preview_ready:'Превью готово',owner_review:'Ваше решение',validated:'Подтверждено',rejected:'Отклонено'},
   roles:{'MVP Manager':'Очередь, зависимости, передачи и статус на доказательствах.','Product Analyst':'Аудитория, проблема, объём и бесплатные тесты спроса.','Spec Writer':'Техническая спека с критериями приёмки.','Claude Builder':'Ветка и PR после утверждённой спеки.','QA / Security':'Тесты, секреты, доступы, готовность.','Deploy Agent':'Превью на имеющейся бесплатной инфраструктуре.','Owner':'Принимает превью, решает запуск или отказ.','Content Factory':'Получает бриф для продвижения после вашего «да».'},
   role_tag:'роль, не запущенный агент',then:'дальше',now_n:'сейчас: {n}',brief:'Техническое задание',of:'из',foot:'Blackbox Lab · MVP Builder · #186'},
  en:{back:'← FactoryOS',title_a:'MVP Builder:',title_b:'from idea to a checked prototype',lede:'Every MVP goes through the same stages: research, spec, build, QA, preview and your decision. A stage changes only through a recorded event with an evidence link.',
   honest:'The roles below are process stages, not running agents. Evidence links are checked for format only, not content. This page starts nothing, spends nothing and publishes nothing.',flow_h:'Pipeline',flow_p:'How many projects sit at each stage right now.',
   proj_h:'Projects',proj_p:'State, next step and the full history with evidence.',roles_h:'MVP team',roles_p:'Who is responsible for each stage, in order. Roles whose stage currently holds projects are highlighted.',
-  next:'Next step',rec:'a recommendation; nothing was started',owner:'your decision is needed',blocked:'Blocked',closed:'Closed',history:'History',events:'events',
-  open:'Open prototype',issue:'Issue',act:'Record an event',kind:'Type',evidence:'Evidence link (GitHub or /static/…)',note:'Comment or reason',save:'Record',
+  history:'History',events:'events',
+  act:'Record an event',kind:'Type',evidence:'Evidence link (GitHub or /static/…)',note:'Comment or reason',save:'Record',
   kinds:{advance:'Move to the next stage',note:'Note',block:'Block',unblock:'Unblock',reject:'Reject (owner only)'},
   saved:'Recorded.',dup:'This event was already recorded.',retry:'No connection. Press again to retry the same action; it will not be recorded twice.',unverified:'link not verified',loading:'Loading…',auth:'Sign in to FactoryOS to see the projects.',login:'Sign in',failed:'Could not load the registry',
   err:{evidence_required:'Moving a stage needs an evidence link.',bad_evidence:'Evidence must be a GitHub link (issue, PR, commit, actions) or /static/…',owner_only:'Only the owner makes this decision.',project_blocked:'The project is blocked; unblock it first.',project_closed:'The project is closed.',reason_required:'Give a reason for the block.',not_blocked:'The project is not blocked.',forbidden:'You cannot record events.',idempotency_conflict:'The retry key belongs to a different action. Reload the page.'},
-  stages:{idea:'Idea',researching:'Research',spec_draft:'Spec draft',spec_review:'Spec review',build_queued:'Queued to build',building:'Building',qa_review:'QA',preview_ready:'Preview ready',owner_review:'Your decision',validated:'Validated',rejected:'Rejected'},
   roles:{'MVP Manager':'Queue, dependencies, handoffs and evidence-backed status.','Product Analyst':'Audience, problem, scope and free demand tests.','Spec Writer':'A technical spec with acceptance criteria.','Claude Builder':'A branch and PR after an approved spec.','QA / Security':'Tests, secrets, access, readiness.','Deploy Agent':'A preview on existing free infrastructure.','Owner':'Reviews the preview, decides launch or stop.','Content Factory':'Gets a promotion brief after your yes.'},
   role_tag:'a role, not a running agent',then:'then',now_n:'now: {n}',brief:'Technical brief',of:'of',foot:'Blackbox Lab · MVP Builder · #186'}};
 const $=s=>document.querySelector(s);
@@ -153,6 +150,13 @@ const PIPE=['idea','researching','spec_draft','spec_review','build_queued','buil
 let lang='uk',data=null,error='',msgs={},scrolled=false;const openForms=new Set();
 try{const l=localStorage.getItem('mvp-factory:lang');if(['uk','ru','en'].includes(l))lang=l}catch(e){}
 const t=()=>T[lang];
+const lbl=()=>(data&&data.labels&&(data.labels[lang]||data.labels.en))||{stage:{},next:{},ui:{},links:{}};
+const fmt=(s,v)=>String(s||'').replace(/\{(\w+)\}/g,(_,k)=>v[k]==null?'':v[k]);
+// The same next-step line as the dashboard card: the server's `view.next`, worded by the shared `labels`.
+function nextHtml(v,L){const nx=v.next||{},ui=L.ui;
+  if(v.status==='blocked')return '<b>'+esc(ui.blocked)+':</b> '+esc(v.blocked_reason)+' · '+esc(L.next.blocked)+(nx.role?' · '+esc(nx.role):'')+' — '+esc(ui.owner);
+  if(v.status==='validated'||v.status==='rejected')return '<b>'+esc(ui.closed)+':</b> '+esc(L.next[nx.key]||'');
+  return '<b>'+esc(ui.next)+':</b> '+esc(L.next[nx.key]||'')+(nx.role?' · '+esc(nx.role):'')+(nx.owner?' — '+esc(ui.owner):'');}
 function link(u){const safe=/^(https:\/\/github\.com\/|\/static\/)/.test(u);return safe?'<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(u.replace('https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/','gh:'))+'</a>':esc(u)}
 async function load(){
   error='';
@@ -169,38 +173,37 @@ function render(){
   const x=t();document.documentElement.lang=lang;
   document.querySelectorAll('[data-t]').forEach(el=>{el.textContent=x[el.dataset.t]||''});
   document.querySelectorAll('.langs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.lang===lang)));
-  const projects=(data&&data.projects)||[];
-  const counts={};projects.forEach(p=>{counts[p.stage]=(counts[p.stage]||0)+1});
-  $('#flow').innerHTML=PIPE.concat(['validated']).map(s=>'<div class="st'+(counts[s]?' has':'')+'"><b>'+(counts[s]||0)+'</b><span>'+esc(x.stages[s])+'</span></div>').join('');
+  const projects=(data&&data.projects)||[],L=lbl(),sm=(data&&data.summary)||{};
+  // T-742: counters, stage names, progress, next step and links come from the server read model (`view`, `summary`,
+  // `labels`) that the dashboard card uses too; nothing about a project's state is derived on this page.
+  const counts=sm.by_stage||{};
+  $('#flow').innerHTML=data?PIPE.concat(['validated']).map(s=>'<div class="st'+(counts[s]?' has':'')+'"><b>'+(counts[s]||0)+'</b><span>'+esc(L.stage[s]||s)+'</span></div>').join(''):'';
   // Team as a pipeline: the build path first, then the later steps. A role is highlighted when projects sit at its stage now.
   const stageRole=(data&&data.roles)||{},busy={};
-  projects.forEach(p=>{if(p.stage==='validated'||p.stage==='rejected')return;const r=stageRole[p.stage];if(r)busy[r]=(busy[r]||0)+1});
+  projects.forEach(p=>{const v=p.view||{};if(v.status==='validated'||v.status==='rejected')return;const r=stageRole[v.stage];if(r)busy[r]=(busy[r]||0)+1});
   const card=r=>'<div class="role'+(busy[r]?' now':'')+'"><b>'+esc(r)+'</b><small>'+esc(x.roles[r]||'')+'</small><br>'+(busy[r]?'<span class="tag now">'+esc(x.now_n.replace('{n}',busy[r]))+'</span> ':'')+'<span class="tag">'+esc(x.role_tag)+'</span></div>';
   const row=list=>'<div class="pipe" style="--n:'+list.length+'">'+list.map(card).join('')+'</div>';
   $('#roles').innerHTML=row(['MVP Manager','Product Analyst','Spec Writer','Claude Builder','QA / Security'])+'<div class="thenSep" aria-hidden="true">↓ '+esc(x.then)+'</div>'+row(['Deploy Agent','Owner','Content Factory']);
   if(error==='auth'){$('#projects').innerHTML='<div class="glass state">'+esc(x.auth)+' <a class="btn primary" href="/login">'+esc(x.login)+'</a></div>';return}
   if(error){$('#projects').innerHTML='<div class="glass state bad">'+esc(error)+'</div>';return}
   if(!data){$('#projects').innerHTML='<div class="glass state">'+esc(x.loading)+'</div>';return}
+  const drafts=saveDrafts();
   $('#projects').innerHTML=projects.map(p=>{
-    const idx=PIPE.indexOf(p.stage),closed=p.stage==='validated'||p.stage==='rejected';
-    const pct=Math.max(0,Math.min(100,Number(p.progress!=null?p.progress:(p.stage==='validated'?100:Math.max(0,idx)*100/9))|0));
-    const bar='<div class="barRow"><div class="bar" aria-hidden="true">'+PIPE.map((s,i)=>'<i class="'+(closed&&p.stage==='validated'?'on':i<idx?'on':i===idx?'now':'')+'"></i>').join('')+'</div><span class="pct" role="img" aria-label="'+pct+'%">'+pct+'% <small>/ 100</small></span></div>';
-    const badge=p.blocked?'<span class="badge blocked">'+esc(x.blocked)+'</span>':closed?'<span class="badge done">'+esc(x.stages[p.stage])+'</span>':'<span class="badge stage">'+esc(x.stages[p.stage]||p.stage)+'</span>';
-    const r=p.recommendation||{};
-    const next=p.blocked?'<b>'+esc(x.blocked)+':</b> '+esc(p.blocked.reason):closed?esc(x.closed):'<b>'+esc(x.next)+':</b> '+esc(x.stages[r.next_stage]||r.next_stage||'')+' · '+esc(r.role||'')+' — '+esc(r.decision==='owner'?x.owner:x.rec);
-    const hist=(p.history||[]).slice().reverse().map(e=>'<li><small>'+esc(String(e.at).replace('T',' ').slice(0,16))+' · '+esc(e.actor)+'</small><br>'+esc(x.kinds[e.kind]||e.kind)+(e.from_stage!==e.to_stage?' · '+esc(x.stages[e.from_stage])+' → '+esc(x.stages[e.to_stage]):'')+(e.note?' — '+esc(e.note):'')+(e.evidence&&e.evidence.length?'<br>'+e.evidence.map(link).join(' · ')+' <span class="unv">'+esc(x.unverified)+'</span>':'')+'</li>').join('');
+    const v=p.view||{},nx=v.next||{},ui=L.ui;
+    const bar='<div class="barRow"><div class="pbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+Number(v.progress||0)+'"><i style="width:'+Number(v.progress||0)+'%"></i></div><span class="pct">'+Number(v.progress||0)+'% <small>· '+esc(fmt(ui.step,{step:v.step,steps:v.steps}))+'</small></span></div>';
+    const badge=v.status==='blocked'?'<span class="badge blocked">'+esc(ui.blocked)+'</span>':'<span class="badge '+(v.status==='validated'||v.status==='rejected'?'done':'stage')+'">'+esc(L.stage[v.stage]||v.stage)+'</span>';
+    const next=nextHtml(v,L);
+    const hist=(p.history||[]).slice().reverse().map(e=>'<li><small>'+esc(String(e.at).replace('T',' ').slice(0,16))+' · '+esc(e.actor)+'</small><br>'+esc(x.kinds[e.kind]||e.kind)+(e.from_stage!==e.to_stage?' · '+esc(L.stage[e.from_stage]||e.from_stage)+' → '+esc(L.stage[e.to_stage]||e.to_stage):'')+(e.note?' — '+esc(e.note):'')+(e.evidence&&e.evidence.length?'<br>'+e.evidence.map(link).join(' · ')+' <span class="unv">'+esc(x.unverified)+'</span>':'')+'</li>').join('');
     const m=msgs[p.id]||{};
     const form='<details class="act" data-p="'+esc(p.id)+'"'+(openForms.has(p.id)?' open':'')+'><summary>'+esc(x.act)+'</summary><form class="ev" data-p="'+esc(p.id)+'"><div class="row"><select name="kind" aria-label="'+esc(x.kind)+'">'+Object.keys(x.kinds).map(k=>'<option value="'+k+'">'+esc(x.kinds[k])+'</option>').join('')+'</select><input name="evidence" type="text" placeholder="'+esc(x.evidence)+'" aria-label="'+esc(x.evidence)+'"></div><div class="row"><input name="note" type="text" maxlength="500" placeholder="'+esc(x.note)+'" aria-label="'+esc(x.note)+'"><button class="btn" type="submit">'+esc(x.save)+'</button></div><div class="msg '+(m.ok?'ok':'bad')+'" role="status">'+esc(m.text||'')+'</div></form></details>';
-    const issue=Number(p.issue)>0?'<a href="https://github.com/Pavlovskyi-Andrii/blackboxlab-factoryos/issues/'+Number(p.issue)+'" target="_blank" rel="noopener">#'+Number(p.issue)+'</a>':'';
+    const issue=(v.links||[]).filter(l=>l.key==='issue').map(l=>'<a href="'+esc(l.href)+'" target="_blank" rel="noopener">'+esc(l.text)+'</a>').join('');
     const brief=p.brief?'<details class="hist"><summary>'+esc(x.brief)+'</summary><div class="briefTxt">'+esc(p.brief)+'</div></details>':'';
-    const facelessCrm=[313,359].includes(Number(p.issue))?'<div class="links"><a class="btn primary" href="/static/mvp-factory/faceless-crm.html" target="_blank" rel="noopener">Faceless Models CRM ↗</a></div>':'';
-    const releaseGuardian=(p.id==='release-guardian'||Number(p.issue)===189)?'<div class="links"><a class="btn primary" href="/static/mvp-factory/release-guardian.html" target="_blank" rel="noopener">AI Release Guardian ↗</a></div>':'';  // T-616 #189
-    const launchpad='<div class="links"><a class="btn" href="/static/mvp-factory/launchpad.html?project='+encodeURIComponent(p.id)+'" target="_blank" rel="noopener">Launchpad · D1–D7 → G1–G5 ↗</a></div>';  // T-704; MyCast is the first real board: launchpad.html?project=mycast
-    const evolution='<div class="links"><a class="btn" href="/static/mvp-factory/evolution.html?project='+encodeURIComponent(p.id)+'" target="_blank" rel="noopener">Product Evolution · V1→V2 ↗</a></div>';  // T-630 #270
-    return '<article class="glass proj" id="p-'+esc(p.id)+'"><div class="ph"><h3>'+esc(p.title)+'</h3>'+badge+issue+'</div>'+bar+'<div class="next">'+next+'</div>'+brief+facelessCrm+releaseGuardian+launchpad+evolution+
-      (p.prototype?'<div class="links"><a class="btn primary" href="'+esc(p.prototype)+'" target="_blank" rel="noopener">'+esc(x.open)+' ↗</a></div>':'')+
+    const links=(v.links||[]).filter(l=>l.key!=='issue').map(l=>'<a class="btn'+(l.primary?' primary':'')+'" href="'+esc(l.href)+'" target="_blank" rel="noopener">'+esc(L.links[l.key]||l.key)+' ↗</a>').join('');
+    return '<article class="glass proj" id="p-'+esc(p.id)+'"><div class="ph"><h3>'+esc(p.title)+'</h3>'+badge+issue+'</div>'+bar+'<div class="next">'+next+'</div>'+brief+
+      (links?'<div class="links">'+links+'</div>':'')+
       '<details class="hist"><summary>'+esc(x.history)+' · '+(p.history||[]).length+' '+esc(x.events)+'</summary><ol class="tl">'+hist+'</ol></details>'+form+'</article>';
   }).join('');
+  restoreDrafts(drafts);
 }
 document.addEventListener('submit',async e=>{
   const f=e.target.closest('form.ev');if(!f)return;e.preventDefault();
@@ -212,7 +215,7 @@ document.addEventListener('submit',async e=>{
   try{const r=await fetch('/api/mvp-factory/'+encodeURIComponent(pid)+'/events',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json().catch(()=>({}));
     delete f.dataset.key;  // the server answered: this operation is finished either way
-    if(r.ok){msgs[pid]={ok:true,text:d.duplicate?x.dup:x.saved};openForms.add(pid);await load();return}
+    if(r.ok){msgs[pid]={ok:true,text:d.duplicate?x.dup:x.saved};openForms.add(pid);f.reset();await load();return}  // recorded: the draft is done, the refresh must not bring it back
     showMsg(f,x.err[d.detail]||String(d.detail||('HTTP '+r.status)));  // keep the form and what was typed
   }catch(err){showMsg(f,x.retry)}  // network failure: the key stays, so pressing again retries the same operation
 });
@@ -222,6 +225,18 @@ function showMsg(f,text){const m=f.querySelector('.msg');m.className='msg bad';m
 document.addEventListener('toggle',e=>{const d=e.target;if(d.classList&&d.classList.contains('act')){d.open?openForms.add(d.dataset.p):openForms.delete(d.dataset.p)}},true);
 document.querySelectorAll('.langs button').forEach(b=>b.addEventListener('click',()=>{lang=b.dataset.lang;try{localStorage.setItem('mvp-factory:lang',lang)}catch(e){}render()}));
 render();load();
+// T-742 live sync: re-read the same endpoint as the dashboard every 30 s and when the tab comes back. A half-filled
+// event form never stops the refresh: render() keeps its draft (values, retry key, focus and cursor) across re-renders.
+function saveDrafts(){const out={};const a=document.activeElement;
+  document.querySelectorAll('form.ev').forEach(f=>{const d={kind:f.kind.value,evidence:f.evidence.value,note:f.note.value,key:f.dataset.key||''};
+    if(a&&f.contains(a)&&a.name){d.focus=a.name;try{d.s=a.selectionStart;d.e=a.selectionEnd}catch(e){}}out[f.dataset.p]=d});return out}
+function restoreDrafts(drafts){document.querySelectorAll('form.ev').forEach(f=>{const d=drafts[f.dataset.p];if(!d)return;
+    f.kind.value=d.kind;f.evidence.value=d.evidence;f.note.value=d.note;if(d.key)f.dataset.key=d.key;
+    if(d.evidence||d.note||d.focus){f.closest('details').open=true;openForms.add(f.dataset.p)}
+    if(d.focus&&f[d.focus]){const el=f[d.focus];el.focus({preventScroll:true});try{if(d.s!=null)el.setSelectionRange(d.s,d.e)}catch(e){}}})}
+function refresh(){if(document.visibilityState==='visible')load()}
+setInterval(refresh,30000);
+document.addEventListener('visibilitychange',refresh);window.addEventListener('focus',refresh);
 </script>
 </body>
 </html>

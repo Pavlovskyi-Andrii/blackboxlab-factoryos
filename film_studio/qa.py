@@ -171,7 +171,9 @@ def run_qa(film: Path, plan: Dict[str, Any], shot_records: List[Dict[str, Any]],
                  "note": "offline FFmpeg + Pillow on the session's container; no provider was called"},
         "milestones": {
             "technical_render": status,
-            "realistic_photo_film": "BLOCKED" if standins else "NOT_ASSESSED",
+            "realistic_photo_film": "BLOCKED" if standins else (
+                "PASS" if all(x["asset"]["source_type"] in ("licensed_stock", "owner_supplied")
+                              and x["asset"]["rights_status"] == "verified" for x in shots) else "NOT_ASSESSED"),
             "realistic_photo_film_reason": REALISTIC_BLOCKED if standins else "",
             "narration": status if loud else "BLOCKED",
             "narration_reason": "" if loud else VOICE_NONE["reason"],

@@ -67,6 +67,22 @@ class RouteAuthFixes(unittest.TestCase):
             self.assertEqual(call("POST", "/api/claude-worker/heartbeat", bearer="w-token", body=hb)[0], 200)
         self.assertEqual(call("GET", "/api/local-booster/status", cookie=self.owner)[0], 200)   # dashboard GETs stay
 
+    def test_ops_agent_reaches_the_ops_routes_with_the_worker_token(self):
+        # T-740: the EC2 ops agent sends only the worker token. The middleware used to answer 401 before the route,
+        # so every ops request would have expired as "agent offline" even with the agent installed.
+        with patch.object(factory, "FACTORY_CLAUDE_WORKER_TOKEN", "w-token"):
+            status, body = call("POST", "/api/ops/worker/claim", bearer="w-token", body=b'{"node": "ec2"}')
+            self.assertEqual(status, 200, body)
+            self.assertIn("task", json.loads(body))
+            status, body = call("POST", "/api/ops/worker/result/nope", bearer="w-token", body=b"{}")
+            self.assertIn(status, (404, 409), body)                                    # the route answers, not the middleware
+            # The mods runtime on EC2 had the same gap: its plan poll never reached the route.
+            self.assertNotEqual(call("GET", "/api/mods/worker/plan", bearer="w-token")[0], 401)
+            self.assertEqual(call("GET", "/api/mods/worker/plan", bearer="wrong")[0], 401)
+            self.assertEqual(call("POST", "/api/ops/worker/claim", bearer="wrong")[0], 401)
+            self.assertEqual(call("POST", "/api/ops/worker/claim", cookie=self.owner)[0], 401)  # a session is not a runner
+        self.assertEqual(call("POST", "/api/ops/worker/claim", bearer="w-token")[0], 401)       # no worker token set: closed
+
     def test_c2_media_job_callback_reaches_its_own_token_check(self):
         with patch.object(factory, "FACTORY_VIDEO_CALLBACK_TOKEN", "cb"):
             self.assertNotEqual(call("POST", "/api/media-jobs/abc123/callback", bearer="cb",
@@ -126,7 +142,10 @@ class RouteAuthFixes(unittest.TestCase):
         self.assertNotIn(b"own_experience", page)
         self.assertIn(b"get('project')||'mycast'", page)
         status, cards = call("GET", "/static/mvp-factory/index.html")
-        self.assertIn(b"launchpad.html?project='+encodeURIComponent(p.id)", cards)
+        self.assertIn(b"(v.links||[])", cards)   # T-742: project links come from the shared read model
+        status, snap = call("GET", "/api/mvp-factory", cookie=self.owner)
+        mycast = next(p for p in json.loads(snap)["projects"] if p["id"] == "mycast")
+        self.assertIn("/static/mvp-factory/launchpad.html?project=mycast", [l["href"] for l in mycast["view"]["links"]])
 
 
 class StaticDirectoryIndexTest(unittest.TestCase):

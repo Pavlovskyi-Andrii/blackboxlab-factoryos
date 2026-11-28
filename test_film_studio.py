@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 from film_studio import plan as fplan
-from film_studio import narration, procedural, qa, render
+from film_studio import commons, narration, procedural, qa, render
 from film_studio.plan import PlanError, RightsBlocked, build_plan
 from film_studio.schema import (ValidationError, manifest_from_candidates, validate_asset_manifest,
                                 validate_film_bible, validate_storyboard)
@@ -334,6 +334,8 @@ class NarrationTest(Fixture):
             ({"s01": 1.0}, {"source": "tts_cloud"}, "voice.source"),
             ({"s01": 1.0}, {"model_sha256": ""}, "voice.model_sha256"),
             ({"s01": 1.0}, {"source": "owner_recording"}, "consent"),
+            ({"s01": 1.0}, {"source": "voice_clone", "consent": "owner 2026-11-27"}, "voice.model_licence"),
+            ({"s01": 1.0}, {"source": "voice_clone", "model_licence": "CPML", "reference_sha256": "b" * 64}, "voice.consent"),
         ]
         for lines, voice, needle in cases:
             with self.subTest(needle=needle):
@@ -342,6 +344,14 @@ class NarrationTest(Fixture):
                 with self.assertRaises(ValidationError) as ctx:
                     narration.load(narration_doc(d, self.sb["project_id"], lines, **voice), p)
                 self.assertIn(needle, str(ctx.exception))
+
+    def test_cloned_voice_records_model_licence_and_consent(self):
+        p = self.plan()
+        doc = narration.load(narration_doc(self.tmp, self.sb["project_id"], {"s02": 1.0}, source="voice_clone",
+                                           model="xtts_v2", model_licence="CPML (non-commercial)",
+                                           reference_sha256="c" * 64, consent="owner sent the sample for this film"), p)
+        self.assertEqual(doc["voice"]["source"], "voice_clone")
+        self.assertEqual(doc["voice"]["model_licence"], "CPML (non-commercial)")
 
     def test_changed_wav_is_refused(self):
         p = self.plan()
@@ -368,6 +378,69 @@ class NarrationTest(Fixture):
         planned = json.loads((out / "render_plan.json").read_text(encoding="utf-8"))
         s07 = next(s for s in planned["shots"] if s["shot_id"] == last["shot_id"])
         self.assertEqual((s07["asset"]["id"], s07["storyboard_asset_id"]), ("owner-s07-portrait", last["asset_id"]))
+
+
+class CommonsTest(unittest.TestCase):
+    """T-744: Commons licence facts come from the API's extmetadata; share-alike / non-commercial are refused."""
+
+    def info(self, lic, url="", artist="<a href='x'>A. Author</a>", req="true"):
+        md = {"LicenseShortName": {"value": lic}, "Artist": {"value": artist}, "AttributionRequired": {"value": req}}
+        if url:
+            md["LicenseUrl"] = {"value": url}
+        return {"extmetadata": md, "descriptionurl": "https://commons.wikimedia.org/wiki/File:X.jpg",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/7/75/X.jpg?utm_source=x", "sha1": "f" * 40}
+
+    def test_accepted_licences(self):
+        rec = commons.licence_record("File:X.jpg", self.info("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0"))
+        self.assertEqual((rec["licence"], rec["author"], rec["attribution_required"]), ("CC BY 4.0", "A. Author", True))
+        self.assertEqual(commons.licence_record("File:X.jpg", self.info("CC0", req="false"))["licence_url"], commons.CC0_URL)
+        commons.licence_record("File:X.jpg", self.info("Public domain"))
+
+    def test_refused_licences_and_missing_author(self):
+        for lic in ("CC BY-SA 4.0", "CC BY-NC 2.0", "GFDL", ""):
+            with self.subTest(lic=lic), self.assertRaises(ValueError):
+                commons.licence_record("File:X.jpg", self.info(lic))
+        with self.assertRaises(ValueError):
+            commons.licence_record("File:X.jpg", self.info("CC0", artist=""))
+
+    def test_thumbnail_url_and_manifest_asset_validate(self):
+        rec = commons.licence_record("File:X.jpg", self.info("CC BY 2.0", "https://creativecommons.org/licenses/by/2.0"))
+        self.assertEqual(commons.thumb_url(rec["original_url"]),
+                         "https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/X.jpg/1920px-X.jpg")
+        asset = commons.manifest_asset("s01", "pexels-1", "File:X.jpg", rec, b"\xff\xd8jpeg", "2026-11-27T00:00:00Z")
+        validate_asset_manifest({"schema": "film-studio/asset-manifest/v1", "project_id": "p", "assets": [asset]})
+        self.assertIn("A. Author", commons.credits([asset]))
+
+    def test_fetch_is_resumable_and_never_hits_the_network_in_tests(self):
+        tmp = Path(tempfile.mkdtemp(prefix="commons-test-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        calls = []
+
+        def fake_get(url, raw=False):
+            calls.append(url)
+            if raw:
+                return b"\xff\xd8fake-jpeg"
+            return {"query": {"pages": {"1": {"imageinfo": [self.info("CC0", req="false")]}}}}
+        picks = [("s01", "pexels-1", "File:X.jpg")]
+        first = commons.fetch(tmp, picks, get=fake_get, pause=0)
+        again = commons.fetch(tmp, picks, get=fake_get, pause=0)
+        self.assertEqual(len(calls), 2)            # one API read + one thumbnail; the second run reuses the store
+        self.assertEqual(first, again)
+        self.assertTrue((tmp / "credits.txt").is_file())
+
+
+class ScrimTest(Fixture):
+    def test_title_scrim_darkens_top_and_bottom_only(self):
+        from PIL import Image
+        rel = render.scrim_png(self.tmp, 320, 180)
+        a = Image.open(self.tmp / rel).getchannel("A")
+        self.assertGreater(a.getpixel((10, 179)), 150)     # bottom: titles and captions
+        self.assertGreater(a.getpixel((10, 0)), 100)       # top: brand line
+        self.assertEqual(a.getpixel((10, 70)), 0)          # middle: the photo untouched
+        p = build_plan(self.sb, self.bible, self.verified_manifest(), manifest_dir=self.tmp, size=(320, 180))
+        argv = render.shot_command(p, p["shots"][0], manifest_dir=self.tmp, work=self.tmp, out_clip=self.tmp / "c.mp4",
+                                   fonts={"regular": "DejaVuSans.ttf", "bold": "DejaVuSans-Bold.ttf"})
+        self.assertIn("[scrim]overlay", argv[argv.index("-filter_complex") + 1])
 
 
 def _have_render_tools():

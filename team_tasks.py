@@ -26,6 +26,11 @@ _DEP_ISSUE = re.compile(r"#(\d+)")
 _DEP_TASK = re.compile(r"\bT-\d+(?:-[A-Z0-9]+)?\b")
 _OWNER_GATE = re.compile(r"\bCONDITIONAL\b|only after|не начинать до|только после", re.I)
 QUEUE_TARGET = 10
+# FO-05 (owner brief 19.11, honest statuses): a finished task says how far it really got. Labels, first match wins:
+# verified (the owner accepted the Relay ticket for this PR) > failed (merged, but CI on the merged head did not
+# pass: shown even when deployed) > deployed (merged before the commit Render runs) > tested (CI passed) > merged.
+# closed_no_pr: the issue was closed without a merged PR, so there is no build to show.
+DELIVERY = ("verified", "failed", "deployed", "tested", "merged", "closed_no_pr")
 
 
 def _ts(value) -> float:
@@ -160,7 +165,34 @@ def _pr_view(pr: dict, ci: dict) -> dict:
     summary = ci.get(sha) or {"state": "unknown" if state == "open" else "none", "failed": ""}
     return {"number": pr.get("number"), "url": str(pr.get("html_url") or ""), "state": state,
             "draft": bool(pr.get("draft")), "ci": summary["state"], "ci_failed_check": summary["failed"],
-            "updated_at": str(pr.get("updated_at") or "")}
+            "updated_at": str(pr.get("updated_at") or ""), "merged_at": str(pr.get("merged_at") or "")}
+
+
+def deploy_cutoff(pulls: list, deployed_sha: str) -> dict:
+    """What Render runs, as a point on main: the merged PR whose merge commit is the deployed commit. Unknown when the
+    server does not know its commit (local run) or that commit is not among the PRs read (never a guess)."""
+    sha = str(deployed_sha or "").strip().lower()
+    if len(sha) < 7 or sha == "local":
+        return {"known": False, "sha": ""}
+    for p in pulls or []:
+        merge = str((p or {}).get("merge_commit_sha") or "").lower()
+        if p.get("merged_at") and len(merge) >= 7 and (merge.startswith(sha) or sha.startswith(merge)):
+            return {"known": True, "sha": sha[:12], "pr": p.get("number"), "merged_at": str(p["merged_at"])}
+    return {"known": False, "sha": sha[:12]}
+
+
+def delivery(pr: Optional[dict], cutoff: dict, verified_prs: frozenset = frozenset()) -> dict:
+    """Stages of one finished task. tested: pass | fail | unknown; deployed: True | False | None (unknown)."""
+    if not pr or pr.get("state") != "merged":
+        return {"label": "closed_no_pr", "merged": False, "tested": "unknown", "deployed": None, "verified": False}
+    tested = {"passed": "pass", "failed": "fail"}.get(pr.get("ci"), "unknown")
+    deployed = None
+    if cutoff.get("known") and pr.get("merged_at"):
+        deployed = _ts(pr["merged_at"]) <= _ts(cutoff["merged_at"])
+    verified = pr.get("number") in verified_prs
+    label = ("verified" if verified else "failed" if tested == "fail" else "deployed" if deployed
+             else "tested" if tested == "pass" else "merged")    # a failed CI is never hidden behind "deployed"
+    return {"label": label, "merged": True, "tested": tested, "deployed": deployed, "verified": verified}
 
 
 def _status_from_pr(pr: dict) -> str:
@@ -278,7 +310,8 @@ def queue_readiness(github: dict, *, roadmap: list, agent: str = "claude", targe
 
 
 def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = None, repo: str = "",
-                     now: Optional[float] = None, done_limit: int = 25, owner_cards: Optional[list] = None) -> dict:
+                     now: Optional[float] = None, done_limit: int = 25, owner_cards: Optional[list] = None,
+                     deployed_sha: str = "", verified_prs: frozenset = frozenset()) -> dict:
     """owner_cards: open owner-desk decision cards [{id, title, covers: [issue numbers]}]. They are listed as the
     owner's tasks, and a blocked Claude issue they cover links to the card that explains how to unblock it."""
     now = time.time() if now is None else float(now)
@@ -288,6 +321,7 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
     lanes = lanes or {}
     ci = github.get("ci") or {}
     prs = [p for p in github.get("pulls") or [] if isinstance(p, dict)]
+    cutoff = deploy_cutoff(prs, deployed_sha)
     by_issue = _prs_by_issue(prs)
     known = {int(i.get("number") or 0) for i in github.get("issues") or []
              if isinstance(i, dict) and not i.get("pull_request") and _agent_of_issue(i.get("body"))}
@@ -317,6 +351,8 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
                 "updated_at": str(issue.get("updated_at") or ""), "closed_at": str(issue.get("closed_at") or ""),
                 "source": "issue"}
         task["reason"] = _reason(task, agent)
+        if status == "done":
+            task["delivery"] = delivery(pr, cutoff, verified_prs)
         if status == "blocked" and number in blocked_by and "blocked" not in labels:
             reasons = blocked_by[number]
             deps = [r.split("_", 2)[-1] for r in reasons if r.startswith("depends_")]
@@ -337,6 +373,8 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
                 "created_at": str(pr.get("created_at") or ""), "updated_at": view["updated_at"],
                 "closed_at": str(pr.get("merged_at") or ""), "source": "pr"}
         task["reason"] = _reason(task, agent)
+        if status == "done":
+            task["delivery"] = delivery(view, cutoff, verified_prs)
         tasks[agent].append(task)
 
     for item in roadmap or []:
@@ -380,6 +418,7 @@ def build_team_tasks(github: dict, *, roadmap: list, lanes: Optional[dict] = Non
             "github_source": str(github.get("source") or "render"), "github_available": bool(github.get("available")),
             "github_error": github.get("error") or "", "repo": repo, "agents": agents, "totals": totals,
             "done_7d": sum(a["done_7d"] for a in agents.values()),
+            "deploy": cutoff,          # FO-05: which merged PR Render runs; known False = no deploy claim at all
             "queue_keeper": queue,
             "progress_note": "progress = stage (queued 0, draft PR 40, CI failed 60, review 85, merged/closed 100), not measured code completion"}
 
@@ -401,6 +440,7 @@ def compact_github(github: dict) -> dict:
               for i in github.get("issues") or [] if isinstance(i, dict)]
     pulls = [{"number": p.get("number"), "title": str(p.get("title") or "")[:200], "body": refs(p.get("body")),
               "draft": bool(p.get("draft")), "state": p.get("state"), "merged_at": p.get("merged_at"),
+              "merge_commit_sha": str(p.get("merge_commit_sha") or "")[:64],
               "base": {"ref": str((p.get("base") or {}).get("ref") or "")[:120]},
               "head": {"ref": str((p.get("head") or {}).get("ref") or "")[:120], "sha": str((p.get("head") or {}).get("sha") or "")[:64]},
               "html_url": p.get("html_url"), "updated_at": p.get("updated_at"), "created_at": p.get("created_at")}

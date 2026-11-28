@@ -150,6 +150,8 @@ jobs:
           bash -n deploy/codex-relay/setup.sh
           python -m py_compile autopilot/codex_review.py autopilot/test_codex_review.py
           python -m autopilot.test_codex_review
+          python -m py_compile autopilot/main_ci_watch.py autopilot/test_main_ci_watch.py
+          python -m autopilot.test_main_ci_watch
       - name: Relay owner-notice dedupe regression (#241)
         run: python test_relay_notify_dedupe.py
       - name: Evidence Protocol Tier 1 (No Evidence — No Done)
@@ -168,6 +170,8 @@ jobs:
           python test_worker_offline_alert.py
           python -m py_compile ops_catalog.py ops_relay.py autopilot/ops_agent.py test_ops_relay.py
           python test_ops_relay.py
+          python -m py_compile ops_health.py test_ops_health.py
+          python test_ops_health.py
           python -m py_compile mvp_cycle.py test_mvp_cycle.py
           python test_mvp_cycle.py
           python -m py_compile mvp_pipeline.py test_mvp_pipeline.py
@@ -259,6 +263,13 @@ jobs:
           python test_mycast_demo.py
           python -m py_compile mycast_accounts.py test_mycast_accounts.py
           python test_mycast_accounts.py
+          python -m py_compile mycast_visits.py test_mycast_visits.py
+          python test_mycast_visits.py
+          node --check static/mycast-configurator/v.js
+          python -m py_compile mycast_stats.py test_mycast_stats.py
+          python test_mycast_stats.py
+          python -c "from pathlib import Path; h=Path('static/mycast-stats/index.html').read_text(encoding='utf-8'); Path('/tmp/mycast-stats-ui.js').write_text(h.rsplit('<script>',1)[1].split('</script>',1)[0], encoding='utf-8')"
+          node --check /tmp/mycast-stats-ui.js
           python -m py_compile mycast_listener_delivery.py autopilot/mycast_listeners.py test_mycast_listener_delivery.py
           python test_mycast_listener_delivery.py
           python -m py_compile mycast_calendar.py test_mycast_calendar.py
@@ -273,6 +284,8 @@ jobs:
           python test_mycast_demo_audio.py
           python -m py_compile login_recovery.py test_login_recovery.py
           python test_login_recovery.py
+          python -m py_compile password_login.py test_password_login.py
+          python test_password_login.py
           python -m py_compile brand_strategy.py brand_strategy_seeds.py test_brand_strategy.py
           python test_brand_strategy.py
           python -m py_compile test_factory_cycle_controls.py
@@ -341,6 +354,8 @@ jobs:
           python test_mvp_factory.py
           python -m py_compile test_mvp_state_machine.py
           python test_mvp_state_machine.py
+          python -m py_compile test_mvp_view.py test_mvp_view_live.py
+          python test_mvp_view.py
           python - <<'PY'
           from pathlib import Path
           html = Path("static/mvp-factory/index.html").read_text(encoding="utf-8")
@@ -464,7 +479,8 @@ jobs:
           python -m autopilot.test_owner_questions
           python -m py_compile telegram_web_compare.py test_telegram_web_compare.py
           python test_telegram_web_compare.py
-          python -m py_compile mycast.py test_mycast.py autopilot/mycast_daily.py autopilot/test_mycast_daily.py
+          python -m py_compile mycast.py mycast_chapters.py test_mycast.py test_mycast_chapters.py autopilot/mycast_daily.py autopilot/test_mycast_daily.py
+          python test_mycast_chapters.py
           python test_mycast.py
           python -m autopilot.test_mycast_daily
           python -m py_compile tools/mycast_render.py tools/test_mycast_render.py
@@ -629,6 +645,7 @@ jobs:
         run: |
           python -m py_compile tools/ui_screenshots.py
           python tools/ui_screenshots.py
+          python test_mvp_view_live.py   # T-742: full MVP page refresh keeps an event-form draft (real Chromium)
       - name: Upload screenshots
         if: always()
         # Owner-approved 2026-11-06: an artifact-storage quota error at upload must not fail the job.

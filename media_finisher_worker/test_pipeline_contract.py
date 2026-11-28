@@ -197,11 +197,23 @@ worker.FileResponse = lambda path, **kw: served.append(Path(path).name) or "file
 JOB = "job-bad-source"                                   # finished in step 7, final.mp4 exists
 assert (DATA / JOB / "final.mp4").exists()
 worker.API_TOKEN, worker.ALLOW_PUBLIC_FILES = "", False
+# No API token on Render (owner 2026-11-27): links are signed with a random key kept on the worker's disk, so the
+# result still downloads, while a bare job id still opens nothing.
+key_file = DATA / ".file-signing-key"
+assert worker.SIGNING_KEY == key_file.read_text().strip() and len(worker.SIGNING_KEY) == 64
+assert oct(key_file.stat().st_mode & 0o777) == "0o600" and worker._signing_key() == worker.SIGNING_KEY  # kept across restarts
 assert status_of(worker.file, JOB, "final.mp4", Req()) == 403            # no token configured: closed, not open
+assert status_of(worker.file, JOB, "final.mp4", Req("guess")) == 403     # no token: no bearer can pass
+keyless = worker._public_file(JOB, "final.mp4")
+k_exp = int(keyless.split("exp=")[1].split("&")[0]); k_sig = keyless.split("sig=")[1]
+assert status_of(worker.file, JOB, "final.mp4", Req(), exp=k_exp, sig=k_sig) == 200      # the signed link plays
+assert status_of(worker.file, JOB, "captions.srt", Req(), exp=k_exp, sig=k_sig) == 403   # ...for that file only
+assert worker.health()["file_links"] == "signed" and worker.health()["auth_configured"] is False
 worker.ALLOW_PUBLIC_FILES = True
 assert status_of(worker.file, JOB, "final.mp4", Req()) == 200            # explicit local-development switch only
+assert worker.health()["file_links"] == "public"
 worker.ALLOW_PUBLIC_FILES = False
-worker.API_TOKEN = "t0ken-for-the-test"
+worker.API_TOKEN = worker.SIGNING_KEY = "t0ken-for-the-test"              # with a token, the token signs
 assert status_of(worker.file, JOB, "final.mp4", Req()) == 403            # a known job id is not enough
 assert status_of(worker.file, JOB, "final.mp4", Req("wrong")) == 403
 assert status_of(worker.file, JOB, "final.mp4", Req("t0ken-for-the-test")) == 200
@@ -222,7 +234,7 @@ for bad in ("..", ".", "a/b", "../etc", "job id", "", "x" * 81, "-lead"):
     assert status_of(worker._job_dir, bad) == 400, bad
     assert status_of(worker.file, bad, "final.mp4", Req("t0ken-for-the-test")) == 400, bad
 assert status_of(worker._job_dir, "3f2c9a1e-7b1d-4c55-9a51-0a1b2c3d4e5f") == 200          # the ids FactoryOS sends
-assert served.count("final.mp4") == 3
+assert served.count("final.mp4") == 4
 state_again = worker.job_status(JOB, Req("t0ken-for-the-test"))
 assert "sig=" in state_again["final_url"] and status_of(worker.job_status, JOB, Req()) == 401   # a fresh signed link per read
 worker.API_TOKEN = ""

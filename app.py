@@ -38,6 +38,7 @@ from supervisor_routing import AUTO_POLICY as ROUTING_AUTO_POLICY,PRIVILEGES as 
 from worker_observability import build_worker_overview, sanitize_supervisor, sanitize_telemetry
 import worker_offline_alert
 import ops_relay
+import ops_health
 from relay_pairing import create_pairing, valid_pairing, pairing_status
 from relay_acceptance import latest_telegram_acceptance
 from telegram_web_compare import StaleComparison, TelegramViewLog, compare as telegram_web_compare, confirmation_for, owner_status as telegram_compare_status
@@ -68,6 +69,7 @@ from mycast_voices import VoiceSamples, gemini_single_voice_pcm, install_mycast_
 from mycast import GeminiTTSError as MycastGeminiTTSError
 from mycast_demo_audio import DemoAudioStore, install_mycast_demo_audio_routes
 import login_recovery
+import password_login
 import evidence as _evidence
 from gemini_proxy import _call as _gemini_raw_call, resolve_flash_model
 from peer_review import ReviewBudget, build_prompt, gemini_review, needs_review, notice_text as review_notice_text
@@ -89,7 +91,7 @@ import durable_engine
 import durable_media_finisher as durable_finisher
 
 BASE = Path(__file__).resolve().parent
-APP_VERSION = "v5.20.0"  # the only version; README changelog + sidebar must match (test_versioning.py)
+APP_VERSION = "v5.21.1"  # the only version; README changelog + sidebar must match (test_versioning.py)
 BUILD_SHA = os.environ.get("RENDER_GIT_COMMIT", "local")
 GITHUB_REPO = os.environ.get("FACTORY_GITHUB_REPO", "Pavlovskyi-Andrii/blackboxlab-factoryos")
 GITHUB_TOKEN = os.environ.get("FACTORY_GITHUB_TOKEN", "").strip()
@@ -281,6 +283,9 @@ FACTORY_GOOGLE_CLIENT_SECRET = os.environ.get("FACTORY_GOOGLE_CLIENT_SECRET","")
 FACTORY_MYCAST_CALENDAR_REDIRECT = os.environ.get("FACTORY_MYCAST_CALENDAR_REDIRECT",
                                                   "https://mycast.pro/api/mycast/calendar/callback").strip()
 FACTORY_GOOGLE_OWNER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS","").split(",") if x.strip()}
+# Password sign-in also accepts an owner email as the username (the password is still required).
+FACTORY_OWNER_LOGIN_EMAILS = password_login.parse_emails(os.environ.get("FACTORY_GOOGLE_OWNER_EMAILS",""),
+                                                         os.environ.get("FACTORY_OWNER_EMAILS",""))
 FACTORY_GOOGLE_VIEWER_EMAILS = {x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_VIEWER_EMAILS","").split(",") if x.strip()}
 FACTORY_GOOGLE_ALLOWED_EMAILS = ({x.strip().lower() for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_EMAILS","").split(",") if x.strip()} | FACTORY_GOOGLE_OWNER_EMAILS | FACTORY_GOOGLE_VIEWER_EMAILS)
 FACTORY_GOOGLE_ALLOWED_DOMAINS = {x.strip().lower().lstrip("@") for x in os.environ.get("FACTORY_GOOGLE_ALLOWED_DOMAINS","").split(",") if x.strip()}
@@ -1052,6 +1057,12 @@ install_mycast_account_routes(app, MYCAST_LISTENERS, secret=FACTORY_SECRET,
                               send_sample=_mycast_send_listener_sample, fetch_audio=_telegram_fetch_file,
                               calendar_available=MYCAST_CALENDAR.available,
                               on_delete=MYCAST_CALENDAR.disconnect)
+from mycast_visits import VisitLog, install_mycast_visit_routes  # noqa: E402
+# T-743 (#452 B-01): first-party visit/variant counter for MyCast pages; FACTORY_MYCAST_VISITS_ENABLED=1, off by default.
+install_mycast_visit_routes(app, VisitLog(DATA_DIR / "mycast_visits.jsonl"), identity=request_identity,
+                            registrations=MYCAST_LISTENERS.acquisition)
+from mycast_stats import install_mycast_stats_routes  # noqa: E402
+install_mycast_stats_routes(app, load=MYCAST_LISTENERS.snapshot, identity=request_identity)  # T-746: who listens, who drops off
 install_gemini_verify_route(app, request_identity=request_identity, api_key=lambda: FACTORY_GEMINI_API_KEY)
 # #317: website listeners' daily episodes. The EC2 worker writes the script; the server re-checks every gate,
 # voices it with the listener's own voices and sends it only to the listener's own chat.
@@ -1575,7 +1586,8 @@ async def auth_middleware(request: Request, call_next):
     if mycast_redirect is not None:
         return mycast_redirect
     public_paths = {"/api/mycast/quiz", "/login", "/login/recover", "/auth/google", "/guest", "/health", "/mcp", "/favicon.ico", "/mycast", "/privacy", "/terms", "/robots.txt", "/sitemap.xml",
-                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics"}
+                    "/api/mycast/demo", "/api/mycast/account", "/api/mycast/voices", "/api/mycast/subtopics",
+                    "/api/mycast/v"}  # T-743 visit beacon: 404 unless FACTORY_MYCAST_VISITS_ENABLED=1
     # #114 C-7: prefixes end with "/", so a future "/api/mycast/accounts-admin" is not public by accident.
     public_prefixes = ("/static/", "/.well-known/", "/media-source/", "/media-archive/", "/api/mycast/demo/", "/api/mycast/account/", "/api/mycast/voices/", "/mycast/u/", "/mycast/e/", "/mycast/demo/", "/api/mycast/calendar/", "/api/mybrief/public/")  # MyCast public beta: capped demo, listener accounts
     finisher_callback = re.fullmatch(r"/api/media-finisher/[0-9a-fA-F-]+/callback", request.url.path)
@@ -1588,6 +1600,8 @@ async def auth_middleware(request: Request, call_next):
     telegram_webhook_path=request.url.path=="/api/integrations/telegram/webhook"
     telegram_bridge_api=request.url.path.startswith("/api/factory/telegram/bridge/") and _telegram_bridge_authorized(request)
     relay_worker_api=request.url.path.startswith("/api/relay/worker/") and (_claude_worker_authorized(request) or gemini_worker_api)
+    # T-740 ops agent and the mods runtime pull with the worker token only; the routes check it again themselves.
+    ops_worker_api=request.url.path.startswith(("/api/ops/worker/","/api/mods/worker/")) and _claude_worker_authorized(request)
     browser_agent_api=request.url.path.startswith("/api/factory/browser/agent/") and _browser_agent_authorized(request)
     relay_agent_api=request.url.path.startswith("/api/relay/agent/") and bool(agent_identity(request, forbidden=_agent_relay_forbidden_tokens()))
     # T-720: the Surfer action tools over REST, with the caller's own per-lane MCP token (never the shared one).
@@ -1597,7 +1611,7 @@ async def auth_middleware(request: Request, call_next):
     if (request.method.upper()=="POST" and request.url.path.startswith(("/api/claude-worker/","/api/operator-worker/","/api/local-booster/"))
             and not (claude_worker_api or operator_worker_api or local_booster_api)):
         return JSONResponse({"detail":"worker token required"},status_code=401)
-    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or relay_agent_api or browser_agent_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
+    if (FACTORY_MEDIA_FINISHER_CALLBACK_TOKEN and finisher_callback) or media_job_callback or local_booster_api or claude_worker_api or operator_worker_api or telegram_webhook_path or telegram_bridge_api or relay_worker_api or ops_worker_api or relay_agent_api or browser_agent_api or owner_desk_worker_api or request.url.path.startswith(public_prefixes) or request.url.path in public_paths or request.url.path=="/register":
         return await call_next(request)
     identity=request_identity(request)
     if not identity:
@@ -1641,9 +1655,9 @@ def login_page(request: Request, lang: str = "en"):
     if request_is_authed(request):
         return RedirectResponse(f"/{lang}", status_code=303)
     copy={
-      "en":{"sub":"Private AI content production control room","user":"Username","password":"Password","enter":"Enter FactoryOS","or":"or"},
-      "uk":{"sub":"Приватний центр керування AI-виробництвом контенту","user":"Користувач","password":"Пароль","enter":"Увійти до FactoryOS","or":"або"},
-      "ru":{"sub":"Приватный центр управления AI-производством контента","user":"Пользователь","password":"Пароль","enter":"Войти в FactoryOS","or":"или"},
+      "en":{"sub":"Private AI content production control room","user":"Username or email","password":"Password","enter":"Enter FactoryOS","or":"or"},
+      "uk":{"sub":"Приватний центр керування AI-виробництвом контенту","user":"Логін або email","password":"Пароль","enter":"Увійти до FactoryOS","or":"або"},
+      "ru":{"sub":"Приватный центр управления AI-производством контента","user":"Логин или email","password":"Пароль","enter":"Войти в FactoryOS","or":"или"},
     }[lang]
     google_html=""
     google_script=""
@@ -1693,7 +1707,7 @@ def login_page(request: Request, lang: str = "en"):
 @app.post("/login")
 def login(username: str = Form(...), password: str = Form(...), lang: str = Form("en")):
     lang=lang if lang in ("en","uk","ru") else "en"
-    if not (hmac.compare_digest(username, FACTORY_USER) and hmac.compare_digest(password, FACTORY_PASSWORD)):
+    if not password_login.password_login_ok(username,password,FACTORY_USER,FACTORY_PASSWORD,FACTORY_OWNER_LOGIN_EMAILS):
         msg={"en":"Invalid username or password","uk":"Невірний логін або пароль","ru":"Неверный логин или пароль"}[lang]
         retry={"en":"Try again","uk":"Спробувати ще раз","ru":"Попробовать снова"}[lang]
         return HTMLResponse(f"{msg}. <a href='/login?lang={lang}'>{retry}</a>", status_code=401)
@@ -2083,7 +2097,26 @@ FACTORY_MCP_TOOLS=[
         "additionalProperties":False
       }
     }
-]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]+ops_relay.MCP_TOOLS
+]+web_surfer.TOOLS+surfer_actions.TOOLS+[surfer_recipes.TOOL,surfer_owner.PENDING_TOOL]+agent_workspace.TOOLS+social_autopilot.MCP_TOOLS+google_sheets.MCP_TOOLS+[coordination.MCP_TOOL]+ops_relay.MCP_TOOLS+[ops_health.TOOL]
+
+def _ops_health_edit_jobs():
+    try:
+        return get_edit_jobs(limit=5)["jobs"]
+    except Exception:
+        return []
+
+def _ops_health_snapshot(lane):
+    try:
+        ops=OPS_RELAY.owner_board(limit=1)
+    except Exception:
+        ops={}
+    try:
+        return ops_health.snapshot(lane,worker=get_claude_code_status(),telegram=_telegram_public_status(),
+                                   deliveries=VOICE_HISTORY.entries(),ops=ops,
+                                   finisher={"endpoint":FACTORY_MEDIA_FINISHER_ENDPOINT,"token":FACTORY_MEDIA_FINISHER_TOKEN},
+                                   known_secrets=_ops_known_secrets,edit_jobs=_ops_health_edit_jobs())
+    except PermissionError as exc:
+        raise ValueError(str(exc))  # shown to the caller as isError text
 
 @app.post("/mcp")
 async def factory_mcp(request: Request):
@@ -2152,6 +2185,9 @@ async def factory_mcp(request: Request):
             elif name in ops_relay.MCP_TOOL_NAMES:
                 # T-740: Claude lane only; flag, op classes and limits are checked inside; restarts notify the owner.
                 result=_factory_mcp_text(await asyncio.to_thread(ops_relay.call_tool,OPS_RELAY,name,args,mcp_lane or "",_ops_notify))
+            elif name in ops_health.TOOL_NAMES:
+                # Owner 2026-11-27: the Claude lane sees worker / Telegram / delivery health without the owner's session.
+                result=_factory_mcp_text(_ops_health_snapshot(mcp_lane or ""))
             elif name=="submit_design_review":
                 created=_create_design_task_from_review(args)
                 await broadcast({"type":"design_review_task","taskId":created["task_id"]})
@@ -6572,6 +6608,12 @@ def _submit_media_finisher_background(edit_job_id):
                 event(item["production_job_id"],f"AI Media Finisher worker wake/submit retry {attempt}/{MEDIA_FINISHER_SUBMIT_RETRIES}: {last_error[:180]}")
                 if attempt<MEDIA_FINISHER_SUBMIT_RETRIES:
                     continue
+                if "Name or service not known" in last_error or "nodename nor servname" in last_error:
+                    # 2026-11-27: the server could not even resolve the worker's host (a Render private hostname that
+                    # this worker does not have). Say which host, so the owner fixes the address, not the video.
+                    host=urlparse.urlsplit(submit_endpoint).netloc
+                    last_error=(f"worker address {host} does not resolve; set FACTORY_MEDIA_FINISHER_ENDPOINT to the "
+                                f"worker's public onrender.com address. {last_error}")
                 _finalize_edit_job(edit_job_id,"failed",error=f"Worker did not become ready after {attempt} attempts: {last_error}",
                                    response={"status":"failed","stage":"submit","percent":1,"submit_attempt":attempt,"exception":last_error})
                 return
@@ -11503,7 +11545,21 @@ def factory_vault_status(request: Request):
 
 # T-560-F UI: owner-only vault management. Secrets go in, never come back out: responses carry
 # refs, field kinds, cookie counts and domains only. Workspace comes from the server binding.
-_VAULT_SLUG=re.compile(r"^[a-z0-9][a-z0-9_.-]{0,39}$")
+_VAULT_SLUG=re.compile(r"^[a-z0-9][a-z0-9_.-]{0,99}$")   # a short name or a domain (owner 2026-11-27: 40 chars cut a Render host)
+
+
+def _vault_site_name(raw)->str:
+    """«Other site» accepts a short name, a domain or a pasted URL. A URL becomes exactly its host
+    (https://www.Example.com/login → www.example.com); nothing else is rewritten, so an existing record keeps its
+    identifier. An address with a port is refused: two services on one host must not share a vault entry."""
+    text=str(raw or "").strip().lower()
+    if any(c in text for c in ":/?#"):
+        try:
+            parts=urlparse.urlsplit(text if "://" in text else "https://"+text)
+            if parts.port is not None or "@" in parts.netloc:return ""
+            text=parts.hostname or ""
+        except ValueError:text=""
+    return text
 _VAULT_ACCOUNT=re.compile(r"^[\w.@+ -]{1,80}$")
 
 def _vault_parts(required=True):
@@ -11526,7 +11582,7 @@ def _vault_owner(request: Request):
         raise HTTPException(403,"owner_only")
 
 def _vault_binding(body: dict):
-    provider=str(body.get("provider") or "").strip().lower()
+    provider=_vault_site_name(body.get("provider"))
     account=str(body.get("account") or "default").strip()
     if not _VAULT_SLUG.match(provider):raise HTTPException(400,"invalid_provider")
     if not _VAULT_ACCOUNT.match(account):raise HTTPException(400,"invalid_account")
@@ -13471,8 +13527,21 @@ def get_team_tasks(refresh=False):
         try:lanes=(get_lane_board() or {}).get("lanes") or {}
         except Exception:lanes={}
         roadmap=_parse_roadmap_tasks()
-        return build_team_tasks(github,roadmap=roadmap,lanes=lanes,repo=GITHUB_REPO,owner_cards=_owner_decision_cards(roadmap))
+        return build_team_tasks(github,roadmap=roadmap,lanes=lanes,repo=GITHUB_REPO,owner_cards=_owner_decision_cards(roadmap),
+                                deployed_sha=BUILD_SHA,verified_prs=_owner_accepted_prs())
     return _TEAM_TASKS_CACHE.get(read,refresh=refresh)
+
+def _owner_accepted_prs():
+    """FO-05: PR numbers of Relay tickets the owner accepted (evidence level "accepted"); empty when unreadable."""
+    try:
+        out=set()
+        for t in RELAY_STORE.list(limit=500):
+            ver=(t or {}).get("verification") or {}
+            m=re.search(r"/pull/(\d+)",str(((t or {}).get("execution") or {}).get("pr_url") or ""))
+            if ver.get("accepted") and m:out.add(int(m.group(1)))
+        return frozenset(out)
+    except Exception:
+        return frozenset()
 
 _TEAM_SNAPSHOT_PATH=DATA_DIR/"team_tasks_github.json"
 

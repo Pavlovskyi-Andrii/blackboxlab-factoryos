@@ -86,3 +86,31 @@ T-700-H (LinkedIn), T-701-H (OLX), T-520 (первый настоящий паб
   они принимают продавцов из Украины.
 
 Ключи API провайдера хранятся только в Render. Никогда не отправляйте их в чат.
+
+### 3.1 Без ФОП (владелец 2026-11-27: «ФОП нету, от этого отталкиваемся»)
+
+Проверено 2026-11-27 по открытым источникам. Где источник не подтверждает пункт, стоит «проверить».
+
+| Вариант | Где платят | Что нужно без ФОП | Что известно | Что проверить | Источник |
+|---|---|---|---|---|---|
+| **Telegram Stars** | Внутри бота MyCast | Аккаунт Telegram с 2FA, кошелёк TON для вывода через Fragment | Для цифровых товаров в ботах Telegram требует именно Stars. Вывод — через Fragment в TON, не раньше чем через 21 день после получения | Минимальная сумма вывода и проверка личности на Fragment: сторонние гайды называют 1 000 Stars, официально не подтверждено | [telegram.org](https://telegram.org/blog/telegram-stars), [bitget](https://web3.bitget.com/en/academy/telegram-star-to-ton-what-are-telegram-stars-and-how-to-withdraw-and-convert-guide), [help.wallet.tg](https://help.wallet.tg/article/1004-ton-wallet-and-fragment) |
+| **Paddle** (продаёт от своего имени и сам платит налоги покупателей) | Сайт mycast.pro | Регистрация как individual (sole trader), проверка личности | В API Paddle есть тип продавца «individual»; проверку проходит сам человек. Украина в списке стран Paddle. Ориентирован на софт и подписки | Примут ли физлицо из Украины и как выводят деньги — спросить поддержку Paddle | [developer.paddle.com](https://developer.paddle.com/api-reference/accounts/validate-account), [paddle.com](https://www.paddle.com/help/start/account-verification/what-is-account-verification), [developer.paddle.com](https://developer.paddle.com/concepts/sell/supported-countries-locales) |
+| **Creem** (то же, что Paddle) | Сайт mycast.pro | Личный аккаунт, проверка личности, имя на счёте совпадает с проверенным | Команда Creem пишет, что поддерживает личные аккаунты для цифровых продуктов. Украина в списке стран; вывод — банк, Alipay или USDC | Для стран со звёздочкой бывают ограничения (например, только личный счёт) — уточнить в поддержке | [docs.creem.io](https://docs.creem.io/merchant-of-record/supported-countries), [appsumo](https://go.appsumo.com/products/creem/questions/does-the-user-have-to-have-business-docs-1331705), [docs.creem.io](https://docs.creem.io/faq/account-reviews) |
+| Gumroad | Сайт | Аккаунт PayPal | Где нет банковских выплат, Gumroad платит через PayPal | Работает ли сейчас для Украины — не подтверждено | [gumroad.com](https://gumroad.com/help/article/13-getting-paid) |
+| Patreon | Отдельный сайт Patreon | Payoneer | Для Украины вывод через PayPal недоступен | Payoneer для Украины в 2026 — не подтверждено; не встраивается в продукт | [support.patreon.com](https://support.patreon.com/hc/en-us/articles/115004029783-Adding-your-payout-details) |
+| Stripe, Lemon Squeezy | — | — | Stripe не открывает аккаунты бизнесам из Украины; украинский разработчик пишет, что Lemon Squeezy ему недоступен | — | [westernbid](https://westernbid.com/en/?p=23497), [groups.google.com](https://groups.google.com/a/chromium.org/g/chromium-extensions/c/8BMvaYoEUrk) |
+
+**Налоги физлица без ФОП** (это не юридическая консультация, уточнить у бухгалтера): иностранный доход резидента
+облагается налогом на доходы 18% и военным сбором 5% (с 2025 года), декларация за год — до 1 мая следующего года
+([ДПС](https://www.kmu.gov.ua/news/u-dps-rozpovily-iak-deklaruiutsia-ta-opodatkovuiutsia-inozemni-dokhody),
+[dtkt](https://news.dtkt.ua/taxation/pdfo/115400-inozemni-doxodi-u-2026-roci-dps-poiasnila-stavki-pdfo-ta-viiskovogo-zboru)).
+С регулярным доходом выгоднее и безопаснее ФОП: регулярная продажа без регистрации может считаться
+незарегистрированной предпринимательской деятельностью.
+
+**Рекомендация Claude:**
+1. Сейчас — Telegram Stars в боте MyCast. Не нужны ни ФОП, ни договор с провайдером, ни новые ключи: хватает
+   токена бота, который уже есть. Это самый быстрый способ проверить, готовы ли люди платить.
+2. Если появятся платящие и покупатели на сайте, в том числе иностранные, — подать заявку в Creem или Paddle как
+   физлицо, предварительно спросив поддержку, примут ли резидента Украины без компании.
+3. Когда доход станет регулярным — открыть ФОП (3-я группа) и подключить LiqPay или monobank на сайте.
+

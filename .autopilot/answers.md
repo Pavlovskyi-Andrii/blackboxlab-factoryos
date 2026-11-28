@@ -64,3 +64,20 @@ Still owner-only (unchanged safety invariants): secrets/tokens, any paid service
 - Direction 2 «Продукты и цели» is chosen for T-733.
 - The new home keeps a visible switch to the current full dashboard («Pro version» / «Pro-версія» / «Pro-версия») and a way back; nothing of the current UI is removed; the choice is remembered per browser.
 - Blackbox Lab content card: not answered; default applies (a separate product card while content jobs exist).
+
+## MyCast voices: ElevenLabs (owner 2026-11-27, interactive Claude session)
+- Owner asked: «подключи ElevenLabs, выбор бесплатных голосов в MyCast.pro». Shown the limits found that day (free plan about 10,000 credits a month, roughly 10 minutes of speech, no commercial licence; one 15-minute episode is more than the monthly allowance; Starter about $6 a month), the owner chose **«Не подключать»**.
+- MyCast keeps the Gemini voices only. Do not add an ElevenLabs integration, key or paid plan unless the owner asks again.
+- The limits came from one web search of third-party pricing guides, not from ElevenLabs' own terms; re-check them before any future proposal.
+
+## #452 owner gate (owner 2026-11-27, in the Claude session)
+- «да, начинай со счётчика, тест параллельно»: implementation starts with B-01, the first-party MyCast visit counter (T-743); the people test with the owner's 3–4 people runs in parallel.
+- Payment (T-709-H): the owner asked which provider can be connected and whether Stripe works. Answered in chat; decision still open.
+
+## T-709-H (owner 2026-11-27, in the Claude session)
+- «ФОП нету, и от этого отталкиваемся — ищем варианты, как можно проплатить». No FOP; the options without one are compared in `docs/business_experiments/LEAGUE_OWNER_DECISIONS.md` §3.1. Provider not chosen yet.
+
+## MyCast monetization (owner 2026-11-27, in the Claude session)
+- Telegram Stars, premium subscription; Claude proposes the price.
+- First a statistics page of all registered listeners (how much they listen, who drops off after ~3 days). Stars only if free listeners keep listening for long (T-746 built the page).
+- Ideas to evaluate, not decided: internal credits bought with Stars and spent on minutes, with unused credits refundable; or «connect your own GPT/key, listen free, pay once ~$10 for life».

@@ -11,4 +11,4 @@ SCHEMA_FILM_BIBLE = "film-bible/v1"
 SCHEMA_ASSET_MANIFEST = "film-studio/asset-manifest/v1"
 SCHEMA_RENDER_PLAN = "film-studio/render-plan/v1"
 SCHEMA_QA_RECEIPT = "film-studio/qa-receipt/v1"
-RENDERER_VERSION = "photo_cinema/1"
+RENDERER_VERSION = "photo_cinema/2"  # 2: title scrim over photos (T-744)

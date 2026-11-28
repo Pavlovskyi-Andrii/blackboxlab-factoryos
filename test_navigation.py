@@ -58,6 +58,7 @@ BEFORE = {
     "nav.olx": "openFactoryPage('olx')",
     "nav.decisionMemory": "openFactoryPage('decision-memory')",
     "nav.mybrief": "openFactoryPage('mybrief')",
+    "nav.mycastStats": "openFactoryPage('mycast-stats')",   # T-746: who listens, who drops off (owner 2026-11-27)
     "nav.ownerHub": "document.querySelector('.ohCard').scrollIntoView()",
     "nav.strategy": "document.querySelector('.stratCard').scrollIntoView()",   # owner 2026-11-14: brand strategy
     "nav.learn": "openLearning()",   # owner 2026-11-14: one Learning section (my learning, explainers, guide)
